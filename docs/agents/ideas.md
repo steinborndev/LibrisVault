@@ -145,3 +145,13 @@ See the design session notes; each item below gets a decision in the spec review
 
 SPEC.md v0.2 (2026-09-05) integrates every decision above. The review round is closed;
 new ideas go here first and reach the spec through a dated decision.
+
+## Fork and dev instance (2026-09-05)
+
+- This repo is the private fork: `upstream` is the public LibrisVault repo, `main` tracks
+  `upstream/main`, work happens on `research-agents`. The commit-msg hook is installed
+  (`scripts/install-git-hooks.sh`) because the history is merged into the public repo later.
+- `scripts/dev-instance.sh` starts the second instance: port 8421, vault `~/vault-curious`
+  (claude-obsidian v1.9.2 plus the synthetic demo set: 899 pages, 17 domains, 145 backdated
+  commits), database and inbox under `~/.local/share/curious/`, no Telegram token, the
+  shared credential file. `scripts/dev-instance.sh npm run start:prod` runs the built JS.
