@@ -1,607 +1,602 @@
-# Spezifikation: Automatisierter Second-Brain-Vault mit Ingestion-Dashboard
+# Specification: Automated Second-Brain Vault with Ingestion Dashboard
 
-**Version:** 0.1 (Entwurf) · **Datum:** 2026-07-17 · **Status:** implementierungsleitend
+**Version:** 0.1 (draft) · **Date:** 2026-07-17 · **Status:** guides the implementation
 
----
-
-## 1. Überblick und Ziele
-
-Das Projekt erweitert einen [claude-obsidian](https://github.com/AgriciDaniel/claude-obsidian)-Vault (v1.9.2, MIT) um eine vollautomatische Ingestion-Schicht und ein lokales Web-Dashboard. Der bestehende Workflow des Repos ist manuell: Der Nutzer öffnet Claude Code im Vault-Ordner und tippt `ingest datei.pdf`. Dieses Projekt ersetzt den manuellen Trigger durch zwei automatische Eingangskanäle — eine Drag-and-Drop-Fläche im Dashboard und einen überwachten Ordner im Dateisystem — und macht den Zustand des Vaults (Statistiken, Queue, Verlauf, Gesundheit) über ein Dashboard mit vier Tabs sichtbar und steuerbar. Fragen an den Vault ("what do you know about X?") werden ebenfalls über das Dashboard möglich.
-
-**Kernziele:**
-
-1. Material aus Drag-and-Drop und Watch-Ordner wird ohne weiteres Zutun analysiert, verlinkt und in den Vault eingepflegt (Entities, Konzepte, Quellen-Seiten, Index-, Log- und Hot-Cache-Updates gemäß claude-obsidian-Konventionen).
-2. Der Vault bleibt zu 100 % ein normaler claude-obsidian-Vault: Plain Markdown, in Obsidian nutzbar, mit Claude Code direkt weiter bedienbar. Das Dashboard ist eine Schicht *über* dem Vault, keine Ersatz-Datenhaltung.
-3. Der gesamte Stack läuft lokal (WSL2 auf Windows), keine Daten verlassen die Maschine außer den Aufrufen an die Anthropic-API während der Agent-Runs.
-
-**Nicht in v1, aber mittelfristig geplant und in der Architektur mitgedacht:** Multi-User-Betrieb, Zugriff über Geräte hinweg (Sync) und mobile Nutzung. v1 implementiert diese Features nicht, trifft aber alle Entscheidungen so, dass sie ohne Re-Architektur nachrüstbar sind — die konkreten Vorkehrungen und der Erweiterungspfad stehen in Abschnitt 12. Ebenfalls verschoben: Audio-/Video-Transkription (Preprocessing-Plugin-Schnittstelle wird in v1 vorbereitet).
+**Language note (2026-09-05):** English since this date, translated from the German original. Section numbers are unchanged, so every `SPEC.md §…` reference in code and docs still resolves. Examples that had named the private vault's actual subjects were generalized in the same pass; this repository is public and the vault is not (CLAUDE.md hard rule 7).
 
 ---
 
-## 2. Getroffene Rahmenentscheidungen
+## 1. Overview and goals
 
-| Frage | Entscheidung | Begründung |
+The project extends a [claude-obsidian](https://github.com/AgriciDaniel/claude-obsidian) vault (v1.9.2, MIT) with a fully automatic ingestion layer and a local web dashboard. The repo's own workflow is manual: the user opens Claude Code in the vault folder and types `ingest file.pdf`. This project replaces that manual trigger with two automatic intake channels, a drag-and-drop area in the dashboard and a watched folder in the file system, and makes the vault's state (statistics, queue, history, health) visible and controllable through a dashboard with four tabs. Questions to the vault ("what do you know about X?") become possible through the dashboard as well.
+
+**Core goals:**
+
+1. Material from drag-and-drop and the watch folder is analyzed, linked and filed into the vault without further action (entities, concepts, source pages, index, log and hot-cache updates according to the claude-obsidian conventions).
+2. The vault remains 100 % an ordinary claude-obsidian vault: plain Markdown, usable in Obsidian, directly operable with Claude Code. The dashboard is a layer *on top of* the vault, not a replacement data store.
+3. The whole stack runs locally (WSL2 on Windows); no data leaves the machine except the calls to the Anthropic API during agent runs.
+
+**Not in v1, but planned mid-term and accounted for in the architecture:** multi-user operation, access across devices (sync) and mobile use. v1 does not implement these features but makes every decision so that they can be added without re-architecture; the concrete provisions and the extension path are in section 12. Also deferred: audio/video transcription (the preprocessing plugin interface is prepared in v1).
+
+---
+
+## 2. Framing decisions
+
+| Question | Decision | Rationale |
 |---|---|---|
-| Dashboard-Form | Lokale Web-App (Browser + lokaler Server) | Flexibel, kein Obsidian-Plugin-Sandboxing, Server wird ohnehin für Watcher/Queue gebraucht |
-| Ingestion-Modus | Vollautomatisch, sofortiges Einpflegen | Kein Review-Schritt; Fehler landen sichtbar im Ingestion-Tab |
-| Analyse-Engine | Claude Agent SDK (headless) + claude-obsidian-Skills | Ingestion-Logik des Repos steckt in Skills/Skripten; das SDK kann sie programmatisch ausführen |
-| Betriebssystem | Windows 11, Ausführung in **WSL2** | claude-obsidian ist bash-lastig (Setup, `wiki-lock.sh`, Hooks); WSL2 nutzt es unverändert |
-| Organisationsmodus | **Generic** (Standard-Wiki-Struktur) | Heterogene Themen (Science, Finance, Crypto, Coding); Domain-Trennung via Sub-Indizes, später umstellbar |
-| Anthropic-Auth | **Claude-Abo** (OAuth-Token via `claude setup-token`), API-Key als gleichwertiger Konfigurationspfad | Abo vorhanden; Policy-Lage im Fluss (siehe 7.1), daher beide Pfade unterstützt |
-| Vault-Sprache | **Englisch** für alle Wiki-Inhalte (Seitennamen, Konzepte, Index, Zusammenfassungen) | Gemischte Quellsprachen (de/en); eine Zielsprache verhindert Duplikat-Konzepte im Graph. Originalzitate bleiben in Quellsprache |
-| Transkription | v1: nicht unterstützt | Audio/Video-Dateien werden erkannt, in `.raw/deferred/` geparkt und im Dashboard als "wartet auf Transkription" markiert |
+| Dashboard form | Local web app (browser + local server) | Flexible, no Obsidian plugin sandboxing, and a server is needed for watcher and queue anyway |
+| Ingestion mode | Fully automatic, immediate filing | No review step; errors land visibly in the Ingestion tab |
+| Analysis engine | Claude Agent SDK (headless) + claude-obsidian skills | The repo's ingestion logic lives in skills and scripts; the SDK can run them programmatically |
+| Operating system | Windows 11, execution in **WSL2** | claude-obsidian is bash-heavy (setup, `wiki-lock.sh`, hooks); WSL2 runs it unchanged |
+| Organization mode | **Generic** (standard wiki structure) | Heterogeneous subject matter across unrelated fields; domain separation via sub-indexes, switchable later |
+| Anthropic auth | **Claude subscription** (OAuth token via `claude setup-token`), API key as an equivalent configuration path | Subscription available; policy situation in flux (see 7.1), hence both paths supported |
+| Vault language | **English** for all wiki content (page names, concepts, index, summaries) | Mixed source languages (de/en); one target language prevents duplicate concepts in the graph. Verbatim quotes keep their source language |
+| Transcription | v1: not supported | Audio/video files are recognized, parked in `.raw/deferred/` and marked "waiting for transcription" in the dashboard |
 
 ---
 
-## 3. Systemarchitektur
+## 3. System architecture
 
-Alle Komponenten laufen innerhalb von WSL2 (empfohlen: Ubuntu 24.04). Der Browser unter Windows greift über `localhost` zu (WSL2 leitet localhost automatisch weiter).
+All components run inside WSL2 (recommended: Ubuntu 24.04). The browser on Windows connects via `localhost` (WSL2 forwards localhost automatically).
 
 ```
 Windows 11
-├── Browser  ──────────────────────────► http://localhost:8420  (Dashboard)
-├── Watch-Ordner (z. B. C:\inbox)  ───► in WSL sichtbar als /mnt/c/inbox
+├── Browser  ──────────────────────────► http://localhost:8420  (dashboard)
+├── Watch folder (e.g. C:\inbox)  ────► visible in WSL as /mnt/c/inbox
 └── WSL2 (Ubuntu)
-    ├── Vault-Ordner  ~/vault/            (claude-obsidian, git-initialisiert)
+    ├── Vault folder  ~/vault/           (claude-obsidian, git-initialized)
     │   ├── wiki/  (index.md, hot.md, log.md, concepts/, entities/, sources/, meta/)
-    │   ├── .raw/  (Quelldokumente, von der Pipeline befüllt)
+    │   ├── .raw/  (source documents, filled by the pipeline)
     │   └── .obsidian/, skills/, scripts/, agents/ …
-    ├── Backend-Service  (Node.js, TypeScript)
-    │   ├── HTTP-API + statisches Frontend (Port 8420, Bind 127.0.0.1)
-    │   ├── SSE-Kanal für Live-Updates (Queue-Status, Log-Tail)
-    │   ├── Watcher (chokidar auf Watch-Ordner)
-    │   ├── Ingestion-Queue (SQLite, better-sqlite3)
-    │   ├── Preprocessing-Worker (Format-Normalisierung)
-    │   └── Agent-Runner (@anthropic-ai/claude-agent-sdk)
-    └── Obsidian für Windows öffnet den Vault via \\wsl$\Ubuntu\home\<user>\vault
+    ├── Backend service  (Node.js, TypeScript)
+    │   ├── HTTP API + static frontend (port 8420, bind 127.0.0.1)
+    │   ├── SSE channel for live updates (queue status, log tail)
+    │   ├── Watcher (chokidar on the watch folder)
+    │   ├── Ingestion queue (SQLite, better-sqlite3)
+    │   ├── Preprocessing worker (format normalization)
+    │   └── Agent runner (@anthropic-ai/claude-agent-sdk)
+    └── Obsidian for Windows opens the vault via \\wsl$\Ubuntu\home\<user>\vault
 ```
 
-**Hinweis Obsidian + WSL (korrigiert nach M0-Befund):** Der Vault liegt im WSL-Dateisystem (Performance, Locking-Semantik). **Obsidian unter Windows kann einen WSL-Vault über `\\wsl$` nicht öffnen** — es scheitert beim Start mit `EISDIR … watch` (der Datei-Watcher kann Verzeichnisse über die 9p-Freigabe nicht überwachen; von Obsidian als won't-fix eingestuft). Nicht bloß „träge", sondern funktionsunfähig. **Gewählte Lösung: Obsidian läuft als Linux-App *innerhalb* von WSL via WSLg** und öffnet `~/vault` als lokalen Pfad; der Vault bleibt auf ext4, der Service behält volle Geschwindigkeit. (Verworfene Alternative: Vault auf `/mnt/c/vault` mit dem nativen Windows-Obsidian — würde jedem Agent-Run und git-Commit den 20–65×-drvfs-Aufschlag aufbürden. Die frühere Sorge um `wiki-lock.sh` auf drvfs ist unbegründet: alle Locking-Tests bestehen dort.) Einschränkung von WSLg: der Graph-View ruckelt (Software-Rendering, kein `/dev/dri`); Tippen und Note-Öffnen bleiben flüssig. Details in Abschnitt 11.
+**Note on Obsidian + WSL (corrected after the M0 finding):** The vault lives in the WSL file system (performance, locking semantics). **Obsidian on Windows cannot open a WSL vault via `\\wsl$`**: it fails at startup with `EISDIR … watch` (the file watcher cannot watch directories over the 9p share; classified as won't-fix by Obsidian). Not merely "sluggish", but non-functional. **Chosen solution: Obsidian runs as a Linux app *inside* WSL via WSLg** and opens `~/vault` as a local path; the vault stays on ext4, the service keeps full speed. (Rejected alternative: vault on `/mnt/c/vault` with the native Windows Obsidian, which would burden every agent run and git commit with the 20-65x drvfs penalty. The earlier worry about `wiki-lock.sh` on drvfs is unfounded: all locking tests pass there.) WSLg limitation: the graph view stutters (software rendering, no `/dev/dri`); typing and opening notes stay fluid. Details in section 11.
 
-### 3.1 Komponenten
+### 3.1 Components
 
-**Backend-Service (ein Prozess):** Fastify- oder Express-Server in TypeScript. Liefert das Frontend aus, stellt die REST-API und einen SSE-Endpunkt bereit, hostet Watcher, Queue-Worker und Agent-Runner. Start als systemd-user-Service in WSL (`systemctl --user enable vault-service`), damit der Dienst mit WSL hochkommt.
+**Backend service (one process):** Fastify or Express server in TypeScript. Serves the frontend, provides the REST API and an SSE endpoint, hosts watcher, queue worker and agent runner. Started as a systemd user service in WSL (`systemctl --user enable vault-service`) so the service comes up with WSL.
 
-**Watcher:** `chokidar` beobachtet den konfigurierten Watch-Ordner rekursiv. Neue/geänderte Dateien werden erst nach Stabilitäts-Check übernommen (`awaitWriteFinish`, 2 s unveränderte Größe), um halbkopierte Dateien zu vermeiden. Nach Übernahme wird die Datei in `.raw/` des Vaults **verschoben** (Watch-Ordner = Inbox, wird geleert; verhindert Doppelverarbeitung nach Neustart).
+**Watcher:** `chokidar` observes the configured watch folder recursively. New or changed files are picked up only after a stability check (`awaitWriteFinish`, 2 s of unchanged size) to avoid half-copied files. After pickup the file is **moved** into the vault's `.raw/` (watch folder = inbox, gets emptied; prevents double processing after a restart).
 
-**Ingestion-Queue:** SQLite-Tabelle `jobs` als Single Source of Truth für alle Verarbeitungsvorgänge. Jobs durchlaufen die Zustände `queued → preprocessing → ingesting → done | failed | deferred`. Ein Worker-Pool arbeitet die Queue ab; **Standard-Parallelität für Agent-Runs: 2** (konfigurierbar). Das per-File-Locking von claude-obsidian (`scripts/wiki-lock.sh`) schützt zusätzlich auf Vault-Ebene, falls parallel Claude Code manuell im Vault arbeitet.
+**Ingestion queue:** SQLite table `jobs` as the single source of truth for all processing. Jobs move through the states `queued → preprocessing → ingesting → done | failed | deferred`. A worker pool drains the queue; **default concurrency for agent runs: 2** (configurable). claude-obsidian's per-file locking (`scripts/wiki-lock.sh`) additionally protects at vault level in case Claude Code is used manually in the vault at the same time.
 
-**Preprocessing-Worker:** Normalisiert eingehendes Material in ein für die Ingestion geeignetes Format (Details Abschnitt 5), legt Original + Normalisat in `.raw/<job-id>/` ab und schreibt eine `manifest.json` (Quelle, Typ, Hashes, Zeitstempel).
+**Preprocessing worker:** Normalizes incoming material into a format suitable for ingestion (details in section 5), stores original + normalized form under `.raw/<job-id>/` and writes a `manifest.json` (source, type, hashes, timestamps).
 
-**Agent-Runner:** Führt pro Job einen headless Run über das Claude Agent SDK aus (`@anthropic-ai/claude-agent-sdk`, TypeScript). Konfiguration:
+**Agent runner:** Runs one headless run per job through the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`, TypeScript). Configuration:
 
-- `cwd` = Vault-Root. Zwei Ladewege, die **nicht** dasselbe tun (korrigiert nach M0-Befund): `settingSources: ['project']` lädt die `CLAUDE.md` des Vaults, **nicht** aber seine Skills — der claude-obsidian-Vault ist ein Claude-Code-*Plugin* (`.claude-plugin/plugin.json`), und sein `skills/`-Ordner wird vom CLI nicht von sich aus gescannt. Zum Aktivieren der Skills (`wiki-ingest` etc.) daher zusätzlich `plugins: [{ type: 'local', path: <Vault-Root> }]` und `skills: 'all'` setzen. Ohne diesen Plugin-Ladeweg fällt der Agent auf manuelles Lesen von `SKILL.md` zurück und improvisiert (in M0 gemessen: mit Plugin-Ladeweg 143→55 Turns, 12,7→5,4 Mio. Input-Tokens, 13→15 Seiten).
-- Prompt pro Job: `ingest .raw/<job-id>/<datei>` (bzw. Batch: `ingest all of these` mit Dateiliste), ergänzt um eine feste System-Prompt-Erweiterung, die Vollautomatik erzwingt: keine Rückfragen stellen, bei Ambiguität dokumentierte Default-Entscheidung treffen und im Log vermerken. Zusätzliche Sprachregel: Alle Wiki-Inhalte (Seitennamen, Konzeptbezeichnungen, Zusammenfassungen, Index-Einträge) werden auf Englisch verfasst, unabhängig von der Quellsprache; wörtliche Zitate bleiben in Originalsprache mit Sprachvermerk. Vor dem Anlegen neuer Konzept-Seiten wird gegen bestehende englische Bezeichnungen geprüft (verhindert de/en-Duplikate wie "Zinseszins" neben "Compound Interest").
-- `permissionMode`: automatisches Akzeptieren von Edits innerhalb des Vault-Pfads; Bash-Whitelist auf die claude-obsidian-Skripte (`scripts/*.sh`) beschränkt. Kein Netzwerkzugriff im Ingest-Run (Web-Egress nur im Autoresearch-Flow, dort explizit erlaubt).
-- Streaming-Messages des SDK werden als Job-Log in SQLite persistiert und via SSE live ans Dashboard gereicht.
-- Timeout pro Job (Default 30 min; ein Batch ist EIN kombinierter Agent-Run, das Budget muss den ganzen Batch tragen — 15 min rissen bei Mehr-PDF-Batches, korrigiert 2026-07-24), max. 2 automatische Retries bei transienten Fehlern (API-Fehler, Timeout); danach `failed` mit Fehlerdetails.
-- Nach jedem erfolgreichen Job: Git-Auto-Commit (falls Obsidian-Git nicht ohnehin committet — nur einer von beiden, konfigurierbar, Default: Service committet mit Message `ingest: <quelle>`). Ein separater Hot-Cache-Refresh-Pass entfällt (korrigiert nach M0-Befund): der ingest-Skill pflegt `wiki/hot.md` selbst; ein manueller Refresh bleibt über den Wartungs-Tab verfügbar (§6.4).
+- `cwd` = vault root. Two loading paths that do **not** do the same thing (corrected after the M0 finding): `settingSources: ['project']` loads the vault's `CLAUDE.md` but **not** its skills; the claude-obsidian vault is a Claude Code *plugin* (`.claude-plugin/plugin.json`), and the CLI does not scan its `skills/` folder on its own. To activate the skills (`wiki-ingest` etc.) additionally set `plugins: [{ type: 'local', path: <vault root> }]` and `skills: 'all'`. Without this plugin loading path the agent falls back to reading `SKILL.md` manually and improvises (measured in M0: with the plugin path 143 to 55 turns, 12.7 to 5.4 million input tokens, 13 to 15 pages).
+- Prompt per job: `ingest .raw/<job-id>/<file>` (or, for a batch, `ingest all of these` with the file list), extended by a fixed system-prompt extension that enforces full automation: ask no questions, take the documented default decision on ambiguity and note it in the log. Additional language rule: all wiki content (page names, concept names, summaries, index entries) is written in English regardless of the source language; verbatim quotes keep their original language with a language note. Before creating new concept pages, existing English names are checked (prevents de/en duplicates such as a German concept name filed next to its English equivalent).
+- `permissionMode`: automatic acceptance of edits inside the vault path; bash allowlist restricted to the claude-obsidian scripts (`scripts/*.sh`). No network access in the ingest run (web egress only in the autoresearch flow, explicitly allowed there).
+- The SDK's streaming messages are persisted as the job log in SQLite and handed to the dashboard live via SSE.
+- Timeout per job (default 30 min; a batch is ONE combined agent run and the budget has to carry the whole batch: 15 min was not enough for multi-PDF batches, corrected 2026-07-24), at most 2 automatic retries on transient errors (API errors, timeout); then `failed` with error details.
+- After every successful job: git auto-commit (unless Obsidian Git commits anyway; only one of the two, configurable, default: the service commits with the message `ingest: <source>`). A separate hot-cache refresh pass is dropped (corrected after the M0 finding): the ingest skill maintains `wiki/hot.md` itself; a manual refresh stays available in the Maintenance tab (§6.4).
 
-**Query-Runner:** Analog zum Agent-Runner, aber read-only (`permissionMode` restriktiv, nur Lese-Tools + `wiki-retrieve`), gespeist aus dem Query/Chat-Tab. Sessions werden über die SDK-Session-Verwaltung gehalten, sodass Folgefragen Kontext behalten.
+**Query runner:** Like the agent runner but read-only (`permissionMode` restrictive, read tools + `wiki-retrieve` only), fed from the Query/Chat tab. Sessions are held through the SDK's session management so follow-up questions keep their context.
 
-### 3.2 Datenfluss Ingestion (happy path)
+### 3.2 Ingestion data flow (happy path)
 
-1. Datei landet per Drop (HTTP-Upload) oder im Watch-Ordner.
-2. Service berechnet SHA-256; existiert der Hash bereits in `jobs` **oder in einem `.raw/<job-id>/manifest.json` des Vaults**, wird der Job als Duplikat markiert und übersprungen (im Verlauf sichtbar, mit Verweis auf den Ursprungs-Job). Nach dem Preprocessing folgt eine zweite, inhaltliche Stufe über die DOI (12.9, ergänzt 2026-09-05).
-3. Job `queued` → Preprocessing (Normalisierung, `.raw/<job-id>/`) → `ingesting` (Agent-Run) → `done`.
-4. Agent erzeugt/aktualisiert Wiki-Seiten, Index, Log, Hot Cache; Service committet; Dashboard aktualisiert Statistiken via SSE.
-
----
-
-## 4. Eingangskanäle
-
-### 4.1 Drag-and-Drop (Dashboard, Ingestion-Tab)
-
-- Dropzone akzeptiert Dateien (Mehrfach-Drop) **und** Text/URLs (Drop oder Einfügen einer URL startet einen URL-Job).
-- Upload via `multipart/form-data` an `POST /api/jobs`; Limit 200 MB pro Datei (konfigurierbar).
-- Mehrere gleichzeitig gedroppte Dateien werden als **Batch** gruppiert: erst alle einzeln vorverarbeitet, dann ein gemeinsamer `ingest all of these`-Run, damit der Agent quer-referenzieren kann (Verhalten des Repos für Batch-Ingestion).
-- Seit dem Redesign gibt es zwei Drop-Flächen (die Dropzone der Steuerspalte und das ganze Fenster). Ein Drop auf die Dropzone wird **nur** von ihr verarbeitet; der fensterweite Handler überlässt ihn ihr (`data-drop-target`). Bis 2026-09-05 nahmen beide denselben Drop an, und jede Datei kam doppelt beim Server an, die zweite als "Duplikat" der ersten.
-
-### 4.2 Watch-Ordner
-
-- Konfigurierbarer Pfad (Default `/mnt/c/inbox` — **`/mnt/d` existiert auf der Zielmaschine nicht**, verfügbar sind C/M/T; korrigiert nach M0-Befund. Im Dashboard änderbar; mehrere Ordner in v1.1 denkbar).
-- Verhalten wie 4.1, zusätzlich: Dateien, die innerhalb von 60 s gemeinsam eintreffen, werden zu einem Batch gebündelt (typischer Fall: Nutzer kopiert einen Schwung Dateien).
-- Sonderfall `.md`-Dateien aus dem Obsidian Web Clipper: werden als Web-Quelle behandelt (Frontmatter-URL wird ausgewertet).
-- Nicht unterstützte Typen (v1: Audio/Video, Archive): Verschieben nach `.raw/deferred/`, Job-Status `deferred`, sichtbare Markierung im Dashboard. Archive (`.zip`) werden **nicht** automatisch entpackt (Sicherheitsentscheidung v1). **Getarnte ausführbare Dateien** (Magic-Byte-Befund widerspricht der Endung) sind dagegen ein Sicherheitsbefund, kein „wartet auf Feature": Job-Status `failed` mit klarer Fehlermeldung, kein Verschieben nach deferred (Entscheidung 2026-07-18, ersetzt die frühere Einordnung unter deferred).
-
-### 4.3 Telegram-Bot (ergänzt 2026-07-20)
-
-Dritter Eingangskanal plus Statuskanal, primär fürs Handy („PDF vom Telefon queuen"). Bewusste Ergänzung zum §12.5-Pfad (Tailnet + PWA-Share-Target): Der Bot deckt *nur* Status + Ingest ab, dafür ohne jede Netz-Infrastruktur und plattformunabhängig (auch iOS, wo das Web-Share-Target nicht existiert); das PWA-Share-Target bleibt der privatere Vollzugriffspfad.
-
-- **Opt-in per Konfiguration:** `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USER_IDS` (kommagetrennte numerische Telegram-User-IDs) in der Service-Env-Datei. Ohne Token: Bot aus, Verhalten wie bisher. Token **ohne** Allowlist ⇒ Startabbruch mit klarer Fehlermeldung (fail-closed, analog Doppel-Credential-Guard §7.1) — ein Bot, der jedem antwortet, darf nie aus einem Vergessen entstehen.
-- **Transport: Long Polling** (`getUpdates`, ausgehende HTTPS-Verbindung zu `api.telegram.org`), **kein Webhook**. Es wird kein Port geöffnet, kein Bind geändert; der Localhost-Guard (§9) bleibt unberührt. Der Client ist ein minimaler eigener Bot-API-Client (`getUpdates`, `sendMessage`, `getFile` + Download), kein Framework. `getUpdates` erlaubt genau einen Consumer pro Token; antwortet die API `409 Conflict` (zweite Instanz, z. B. Dev neben systemd), beendet der Bot das Polling mit klarer Log-Meldung, statt zu konkurrieren — der Service selbst läuft weiter.
-- **Interaktion:** `/status` (Setup-Modus, Queue-/Job-Zähler, Budget — die Daten von Health/Stats), `/jobs` (letzte Jobs mit Status). Gesendete Dokumente/Fotos werden per `getFile` heruntergeladen, wie ein Dashboard-Upload gestaged und mit `source: 'telegram'` in die reguläre Queue eingereiht; gesendete URLs/Texte werden URL-/Text-Jobs. Alben (Telegram `media_group_id`) werden zu **einem Batch** gebündelt (Analogie zum Mehrfach-Drop §4.1). Der Bot bestätigt die Einreihung sofort mit der Job-ID.
-- **Limit:** Die Bot-API erlaubt Bots Downloads nur bis **20 MB** (User dürfen bis 2 GB senden; `getFile` verweigert dann). Größere Dateien ⇒ sofortige Antwort mit Hinweis auf Dropzone/Watch-Ordner, kein Job.
-- **Abschluss-Meldung:** Erreicht ein Telegram-Job `done`/`failed`/`deferred`/`duplicate`, meldet der Bot das in den Ursprungs-Chat — bei `done` mit den Titeln der erzeugten Seiten, **ohne Inhaltsauszüge** (§9). Die Chat-Zuordnung wird als `notify_channel` am Job persistiert (§8), damit sie einen Service-Neustart überlebt.
-- **Setup-Modus (§7.1):** Der Bot startet auch ohne Anthropic-Credential, meldet auf `/status` den Setup-Modus und lehnt Ingest-Versuche mit Hinweis ab — spiegelbildlich zum `503` der Upload-Route.
-- Nachrichten von Absendern außerhalb der Allowlist werden **ohne Antwort verworfen**; der erste Versuch je Absender-ID wird im Service-Log vermerkt (ergänzt 2026-07-20, Details §9).
-- **Konfiguration über das Dashboard (ergänzt 2026-07-20, User-Entscheidung):** Token und Allowlist sind unter Wartung → Einstellungen eintragbar. `POST /api/v1/settings/telegram` schreibt **beide Variablen gemeinsam** in die Service-Env-Datei (der Fail-closed-Guard oben darf durch diesen Weg nicht erzeugbar sein), `DELETE` entfernt beide (Bot aus). Es gelten dieselben Regeln wie für den Credential-Endpunkt aus §7.1: Werte werden nie zurückgegeben oder geloggt (die Einstellungsansicht zeigt nur den Status „on/off + Allowlist-Größe"), Aktivierung per Neustart (unter systemd Selbst-Neustart), `409` bei Werten aus der Prozess-Umgebung (die Datei würde überlagert) oder bei laufenden Agent-Runs (der Neustart würde sie abbrechen).
+1. A file arrives via drop (HTTP upload) or in the watch folder.
+2. The service computes its SHA-256; if the hash already exists in `jobs` **or in a `.raw/<job-id>/manifest.json` of the vault**, the job is marked as a duplicate and skipped (visible in the history, with a reference to the original job). After preprocessing a second, content-level stage follows via the DOI (12.9, added 2026-09-05).
+3. Job `queued` → preprocessing (normalization, `.raw/<job-id>/`) → `ingesting` (agent run) → `done`.
+4. The agent creates/updates wiki pages, index, log, hot cache; the service commits; the dashboard refreshes statistics via SSE.
 
 ---
 
-## 5. Materialtypen und Preprocessing
+## 4. Intake channels
 
-| Typ | Erkennung | Normalisierung | Werkzeug |
+### 4.1 Drag-and-drop (dashboard, Ingestion tab)
+
+- The dropzone accepts files (multi-drop) **and** text/URLs (dropping or pasting a URL starts a URL job).
+- Upload via `multipart/form-data` to `POST /api/jobs`; limit 200 MB per file (configurable).
+- Several files dropped at once are grouped as a **batch**: first each is preprocessed individually, then one combined `ingest all of these` run so the agent can cross-reference (the repo's behaviour for batch ingestion).
+- Since the redesign there are two drop surfaces (the dropzone in the control column and the whole window). A drop on the dropzone is handled by the dropzone **only**; the window-level handler leaves it alone (`data-drop-target`). Until 2026-09-05 both accepted the same drop, and every file reached the server twice, the second one as a "duplicate" of the first.
+
+### 4.2 Watch folder
+
+- Configurable path (default `/mnt/c/inbox`; corrected after the M0 finding: the default has to name a drive that actually exists on the target machine, which the earlier default did not. Changeable in the dashboard; several folders conceivable in v1.1).
+- Behaviour as in 4.1, plus: files that arrive together within 60 s are bundled into one batch (typical case: the user copies a bunch of files).
+- Special case: `.md` files from the Obsidian Web Clipper are treated as web sources (the frontmatter URL is evaluated).
+- Unsupported types (v1: audio/video, archives): moved to `.raw/deferred/`, job status `deferred`, visible marker in the dashboard. Archives (`.zip`) are **not** unpacked automatically (v1 security decision). **Disguised executables** (magic-byte finding contradicts the extension) are a security finding, not "waiting for a feature": job status `failed` with a clear error message, no move to deferred (decision 2026-07-18, replaces the earlier classification under deferred).
+
+### 4.3 Telegram bot (added 2026-07-20)
+
+Third intake channel plus status channel, primarily for the phone ("queue a PDF from the phone"). A deliberate complement to the §12.5 path (tailnet + PWA share target): the bot covers *only* status + ingest, but without any network infrastructure and platform-independently (including iOS, where the web share target does not exist); the PWA share target remains the more private full-access path.
+
+- **Opt-in via configuration:** `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USER_IDS` (comma-separated numeric Telegram user ids) in the service env file. Without a token: bot off, behaviour as before. A token **without** an allowlist means the service refuses to start with a clear error (fail-closed, like the double-credential guard in §7.1): a bot that answers everyone must never come into existence by forgetting something.
+- **Transport: long polling** (`getUpdates`, outgoing HTTPS connection to `api.telegram.org`), **no webhook**. No port is opened, no bind changed; the localhost guard (§9) is untouched. The client is a minimal bot-API client of our own (`getUpdates`, `sendMessage`, `getFile` + download), no framework. `getUpdates` allows exactly one consumer per token; if the API answers `409 Conflict` (a second instance, e.g. dev next to systemd), the bot stops polling with a clear log line instead of competing; the service itself keeps running.
+- **Interaction:** `/status` (setup mode, queue/job counters, budget: the data of health/stats), `/jobs` (latest jobs with status). Sent documents/photos are downloaded via `getFile`, staged like a dashboard upload and enqueued in the regular queue with `source: 'telegram'`; sent URLs/texts become URL/text jobs. Albums (Telegram `media_group_id`) are bundled into **one batch** (the analogue of the multi-drop in §4.1). The bot confirms the enqueue immediately with the job id.
+- **Limit:** The bot API only lets bots download up to **20 MB** (users may send up to 2 GB; `getFile` then refuses). Larger files get an immediate answer pointing to dropzone/watch folder, no job.
+- **Completion message:** When a Telegram job reaches `done`/`failed`/`deferred`/`duplicate`, the bot reports it to the originating chat; for `done` with the titles of the created pages, **without content excerpts** (§9). The chat assignment is persisted on the job as `notify_channel` (§8) so it survives a service restart.
+- **Setup mode (§7.1):** The bot also starts without an Anthropic credential, reports setup mode on `/status` and declines ingest attempts with a hint, mirroring the upload route's `503`.
+- Messages from senders outside the allowlist are **dropped without a reply**; the first attempt per sender id is noted in the service log (added 2026-07-20, details in §9).
+- **Configuration through the dashboard (added 2026-07-20, user decision):** Token and allowlist can be entered under Maintenance → Settings. `POST /api/v1/settings/telegram` writes **both variables together** into the service env file (the fail-closed guard above must not be producible through this path), `DELETE` removes both (bot off). The same rules apply as for the credential endpoint in §7.1: values are never returned or logged (the settings view shows only the status "on/off + allowlist size"), activation by restart (self-restart under systemd), `409` for values coming from the process environment (the file would be shadowed) or while agent runs are active (the restart would abort them).
+
+---
+
+## 5. Material types and preprocessing
+
+| Type | Detection | Normalization | Tool |
 |---|---|---|---|
-| PDF | Extension + Magic Bytes | Text-Extraktion; bei Text-Ausbeute < 100 Zeichen/Seite: Seiten rastern + OCR | `pdftotext` (poppler), Fallback `ocrmypdf`/tesseract (deu+eng) |
-| Office (docx, pptx, xlsx) | Extension | Konvertierung nach Markdown/Plaintext | `pandoc` (docx), `python-pptx`/`openpyxl`-basierte Extraktoren aus WSL |
-| Webseite/URL | URL-Job | Abruf + Boilerplate-Entfernung nach den Egress-Hygiene-Regeln des Repos (kein `file://`, kein RFC1918, DNS-Pinning gegen Rebinding, Größenlimit); danach **Sanity-Gate**: Mindestlänge + Muster-Erkennung für Login-Walls/JS-Hüllen/Anti-Bot-Seiten — schlägt das Gate an, endet der Job `failed` mit Begründung, bevor ein Agent-Run läuft (kein Müll im Vault) | `defuddle-cli` (vom Repo als Extraktor vorgesehen), Fallback: eingebauter HTML-zu-Text-Extraktor (readability als mögliche spätere Aufwertung) |
-| X/Twitter-Post | URL-Job (Domain-Handler) | Öffentliche Posts via FxTwitter-JSON-API (`api.fxtwitter.com`, ohne Login) statt HTML-Abruf — X liefert per HTML nur eine Login-Hülle. Private/gelöschte Posts → `failed` mit klarer Meldung | eingebauter Handler (`url-handlers.ts`), Fetch über die SSRF-geschützte Pipeline |
-| YouTube-Video | URL-Job (Domain-Handler) | Metadaten + Untertitel/Auto-Captions (de, en) statt der inhaltsleeren Watch-Seite; ohne Untertitel: Metadaten + Beschreibung mit Hinweis | `yt-dlp` (optionales Tool; fehlt es, endet der Job `failed` mit Installationshinweis) |
-| Bild (png, jpg, webp) | Extension + Magic Bytes | Kein lokales OCR nötig: Bild wird dem Agent-Run direkt als Anhang mitgegeben (Claude liest Bildinhalt/Screenshot-Text selbst); zusätzlich EXIF-Metadaten in `manifest.json` | Agent SDK (Bild-Input), `exiftool` |
-| Markdown/Text/Code | Extension | Durchreichen | — |
-| Audio/Video | Extension | v1: `deferred` (siehe 4.2) | später: faster-whisper oder Cloud-API, Schnittstelle: Preprocessing-Plugin |
+| PDF | Extension + magic bytes | Text extraction; below 100 characters of text per page: rasterize pages + OCR | `pdftotext` (poppler), fallback `ocrmypdf`/tesseract (deu+eng) |
+| Office (docx, pptx, xlsx) | Extension | Conversion to Markdown/plain text | `pandoc` (docx), `python-pptx`/`openpyxl`-based extractors from WSL |
+| Web page/URL | URL job | Fetch + boilerplate removal following the repo's egress hygiene rules (no `file://`, no RFC1918, DNS pinning against rebinding, size limit); then a **sanity gate**: minimum length + pattern detection for login walls, JS shells and anti-bot pages. If the gate trips, the job ends `failed` with a reason before any agent run (no junk in the vault) | `defuddle-cli` (the extractor the repo intends), fallback: built-in HTML-to-text extractor (readability as a possible later upgrade) |
+| X/Twitter post | URL job (domain handler) | Public posts via the FxTwitter JSON API (`api.fxtwitter.com`, no login) instead of an HTML fetch; X serves only a login shell as HTML. Private/deleted posts end `failed` with a clear message | built-in handler (`url-handlers.ts`), fetch through the SSRF-protected pipeline |
+| YouTube video | URL job (domain handler) | Metadata + subtitles/auto captions (de, en) instead of the content-free watch page; without subtitles: metadata + description with a note | `yt-dlp` (optional tool; if missing, the job ends `failed` with an installation hint) |
+| Image (png, jpg, webp) | Extension + magic bytes | No local OCR needed: the image is handed to the agent run directly as an attachment (Claude reads image content and screenshot text itself); EXIF metadata additionally in `manifest.json` | Agent SDK (image input), `exiftool` |
+| Markdown/text/code | Extension | Pass through | none |
+| Audio/video | Extension | v1: `deferred` (see 4.2) | later: faster-whisper or a cloud API, interface: preprocessing plugin |
 
-Das Preprocessing ist als Plugin-Kette implementiert (`detect → normalize → manifest`), damit die Transkription später als weiteres Plugin einrastet, ohne Pipeline-Umbau. URL-Jobs haben analog eine **Domain-Handler-Registry** (`url-handlers.ts`): Domains, deren HTML nicht ingestierbar ist (X/Twitter, YouTube), bekommen je einen Handler, der den Inhalt über einen besseren Kanal beschafft — neue Domains werden als Handler ergänzt, nie als Sonderfall in `preprocessUrl`. Handler-HTTP läuft über denselben SSRF-geschützten Fetch; `yt-dlp` ist die bewusste Ausnahme (externes Tool mit eigenem Egress, nur für YouTube-Hosts).
+Preprocessing is implemented as a plugin chain (`detect → normalize → manifest`) so that transcription can later click in as another plugin without rebuilding the pipeline. URL jobs analogously have a **domain-handler registry** (`url-handlers.ts`): domains whose HTML cannot be ingested (X/Twitter, YouTube) each get a handler that obtains the content through a better channel; new domains are added as handlers, never as special cases in `preprocessUrl`. Handler HTTP goes through the same SSRF-protected fetch; `yt-dlp` is the deliberate exception (an external tool with its own egress, only for YouTube hosts).
 
 ---
 
 ## 6. Dashboard
 
-Single-Page-App (React + Vite + TypeScript), ausgeliefert vom Backend-Service, gebunden an `127.0.0.1:8420`. Vier Tabs:
+Single-page app (React + Vite + TypeScript), served by the backend service, bound to `127.0.0.1:8420`. Four tabs:
 
-**Korrektur 2026-08-27 (Ist-Stand nachgezogen): die Shell hat fünf Screens, keine vier Tabs.** Die Struktur wurde in drei Durchgängen umgebaut (2026-08-23 Sidebar-Shell; 2026-08-25 zweiter Durchgang: Navigation als Browser-Tabs in der Kopfzeile, Inbox in Home aufgegangen, Health und Einstellungen zu System verschmolzen; 2026-08-26 dritter Durchgang: Home in zwei Zonen geteilt, Research auf zwei Ledger umgestellt). Der Redesign-Zweig ist am 2026-08-27 in `main` gemergt; die Tabelle unten beschreibt den Stand, der ausgeliefert wird. Die Unterabschnitte 6.1 bis 6.5 bleiben unverändert stehen - sie sind der Stand, gegen den gebaut wurde, und Code-Kommentare verweisen auf ihre Nummern; jeder trägt am Ende eine Zeile, wo sein Inhalt heute liegt.
+**Correction 2026-08-27 (as-built state recorded): the shell has five screens, not four tabs.** The structure was rebuilt in three passes (2026-08-23 sidebar shell; 2026-08-25 second pass: navigation as browser-style tabs in the header row, Inbox merged into Home, Health and Settings merged into System; 2026-08-26 third pass: Home split into two zones, Research switched to two ledgers). The redesign branch was merged into `main` on 2026-08-27; the table below describes the state that ships. Subsections 6.1 to 6.5 stay as they are: they are the state that was built against, code comments reference their numbers, and each ends with a line saying where its content lives today.
 
-| Screen | Route | Inhalt | Kommt aus |
+| Screen | Route | Content | Comes from |
 |---|---|---|---|
-| **Home** | `/` | Zwei Zonen. Oben der **Bestand**: die Seitenzahl als Leitzahl, die zählbaren Fakten daneben (Links, Median-Grad, Domains, ungefilte Seiten, verlinkte aber nie geschriebene Seiten), der Wikilink-Graph als Bild und das Domain-Panel mit seinen drei Sichten (Domains, This week, Gaps). Unten der **Fluss**: die Betriebs-Kennzahlen (in Arbeit, Fehler 7 d, Ingests 7 d, Ausgaben heute, fällige Checks) als Streifen auf **einem** Aktivitätsstrom über Jobs, Agent-Runs und Vault-Commits der letzten 30 Tage. Links die Steuerspalte: Intake (Dropzone + URL/Notiz), darunter die Filter nach Art, Zeitraum, Zustand und Kanal. Eine Zeile öffnet den vollen Datensatz (Log, Commit, erzeugte Seiten, Retry, Revert). | 6.1 + 6.2 |
-| **Research** | `/research` | Oben der Composer mit zwei Modi: *Web Research* (Web-Egress, schreibt Seiten, ein Commit) und *Vault Research* (lesend, Antworten mit Seiten-Zitaten), dazu die Planzeile (Linse, Zielseite, Fetch-Budget, Commits) und die Phasen-Leiste des laufenden Runs. Darunter **zwei Ledger derselben Form** - Web-Runs und Vault-Konversationen -, die sich die Höhe teilen und je für sich scrollen; ein Objekt steht genau einmal, und Öffnen ersetzt beide Ledger durch die Detailansicht mit Rückweg. Links die Steuerspalte: Linsen-Profile als stehendes Bedienelement, ein Filter über das Web-Ledger, die Laufsummen und der Queue-Fuß. Zuunterst der Rückstand „Worth a run" aus den offenen Graph-Lücken. | 6.3 + Autoresearch aus 6.4 |
-| **Graph** | `/graph`, `/page/<pfad>` | Der Vault-Viewer: Graph-Canvas und Seitenansicht, zwei Routen, ein Screen. | 12.4 |
-| **Library** | `/library` | Die tabellarische Sicht auf alle Seiten: Filter nach Typ, Domain und Teilmenge (Orphans, Stubs, System), Sortierung, und je Zeile die Herkunft als Link auf das ingestierte Rohdokument. | neu (2026-08) |
-| **System** | `/system` | Fünf Sektionen in der Steuerspalte: *Status & checks* (der geführte Turnus aus 12.7, inkl. Hot-Cache-Inhalt und -Refresh), *Usage & cost*, *Vault stats* (inkl. Commit-Historie), *Service & config*, *Integrations* (Credential, Telegram, Obsidian). | 6.4 |
+| **Home** | `/` | Two zones. Above, the **stock**: the page count as the headline figure, the countable facts beside it (links, median degree, domains, unfiled pages, pages linked but never written), the wikilink graph as a picture, and the domain panel with its three views (Domains, This week, Gaps). Below, the **flow**: the operational figures (in flight, failures 7 d, ingests 7 d, spend today, checks due) as a strip on top of **one** activity stream over jobs, agent runs and vault commits of the last 30 days. On the left the control column: intake (dropzone + URL/note), below it the filters by kind, time range, state and channel. A row opens the full record (log, commit, created pages, retry, revert). | 6.1 + 6.2 |
+| **Research** | `/research` | On top the composer with two modes: *Web Research* (web egress, writes pages, one commit) and *Vault Research* (read-only, answers with page citations), plus the plan line (lens, target page, fetch budget, commits) and the phase bar of the running run. Below, **two ledgers of the same shape**, web runs and vault conversations, which share the height and scroll independently; an object appears exactly once, and opening one replaces both ledgers with the detail view and a way back. On the left the control column: lens profiles as a standing control, a filter over the web ledger, the running totals and the queue footer. At the bottom the "Worth a run" backlog from the open graph gaps. | 6.3 + autoresearch from 6.4 |
+| **Graph** | `/graph`, `/page/<path>` | The vault viewer: graph canvas and page view, two routes, one screen. | 12.4 |
+| **Library** | `/library` | The tabular view over all pages: filters by type, domain and subset (orphans, stubs, system), sorting, and per row the provenance as a link to the ingested raw document. | new (2026-08) |
+| **System** | `/system` | Five sections in the control column: *Status & checks* (the guided cadence from 12.7, including hot-cache content and refresh), *Usage & cost*, *Vault stats* (including commit history), *Service & config*, *Integrations* (credential, Telegram, Obsidian). | 6.4 |
 
-Zwei Dinge, die in keinen Unterabschnitt gehören:
+Two things that belong to no subsection:
 
-- **Der Dienststatus liegt in der Kopfzeile**, nicht mehr in der Übersicht: drei Chips (Watcher, Telegram, Verbindung), je ein Statuspunkt plus Substantiv, Details bei Hover. Der Live-Chip öffnet zusätzlich Queue, Tagesbudget und letzten Commit.
-- **Alte Routen werden normalisiert**, nicht gebrochen: `/inbox`, `/ingestion`, `/vault`, `/chat`, `/wartung`, `/maintenance`, `/health` und `/settings` werden per `replaceState` auf die aktuellen umgeschrieben, Suffixe (Seitenpfade, `?filter=`) bleiben erhalten.
+- **The service status lives in the header row**, no longer in the overview: three chips (Watcher, Telegram, Connection), each a status dot plus a noun, details on hover. The Live chip additionally opens queue, daily budget and the last commit.
+- **Old routes are normalized**, not broken: `/inbox`, `/ingestion`, `/vault`, `/chat`, `/wartung`, `/maintenance`, `/health` and `/settings` are rewritten to the current ones via `replaceState`; suffixes (page paths, `?filter=`) are preserved.
 
-### 6.1 Tab "Übersicht"
+### 6.1 Tab "Overview"
 
-Vault-Statistiken und letzte Aktivität auf einen Blick: Seitenzahlen je Typ (Konzepte, Entities, Quellen — aus dem Dateisystem gezählt und gecacht), Wachstum über Zeit (aus Git-History), zuletzt erstellte/geänderte Seiten (klickbar mit `obsidian://open?vault=…&file=…`-Deep-Link), Inhalt des Hot Cache (`wiki/hot.md` gerendert), Kennzahlen der letzten 7 Tage (Ingests, Fehler, verarbeitete Quellen), Service-Status (Watcher aktiv, Queue-Länge, letzte Git-Commits).
+Vault statistics and recent activity at a glance: page counts per type (concepts, entities, sources; counted from the file system and cached), growth over time (from git history), most recently created/changed pages (clickable with an `obsidian://open?vault=…&file=…` deep link), content of the hot cache (`wiki/hot.md` rendered), figures of the last 7 days (ingests, failures, processed sources), service status (watcher active, queue length, latest git commits).
 
-**Ist-Stand 2026-08-26:** Kennzahlen, Wachstum und Seitenzahlen je Typ liegen in **System → Vault stats**, die Aktivität in **Home**, der Dienststatus in der Kopfzeile, der Hot-Cache-Inhalt in **System → Status & checks**. Nicht gebaut: `recentPages` („zuletzt erstellte/geänderte Seiten") wird vom `/stats`-Endpunkt geliefert, aber von keiner Ansicht gerendert - die Rolle übernimmt die Library, nach *Changed* sortiert.
+**As built 2026-08-26:** Figures, growth and page counts per type live in **System → Vault stats**, the activity in **Home**, the service status in the header row, the hot-cache content in **System → Status & checks**. Not built: `recentPages` ("most recently created/changed pages") is delivered by the `/stats` endpoint but rendered by no view; the Library sorted by *Changed* takes that role.
 
 ### 6.2 Tab "Ingestion"
 
-Herzstück der Bedienung. Oben die Dropzone (Dateien + URLs), darunter drei Bereiche: **Aktiv** (laufende Jobs mit Live-Log-Stream aus dem Agent-Run), **Warteschlange** (Reihenfolge änderbar, Jobs abbrechbar) und **Verlauf** (filterbar nach Status/Typ/Zeitraum; pro Job: Quelle, erzeugte/aktualisierte Wiki-Seiten mit Links, Dauer, Token-/Kostenschätzung aus den SDK-Usage-Daten). Fehlgeschlagene Jobs zeigen die Fehlermeldung und bieten "Erneut versuchen". `deferred`-Jobs (Audio/Video) sind als eigene Kategorie sichtbar.
+The heart of the operation. On top the dropzone (files + URLs), below it three areas: **Active** (running jobs with a live log stream from the agent run), **Queue** (order changeable, jobs cancellable) and **History** (filterable by status/type/time range; per job: source, created/updated wiki pages with links, duration, token/cost estimate from the SDK usage data). Failed jobs show the error message and offer "Retry". `deferred` jobs (audio/video) are visible as their own category.
 
-**Ist-Stand 2026-08-26:** Der Tab ist in **Home** aufgegangen. Dropzone und URL-Feld sitzen in der Steuerspalte, die drei Bereiche (Aktiv / Warteschlange / Verlauf) sind zu **einem** Strom verschmolzen, in dem der Zustand eine Filterdimension ist statt eines eigenen Bereichs - Jobs, Agent-Runs und Vault-Commits stehen darin nebeneinander, weil sie aus Sicht des Lesers dasselbe sind: was mit dem Vault passiert ist. Nicht gebaut: die Warteschlange ist **nicht** umsortierbar (kein Endpunkt, keine Bedienung); Abbrechen, Retry und Revert gibt es.
+**As built 2026-08-26:** The tab has merged into **Home**. Dropzone and URL field sit in the control column, and the three areas (Active / Queue / History) have fused into **one** stream in which the state is a filter dimension rather than its own area; jobs, agent runs and vault commits stand side by side in it, because from the reader's point of view they are the same thing: what happened to the vault. Not built: the queue is **not** reorderable (no endpoint, no control); cancel, retry and revert exist.
 
-**Ergänzt 2026-09-05:** Einzelne Zeilen des Stroms sind aus dem Verlauf entfernbar (Zeilen-Aktion in der Tabelle und in der Detailansicht, zweistufig bestätigt): abgeschlossene Jobs über `DELETE /api/v1/jobs/:id`, persistierte Agent-Runs über `DELETE /api/v1/maintenance/history/:id`. Beides löscht nur Betriebszeilen; Vault, Seiten und Commits bleiben. Vault-Commits ohne eigene Zeile (rekonstruierte Ereignisse) haben keine Lösch-Aktion. Ein `done`-Job, dessen Run keine Wiki-Seite geschrieben hat, trägt das Ergebnis `no changes` als Badge und Erklärzeile; Duplikate zeigen ihre Erklärung ("already in the vault as …") als Zeile unter dem Namen (12.9).
+**Added 2026-09-05:** Single rows of the stream can be removed from the history (row action in the table and in the detail view, two-step confirm): settled jobs via `DELETE /api/v1/jobs/:id`, persisted agent runs via `DELETE /api/v1/maintenance/history/:id`. Both delete operational rows only; vault, pages and commits stay. Vault commits without a row of their own (reconstructed events) have no delete action. A `done` job whose run wrote no wiki page carries the outcome `no changes` as a badge and an explanation line; duplicates show their explanation ("already in the vault as …") as a line under the name (12.9).
 
 ### 6.3 Tab "Query/Chat"
 
-Chat-Oberfläche gegen den Query-Runner. Antworten enthalten die vom wiki-query-Skill gelieferten Seiten-Zitate; zitierte Seiten werden als klickbare Chips gerendert (Obsidian-Deep-Link + Inline-Preview des Seiteninhalts). Mehrere Chat-Sessions parallel, Sessions benennbar; Button "Session in Vault sichern" löst den `/save`-Flow des Repos aus.
+Chat surface against the query runner. Answers contain the page citations delivered by the wiki-query skill; cited pages are rendered as clickable chips (Obsidian deep link + inline preview of the page content). Several chat sessions in parallel, sessions nameable; a "Save session to vault" button triggers the repo's `/save` flow.
 
-**Ist-Stand 2026-08-26:** Liegt in **Research**, zusammen mit dem Autoresearch aus 6.4 (siehe die Korrektur dort). Beide Modi teilen sich eine Konsole; Sessions sind umbenennbar und löschbar.
+**As built 2026-08-26:** Lives in **Research**, together with the autoresearch from 6.4 (see the correction there). Both modes share one console; sessions can be renamed and deleted.
 
-### 6.4 Tab "Wartung"
+### 6.4 Tab "Maintenance"
 
-- **Lint:** Button startet `lint the wiki` als Agent-Run; Ergebnis wird strukturiert dargestellt (Orphans, tote Links, stale Claims, fehlende Cross-Links, `[!contradiction]`-Funde), jeweils mit Link zur Seite. Optional: wöchentlicher Auto-Lint (Cron im Service), Ergebnis landet als Bericht im Tab — aufgegangen im Check-Turnus von 12.7 (Stufe c).
-- **Autoresearch:** Eingabefeld für ein Thema mit explizit freigeschaltetem Web-Egress; Fortschritt (Runden, gefundene Quellen) live im Log; Ergebnis-Seiten verlinkt. **Korrektur 2026-07-24 (Ist-Stand nachgezogen):** Autoresearch liegt nicht im Wartungs-Tab, sondern im Query/Chat-Composer (6.3) — es ist Alltagsfunktion, keine Wartung. Der ursprünglich vorgesehene Slash-Aufruf `/autoresearch <topic>` entfiel zugunsten eines expliziten Prompts (der namespaced Plugin-Command war headless nicht zuverlässig auslösbar).
-- **Weiterentwicklung:** Der Tab wächst von einer Karten-Sammlung zum geführten Wartungs-Workflow — Konzept, Begründung und Stufenplan in **12.7**.
-- **Hot Cache:** manueller Refresh-Button + Anzeige des letzten Refresh-Zeitpunkts.
-- **Einstellungen:** Watch-Ordner-Pfad, Parallelität, Datei-Limits, Git-Commit-Verhalten, API-Key-Status (Key selbst wird nie angezeigt). **Ergänzt 2026-07-19:** hier liegt zusätzlich die Credential-Eingabe der Ersteinrichtung (Abo-Token vs. API-Key zur Auswahl, je mit Anleitung) — im Setup-Modus aufgeklappt und über ein app-weites Banner verlinkt, mit konfiguriertem Credential hinter "Replace credential…" verborgen. Angezeigt wird weiterhin nur der Status, nie der Wert.
+- **Lint:** A button starts `lint the wiki` as an agent run; the result is shown structured (orphans, dead links, stale claims, missing cross-links, `[!contradiction]` findings), each with a link to the page. Optional: weekly auto-lint (cron in the service), result lands as a report in the tab. Absorbed into the check cadence of 12.7 (stage c).
+- **Autoresearch:** An input field for a topic with explicitly enabled web egress; progress (rounds, sources found) live in the log; result pages linked. **Correction 2026-07-24 (as-built state recorded):** Autoresearch does not live in the Maintenance tab but in the Query/Chat composer (6.3); it is an everyday function, not maintenance. The originally planned slash invocation `/autoresearch <topic>` was dropped in favour of an explicit prompt (the namespaced plugin command could not be triggered reliably headless).
+- **Further development:** The tab grows from a collection of cards into a guided maintenance workflow; concept, rationale and staged plan in **12.7**.
+- **Hot cache:** manual refresh button + display of the last refresh time.
+- **Settings:** watch folder path, concurrency, file limits, git commit behaviour, API key status (the key itself is never shown). **Added 2026-07-19:** this is also where the first-run credential entry lives (subscription token vs. API key to choose from, each with instructions); expanded in setup mode and linked from an app-wide banner, hidden behind "Replace credential…" once a credential is configured. Still only the status is shown, never the value.
 
-**Ist-Stand 2026-08-26:** Liegt in **System**, aufgeteilt auf fünf Sektionen (siehe die Tabelle am Anfang von 6). Der Wartungs-Workflow selbst ist 12.7 Stufe c und sitzt in *Status & checks*.
+**As built 2026-08-26:** Lives in **System**, split into five sections (see the table at the start of 6). The maintenance workflow itself is 12.7 stage (c) and sits in *Status & checks*.
 
-### 6.5 API (Auszug)
+### 6.5 API (excerpt)
 
-Alle Endpunkte sind ab v1 unter `/api/v1/` versioniert und laufen durch eine Auth-Middleware, die in v1 im Modus "local-single-user" alles durchlässt (siehe Abschnitt 12.1) — dadurch ist der spätere Auth-Einbau eine Konfigurations-, keine Umbaufrage.
-
-```
-POST   /api/v1/jobs                 Datei-Upload oder URL-Job anlegen
-GET    /api/v1/jobs?status=&type=   Jobliste (paginiert)
-POST   /api/v1/jobs/:id/retry       Retry
-DELETE /api/v1/jobs/:id             Abbrechen (queued) bzw. aus dem Verlauf entfernen (settled; ergänzt 2026-09-05)
-GET    /api/v1/stats                Übersichts-Kennzahlen
-POST   /api/v1/query                Frage an Query-Runner (Session-ID optional)
-POST   /api/v1/maintenance/lint     Lint-Run starten
-POST   /api/v1/maintenance/research Autoresearch starten
-GET    /api/v1/events               SSE: Job-Updates, Log-Streams, Statistik-Invalidation (max. 8 gleichzeitige Streams pro Client-Adresse, darüber 429; die Client-Adresse kommt hinter einem Loopback-Reverse-Proxy aus X-Forwarded-For)
-GET/PUT /api/v1/settings            Konfiguration
-POST   /api/v1/settings/credential  Credential der Ersteinrichtung entgegennehmen (7.1);
-                                    schreibt die Service-Env-Datei, liefert den Wert nie zurück
-```
-
-**Ergänzt 2026-08-26 (Ist-Stand nachgezogen).** Der Auszug oben ist der M4-Stand; seither sind
-diese Familien dazugekommen. Weiterhin ein Auszug, nicht die Liste - maßgeblich ist
-`server/src/api/routes/`:
+All endpoints are versioned under `/api/v1/` from v1 on and pass through an auth middleware which, in v1's "local-single-user" mode, lets everything through (see section 12.1); the later auth build-out is therefore a configuration question, not a rebuild.
 
 ```
-GET    /api/v1/graph                Wikilink-Graph: Knoten, Kanten, offene Lücken (12.4)
-GET    /api/v1/pages?path=[&full=1] Eine Wiki-Seite lesen (Zitat-Vorschau bzw. ganze Seite)
-PUT    /api/v1/pages                Seite bearbeiten - ein sofortiger Commit (12.4)
-DELETE /api/v1/pages?path=          Seite löschen - ebenso
-GET    /api/v1/sources              Seite → ingestiertes Dokument, aus `.raw/` gelesen
-GET    /api/v1/sources/raw?path=    Das Dokument selbst; nur ein Allow-List-Format
-                                    ausgeliefert, alles andere als Download (§9)
-GET    /api/v1/domains              Domain-Registry; …/candidates + …/dismiss (12.4 Stufe 3)
-POST   /api/v1/maintenance/…        Die Wartungs-Runs: lint, lint-fix, hot-cache, repair,
+POST   /api/v1/jobs                 create a file upload or URL job
+GET    /api/v1/jobs?status=&type=   job list (paginated)
+POST   /api/v1/jobs/:id/retry       retry
+DELETE /api/v1/jobs/:id             cancel (queued) or remove from the history (settled; added 2026-09-05)
+GET    /api/v1/stats                overview figures
+POST   /api/v1/query                question to the query runner (session id optional)
+POST   /api/v1/maintenance/lint     start a lint run
+POST   /api/v1/maintenance/research start autoresearch
+GET    /api/v1/events               SSE: job updates, log streams, stats invalidation (at most 8 concurrent streams per client address, 429 beyond that; behind a loopback reverse proxy the client address comes from X-Forwarded-For)
+GET/PUT /api/v1/settings            configuration
+POST   /api/v1/settings/credential  accept the first-run credential (7.1);
+                                    writes the service env file, never returns the value
+```
+
+**Added 2026-08-26 (as-built state recorded).** The excerpt above is the M4 state; these families
+have been added since. Still an excerpt, not the list: `server/src/api/routes/` is authoritative.
+
+```
+GET    /api/v1/graph                wikilink graph: nodes, edges, open gaps (12.4)
+GET    /api/v1/pages?path=[&full=1] read one wiki page (citation preview or the whole page)
+PUT    /api/v1/pages                edit a page: one immediate commit (12.4)
+DELETE /api/v1/pages?path=          delete a page: likewise
+GET    /api/v1/sources              page → ingested document, read from `.raw/`
+GET    /api/v1/sources/raw?path=    the document itself; only an allowlisted format is
+                                    served inline, everything else as a download (§9)
+GET    /api/v1/domains              domain registry; …/candidates + …/dismiss (12.4 stage 3)
+POST   /api/v1/maintenance/…        the maintenance runs: lint, lint-fix, hot-cache, repair,
                                     tag-fix, domain-backfill, domain-review, retrieve-index
-GET    /api/v1/maintenance/state    Turnus-Status je Bereich (12.7 Stufe b)
-GET    /api/v1/maintenance/history  Persistente Run-Historie (Schema v12)
-DELETE /api/v1/maintenance/history/:id  Einen Run aus der Historie entfernen (ergänzt 2026-09-05)
-GET    /api/v1/sessions[/:id]       Chat-Sessions; …/save löst den `/save`-Flow aus (6.3)
-GET    /api/v1/settings/telegram    Bot-Status + abgewiesene Absender (4.3); PUT/DELETE
-                                    schreiben bzw. entfernen Token und Allowlist gemeinsam
-POST   /api/v1/jobs/:id/revert      Einen Ingest zurücknehmen (revert seines Commits)
+GET    /api/v1/maintenance/state    cadence status per area (12.7 stage b)
+GET    /api/v1/maintenance/history  persistent run history (schema v12)
+DELETE /api/v1/maintenance/history/:id  remove one run from the history (added 2026-09-05)
+GET    /api/v1/sessions[/:id]       chat sessions; …/save triggers the `/save` flow (6.3)
+GET    /api/v1/settings/telegram    bot status + rejected senders (4.3); PUT/DELETE
+                                    write or remove token and allowlist together
+POST   /api/v1/jobs/:id/revert      undo one ingest (revert of its commit)
 ```
 
 ---
 
-## 7. Tech-Stack
+## 7. Tech stack
 
-| Schicht | Wahl | Anmerkung |
+| Layer | Choice | Note |
 |---|---|---|
-| Laufzeit | Node.js ≥ 20 LTS in WSL2 (Ubuntu 24.04) | |
-| Backend | TypeScript, Fastify, better-sqlite3, chokidar, zod | ein Prozess, systemd-user-Service |
-| Agent | `@anthropic-ai/claude-agent-sdk` (TypeScript) | headless Runs, `settingSources: ['project']` **+ `plugins`/`skills`** (Vault als lokales Plugin laden, damit die Skills verfügbar sind — siehe 3.1), bundelt das Claude-Code-Binary; separate Claude-Code-Installation für manuelle Nutzung im Vault weiterhin möglich |
-| Frontend | React + Vite + TypeScript, TanStack Query, SSE | responsiv von Anfang an (Mobile-Viewports), PWA-fähig gebaut (Manifest + installierbar), kein UI-Framework-Zwang |
-| Vault | claude-obsidian v1.9.2, Generic-Modus | via `git clone` + `bash bin/setup-vault.sh` in WSL |
+| Runtime | Node.js ≥ 20 LTS in WSL2 (Ubuntu 24.04) | |
+| Backend | TypeScript, Fastify, better-sqlite3, chokidar, zod | one process, systemd user service |
+| Agent | `@anthropic-ai/claude-agent-sdk` (TypeScript) | headless runs, `settingSources: ['project']` **+ `plugins`/`skills`** (load the vault as a local plugin so the skills are available, see 3.1), bundles the Claude Code binary; a separate Claude Code installation for manual use in the vault remains possible |
+| Frontend | React + Vite + TypeScript, TanStack Query, SSE | responsive from the start (mobile viewports), built PWA-capable (manifest + installable), no UI framework mandated |
+| Vault | claude-obsidian v1.9.2, Generic mode | via `git clone` + `bash bin/setup-vault.sh` in WSL |
 | Preprocessing | poppler-utils, ocrmypdf/tesseract (deu+eng), pandoc, defuddle-cli, exiftool | apt/npm/pip in WSL |
-| Versionierung | Git-Auto-Commit durch den Service | Obsidian-Git-Plugin dann deaktiviert lassen (ein Commit-Verantwortlicher) |
+| Versioning | git auto-commit by the service | keep the Obsidian Git plugin disabled then (one party responsible for commits) |
 
-### 7.1 Anthropic-Authentifizierung und Nutzungslimits
+### 7.1 Anthropic authentication and usage limits
 
-**Primärer Pfad (v1): Claude-Abo.** Der Service authentifiziert sich mit einem langlebigen OAuth-Token, erzeugt via `claude setup-token` (Claude Code CLI), abgelegt als `CLAUDE_CODE_OAUTH_TOKEN` in der systemd-Service-Umgebung. Wichtig: `ANTHROPIC_API_KEY` darf dann nicht gesetzt sein, da er den Token überlagern würde — der Service prüft das beim Start und bricht bei Doppelkonfiguration mit klarer Fehlermeldung ab.
+**Primary path (v1): Claude subscription.** The service authenticates with a long-lived OAuth token, created via `claude setup-token` (Claude Code CLI) and stored as `CLAUDE_CODE_OAUTH_TOKEN` in the systemd service environment. Important: `ANTHROPIC_API_KEY` must not be set then, because it would shadow the token; the service checks this at startup and aborts on a double configuration with a clear error message.
 
-**Konsequenzen des Abo-Modells:**
+**Consequences of the subscription model:**
 
-1. **Geteilte Limits:** Agent-SDK-Nutzung zählt derzeit (Stand Juni/Juli 2026) gegen die Nutzungslimits des Abos — die automatische Ingestion konkurriert also mit interaktiver Claude-/Claude-Code-Nutzung desselben Accounts. Ein großer Watch-Ordner-Schwung kann das Kontingent erschöpfen.
-2. **Limit-Handling statt Kostenlimit:** Meldet das SDK ein erreichtes Nutzungslimit, pausiert die Queue automatisch (Status "rate-limited" im Dashboard, inkl. Zeitpunkt der erwarteten Freigabe, sofern verfügbar) und nimmt die Arbeit selbstständig wieder auf. Das in Abschnitt 11 erwähnte Tageslimit wird im Abo-Modus als **Job-Budget pro Tag** interpretiert (Anzahl Ingests), nicht als Dollarbetrag.
-3. **Anzeige:** Das Dashboard zeigt Token-Verbrauch pro Job und aggregiert (aus den SDK-Usage-Daten); die Spalte `cost_usd` wird im Abo-Modus als rechnerischer Gegenwert zu API-Preisen befüllt und als "Schätzwert (Abo)" gekennzeichnet — nützlich, um den Wechsel auf API-Key-Betrieb zu bewerten.
+1. **Shared limits:** Agent SDK usage currently (as of June/July 2026) counts against the subscription's usage limits, so automatic ingestion competes with interactive Claude and Claude Code use of the same account. A large watch-folder batch can exhaust the quota.
+2. **Limit handling instead of a cost limit:** When the SDK reports a reached usage limit, the queue pauses automatically (status "rate-limited" in the dashboard, including the expected release time where available) and resumes work on its own. The daily limit mentioned in section 11 is interpreted as a **job budget per day** (number of ingests) in subscription mode, not as a dollar amount.
+3. **Display:** The dashboard shows token usage per job and aggregated (from the SDK usage data); in subscription mode the `cost_usd` column is filled with the computed equivalent at API prices and labelled "estimate (subscription)", useful for evaluating a switch to API-key operation.
 
-**Sekundärer Pfad: API-Key.** Umschalten ist reine Konfiguration (`ANTHROPIC_API_KEY` statt Token setzen); Pay-per-Use mit echten Kosten pro Job, dann greift das Tageslimit als Dollarbetrag.
+**Secondary path: API key.** Switching is pure configuration (set `ANTHROPIC_API_KEY` instead of the token); pay-per-use with real cost per job, and the daily limit then applies as a dollar amount.
 
-**Ersteinrichtung ohne Credential: Setup-Modus (ergänzt 2026-07-19).** Ist *kein* Credential konfiguriert, bricht der Service **nicht** mehr beim Start ab, sondern läuft im **Setup-Modus**: Dashboard, Vault-Viewer und lesende Endpunkte sind verfügbar, aber alles, was einen Agent-Run starten würde, ist abgeschaltet — die Queue beansprucht keine Jobs, der Watch-Ordner wird nicht überwacht, und Upload/Query/Session-Save/Maintenance antworten mit `503` samt Hinweis. Grund für die Abweichung vom bisherigen Startabbruch: Ohne laufenden Service gibt es keine Oberfläche, in der ein Erstnutzer den Key hinterlegen könnte — der Abbruch machte die Ersteinrichtung zwingend zu einem Terminal-Vorgang. Der Startabbruch bei **doppelt** konfiguriertem Credential bleibt unverändert bestehen.
+**First run without a credential: setup mode (added 2026-07-19).** If *no* credential is configured, the service **no longer** aborts at startup but runs in **setup mode**: dashboard, vault viewer and read-only endpoints are available, but everything that would start an agent run is switched off; the queue claims no jobs, the watch folder is not watched, and upload/query/session-save/maintenance answer `503` with a hint. Reason for deviating from the earlier startup abort: without a running service there is no surface where a first-time user could enter the key; the abort made the first run necessarily a terminal procedure. The startup abort on a **doubly** configured credential stays unchanged.
 
-Das Credential wird über `POST /api/v1/settings/credential` entgegengenommen (Kind `oauth` | `api-key` plus Wert) und in die Service-Env-Datei `~/.config/vault-service/env` geschrieben (Modus 0600, Write-then-Rename, vorhandene Nicht-Credential-Einträge bleiben erhalten, das jeweils andere Credential wird entfernt). Diese Datei *ist* die Service-Umgebung im Sinne von Abschnitt 9 — der Wert erreicht weder SQLite noch Logs, Frontend oder API-Antworten, und wird nach dem Schreiben nie wieder ausgeliefert. Der Endpunkt validiert die Token-Form je Kind (Präfix `sk-ant-oat…` vs. `sk-ant-api…`), lehnt mit `409` ab, wenn das Credential aus der Prozess-Umgebung stammt (dort würde es die Datei überlagern) oder gerade Runs laufen. Aktivierung erfolgt per Neustart, da das Credential an allen Aufrufstellen zum Startzeitpunkt gebunden wird: unter systemd startet sich der Dienst dafür selbst neu (`Restart=on-failure`), sonst weist die Oberfläche den manuellen Neustart aus.
+The credential is accepted via `POST /api/v1/settings/credential` (kind `oauth` | `api-key` plus value) and written into the service env file `~/.config/vault-service/env` (mode 0600, write-then-rename, existing non-credential entries are preserved, the respective other credential is removed). This file *is* the service environment in the sense of section 9: the value reaches neither SQLite nor logs, frontend or API responses, and is never served again after being written. The endpoint validates the token form per kind (prefix `sk-ant-oat…` vs. `sk-ant-api…`), rejects with `409` when the credential comes from the process environment (it would shadow the file there) or while runs are active. Activation happens by restart, because the credential is bound at all call sites at startup: under systemd the service restarts itself for this (`Restart=on-failure`), otherwise the UI asks for a manual restart.
 
-**Policy-Vorbehalt:** Anthropics Regelung zur Agent-SDK-Nutzung mit Abos ist in Bewegung (Feb 2026: OAuth-Verbot fürs SDK; Juni 2026: angekündigtes separates SDK-Monatsguthaben, dessen Einführung am 15. Juni pausiert wurde — aktuell zählt SDK-Nutzung laut offizieller Support-Seite weiter gegen die Abo-Limits). Die Spec behandelt die Auth deshalb als austauschbares Modul; sollte Anthropic die Abo-Nutzung fürs SDK einschränken oder das Guthabenmodell aktivieren, ist nur die Umgebungskonfiguration und ggf. die Limit-Anzeige anzupassen. Vor Implementierungsstart von M0 ist der dann aktuelle Stand unter support.claude.com zu verifizieren.
+**Policy caveat:** Anthropic's rules for Agent SDK use with subscriptions are in motion (Feb 2026: OAuth prohibited for the SDK; June 2026: a separate monthly SDK allowance announced, whose introduction was paused on June 15; at present SDK usage still counts against the subscription limits according to the official support page). The spec therefore treats auth as a replaceable module; should Anthropic restrict subscription use for the SDK or activate the allowance model, only the environment configuration and possibly the limit display need adjusting. Before M0 implementation starts, the then-current state on support.claude.com is to be verified.
 
 ---
 
-## 8. Datenmodell (SQLite)
+## 8. Data model (SQLite)
 
 ```sql
 jobs(
   id TEXT PRIMARY KEY,            -- ulid
-  user_id TEXT DEFAULT 'local',   -- Multi-User-Vorbereitung (Abschnitt 12.1)
-  batch_id TEXT,                  -- gemeinsame Batches
+  user_id TEXT DEFAULT 'local',   -- multi-user preparation (section 12.1)
+  batch_id TEXT,                  -- shared batches
   source TEXT NOT NULL,           -- 'drop' | 'watch' | 'url' | 'telegram' (4.3)
   type TEXT NOT NULL,             -- 'pdf' | 'office' | 'web' | 'image' | 'text' | 'av' | 'other'
   original_name TEXT, url TEXT,
-  sha256 TEXT UNIQUE,             -- Dedupe
+  sha256 TEXT UNIQUE,             -- dedupe
   status TEXT NOT NULL,           -- queued|preprocessing|ingesting|done|failed|deferred|duplicate|cancelled
   raw_path TEXT,                  -- .raw/<job-id>/
-  created_pages TEXT,             -- JSON-Liste erzeugter/aktualisierter Wiki-Seiten
-  notify_channel TEXT,            -- z. B. 'telegram:<chat_id>' — Abschluss-Meldung an den Eingangskanal (4.3; Migration v7)
-  commit_hash TEXT,               -- der Commit dieses Ingests, Grundlage des Revert (§9; Migration v9)
-  reverted_at TEXT,               -- gesetzt, wenn der Ingest zurückgenommen wurde; der Status bleibt unverändert (§9; Migration v9)
-  duplicate_of TEXT,              -- bei status='duplicate' der Job, den dieser dupliziert (Migration v11); auch ein
-                                  -- Job, dessen Zeile gelöscht ist, wenn der Vault ihn unter .raw/<job-id>/ noch kennt (12.9)
-  outcome TEXT,                   -- 'no-changes', wenn ein done-Run keine Wiki-Seite geschrieben hat; sonst NULL (12.9; Migration v14)
-  error TEXT, attempts INTEGER DEFAULT 0,   -- error trägt bei Duplikaten die Erklärung, nicht nur bei Fehlern
+  created_pages TEXT,             -- JSON list of created/updated wiki pages
+  notify_channel TEXT,            -- e.g. 'telegram:<chat_id>': completion message to the intake channel (4.3; migration v7)
+  commit_hash TEXT,               -- the commit of this ingest, the basis of the revert (§9; migration v9)
+  reverted_at TEXT,               -- set when the ingest was reverted; the status stays unchanged (§9; migration v9)
+  duplicate_of TEXT,              -- for status='duplicate' the job this one duplicates (migration v11); also a job whose
+                                  -- row is gone, when the vault still knows it under .raw/<job-id>/ (12.9)
+  outcome TEXT,                   -- 'no-changes' when a done run wrote no wiki page; otherwise NULL (12.9; migration v14)
+  error TEXT, attempts INTEGER DEFAULT 0,   -- for duplicates, error carries the explanation, not only for failures
   tokens_in INTEGER, tokens_out INTEGER, cost_usd REAL,
   created_at TEXT, started_at TEXT, finished_at TEXT
 );
-job_logs(id INTEGER PRIMARY KEY, job_id, ts, level, message);  -- Agent-Stream + Pipeline-Events
-sessions(id, user_id DEFAULT 'local', title, created_at,   -- Query-Chat
-  sdk_session_id,                 -- SDK-Session des letzten Query-Runs, damit eine Folgefrage sie fortsetzen kann (§5; Migration v2)
-  updated_at);                    -- Sortierschlüssel der Session-Liste, bewegt sich mit jeder neuen Nachricht (Migration v2)
+job_logs(id INTEGER PRIMARY KEY, job_id, ts, level, message);  -- agent stream + pipeline events
+sessions(id, user_id DEFAULT 'local', title, created_at,   -- query chat
+  sdk_session_id,                 -- SDK session of the last query run, so a follow-up question can resume it (§5; migration v2)
+  updated_at);                    -- sort key of the session list, moves with every new message (migration v2)
 messages(id INTEGER PRIMARY KEY, session_id, role, content, citations, ts,
-  tokens_in INTEGER, tokens_out INTEGER, cost_usd REAL);   -- Kosten je Antwort; NULL bei User-/System-Zeilen (Migration v6)
+  tokens_in INTEGER, tokens_out INTEGER, cost_usd REAL);   -- cost per answer; NULL on user/system rows (migration v6)
 settings(key PRIMARY KEY, value);
-users(id PRIMARY KEY, name, token_hash, role, created_at); -- in v1 nur der Seed-Eintrag 'local'
-telegram_drops(user_id, sender_id, username, first_at, last_at, count); -- abgewiesene Bot-Absender, aggregiert (4.3/§9; Migration v8)
-agent_runs(                       -- eine Zeile je settled Agent-Run (Migration v12)
+users(id PRIMARY KEY, name, token_hash, role, created_at); -- in v1 only the seed entry 'local'
+telegram_drops(user_id, sender_id, username, first_at, last_at, count); -- rejected bot senders, aggregated (4.3/§9; migration v8)
+agent_runs(                       -- one row per settled agent run (migration v12)
   id TEXT PRIMARY KEY,
   user_id TEXT DEFAULT 'local',
   kind TEXT NOT NULL,             -- 'research' | 'lint' | 'hot-cache' | 'tag-fix' | 'domain-backfill' | 'retrieve-index' | …
-  label TEXT,                     -- Thema eines Research-Runs; NULL, wo die Art schon alles sagt
-  profile_key TEXT,               -- Lens, unter der ein Research-Run lief (12.7)
+  label TEXT,                     -- topic of a research run; NULL where the kind already says everything
+  profile_key TEXT,               -- lens under which a research run ran (12.7)
   ok INTEGER NOT NULL,
-  pages TEXT,                     -- JSON-Liste der geschriebenen Wiki-Seiten
+  pages TEXT,                     -- JSON list of the wiki pages written
   tokens_in INTEGER, tokens_out INTEGER, cost_usd REAL,
   error TEXT,
-  commit_hash TEXT,               -- der Commit dieses Runs; NULL = nichts committet (Migration v13)
+  commit_hash TEXT,               -- the commit of this run; NULL = nothing committed (migration v13)
   started_at TEXT, finished_at TEXT
 );
-maintenance_state(user_id, kind, run_id, ok, pages INTEGER, error, finished_at); -- eine Zeile je Run-Kind, "zuletzt erledigt" (12.7; Migration v10)
-domain_dismissals(user_id, key, dismissed_at);     -- verworfene Domain-Kandidaten, PK (user_id, key) (12.4; Migration v5)
+maintenance_state(user_id, kind, run_id, ok, pages INTEGER, error, finished_at); -- one row per run kind, "last done" (12.7; migration v10)
+domain_dismissals(user_id, key, dismissed_at);     -- dismissed domain candidates, PK (user_id, key) (12.4; migration v5)
 ```
 
-Der Vault selbst bleibt die einzige Wahrheit für Wissen; SQLite hält ausschließlich Betriebszustand. Ein Verlust der DB darf den Vault nicht beschädigen (Rebuild der Statistiken aus Dateisystem + Git möglich).
+The vault itself remains the only truth for knowledge; SQLite holds operational state only. Losing the DB must not damage the vault (the statistics can be rebuilt from file system + git).
 
-`agent_runs` und `maintenance_state` beantworten verschiedene Fragen und existieren deshalb nebeneinander: die eine ist die Historie (eine Zeile je Lauf, `pages` als JSON-Liste), die andere der Stand je Bereich (eine Zeile je Art, beim Settle upserted, `pages` nur als Anzahl). Mit `commit_hash` (ergänzt 2026-08-27, Migration v13) kennt **jeder** vault-schreibende Vorgang seinen Commit, Ingest-Job wie Agent-Run; das Dashboard musste die Zuordnung vorher aus Zeitstempeln raten und zeigte settled Agent-Runs deshalb als "nichts committet" an. NULL bleibt die richtige Antwort, wo ein Lauf nichts committet hat: Fehlschlag vor dem Commit-Schritt, `retrieve-index` (schreibt nur abgeleitete Artefakte außerhalb der Vault-History, 12.6) und Zeilen aus der Zeit vor v13.
-
----
-
-## 9. Sicherheit
-
-- Server bindet in v1 ausschließlich an `127.0.0.1`; die Auth-Middleware läuft im Modus "local-single-user" (alles erlaubt). Der Guard ist im Code verankert: Bind ≠ localhost ⇒ Startabbruch, solange kein Auth-Modus mit Token/Passwort aktiviert ist. Damit ist der Remote-Zugriff (Abschnitt 12.2/12.3) ein Konfigurationsschritt mit erzwungener Auth, kein ungeschützter Zufallszustand.
-- Agent-Runs: Schreibrechte nur unterhalb des Vault-Pfads; Bash auf Skript-Whitelist; Web-Egress nur im Autoresearch-Flow, dort mit den Hygiene-Regeln des Repos (URL-Validierung, Sanitization, 50-KB-Fetch-Cap).
-- Eingehende Dateien werden nie ausgeführt; Magic-Byte-Prüfung gegen getarnte Executables; Archive nicht auto-entpackt.
-- Credentials (OAuth-Token bzw. API-Key) nur in der Service-Umgebung, nie im Frontend, nie in Logs, nie im Repo. Die Env-Datei `~/.config/vault-service/env` (0600) gilt als diese Umgebung; sie darf durch den Credential-Endpunkt aus Abschnitt 7.1 beschrieben, aber niemals ausgelesen und zurückgegeben werden. Ohne konfiguriertes Credential läuft der Service im Setup-Modus (ebenfalls 7.1) statt zu terminieren.
-- **Schutz gegen Drive-by-Zugriffe aus dem Browser (ergänzt 2026-07-19):** Zustandsändernde Requests (`POST`/`PUT`/`PATCH`/`DELETE`) mit fremdem `Origin`-Header werden mit `403` abgelehnt. Der Modus "local-single-user" kennt kein Credential, und ein Multipart-Upload ist ein CORS-"simple request" ohne Preflight — ohne diese Prüfung könnte jede beliebige besuchte Webseite Uploads und damit kostenpflichtige Agent-Runs gegen `127.0.0.1` auslösen. Loopback-Origins (beliebiger Port, für den Vite-Dev-Proxy) und Requests ohne `Origin` (curl, systemd-Probe) passieren.
-- **Telegram-Bot (ergänzt 2026-07-20, Abschnitt 4.3):** Der Bot-Token ist ein Secret derselben Klasse wie das Anthropic-Credential — nur in der Service-Env-Datei, nie in Logs, Frontend, SQLite oder API-Antworten; in Konfigurations-Ausgaben redigiert. Autorisierung ausschließlich über die User-ID-Allowlist, fail-closed: Token ohne Allowlist ⇒ Startabbruch; Nachrichten nicht gelisteter Absender werden ohne jede Antwort verworfen (eine Antwort würde die Bot-Existenz bestätigen — Bot-Usernamen sind enumerierbar, und jeder angenommene Befehl kann einen kostenpflichtigen Agent-Run auslösen; dieselbe Bedrohungsklasse wie der Origin-Check oben). Für den Betreiber sichtbar bleibt der Vorgang trotzdem (ergänzt 2026-07-20, User-Entscheidung): der **erste** Versuch je Absender-ID wird als Warnung ins Service-Log geschrieben — ID und ggf. Username, niemals der Nachrichteninhalt; Folgeversuche derselben ID werden nicht geloggt (Flutschutz fürs Journal). Zusätzlich zählt die Tabelle `telegram_drops` (§8, Migration v8) **jeden** Versuch aggregiert pro Absender; die Einstellungs-Karte zeigt diese Liste („Rejected senders" — auch der Weg, eine eigene falsch eingetragene ID zu erkennen), ausgeliefert über `GET /api/v1/settings/telegram`, wieder ohne Inhalte und ohne Token. Der ausgehende HTTPS-Verkehr zu `api.telegram.org` ist **Service-Egress, nicht Agent-Egress** — die Regel „kein Web-Egress in Ingest-Runs" betrifft Agent-Runs und gilt unverändert. Dateien aus Telegram durchlaufen dieselbe Pipeline wie alle Eingänge (Basename-Reduktion, Magic-Byte-Prüfung, keine Ausführung, kein Auto-Entpacken). Abschluss-Meldungen nennen nur Seitentitel, nie Inhaltsauszüge — Vault-Inhalt soll nicht in der Telegram-Cloud liegen (die gesendete Datei selbst liegt dort ohnehin; das ist die bewusste Entscheidung des Nutzers beim Senden).
-- **Dateinamen aus Uploads werden auf den reinen Basename reduziert**, bevor sie unter `.raw/<job-id>/` abgelegt werden; ein `../`-haltiger Name aus dem Multipart-Header könnte sonst *außerhalb* von `VAULT_ROOT` schreiben — an der Sandbox vorbei, da diese nur Agent-Runs umschließt, nicht den HTTP-Pfad.
-- Git-History als Undo-Mechanismus: Jeder Ingest ist ein Commit, fehlerhafte Läufe sind per `git revert` rückholbar. **Umgesetzt 2026-07-23** als Aktion "Revert" im Verlauf (`POST /api/v1/jobs/:id/revert`): Der Job merkt sich seinen Commit (Migration v9, `jobs.commit_hash`), der Revert läuft hinter demselben Commit-Mutex wie Ingest- und Wartungs-Commits und ist **ganz oder gar nicht** — er verweigert bei unsauberem Arbeitsbaum (ein Lauf könnte noch schreiben) und bricht bei Konflikten sauber ab, statt Konfliktmarker in Wiki-Seiten zu hinterlassen. Das Rückgängigmachen ist selbst ein Commit, bleibt also versioniert und umkehrbar; der Job-Status ändert sich nicht (die Zustandsmenge aus Abschnitt 8 bleibt geschlossen), stattdessen hält `jobs.reverted_at` den Vorgang fest. Batch-Mitglieder teilen sich einen Commit — ein Revert macht die ganze Charge rückgängig, worauf die UI vorher hinweist.
+`agent_runs` and `maintenance_state` answer different questions and therefore exist side by side: one is the history (one row per run, `pages` as a JSON list), the other the state per area (one row per kind, upserted on settle, `pages` only as a count). With `commit_hash` (added 2026-08-27, migration v13) **every** vault-writing operation knows its commit, ingest job and agent run alike; before, the dashboard had to guess the assignment from timestamps and therefore showed settled agent runs as "nothing committed". NULL remains the right answer where a run committed nothing: a failure before the commit step, `retrieve-index` (writes only derived artifacts outside the vault history, 12.6), and rows from before v13.
 
 ---
 
-## 10. Meilensteine
+## 9. Security
 
-| # | Meilenstein | Inhalt | Abnahmekriterium |
+- In v1 the server binds exclusively to `127.0.0.1`; the auth middleware runs in "local-single-user" mode (everything allowed). The guard is anchored in code: bind ≠ localhost means startup abort as long as no auth mode with a token/password is active. Remote access (sections 12.2/12.3) is thereby a configuration step with enforced auth, not an unprotected accident.
+- Agent runs: write access only below the vault path; bash on a script allowlist; web egress only in the autoresearch flow, there with the repo's hygiene rules (URL validation, sanitization, 50 KB fetch cap).
+- Incoming files are never executed; magic-byte check against disguised executables; archives not auto-extracted.
+- Credentials (OAuth token or API key) only in the service environment, never in the frontend, never in logs, never in the repo. The env file `~/.config/vault-service/env` (0600) counts as that environment; the credential endpoint of section 7.1 may write it, but it is never read back and returned. Without a configured credential the service runs in setup mode (also 7.1) instead of terminating.
+- **Protection against drive-by access from the browser (added 2026-07-19):** State-changing requests (`POST`/`PUT`/`PATCH`/`DELETE`) with a foreign `Origin` header are rejected with `403`. The "local-single-user" mode knows no credential, and a multipart upload is a CORS "simple request" without preflight; without this check any visited web page could trigger uploads, and with them paid agent runs, against `127.0.0.1`. Loopback origins (any port, for the Vite dev proxy) and requests without `Origin` (curl, systemd probe) pass.
+- **Telegram bot (added 2026-07-20, section 4.3):** The bot token is a secret of the same class as the Anthropic credential: only in the service env file, never in logs, frontend, SQLite or API responses; redacted in configuration output. Authorization exclusively via the user-id allowlist, fail-closed: a token without an allowlist aborts startup; messages from unlisted senders are dropped without any reply (a reply would confirm the bot's existence; bot usernames are enumerable, and every accepted command can trigger a paid agent run, the same threat class as the origin check above). The event still stays visible to the operator (added 2026-07-20, user decision): the **first** attempt per sender id is written to the service log as a warning, id and username if any, never the message content; further attempts from the same id are not logged (flood protection for the journal). In addition the table `telegram_drops` (§8, migration v8) counts **every** attempt aggregated per sender; the settings card shows this list ("Rejected senders", also the way to spot one's own mistyped id), served via `GET /api/v1/settings/telegram`, again without contents and without the token. The outgoing HTTPS traffic to `api.telegram.org` is **service egress, not agent egress**; the rule "no web egress in ingest runs" concerns agent runs and applies unchanged. Files from Telegram pass through the same pipeline as all intake (basename reduction, magic-byte check, no execution, no auto-extraction). Completion messages name page titles only, never content excerpts; vault content should not sit in the Telegram cloud (the sent file itself is there anyway; that is the user's deliberate decision when sending).
+- **File names from uploads are reduced to the bare basename** before they are stored under `.raw/<job-id>/`; a name containing `../` from the multipart header could otherwise write *outside* `VAULT_ROOT`, past the sandbox, which wraps only agent runs, not the HTTP path.
+- Git history as the undo mechanism: every ingest is a commit, faulty runs can be recovered via `git revert`. **Implemented 2026-07-23** as the "Revert" action in the history (`POST /api/v1/jobs/:id/revert`): the job remembers its commit (migration v9, `jobs.commit_hash`), the revert runs behind the same commit mutex as ingest and maintenance commits and is **all or nothing**: it refuses on a dirty working tree (a run could still be writing) and aborts cleanly on conflicts instead of leaving conflict markers in wiki pages. The undo is itself a commit, so it stays versioned and reversible; the job status does not change (the state set of section 8 stays closed), instead `jobs.reverted_at` records the event. Batch members share one commit, so a revert undoes the whole batch, which the UI points out beforehand.
+
+---
+
+## 10. Milestones
+
+| # | Milestone | Content | Acceptance criterion |
 |---|---|---|---|
-| M0 | Fundament | WSL2-Setup, Vault geclont + `setup-vault.sh`, Obsidian öffnet Vault, Agent SDK führt manuell getriggerten `ingest`-Run erfolgreich aus | Eine PDF wird per CLI-Aufruf des Services korrekt eingepflegt (Seiten + Index + Hot Cache) |
-| M1 | Pipeline | Queue, Preprocessing (PDF, Office, Text, Bild, URL), Agent-Runner mit Retry/Timeout, Dedupe, Git-Commits | 10 gemischte Dateien in `.raw` → alle `done`, keine Vault-Korruption bei Parallelität 2 |
-| M2 | Eingangskanäle | Watch-Ordner (Stabilitäts-Check, Batching), Upload-Endpunkt | Dateien in `D:\inbox` erscheinen ohne Interaktion im Vault |
-| M3 | Dashboard-Kern | Tabs Übersicht + Ingestion, SSE-Live-Updates, Dropzone | Drop im Browser → Live-Log → Ergebnis-Links funktionieren in Obsidian |
-| M4 | Query + Wartung | Chat-Tab mit Zitaten und Sessions, Lint-, Autoresearch-, Hot-Cache-Steuerung | Frage liefert zitierte, klickbare Vault-Seiten; Lint-Bericht strukturiert |
-| M5 | Härtung | systemd-Autostart, Fehlerpfade, Kosten-Anzeige, Settings-UI, Doku | Service übersteht WSL-Neustart; failed-Jobs sind diagnostizier- und wiederholbar |
+| M0 | Foundation | WSL2 setup, vault cloned + `setup-vault.sh`, Obsidian opens the vault, Agent SDK runs a manually triggered `ingest` successfully | One PDF is filed correctly via a CLI call of the service (pages + index + hot cache) |
+| M1 | Pipeline | Queue, preprocessing (PDF, Office, text, image, URL), agent runner with retry/timeout, dedupe, git commits | 10 mixed files in `.raw` all reach `done`, no vault corruption at concurrency 2 |
+| M2 | Intake channels | Watch folder (stability check, batching), upload endpoint | Files dropped into the Windows inbox folder appear in the vault without interaction |
+| M3 | Dashboard core | Tabs Overview + Ingestion, SSE live updates, dropzone | Drop in the browser → live log → result links work in Obsidian |
+| M4 | Query + maintenance | Chat tab with citations and sessions; lint, autoresearch and hot-cache controls | A question yields cited, clickable vault pages; the lint report is structured |
+| M5 | Hardening | systemd autostart, error paths, cost display, settings UI, docs | The service survives a WSL restart; failed jobs are diagnosable and retryable |
 
 ---
 
-## 11. Risiken und offene Punkte
+## 11. Risks and open points
 
-1. **Obsidian über `\\wsl$`: GELÖST in M0 (Befund korrigiert die ursprüngliche Annahme).** Erwartet wurde 9p-*Trägheit*; tatsächlich **öffnet Obsidian für Windows den WSL-Vault gar nicht** (`EISDIR … watch`, won't-fix). Gewählte Lösung: **Obsidian in WSLg** (Linux-App in WSL, Vault bleibt auf ext4). Verbleibende Einschränkung: Graph-View ruckelt (WSLg-Software-Rendering), Tippen/Öffnen flüssig — kein Dateisystem-Problem, per 249-Notes-Test verifiziert. Die drvfs-Fallback-Sorge um `wiki-lock.sh` ist erledigt: Locking besteht dort alle Tests.
-2. **Skill-Determinismus bei Vollautomatik:** Der ingest-Skill ist auf interaktive Nutzung ausgelegt und kann Rückfragen stellen. Mitigation: System-Prompt-Erweiterung "keine Rückfragen, Defaults dokumentieren"; in M1 gegen reale Quellen validieren und ggf. einen dünnen Auto-Ingest-Wrapper-Skill ins Vault-Repo legen.
-3. **Nutzungslimits/Kosten:** Im Abo-Modus konkurriert die Vollautomatik mit interaktiver Nutzung um dieselben Limits; im API-Key-Modus entstehen echte Kosten. Mitigation: Rate-Limit-Pause mit Auto-Resume (7.1), Token-Verbrauch pro Job sichtbar, konfigurierbares Tagesbudget (Jobs/Tag im Abo-Modus, USD im API-Modus; Queue pausiert bei Überschreitung).
-4. **Repo-Weiterentwicklung:** claude-obsidian entwickelt sich schnell (v1.7→v1.9 in Monaten). Mitigation: Vault als Fork/Pin auf getesteter Version; Upgrades bewusst.
-5. **Gleichzeitige manuelle Nutzung:** Nutzer arbeitet mit Claude Code im Vault, während die Pipeline läuft. Das Advisory-Locking des Repos adressiert das; trotzdem in M1 explizit testen.
-6. **Offen:** Mehrere Watch-Ordner mit unterschiedlichen Ziel-Domains? Tageslimit-Höhe? Modellwahl pro Job-Typ (kleines Modell für simple Texte, großes für komplexe Papers)? → Entscheidung nach ersten Betriebserfahrungen (M5).
-
----
-
-## 12. Mittelfristige Erweiterungen: Multi-User, Sync, Mobile
-
-Diese drei Anforderungen hängen architektonisch zusammen und werden deshalb gemeinsam gedacht. Die tragende Leitentscheidung lautet: **Server-zentrisch statt Datei-Sync.** Der Service auf der Hauptmaschine bleibt der einzige Schreiber des Vaults; andere Nutzer und Geräte greifen über die HTTP-API auf denselben Server zu, statt Vault-Kopien zu synchronisieren. Begründung: Das Advisory-Locking von claude-obsidian (`wiki-lock.sh`) funktioniert nur innerhalb einer Maschine — würden mehrere Geräte je eine Vault-Kopie per Dateisync (Syncthing, Obsidian Sync) beschreiben *und* dort eigene Ingestion-Pipelines betreiben, wären Merge-Konflikte in Index, Log und Hot Cache unvermeidbar. Ein zentraler Server mit Queue serialisiert alle Schreibzugriffe von Natur aus; die v1-Architektur (API-first, Queue als Single Writer) ist dafür bereits die richtige Form.
-
-### 12.1 Multi-User
-
-**v1-Vorkehrungen (bereits umgesetzt):** Auth-Middleware vor allen Endpunkten (Modus "local-single-user"), `user_id`-Spalten in `jobs` und `sessions` (Default `'local'`), `users`-Tabelle mit Seed-Eintrag, versionierte API.
-
-**Ausbaustufe:** Aktivierung des Auth-Modus (Token/Passwort pro Nutzer, Argon2-Hash in `users.token_hash`), Login-Screen im Frontend, Rollen `admin` (Einstellungen, Wartung, alle Jobs) und `member` (eigene Jobs, Query, Ingestion). Chat-Sessions sind nutzerprivat; der Vault selbst bleibt in der ersten Multi-User-Stufe **geteilt** (ein gemeinsames Second Brain — das ist der Sinn eines gemeinsamen Vaults). Sollten später getrennte Wissensräume nötig sein, ist die Erweiterung "mehrere Vaults pro Server" (Vault-Registry-Tabelle, `vault_id` an Jobs/Sessions) der saubere Weg — v1 vermeidet daher hartkodierte Ein-Vault-Annahmen in der Pfadlogik (Vault-Root als Konfigurationswert, überall durchgereicht statt global konstant).
-
-### 12.2 Zugriff über Geräte hinweg ("Sync")
-
-**Modell:** Kein Vault-Sync zwischen Geräten, sondern Fernzugriff auf den einen Server. Der einfachste sichere Weg ist ein Overlay-Netz (Tailscale/WireGuard): Der Service wird zusätzlich an die Tailnet-Adresse gebunden (mit dann erzwungener Auth, siehe Guard in Abschnitt 9) und ist von allen eigenen Geräten erreichbar, ohne einen Port ins Internet zu öffnen. Alternative für den öffentlichen Zugriff: Reverse Proxy (Caddy) mit TLS + Auth.
-
-**Lesender Zugriff auf die Notizen selbst** (Obsidian auf einem Zweitgerät): bleibt über Git möglich — der Service committet ohnehin jeden Ingest. Ein `git remote` (privates Repo oder selbstgehostet via Gitea) plus Pull auf dem Zweitgerät liefert eine lesende bzw. vorsichtig-schreibende Kopie. Regel, die die Spec festschreibt: **Automatisierte Schreiber gibt es nur auf dem Server.** Manuelle Edits von Zweitgeräten laufen über Git-Push und werden vom Server vor dem nächsten Ingest gepullt (Pipeline-Schritt "pull before ingest" wird in dieser Ausbaustufe ergänzt; Konfliktfall pausiert die Queue und meldet sich im Dashboard).
-
-**Voraussetzung:** Die Hauptmaschine muss erreichbar sein, wenn andere Geräte zugreifen. Mittelfristig ist deshalb der Umzug des Services von WSL2 auf einen kleinen Always-on-Host (Heimserver, NUC, VPS) der natürliche Schritt — die Container-Fähigkeit des Stacks (reines Linux-Userland, keine Windows-Abhängigkeiten im Service selbst) ist dafür die v1-Vorkehrung: ein Dockerfile gehört ab M5 zum Repo, auch wenn es unter WSL2 nicht gebraucht wird.
-
-### 12.3 Mobile Nutzung
-
-**v1-Vorkehrungen (bereits umgesetzt):** Frontend responsiv für schmale Viewports, PWA-Manifest (installierbar auf dem Homescreen), SSE statt WebSockets (robuster über Proxies/Mobilnetze).
-
-**Ausbaustufe:** Sobald der Server per Tailnet erreichbar ist (12.2), funktioniert das Dashboard auf dem Smartphone ohne weiteren Code. Mobile-spezifische Ergänzungen danach: Share-Target im PWA-Manifest, damit "Teilen → Vault" aus jeder App heraus einen URL- oder Datei-Job anlegt (das mobile Gegenstück zum Watch-Ordner); Kamera-Upload in der Dropzone (Foto eines Dokuments → Bild-Ingest); optional Push-Benachrichtigung bei fehlgeschlagenen Jobs (Web Push). Eine native App ist nicht geplant — die PWA deckt die Anforderungen ab.
-
-**Teilabdeckung durch den Telegram-Bot (2026-07-20):** Der in Abschnitt 4.3 ergänzte Bot deckt den mobilen Ingest- und Status-Anwendungsfall bereits ohne Tailnet ab, inklusive Abschluss-Meldung als Ersatz für Web Push — auf jeder Plattform (iOS unterstützt das Web-Share-Target nicht). Die Ausbaustufe oben bleibt der privatere Pfad (Inhalte verlassen die eigenen Geräte nicht) und der einzige mit vollem Dashboard-Zugriff (Chat, Graph, Wartung); beide ergänzen sich. Für 12.2 gilt seitdem als bevorzugte Variante `tailscale serve` (TLS-Terminierung am MagicDNS-Namen, Proxy auf `127.0.0.1:8420`): der Service bleibt loopback-gebunden, der Guard aus Abschnitt 9 wird gar nicht erst berührt, HTTPS für PWA-Installation/Share-Target kommt gratis mit, und das Frontend braucht kein Token-Handling (Zugriffsschutz = Tailnet-Mitgliedschaft; der Token-Modus bleibt als Härtungsoption bestehen).
-
-### 12.4 In-Dashboard Vault-Viewer (Seiten + Graph)
-
-**Motivation (aus dem M3-Betrieb):** Der Vault ist die Source of Truth (Obsidian-flavored Markdown + Wikilinks + git — das „Backend-Format"); Obsidian-die-**App** ist nur *ein* Viewer und bewusst optional. Zwei Reibungspunkte zeigen in dieselbe Richtung: (a) das Windows-Obsidian öffnet den WSL-Vault über `\\wsl$` gar nicht (`EISDIR … watch`, Abschnitt 3/11), und (b) der Graph-View des WSLg-Linux-Obsidian ruckelt mangels GPU. Ein **read-only Vault-Viewer im Dashboard** umgeht beides und macht die Obsidian-App für den Alltag entbehrlich — der Vault bleibt unverändert das Speicherformat.
-
-**Ausbaustufe:** Ein zusätzlicher Bereich (oder eine Erweiterung der Übersicht), der die Wiki-Seiten direkt rendert: Markdown mit aufgelösten `[[Wikilinks]]` als klickbare In-App-Navigation, Backlinks-Panel, und ein **Graph-View** aus dem Wikilink-Graphen (die Links sind vollständig parsebar; ein neuer read-only Endpunkt `GET /api/v1/graph` liefert Knoten/Kanten, `GET /api/v1/page/*` den gerenderten Seiteninhalt). Bleibt strikt lesend — Schreibzugriff auf den Vault gibt es weiterhin nur über Agent-Runs (Hard Rule 1). obsidian://-Deep-Links und der Copy-Pfad-Fallback bleiben als Brücke bestehen, solange Obsidian parallel genutzt wird.
-
-**Status: UMGESETZT (2026-07-18, nach M5).** Realisiert als fünfter Tab „Vault" mit zwei
-deep-linkbaren Routen (`/vault` = Graph, `/vault/page/<pfad>` = Seite), strikt lesend:
-
-- **Server:** `GET /api/v1/graph` (Knoten je Wiki-Seite, typisiert nach Wiki-Verzeichnis;
-  gerichtete Kanten als Index-Paare; Zähler für unaufgelöste Links) und
-  `GET /api/v1/pages?path=…&full=1` (Volltext + Titel/Typ/mtime). Der Graph-Builder cacht
-  Parses pro Datei über (mtime, size) und liefert bei unverändertem Vault dasselbe Objekt
-  zurück — gemessen am realen Vault: 111 Seiten / 802 Kanten, 35 ms kalt, 2 ms gecacht, 19 KB JSON.
-- **Frontend:** Canvas-2D-Rendering (kein DOM-Knoten pro Seite), d3-force-Simulation in einem
-  Web Worker, die abkühlt und stoppt; Label-Level-of-Detail nach Zoom und Knotengrad,
-  Viewport-Culling, Pan/Zoom/Touch, Nachbarschafts-Hervorhebung. Suche, Typ-Filter und ein
-  lokaler Graph-Modus (BFS-Tiefe 1/2 um eine fokussierte Seite) halten die Ansicht auch bei
-  großem Vault handhabbar. **Zoom-Mechanik "Anker und Leine" (ergänzt 2026-09-05,
-  `web/src/lib/graphZoom.ts`, getestet):** Beim Hineinzoomen zielt das Rad auf den
-  Schwerpunkt der Community in Reichweite (160 px oder innerhalb ihrer Hülle) statt auf den
-  Cursor, solange sie unter etwa 35 % der kürzeren Bildseite füllt; danach gehorcht der Zoom
-  wieder dem Cursor. Nach jedem Zoom und Ziehen hält eine Leine Graph-Box und Bild je Achse
-  auf mindestens 60 % Überlappung, sodass das Bild nie leer wird. Rad-Deltas werden auf Pixel
-  normiert und auf 120 px je Event gekappt (1,10× je 100 px statt 1,16×), der Schritt läuft
-  als kurze Animation nach (bei `prefers-reduced-motion` sofort). Oben rechts eine Minimap
-  (nur sichtbar, wenn der Graph nicht ganz im Bild ist; Klick versetzt das Bild), und wenn
-  kein Knoten im Bild ist, mittig eine Schaltfläche "Go to nearest cluster". Vorher hielt der
-  Zoom nur den Punkt unter dem Cursor fest: neben einem Cluster hineingezoomt, war das Bild
-  nach fünf Rasten leer. Seitenansicht mit Backlinks-/Ausgehend-Panel, Frontmatter als
-  Eigenschaften-Panel und klickbaren `[[Wikilinks]]` (gleiche Auflösungsregel wie serverseitig).
-- **Skalierung** ist bewusstes Entwurfskriterium: der Vault wächst kontinuierlich, und die
-  ruckelnde Obsidian-Graph-View (Abschnitt 3/11) ist genau das, was hier nicht reproduziert
-  werden soll. Der Vault-Tab ist als eigener Chunk code-gesplittet.
-
-Der `obsidian://`-Deep-Link bleibt als Brücke bestehen, ist aber seit 2026-07-18 die
-**Sekundäraktion**: alle Seiten-Links im Dashboard (Übersicht, Ingestion-Historie, Chat-Zitate,
-Wartung) öffnen primär den In-App-Viewer — damit ist das Dashboard aus einem **Windows-Browser**
-vollwertig nutzbar (Windows-Obsidian kann den WSL-Vault über `\\wsl$` nicht öffnen, Abschnitt 3/11).
-
-**Bearbeiten/Löschen (Erweiterung 2026-07-18, User-Entscheidung):** Der Viewer ist nicht mehr rein
-lesend. `PUT /api/v1/pages` (Bearbeiten, mit optimistischem Locking über `baseMtime` → 409 bei
-zwischenzeitlicher Änderung) und `DELETE /api/v1/pages` (Löschen mit Zwei-Schritt-Bestätigung).
-Hard Rule 1 bleibt dem Geist nach intakt und wurde präzisiert: **jede Dashboard-Mutation ist genau
-ein Git-Commit** (`edit: <Seite>` / `delete: <Seite>`), ausgeführt hinter demselben Commit-Mutex
-wie Ingest- und Wartungs-Commits und strikt pfadbegrenzt (kein `git add -A`-Fallback), sodass
-halbfertige Seiten eines parallel laufenden Agent-Runs nie in einen User-Commit geraten. Neue
-Seiten entstehen weiterhin nur über Ingestion/Agent-Runs — das Dashboard editiert und löscht
-Bestehendes. Nach einem Löschen zeigt das Dashboard ein Banner mit der Zahl der dadurch
-verwaisten Backlinks und führt den Nutzer zum Lint-Lauf (dem vault-eigenen Aufräummechanismus
-für hängende Verweise).
-
-**Live-Graph (Erweiterung 2026-07-19, User-Entscheidung):** Der Graph aktualisiert sich live,
-während ein Ingest läuft — man sieht neue Seiten und Verbindungen entstehen, wie früher in der
-Obsidian-Graph-View. Serverseitig beobachtet ein zweiter chokidar-Watcher `VAULT_ROOT/wiki`
-(reine Notification, liest und schreibt keine Seiteninhalte; Hard Rule 1 unberührt) und
-publiziert entprellt (1 s) ein payload-loses SSE-Event `vault`, worauf das Frontend den Graphen
-refetcht. Damit das die flüssige Darstellung nicht gefährdet: Knotenpositionen sind pfad- statt
-indexbasiert (die Knotenliste ist pfadsortiert — ein einziger Neuzugang verschiebt alle
-nachfolgenden Indizes), der Layout-Worker ist langlebig und unterbrechbar (Generationen-Protokoll,
-Timer- statt Blockierschleife) und wird bei kleinen Diffs mit niedrigem Alpha nachgeheizt statt
-neu gestartet; erst ab >20 % neuen Knoten wird kalt neu gelayoutet. Neue Seiten erscheinen am
-Schwerpunkt ihrer bereits platzierten Nachbarn und blinken kurz auf; die Kamera bewegt sich bei
-Live-Updates nie (Auto-Fit nur beim allerersten Layout). Nebeneffekt: auch Filter- und
-Fokuswechsel erhalten jetzt die Positionen, statt die Simulation neu zu würfeln.
-
-**Meta-Kategorien, Stufe 1 (2026-07-19, User-Entscheidung):** Der Graph kennt jetzt die
-thematische Achse zusätzlich zur strukturellen: Der Graph-Builder parst im selben Lesedurchgang
-das Frontmatter (`tags:` als Block- oder Inline-Liste, `domain:`) und legt beides auf jeden
-Knoten. Im Vault-Tab gibt es dazu eine zweite Filterzeile nach Domäne — Seiten ohne `domain:`
-bilden bewusst einen sichtbaren „ohne Domäne"-Bucket (die Evidenz für den geplanten Backfill,
-keine Blindstelle), einen Umschalter „nach Domäne färben" (deterministische Hash-Farben pro
-Domänenname; die Filter-Chips tragen denselben Farbpunkt und sind damit die Legende), und die
-Suche matcht Titel **und** Tags.
-
-**Meta-Kategorien, Stufe 2 (2026-07-19, User-Entscheidung):** Die Domänen sind jetzt eine
-geschlossene, bewachte Liste statt eines frei beschreibbaren Feldes.
-
-- **Registry als Vault-Seite** (`wiki/meta/domains.md`): führt die erlaubten Domänen mit
-  Beschreibung und Tag-Hinweisen. Sie liegt bewusst im Vault und nicht in der DB — git-versioniert
-  mit dem Inhalt, den sie beschreibt, im Dashboard-Seiteneditor pflegbar und für Agent-Runs ohne
-  Zusatzverdrahtung lesbar. Das Saatgut liegt im Repo (`scripts/vault-extensions/domains.md`,
-  installiert von `scripts/install-domain-registry.sh`, nicht-destruktiv); ab Installation ist die
-  Vault-Kopie die Source of Truth und der Service liest sie nur (Hard Rule 1). Initialer Zuschnitt:
-  `biomedicine`, `finance`, `cooking`, `knowledge-management`, `ai-tooling`, `meta` — plus den
-  Sentinel `unassigned`.
-- **Agent-Vorgabe:** Jeder schreibende Run (Ingest, Backfill, Lint, Autoresearch) bekommt die
-  Registry über die System-Prompt-Extension (`RunAgentOptions.systemPromptExtra`, der von Hard
-  Rule 5 sanktionierte Erweiterungsweg) als geschlossene Liste: genau einen Schlüssel daraus
-  setzen, sonst `unassigned` — **niemals einen neuen Schlüssel erfinden**. Neue Domänen entstehen
-  ausschließlich dadurch, dass ein Mensch die Registry-Seite editiert. Die Liste wird pro Run frisch
-  gelesen, eine Registry-Änderung wirkt also ohne Neustart. Ohne installierte Registry ist die
-  Extension leer und alles verhält sich wie zuvor.
-- **Backfill** als Wartungs-Aktion (`POST /api/v1/maintenance/domain-backfill`, Kind
-  `domain-backfill`): ein Agent-Run, der Bestandsseiten nachsortiert — Werte, die vor der Registry
-  entstanden sind (`investment-funds`, `mrna-delivery`), werden auf die gültige Domäne umgehängt.
-  Ausdrücklich nur das Frontmatter-Feld; Seiteninhalte, andere Felder und die Registry selbst bleiben
-  unangetastet, und es entstehen keine neuen Seiten. Ohne Registry antwortet die Route `409` statt
-  den Agenten improvisieren zu lassen. Nebenbei billig: der Semantic-Tiling-Cache des Vaults hasht
-  Seiten-**Bodies**, ein reiner Frontmatter-Backfill invalidiert ihn also nicht.
-- **Sichtbarkeit:** `GET /api/v1/domains` meldet, ob eine Registry installiert ist und was sie
-  enthält; die Wartungs-Karte zeigt die Domänen und die Zahl der Seiten ohne Domäne — genau die
-  Zahl, an der man sieht, ob ein Backfill fällig ist.
-
-**Meta-Kategorien, Stufe 3 (2026-07-19, User-Entscheidung):** Die Governance-Schleife, die neue
-Domänen aus Evidenz **vorschlägt** — entschieden wird weiterhin vom Nutzer.
-
-- **Kandidaten-Findung, deterministisch und kostenlos** (`pipeline/domain-candidates.ts`):
-  tag-zentriert statt generischer Community-Detection, weil das Ergebnis eine Registry-Zeile
-  werden muss und die aus `key + description + tags` besteht — ein Tag auf N `unassigned`-Seiten
-  *ist* der Vorschlag, und „5 Seiten tragen `design`, keine Domäne deckt das ab" ist in einem
-  Blick prüfbar. Schwelle ≥5 Seiten. Tags, die eine bestehende Domäne bereits beansprucht,
-  scheiden aus (das ist eine Fehleinsortierung für den Backfill, kein fehlendes Fach); ebenso
-  strukturelle Tags (`person`, `organization`, …), die sagen was eine Seite *ist* statt worum es
-  geht. Tags mit stark überlappenden Seitenmengen werden zusammengefasst. Der Wikilink-Graph
-  liefert ein **Kohäsionsmaß** (hängen die Seiten auch untereinander?), ist aber ausdrücklich
-  nicht der Clustering-Motor. Gezählt wird nur explizites `unassigned`; Seiten ganz ohne
-  `domain:`-Feld werden separat gemeldet, weil sie „nie klassifiziert" heißen und nicht „nichts
-  passt" — sie würden die Analyse verwässern.
-- **Agent-Bewertung, optional und abschaltbar** (`domain-review`): ein Toggle in der UI
-  entscheidet, ob zusätzlich ein Agent-Lauf die Kandidaten beurteilt — `new-domain` (mit
-  Namensvorschlag), `existing` (gehört in eine vorhandene Domäne) oder `not-a-domain`. Der Lauf
-  ist **read-only**: er gibt eine Meinung ab und fasst keine Datei an, denn neue Schlüssel kommen
-  per Definition von Menschen. Sein Ergebnis ist die Antwort selbst, geparst
-  (`pipeline/domain-review.ts`) — bewusst ohne Report-Datei im Vault, weil ein Vorschlag flüchtig
-  ist und sonst bei jedem „Nein" Müll zurückbliebe. Kandidaten werden serverseitig neu berechnet,
-  damit ein veralteter Browser-Tab keinen Lauf auf verschwundene Themen auslösen kann.
-- **Entscheiden:** `POST /api/v1/domains` legt eine Domäne an, indem es die Registry-Seite um
-  einen Abschnitt ergänzt — als **ein** Git-Commit (`domains: add <key>`) hinter demselben
-  Commit-Mutex und mit exaktem Pathspec wie ein Nutzer-Seiten-Edit. Read-modify-write liegt im
-  Mutex, damit zwei parallele Anlagen sich nicht überschreiben. Ein verworfener Kandidat wird in
-  SQLite gemerkt (`domain_dismissals`, Migration v5) — ohne dieses Gedächtnis schlüge die
-  Schleife dasselbe Thema endlos vor. Verworfenes ist einzeln zurückholbar.
-- **Selbstheilung:** Nach dem Anlegen verschwindet ein Kandidat schon deshalb, weil seine Tags
-  nun einer Domäne gehören; der Dismissal ist nur die zusätzliche Sicherung für die Zeit bis zum
-  nächsten Backfill.
-
-**Lücken auflösen statt füllen (ergänzt 2026-09-05).** Die Gaps-Sicht des Home-Panels ("Worth a
-run") bot bisher nur einen Ausweg aus einer Lücke: Research. Viele Lücken verdienen aber nie eine
-Seite (Einzelerwähnungen, Bildunterschriften, Callout-Titel, die ein Ingest reflexhaft verlinkt
-hat). Jede Karte trägt deshalb ein Pick-Element; die Auswahl (max. 20) startet mit zweistufiger
-Bestätigung **einen** Maintenance-Run der Art `cleanup` im Modus `gap`
-(`POST /api/v1/maintenance/cleanup` mit `mode: 'gap'`): der Agent wandelt jeden Wikilink auf
-diese Titel in Fließtext um, entfernt reine Verweis-Einträge aus Index-/Overview-Seiten, legt
-keine Seite an und löscht keine, lässt `log.md`, `hot.md` und `.raw/.manifest.json` unangetastet;
-ein Commit, revertierbar über den Aktivitätsstrom. Serverseitig muss jeder Titel eine offene Lücke
-des **Live-Graphen** sein, ein unbekannter Titel weist die ganze Anfrage ab (dasselbe Prinzip wie
-beim Repair-Run). Bewusst kein deterministisches Regex-Unlinken aus Pipeline-Code (Hard Rule 1),
-und bewusst kein Gedächtnis für aufgelöste Titel: die Notability-Regeln im System-Prompt sollen
-Wiederkehrer verhindern; kommt eine Lücke trotzdem zurück, ist das ein Befund über den Ingest.
-Damit das aufgeht, nominieren `wiki/log.md` (append-only Journal des Ingest-Skills) und
-`wiki/hot.md` (Cache) **keine** Lücken: ein Link dort ist Protokoll bzw. Cache, keine Behauptung,
-dass eine Seite fehlt. Vorher blieben sechs von sieben entlinkten Titeln in der Liste, weil das
-Journal sie weiter nannte, und dasselbe galt für jede vom Nutzer gelöschte Seite. Die Links
-zählen weiterhin als `unresolved`, nur nicht als Lücke.
-
-### 12.5 Reihenfolge
-
-Empfohlener Ausbaupfad nach v1-Stabilisierung: (1) Tailnet-Zugriff + Auth-Aktivierung (kleinster Schritt, sofortiger Mobile-Nutzen), (2) PWA-Share-Target, (3) Multi-User-Rollen, (4) Umzug auf Always-on-Host per Docker, (5) Git-Remote-Workflow für Zweitgerät-Edits. ~~(6) In-Dashboard Vault-Viewer~~ — **vorgezogen und am 2026-07-18 umgesetzt** (12.4); die Obsidian-App ist damit im Alltag optional.
-
-### 12.6 Hybrides Retrieval auf Chunk-Ebene (ergänzt 2026-07-23)
-
-**Motivation:** Der Query-Pfad liest bisher seitengranular (`hot.md` → `index.md` → 3-5 ganze Seiten) und verliert immer dann, wenn die Antwort in einer einzelnen Passage einer unauffällig betitelten Seite steckt. Der Vault bringt seit v1.7 den opt-in Skill `wiki-retrieve` mit (Chunking + Kontext-Prefix + BM25 + Cosine-Rerank nach Anthropics Contextual-Retrieval-Verfahren), inklusive Feature-Detection in `wiki-query` und `autoresearch`: Sobald der Index existiert, nutzen die Skills ihn von selbst und fallen sauber auf den alten Pfad zurück, wenn nicht. Der Service übernimmt Provisionierung und Frische des Index; am Chat-UI ändert sich nichts.
-
-**Ausbau in drei Stufen, jede einzeln abgenommen (Task-Liste: `docs/tasks/TASKS-RETRIEVE.md`):**
-
-1. **BM25-only (keine neuen Abhängigkeiten):** synthetische Chunk-Prefixes (`contextual-prefix.py` ohne `--allow-egress`), BM25-Index, Queries mit `--no-rerank`. Zur Query-Zeit gibt es nur Lesezugriffe — das read-only-Sandbox-Profil bleibt unverändert.
-2. **Rerank (lokal) — gebaut, aber per Default AUS (Stand 2026-07-23):** Kosinus-Rerank über ollama (`nomic-embed-text`, `127.0.0.1:11434`). **Korrektur der ursprünglichen Planung:** Vorgesehen waren eine localhost-Netz-Ausnahme und eine Schreib-Ausnahme in der Sandbox des Query-Profils. Beide wurden **nicht** gebaut und sollen nicht gebaut werden. Stattdessen läuft das Retrieval **im Service-Prozess** (`retrieveCandidates`), bevor der Agent startet; der Agent bekommt nur die gerankten Seiten an der Frage übergeben. Damit bleibt das read-only-Profil unverändert streng — was besonders wichtig ist, weil die lokale ollama-API unauthentifiziert ist und über `/api/pull` Modelle aus dem Internet nachladen kann, ein Loopback-Loch also einen indirekten Egress-Kanal geschaffen hätte. Nebeneffekt: Das Retrieval wird deterministisch, statt davon abzuhängen, ob das Modell es von sich aus aufruft. **Der Rerank selbst ist per Default deaktiviert**, weil eine Messung über 35 gelabelte Fälle keinen Nutzen zeigte (BM25 allein 97% Top-5 gegenüber 94% mit Rerank; Top-1 69% gegenüber 54%) — Details in `docs/tasks/TASKS-RETRIEVE.md` F-R13. **ollama ist damit keine Voraussetzung des Services**, sondern nur für erneute Vergleichsmessungen nötig; es taucht bewusst in keinem Setup-Skript und in keiner Requirements-Liste auf.
-3. **Echte Kontext-Prefixes (Egress, opt-in): NICHT GEPLANT (Stand 2026-07-23).** Ursprünglich vorgesehen war Prefix-Generierung über die Service-Credential hinter einem Default-aus-Setting. Die Messung aus Stufe 2 hat die Stufe erledigt: Bei 97% Top-5 mit BM25 allein liegt der gesamte verbleibende Spielraum bei rund einem Fall von 35 — zu wenig für laufende Kosten und für den einzigen Egress-Pfad im gesamten Retrieval-Design. Sollte der Vault deutlich wachsen und eine Wiederholungsmessung eine sinkende Trefferquote zeigen, wird neu entschieden.
-
-**Index-Bau als deterministischer Pipeline-Schritt (Präzisierung von Hard Rule 1):** Die Index-Skripte des Vaults schreiben ausschließlich abgeleitete, jederzeit neu erzeugbare Artefakte unter `.vault-meta/` (`chunks/`, `bm25/`, `embed-cache.json`). Diese Schreibzugriffe darf Pipeline-Code direkt ausführen (Kindprozess der Vault-eigenen Skripte, ohne LLM) — ein Agent-Lauf für einen mechanischen Index-Rebuild wäre Verschwendung. Wiki-Inhalte bleiben unverändert Agent-Läufen vorbehalten. Die Artefakte werden **nicht** versioniert: Sie sind über `.git/info/exclude` des Vault-Klons ausgeschlossen (repo-lokal, kein Eingriff in getrackte Dateien des geclonten Repos, Hard Rule 5). Der Ausschluss ist zugleich die Voraussetzung dafür, dass die `BOOKKEEPING_PATHS`-Staging-Regel (`.vault-meta` fährt bei jedem Commit mit) die Artefakte nicht in Ingest-Commits spült.
-
-**Frische:** Der Index aktualisiert sich nicht selbst. Ein Wartungslauf der Art `retrieve-index` (deterministisch, kein Agent, keine Credential nötig, daher auch im Setup-Modus erlaubt) läuft debounced nach abgeschlossenen Ingests (ein Rebuild pro Ruhefenster, Default 5 min) und ist manuell über `POST /api/v1/maintenance/retrieve-index` auslösbar; `GET` auf denselben Pfad liefert Provisionierungsstatus, Chunk-Zahl und Index-Alter für die Wartungs-Karte.
-
-### 12.7 Wartung als geführter Workflow ("Vault-Check", ergänzt 2026-07-24)
-
-**Motivation (Deep-Review-Befund):** Der Wartungs-Tab ist über die Stufen 12.4/12.6 zu einer Sammlung gleichrangiger Einzelkarten gewachsen. Die Abhängigkeitskette zwischen den Aktionen existiert im Code, ist aber nur verstreut sichtbar (deaktivierter Button hier, Hinweistext dort) - und die Karten zeigen Befunde statt Empfehlungen. Zwei Symptome standen exemplarisch am Anfang: (1) Beim Anlegen einer vorgeschlagenen Domäne war ohne Agent-Review nur der Key vorbefüllt, die Description leer und der vorgeschlagene Tag mit dem Key identisch - der Nutzer musste die anspruchsvollste Aufgabe (eine erweiterbar formulierte Beschreibung) allein leisten. (2) Der Tag-Report verlangte pro Zeile eine Bewertung, deren Grundlage (die Heuristik-Schwellen) unsichtbar war, und zwei Drittel seiner Fläche waren nicht-handlungsfähige Beobachtungen im selben Layout wie die reparierbaren Funde.
-
-**Zielbild - drei Schichten über denselben Backend-Aktionen:**
-
-1. **Statusschicht ("Was steht an"):** Ein deterministischer, kostenloser Check (Graph, `undomainedCount`, Kandidatenliste, Tag-Report, Alter von Lint-Report/Hot-Cache/Index) erzeugt eine priorisierte Punkteliste. Jeder Punkt trägt drei Felder - *Was* (ein Satz), *Warum jetzt* (ein Satz mit der konkreten Zahl), *Kosten* (Agent-Run vs. deterministisch) - und eine von drei Dringlichkeiten mit tab-weiter Farbsemantik: **fällig** (blockiert anderes oder senkt Qualität), **empfohlen**, **Info/gesund**. "Alles gesund" ist ein expliziter Zustand, kein leerer Bildschirm.
-2. **Geführter Durchlauf:** Ein Button arbeitet die fälligen Punkte als Sequenz ab. Zwei Schritttypen: **Automatikschritte** (Backfill, Lint, Lint-Fix, Hot Cache, Index) laufen ohne Rückfrage nacheinander (eine Queue vor dem bestehenden `runMutex`; jeder Schritt bleibt ein eigener revertierbarer Commit); **Entscheidungsschritte** stoppen mit genau einer Frage pro Screen und fertigen Empfehlungen (Domain-Anlage mit Key + Beschreibungsentwurf + Tags; Tag-Reparaturen vorselektiert). Der Nutzer kuratiert (annehmen / bearbeiten / überspringen), statt zu konfigurieren; Übersprungenes kommt beim nächsten Durchlauf wieder. Reihenfolge = Abhängigkeitskette: Backfill → Domain-Entscheidungen (inkl. eines read-only Reviews über alle offenen Kandidaten als fester Bestandteil) → Folge-Backfill für neue Domänen (schließt die bisher stille Lücke, dass `POST /domains` nur die Registry schreibt) → Tag-Reparaturen → Lint + Safe-Fixes → Hot Cache. Der Retrieval-Index bleibt außen vor (aktualisiert sich debounced von selbst, 12.6). Am Ende eine Zusammenfassung: gelaufene Schritte, entstandene Commits (einzeln revertierbar), offene manuelle Punkte.
-3. **Expertenansicht:** Die bestehenden Karten bleiben als zweite Ansicht erhalten (jede Aktion einzeln, gleiche Endpunkte) - vereinheitlicht auf eine Heading-Skala, einen Empty-State-Stil, eine Ergebnisfläche und die Severity-Chips der Statusschicht.
-
-**Gestaltungsprinzipien:** Empfehlungen sind vorselektiert, wo die Richtung eindeutig ist (Abwählen statt Ankreuzen); jede Empfehlung trägt eine Klartext-Begründung statt unsichtbarer Schwellwerte; nicht-handlungsfähige Befunde (implizierte Tags, Single-Use-Tags) sind als "Beobachtungen" eingeklappt und verlassen den Entscheidungspfad; Querbezüge werden verdrahtet statt beschrieben (ein `unassigned`-Echo im Tag-Report *ist* ein Domain-Kandidat und erscheint dort, nicht als Tag-Problem).
-
-**Persistenz (Stufe b):** Eine SQLite-Tabelle `maintenance_state` (Migration v10; eine Zeile pro Run-Kind, beim Settle upserted: ok/pages/error/finished_at; rein operational, Hard Rule 1 unberührt) macht "zuletzt erledigt" und das "N Punkte fällig"-Badge im Übersichts-Tab Restart-fest — die Run-Historie des Runners selbst bleibt bewusst eine begrenzte In-Memory-Map. `GET /api/v1/maintenance/state` liefert den Stand; Bereiche mit Vault-Fakten (Lint-Report-Datei, hot.md-mtime, Index-Artefakte) behalten diese als primäre Quelle, die Tabelle füllt die Lücken (tag-fix, backfill) und hält Fehlschläge fest. Der optionale Wochen-Lint aus 6.4 geht hier auf: ein Scheduler führt nur den Check (und optional den Lint) aus und setzt Punkte auf die Liste - nie ungefragt Entscheidungsschritte.
-
-**Stufenplan (jede Stufe einzeln auslieferbar):**
-
-- **Stufe (a) - Quick Wins in den bestehenden Karten, umgesetzt 2026-07-24:** Tag-Report mit vorselektierten konfliktfreien Reparaturen und Klartext-Begründung pro Zeile; implizierte + Single-Use-Tags zu eingeklappten "Beobachtungen" degradiert; Agent-Review der Domain-Kandidaten per Default aktiv; deterministischer Beschreibungsentwurf, damit das Description-Feld nie leer startet (Agent-Vorschlag gewinnt, wenn vorhanden); nach Domain-Anlage expliziter Backfill-Prompt in der Karte.
-- **Stufe (b) - Statusmodell, umgesetzt 2026-07-25:** Deterministische Ableitung (`web/src/lib/maintenanceStatus.ts`, pure Funktion über Daten, die das Dashboard ohnehin lädt: Graph/Tag-Report, Kandidaten, Report-/Cache-/Index-Alter; Schwellen: Lint 14 Tage, Hot Cache 7 Tage) → "What's due"-Kopf über den Karten mit Severity-Chips (due/soon/healthy), Was/Warum-jetzt/Kosten pro Punkt und Sprung zur jeweiligen Karte; gesunde Bereiche eingeklappt, "alles gesund" als expliziter Zustand. Die Expertenkarten sind seitdem wirklich die ZWEITE Ansicht: standardmäßig hinter einem "Expert tools"-Toggle eingeklappt (Klick auf einen Status-Punkt öffnet sie und springt zur Karte; Setup-Modus öffnet sie automatisch, weil die Credential-Eingabe in Settings liegt), und die Seitenlisten der Domain-Kandidaten sind hinter "Show N pages" zusammengefaltet. `maintenance_state` (s.o.) liefert die Restart-festen "last run"-Fakten für Bereiche ohne Vault-Datei; Badge im Übersichts-Statusstreifen ("Maintenance: N due") verlinkt in den Tab und schweigt, wenn nichts ansteht.
-- **Stufe (c) - geführter Durchlauf, umgesetzt 2026-07-25:** "Start maintenance run" im Status-Kopf (sichtbar, sobald etwas ansteht). Der Plan wird deterministisch aus dem Statusmodell gebaut (`buildRunPlan`: nur fällige/empfohlene Schritte, in Abhängigkeitsreihenfolge; der Index nie - er aktualisiert sich selbst). Die Sequenzierung ist **client-getrieben** über die bestehenden Endpoints statt einer Server-Queue - der `runMutex` serialisiert die Vault-Schreiber ohnehin, jeder Schritt bleibt ein eigener revertierbarer Commit, und ein geschlossener Tab kostet nur die Wizard-Position, nie Arbeit. Automatikschritte (Backfill, Folge-Backfill, Lint→Safe-Fixes verkettet, Hot Cache) starten selbst, streamen ihr Log und schalten beim Settle weiter (Fehler: Retry/Skip); Entscheidungsschritte betten DIESELBEN Komponenten ein, die auch die Expertenkarten nutzen (eine Implementierung pro Entscheidungsfläche): Domain-Entscheidungen mit automatisch gestartetem read-only Review, Tag-Reparaturen mit Vorselektion. Der Folge-Backfill überspringt sich selbst, wenn nichts angelegt wurde. Am Ende eine Zusammenfassung (done/skipped/failed je Schritt). **Noch offen:** der optionale Check-Turnus (Scheduler, der periodisch nur den Check ausführt und Punkte auf die Liste setzt). `contextual-prefix.py --all` arbeitet inkrementell (nur geänderte Seiten), der BM25-Rebuild ist reines Python und billig.
-
-### 12.8 Demo-Modus (ergänzt 2026-09-01)
-
-Ein Betriebsmodus für eine öffentlich gehostete, strikt lesende Instanz (`DEMO_MODE=1`): Besucher können einen Vault vollständig durchstöbern (Home, Graph, Library, Seitenansicht, Suche), aber nichts verändern und nichts starten, das einen Agenten spawnt oder Kosten erzeugt.
-
-**Garantien, in Schichten:**
-
-1. **Ein zentraler Request-Guard** in `buildServer`: Jede Nicht-Lese-Anfrage (`!GET`/`!HEAD`, unabhängig vom Pfad) wird vor jedem Routen-Handler mit `403 { error: "demo_read_only" }` abgewiesen. Neue mutierende Endpunkte sind damit automatisch abgedeckt - der Guard ist die Grenze, nicht die Einzelroute (dasselbe Prinzip wie die Sandbox in Hard Rule 4). Der Guard prüft bewusst nur das Verb: eine frühere Fassung verlangte zusätzlich das Präfix `/api/` in der rohen URL, und ein prozentkodierter Pfad wie `/%61pi/v1/pages` kam daran vorbei, weil der Router den Pfad vor dem Matching dekodiert, der Hook ihn aber undekodiert sah. Außerhalb der API nimmt nichts Schreibzugriffe an, die Pfadbedingung brachte also nichts und kostete die Garantie.
-2. **Passive Startaufstellung** in `startService`, als Defense in depth unterhalb des Guards: Ingest-Queue, Inbox-Watcher, Telegram-Bot, Retrieval-Index-Scheduler und Vault-Reconciler (ein Vault-SCHREIBER) werden im Demo-Modus gar nicht erst gestartet. Der Vault-Watcher (read-only SSE-Signal) läuft weiter.
-3. **Kein Credential nötig oder erwartet:** Die Demo-Instanz läuft bewusst ohne Anthropic-Credential; der Setup-Modus-Hinweis entfällt (Demo gewinnt über Setup - das ist der Normalzustand der Instanz, keine Onboarding-Lücke).
-
-**Oberfläche:** `GET /api/v1/health` meldet `demoMode: true`. Das Dashboard zeigt statt des Setup-Banners einen Read-only-Hinweis; Research und System bleiben als Tabs sichtbar, rendern aber eine Erklärfläche (Feature existiert, ist in der gehosteten Demo abgeschaltet, Verweis auf lokalen Betrieb); Intake-Flächen (Dropzone, globales Drag-and-drop) entfallen. `GET /api/v1/settings` nennt im Demo-Modus weder Vault-Pfad noch Watch-Ordner noch Bind-Adresse - eine öffentliche Instanz hat keinen Grund, ihr Dateisystem-Layout preiszugeben.
-
-**Abgrenzung:** Der Demo-Modus ändert nichts an Hard Rule 2 (Bind-Policy) - eine öffentliche Demo steht hinter einem Reverse Proxy, der Dienst selbst bindet weiter `127.0.0.1`. Er ist orthogonal zum Setup-Modus und zu `HTTP_AUTH_MODE`.
+1. **Obsidian via `\\wsl$`: RESOLVED in M0 (the finding corrects the original assumption).** 9p *sluggishness* was expected; in fact **Obsidian for Windows does not open the WSL vault at all** (`EISDIR … watch`, won't-fix). Chosen solution: **Obsidian in WSLg** (Linux app in WSL, vault stays on ext4). Remaining limitation: the graph view stutters (WSLg software rendering), typing and opening are fluid; not a file-system problem, verified with a 249-note test. The drvfs fallback worry about `wiki-lock.sh` is settled: locking passes all tests there.
+2. **Skill determinism under full automation:** The ingest skill is designed for interactive use and may ask questions. Mitigation: system-prompt extension "no questions, document defaults"; validate against real sources in M1 and, if needed, add a thin auto-ingest wrapper skill to the vault repo.
+3. **Usage limits/cost:** In subscription mode the automation competes with interactive use for the same limits; in API-key mode real cost arises. Mitigation: rate-limit pause with auto-resume (7.1), token usage visible per job, configurable daily budget (jobs/day in subscription mode, USD in API mode; the queue pauses when exceeded).
+4. **Repo evolution:** claude-obsidian evolves quickly (v1.7 to v1.9 within months). Mitigation: vault as a fork pinned to a tested version; upgrades deliberately.
+5. **Concurrent manual use:** The user works with Claude Code in the vault while the pipeline runs. The repo's advisory locking addresses this; still test explicitly in M1.
+6. **Open:** Several watch folders with different target domains? Daily limit size? Model choice per job type (a small model for simple texts, a large one for complex papers)? Decide after the first operating experience (M5).
 
 ---
 
-### 12.9 Dedupe in drei Stufen und das Ergebnis "no changes" (ergänzt 2026-09-05)
+## 12. Mid-term extensions: multi-user, sync, mobile
 
-Anlass: Ein bereits ingestiertes Paper wurde erneut gedroppt und lief trotzdem durch einen vollen Agent-Run, der nach elf Turns selbst feststellte, dass es nichts zu tun gab. Zwei unabhängige Lücken: die `jobs`-Zeile der ersten Ingestion war durch "Verlauf leeren" gelöscht (und mit ihr der Hash), und das neu heruntergeladene PDF hatte ohnehin andere Bytes, weil der Verlag ein Download-Wasserzeichen mit Datum einbettet. Ein Byte-Hash kann diese Klasse prinzipiell nicht erkennen.
+These three requirements are architecturally connected and are therefore thought through together. The guiding decision: **server-centric instead of file sync.** The service on the main machine remains the only writer of the vault; other users and devices reach the same server through the HTTP API instead of synchronizing vault copies. Rationale: claude-obsidian's advisory locking (`wiki-lock.sh`) works only within one machine; if several devices each wrote a vault copy via file sync (Syncthing, Obsidian Sync) *and* ran their own ingestion pipelines there, merge conflicts in index, log and hot cache would be unavoidable. A central server with a queue serializes all writes by nature; the v1 architecture (API-first, queue as single writer) is already the right shape for that.
 
-**Stufe 1 - Hash, im Vault erinnert.** Beim Enqueue wird der SHA-256 nicht nur gegen `jobs.sha256` geprüft, sondern auch gegen die `sha256`-Felder aller `.raw/<job-id>/manifest.json`, die der Service selbst beim Preprocessing schreibt. Ein Treffer erzeugt die `duplicate`-Zeile genau wie ein Treffer in `jobs`, mit `duplicate_of` = Verzeichnisname (die Job-ID). Damit überlebt Dedupe das Leeren des Verlaufs und sogar den Verlust der DB (Hard Rule 1, §8). Existiert die `jobs`-Zeile noch, gewinnt sie als Verweis, weil das Dashboard sie öffnen kann. Lesend, ohne Vault-Schreibzugriff; der Index liest nur, was sich seit dem letzten Aufruf geändert hat.
+### 12.1 Multi-user
 
-**Stufe 2 - DOI, nach dem Preprocessing, vor dem Run.** Aus dem normalisierten Text wird die DOI bestimmt, mit der sich das Dokument selbst bezeichnet (Kandidaten aus dem Kopf des whitespace-kollabierten Textes, bei mehreren die im Dokument häufigste, weil Verlags-Wasserzeichen die eigene DOI auf jeder Seite wiederholen; Referenzlisten liegen außerhalb des Kopfes). Deklariert eine Source-Seite unter `wiki/sources/` diese DOI in ihrem Frontmatter (`url:`/`doi:`), geht der Job `preprocessing → duplicate` (neuer, einziger Übergang zu `duplicate`), `error` trägt die Erklärung mit Seite und DOI, `duplicate_of` den Job aus `.raw/.manifest.json`, wenn die Delta-Historie des Skills die Seite einem Raw-Pfad zuordnet. Schutz gegen Selbsterkennung: eine Seite, die dieser Job selbst erzeugt hat oder die jünger ist als der Job, gilt nicht als Vorläufer. Batches: das Duplikat fällt aus dem kombinierten Run, die übrigen Mitglieder laufen. Die nie committete Staging-Kopie `.raw/<job-id>/` wird entfernt, aber nur, wenn Git nichts darunter kennt (sanktionierte Ausnahme in CLAUDE.md Hard Rule 1); ein versioniertes Original bleibt unangetastet. Telegram meldet ein spät erkanntes Duplikat in den Chat wie einen Abschluss. Der Seitenkörper wird bewusst **nicht** durchsucht: ein Review zitiert Dutzende fremde DOIs. **Notausgang** für eine Fehlzuordnung: Einstellung `doiDedupe` (Standard an, live wirksam, System → Service) ausschalten und die Datei erneut droppen.
+**v1 provisions (already in place):** auth middleware in front of all endpoints ("local-single-user" mode), `user_id` columns in `jobs` and `sessions` (default `'local'`), `users` table with a seed entry, versioned API.
 
-**Stufe 3 - Ergebnis "no changes".** Ein `done`-Run, dessen eigener Commit gelandet ist und keine Wiki-Seite trug, und für den auch die Nachschau (`recoverPageRecord`) keine Seiten findet, erhält `outcome = 'no-changes'` (Migration v14) plus eine Warnzeile im Log. Das Dashboard zeigt das als Badge und Erklärzeile; die Telegram-Meldung sagt es ebenfalls. Der Commit bleibt (er trägt das gestagte Original und die Manifest-Notiz des Skills), damit der Run nachvollziehbar ist. Ein übersprungener oder fehlgeschlagener Commit sagt nichts über den Run aus und markiert nichts.
+**Build-out stage:** activation of the auth mode (token/password per user, Argon2 hash in `users.token_hash`), login screen in the frontend, roles `admin` (settings, maintenance, all jobs) and `member` (own jobs, query, ingestion). Chat sessions are private per user; the vault itself stays **shared** in the first multi-user stage (one common second brain, which is the point of a shared vault). Should separate knowledge spaces become necessary later, the extension "several vaults per server" (vault registry table, `vault_id` on jobs/sessions) is the clean way; v1 therefore avoids hard-coded single-vault assumptions in the path logic (vault root as a configuration value, passed through everywhere instead of a global constant).
 
-**Kompatibilität mit claude-obsidian:** Alle drei Stufen sind lesend gegenüber dem Vault-Inhalt. Sie nutzen ausschließlich Artefakte, die das Repo ohnehin vorsieht (Source-Frontmatter mit `url:`, die Delta-Historie `.raw/.manifest.json` des `wiki-ingest`-Skills) oder die der Service selbst schreibt (`.raw/<job-id>/manifest.json`). Der Skill-eigene Manifest-Check (Pfad + Hash) bleibt unverändert; er greift bei Service-Ingests nie, weil jeder Job einen neuen Raw-Pfad bekommt, weshalb der Service die Prüfung vor dem Run übernimmt.
+### 12.2 Access across devices ("sync")
 
-**Abgrenzung:** URL-Jobs bleiben unadressiert (kein Hash), Textnotizen werden über den Hash des Textes dedupliziert. Eine inhaltliche Dedupe ohne DOI (Titel-Ähnlichkeit, whitespace-normalisierter Text-Hash) ist bewusst nicht gebaut: zu fragil für den Preis einer Fehlzuordnung.
+**Model:** No vault sync between devices, but remote access to the one server. The simplest secure way is an overlay network (Tailscale/WireGuard): the service is additionally bound to the tailnet address (with auth then enforced, see the guard in section 9) and reachable from all of one's own devices without opening a port to the internet. Alternative for public access: a reverse proxy (Caddy) with TLS + auth.
 
+**Read access to the notes themselves** (Obsidian on a second device) remains possible via git; the service commits every ingest anyway. A `git remote` (private repo or self-hosted via Gitea) plus a pull on the second device yields a read-only or carefully-writing copy. Rule the spec fixes: **automated writers exist only on the server.** Manual edits from second devices go through git push and are pulled by the server before the next ingest (a pipeline step "pull before ingest" is added in this build-out stage; a conflict pauses the queue and reports in the dashboard).
+
+**Prerequisite:** The main machine has to be reachable when other devices access it. Mid-term, moving the service from WSL2 to a small always-on host (home server, NUC, VPS) is therefore the natural step; the stack's container capability (pure Linux userland, no Windows dependencies in the service itself) is the v1 provision for that: a Dockerfile belongs to the repo from M5 on, even if it is not needed under WSL2.
+
+### 12.3 Mobile use
+
+**v1 provisions (already in place):** frontend responsive for narrow viewports, PWA manifest (installable on the home screen), SSE instead of WebSockets (more robust across proxies and mobile networks).
+
+**Build-out stage:** Once the server is reachable via the tailnet (12.2), the dashboard works on the smartphone without further code. Mobile-specific additions after that: a share target in the PWA manifest so "Share → Vault" creates a URL or file job from any app (the mobile counterpart of the watch folder); camera upload in the dropzone (photo of a document → image ingest); optionally push notifications for failed jobs (Web Push). A native app is not planned; the PWA covers the requirements.
+
+**Partial coverage by the Telegram bot (2026-07-20):** The bot added in section 4.3 already covers the mobile ingest and status use case without a tailnet, including the completion message as a substitute for Web Push, on every platform (iOS does not support the web share target). The build-out stage above remains the more private path (content does not leave one's own devices) and the only one with full dashboard access (chat, graph, maintenance); the two complement each other. For 12.2 the preferred variant has since been `tailscale serve` (TLS termination at the MagicDNS name, proxy to `127.0.0.1:8420`): the service stays loopback-bound, the guard from section 9 is not touched at all, HTTPS for PWA installation and share target comes for free, and the frontend needs no token handling (access control = tailnet membership; the token mode remains as a hardening option).
+
+### 12.4 In-dashboard vault viewer (pages + graph)
+
+**Motivation (from M3 operation):** The vault is the source of truth (Obsidian-flavored Markdown + wikilinks + git, the "backend format"); Obsidian-the-**app** is only *one* viewer and deliberately optional. Two points of friction point in the same direction: (a) the Windows Obsidian does not open the WSL vault via `\\wsl$` at all (`EISDIR … watch`, sections 3/11), and (b) the graph view of the WSLg Linux Obsidian stutters for lack of a GPU. A **read-only vault viewer in the dashboard** avoids both and makes the Obsidian app dispensable for everyday use; the vault remains the storage format, unchanged.
+
+**Build-out stage:** An additional area (or an extension of the overview) that renders the wiki pages directly: Markdown with resolved `[[wikilinks]]` as clickable in-app navigation, a backlinks panel, and a **graph view** from the wikilink graph (the links are fully parseable; a new read-only endpoint `GET /api/v1/graph` delivers nodes/edges, `GET /api/v1/page/*` the rendered page content). Stays strictly read-only; write access to the vault continues to exist only through agent runs (hard rule 1). obsidian:// deep links and the copy-path fallback remain as a bridge as long as Obsidian is used in parallel.
+
+**Status: IMPLEMENTED (2026-07-18, after M5).** Realized as a fifth tab "Vault" with two
+deep-linkable routes (`/vault` = graph, `/vault/page/<path>` = page), strictly read-only:
+
+- **Server:** `GET /api/v1/graph` (nodes per wiki page, typed by wiki directory; directed edges
+  as index pairs; a counter for unresolved links) and `GET /api/v1/pages?path=…&full=1` (full
+  text + title/type/mtime). The graph builder caches parses per file keyed on (mtime, size) and
+  returns the same object for an unchanged vault; measured on a real vault: 111 pages / 802
+  edges, 35 ms cold, 2 ms cached, 19 KB JSON.
+- **Frontend:** Canvas-2D rendering (no DOM node per page), a d3-force simulation in a Web
+  Worker that cools down and stops; label level-of-detail by zoom and node degree, viewport
+  culling, pan/zoom/touch, neighbourhood highlighting. Search, type filters and a local graph
+  mode (BFS depth 1/2 around a focused page) keep the view manageable even for a large vault.
+  **Zoom mechanic "anchor and leash" (added 2026-09-05, `web/src/lib/graphZoom.ts`, tested):**
+  When zooming in, the wheel aims at the center of mass of the community within reach (160 px,
+  or inside its hull) instead of at the pointer, as long as that community fills less than
+  about 35 % of the shorter picture side; beyond that the zoom obeys the pointer again. After
+  every zoom and drag a leash keeps the graph's box and the picture overlapping by at least
+  60 % per axis, so the picture can never be empty. Wheel deltas are normalized to pixels and
+  capped at 120 px per event (1.10x per 100 px instead of 1.16x), and the step animates
+  briefly (immediately under `prefers-reduced-motion`). Top right a minimap (visible only while
+  the graph is not fully in view; a click moves the picture), and when no node is in view, a
+  centered button "Go to nearest cluster". Before, the zoom only held the point under the
+  pointer fixed: zooming in beside a cluster, the picture was empty after five notches. Page
+  view with backlinks/outgoing panel, frontmatter as a properties panel and clickable
+  `[[wikilinks]]` (same resolution rule as on the server).
+- **Scaling** is a deliberate design criterion: the vault keeps growing, and the stuttering
+  Obsidian graph view (sections 3/11) is exactly what must not be reproduced here. The Vault
+  tab is code-split as its own chunk.
+
+The `obsidian://` deep link remains as a bridge but has been the **secondary action** since
+2026-07-18: all page links in the dashboard (overview, ingestion history, chat citations,
+maintenance) primarily open the in-app viewer, which makes the dashboard fully usable from a
+**Windows browser** (Windows Obsidian cannot open the WSL vault via `\\wsl$`, sections 3/11).
+
+**Edit/delete (extension 2026-07-18, user decision):** The viewer is no longer purely read-only.
+`PUT /api/v1/pages` (edit, with optimistic locking via `baseMtime`, 409 on an intervening
+change) and `DELETE /api/v1/pages` (delete with a two-step confirm). Hard rule 1 stays intact
+in spirit and was made precise: **every dashboard mutation is exactly one git commit**
+(`edit: <page>` / `delete: <page>`), executed behind the same commit mutex as ingest and
+maintenance commits and strictly path-limited (no `git add -A` fallback), so half-finished
+pages of a concurrently running agent run never end up in a user commit. New pages still come
+only from ingestion/agent runs; the dashboard edits and deletes existing ones. After a
+deletion the dashboard shows a banner with the number of backlinks orphaned by it and leads
+the user to the lint run (the vault's own cleanup mechanism for dangling references).
+
+**Live graph (extension 2026-07-19, user decision):** The graph updates live while an ingest
+runs; one sees new pages and connections appear, as in the Obsidian graph view before. On the
+server a second chokidar watcher observes `VAULT_ROOT/wiki` (pure notification, reads and
+writes no page content; hard rule 1 untouched) and publishes, debounced (1 s), a payload-less
+SSE event `vault`, on which the frontend refetches the graph. So that this does not endanger
+the fluid rendering: node positions are keyed by path rather than index (the node list is
+sorted by path; a single newcomer shifts all following indices), the layout worker is
+long-lived and interruptible (generation protocol, timer instead of a blocking loop) and is
+reheated at low alpha on small diffs instead of restarted; only above 20 % new nodes is the
+layout redone cold. New pages appear at the center of mass of their already placed neighbours
+and flash briefly; the camera never moves on live updates (auto-fit only on the very first
+layout). Side effect: filter and focus changes now also keep the positions instead of
+re-rolling the simulation.
+
+**Meta categories, stage 1 (2026-07-19, user decision):** The graph now knows the thematic axis
+in addition to the structural one: the graph builder parses the frontmatter in the same read
+pass (`tags:` as a block or inline list, `domain:`) and puts both on every node. The Vault tab
+gets a second filter row by domain; pages without `domain:` deliberately form a visible "no
+domain" bucket (the evidence for the planned backfill, not a blind spot), a toggle "colour by
+domain" (deterministic hash colours per domain name; the filter chips carry the same colour dot
+and are thereby the legend), and the search matches titles **and** tags.
+
+**Meta categories, stage 2 (2026-07-19, user decision):** The domains are now a closed, guarded
+list instead of a freely writable field.
+
+- **Registry as a vault page** (`wiki/meta/domains.md`): lists the allowed domains with
+  description and tag hints. It deliberately lives in the vault and not in the DB:
+  git-versioned together with the content it describes, maintainable in the dashboard page
+  editor, and readable by agent runs without extra wiring. The seed lives in the repo
+  (`scripts/vault-extensions/domains.md`, installed by `scripts/install-domain-registry.sh`,
+  non-destructive); from installation on, the vault's copy is the source of truth and the
+  service only reads it (hard rule 1). Initial cut: a small starter set of domains as defined
+  in the seed page, plus the sentinel `unassigned`.
+- **Agent instruction:** Every writing run (ingest, backfill, lint, autoresearch) receives the
+  registry through the system-prompt extension (`RunAgentOptions.systemPromptExtra`, the
+  extension path sanctioned by hard rule 5) as a closed list: set exactly one key from it,
+  otherwise `unassigned`; **never invent a new key**. New domains come into being exclusively by
+  a human editing the registry page. The list is read fresh per run, so a registry change takes
+  effect without a restart. Without an installed registry the extension is empty and everything
+  behaves as before.
+- **Backfill** as a maintenance action (`POST /api/v1/maintenance/domain-backfill`, kind
+  `domain-backfill`): an agent run that re-sorts existing pages; values that predate the
+  registry (finer-grained topic slugs from before the closed list) are moved to the valid
+  domain. Explicitly only the frontmatter field; page contents, other fields and the registry
+  itself stay untouched, and no new pages arise. Without a registry the route answers `409`
+  instead of letting the agent improvise. Cheap side note: the vault's semantic-tiling cache
+  hashes page **bodies**, so a pure frontmatter backfill does not invalidate it.
+- **Visibility:** `GET /api/v1/domains` reports whether a registry is installed and what it
+  contains; the maintenance card shows the domains and the number of pages without a domain,
+  exactly the number that tells whether a backfill is due.
+
+**Meta categories, stage 3 (2026-07-19, user decision):** The governance loop that **proposes**
+new domains from evidence; the decision remains the user's.
+
+- **Candidate finding, deterministic and free** (`pipeline/domain-candidates.ts`): tag-centred
+  instead of generic community detection, because the result has to become a registry row and
+  that consists of `key + description + tags`; a tag on N `unassigned` pages *is* the proposal,
+  and "five unassigned pages share a tag no domain covers" can be checked at a glance. Threshold
+  ≥ 5 pages. Tags already claimed by an existing domain drop out (that is a misfiling for the
+  backfill, not a missing field); so do structural tags (`person`, `organization`, …), which say
+  what a page *is* rather than what it is about. Tags with strongly overlapping page sets are
+  merged. The wikilink graph supplies a **cohesion measure** (do the pages also link among
+  themselves?) but is explicitly not the clustering engine. Only explicit `unassigned` is
+  counted; pages with no `domain:` field at all are reported separately, because they mean
+  "never classified" rather than "nothing fits" and would dilute the analysis.
+- **Agent assessment, optional and switchable** (`domain-review`): a toggle in the UI decides
+  whether an agent run additionally judges the candidates: `new-domain` (with a name proposal),
+  `existing` (belongs to an existing domain) or `not-a-domain`. The run is **read-only**: it
+  gives an opinion and touches no file, since new keys come from humans by definition. Its
+  result is the answer itself, parsed (`pipeline/domain-review.ts`), deliberately without a
+  report file in the vault, because a proposal is transient and would otherwise leave junk
+  behind on every "no". Candidates are recomputed on the server so a stale browser tab cannot
+  trigger a run on topics that have disappeared.
+- **Deciding:** `POST /api/v1/domains` creates a domain by appending a section to the registry
+  page, as **one** git commit (`domains: add <key>`) behind the same commit mutex and with an
+  exact pathspec like a user page edit. Read-modify-write sits inside the mutex so two parallel
+  creations cannot overwrite each other. A dismissed candidate is remembered in SQLite
+  (`domain_dismissals`, migration v5); without this memory the loop would propose the same
+  topic endlessly. Dismissals can be restored individually.
+- **Self-healing:** After creation a candidate disappears anyway because its tags now belong to
+  a domain; the dismissal is only the additional safeguard for the time until the next backfill.
+
+**Resolving gaps instead of filling them (added 2026-09-05).** The Gaps view of the Home panel
+("Worth a run") used to offer only one way out of a gap: research. Many gaps never deserve a
+page (single mentions, image captions, callout titles an ingest linked by reflex). Every card
+therefore carries a pick control; the selection (max. 20) starts, with a two-step confirm,
+**one** maintenance run of kind `cleanup` in mode `gap` (`POST /api/v1/maintenance/cleanup`
+with `mode: 'gap'`): the agent turns every wikilink to these titles into running text, removes
+pure reference entries from index/overview pages, creates no page and deletes none, and leaves
+`log.md`, `hot.md` and `.raw/.manifest.json` untouched; one commit, revertable from the
+activity stream. On the server every title has to be an open gap of the **live graph**; one
+unknown title rejects the whole request (the same principle as the repair run). Deliberately no
+deterministic regex unlinking from pipeline code (hard rule 1), and deliberately no memory of
+resolved titles: the notability rules in the system prompt are meant to prevent recurrences;
+if a gap comes back anyway, that is a finding about the ingest. For this to work, `wiki/log.md`
+(the ingest skill's append-only journal) and `wiki/hot.md` (a cache) nominate **no** gaps: a link
+there is a record or a cache, not a claim that a page is missing. Before, six of seven unlinked
+titles stayed in the list because the journal kept naming them, and the same held for every
+page the user had deleted. Those links still count as `unresolved`, just not as gaps.
+
+### 12.5 Order
+
+Recommended build-out path after v1 stabilization: (1) tailnet access + auth activation (smallest step, immediate mobile benefit), (2) PWA share target, (3) multi-user roles, (4) move to an always-on host via Docker, (5) git-remote workflow for second-device edits. ~~(6) in-dashboard vault viewer~~: **pulled forward and implemented on 2026-07-18** (12.4); the Obsidian app is thereby optional in everyday use.
+
+### 12.6 Hybrid retrieval at chunk level (added 2026-07-23)
+
+**Motivation:** The query path so far reads at page granularity (`hot.md` → `index.md` → 3-5 whole pages) and loses whenever the answer sits in a single passage of an inconspicuously titled page. Since v1.7 the vault ships the opt-in skill `wiki-retrieve` (chunking + context prefix + BM25 + cosine rerank following Anthropic's contextual-retrieval method), including feature detection in `wiki-query` and `autoresearch`: as soon as the index exists, the skills use it on their own and fall back cleanly to the old path when it does not. The service takes over provisioning and freshness of the index; nothing changes in the chat UI.
+
+**Build-out in three stages, each accepted individually (task list: `docs/tasks/TASKS-RETRIEVE.md`):**
+
+1. **BM25 only (no new dependencies):** synthetic chunk prefixes (`contextual-prefix.py` without `--allow-egress`), BM25 index, queries with `--no-rerank`. At query time there are only reads; the read-only sandbox profile stays unchanged.
+2. **Rerank (local), built but OFF by default (as of 2026-07-23):** cosine rerank via ollama (`nomic-embed-text`, `127.0.0.1:11434`). **Correction of the original plan:** A localhost network exception and a write exception in the query profile's sandbox were foreseen. Both were **not** built and shall not be built. Instead the retrieval runs **in the service process** (`retrieveCandidates`) before the agent starts; the agent only receives the ranked pages along with the question. The read-only profile thus stays strictly unchanged, which matters especially because the local ollama API is unauthenticated and can pull models from the internet via `/api/pull`; a loopback hole would have created an indirect egress channel. Side effect: retrieval becomes deterministic instead of depending on whether the model calls it on its own. **The rerank itself is disabled by default**, because a measurement over 35 labelled cases showed no benefit (BM25 alone 97 % top-5 versus 94 % with rerank; top-1 69 % versus 54 %); details in `docs/tasks/TASKS-RETRIEVE.md` F-R13. **ollama is therefore not a prerequisite of the service**, only needed for repeat comparison measurements; it deliberately appears in no setup script and no requirements list.
+3. **Real context prefixes (egress, opt-in): NOT PLANNED (as of 2026-07-23).** Originally foreseen was prefix generation through the service credential behind a default-off setting. The stage 2 measurement settled it: at 97 % top-5 with BM25 alone, the entire remaining headroom is about one case in 35, too little for running cost and for the only egress path in the whole retrieval design. Should the vault grow considerably and a repeat measurement show a falling hit rate, this is decided anew.
+
+**Index build as a deterministic pipeline step (a refinement of hard rule 1):** The vault's index scripts write exclusively derived, always re-creatable artifacts under `.vault-meta/` (`chunks/`, `bm25/`, `embed-cache.json`). Pipeline code may execute these writes directly (a child process of the vault's own scripts, no LLM); an agent run for a mechanical index rebuild would be waste. Wiki content stays reserved for agent runs, unchanged. The artifacts are **not** versioned: they are excluded via the vault clone's `.git/info/exclude` (repo-local, no change to tracked files of the cloned repo, hard rule 5). The exclusion is at the same time the precondition for the `BOOKKEEPING_PATHS` staging rule (`.vault-meta` rides along with every commit) not to flush the artifacts into ingest commits.
+
+**Freshness:** The index does not update itself. A maintenance run of kind `retrieve-index` (deterministic, no agent, no credential needed, hence allowed in setup mode too) runs debounced after completed ingests (one rebuild per quiet window, default 5 min) and can be triggered manually via `POST /api/v1/maintenance/retrieve-index`; `GET` on the same path delivers provisioning status, chunk count and index age for the maintenance card.
+
+### 12.7 Maintenance as a guided workflow ("vault check", added 2026-07-24)
+
+**Motivation (deep-review finding):** Through the stages 12.4/12.6 the Maintenance tab had grown into a collection of equally ranked cards. The dependency chain between the actions exists in code but was only visible scattered (a disabled button here, a hint text there), and the cards showed findings instead of recommendations. Two symptoms stood at the start: (1) When creating a proposed domain without an agent review, only the key was prefilled, the description empty and the proposed tag identical to the key; the user had to do the most demanding task (an extensibly phrased description) alone. (2) The tag report demanded a judgement per row whose basis (the heuristic thresholds) was invisible, and two thirds of its area were non-actionable observations in the same layout as the repairable findings.
+
+**Target picture: three layers over the same backend actions:**
+
+1. **Status layer ("what is due"):** A deterministic, free check (graph, `undomainedCount`, candidate list, tag report, age of lint report/hot cache/index) produces a prioritized list of items. Each item carries three fields, *what* (one sentence), *why now* (one sentence with the concrete number), *cost* (agent run vs. deterministic), and one of three urgencies with tab-wide colour semantics: **due** (blocks something else or lowers quality), **recommended**, **info/healthy**. "All healthy" is an explicit state, not an empty screen.
+2. **Guided run:** A button works through the due items as a sequence. Two step types: **automatic steps** (backfill, lint, lint-fix, hot cache, index) run one after another without questions (a queue in front of the existing `runMutex`; every step remains its own revertable commit); **decision steps** stop with exactly one question per screen and finished recommendations (domain creation with key + description draft + tags; tag repairs preselected). The user curates (accept / edit / skip) instead of configuring; skipped items come back on the next run. Order = dependency chain: backfill → domain decisions (including a read-only review over all open candidates as a fixed part) → follow-up backfill for new domains (closes the previously silent gap that `POST /domains` writes only the registry) → tag repairs → lint + safe fixes → hot cache. The retrieval index stays out (it updates itself, debounced, 12.6). At the end a summary: steps run, commits created (individually revertable), open manual items.
+3. **Expert view:** The existing cards remain as a second view (every action individually, same endpoints), unified to one heading scale, one empty-state style, one result area and the severity chips of the status layer.
+
+**Design principles:** Recommendations are preselected where the direction is unambiguous (deselect instead of tick); every recommendation carries a plain-language rationale instead of invisible thresholds; non-actionable findings (implied tags, single-use tags) are collapsed as "observations" and leave the decision path; cross-references are wired instead of described (an `unassigned` echo in the tag report *is* a domain candidate and appears there, not as a tag problem).
+
+**Persistence (stage b):** A SQLite table `maintenance_state` (migration v10; one row per run kind, upserted on settle: ok/pages/error/finished_at; purely operational, hard rule 1 untouched) makes "last done" and the "N items due" badge in the overview tab restart-proof; the runner's own run history deliberately stays a bounded in-memory map. `GET /api/v1/maintenance/state` delivers the state; areas with vault facts (lint report file, hot.md mtime, index artifacts) keep those as the primary source, the table fills the gaps (tag-fix, backfill) and records failures. The optional weekly lint from 6.4 is absorbed here: a scheduler only runs the check (and optionally the lint) and puts items on the list, never decision steps unasked.
+
+**Staged plan (each stage shippable on its own):**
+
+- **Stage (a), quick wins in the existing cards, implemented 2026-07-24:** tag report with preselected conflict-free repairs and a plain-language rationale per row; implied + single-use tags demoted to collapsed "observations"; agent review of domain candidates active by default; deterministic description draft so the description field never starts empty (the agent's proposal wins when present); explicit backfill prompt in the card after domain creation.
+- **Stage (b), status model, implemented 2026-07-25:** deterministic derivation (`web/src/lib/maintenanceStatus.ts`, a pure function over data the dashboard loads anyway: graph/tag report, candidates, report/cache/index age; thresholds: lint 14 days, hot cache 7 days) → a "What's due" head above the cards with severity chips (due/soon/healthy), what/why-now/cost per item and a jump to the respective card; healthy areas collapsed, "all healthy" as an explicit state. The expert cards have since really been the SECOND view: collapsed by default behind an "Expert tools" toggle (a click on a status item opens them and jumps to the card; setup mode opens them automatically because the credential entry lives in Settings), and the page lists of the domain candidates are folded behind "Show N pages". `maintenance_state` (see above) supplies the restart-proof "last run" facts for areas without a vault file; a badge in the overview status strip ("Maintenance: N due") links into the tab and stays silent when nothing is due.
+- **Stage (c), guided run, implemented 2026-07-25:** "Start maintenance run" in the status head (visible as soon as something is due). The plan is built deterministically from the status model (`buildRunPlan`: only due/recommended steps, in dependency order; never the index, which updates itself). The sequencing is **client-driven** over the existing endpoints instead of a server queue; the `runMutex` serializes the vault writers anyway, every step remains its own revertable commit, and a closed tab costs only the wizard position, never work. Automatic steps (backfill, follow-up backfill, lint chained to safe fixes, hot cache) start themselves, stream their log and advance on settle (on error: retry/skip); decision steps embed THE SAME components the expert cards use (one implementation per decision surface): domain decisions with an automatically started read-only review, tag repairs with preselection. The follow-up backfill skips itself when nothing was created. At the end a summary (done/skipped/failed per step). **Still open:** the optional check cadence (a scheduler that periodically runs only the check and puts items on the list). `contextual-prefix.py --all` works incrementally (changed pages only); the BM25 rebuild is pure Python and cheap.
+
+### 12.8 Demo mode (added 2026-09-01)
+
+An operating mode for a publicly hosted, strictly read-only instance (`DEMO_MODE=1`): visitors can browse a vault completely (Home, Graph, Library, page view, search) but change nothing and start nothing that spawns an agent or creates cost.
+
+**Guarantees, in layers:**
+
+1. **One central request guard** in `buildServer`: every non-read request (`!GET`/`!HEAD`, regardless of path) is rejected before any route handler with `403 { error: "demo_read_only" }`. New mutating endpoints are thereby covered automatically; the guard is the boundary, not the individual route (the same principle as the sandbox in hard rule 4). The guard deliberately checks only the verb: an earlier version additionally required the prefix `/api/` in the raw URL, and a percent-encoded path such as `/%61pi/v1/pages` got past it, because the router decodes the path before matching while the hook saw it undecoded. Nothing outside the API accepts writes, so the path condition gained nothing and cost the guarantee.
+2. **Passive start-up formation** in `startService`, as defense in depth below the guard: ingest queue, inbox watcher, Telegram bot, retrieval-index scheduler and vault reconciler (a vault WRITER) are not started at all in demo mode. The vault watcher (read-only SSE signal) keeps running.
+3. **No credential needed or expected:** The demo instance deliberately runs without an Anthropic credential; the setup-mode hint is dropped (demo wins over setup: that is the instance's normal state, not an onboarding gap).
+
+**Surface:** `GET /api/v1/health` reports `demoMode: true`. The dashboard shows a read-only notice instead of the setup banner; Research and System remain visible as tabs but render an explanation surface (the feature exists, is switched off in the hosted demo, pointer to local operation); intake surfaces (dropzone, global drag-and-drop) are gone. In demo mode `GET /api/v1/settings` names neither vault path nor watch folder nor bind address; a public instance has no reason to reveal its file-system layout.
+
+**Delimitation:** Demo mode changes nothing about hard rule 2 (bind policy); a public demo sits behind a reverse proxy, the service itself keeps binding `127.0.0.1`. It is orthogonal to setup mode and to `HTTP_AUTH_MODE`.
+
+---
+
+### 12.9 Dedupe in three stages and the outcome "no changes" (added 2026-09-05)
+
+Trigger: an already ingested paper was dropped again and still went through a full agent run, which after eleven turns concluded on its own that there was nothing to do. Two independent gaps: the `jobs` row of the first ingestion had been deleted by "Clear history" (and the hash with it), and the freshly downloaded PDF had different bytes anyway, because the publisher embeds a download watermark with a date. A byte hash cannot recognize this class in principle.
+
+**Stage 1: the hash, remembered in the vault.** On enqueue the SHA-256 is checked not only against `jobs.sha256` but also against the `sha256` fields of all `.raw/<job-id>/manifest.json`, which the service itself writes during preprocessing. A hit creates the `duplicate` row exactly like a hit in `jobs`, with `duplicate_of` = directory name (the job id). Dedupe thereby survives clearing the history and even losing the DB (hard rule 1, §8). If the `jobs` row still exists, it wins as the reference, because the dashboard can open it. Read-only, no vault writes; the index reads only what changed since the last call.
+
+**Stage 2: the DOI, after preprocessing, before the run.** From the normalized text the DOI by which the document identifies itself is determined (candidates from the head of the whitespace-collapsed text; among several, the most frequent one in the document, because publisher watermarks repeat the paper's own DOI on every page, while reference lists lie outside the head). If a source page under `wiki/sources/` declares this DOI in its frontmatter (`url:`/`doi:`), the job goes `preprocessing → duplicate` (the new and only transition into `duplicate`), `error` carries the explanation with page and DOI, and `duplicate_of` the job from `.raw/.manifest.json` when the skill's delta tracker attributes the page to a raw path. Protection against self-recognition: a page this job created itself, or one younger than the job, does not count as a predecessor. Batches: the duplicate drops out of the combined run, the remaining members run. The never-committed staging copy `.raw/<job-id>/` is removed, but only when git knows nothing under it (sanctioned exception in CLAUDE.md hard rule 1); a versioned original stays untouched. Telegram reports a late duplicate to the chat like a completion. The page body is deliberately **not** searched: a review cites dozens of other DOIs. **Escape hatch** for a wrong match: switch the setting `doiDedupe` off (default on, live, System → Service) and drop the file again.
+
+**Stage 3: the outcome "no changes".** A `done` run whose own commit landed and carried no wiki page, and for which the recovery pass (`recoverPageRecord`) finds no pages either, receives `outcome = 'no-changes'` (migration v14) plus a warning line in the log. The dashboard shows it as a badge and explanation line; the Telegram message says it too. The commit stays (it carries the staged original and the skill's manifest note) so the run remains traceable. A skipped or failed commit says nothing about the run and marks nothing.
+
+**Compatibility with claude-obsidian:** All three stages are read-only towards the vault content. They use exclusively artifacts the repo provides anyway (source frontmatter with `url:`, the `wiki-ingest` skill's delta tracker `.raw/.manifest.json`) or that the service writes itself (`.raw/<job-id>/manifest.json`). The skill's own manifest check (path + hash) stays unchanged; it never fires for service ingests, because every job gets a new raw path, which is why the service takes over the check before the run.
+
+**Delimitation:** URL jobs remain unaddressed (no hash); text notes are deduplicated via the hash of the text. A content-level dedupe without a DOI (title similarity, whitespace-normalized text hash) is deliberately not built: too fragile for the price of a wrong match.

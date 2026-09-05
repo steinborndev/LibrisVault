@@ -28,7 +28,7 @@ Everything runs on your machine: the service binds `127.0.0.1` by default, the v
 git repository on disk, and the only thing that leaves the box is the agent's traffic to Anthropic -
 plus, if you enable the Telegram bot, its outbound polling of `api.telegram.org`.
 
-> **`SPEC.md` (German) is the authoritative specification.** When code and spec disagree, the spec
+> **`SPEC.md` is the authoritative specification.** When code and spec disagree, the spec
 > wins. The UI, code, and everything else are English. `CLAUDE.md` holds the hard rules that
 > constrain any change. Per-milestone task lists and engineering findings live in `docs/tasks/`.
 
@@ -790,7 +790,7 @@ at all.)
 
 A personal project (v0.1) built milestone by milestone with Claude Code; the engineering journals
 in `docs/tasks/` are left in as-is - findings, dead ends, measurements and all. The specification
-(`SPEC.md`) is German; code, UI, and vault content are English. Issues and PRs are welcome, with
+(`SPEC.md`) is English since 2026-09-05, as are code, UI, and vault content. Issues and PRs are welcome, with
 the caveat that `SPEC.md` and the hard rules in `CLAUDE.md` define what this is and is not, and
 that contributions are accepted under the license below.
 
