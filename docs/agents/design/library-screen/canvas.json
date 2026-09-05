@@ -33,17 +33,25 @@
       "title": "Library · Fellow card docked"
     },
     {
-      "file": "Textures.dc.html",
+      "file": "Growth.dc.html",
       "x": 0,
       "y": 2350,
       "w": 1440,
+      "h": 820,
+      "title": "Growth · wings and spare cases"
+    },
+    {
+      "file": "Textures.dc.html",
+      "x": 1560,
+      "y": 2350,
+      "w": 1440,
       "h": 1180,
-      "title": "Textures · pick per row or a preset"
+      "title": "Textures · Archive chosen"
     },
     {
       "file": "Sprites.dc.html",
-      "x": 1560,
-      "y": 2350,
+      "x": 0,
+      "y": 3330,
       "w": 1440,
       "h": 760,
       "title": "Figures · style A"
@@ -55,7 +63,7 @@
       "x": 0,
       "y": -150,
       "w": 520,
-      "text": "Library screen, round 2 (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme). Department signs now sit on the shelves in perspective. Style A figures are decided."
+      "text": "Library screen, round 3 (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme). Archive textures, signs on the shelves in one size with two-line breaks, style A figures without faces, two spare cases near the front."
     },
     {
       "id": "night-note",
@@ -79,18 +87,25 @@
       "text": "Card docked right per DESIGN.md (canvas shrinks, no overlay on a control corner). Fields per SPEC 10.5, live run with phase bar and log tail."
     },
     {
-      "id": "textures-note",
+      "id": "growth-note",
       "x": 0,
       "y": 2250,
       "w": 520,
-      "text": "Textures: pick F, W and S separately or take a preset. Everything is the same projection, so any combination works; the night palette exists for each option."
+      "text": "Growth (round 3): bays, first-fit in birth order, two spare cases, wings through a doorway. Signs are one size per view and break into two lines."
     },
     {
-      "id": "figures-note",
+      "id": "textures-note",
       "x": 1560,
       "y": 2250,
       "w": 420,
-      "text": "Style A decided (OPEN-15). Still open: do the figures need faces at this size?"
+      "text": "Archive preset chosen (F3 stone, W2 panels, S3 walnut). The other options stay for reference."
+    },
+    {
+      "id": "figures-note",
+      "x": 0,
+      "y": 3230,
+      "w": 420,
+      "text": "Style A, no faces (decided). Hair stays as the silhouette cue."
     }
   ],
   "launch": {

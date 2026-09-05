@@ -177,3 +177,12 @@ new ideas go here first and reach the spec through a dated decision.
 - New: **Textures** board with three options each for floor (tile grid, parquet, stone), walls
   (plaster, panels, whitewashed brick) and shelves (neutral, oak, walnut) plus three presets
   (Studio, Reading room, Archive). Decision pending: OPEN-23.
+
+## Design round 3 (2026-09-06)
+
+- OPEN-23 decided: Archive preset (stone, panels, walnut). No faces on the figures.
+- Shelf signs: one size per view, two lines for long names (band height constant).
+- Growth model written into SPEC 10.8: bays, first-fit in birth order, case length by page
+  count with floor and cap, second case instead of a longer one, two spare cases always,
+  wings through a doorway when the last spare is taken, level of detail by tile size.
+  The Growth artboard shows today, the wing opening, and a filled wing.

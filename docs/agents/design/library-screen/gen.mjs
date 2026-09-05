@@ -17,6 +17,12 @@ const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace'
 function domainHue(d) { let h = 0; for (let i = 0; i < d.length; i++) h = (h * 31 + d.charCodeAt(i)) >>> 0; return h % 360 }
 const domainColor = (d) => `hsl(${domainHue(d)} 62% 52%)`
 const hsl = (h, s, l) => `hsl(${h} ${s}% ${l}%)`
+function mix(a, b, t) {
+  const p = (c) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]
+  const [r1, g1, b1] = p(a), [r2, g2, b2] = p(b)
+  const h = (v) => Math.round(v).toString(16).padStart(2, '0')
+  return `#${h(r1 + (r2 - r1) * t)}${h(g1 + (g2 - g1) * t)}${h(b1 + (b2 - b1) * t)}`
+}
 const pts = (arr) => arr.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 let seed = 7
@@ -38,7 +44,8 @@ const WALL = {
   panels: { day: { left: '#f3f5fa', right: '#eef1f7', base: '#d9dfeb', line: '#d4dae8' }, night: { left: '#141b2c', right: '#111828', base: '#0c101b', line: '#22304a' } },
   brick: { day: { left: '#f0ece8', right: '#ebe6e1', base: '#d8d0c8', tones: ['#e8e2dc', '#e2dbd3', '#ddd5cc'] }, night: { left: '#1c1c24', right: '#18181f', base: '#0f0f14', tones: ['#2a2a33', '#26262f', '#23232b'] } },
 }
-const DEFAULT_THEME = { floor: 'grid', wall: 'plaster', shelf: 'neutral' }
+const DEFAULT_THEME = { floor: 'stone', wall: 'panels', shelf: 'walnut' }
+const STUDIO_THEME = { floor: 'grid', wall: 'plaster', shelf: 'neutral' }
 
 function patternDefs(idp, TW, TH, theme, mode, ox, oy, wallH) {
   const k = TW / 2 / 56, kv = TH / 2 / 56
@@ -79,20 +86,57 @@ function box(P, i0, j0, a, b, h, c, extra = '') {
 
 // Sign text lying on a shelf face. `along` decides the skew: the front-left face runs
 // down-right (+i), the front-right face is written toward -j so it reads left to right.
-function faceText(P, along, i, j, z, text, fill, maxLen, TW) {
-  const [x, y] = P(i, j, z)
+const signSize = (TW) => (TW >= 56 ? 10.5 : TW >= 46 ? 9.5 : 8.5)
+const BAND = (TW) => Math.round(2 * signSize(TW) + 6)
+// One text size per view (never per shelf); a name that does not fit the face breaks at
+// its hyphen or space into two lines. `zb` is the bottom of the sign band.
+function faceText(P, along, i, j, zb, text, fill, maxLen, TW) {
+  const size = signSize(TW), band = BAND(TW)
   const facePx = maxLen * TW / 2
-  const size = Math.max(7.5, Math.min(11.5, (facePx - 6) / (text.length * 0.6)))
-  const m = along === 'i' ? `matrix(1 0.5 0 1 ${x.toFixed(1)} ${y.toFixed(1)})` : `matrix(1 -0.5 0 1 ${x.toFixed(1)} ${y.toFixed(1)})`
-  return `<text transform="${m}" font-family='${FONT}' font-size="${size.toFixed(1)}" font-weight="600" letter-spacing="0.02em" fill="${fill}">${esc(text)}</text>`
+  const width = (t) => t.length * size * 0.58
+  let lines = [text]
+  if (width(text) > facePx) {
+    const cut = Math.max(text.lastIndexOf('-', Math.ceil(text.length / 2) + 2), text.lastIndexOf(' ', Math.ceil(text.length / 2) + 2))
+    if (cut > 0) lines = [text.slice(0, cut + 1).trim(), text.slice(cut + 1).trim()]
+  }
+  const cap = size * 0.72
+  const baselines = lines.length === 1 ? [zb + (band - cap) / 2] : [zb + band - 3 - cap, zb + band - 3 - cap - (size + 2)]
+  return lines.map((ln, k) => {
+    const [x, y] = P(i, j, baselines[k])
+    const m = along === 'i' ? `matrix(1 0.5 0 1 ${x.toFixed(1)} ${y.toFixed(1)})` : `matrix(1 -0.5 0 1 ${x.toFixed(1)} ${y.toFixed(1)})`
+    return `<text transform="${m}" font-family='${FONT}' font-size="${size}" font-weight="600" letter-spacing="0.02em" fill="${fill}">${esc(ln)}</text>`
+  }).join('')
 }
 
 // A bookcase: frame, a sign band on top of the long face, rows of spines below it.
-function bookcase(P, i0, j0, along, len, pages, hue, night, shelfKey, name, TW) {
-  const depth = 0.72, h = Math.round(64 * SCALE), band = 15
-  const c = SHELF[shelfKey][night ? 'night' : 'day']
+function bookcase(P, i0, j0, along, len, pages, hue, night, shelfKey, name, TW, opts = {}) {
+  const depth = 0.72
+  const simple = opts.simple === true, spare = opts.spare === true
+  const band = simple ? 5 : BAND(TW)
+  const h = simple ? 24 : Math.round(64 * SCALE) + 10
+  const c0 = SHELF[shelfKey][night ? 'night' : 'day']
+  const c = spare ? { ...c0, top: mix(c0.top, night ? '#0f1524' : '#ffffff', 0.45), left: mix(c0.left, night ? '#0f1524' : '#ffffff', 0.45), right: mix(c0.right, night ? '#0f1524' : '#ffffff', 0.45), band: mix(c0.band, night ? '#0f1524' : '#ffffff', 0.45) } : c0
   const a = along === 'i' ? len : depth, b = along === 'i' ? depth : len
   let out = box(P, i0, j0, a, b, h, c)
+  if (simple) {
+    const face = along === 'i'
+      ? [P(i0 + 0.08, j0 + b, 2), P(i0 + a - 0.08, j0 + b, 2), P(i0 + a - 0.08, j0 + b, h - band - 2), P(i0 + 0.08, j0 + b, h - band - 2)]
+      : [P(i0 + a, j0 + 0.08, 2), P(i0 + a, j0 + b - 0.08, 2), P(i0 + a, j0 + b - 0.08, h - band - 2), P(i0 + a, j0 + 0.08, h - band - 2)]
+    if (!spare) out += `<polygon points="${pts(face)}" fill="${hsl(hue, 58, 55)}"/>`
+    return out
+  }
+  if (spare) {
+    const rowsTop = h - band - 3
+    const bandPoly = along === 'i'
+      ? [P(i0, j0 + b, rowsTop + 1), P(i0 + a, j0 + b, rowsTop + 1), P(i0 + a, j0 + b, h - 1), P(i0, j0 + b, h - 1)]
+      : [P(i0 + a, j0, rowsTop + 1), P(i0 + a, j0 + b, rowsTop + 1), P(i0 + a, j0 + b, h - 1), P(i0 + a, j0, h - 1)]
+    out += `<polygon points="${pts(bandPoly)}" fill="${c.band}"/>`
+    const free = mix(c0.sign, c.band, 0.45)
+    out += along === 'i'
+      ? faceText(P, 'i', i0 + 0.12, j0 + b, rowsTop + 1, 'free', free, len - 0.2, TW)
+      : faceText(P, 'j', i0 + a, j0 + len - 0.12, rowsTop + 1, 'free', free, len - 0.2, TW)
+    return out
+  }
   if (c.grain) {
     // two grain lines on the top board and on the end face
     for (const f of [0.3, 0.62]) out += `<polyline points="${pts([P(i0, j0 + b * f, h), P(i0 + a, j0 + b * f, h)])}" fill="none" stroke="${c.right}" stroke-opacity="0.45" stroke-width="0.8"/>`
@@ -105,8 +149,8 @@ function bookcase(P, i0, j0, along, len, pages, hue, night, shelfKey, name, TW) 
   out += `<polygon points="${pts(bandPoly)}" fill="${c.band}"/>`
   if (name) {
     out += along === 'i'
-      ? faceText(P, 'i', i0 + 0.12, j0 + b, rowsTop + 5, name, c.sign, len - 0.2, TW)
-      : faceText(P, 'j', i0 + a, j0 + len - 0.12, rowsTop + 5, name, c.sign, len - 0.2, TW)
+      ? faceText(P, 'i', i0 + 0.12, j0 + b, rowsTop + 1, name, c.sign, len - 0.2, TW)
+      : faceText(P, 'j', i0 + a, j0 + len - 0.12, rowsTop + 1, name, c.sign, len - 0.2, TW)
   }
   const rows = 3, rowH = (rowsTop - 4) / rows
   const capacity = rows * Math.floor((len - 0.3) / 0.21)
@@ -163,7 +207,6 @@ function figure(P, i, j, o, night, top, anchors) {
     g += `<rect x="${x - 12}" y="${y - 34}" width="24" height="26" rx="5" fill="${night ? '#30405f' : '#c3cde0'}"/>`
     g += `<rect x="${x - 9}" y="${y - 22}" width="18" height="14" rx="4" fill="${shirt}"/>`
     g += `<circle cx="${x + 1}" cy="${y - 26}" r="6" fill="${skin}"/><path d="M${x - 5} ${y - 30} q6 -6 12 0" fill="${hair}"/>`
-    g += `<path d="M${x - 1} ${y - 25} h3 M${x + 3} ${y - 25} h2" stroke="${ink}" stroke-width="1" stroke-linecap="round"/>`
     g += `<rect x="${x - 10}" y="${y - 12}" width="20" height="6" rx="3" fill="${night ? '#1a2233' : '#9aa7c2'}"/>`
     g += `<text x="${x + 12}" y="${y - 36}" font-family='${MONO}' font-size="9" fill="${night ? '#78859f' : T.faint}">z</text><text x="${x + 17}" y="${y - 42}" font-family='${MONO}' font-size="8" fill="${night ? '#78859f' : T.faint}">z</text>`
   } else {
@@ -243,12 +286,13 @@ function scene({ night, card, focus, theme = DEFAULT_THEME, idp = 'room' }) {
     ['cryptography', 'i', 4.2, 5.2, 3.2], ['economics', 'i', 8.4, 5.2, 2.8], ['linguistics', 'i', 12.2, 5.2, 2.8],
     ['photography', 'i', 4.2, 8.6, 2.8], ['knowledge-management', 'i', 8.0, 8.6, 3.0], ['music-theory', 'i', 12.0, 8.6, 2.4],
     ['unassigned', 'j', 18.4, 8.6, 2.6],
+    ['', 'j', 18.4, 5.6, 2.6], ['', 'i', 15.4, 8.6, 2.2],
   ]
   for (const [name, along, i, j, len] of D) {
     const hue = name === 'unassigned' ? 220 : domainHue(name)
     const pages = counts[name] ?? 20
     const depth = along === 'i' ? i + len + j + 0.72 : i + 0.72 + j + len
-    add(depth, bookcase(P, i, j, along, len, pages, hue, night, theme.shelf, name === 'unassigned' ? 'unfiled' : name, TW))
+    add(depth, bookcase(P, i, j, along, len, pages, hue, night, theme.shelf, name === 'unassigned' ? 'unfiled' : name, TW, { spare: name === '' }))
   }
   const sc = SHELF[theme.shelf][mode]
   const tableC = night ? { top: '#33415f', left: '#2a3550', right: '#22304a' } : { top: '#f0e6d6', left: '#d9cbb3', right: '#c9b99d' }
@@ -583,7 +627,7 @@ function texturesBoard() {
     return `<div style="display:flex; flex-direction:column; gap:7px"><div style="font-size:12.5px; font-weight:600">${name}</div>${swatchBox(`<svg viewBox="0 0 400 250" width="400" height="250" xmlns="http://www.w3.org/2000/svg">${g}</svg>`)}<div style="font-size:11.5px; color:${T.faint}">${note}</div></div>`
   }
   return `<div style="width:1440px; height:1180px; box-sizing:border-box; padding:32px 40px; background:${T.bg}; display:flex; flex-direction:column; gap:20px; font-family:${FONT}; color:${T.text}">
-    <div style="display:flex; align-items:baseline; gap:14px"><div style="font-family:${DISPLAY}; font-size:22px; font-weight:650">Textures</div><div style="font-size:13px; color:${T.dim}">three options each for floor, walls and shelves, all drawn in the same isometric projection. Pick one per row, or one of the presets below.</div></div>
+    <div style="display:flex; align-items:baseline; gap:14px"><div style="font-family:${DISPLAY}; font-size:22px; font-weight:650">Textures</div><div style="font-size:13px; color:${T.dim}">three options each for floor, walls and shelves, all drawn in the same isometric projection. Archive was chosen; the others stay for reference.</div></div>
     <div style="display:grid; grid-template-columns: 130px repeat(3, minmax(0, 1fr)); gap:14px 20px; align-items:start">
       ${rowLabel('Floor')}
       ${cell('F1', 'Tile grid', 'today’s floor: quiet, reads as a plan, cheapest to draw', floorSw('grid'))}
@@ -600,9 +644,109 @@ function texturesBoard() {
     </div>
     <div style="display:grid; grid-template-columns: 130px repeat(3, minmax(0, 1fr)); gap:14px 20px; align-items:start">
       ${rowLabel('Presets')}
-      ${preset('Studio', DEFAULT_THEME, 'F1 + W1 + S1. What the other boards use today: nearest to the dashboard, least atmosphere.')}
+      ${preset('Studio', STUDIO_THEME, 'F1 + W1 + S1. Nearest to the dashboard, least atmosphere; what round 1 used.')}
       ${preset('Reading room', { floor: 'parquet', wall: 'plaster', shelf: 'oak' }, 'F2 + W1 + S2. Warm and calm; the night view keeps the wood tones.')}
-      ${preset('Archive', { floor: 'stone', wall: 'panels', shelf: 'walnut' }, 'F3 + W2 + S3. The most "library"; heavier, and the spines have to work against dark wood.')}
+      ${preset('Archive · chosen', DEFAULT_THEME, 'F3 + W2 + S3. Chosen on 2026-09-06; the room boards use it now, day and night.')}
+    </div>
+  </div>`
+}
+
+
+/* ---------------------------------------------------------------- growth */
+const NEW_DOMAINS = [['oceanography', 14], ['horology', 9], ['ceramics', 11], ['game-theory', 18], ['beekeeping', 7], ['urban-planning', 16], ['glaciology', 12], ['paper-making', 6], ['acoustics', 21], ['viticulture', 10], ['orbital-mechanics', 15], ['sign-language', 8]]
+
+// The layout model of SPEC 10.9: fixed bays (two walls, two aisle rows), a growth row in
+// front, first-fit placement in birth order, two spare cases always kept, and a new wing
+// when the last spare is taken. Existing cases never move.
+function autoLayout(deps) {
+  const baseBays = () => [
+    { along: 'i', i: 1.0, j: 0.3, from: 1.0, to: 21.2 },
+    { along: 'j', i: 0.3, j: 1.2, from: 1.2, to: 10.6 },
+    { along: 'i', i: 4.2, j: 5.2, from: 4.2, to: 16.4 },
+    { along: 'i', i: 4.2, j: 8.6, from: 4.2, to: 15.2 },
+  ].map((b) => ({ ...b, cursor: b.from }))
+  const growthRow = () => ({ along: 'i', i: 8.0, j: 11.9, from: 8.0, to: 16.4, cursor: 8.0 })
+  const lenFor = (pages) => Math.max(2.0, Math.min(5.0, 2.0 + pages / 90))
+  const newRoom = () => ({ bays: baseBays(), grown: false, cases: [] })
+  const rooms = [newRoom()]
+  const tryPlace = (room, len, item) => {
+    const order = item.spare ? [...room.bays].reverse() : room.bays
+    if (item.spare && !room.grown) { room.grown = true; room.bays.push(growthRow()); order.unshift(room.bays[room.bays.length - 1]) }
+    for (const b of order) {
+      if (b.cursor + len <= b.to + 0.01) {
+        const c = b.along === 'i' ? { along: 'i', i: b.cursor, j: b.j, len } : { along: 'j', i: b.i, j: b.cursor, len }
+        b.cursor += len + 0.3
+        room.cases.push({ ...c, ...item })
+        return true
+      }
+    }
+    if (!room.grown) { room.grown = true; room.bays.push(growthRow()); return tryPlace(room, len, item) }
+    return false
+  }
+  const place = (len, item) => {
+    for (const room of rooms) if (tryPlace(room, len, item)) return
+    const room = newRoom(); rooms.push(room); tryPlace(room, len, item)
+  }
+  for (const d of deps) place(lenFor(d.pages), d)
+  // two spares, always; when they do not fit, the next wing opens with them
+  for (let k = 0; k < 2; k++) place(2.0, { spare: true })
+  return rooms
+}
+
+function miniLibrary(rooms, TW, x0, y0) {
+  const TH = TW / 2, NI = 22, NJ = 15, wallH = Math.round(TW * 2.2), gapI = 3
+  SCALE = TW / 46
+  let g = ''
+  rooms.forEach((room, k) => {
+    const P = makeP(x0 + k * (NI + gapI) * TW / 2, y0 + k * (NI + gapI) * TH / 2, TW, TH)
+    const f = FLOOR.stone.day, w = WALL.panels.day
+    g += `<polygon points="${pts([P(0, 0), P(NI, 0), P(NI, NJ), P(0, NJ)])}" fill="${f.tones[0]}" stroke="${f.base}"/>`
+    g += `<polygon points="${pts([P(0, 0, 0), P(0, NJ, 0), P(0, NJ, wallH), P(0, 0, wallH)])}" fill="${w.right}"/><polygon points="${pts([P(0, 0, 0), P(NI, 0, 0), P(NI, 0, wallH), P(0, 0, wallH)])}" fill="${w.left}"/>`
+    if (k > 0) {
+      // doorway in the shared wall and a short corridor from the previous wing
+      const Q = makeP(x0 + (k - 1) * (NI + gapI) * TW / 2, y0 + (k - 1) * (NI + gapI) * TH / 2, TW, TH)
+      g += `<polygon points="${pts([Q(NI, 6.0), Q(NI + gapI, 6.0), Q(NI + gapI, 8.0), Q(NI, 8.0)])}" fill="${f.tones[1]}" stroke="${f.base}"/>`
+    }
+    const cases = room.cases.map((c) => ({ ...c, d: c.along === 'i' ? c.i + c.len + c.j + 0.72 : c.i + 0.72 + c.j + c.len })).sort((a, b) => a.d - b.d)
+    for (const c of cases) g += bookcase(P, c.i, c.j, c.along, c.len, c.pages ?? 0, c.spare ? 0 : domainHue(c.name), false, 'walnut', '', TW, { simple: true, spare: c.spare === true })
+    // the fixed front zone: reading table, desks, front desk, catalog
+    const sc = SHELF.walnut.day
+    g += box(P, 4.0, 11.2, 2.2, 1.2, 8, { top: '#f0e6d6', left: '#d9cbb3', right: '#c9b99d' })
+    g += box(P, 19.0, 12.4, 2.4, 0.8, 10, { top: sc.top, left: sc.left, right: sc.right })
+    g += box(P, 21.1, 9.8, 0.8, 0.8, 14, { top: sc.top, left: sc.left, right: sc.right })
+    const [lx, ly] = P(NI / 2, -1.2, wallH + 6)
+    g += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-family='${FONT}' font-size="10" font-weight="600" fill="${T.dim}">${k === 0 ? 'Wing A' : 'Wing ' + String.fromCharCode(65 + k)}</text>`
+  })
+  return g
+}
+
+function growthBoard() {
+  const base = Object.entries(counts).filter(([n]) => n !== 'unassigned').map(([name, pages]) => ({ name, pages }))
+  const unfiled = { name: 'unfiled', pages: counts.unassigned ?? 20 }
+  const stateA = [...base, unfiled]
+  const stateB = [...base, unfiled, ...NEW_DOMAINS.slice(0, 3).map(([name, pages]) => ({ name, pages }))]
+  const stateC = [...base, unfiled, ...NEW_DOMAINS.map(([name, pages]) => ({ name, pages }))]
+  const panel = (title, rooms, caption, TW, w) => {
+    const roomsW = ((rooms.length * 22 + (rooms.length - 1) * 3) + 15) * TW / 2
+    const h = (37 + (rooms.length - 1) * 25) * TW / 4 + 70
+    const x0 = (w - roomsW) / 2 + 15 * TW / 2
+    const svg = `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">${miniLibrary(rooms, TW, x0, 52)}</svg>`
+    return `<div style="display:flex; flex-direction:column; gap:8px; width:${w}px"><div style="font-size:13px; font-weight:600">${title}</div><div style="border:1px solid ${T.border}; border-radius:12px; background:${T.elev}; overflow:hidden">${svg}</div><div style="font-size:11.5px; color:${T.faint}">${caption}</div></div>`
+  }
+  const rA = autoLayout(stateA), rB = autoLayout(stateB), rC = autoLayout(stateC)
+  return `<div style="width:1440px; height:820px; box-sizing:border-box; padding:32px 40px; background:${T.bg}; display:flex; flex-direction:column; gap:18px; font-family:${FONT}; color:${T.text}">
+    <div style="display:flex; align-items:baseline; gap:14px"><div style="font-family:${DISPLAY}; font-size:22px; font-weight:650">Growth</div><div style="font-size:13px; color:${T.dim}">how the room stays legible when domains keep coming (SPEC 10.9). Cases are placed first-fit in birth order and never move; two spare cases are always kept; the last spare taken opens the next wing.</div></div>
+    <div style="display:flex; gap:20px; align-items:flex-start">
+      ${panel('Today: 17 departments, 2 spare cases', rA, 'Walls first, then the two aisle rows, then the growth row in front. The lighter cases are the spares; the next domain takes one.', 14, 380)}
+      ${panel('+3 domains: the last spare is taken, Wing B opens', rB, 'Nothing in Wing A moves. Wing B is the same floor plan through a doorway, with its own two spares. Fit shows both wings; a click on a wing focuses it.', 14, 640)}
+    </div>
+    <div style="display:flex; gap:20px; align-items:flex-start">
+      ${panel('+12 domains: Wing B fills, the spares wait in front', rC, 'Case length follows the page count with a floor of two tiles and a cap of five; a department that outgrows its case gets a second one in the next free bay instead of a longer one. Below a tile size of 30 px the spines become solid bands and the signs move to the floor; below 18 px only colored blocks and wing names remain.', 14, 640)}
+      <div style="flex:1; display:flex; flex-direction:column; gap:10px; padding-top:28px; font-size:12.5px; color:${T.dim}">
+        <div><b style="color:${T.text}">Stability.</b> A case keeps its bay for life. Re-shelving is a maintenance action the caretaker performs on screen, never a side effect of a new domain.</div>
+        <div><b style="color:${T.text}">Fullness, not length.</b> Spines saturate on a logarithmic curve, so a 1000-page department looks full rather than ten times longer than a 100-page one.</div>
+        <div><b style="color:${T.text}">Wings in the control column.</b> The department list groups by wing; the Fit button frames the whole library, Focus mode follows the active Fellow across wings.</div>
+      </div>
     </div>
   </div>`
 }
@@ -641,23 +785,26 @@ fs.writeFileSync('Focus.dc.html', doc('Library, focus mode', CSS, focus))
 fs.writeFileSync('Card.dc.html', doc('Library, Fellow card', CSS, card))
 fs.writeFileSync('Sprites.dc.html', doc('Figures, style A', plain, figuresBoard()))
 fs.writeFileSync('Textures.dc.html', doc('Textures', plain, texturesBoard()))
+fs.writeFileSync('Growth.dc.html', doc('Growth', plain, growthBoard()))
 fs.writeFileSync('canvas.json', JSON.stringify({
   artboards: [
     { file: 'Main.dc.html', x: 0, y: 0, w: 1440, h: 900, title: 'Library · day' },
     { file: 'Night.dc.html', x: 1560, y: 0, w: 1440, h: 900, title: 'Library · night shift' },
     { file: 'Focus.dc.html', x: 0, y: 1060, w: 1440, h: 900, title: 'Library · focus mode' },
     { file: 'Card.dc.html', x: 1560, y: 1060, w: 1440, h: 1130, title: 'Library · Fellow card docked' },
-    { file: 'Textures.dc.html', x: 0, y: 2350, w: 1440, h: 1180, title: 'Textures · pick per row or a preset' },
-    { file: 'Sprites.dc.html', x: 1560, y: 2350, w: 1440, h: 760, title: 'Figures · style A' },
+    { file: 'Growth.dc.html', x: 0, y: 2350, w: 1440, h: 820, title: 'Growth · wings and spare cases' },
+    { file: 'Textures.dc.html', x: 1560, y: 2350, w: 1440, h: 1180, title: 'Textures · Archive chosen' },
+    { file: 'Sprites.dc.html', x: 0, y: 3330, w: 1440, h: 760, title: 'Figures · style A' },
   ],
   annotations: [
-    { id: 'brief', x: 0, y: -150, w: 520, text: 'Library screen, round 2 (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme). Department signs now sit on the shelves in perspective. Style A figures are decided.' },
+    { id: 'brief', x: 0, y: -150, w: 520, text: 'Library screen, round 3 (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme). Archive textures, signs on the shelves in one size with two-line breaks, style A figures without faces, two spare cases near the front.' },
     { id: 'night-note', x: 1560, y: -110, w: 420, text: 'Night shift: dark floor, lamps only where someone works. Mutex drawn literally: Ibra waits at the front desk while Ada runs.' },
     { id: 'focus-note', x: 0, y: 960, w: 520, text: 'Focus mode: the control column, box head and legend recede; the tabs stay for navigation, Fullscreen would hide those too. Click a Fellow for the popover; "Open card" leads to the docked card of full mode.' },
     { id: 'card-note', x: 1560, y: 960, w: 420, text: 'Card docked right per DESIGN.md (canvas shrinks, no overlay on a control corner). Fields per SPEC 10.5, live run with phase bar and log tail.' },
-    { id: 'textures-note', x: 0, y: 2250, w: 520, text: 'Textures: pick F, W and S separately or take a preset. Everything is the same projection, so any combination works; the night palette exists for each option.' },
-    { id: 'figures-note', x: 1560, y: 2250, w: 420, text: 'Style A decided (OPEN-15). Still open: do the figures need faces at this size?' },
+    { id: 'growth-note', x: 0, y: 2250, w: 520, text: 'Growth (round 3): bays, first-fit in birth order, two spare cases, wings through a doorway. Signs are one size per view and break into two lines.' },
+    { id: 'textures-note', x: 1560, y: 2250, w: 420, text: 'Archive preset chosen (F3 stone, W2 panels, S3 walnut). The other options stay for reference.' },
+    { id: 'figures-note', x: 0, y: 3230, w: 420, text: 'Style A, no faces (decided). Hair stays as the silhouette cue.' },
   ],
   launch: { view: 'canvas' },
 }, null, 2))
-console.log('wrote', ['Main', 'Night', 'Focus', 'Card', 'Sprites', 'Textures'].map((n) => `${n} ${fs.statSync(n + '.dc.html').size} B`).join(', '))
+console.log('wrote', ['Main', 'Night', 'Focus', 'Card', 'Sprites', 'Textures', 'Growth'].map((n) => `${n} ${fs.statSync(n + '.dc.html').size} B`).join(', '))

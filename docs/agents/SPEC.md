@@ -518,8 +518,10 @@ Departments come from the domain registry, laid out by page count with `unassign
 special shelf near the entrance. **Every bookcase carries its department name as a sign on
 the top band of its long face, drawn in the same projection as the shelf** (skewed text on
 the face plane, sized to the shelf length, light on dark wood and dark on light frames), so
-the name reads where the books are instead of on the floor. Textures for floor, walls and
-shelves are one decision per surface or a preset (`OPEN-23`). **Books** are knowledge pages: concepts, entities and
+the name reads where the books are instead of on the floor. **The sign text has one size
+per view, never per shelf**; a name that does not fit its case breaks into two lines at its
+hyphen or space, and the sign band is tall enough for two lines on every case. Textures:
+the **Archive** preset, a stone floor, panelled walls and walnut shelves, day and night. **Books** are knowledge pages: concepts, entities and
 syntheses stand as books; **source pages are thin volumes** in the same shelf; meta pages
 are invisible. The first render builds shelves from the vault stats; commits add books
 with a shelving animation (the vault watcher publishes the events). **Day and night follow
@@ -565,7 +567,34 @@ pack), judged on consistency and on a license that allows redistribution in the 
 repo. Controls live on the canvas as on the graph screen. The screen follows DESIGN.md
 (fonts, color roles, 1180 px lane or the wide lane, desktop-only, no raw hex).
 
-### 10.8 Navigation and naming
+### 10.8 Growth and layout
+
+The room has to stay legible when domains keep coming, so placement is a stable,
+deterministic layout model rather than a picture:
+
+- **Bays.** The floor has fixed bays: the two back walls, two aisle rows of freestanding
+  cases, and a growth row in front of them. A bay holds cases of variable length.
+- **Case length follows the page count** with a floor of two tiles and a cap of five. A
+  department that outgrows its case gets a **second case in the next free bay**, never a
+  longer one, so neighbours do not shift. Spines saturate on a logarithmic curve: a
+  thousand-page department looks full, not ten times longer than a hundred-page one.
+- **Birth order, first fit, never move.** A new domain takes the first bay with room, in
+  the order domains are born (registry order, then creation date). A case keeps its bay
+  for life; the assignment is stored once. Re-shelving is a maintenance action the
+  caretaker performs on screen, never a side effect of a new domain.
+- **Two spare cases, always.** The frontmost free slots hold two empty cases drawn lighter
+  and without a sign. The next domain takes one and a new spare appears behind it. That is
+  the visible answer to "where does the next department go".
+- **Wings.** When the last spare is taken, the next wing opens: the same floor plan
+  through a doorway in the shared wall, with its own spares. The canvas pans and zooms
+  like the graph; Fit frames the whole library, a click on a wing focuses it, and Focus
+  mode follows the active Fellow across wings. The control column groups departments by
+  wing.
+- **Level of detail.** Below a tile size of about 30 px the spines become solid bands and
+  the signs move to the floor; below about 18 px only colored blocks and wing names
+  remain. A library of fifty departments stays readable at every zoom.
+
+### 10.9 Navigation and naming
 
 The room takes the route `/library`; the tabular page view moves to `/catalog` and is
 renamed **Catalog** in the header. Because the old path is reused, no alias can keep old
@@ -715,4 +744,7 @@ user's own account.
 | NEW-2 | Quiet day | one-liner to dashboard and Telegram, no vault page |
 | NEW-3 | Manual runs and the research share | manual runs are not limited by share or reserves |
 | NEW-4 | Default step and kind choice | `standard` as maximum; the planner picks the smallest fitting kind |
-| OPEN-23 | Textures for floor, walls, shelves | open: three options per surface and three presets on the design canvas (Studio, Reading room, Archive) |
+| OPEN-23 | Textures for floor, walls, shelves | Archive preset: stone floor, panelled walls, walnut shelves (decided 2026-09-06) |
+| NEW-5 | Shelf signs | one text size per view, never per shelf; a name that does not fit breaks into two lines at its hyphen (decided 2026-09-06) |
+| NEW-6 | Faces | figures have no faces; hair stays as the silhouette cue (decided 2026-09-06) |
+| NEW-7 | Growth model | bays, first-fit in birth order, two spare cases, wings; see 10.9 (decided 2026-09-06) |
