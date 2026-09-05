@@ -515,7 +515,11 @@ others wait at the front desk; ingest clerks run in parallel up to `concurrency`
 ### 10.4 Departments, shelves and books
 
 Departments come from the domain registry, laid out by page count with `unassigned` as a
-special shelf near the entrance. **Books** are knowledge pages: concepts, entities and
+special shelf near the entrance. **Every bookcase carries its department name as a sign on
+the top band of its long face, drawn in the same projection as the shelf** (skewed text on
+the face plane, sized to the shelf length, light on dark wood and dark on light frames), so
+the name reads where the books are instead of on the floor. Textures for floor, walls and
+shelves are one decision per surface or a preset (`OPEN-23`). **Books** are knowledge pages: concepts, entities and
 syntheses stand as books; **source pages are thin volumes** in the same shelf; meta pages
 are invisible. The first render builds shelves from the vault stats; commits add books
 with a shelving animation (the vault watcher publishes the events). **Day and night follow
@@ -539,7 +543,19 @@ points this week, quota left; the value line; link to the notebook and "Open in 
 Actions: run next step now, pause or resume, veto the next plan, open notebook, filter the
 research ledger by this Fellow, retire.
 
-### 10.6 Rendering and assets
+### 10.6 Focus mode
+
+A toggle in the canvas header, `Full | Focus`, reduces the screen to the room: the control
+column, the box head, the legend and the ledgers recede, the tabs stay for navigation
+(Fullscreen additionally hides those, as on the graph). What remains on the canvas: the
+toggle and a search button top right, the now chip bottom left, the department signs.
+Clicking a Fellow in focus mode opens a **popover** anchored to the figure: kicker (role,
+domain, state), name, what it works on now with step and phase, what runs tonight with the
+estimated cost, and two actions, "Open card" (switches to full mode with the docked card)
+and "Pause". The popover is the only chrome that appears in focus mode; everything else
+waits in full mode.
+
+### 10.7 Rendering and assets
 
 2D canvas with pre-rendered isometric sprites, no engine. A pose vocabulary of six to
 eight poses (stand, walk, read at shelf, write at desk, shelve, sleep, wait, think) shared
@@ -549,7 +565,7 @@ pack), judged on consistency and on a license that allows redistribution in the 
 repo. Controls live on the canvas as on the graph screen. The screen follows DESIGN.md
 (fonts, color roles, 1180 px lane or the wide lane, desktop-only, no raw hex).
 
-### 10.7 Navigation and naming
+### 10.8 Navigation and naming
 
 The room takes the route `/library`; the tabular page view moves to `/catalog` and is
 renamed **Catalog** in the header. Because the old path is reused, no alias can keep old
@@ -687,7 +703,7 @@ user's own account.
 | OPEN-12 | Quota defaults | 10 % week, 15 % per 5-hour window, reserves 60/80 |
 | OPEN-13 | Recap narrative | deterministic skeleton plus three lines per Fellow on Sonnet 5 |
 | OPEN-14 | What is a book | knowledge pages are books, sources thin volumes, meta invisible |
-| OPEN-15 | Assets | sprite test first, then decide |
+| OPEN-15 | Assets | style A, flat vector figures drawn from the dashboard tokens (decided 2026-09-05 after the sprite test) |
 | OPEN-16 | Cross-Fellow notebook writes | never; handoffs are service-side |
 | OPEN-17 | Planning model | the Fellow's model, default Sonnet 5 |
 | OPEN-18 | Value signal | minimal in v1: recap link clicks and page opens, local only |
@@ -699,3 +715,4 @@ user's own account.
 | NEW-2 | Quiet day | one-liner to dashboard and Telegram, no vault page |
 | NEW-3 | Manual runs and the research share | manual runs are not limited by share or reserves |
 | NEW-4 | Default step and kind choice | `standard` as maximum; the planner picks the smallest fitting kind |
+| OPEN-23 | Textures for floor, walls, shelves | open: three options per surface and three presets on the design canvas (Studio, Reading room, Archive) |

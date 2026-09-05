@@ -17,20 +17,36 @@
       "title": "Library · night shift"
     },
     {
-      "file": "Card.dc.html",
+      "file": "Focus.dc.html",
       "x": 0,
+      "y": 1060,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · focus mode"
+    },
+    {
+      "file": "Card.dc.html",
+      "x": 1560,
       "y": 1060,
       "w": 1440,
       "h": 1130,
       "title": "Library · Fellow card docked"
     },
     {
+      "file": "Textures.dc.html",
+      "x": 0,
+      "y": 2350,
+      "w": 1440,
+      "h": 1180,
+      "title": "Textures · pick per row or a preset"
+    },
+    {
       "file": "Sprites.dc.html",
       "x": 1560,
-      "y": 1060,
+      "y": 2350,
       "w": 1440,
-      "h": 900,
-      "title": "Sprite test · style A vs B"
+      "h": 760,
+      "title": "Figures · style A"
     }
   ],
   "annotations": [
@@ -39,7 +55,7 @@
       "x": 0,
       "y": -150,
       "w": 520,
-      "text": "Library screen, first design round (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme, Bricolage / Instrument Sans / IBM Plex Mono, 252 px control column, 32 px controls).\nRoom: departments from the demo vault registry, books sized by page count, front desk, reading room, notice board = hot.md, catalog = index."
+      "text": "Library screen, round 2 (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme). Department signs now sit on the shelves in perspective. Style A figures are decided."
     },
     {
       "id": "night-note",
@@ -49,18 +65,32 @@
       "text": "Night shift: dark floor, lamps only where someone works. Mutex drawn literally: Ibra waits at the front desk while Ada runs."
     },
     {
-      "id": "card-note",
+      "id": "focus-note",
       "x": 0,
+      "y": 960,
+      "w": 520,
+      "text": "Focus mode: the control column, box head and legend recede; the tabs stay for navigation, Fullscreen would hide those too. Click a Fellow for the popover; \"Open card\" leads to the docked card of full mode."
+    },
+    {
+      "id": "card-note",
+      "x": 1560,
       "y": 960,
       "w": 420,
       "text": "Card docked right per DESIGN.md (canvas shrinks, no overlay on a control corner). Fields per SPEC 10.5, live run with phase bar and log tail."
     },
     {
-      "id": "sprite-note",
-      "x": 1560,
-      "y": 960,
+      "id": "textures-note",
+      "x": 0,
+      "y": 2250,
       "w": 520,
-      "text": "OPEN-15 sprite test: decide style A (flat vector, token colors, recolors per domain) or B (pixel art). Also open: do the figures need faces at this size?"
+      "text": "Textures: pick F, W and S separately or take a preset. Everything is the same projection, so any combination works; the night palette exists for each option."
+    },
+    {
+      "id": "figures-note",
+      "x": 1560,
+      "y": 2250,
+      "w": 420,
+      "text": "Style A decided (OPEN-15). Still open: do the figures need faces at this size?"
     }
   ],
   "launch": {

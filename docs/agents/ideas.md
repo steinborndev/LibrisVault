@@ -166,3 +166,14 @@ new ideas go here first and reach the spec through a dated decision.
   catalog = index, mutex drawn as waiting at the front desk).
 - Open from this round: style A or B for the figures (OPEN-15), whether figures need faces
   at this size, how many departments to draw when a vault has more than fit on one floor.
+
+## Design round 2 (2026-09-05)
+
+- OPEN-15 decided: style A, flat vector figures. The sprite board now shows the pose
+  vocabulary (shelf, desk, shelving, asleep, waiting, carrying, inspecting, re-sorting).
+- New: **Focus mode** toggle (`Full | Focus`) that reduces the screen to the room; a click on
+  a Fellow opens a popover (state, now, tonight, Open card, Pause). Spec section 10.6.
+- New: department **signs on the shelves**, in perspective on the top band of the long face.
+- New: **Textures** board with three options each for floor (tile grid, parquet, stone), walls
+  (plaster, panels, whitewashed brick) and shelves (neutral, oak, walnut) plus three presets
+  (Studio, Reading room, Archive). Decision pending: OPEN-23.
