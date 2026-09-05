@@ -155,3 +155,14 @@ new ideas go here first and reach the spec through a dated decision.
   (claude-obsidian v1.9.2 plus the synthetic demo set: 899 pages, 17 domains, 145 backdated
   commits), database and inbox under `~/.local/share/curious/`, no Telegram token, the
   shared credential file. `scripts/dev-instance.sh npm run start:prod` runs the built JS.
+
+## Design round 1 (2026-09-05)
+
+- Library screen canvas with four artboards (day, night shift, Fellow card docked, sprite
+  test): https://claude.ai/code/artifact/379c5aa8-9b7d-40e8-9bd9-3a9e7eb59ace
+  Working files under `docs/agents/design/library-screen/`. Shell, tokens and controls are
+  lifted from the dashboard's light theme; the room follows SPEC section 10 (departments
+  from the registry, books by page count, front desk, reading room, notice board = hot.md,
+  catalog = index, mutex drawn as waiting at the front desk).
+- Open from this round: style A or B for the figures (OPEN-15), whether figures need faces
+  at this size, how many departments to draw when a vault has more than fit on one floor.

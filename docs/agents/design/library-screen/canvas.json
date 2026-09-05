@@ -1,0 +1,69 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · day"
+    },
+    {
+      "file": "Night.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · night shift"
+    },
+    {
+      "file": "Card.dc.html",
+      "x": 0,
+      "y": 1060,
+      "w": 1440,
+      "h": 1130,
+      "title": "Library · Fellow card docked"
+    },
+    {
+      "file": "Sprites.dc.html",
+      "x": 1560,
+      "y": 1060,
+      "w": 1440,
+      "h": 900,
+      "title": "Sprite test · style A vs B"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -150,
+      "w": 520,
+      "text": "Library screen, first design round (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme, Bricolage / Instrument Sans / IBM Plex Mono, 252 px control column, 32 px controls).\nRoom: departments from the demo vault registry, books sized by page count, front desk, reading room, notice board = hot.md, catalog = index."
+    },
+    {
+      "id": "night-note",
+      "x": 1560,
+      "y": -110,
+      "w": 420,
+      "text": "Night shift: dark floor, lamps only where someone works. Mutex drawn literally: Ibra waits at the front desk while Ada runs."
+    },
+    {
+      "id": "card-note",
+      "x": 0,
+      "y": 960,
+      "w": 420,
+      "text": "Card docked right per DESIGN.md (canvas shrinks, no overlay on a control corner). Fields per SPEC 10.5, live run with phase bar and log tail."
+    },
+    {
+      "id": "sprite-note",
+      "x": 1560,
+      "y": 960,
+      "w": 520,
+      "text": "OPEN-15 sprite test: decide style A (flat vector, token colors, recolors per domain) or B (pixel art). Also open: do the figures need faces at this size?"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}
