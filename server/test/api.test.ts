@@ -1107,7 +1107,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     const res = await fetch(`${baseUrl}/api/v1/maintenance/cleanup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pages: ['Espresso', '  Milk\nSteaming  ', 42, ''] }),
+      body: JSON.stringify({ pages: ['Widget Assembly', '  Widget\nPolishing  ', 42, ''] }),
     })
     expect(res.status).toBe(202)
     const started = (await res.json()) as StartedRun
@@ -1116,8 +1116,8 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     const run = await pollRun(started.id)
     expect(run.status).toBe('done')
     // Bounded to exactly the sanitized titles; append-only records are protected.
-    expect(prompt).toContain('"Espresso"')
-    expect(prompt).toContain('"Milk Steaming"')
+    expect(prompt).toContain('"Widget Assembly"')
+    expect(prompt).toContain('"Widget Polishing"')
     expect(prompt).toContain('log.md')
     expect(prompt).toContain('address_map')
     // Write runs carry the page-hygiene checklist and entity-notability rules (prevention
@@ -1307,7 +1307,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     const bad = await fetch(`${baseUrl}/api/v1/maintenance/research`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: 'lipids', profileKey: 'not-a-lens' }),
+      body: JSON.stringify({ topic: 'turbines', profileKey: 'not-a-lens' }),
     })
     expect(bad.status).toBe(400)
   })
@@ -1321,7 +1321,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     const res = await fetch(`${baseUrl}/api/v1/maintenance/research`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: 'ionizable lipids', profileKey: 'patents' }),
+      body: JSON.stringify({ topic: 'tidal turbines', profileKey: 'patents' }),
     })
     expect(res.status).toBe(202)
     const started = (await res.json()) as StartedRun
@@ -1330,7 +1330,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     expect(run.status).toBe('done')
     // The service pins the synthesis title deterministically; the agent does not choose it.
     expect(prompt).toContain('research_lens')
-    expect(prompt).toContain('Research: ionizable lipids — Patent Landscape')
+    expect(prompt).toContain('Research: tidal turbines — Patent Landscape')
     expect(prompt).toMatch(/does NOT\s+override the page-hygiene/)
   })
 
@@ -1343,7 +1343,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     const res = await fetch(`${baseUrl}/api/v1/maintenance/research`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ topic: 'ionizable lipids' }),
+      body: JSON.stringify({ topic: 'tidal turbines' }),
     })
     expect(res.status).toBe(202)
     const run = await pollRun(((await res.json()) as StartedRun).id)

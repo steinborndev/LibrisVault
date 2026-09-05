@@ -38,7 +38,7 @@ const STOPWORDS = new Set([
 
 /**
  * Splits text into significant, normalised tokens: lower-cased, punctuation-stripped, stopwords
- * and short tokens dropped, and a single trailing plural `s` removed so "lipids" matches "lipid".
+ * and short tokens dropped, and a single trailing plural `s` removed so "turbines" matches "turbine".
  */
 function tokenize(text: string): Set<string> {
   const tokens = new Set<string>()

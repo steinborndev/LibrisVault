@@ -146,7 +146,7 @@ function makeJob(over: Partial<JobRow> = {}): JobRow {
     sha256: null,
     status: 'done',
     raw_path: null,
-    created_pages: JSON.stringify(['wiki/concepts/Espresso.md']),
+    created_pages: JSON.stringify(['wiki/concepts/Widget Assembly.md']),
     error: null,
     attempts: 1,
     tokens_in: null,
@@ -258,21 +258,21 @@ describe('telegram bot — commands', () => {
 
 describe('telegram bot — /research', () => {
   it('starts a research run with the bare topic and acknowledges with the run id', async () => {
-    const b = makeBot({ batches: [[update({ text: '/research ionizable lipids' })]] })
+    const b = makeBot({ batches: [[update({ text: '/research tidal turbines' })]] })
     await vi.waitFor(() => expect(b.sent.length).toBe(1))
     await b.bot.stop()
     expect(b.researchCalls).toHaveLength(1)
-    expect(b.researchCalls[0]!.topic).toBe('ionizable lipids')
-    expect(b.sent[0]!.text).toContain('ionizable lipids')
+    expect(b.researchCalls[0]!.topic).toBe('tidal turbines')
+    expect(b.sent[0]!.text).toContain('tidal turbines')
     expect(b.sent[0]!.text).toContain('RCH01'.slice(-6)) // last 6 of RUNRESEARCH01
     expect(b.enqueueFile).not.toHaveBeenCalled() // NOT filed as a note
   })
 
   it('strips an @botname suffix from the command before the topic', async () => {
-    const b = makeBot({ batches: [[update({ text: '/research@MyVaultBot lipid nanoparticles' })]] })
+    const b = makeBot({ batches: [[update({ text: '/research@MyVaultBot turbine blades' })]] })
     await vi.waitFor(() => expect(b.sent.length).toBe(1))
     await b.bot.stop()
-    expect(b.researchCalls[0]!.topic).toBe('lipid nanoparticles')
+    expect(b.researchCalls[0]!.topic).toBe('turbine blades')
   })
 
   it('an empty topic gets usage help and starts nothing', async () => {
@@ -284,7 +284,7 @@ describe('telegram bot — /research', () => {
   })
 
   it('notifies the chat with page titles when the run settles done', async () => {
-    const b = makeBot({ batches: [[update({ text: '/research ionizable lipids' })]] })
+    const b = makeBot({ batches: [[update({ text: '/research tidal turbines' })]] })
     await vi.waitFor(() => expect(b.researchCalls.length).toBe(1))
     b.researchCalls[0]!.onSettled({
       ...makeResearchRun(),
@@ -293,14 +293,14 @@ describe('telegram bot — /research', () => {
         ok: true,
         kind: 'research',
         commit: 'f00ba12',
-        pages: ['wiki/concepts/Ionizable Lipid.md', 'wiki/index.md'],
+        pages: ['wiki/concepts/Tidal Turbine.md', 'wiki/index.md'],
         usage: undefined as never,
       },
     })
     await vi.waitFor(() => expect(b.sent.length).toBe(2)) // ack + completion
     await b.bot.stop()
     const done = b.sent[1]!.text
-    expect(done).toContain('Ionizable Lipid')
+    expect(done).toContain('Tidal Turbine')
     expect(done).not.toContain('wiki/') // paths never leak; titles only (§9)
     expect(done).not.toContain('index') // bookkeeping page filtered out
   })
@@ -421,7 +421,7 @@ describe('telegram bot — url and text ingest', () => {
   })
 
   it('plain text becomes a staged .md file job, staging cleaned after enqueue', async () => {
-    const b = makeBot({ batches: [[update({ text: 'remember: espresso 1:2 ratio' })]] })
+    const b = makeBot({ batches: [[update({ text: 'remember: widget torque 1:2 ratio' })]] })
     await vi.waitFor(() => expect(b.sent.length).toBe(1))
     await b.bot.stop()
     expect(b.enqueueFile).toHaveBeenCalledWith(
@@ -483,7 +483,7 @@ describe('telegram bot — completion notifications (SPEC.md §4.3)', () => {
     await b.bot.stop()
     expect(b.sent[0]!.chatId).toBe(CHAT)
     expect(b.sent[0]!.parseMode).toBe('MarkdownV2')
-    expect(b.sent[0]!.text).toContain('Espresso')
+    expect(b.sent[0]!.text).toContain('Widget Assembly')
     expect(b.sent[0]!.text).not.toContain('wiki/')
   })
 

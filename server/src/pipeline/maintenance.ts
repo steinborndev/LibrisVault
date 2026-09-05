@@ -472,7 +472,7 @@ export class MaintenanceRunner {
    *
    * Overlap steering: a deterministic title match (`findRelatedPages`) surfaces the pages the
    * vault ALREADY has on this topic and injects them into the prompt, so a research run on an
-   * established theme (e.g. "ionizable lipids", where a whole LNP cluster already exists) extends
+   * established theme (one on which the vault already holds a whole cluster of pages) extends
    * those pages instead of filing a parallel synthesis. The skill's own "check the index first"
    * rule is otherwise only a soft instruction and the service prompt never named the existing
    * pages; this makes the preferred "extend, don't duplicate" path the explicit default.
@@ -535,8 +535,8 @@ export class MaintenanceRunner {
 
   /**
    * Cleans up the references a user deletion left dangling (the delete flow's follow-up
-   * offer). Deleting the Espresso pages produced FOUR lint finding classes at once — dead
-   * links in 4 files, orphaned drink mentions, stale address_map entries — because deletion
+   * offer). Deleting one small cluster of pages once produced FOUR lint finding classes at once
+   * (dead links in four files, orphaned mentions, stale address_map entries) because deletion
    * is not a reference-aware operation; this run is the one-click repair, bounded to exactly
    * the named pages. Titles come from the dashboard's own delete flow, not free text.
    */

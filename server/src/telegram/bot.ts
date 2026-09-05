@@ -180,7 +180,7 @@ export function startTelegramBot(options: StartTelegramBotOptions): TelegramBot 
       return
     }
     if (topic === '') {
-      await reply(chatId, 'Usage: /research <topic> — e.g. /research ionizable lipids')
+      await reply(chatId, 'Usage: /research <topic> — e.g. /research tidal turbines')
       return
     }
     const run = options.startResearch(topic, (settled) => {

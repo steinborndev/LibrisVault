@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { isHubPage, mainArticle, readerPages } from '../src/lib/homeArticle.ts'
 
 const INGEST = [
-  'wiki/concepts/Ghost GDP.md',
+  'wiki/concepts/Harvest Lag.md',
   'wiki/concepts/Crowding-Out Effect.md',
   'wiki/sources/The 2028 Global Intelligence Crisis.md',
   'wiki/concepts/_index.md',
@@ -18,9 +18,9 @@ const INGEST = [
 ]
 
 const RUN = [
-  'wiki/concepts/Climate Gentrification.md',
-  'wiki/questions/Research: climate change impact on European property prices.md',
-  'wiki/sources/2022 ECB Climate Risk Stress Test.md',
+  'wiki/concepts/Coastal Nutrient Cycling.md',
+  'wiki/questions/Research: kelp farming effects on Norwegian coastal fisheries.md',
+  'wiki/sources/2022 Marine Institute Kelp Survey.md',
   'wiki/index.md',
 ]
 
@@ -46,7 +46,7 @@ describe('mainArticle', () => {
 
   it('opens a research run on its synthesis, not on a source it also filed', () => {
     expect(mainArticle(RUN)).toBe(
-      'wiki/questions/Research: climate change impact on European property prices.md',
+      'wiki/questions/Research: kelp farming effects on Norwegian coastal fisheries.md',
     )
   })
 
@@ -69,7 +69,7 @@ describe('readerPages', () => {
   it('drops the hubs and leads with the article', () => {
     expect(readerPages(INGEST)).toEqual([
       'wiki/sources/The 2028 Global Intelligence Crisis.md',
-      'wiki/concepts/Ghost GDP.md',
+      'wiki/concepts/Harvest Lag.md',
       'wiki/concepts/Crowding-Out Effect.md',
     ])
   })

@@ -297,7 +297,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
   // One guaranteed label per domain-region of every connected component big enough to read as
   // a cluster. Without this, the label loop's global degree sort + fixed budget fill every slot
-  // from the densest regions, leaving small detached clusters (materials-science, unassigned)
+  // from the densest regions, leaving small detached clusters (a small domain, the unassigned bucket)
   // anonymous - their local hubs never reach the global cutoff. Grouping by (component, domain)
   // rather than component alone means a domain bridged into a larger component still keeps its
   // own label, and a domain split across two blobs gets one in each. Union-find over the edges;

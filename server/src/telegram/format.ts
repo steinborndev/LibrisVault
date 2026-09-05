@@ -27,7 +27,7 @@ export function truncateMessage(text: string): string {
   return `${text.slice(0, MAX_MESSAGE_CHARS - 2)}\n…`
 }
 
-/** 'wiki/concepts/Milk Steaming.md' → 'Milk Steaming' — the title, not the path (§9). */
+/** 'wiki/concepts/Widget Polishing.md' → 'Widget Polishing' — the title, not the path (§9). */
 export function pageTitle(pagePath: string): string {
   return path.basename(pagePath).replace(/\.md$/i, '')
 }

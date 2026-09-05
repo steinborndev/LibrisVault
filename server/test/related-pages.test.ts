@@ -23,41 +23,41 @@ describe('findRelatedPages', () => {
 
   it('surfaces existing pages that share significant title tokens', () => {
     root = makeVault([
-      'wiki/concepts/Ionizable Lipid.md',
-      'wiki/concepts/Lipid Nanoparticle.md',
+      'wiki/concepts/Tidal Turbine.md',
+      'wiki/concepts/Turbine Blade.md',
       'wiki/concepts/Compound Interest.md',
     ])
-    const related = findRelatedPages(root, 'ionizable lipids')
-    expect(related.pages).toContain('wiki/concepts/Ionizable Lipid.md')
-    expect(related.pages).toContain('wiki/concepts/Lipid Nanoparticle.md')
+    const related = findRelatedPages(root, 'tidal turbines')
+    expect(related.pages).toContain('wiki/concepts/Tidal Turbine.md')
+    expect(related.pages).toContain('wiki/concepts/Turbine Blade.md')
     expect(related.pages).not.toContain('wiki/concepts/Compound Interest.md')
   })
 
-  it('normalises singular/plural so "lipids" matches "Lipid"', () => {
-    root = makeVault(['wiki/concepts/Ionizable Lipid.md'])
-    expect(findRelatedPages(root, 'lipids').pages).toEqual(['wiki/concepts/Ionizable Lipid.md'])
+  it('normalises singular/plural so "turbines" matches "Turbine"', () => {
+    root = makeVault(['wiki/concepts/Tidal Turbine.md'])
+    expect(findRelatedPages(root, 'turbines').pages).toEqual(['wiki/concepts/Tidal Turbine.md'])
   })
 
   it('separates existing research syntheses from other pages', () => {
     root = makeVault([
-      'wiki/questions/Research: Recent Insights into Lipid Nanoparticles.md',
-      'wiki/concepts/Lipid Nanoparticle.md',
+      'wiki/questions/Research: Recent Insights into Turbine Blades.md',
+      'wiki/concepts/Turbine Blade.md',
     ])
-    const related = findRelatedPages(root, 'lipid nanoparticle')
+    const related = findRelatedPages(root, 'turbine blade')
     expect(related.syntheses).toEqual([
-      'wiki/questions/Research: Recent Insights into Lipid Nanoparticles.md',
+      'wiki/questions/Research: Recent Insights into Turbine Blades.md',
     ])
-    expect(related.pages).toEqual(['wiki/concepts/Lipid Nanoparticle.md'])
+    expect(related.pages).toEqual(['wiki/concepts/Turbine Blade.md'])
   })
 
   it('ranks by shared token count and caps the list at 12', () => {
-    const pages = Array.from({ length: 20 }, (_, i) => `wiki/concepts/Lipid Topic ${i}.md`)
+    const pages = Array.from({ length: 20 }, (_, i) => `wiki/concepts/Turbine Topic ${i}.md`)
     // One page shares two tokens; it must rank ahead of the single-token matches.
-    pages.push('wiki/concepts/Lipid Nanoparticle.md')
+    pages.push('wiki/concepts/Turbine Blade.md')
     root = makeVault(pages)
-    const related = findRelatedPages(root, 'lipid nanoparticle')
+    const related = findRelatedPages(root, 'turbine blade')
     expect(related.pages.length + related.syntheses.length).toBeLessThanOrEqual(12)
-    expect(related.pages[0]).toBe('wiki/concepts/Lipid Nanoparticle.md')
+    expect(related.pages[0]).toBe('wiki/concepts/Turbine Blade.md')
   })
 
   it('ignores bookkeeping pages and stopword-only topics', () => {
@@ -86,11 +86,11 @@ describe('renderOverlapBlock', () => {
 
   it('names both concept pages and syntheses with distinct guidance', () => {
     const block = renderOverlapBlock({
-      syntheses: ['wiki/questions/Research: Lipids.md'],
-      pages: ['wiki/concepts/Ionizable Lipid.md'],
+      syntheses: ['wiki/questions/Research: Turbines.md'],
+      pages: ['wiki/concepts/Tidal Turbine.md'],
     })
-    expect(block).toContain('wiki/concepts/Ionizable Lipid.md')
-    expect(block).toContain('wiki/questions/Research: Lipids.md')
+    expect(block).toContain('wiki/concepts/Tidal Turbine.md')
+    expect(block).toContain('wiki/questions/Research: Turbines.md')
     expect(block).toContain('EXTENDING')
     expect(block).toMatch(/near-duplicate/i)
   })
@@ -103,7 +103,7 @@ describe('renderOverlapBlock', () => {
   it('scopes the extend-first preference to concept/entity/source pages, never the synthesis', () => {
     const block = renderOverlapBlock({
       syntheses: [],
-      pages: ['wiki/concepts/Ionizable Lipid.md'],
+      pages: ['wiki/concepts/Tidal Turbine.md'],
     })
     expect(block).toMatch(/new concept, entity or source page/)
     expect(block).toMatch(/does NOT\s+extend to the synthesis page/)
@@ -112,7 +112,7 @@ describe('renderOverlapBlock', () => {
 
   it('presents an overlapping synthesis as an alternative target, not a reason to skip one', () => {
     const block = renderOverlapBlock({
-      syntheses: ['wiki/questions/Research: Lipids.md'],
+      syntheses: ['wiki/questions/Research: Turbines.md'],
       pages: [],
     })
     expect(block).toMatch(/alternative TARGET/)
