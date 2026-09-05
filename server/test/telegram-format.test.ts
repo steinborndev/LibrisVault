@@ -23,7 +23,7 @@ function makeJob(over: Partial<JobRow> = {}): JobRow {
     sha256: null,
     status: 'done',
     raw_path: null,
-    created_pages: JSON.stringify(['wiki/concepts/Espresso.md', 'wiki/concepts/Milk Steaming.md']),
+    created_pages: JSON.stringify(['wiki/concepts/Widget Assembly.md', 'wiki/concepts/Widget Polishing.md']),
     error: null,
     attempts: 1,
     tokens_in: null,
@@ -51,7 +51,7 @@ describe('escapeMd', () => {
   })
 
   it('leaves plain words alone', () => {
-    expect(escapeMd('Espresso')).toBe('Espresso')
+    expect(escapeMd('Widget Assembly')).toBe('Widget Assembly')
   })
 })
 
@@ -67,7 +67,7 @@ describe('truncateMessage', () => {
 
 describe('pageTitle', () => {
   it('reduces a wiki path to its title', () => {
-    expect(pageTitle('wiki/concepts/Milk Steaming.md')).toBe('Milk Steaming')
+    expect(pageTitle('wiki/concepts/Widget Polishing.md')).toBe('Widget Polishing')
     expect(pageTitle('wiki/sources/a-b.md')).toBe('a-b')
   })
 })
@@ -77,8 +77,8 @@ describe('formatJobOutcome', () => {
     const text = formatJobOutcome(makeJob())
     expect(text).toContain('✅')
     expect(text).toContain('paper\\.pdf')
-    expect(text).toContain('Espresso')
-    expect(text).toContain('Milk Steaming')
+    expect(text).toContain('Widget Assembly')
+    expect(text).toContain('Widget Polishing')
     expect(text).not.toContain('wiki/')
   })
 
@@ -86,7 +86,7 @@ describe('formatJobOutcome', () => {
     const text = formatJobOutcome(
       makeJob({
         created_pages: JSON.stringify([
-          'wiki/concepts/Espresso.md',
+          'wiki/concepts/Widget Assembly.md',
           'wiki/concepts/_index.md',
           'wiki/index.md',
           'wiki/hot.md',
@@ -95,7 +95,7 @@ describe('formatJobOutcome', () => {
         ]),
       }),
     )
-    expect(text).toContain('Espresso')
+    expect(text).toContain('Widget Assembly')
     expect(text).toContain('Log')
     expect(text).not.toContain('_index')
     expect(text).not.toContain('hot')
@@ -134,14 +134,14 @@ describe('formatBatchOutcome', () => {
         original_name: 'two.pdf',
         status: 'failed',
         error: 'boom',
-        created_pages: JSON.stringify(['wiki/concepts/Espresso.md']),
+        created_pages: JSON.stringify(['wiki/concepts/Widget Assembly.md']),
       }),
     ])
     expect(text).toContain('1/2 done')
     expect(text).toContain('one\\.pdf')
     expect(text).toContain('two\\.pdf — failed: boom')
-    // 'Espresso' appears in both members' pages but only once in the message.
-    expect(text.match(/Espresso/g)).toHaveLength(1)
+    // 'Widget Assembly' appears in both members' pages but only once in the message.
+    expect(text.match(/Widget Assembly/g)).toHaveLength(1)
   })
 
   it('all done → ✅, none done → ❌', () => {
@@ -161,17 +161,17 @@ describe('formatResearchOutcome', () => {
   })
 
   it('done → title list with bookkeeping pages filtered, no paths (§9)', () => {
-    const text = formatResearchOutcome('ionizable lipids', run({
+    const text = formatResearchOutcome('tidal turbines', run({
       result: {
         ok: true,
         kind: 'research',
         commit: 'f00ba12',
-        pages: ['wiki/concepts/Ionizable Lipid.md', 'wiki/index.md', 'wiki/hot.md'],
+        pages: ['wiki/concepts/Tidal Turbine.md', 'wiki/index.md', 'wiki/hot.md'],
         usage: undefined as never,
       },
     }))
-    expect(text).toContain('ionizable lipids')
-    expect(text).toContain('• Ionizable Lipid')
+    expect(text).toContain('tidal turbines')
+    expect(text).toContain('• Tidal Turbine')
     expect(text).toContain('1 page(s)')
     expect(text).not.toContain('wiki/')
   })

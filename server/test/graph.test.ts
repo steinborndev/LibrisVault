@@ -158,8 +158,8 @@ describe('GraphBuilder', () => {
   it('never lets the journal or the hot cache nominate a gap', () => {
     // The append-only log keeps naming pages that were deleted or deliberately unlinked, and
     // the hot cache is rewritten from scratch; a link there is a record, not a missing page.
-    page('wiki/log.md', '- created [[Espresso Basics]] and [[Osmosis]]')
-    page('wiki/hot.md', 'recent: [[Espresso Basics]]')
+    page('wiki/log.md', '- created [[Widget Basics]] and [[Osmosis]]')
+    page('wiki/hot.md', 'recent: [[Widget Basics]]')
     page('wiki/concepts/A.md', 'content gap [[Osmosis]]')
 
     const g = new GraphBuilder(vaultRoot).build()
@@ -317,13 +317,13 @@ describe('GraphBuilder', () => {
   })
 
   it('ranks gaps wanted by knowledge pages above ones only system pages mention', () => {
-    // "Espresso" has MORE referrers, but both are structural (log + index); "Osmosis" has
+    // "Widgetry" has MORE referrers, but both are structural (log + index); "Osmosis" has
     // one knowledge referrer and must outrank it — the list is a research backlog.
     page('wiki/concepts/A.md', '---\ntype: concept\ndomain: bio\n---\nwants [[Osmosis]]')
-    page('wiki/log.md', 'ingested [[Espresso]]')
-    page('wiki/index.md', 'todo [[Espresso]]')
+    page('wiki/log.md', 'ingested [[Widgetry]]')
+    page('wiki/index.md', 'todo [[Widgetry]]')
     const g = new GraphBuilder(vaultRoot).build()
-    expect(g.gaps.map((x) => x.title)).toEqual(['Osmosis', 'Espresso'])
+    expect(g.gaps.map((x) => x.title)).toEqual(['Osmosis', 'Widgetry'])
   })
 
   it('returns the identical graph object while nothing changed (whole-graph cache)', () => {

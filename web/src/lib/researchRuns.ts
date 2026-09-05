@@ -253,8 +253,8 @@ export function listedRuns(entries: readonly ResearchRunEntry[]): ResearchRunEnt
  *
  * This used to guess only: rebuild the deterministic title and look for a graph node with
  * that name. But the agent names the page itself, and it does not always land on the title
- * the client predicted - a run labelled "expected impact of climate change on property
- * prices in europe" filed "Research: climate change impact on European property prices".
+ * the client predicted - a run labelled "expected effect of X on Y" may well be filed as
+ * "Research: X effects on Y".
  * The name lookup missed, the detail view rendered no article at all, and the only thing
  * left on screen was the provenance footnote.
  *
