@@ -380,8 +380,9 @@ API key (the existing daily budget's unit rule).
 | `recapTime` | 07:00 local | when the recap is built |
 | `researchModelDefault` | `sonnet-5` | default model for new Fellows |
 
-Settings keys as implemented in A1: `nightWindowStart`, `nightWindowEnd` (local `HH:MM`) and
-`researchModelDefault`; `recapTime` arrives with A2, the shares and reserves with A5.
+Settings keys as implemented: `nightWindowStart`, `nightWindowEnd` (local `HH:MM`),
+`researchModelDefault` (A1) and `recapTime` (A2, default 07:00); the shares and reserves
+arrive with A5.
 
 The global daily budget of LibrisVault (jobs per day or USD per day) stays the outer
 ceiling; Fellow runs count against it like any other run. **Manual research runs are not
@@ -438,20 +439,23 @@ and Telegram ("nothing ran, N Fellows sleeping, reasons"), no vault page.
 
 ### 9.3 Channels
 
-- Dashboard: an inbox entry on Home and a "Recap" view with the multiple-choice blocks as
-  buttons; the card links back.
-- Vault: `wiki/meta/recaps/<date>.md`, `type: meta`, readable in Obsidian. Rendering only
-  in v1: edits made in Obsidian are not read back (a later upgrade).
+- Dashboard: an inbox entry on Home and a "Recap" view (`/recap`, `/recap/<date>`) with
+  the multiple-choice blocks as buttons; the card links back.
+- Vault: `wiki/meta/recaps/Recap <date>.md`, `type: meta`, readable in Obsidian. Rendering
+  only in v1: edits made in Obsidian are not read back (a later upgrade). (The file carries
+  the `Recap` prefix because the vault's `.gitignore` ignores bare date names; A2.)
 - Telegram: the same text, proposals coded `1a`, `1b`, `2a`; the user answers with codes
   (`1b 2a`, `veto 3`, `pause 2`) on the existing minimal bot client. Inline keyboards are a
-  later upgrade.
+  later upgrade. As built (A2): plain text, one message for the header and one per Fellow,
+  to every allowlisted user; the bot applies an answer before its note-ingest path.
 
 ### 9.4 Adjusting
 
 Allowed answers: pick a proposal, veto, reorder, edit the topic text, change step size or
 model for the next step, pause or resume a Fellow, spawn a new Fellow from an unclaimed
 request (opens the spawn dialog prefilled), free text that becomes a note on the notebook
-and a candidate for the next planning run.
+and a candidate for the next planning run. "Skip tonight" is a Fellow field (`skip_until`,
+A2): the next shift runs nothing for the Fellow and still plans; approvals survive.
 
 ### 9.5 Language
 
@@ -632,8 +636,11 @@ Catalog bookmarks working; the Catalog screen gets a one-time hint after the ren
   decided_at, decided_via, user_note, run_id.
 - `agent_runs` (existing): add agent_id, proposal_id, model, pages_created (json),
   pages_updated (json), plan_pct_delta (json per window).
-- `recaps`: cycle_date, generated_at, path (null on a quiet day), summary (json),
+- `recaps`: cycle_date, generated_at, path (null on a quiet day), model (json, the rendered
+  recap with the code-to-proposal mapping; A2 named it `model` rather than `summary`),
   delivered (json), answered_at.
+- `agents.skip_until` (A2): "skip tonight", the cycle date the next shift skips for the
+  Fellow. `agent_runs.answer` (A2): the run's result text, capped, for the recap's summary.
 - `usage_samples`: id, ts, window, utilization, resets_at, run_id, phase (`before`,
   `after`, `tick`).
 - `handoffs`: id, from_agent_id, to_agent_id (nullable = unclaimed), question, source_page,
@@ -659,7 +666,10 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
   from); `GET /agents/shift` (window, cycle, next start, recent shifts) and
   `POST /agents/shift` (run the shift now, ignoring the window). Added in A1 so the user
   and the tests can drive a cycle without waiting for 01:00.
-- `GET /recaps`; `GET /recaps/:date`; `POST /recaps/:date/answers` (batch decide).
+- `GET /recaps` (with the schedule); `GET /recaps/:date`; `POST /recaps/:date/answers`
+  (structured answers, or a text in the code grammar `1b`, `veto 1b`, `skip 1`, `pause 1`,
+  `resume 1`, `note 1: ...`, `model 1 opus-5`, `step 1 small`, `topic 1a: ...`);
+  `POST /recaps/build` (build now, `force` rebuilds). Added in A2.
 - `GET /usage/plan` (windows, calibration, shares); `GET /usage/samples`.
 - `GET /library/scene` (snapshot: departments, shelves, actors); live updates reuse the
   existing SSE bus (`job`, `log`, `vault`, `stats`) plus a new `agent` event kind.
