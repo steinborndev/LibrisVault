@@ -7044,19 +7044,6 @@ tr:focus-within .rowacts {
   color: var(--text-faint);
 }
 .shelf-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 999px; margin-right: 5px; }
-.shelf-picked {
-  position: absolute;
-  right: 14px;
-  bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
-  font-size: 12px;
-}
 .shelf-filter {
   display: flex;
   align-items: center;

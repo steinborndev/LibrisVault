@@ -63,8 +63,6 @@ export function ShelfWindow({
   const [query, setQuery] = useState('')
   const [type, setType] = useState<string | null>(null)
   const [srcOnly, setSrcOnly] = useState(false)
-  /** A node picked on the canvas: the window names it under the graph. */
-  const [selected, setSelected] = useState<string | null>(null)
   /**
    * The canvas keeps its pan and zoom across mounts (it is module state shared with the
    * Graph screen). A department opened again should start fitted, not where the last look
@@ -139,17 +137,10 @@ export function ShelfWindow({
               matches={new Set()}
               lens="type"
               fitKey={`shelf-${domain}-${sub.nodes.length}-${openedAt}`}
-              onSelect={(node) => setSelected(node.path)}
+              openOnClick
+              onSelect={(node) => onPage(node.path)}
               onOpen={(node) => onPage(node.path)}
             />
-          )}
-          {selected !== null && (
-            <div className="shelf-picked">
-              <button className="linkish" onClick={() => onPage(selected)}>
-                {sub.nodes.find((n) => n.path === selected)?.title ?? selected}
-              </button>
-              <span className="box-sub">click again on the canvas to open it</span>
-            </div>
           )}
           <div className="shelf-legend">
             {kinds.slice(0, 5).map(([kind, n]) => (

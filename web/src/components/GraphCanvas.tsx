@@ -130,6 +130,11 @@ export interface GraphCanvasProps {
   /** Single click/tap on a node (when the click doesn't isolate - see onClusterClick). */
   onSelect: (node: GraphNode) => void
   /**
+   * A single click opens instead of selecting. The Library's department window reads pages
+   * in place, where selecting a node has nothing to open a panel with.
+   */
+  openOnClick?: boolean
+  /**
    * Spotlight click on an isolatable community - on one of its member nodes OR anywhere
    * inside its hull (the hull is one clickable surface; demanding a precise node hit made
    * the isolation gesture fiddly). The canvas guarantees the cid is isolatable (spotlight
@@ -241,7 +246,7 @@ const persist = {
   settled: { current: true },
 }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, fitKey, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitKey, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const positionsRef = persist.positions
   const posByPathRef = persist.posByPath
@@ -1625,7 +1630,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         if (hit !== null) {
           const node = nodes[hit]!
           const isGhost = ghostIndices?.has(hit) ?? false
-          if (spotlight && onOpen !== undefined && !isGhost) {
+          if ((spotlight || openOnClick) && onOpen !== undefined && !isGhost) {
             // Spotlight/drill mode: a click ON a node opens its article directly. Isolating
             // the community is the AREA click (below), so an article is reachable at any
             // drill level without first bottoming out the cluster hierarchy.
