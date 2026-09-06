@@ -705,7 +705,10 @@ domain filter applied. It opens a third window instead, over the room, with two 
 the department and nothing else:
 
 - **Graph**: its pages and only the links that run between them, on the shared canvas, with
-  a legend by page type. Clicking a node names it, clicking again opens the page.
+  a legend by page type. A click on a node opens the page. **The legend is the filter**: a
+  click on one type narrows the canvas to those pages and the links that stay inside them,
+  and the catalog to the same rows, so the two views never disagree about what is showing.
+  Clicking it again, the type chip in the filter bar, or "show all" widens back.
 - **Catalog**: the same pages as rows, in the table the Catalog screen renders, minus the
   domain column that would repeat the heading. It carries the **source column**: the
   document each page was written from, opening the stored file for an ingest and the live
@@ -721,7 +724,7 @@ the arrow keys belong to the window too - the graph zooms and the table scrolls 
 room used to page - and the graph opens fitted every time rather than where the last look
 left it.
 
-A page opens as a third level inside the same window: a double click on a node, a row in
+A page opens as a third level inside the same window: a node on the canvas, a row in
 the table, or one of the recently changed pages in the column. It renders the vault's
 markdown in place. Escape steps back one level at a time - the page to the view it came
 from, the view to the room, the room out of focus mode.
@@ -729,6 +732,12 @@ from, the view to the room, the room out of focus mode.
 The headline carries the room navigation itself and stays put in focus mode, so the Full
 and Focus toggle is reachable while a window is open. The scope sentence and the Catalog
 button are gone: the room strip says which room this is, and the Catalog is a tab.
+
+While a window is open the headline belongs to it: the room strip steps aside for the
+**department's name in the middle** with its size beside it, and the controls the window
+needs move up into that one row - the Graph and Catalog toggle, and the way back (`Back to
+the room · Esc`, and while a page is open `Back to the graph · Esc` or `Back to the catalog
+· Esc` in front of it). Nothing in the window's own body repeats them.
 
 Deep links: `/library?shelf=<domain>` opens the window, `&pane=catalog` on its second view,
 `&page=<vault path>` on a page inside it, and `?board=hot|recap|reading` opens a board. The

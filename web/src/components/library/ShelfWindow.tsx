@@ -12,14 +12,14 @@
  * closes to the view it came from, the view to the room.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import type { GraphNode } from '../../api/types.ts'
 import { CatalogTable } from '../../tabs/Catalog.tsx'
 import { Markdown } from '../Markdown.tsx'
 import { PageLink } from '../PageLink.tsx'
-import { GraphCanvas, domainColor, TYPE_VARS } from '../GraphCanvas.tsx'
+import { GraphCanvas, TYPE_VARS } from '../GraphCanvas.tsx'
 import { queryState } from '../QueryState.tsx'
 import { signText } from '../../lib/library/room.ts'
 
@@ -43,26 +43,46 @@ export function subgraph(nodes: readonly GraphNode[], edges: ReadonlyArray<reado
   return { nodes: out, edges: inner }
 }
 
+/** One department narrowed to a single page type, with the links inside it re-indexed. */
+export function narrow(sub: { nodes: readonly GraphNode[]; edges: ReadonlyArray<readonly [number, number]> }, type: string | null): { nodes: GraphNode[]; edges: Array<[number, number]> } {
+  if (type === null) return { nodes: [...sub.nodes], edges: sub.edges.map(([a, b]) => [a, b] as [number, number]) }
+  const keep = new Map<number, number>()
+  const nodes: GraphNode[] = []
+  sub.nodes.forEach((n, i) => {
+    if (n.type !== type) return
+    keep.set(i, nodes.length)
+    nodes.push(n)
+  })
+  const edges: Array<[number, number]> = []
+  for (const [a, b] of sub.edges) {
+    const x = keep.get(a)
+    const y = keep.get(b)
+    if (x !== undefined && y !== undefined && x !== y) edges.push([x, y])
+  }
+  return { nodes, edges }
+}
+
 export function ShelfWindow({
   domain,
   vaultName,
-  pane: initial = 'graph',
+  pane,
   page,
   layoutKey = '',
   onPage,
-  onClose,
+  onCounts,
 }: {
   domain: string
   vaultName: string
-  pane?: Pane
+  /** Which of the two views is showing; the screen's headline switches it. */
+  pane: Pane
   /** Changes when the space around the canvas does, so the graph refits instead of sitting off centre. */
   layoutKey?: string
   /** The page being read inside the window, or null for the view itself. */
   page?: string | null
   onPage: (path: string | null) => void
-  onClose: () => void
+  /** Reports the department's size, for the line in the headline. */
+  onCounts?: (counts: { pages: number; links: number }) => void
 }): React.ReactElement {
-  const [pane, setPane] = useState<Pane>(initial)
   const [query, setQuery] = useState('')
   const [type, setType] = useState<string | null>(null)
   const [srcOnly, setSrcOnly] = useState(false)
@@ -87,6 +107,13 @@ export function ShelfWindow({
   }, [sub.nodes])
   const withSource = useMemo(() => (refs === undefined ? 0 : sub.nodes.filter((n) => refs[n.path] !== undefined).length), [sub.nodes, refs])
 
+  /** The subgraph the graph draws: the department, narrowed to one page type when the legend picks one. */
+  const drawn = useMemo(() => (type === null ? sub : narrow(sub, type)), [sub, type])
+
+  useEffect(() => {
+    onCounts?.({ pages: sub.nodes.length, links: sub.edges.length })
+  }, [sub.nodes.length, sub.edges.length, onCounts])
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
     return sub.nodes
@@ -98,61 +125,37 @@ export function ShelfWindow({
 
   return (
     <div className="lib-window shelf-window" role="dialog" aria-label={`${signText(domain)} department`}>
-      <div className="box-head">
-        <span className="chip-dot" style={{ background: domainColor(domain) }} aria-hidden />
-        <h2 className="box-title">{signText(domain)}</h2>
-        {page == null ? (
-          <span className="box-sub">
-            {sub.nodes.length} page(s) · {sub.edges.length} link(s) inside the department
-          </span>
-        ) : (
-          <span className="box-sub">reading a page</span>
-        )}
-        <span className="spacer" />
-        {page == null ? (
-          <div className="seg sm" role="tablist" aria-label="View">
-            <button role="tab" aria-selected={pane === 'graph'} onClick={() => setPane('graph')}>
-              Graph
-            </button>
-            <button role="tab" aria-selected={pane === 'catalog'} onClick={() => setPane('catalog')}>
-              Catalog
-            </button>
-          </div>
-        ) : (
-          <button className="btn ghost sm" onClick={() => onPage(null)}>
-            Back to the {pane} · Esc
-          </button>
-        )}
-        <button className="btn ghost sm" onClick={onClose}>
-          {page == null ? 'Back to the room · Esc' : 'Back to the room'}
-        </button>
-      </div>
-
       {page != null && <PagePane path={page} vaultName={vaultName} onOpenPage={onPage} />}
 
       {page != null ? null : pane === 'graph' ? (
         <div className="shelf-graph">
           {state ?? (
             <GraphCanvas
-              nodes={sub.nodes}
-              edges={sub.edges}
+              nodes={drawn.nodes}
+              edges={drawn.edges}
               focusIndex={null}
               matches={new Set()}
               lens="type"
-              fitKey={`shelf-${domain}-${sub.nodes.length}-${openedAt}-${layoutKey}`}
+              fitKey={`shelf-${domain}-${drawn.nodes.length}-${type ?? 'all'}-${openedAt}-${layoutKey}`}
               openOnClick
               fitOnMount
               onSelect={(node) => onPage(node.path)}
               onOpen={(node) => onPage(node.path)}
             />
           )}
-          <div className="shelf-legend">
-            {kinds.slice(0, 5).map(([kind, n]) => (
-              <span key={kind}>
+          {/* The legend is the filter: a click narrows both views to that page type. */}
+          <div className="shelf-legend" role="group" aria-label="Page types">
+            {kinds.map(([kind, n]) => (
+              <button key={kind} aria-pressed={type === kind} title={`Show only ${kind}`} onClick={() => setType(type === kind ? null : kind)}>
                 <i style={{ background: `var(${TYPE_VARS[kind] ?? '--type-meta'})` }} />
                 {kind} {n}
-              </span>
+              </button>
             ))}
+            {type !== null && (
+              <button className="clear" onClick={() => setType(null)}>
+                show all
+              </button>
+            )}
           </div>
         </div>
       ) : (

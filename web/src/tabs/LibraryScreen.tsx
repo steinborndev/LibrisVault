@@ -70,6 +70,10 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const [newSlot, setNewSlot] = useState<number | null>(null)
   /** A page read inside the shelf window: the third level, closed by the first Escape. */
   const [shelfPage, setShelfPage] = useState<string | null>(pageParam !== '' ? pageParam : null)
+  /** Which of the department's two views shows; the headline switches it. */
+  const [shelfPane, setShelfPane] = useState<'graph' | 'catalog'>(paneParam === 'catalog' ? 'catalog' : 'graph')
+  /** What the open department holds, for the line between the two controls. */
+  const [shelfCounts, setShelfCounts] = useState<{ pages: number; links: number } | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [tick, setTick] = useState(0)
   const [exits, setExits] = useState<Exit[]>([])
@@ -458,7 +462,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
               Full
             </button>
           </div>
-          {rooms.length > 0 && current && (
+          {shelf === null && rooms.length > 0 && current && (
             <RoomStrip
               rooms={rooms}
               current={current.id}
@@ -470,6 +474,40 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
             />
           )}
           <span className="spacer" />
+          {shelf !== null && (
+            <span className="lib-open">
+              <span className="chip-dot" style={{ background: domainColor(shelf) }} aria-hidden />
+              <b>{signText(shelf)}</b>
+              <span className="box-sub">
+                {shelfPage !== null
+                  ? 'reading a page'
+                  : shelfCounts !== null
+                    ? `${shelfCounts.pages} page(s) · ${shelfCounts.links} link(s) inside the department`
+                    : ''}
+              </span>
+            </span>
+          )}
+          <span className="spacer" />
+          {shelf !== null && shelfPage === null && (
+            <div className="seg sm" role="tablist" aria-label="View">
+              <button role="tab" aria-selected={shelfPane === 'graph'} onClick={() => setShelfPane('graph')}>
+                Graph
+              </button>
+              <button role="tab" aria-selected={shelfPane === 'catalog'} onClick={() => setShelfPane('catalog')}>
+                Catalog
+              </button>
+            </div>
+          )}
+          {shelf !== null && shelfPage !== null && (
+            <button className="btn ghost sm" onClick={() => setShelfPage(null)}>
+              Back to the {shelfPane} · Esc
+            </button>
+          )}
+          {shelf !== null && (
+            <button className="btn ghost sm" onClick={closeShelf}>
+              {shelfPage === null ? 'Back to the room · Esc' : 'Back to the room'}
+            </button>
+          )}
           {mode === 'focus' && shelf === null && (
             <button
               className="btn primary"
@@ -516,11 +554,11 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
             <ShelfWindow
               domain={shelf}
               vaultName={vaultName}
-              pane={paneParam === 'catalog' ? 'catalog' : 'graph'}
+              pane={shelfPane}
               layoutKey={mode}
               page={shelfPage}
               onPage={setShelfPage}
-              onClose={closeShelf}
+              onCounts={setShelfCounts}
             />
           )}
 
