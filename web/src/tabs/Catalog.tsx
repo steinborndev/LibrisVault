@@ -1,5 +1,6 @@
 /**
- * Library - the browse path the vault never had (redesign 2026-08). A filterable, sortable
+ * Catalog - the browse path the vault never had (redesign 2026-08; renamed from Library when
+ * the Library screen of docs/agents/SPEC.md section 10 took the name). A filterable, sortable
  * table over every page, fed by the same `['graph']` query the canvas uses (no new
  * endpoint). The graph stays the spatial view; this is the retrieval view: find by type,
  * domain, recency - and surface health problems (orphans, stubs) as filters instead of
@@ -63,7 +64,7 @@ function isStub(n: GraphNode): boolean {
   return (n.size ?? Infinity) < STUB_BYTES && (n.kind ?? 'knowledge') === 'knowledge'
 }
 
-export function Library({
+export function Catalog({
   vaultName,
   domainParam = '',
 }: {

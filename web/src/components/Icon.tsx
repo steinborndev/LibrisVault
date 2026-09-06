@@ -13,6 +13,9 @@ export type IconName =
   | 'x'
   | 'check'
   | 'search'
+  | 'library'
+  | 'moon'
+  | 'sun'
   | 'graph'
   | 'gap'
   | 'cluster'
@@ -187,6 +190,21 @@ const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
       <path d="M3 10.5L12 3l9 7.5" />
       <path d="M5 9.5V21h14V9.5" />
       <path d="M10 21v-6h4v6" />
+    </>
+  ),
+  // A hall with columns: the Library screen's rooms.
+  library: (
+    <>
+      <path d="M3 21h18" />
+      <path d="M4 21V9M9 21V9M15 21V9M20 21V9" />
+      <path d="M2 9l10-6 10 6" />
+    </>
+  ),
+  moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
     </>
   ),
   // Two facing book halves - the library's paired shelves.

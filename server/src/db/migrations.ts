@@ -500,6 +500,30 @@ CREATE TABLE handoffs (
 CREATE INDEX handoffs_target ON handoffs (to_agent_id, status);
 `
 
+/**
+ * v19 - the Library screen's rooms (docs/agents/SPEC.md sections 10.4 and 10.8, milestone
+ * A4): the user's wings and where each department's shelf stands. Operational state only:
+ * losing it costs the arrangement, the scene builder places every department again.
+ */
+const V19 = `
+CREATE TABLE wings (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  name TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE library_layout (
+  domain TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  room TEXT NOT NULL,
+  slot INTEGER NOT NULL,
+  placed_by TEXT NOT NULL DEFAULT 'auto',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, domain)
+);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -519,4 +543,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 16, up: V16 },
   { version: 17, up: V17 },
   { version: 18, up: V18 },
+  { version: 19, up: V19 },
 ]

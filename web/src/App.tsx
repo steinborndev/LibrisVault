@@ -13,7 +13,8 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Home } from './tabs/Home.tsx'
 import { Chat } from './tabs/Chat.tsx'
 import { System } from './tabs/System.tsx'
-import { Library } from './tabs/Library.tsx'
+import { Catalog } from './tabs/Catalog.tsx'
+import { LibraryScreen } from './tabs/LibraryScreen.tsx'
 import { Recap } from './tabs/Recap.tsx'
 import { Icon, type IconName } from './components/Icon.tsx'
 import { usePath, navigate, pageFromPath } from './lib/router.ts'
@@ -28,7 +29,7 @@ const Vault = lazy(() => import('./tabs/Vault.tsx').then((m) => ({ default: m.Va
  * folded into Home (same table, plus intake and the filters that drive it), and Health +
  * Settings merged into System. `vault` hosts both the graph and the page view (shared state).
  */
-type ScreenId = 'home' | 'research' | 'vault' | 'library' | 'system'
+type ScreenId = 'home' | 'research' | 'vault' | 'catalog' | 'library' | 'system'
 
 interface TabItem {
   id: ScreenId
@@ -49,7 +50,8 @@ const TABS: TabItem[] = [
   { id: 'home', label: 'Home', icon: 'home', route: '/' },
   { id: 'research', label: 'Research', icon: 'flask', route: '/research' },
   { id: 'vault', label: 'Graph', icon: 'graph', route: '/graph' },
-  { id: 'library', label: 'Library', icon: 'book', route: '/library' },
+  { id: 'catalog', label: 'Catalog', icon: 'book', route: '/catalog' },
+  { id: 'library', label: 'Library', icon: 'library', route: '/library' },
   { id: 'system', label: 'System', icon: 'gear', route: '/system' },
 ]
 
@@ -57,6 +59,7 @@ const TABS: TabItem[] = [
 function screenForPath(path: string): ScreenId {
   const pathname = path.split('?')[0]!
   if (pathname.startsWith('/page/') || pathname.startsWith('/graph') || pathname.startsWith('/vault')) return 'vault'
+  if (pathname.startsWith('/catalog')) return 'catalog'
   if (pathname.startsWith('/library')) return 'library'
   // `/chat` is the pre-rename route, `/research` the current one.
   if (pathname.startsWith('/research') || pathname.startsWith('/chat')) return 'research'
@@ -88,6 +91,9 @@ const LEGACY_ROUTES: Array<[string, string]> = [
   ['/settings', '/system'],
   ['/chat', '/research'],
 ]
+
+/** Legacy `/library?domain=` (the table view before the rename) is a Catalog filter. */
+const LEGACY_LIBRARY_FILTER = /^\/library\?domain=/
 
 export function App(): React.ReactElement {
   const path = usePath()
@@ -160,6 +166,10 @@ export function App(): React.ReactElement {
   // Normalize legacy routes so the address bar and history show the current ones.
   useEffect(() => {
     const pathname = path.split('?')[0]!
+    if (LEGACY_LIBRARY_FILTER.test(path)) {
+      navigate(`/catalog${path.slice('/library'.length)}`, { replace: true })
+      return
+    }
     const legacy = LEGACY_ROUTES.find(([old]) => pathname.startsWith(old))
     if (legacy) {
       const [oldPrefix, newPrefix] = legacy
@@ -178,6 +188,11 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (recapOpen) setRecapMounted(true)
   }, [recapOpen])
+  // The Library screen mounts on first visit (it polls the scene while mounted).
+  const [libraryMounted, setLibraryMounted] = useState(screen === 'library')
+  useEffect(() => {
+    if (screen === 'library') setLibraryMounted(true)
+  }, [screen])
 
   // The value signal (docs/agents/SPEC.md section 9.6): a page opened counts for the Fellow
   // that wrote it. Only on an instance with Fellows; the server attributes the page.
@@ -239,7 +254,7 @@ export function App(): React.ReactElement {
           {/* Navigation, not a tab widget: each entry is a route, and the screens are not
               tabpanels - so `aria-current`, the same contract the sidebar had. */}
           <nav className="tabs" aria-label="Primary">
-            {TABS.map((tab) => (
+            {TABS.filter((tab) => tab.id !== 'library' || fellowsOn).map((tab) => (
               <button
                 key={tab.id}
                 className="tab"
@@ -365,14 +380,23 @@ export function App(): React.ReactElement {
               )}
             </div>
           </section>
-          <section className="screen flush" hidden={screen !== 'library'} aria-label="Library">
+          <section className="screen flush" hidden={screen !== 'catalog'} aria-label="Catalog">
             <div className="lane wide">
-              <ErrorBoundary label="Library">
-                <Library
+              <ErrorBoundary label="Catalog">
+                <Catalog
                   vaultName={vaultName}
-                  domainParam={screen === 'library' ? (query.get('domain') ?? '') : ''}
+                  domainParam={screen === 'catalog' ? (query.get('domain') ?? '') : ''}
                 />
               </ErrorBoundary>
+            </div>
+          </section>
+          <section className="screen flush" hidden={screen !== 'library'} aria-label="Library">
+            <div className="lane wide">
+              {libraryMounted && (
+                <ErrorBoundary label="Library">
+                  <LibraryScreen vaultName={vaultName} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} />
+                </ErrorBoundary>
+              )}
             </div>
           </section>
           <section className="screen flush" hidden={screen !== 'system'} aria-label="System">

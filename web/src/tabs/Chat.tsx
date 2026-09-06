@@ -401,7 +401,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               <b>{entries.length}</b>
               <span>{failedRuns > 0 ? `runs, ${failedRuns} failed` : 'web research runs'}</span>
             </button>
-            <button className="vzf" onClick={() => navigate('/library')}>
+            <button className="vzf" onClick={() => navigate('/catalog')}>
               <b>{pagesFiled}</b>
               <span>pages filed</span>
             </button>

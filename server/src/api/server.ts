@@ -41,6 +41,8 @@ import type { FellowService } from '../pipeline/fellows.js'
 import type { NightShift } from '../pipeline/shift.js'
 import type { RecapService } from '../pipeline/recap.js'
 import { registerRecapsRoute } from './routes/recaps.js'
+import type { LibraryService } from '../pipeline/library.js'
+import { registerLibraryRoute } from './routes/library.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -92,6 +94,8 @@ export interface AppContext {
   readonly shift?: NightShift
   /** The daily recap (docs/agents/SPEC.md section 9); registers its routes when present. */
   readonly recaps?: RecapService
+  /** The Library screen's scene and rooms (section 10); registers its routes when present. */
+  readonly library?: LibraryService
 }
 
 /** Location of the built frontend (`web/dist`), resolved relative to this source file. */
@@ -151,6 +155,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerDomainsRoute(app, ctx, graphBuilder, dismissals)
   if (ctx.fellows !== undefined) registerAgentsRoute(app, ctx, ctx.fellows)
   if (ctx.fellows !== undefined && ctx.recaps !== undefined) registerRecapsRoute(app, ctx, ctx.recaps, ctx.fellows)
+  if (ctx.library !== undefined) registerLibraryRoute(app, ctx.library)
 
   await registerFrontend(app)
 

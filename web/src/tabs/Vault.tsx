@@ -86,6 +86,9 @@ export function Vault({ path }: { path: string }): React.ReactElement {
   const page = pageFromPath(pathname)
   const params = new URLSearchParams(search ?? '')
   const focus = params.get('focus')
+  // `/graph?domain=<key>` (a shelf click in the Library, docs/tasks/TASKS-A4.md D10) sets the
+  // domain filter once; the chips take over from there.
+  const domainParam = params.get('domain')
   // `?gaps=1` arrives from Home's Gaps card: open the graph with the gaps overlay already on.
   const openGaps = params.get('gaps') === '1'
   // `?labels=off`: screenshot mode - the canvas draws structure and colors but no text, so
@@ -108,7 +111,7 @@ export function Vault({ path }: { path: string }): React.ReactElement {
   }
 
   if (page !== null) return <PageView graph={graphQ.data} path={page} />
-  return <GraphView graph={graphQ.data} focusPath={focus} openGaps={openGaps} hideLabels={hideLabels} />
+  return <GraphView graph={graphQ.data} focusPath={focus} openGaps={openGaps} hideLabels={hideLabels} domainParam={domainParam} />
 }
 
 // ---------------------------------------------------------------------------- graph view
@@ -349,12 +352,15 @@ function GraphView({
   focusPath,
   openGaps,
   hideLabels = false,
+  domainParam = null,
 }: {
   graph: VaultGraph
   focusPath: string | null
   openGaps: boolean
   /** `?labels=off` - render the graph without any text (screenshot mode). */
   hideLabels?: boolean
+  /** `?domain=<key>` - a shelf click in the Library selects that domain once (TASKS-A4 D10). */
+  domainParam?: string | null
 }): React.ReactElement {
   // `input` is what the field shows; `query` is what the graph reacts to. Without the delay
   // every keystroke re-filtered the subgraph, re-ran Louvain and refit the camera - typing a
@@ -374,6 +380,9 @@ function GraphView({
    * domains. (The old hide-semantics did the exact opposite of what a click intends.)
    */
   const [selectedDomains, setSelectedDomains] = useState<ReadonlySet<string>>(viewMemory.selectedDomains)
+  useEffect(() => {
+    if (domainParam !== null && domainParam !== '') setSelectedDomains(new Set([domainParam]))
+  }, [domainParam])
   // The color lens. Domain is the default - the meta-categories are the axis the user
   // actually thinks in; type + the metric lenses (authority/orphans/stubs/recency) live in
   // the lens dropdown.
@@ -2084,7 +2093,7 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
   // What the back gesture is called: it names the screen this page was opened from, so the
   // hint can never promise a destination the key does not go to.
   const origin = originPath().split('?')[0]!
-  const backLabel = origin.startsWith('/library')
+  const backLabel = origin.startsWith('/catalog')
     ? 'library'
     : origin.startsWith('/research')
       ? 'research'

@@ -464,13 +464,13 @@ function VaultStatsSection(): React.ReactElement {
           k="Orphans"
           v={graph.data !== undefined ? String(orphans) : '…'}
           tone={orphans > 0 ? 'warn' : undefined}
-          onOpen={() => navigate('/library')}
+          onOpen={() => navigate('/catalog')}
         />
         <Fact
           k="Stubs"
           v={graph.data !== undefined ? String(stubs) : '…'}
           tone={stubs > 0 ? 'warn' : undefined}
-          onOpen={() => navigate('/library')}
+          onOpen={() => navigate('/catalog')}
         />
         <Fact k="Gaps" v={gaps === null ? '…' : String(gaps)} onOpen={() => navigate('/graph?gaps=1')} />
         <Fact

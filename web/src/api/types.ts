@@ -751,3 +751,179 @@ export interface RecapAnswersResponse {
   errors: string[]
   recap: RecapRow
 }
+
+// ---- The Library screen (docs/agents/SPEC.md section 10; behind AGENTS_ENABLED) ----
+
+export interface SceneShelf {
+  slot: number
+  domain: string
+  books: number
+  volumes: number
+  stubs: number
+  placedBy: 'user' | 'auto'
+}
+
+export interface SceneRoom {
+  id: string
+  name: string
+  kind: 'main' | 'wing'
+  position: number
+  capacity: number
+  shelves: SceneShelf[]
+}
+
+export interface SceneDepartment {
+  domain: string
+  books: number
+  volumes: number
+  stubs: number
+  room: string | null
+  slot: number | null
+}
+
+export interface SceneFellow {
+  agentId: string
+  name: string
+  homeDomain: string
+  model: string
+  state: string
+  sleepCode: string | null
+  sleepReason: string | null
+  skipUntil: string | null
+  run: { id: string; kind: string; channel: string; label: string | null; startedAt: string } | null
+  next: { topic: string; kind: string; estCostUsd: number | null; status: string } | null
+  lastActive: string | null
+}
+
+export interface SceneRun {
+  id: string
+  kind: string
+  channel: string
+  label: string | null
+  startedAt: string
+}
+
+export interface SceneJob {
+  id: string
+  status: string
+  name: string
+  source: string
+  batchId: string | null
+}
+
+export interface LibraryScene {
+  generatedAt: string
+  night: boolean
+  window: { start: string; end: string }
+  rooms: SceneRoom[]
+  departments: SceneDepartment[]
+  unfiled: number
+  gaps: number
+  fellows: SceneFellow[]
+  runs: SceneRun[]
+  jobs: SceneJob[]
+  concurrency: number
+}
+
+export interface Wing {
+  id: string
+  name: string
+  position: number
+  createdAt: string
+}
+
+export interface Placement {
+  domain: string
+  room: string
+  slot: number
+  placedBy: 'user' | 'auto'
+  updatedAt: string
+}
+
+/** A Fellow's record (server/src/db/agents.ts). */
+export interface FellowRecord {
+  id: string
+  name: string
+  slug: string
+  intent: string
+  scope: string | null
+  homeDomain: string
+  extraDomains: string[]
+  lens: string
+  model: string
+  effort: string
+  step: string
+  quotaRunsPerDay: number
+  quotaWeekPct: number | null
+  autonomy: string
+  priority: number
+  state: string
+  sleepReason: string | null
+  sleepCode: string | null
+  skipUntil: string | null
+  notebookPath: string
+  createdAt: string
+  updatedAt: string
+  retiredAt: string | null
+}
+
+export interface ProposalRecord {
+  id: string
+  agentId: string
+  createdAt: string
+  cycleDate: string
+  kind: string
+  topic: string
+  lens: string
+  rationale: string
+  provenance: { candidate: string; text: string; sourcePages: string[] }
+  pageSet: string[]
+  estCostUsd: number | null
+  estPlanPct: number | null
+  scopeScore: number
+  rank: number
+  status: string
+  decidedAt: string | null
+  decidedVia: string | null
+  userNote: string | null
+  runId: string | null
+}
+
+export interface FellowSummary {
+  agent: FellowRecord
+  currentRun: MaintenanceRun | null
+  lastRun: AgentRunRecord | null
+  runsToday: number
+  pendingProposals: number
+  next: ProposalRecord | null
+}
+
+export interface FellowCard extends FellowSummary {
+  runs: AgentRunRecord[]
+  pages: string[]
+  lastActive: string | null
+  quota: { runsPerDay: number; usedToday: number }
+  proposals: ProposalRecord[]
+  spend: { todayUsd: number; weekUsd: number; runsToday: number; runsWeek: number }
+  value: { pageOpens: number; recapLinks: number }
+}
+
+export interface AgentsResponse {
+  fellows: FellowSummary[]
+  models: Array<{ key: string; id: string; factor: number }>
+  costs: Record<string, number>
+  shift: { window: { start: string; end: string }; inWindow: boolean; cycleDate: string | null; nextStartsAt: string; running: boolean } | null
+}
+
+export interface SpawnBody {
+  name: string
+  intent: string
+  scope?: string
+  homeDomain: string
+  model?: string
+  effort?: string
+  step?: string
+  quotaRunsPerDay?: number
+  autonomy?: string
+  runFirstStep?: boolean
+}

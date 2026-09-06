@@ -35,6 +35,14 @@ import type {
   RecapStatus,
   RecapAnswer,
   RecapAnswersResponse,
+  LibraryScene,
+  Wing,
+  Placement,
+  AgentsResponse,
+  FellowRecord,
+  FellowCard,
+  ProposalRecord,
+  SpawnBody,
   PagePreview,
   PageFull,
   VaultGraph,
@@ -381,6 +389,44 @@ export const api = {
       keepalive: true,
     }).catch(() => undefined)
   },
+
+  // ---- The Library screen and the Fellows (behind AGENTS_ENABLED) ----
+  libraryScene: (): Promise<LibraryScene> => fetch(`${BASE}/library/scene`).then(json<LibraryScene>),
+
+  moveShelf: (body: { domain: string; room: string; slot?: number }): Promise<{ placements: Placement[] }> =>
+    fetch(`${BASE}/library/move`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ placements: Placement[] }>),
+
+  wings: (): Promise<{ wings: Wing[] }> => fetch(`${BASE}/wings`).then(json<{ wings: Wing[] }>),
+
+  createWing: (name?: string): Promise<{ wing: Wing }> =>
+    fetch(`${BASE}/wings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(name !== undefined ? { name } : {}) }).then(json<{ wing: Wing }>),
+
+  renameWing: (id: string, name: string): Promise<{ wing: Wing }> =>
+    fetch(`${BASE}/wings/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }).then(json<{ wing: Wing }>),
+
+  reorderWings: (ids: string[]): Promise<{ wings: Wing[] }> =>
+    fetch(`${BASE}/wings/order`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) }).then(json<{ wings: Wing[] }>),
+
+  deleteWing: (id: string): Promise<void> =>
+    fetch(`${BASE}/wings/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(async (r) => {
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${r.status}`)
+    }),
+
+  agents: (): Promise<AgentsResponse> => fetch(`${BASE}/agents`).then(json<AgentsResponse>),
+
+  agentCard: (id: string): Promise<FellowCard> => fetch(`${BASE}/agents/${encodeURIComponent(id)}/card`).then(json<FellowCard>),
+
+  spawnAgent: (body: SpawnBody): Promise<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }> =>
+    fetch(`${BASE}/agents`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }>),
+
+  stepAgent: (id: string, body: { topic?: string; kind?: string } = {}): Promise<{ run: MaintenanceRun }> =>
+    fetch(`${BASE}/agents/${encodeURIComponent(id)}/step`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ run: MaintenanceRun }>),
+
+  agentAction: (id: string, action: 'pause' | 'resume' | 'retire'): Promise<{ agent: FellowRecord }> =>
+    fetch(`${BASE}/agents/${encodeURIComponent(id)}/${action}`, { method: 'POST' }).then(json<{ agent: FellowRecord }>),
+
+  decideProposal: (id: string, body: { status?: 'approved' | 'vetoed' | 'proposed'; note?: string; topic?: string; rank?: number }): Promise<{ proposal: ProposalRecord }> =>
+    fetch(`${BASE}/proposals/${encodeURIComponent(id)}/decide`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ proposal: ProposalRecord }>),
 
   telegramStatus: (): Promise<TelegramStatusResponse> =>
     fetch(`${BASE}/settings/telegram`).then(json<TelegramStatusResponse>),

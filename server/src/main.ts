@@ -19,6 +19,8 @@ import { SqliteShiftStore } from './db/shifts.js'
 import { SqliteRecapStore } from './db/recaps.js'
 import { SqliteValueEventStore } from './db/value-events.js'
 import { SqliteHandoffStore } from './db/handoffs.js'
+import { SqliteLibraryStore } from './db/library.js'
+import { LibraryService } from './pipeline/library.js'
 import { indexWikiPages } from './pipeline/citations.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
 import { NightShift } from './pipeline/shift.js'
@@ -232,6 +234,25 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
         })
       : undefined
 
+  // The Library screen's scene (section 10): a renderer's snapshot over the graph, the queue,
+  // the run registry and the Fellows, plus the user's wings and shelf placement.
+  const library =
+    fellows !== undefined
+      ? new LibraryService({
+          vaultRoot: config.vaultRoot,
+          store: new SqliteLibraryStore(db),
+          graph: () => graph.build(),
+          jobs: () => [...store.list({ status: 'queued', limit: 50 }), ...store.list({ status: 'preprocessing', limit: 50 }), ...store.list({ status: 'ingesting', limit: 50 })],
+          runs: () => maintenance.listRuns(),
+          fellows: () => fellows.list(),
+          window: () => {
+            const e = settings.effective(config)
+            return { start: e.nightWindowStart, end: e.nightWindowEnd }
+          },
+          concurrency: () => queue.stats().concurrency,
+        })
+      : undefined
+
   // The start-time-bound settings folded into the config the watcher and HTTP server see. The
   // bind (host/port) is deliberately NOT overridable — it stays whatever assertBindAllowed
   // approved above (hard rule 2).
@@ -287,6 +308,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(fellows !== undefined ? { fellows } : {}),
     ...(shift !== undefined ? { shift } : {}),
     ...(recaps !== undefined ? { recaps } : {}),
+    ...(library !== undefined ? { library } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`

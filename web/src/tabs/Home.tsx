@@ -468,7 +468,7 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
                 <b>{shape !== null ? shape.medianDegree : statPlaceholder}</b>
                 <span>median links per page</span>
               </button>
-              <button className="vzf" onClick={() => navigate('/library')}>
+              <button className="vzf" onClick={() => navigate('/catalog')}>
                 <b>{shape !== null ? shape.domains : statPlaceholder}</b>
                 <span>
                   domains
@@ -492,7 +492,7 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
                 <b>{shape !== null ? shape.gaps : statPlaceholder}</b>
                 <span>pages linked but not written</span>
               </button>
-              <button className="vzf" onClick={() => navigate('/library')}>
+              <button className="vzf" onClick={() => navigate('/catalog')}>
                 <b>{stats.data?.pages.total ?? statPlaceholder}</b>
                 <span>pages in the wiki</span>
               </button>
@@ -563,7 +563,7 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
             gaps={graphQ.data?.gaps ?? []}
             vaultName={vaultName}
             now={Date.now()}
-            onOpenDomain={(domain) => navigate(`/library?domain=${encodeURIComponent(domain)}`)}
+            onOpenDomain={(domain) => navigate(`/catalog?domain=${encodeURIComponent(domain)}`)}
             onOpenGaps={() => navigate('/graph?gaps=1')}
             onResearch={(topic) => navigate(`/research?prefill=${encodeURIComponent(topic)}`)}
           />
