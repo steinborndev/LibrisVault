@@ -47,6 +47,12 @@ export function ShelfWindow({ domain, vaultName, pane: initial = 'graph', onClos
   const [srcOnly, setSrcOnly] = useState(false)
   /** A node picked on the canvas: the window names it under the graph. */
   const [selected, setSelected] = useState<string | null>(null)
+  /**
+   * The canvas keeps its pan and zoom across mounts (it is module state shared with the
+   * Graph screen). A department opened again should start fitted, not where the last look
+   * left it, so every mount gets a fit key of its own.
+   */
+  const [openedAt] = useState(() => Date.now())
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
 
@@ -102,7 +108,7 @@ export function ShelfWindow({ domain, vaultName, pane: initial = 'graph', onClos
               focusIndex={null}
               matches={new Set()}
               lens="type"
-              fitKey={`shelf-${domain}-${sub.nodes.length}`}
+              fitKey={`shelf-${domain}-${sub.nodes.length}-${openedAt}`}
               onSelect={(node) => setSelected(node.path)}
               onOpen={(node) => navigate(pageRoute(node.path))}
             />

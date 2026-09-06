@@ -24,6 +24,9 @@ const SHELF = {
  * over a walnut wainscot. `seam` is the joint between the blocks, `base` the skirting and
  * the cornice - it takes the wainscot's colour, so no pale strip runs along the floor.
  */
+/** How far a wall tile reaches into the next one, so no seam of the page shows between them. */
+const SEAM = 0.02
+
 const FLOOR = {
   day: { base: '#a87d4e', tones: ['#c8985f', '#bf8e57', '#d0a26b'], seam: '#8f6a41' },
   night: { base: '#3b2d1e', tones: ['#4c3927', '#453422', '#54402b'], seam: '#2c2116' },
@@ -297,11 +300,13 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   // Walls as one-tile segments so figures behind them sort correctly; the door is a gap with a lintel.
   for (let kk = 0; kk < ROOM.NI; kk++) {
     if (kk >= DOOR.from && kk < DOOR.to) continue
+    // A hair into the next tile: without it the seams show as hairlines of the page behind.
+    const wide = kk + 1 + (kk + 1 === DOOR.from || kk + 1 >= ROOM.NI ? 0 : SEAM)
     add(kk + 0.5 - 0.45, `wl${kk}`, (
       <g>
-        <polygon points={pts([P(kk, 0, 0), P(kk + 1, 0, 0), P(kk + 1, 0, wallH), P(kk, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
-        <polygon points={pts([P(kk, 0, 0), P(kk + 1, 0, 0), P(kk + 1, 0, 6), P(kk, 0, 6)])} fill={w.base} />
-        <polygon points={pts([P(kk, 0, wallH - 4), P(kk + 1, 0, wallH - 4), P(kk + 1, 0, wallH), P(kk, 0, wallH)])} fill={w.cornice} />
+        <polygon points={pts([P(kk, 0, 0), P(wide, 0, 0), P(wide, 0, wallH), P(kk, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
+        <polygon points={pts([P(kk, 0, 0), P(wide, 0, 0), P(wide, 0, 6), P(kk, 0, 6)])} fill={w.base} />
+        <polygon points={pts([P(kk, 0, wallH - 4), P(wide, 0, wallH - 4), P(wide, 0, wallH), P(kk, 0, wallH)])} fill={w.cornice} />
       </g>
     ))
   }
@@ -321,16 +326,26 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       <polygon points={pts([P(DOOR.from, 0, 0), P(DOOR.to, 0, 0), P(DOOR.to, 0, doorZ), P(DOOR.from, 0, doorZ)])} fill={night ? '#080b12' : '#5d6474'} opacity={night ? 0.85 : 0.55} />
       {/* posts and lintel */}
       <polygon points={pts([P(DOOR.from - 0.22, 0, 0), P(DOOR.from, 0, 0), P(DOOR.from, 0, doorZ + 9), P(DOOR.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
-      <polygon points={pts([P(DOOR.to, 0, 0), P(DOOR.to + 0.22, 0, 0), P(DOOR.to + 0.22, 0, doorZ + 9), P(DOOR.to, 0, doorZ + 9)])} fill={frameC.edge} stroke={frameC.edge} strokeWidth={0.8} />
       <polygon points={pts([P(DOOR.from - 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ + 9), P(DOOR.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
     </g>
   ))
+  // The right post sorts after the wall tile beside it, which would otherwise paint over it.
+  add(DOOR.to + 0.6, 'doorpost-r', (
+    <polygon
+      points={pts([P(DOOR.to, 0, 0), P(DOOR.to + 0.22, 0, 0), P(DOOR.to + 0.22, 0, WALL_H * 0.62 + 9), P(DOOR.to, 0, WALL_H * 0.62 + 9)])}
+      fill={night ? '#5b4630' : '#8a6a43'}
+      stroke={night ? '#3d2f1f' : '#6f5335'}
+      strokeWidth={0.8}
+    />
+  ))
+
   for (let kk = 0; kk < ROOM.NJ; kk++) {
+    const wideJ = kk + 1 + (kk + 1 >= ROOM.NJ ? 0 : SEAM)
     add(kk + 0.5 - 0.45, `wr${kk}`, (
       <g>
-        <polygon points={pts([P(0, kk, 0), P(0, kk + 1, 0), P(0, kk + 1, wallH), P(0, kk, wallH)])} fill={`url(#${idp}-wallR)`} />
-        <polygon points={pts([P(0, kk, 0), P(0, kk + 1, 0), P(0, kk + 1, 6), P(0, kk, 6)])} fill={w.base} />
-        <polygon points={pts([P(0, kk, wallH - 4), P(0, kk + 1, wallH - 4), P(0, kk + 1, wallH), P(0, kk, wallH)])} fill={w.cornice} />
+        <polygon points={pts([P(0, kk, 0), P(0, wideJ, 0), P(0, wideJ, wallH), P(0, kk, wallH)])} fill={`url(#${idp}-wallR)`} />
+        <polygon points={pts([P(0, kk, 0), P(0, wideJ, 0), P(0, wideJ, 6), P(0, kk, 6)])} fill={w.base} />
+        <polygon points={pts([P(0, kk, wallH - 4), P(0, wideJ, wallH - 4), P(0, wideJ, wallH), P(0, kk, wallH)])} fill={w.cornice} />
       </g>
     ))
   }

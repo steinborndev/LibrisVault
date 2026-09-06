@@ -172,9 +172,10 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
     },
     [rooms, current, pickRoom],
   )
+  const windowOpen = shelf !== null || board !== null
   useEffect(() => {
     const el = areaRef.current
-    if (!el) return
+    if (!el || windowOpen) return
     let last = 0
     const onWheel = (e: WheelEvent): void => {
       if (Math.abs(e.deltaY) < 20) return
@@ -186,8 +187,10 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [page])
+  }, [page, windowOpen])
   const onKey = (e: React.KeyboardEvent): void => {
+    // Inside a window the arrows belong to it too; only Escape still reaches the room.
+    if (windowOpen && e.key !== 'Escape') return
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') {
       e.preventDefault()
       page(1)
