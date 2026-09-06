@@ -14,6 +14,7 @@ import { Home } from './tabs/Home.tsx'
 import { Chat } from './tabs/Chat.tsx'
 import { System } from './tabs/System.tsx'
 import { Library } from './tabs/Library.tsx'
+import { Recap } from './tabs/Recap.tsx'
 import { Icon, type IconName } from './components/Icon.tsx'
 import { usePath, navigate, pageFromPath } from './lib/router.ts'
 import { RUN_RUNNING_TITLES, isMaintenanceRun } from './lib/runLabels.ts'
@@ -169,6 +170,22 @@ export function App(): React.ReactElement {
   const openPage = pageFromPath(path.split('?')[0]!)
   const query = new URLSearchParams(path.split('?')[1] ?? '')
 
+  // The recap lives under Home (`/recap`, `/recap/<date>`); Home stays mounted behind it.
+  const pathname = path.split('?')[0]!
+  const recapOpen = pathname === '/recap' || pathname.startsWith('/recap/')
+  const recapDate = recapOpen ? decodeURIComponent(pathname.slice('/recap/'.length)) : ''
+  const [recapMounted, setRecapMounted] = useState(recapOpen)
+  useEffect(() => {
+    if (recapOpen) setRecapMounted(true)
+  }, [recapOpen])
+
+  // The value signal (docs/agents/SPEC.md section 9.6): a page opened counts for the Fellow
+  // that wrote it. Only on an instance with Fellows; the server attributes the page.
+  const fellowsOn = health.data?.fellows === true
+  useEffect(() => {
+    if (openPage !== null && fellowsOn) api.valueEvent({ kind: 'page_open', page: openPage })
+  }, [openPage, fellowsOn])
+
   const badgeFor = (id: ScreenId): React.ReactElement | null => {
     if (id === 'home' && outstanding > 0) {
       return (
@@ -298,11 +315,20 @@ export function App(): React.ReactElement {
         <div className="screens">
           {/* Every screen is the same workspace shape now: one control column, one content
               box, no bar spanning both - so switching screens never shifts the edges. */}
-          <section className="screen flush" hidden={screen !== 'home'} aria-label="Home">
+          <section className="screen flush" hidden={screen !== 'home' || recapOpen} aria-label="Home">
             <div className="lane wide">
               <ErrorBoundary label="Home">
                 <Home statusFilter={screen === 'home' ? (query.get('filter') ?? '') : ''} />
               </ErrorBoundary>
+            </div>
+          </section>
+          <section className="screen" hidden={!recapOpen} aria-label="Recap">
+            <div className="lane wide">
+              {recapMounted && (
+                <ErrorBoundary label="Recap">
+                  <Recap date={recapDate} />
+                </ErrorBoundary>
+              )}
             </div>
           </section>
           <section className="screen flush" hidden={screen !== 'research'} aria-label="Research">

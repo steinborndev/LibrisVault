@@ -63,6 +63,8 @@ export interface AgentRecord {
   readonly sleepReason: string | null
   /** Machine-readable sleep reason (v16); null unless the state is `sleeping`. */
   readonly sleepCode: AgentSleepCode | null
+  /** "Skip tonight" (v17): the shift of this cycle date runs nothing for the Fellow. */
+  readonly skipUntil: string | null
   readonly notebookPath: string
   readonly createdAt: string
   readonly updatedAt: string
@@ -88,6 +90,7 @@ export type AgentPatch = Partial<
     | 'state'
     | 'sleepReason'
     | 'sleepCode'
+    | 'skipUntil'
     | 'retiredAt'
   >
 >
@@ -167,6 +170,7 @@ interface Row {
   state: string
   sleep_reason: string | null
   sleep_code: string | null
+  skip_until: string | null
   notebook_path: string
   created_at: string
   updated_at: string
@@ -175,7 +179,7 @@ interface Row {
 
 const COLUMNS =
   'id, name, slug, intent, scope, home_domain, extra_domains, lens, model, effort, step, quota_runs_per_day, ' +
-  'quota_week_pct, autonomy, priority, state, sleep_reason, sleep_code, notebook_path, created_at, updated_at, retired_at'
+  'quota_week_pct, autonomy, priority, state, sleep_reason, sleep_code, skip_until, notebook_path, created_at, updated_at, retired_at'
 
 function toRecord(row: Row): AgentRecord {
   let extra: string[] = []
@@ -204,6 +208,7 @@ function toRecord(row: Row): AgentRecord {
     state: row.state as AgentState,
     sleepReason: row.sleep_reason,
     sleepCode: row.sleep_code as AgentSleepCode | null,
+    skipUntil: row.skip_until,
     notebookPath: row.notebook_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -221,7 +226,7 @@ export class SqliteAgentStore implements AgentStore {
     this.db
       .prepare(
         `INSERT INTO agents (${COLUMNS}, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         r.id,
@@ -242,6 +247,7 @@ export class SqliteAgentStore implements AgentStore {
         r.state,
         r.sleepReason,
         r.sleepCode,
+        r.skipUntil,
         r.notebookPath,
         r.createdAt,
         r.updatedAt,
@@ -279,7 +285,7 @@ export class SqliteAgentStore implements AgentStore {
       .prepare(
         `UPDATE agents SET name = ?, intent = ?, scope = ?, home_domain = ?, extra_domains = ?, lens = ?, model = ?,
            effort = ?, step = ?, quota_runs_per_day = ?, quota_week_pct = ?, autonomy = ?, priority = ?, state = ?,
-           sleep_reason = ?, sleep_code = ?, updated_at = ?, retired_at = ?
+           sleep_reason = ?, sleep_code = ?, skip_until = ?, updated_at = ?, retired_at = ?
          WHERE id = ? AND user_id = ?`,
       )
       .run(
@@ -299,6 +305,7 @@ export class SqliteAgentStore implements AgentStore {
         next.state,
         next.sleepReason,
         next.sleepCode,
+        next.skipUntil,
         next.updatedAt,
         next.retiredAt,
         id,

@@ -72,6 +72,8 @@ export const SETTINGS_SCHEMA = z
     nightWindowEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
     /** Default model for a newly spawned Fellow. */
     researchModelDefault: z.enum(['sonnet-5', 'opus-5', 'fable-5-1']).nullable(),
+    /** When the daily recap is built, local `HH:MM` (docs/agents/SPEC.md section 9). */
+    recapTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
   })
   .partial()
   .strict()
@@ -98,11 +100,14 @@ export interface EffectiveSettings {
   readonly nightWindowEnd: string
   /** Model a new Fellow gets when the spawn names none. */
   readonly researchModelDefault: 'sonnet-5' | 'opus-5' | 'fable-5-1'
+  /** When the daily recap is built, local `HH:MM`. */
+  readonly recapTime: string
 }
 
 /** The night shift defaults (review decision OPEN-11). */
 export const DEFAULT_NIGHT_WINDOW = { start: '01:00', end: '06:00' } as const
 export const DEFAULT_RESEARCH_MODEL = 'sonnet-5' as const
+export const DEFAULT_RECAP_TIME = '07:00'
 
 /** Baseline (start-time) values, before any override is applied. */
 export function baselineSettings(config: Config): EffectiveSettings {
@@ -118,6 +123,7 @@ export function baselineSettings(config: Config): EffectiveSettings {
     nightWindowStart: DEFAULT_NIGHT_WINDOW.start,
     nightWindowEnd: DEFAULT_NIGHT_WINDOW.end,
     researchModelDefault: DEFAULT_RESEARCH_MODEL,
+    recapTime: DEFAULT_RECAP_TIME,
   }
 }
 
@@ -134,6 +140,7 @@ export function effectiveSettings(config: Config, overrides: SettingsOverrides):
     nightWindowStart: overrides.nightWindowStart ?? base.nightWindowStart,
     nightWindowEnd: overrides.nightWindowEnd ?? base.nightWindowEnd,
     researchModelDefault: overrides.researchModelDefault ?? base.researchModelDefault,
+    recapTime: overrides.recapTime ?? base.recapTime,
   }
 }
 

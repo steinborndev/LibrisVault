@@ -6431,3 +6431,38 @@ tr:focus-within .rowacts {
   background: var(--muted-bg);
 }
 .toast.note { background: var(--muted-bg); color: var(--text); }
+
+/* ---- Recap (docs/agents/SPEC.md section 9.3): the morning recap and Home's inbox entry ---- */
+
+.recap-inbox { border-color: var(--border-strong); }
+.recap-inbox .box-head { border-bottom: 0; }
+
+.recap { display: flex; flex-direction: column; }
+.recap > .facts.lead { border-bottom: 1px solid var(--border); }
+
+.recap-fellow { display: flex; flex-direction: column; gap: 8px; }
+.recap-fellow ul { margin: 2px 0 0; padding-left: 18px; }
+.recap-fellow li { margin: 2px 0; }
+.recap-fellow .row { gap: 10px; }
+.recap-fellow .mono-meta { display: block; }
+.recap-fellow > .box-head { gap: 8px; flex-wrap: wrap; }
+
+.recap-note { display: flex; gap: 8px; }
+
+/* Text inputs and selects that stand on their own, outside a settings form. */
+.input,
+.select {
+  height: var(--control-h);
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.input:focus,
+.select:focus { outline: none; border-color: var(--accent); }
+.select.sm,
+.input.sm { height: 26px; font-size: 12px; }
+.select { cursor: pointer; }

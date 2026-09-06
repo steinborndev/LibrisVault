@@ -47,7 +47,12 @@ export interface AgentRunRecord {
   readonly model?: string | null
   /** The proposal this run executed (schema v16), null for a manual step or a non-Fellow run. */
   readonly proposalId?: string | null
+  /** The agent's final text, capped (schema v17); the recap's "what it found" reads it. */
+  readonly answer?: string | null
 }
+
+/** How much of a run's answer the row keeps. */
+export const ANSWER_CAP = 6000
 
 export interface AgentRunQuery {
   /** Only runs of this kind (e.g. `research`). Omitted = every kind. */
@@ -110,6 +115,7 @@ interface Row {
   agent_id: string | null
   model: string | null
   proposal_id: string | null
+  answer: string | null
 }
 
 function toRecord(row: Row): AgentRunRecord {
@@ -137,6 +143,7 @@ function toRecord(row: Row): AgentRunRecord {
     agentId: row.agent_id,
     model: row.model,
     proposalId: row.proposal_id,
+    answer: row.answer,
   }
 }
 
@@ -152,8 +159,8 @@ export class SqliteAgentRunStore implements AgentRunStore {
     this.db
       .prepare(
         `INSERT INTO agent_runs
-           (id, user_id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, user_id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id, answer)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            kind = excluded.kind,
            label = excluded.label,
@@ -169,7 +176,8 @@ export class SqliteAgentRunStore implements AgentRunStore {
            finished_at = excluded.finished_at,
            agent_id = excluded.agent_id,
            model = excluded.model,
-           proposal_id = excluded.proposal_id`,
+           proposal_id = excluded.proposal_id,
+           answer = excluded.answer`,
       )
       .run(
         run.id,
@@ -189,6 +197,7 @@ export class SqliteAgentRunStore implements AgentRunStore {
         run.agentId ?? null,
         run.model ?? null,
         run.proposalId ?? null,
+        run.answer === undefined || run.answer === null ? null : run.answer.slice(0, ANSWER_CAP),
       )
     this.prune()
   }
@@ -209,7 +218,7 @@ export class SqliteAgentRunStore implements AgentRunStore {
     params.push(limit)
     const rows = this.db
       .prepare(
-        `SELECT id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id
+        `SELECT id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id, answer
            FROM agent_runs
           WHERE user_id = ?${where}
           ORDER BY finished_at DESC

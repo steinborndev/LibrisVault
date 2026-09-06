@@ -12,53 +12,9 @@
 import type { ShiftRecord, ShiftStore, ShiftTrigger, ShiftExecution, ShiftPlanning, ShiftSkip } from '../db/shifts.js'
 import type { AgentRecord } from '../db/agents.js'
 import type { FellowService } from './fellows.js'
-import { localDate } from './fellows.js'
+import { localDate, windowAt, type NightWindow } from './clock.js'
 
-export interface NightWindow {
-  /** Local `HH:MM`. */
-  readonly start: string
-  readonly end: string
-}
-
-export interface WindowSpan {
-  readonly start: Date
-  readonly end: Date
-  /** The local date of the window's end: the morning after the night (D5). */
-  readonly cycleDate: string
-}
-
-export interface WindowAt {
-  /** The window `now` falls into, or null outside every window. */
-  readonly current: WindowSpan | null
-  /** The next window that starts after `now`. */
-  readonly next: WindowSpan
-}
-
-function parseHm(hm: string): { h: number; m: number } {
-  const [h, m] = hm.split(':').map(Number)
-  return { h: Number.isFinite(h) ? h! : 1, m: Number.isFinite(m) ? m! : 0 }
-}
-
-/** The window that starts on the local calendar day of `dayRef` (it may end the next day). */
-function spanStartingOn(dayRef: Date, window: NightWindow): WindowSpan {
-  const s = parseHm(window.start)
-  const e = parseHm(window.end)
-  const start = new Date(dayRef.getFullYear(), dayRef.getMonth(), dayRef.getDate(), s.h, s.m)
-  let end = new Date(dayRef.getFullYear(), dayRef.getMonth(), dayRef.getDate(), e.h, e.m)
-  if (end.getTime() <= start.getTime()) end = new Date(dayRef.getFullYear(), dayRef.getMonth(), dayRef.getDate() + 1, e.h, e.m)
-  return { start, end, cycleDate: localDate(end) }
-}
-
-/** Where `now` stands relative to the night window. Pure, so the tests can pin the clock. */
-export function windowAt(now: Date, window: NightWindow): WindowAt {
-  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-  const spans = [spanStartingOn(yesterday, window), spanStartingOn(now, window), spanStartingOn(tomorrow, window)]
-  const t = now.getTime()
-  const current = spans.find((s) => s.start.getTime() <= t && t < s.end.getTime()) ?? null
-  const next = spans.find((s) => s.start.getTime() > t) ?? spans[2]!
-  return { current, next }
-}
+export { windowAt, type NightWindow, type WindowAt, type WindowSpan } from './clock.js'
 
 export interface ShiftStatus {
   readonly window: NightWindow
@@ -195,6 +151,10 @@ export class NightShift {
       }
       if (agent.state === 'active') {
         skip(agent, 'a run is already in flight')
+        return false
+      }
+      if (agent.skipUntil !== null && agent.skipUntil >= cycleDate) {
+        skip(agent, 'skipped tonight at your request')
         return false
       }
       const proposal = this.fellows.runnable(agent.id)

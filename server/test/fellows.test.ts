@@ -56,6 +56,7 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   state: 'proposed',
   sleepReason: null,
   sleepCode: null,
+  skipUntil: null,
   notebookPath: notebookPath('ada'),
   createdAt: '2026-09-06T08:00:00.000Z',
   updatedAt: '2026-09-06T08:00:00.000Z',

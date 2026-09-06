@@ -30,6 +30,11 @@ import type {
   CredentialResponse,
   TelegramSettingsResponse,
   TelegramStatusResponse,
+  RecapsResponse,
+  RecapRow,
+  RecapStatus,
+  RecapAnswer,
+  RecapAnswersResponse,
   PagePreview,
   PageFull,
   VaultGraph,
@@ -347,6 +352,36 @@ export const api = {
     fetch(`${BASE}/settings/telegram`, { method: 'DELETE' }).then(json<TelegramSettingsResponse>),
 
   /** Dropped-sender counters for the Maintenance card. Ids only, never content or token. */
+  // ---- Fellows and recaps (present only with AGENTS_ENABLED; `health.fellows` says so) ----
+  recaps: (): Promise<RecapsResponse> => fetch(`${BASE}/recaps`).then(json<RecapsResponse>),
+
+  recap: (date: string): Promise<{ recap: RecapRow }> =>
+    fetch(`${BASE}/recaps/${encodeURIComponent(date)}`).then(json<{ recap: RecapRow }>),
+
+  buildRecap: (body: { force?: boolean } = {}): Promise<{ started: boolean; status: RecapStatus }> =>
+    fetch(`${BASE}/recaps/build`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(json<{ started: boolean; status: RecapStatus }>),
+
+  answerRecap: (date: string, body: { answers?: RecapAnswer[]; text?: string }): Promise<RecapAnswersResponse> =>
+    fetch(`${BASE}/recaps/${encodeURIComponent(date)}/answers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(json<RecapAnswersResponse>),
+
+  /** Fire and forget: the value signal (section 9.6). Never throws; a 404 without the extension is fine. */
+  valueEvent: (body: { kind: 'page_open' | 'recap_link'; page?: string; agentId?: string }): void => {
+    void fetch(`${BASE}/value-events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      keepalive: true,
+    }).catch(() => undefined)
+  },
+
   telegramStatus: (): Promise<TelegramStatusResponse> =>
     fetch(`${BASE}/settings/telegram`).then(json<TelegramStatusResponse>),
 }

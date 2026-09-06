@@ -52,6 +52,7 @@ export type MaintenanceKind =
   | 'research'
   | 'research-step'
   | 'plan'
+  | 'recap'
   | 'hot-cache'
   | 'save'
   | 'domain-backfill'
@@ -285,6 +286,9 @@ const RUN_HISTORY_CAP = 25
 const STEP_TIMEOUT_MS = 15 * 60_000
 /** A planning run reads and ranks; five minutes is the spec's bound (section 6.2). */
 export const PLAN_TIMEOUT_MS = 5 * 60_000
+/** The recap's summary lines: three minutes and one USD (section 7). */
+export const RECAP_TIMEOUT_MS = 3 * 60_000
+export const RECAP_BUDGET_USD = 1
 
 /** The per-run knobs a Fellow context pins (model, effort, budget) plus its attribution. */
 function fellowRunOptions(fellow: FellowRunContext | undefined): Partial<RunOptions> {
@@ -608,6 +612,21 @@ export class MaintenanceRunner {
       label: `planning for ${fellow.name}`,
       ...fellowRunOptions(fellow),
       timeoutMs: fellow.timeoutMs ?? PLAN_TIMEOUT_MS,
+      outputFormat: { type: 'json_schema', schema },
+    })
+  }
+
+  /**
+   * The recap's "what it found" lines (docs/agents/SPEC.md section 9.2): a read-only run on
+   * the DEFAULT model (review decision OPEN-8b), schema-bound, three minutes, one USD. Not a
+   * Fellow's run: it summarises every Fellow's night at once and is not attributed.
+   */
+  startRecap(prompt: string, schema: Record<string, unknown>, model?: string): MaintenanceRun {
+    return this.start('recap', prompt, 'query', {
+      label: 'daily recap',
+      ...(model !== undefined ? { model } : {}),
+      timeoutMs: RECAP_TIMEOUT_MS,
+      maxBudgetUsd: RECAP_BUDGET_USD,
       outputFormat: { type: 'json_schema', schema },
     })
   }
@@ -1031,6 +1050,8 @@ export class MaintenanceRunner {
           agentId: prev.agentId ?? null,
           model: prev.model ?? null,
           proposalId: prev.proposalId ?? null,
+          // The result text, capped by the store: the recap's summary lines read it later.
+          answer: patch.result?.answer ?? null,
           startedAt: prev.startedAt,
           finishedAt: settled.finishedAt ?? this.now().toISOString(),
         })

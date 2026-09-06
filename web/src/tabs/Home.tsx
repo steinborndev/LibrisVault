@@ -52,6 +52,7 @@ import {
   type ActivityState,
 } from '../lib/activity.ts'
 import { navigate } from '../lib/router.ts'
+import { needsDecision, nightLine, undecidedCount } from '../lib/recap.ts'
 import { knowledgeSubgraph, vaultShape } from '../lib/vaultShape.ts'
 import { TYPE_VARS } from '../lib/domains.ts'
 
@@ -151,6 +152,12 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   // Same cached query the app shell uses; on a read-only demo the intake surface is gone.
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
+  // The morning recap, only on an instance with Fellows (docs/agents/SPEC.md section 9.3).
+  const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, enabled: health.data?.fellows === true, staleTime: 30_000, refetchInterval: 60_000 })
+  const latestRecap = (() => {
+    const latest = recaps.data?.recaps[0]
+    return latest !== undefined && needsDecision(latest) ? latest : null
+  })()
   const demoMode = health.data?.demoMode === true
   const jobsQ = useQuery({ queryKey: ['jobs', limit], queryFn: () => api.jobs({ limit }) })
   // The persistent run log (schema v12): every settled agent run, not just the newest per
@@ -561,6 +568,23 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
             onResearch={(topic) => navigate(`/research?prefill=${encodeURIComponent(topic)}`)}
           />
         </section>
+
+        {/* The morning recap's inbox entry (docs/agents/SPEC.md section 9.3): only on an
+            instance with Fellows, and only while the latest recap still wants a decision. */}
+        {latestRecap !== null && (
+          <div className="box recap-inbox" role="status">
+            <div className="box-head">
+              <h2 className="box-title">Recap · {latestRecap.cycleDate}</h2>
+              <span className="box-sub">
+                {nightLine(latestRecap.model)} · {undecidedCount(latestRecap.model)} proposal(s) waiting for you
+              </span>
+              <span className="spacer" />
+              <button className="btn primary" onClick={() => navigate('/recap')}>
+                Open recap
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ZONE 2 - the flow. The operational figures sit on top of the table they describe. */}
         <div className="box">

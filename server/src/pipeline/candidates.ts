@@ -22,7 +22,26 @@ import type { JobRow } from '../db/jobs.js'
 import type { VaultGraph } from './graph.js'
 import { parseNotebook } from './notebook.js'
 
-export type CandidateKind = 'open-question' | 'gap' | 'stub' | 'ingest' | 'handoff'
+export type CandidateKind = 'open-question' | 'gap' | 'stub' | 'ingest' | 'handoff' | 'note'
+
+/** How a recap's free-text answer is filed under the notebook's Notes (docs/tasks/TASKS-A2.md D6). */
+export const RECAP_NOTE_PREFIX = 'Recap note'
+
+/**
+ * Bullets under `## Notes` that a recap answer left (`- Recap note <date>: text`). The user's
+ * own notes stay theirs: only lines with the prefix become candidates.
+ */
+export function parseRecapNotes(markdown: string): string[] {
+  const notes = parseNotebook(markdown).sections.get('Notes')
+  if (!notes) return []
+  const out: string[] = []
+  const re = new RegExp(`^\\s*[-*]\\s+${RECAP_NOTE_PREFIX}\\s+\\d{4}-\\d{2}-\\d{2}:\\s*(.+)$`)
+  for (const line of notes.split('\n')) {
+    const m = re.exec(line)
+    if (m && m[1]!.trim() !== '') out.push(m[1]!.trim())
+  }
+  return out
+}
 
 export interface Candidate {
   /** Stable id inside one planning run, `C1` and up, the handle the planner names. */
@@ -41,6 +60,7 @@ export const STUB_BYTES = 1024
 /** How many candidates reach the planner at most. */
 export const MAX_CANDIDATES = 20
 const MAX_QUESTIONS = 10
+const MAX_NOTES = 3
 const MAX_GAPS = 8
 const MAX_STUBS = 5
 const MAX_INGESTS = 5
@@ -175,6 +195,11 @@ export function computeCandidates(input: CandidateInput): Candidate[] {
   for (const page of fellowSynthesisPages(runs)) addQuestions(page, 2)
   const questions = raw.filter((c) => c.kind === 'open-question').slice(0, MAX_QUESTIONS)
   raw.length = 0
+  // The user's recap notes come first: they are the most direct steer the planner gets.
+  const notebook = readPage(vaultRoot, agent.notebookPath)
+  for (const note of notebook === undefined ? [] : parseRecapNotes(notebook).slice(-MAX_NOTES)) {
+    raw.push({ kind: 'note', text: note, sourcePages: [agent.notebookPath], weight: 3.5 })
+  }
   raw.push(...questions)
 
   if (graph !== null) {

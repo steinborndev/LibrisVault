@@ -91,6 +91,8 @@ export interface RenderNotebookInput {
    * to win over the page once, or the page would restore the old text at the next settle.
    */
   readonly forceIntentScope?: boolean
+  /** Bullet lines to add under Notes on this write (a recap's free-text answer). */
+  readonly appendNotes?: readonly string[]
 }
 
 export function renderNotebook(input: RenderNotebookInput): string {
@@ -113,6 +115,10 @@ export function renderNotebook(input: RenderNotebookInput): string {
     Log: log.length > 0 ? log.map((l) => `- ${l}`).join('\n') : '- (no runs yet)',
     'Open Questions': section('Open Questions', '- (none yet)'),
     Notes: section('Notes', '(yours)'),
+  }
+  if (input.appendNotes !== undefined && input.appendNotes.length > 0) {
+    const kept = sections.Notes === '(yours)' ? '' : sections.Notes
+    sections.Notes = [kept, ...input.appendNotes.map((n) => `- ${n}`)].filter((l) => l !== '').join('\n')
   }
   const fm = [
     '---',
@@ -176,7 +182,7 @@ export class NotebookWriter {
     agent: AgentRecord,
     runs: readonly AgentRunRecord[],
     plan: string | null = null,
-    opts: { readonly forceIntentScope?: boolean } = {},
+    opts: { readonly forceIntentScope?: boolean; readonly appendNotes?: readonly string[] } = {},
   ): Promise<NotebookWriteResult> {
     return this.commitMutex.runExclusive(async () => {
       const abs = path.join(this.vaultRoot, agent.notebookPath)
@@ -188,6 +194,7 @@ export class NotebookWriter {
         plan,
         ...(existing !== undefined ? { existing } : {}),
         ...(opts.forceIntentScope ? { forceIntentScope: true } : {}),
+        ...(opts.appendNotes !== undefined ? { appendNotes: opts.appendNotes } : {}),
       })
       fs.mkdirSync(path.dirname(abs), { recursive: true })
       fs.writeFileSync(abs, markdown, 'utf8')

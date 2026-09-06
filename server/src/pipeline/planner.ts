@@ -285,9 +285,12 @@ export function renderPlanSection(input: {
   readonly window: { readonly start: string; readonly end: string }
   /** When nothing is pending: why (the sleep reason), or null for the default line. */
   readonly idleReason?: string | null
+  /** "Skip tonight": the cycle date the next shift skips for this Fellow. */
+  readonly skipUntil?: string
 }): string {
+  const skip = input.skipUntil !== undefined ? `Skipped tonight (${input.skipUntil}) at your request; the planner still runs.\n\n` : ''
   if (input.pending.length === 0) {
-    return input.idleReason ? `Nothing planned: ${input.idleReason}` : 'Nothing planned. The planner runs in the next night shift.'
+    return skip + (input.idleReason ? `Nothing planned: ${input.idleReason}` : 'Nothing planned. The planner runs in the next night shift.')
   }
   const head =
     input.autonomy === 'manual'
@@ -306,5 +309,5 @@ export function renderPlanSection(input: {
     const from = `${p.provenance.candidate}: ${p.provenance.text}${p.provenance.sourcePages.length > 0 ? ` (${p.provenance.sourcePages.join(', ')})` : ''}`
     return `${i + 1}. ${p.kind} · ${p.topic} · ${status}${cost}\n   Why: ${p.rationale || '-'}\n   From: ${from}`
   })
-  return `${head}\n\n${lines.join('\n')}`
+  return `${skip}${head}\n\n${lines.join('\n')}`
 }

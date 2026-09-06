@@ -441,6 +441,40 @@ ALTER TABLE agents ADD COLUMN sleep_code TEXT;
 ALTER TABLE agent_runs ADD COLUMN proposal_id TEXT;
 `
 
+/**
+ * v17 - the daily recap and the value signal (docs/agents/SPEC.md sections 9 and 11,
+ * milestone A2, docs/tasks/TASKS-A2.md).
+ *
+ * `recaps` is one row per cycle date with the rendered model (the page is rendering only,
+ * never read back); `value_events` counts page opens and recap link clicks locally;
+ * `agent_runs.answer` keeps a run's result text for the recap's "what it found" lines;
+ * `agents.skip_until` is "skip tonight". Operational state only (hard rule 1).
+ */
+const V17 = `
+CREATE TABLE recaps (
+  cycle_date TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  generated_at TEXT NOT NULL,
+  path TEXT,
+  quiet INTEGER NOT NULL DEFAULT 0,
+  model TEXT NOT NULL DEFAULT '{}',
+  delivered TEXT NOT NULL DEFAULT '{}',
+  answered_at TEXT,
+  PRIMARY KEY (user_id, cycle_date)
+);
+CREATE TABLE value_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  ts TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  agent_id TEXT,
+  page TEXT
+);
+CREATE INDEX value_events_agent ON value_events (agent_id, ts);
+ALTER TABLE agent_runs ADD COLUMN answer TEXT;
+ALTER TABLE agents ADD COLUMN skip_until TEXT;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -458,4 +492,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 14, up: V14 },
   { version: 15, up: V15 },
   { version: 16, up: V16 },
+  { version: 17, up: V17 },
 ]

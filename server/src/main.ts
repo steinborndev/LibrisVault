@@ -16,8 +16,11 @@ import { SqliteAgentRunStore } from './db/agent-runs.js'
 import { SqliteAgentStore } from './db/agents.js'
 import { SqliteProposalStore } from './db/proposals.js'
 import { SqliteShiftStore } from './db/shifts.js'
+import { SqliteRecapStore } from './db/recaps.js'
+import { SqliteValueEventStore } from './db/value-events.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
 import { NightShift } from './pipeline/shift.js'
+import { RecapService, type RecapModel } from './pipeline/recap.js'
 import { NotebookWriter } from './pipeline/notebook.js'
 import { TelegramDropStore } from './db/telegram-drops.js'
 import { IngestQueue } from './pipeline/queue.js'
@@ -176,20 +179,45 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             const e = settings.effective(config)
             return { window: { start: e.nightWindowStart, end: e.nightWindowEnd }, defaultModel: e.researchModelDefault }
           },
+          values: new SqliteValueEventStore(db),
           log: fellowsLog,
         })
       : undefined
   // The night shift (section 4.2) ticks once a minute and runs inside the window; it never
   // starts in setup or demo mode, where nothing may spawn an agent.
+  const shiftStore = fellows !== undefined ? new SqliteShiftStore(db) : undefined
   const shift =
-    fellows !== undefined
+    fellows !== undefined && shiftStore !== undefined
       ? new NightShift({
           fellows,
-          shifts: new SqliteShiftStore(db),
+          shifts: shiftStore,
           window: () => {
             const e = settings.effective(config)
             return { start: e.nightWindowStart, end: e.nightWindowEnd }
           },
+          log: fellowsLog,
+        })
+      : undefined
+  // The daily recap (section 9): built at the recap time, delivered to the dashboard, the
+  // vault and, once the bot is up, Telegram (late-bound: the bot starts after listen).
+  const telegramSink: { send?: (messages: readonly string[]) => Promise<number[]> } = {}
+  const recaps =
+    fellows !== undefined && shiftStore !== undefined
+      ? new RecapService({
+          vaultRoot: config.vaultRoot,
+          fellows,
+          runs: agentRuns,
+          recaps: new SqliteRecapStore<RecapModel>(db),
+          shifts: shiftStore,
+          maintenance,
+          jobs: store,
+          commitMutex,
+          autoCommit: () => settings.effective(config).gitAutoCommit,
+          settings: () => {
+            const e = settings.effective(config)
+            return { window: { start: e.nightWindowStart, end: e.nightWindowEnd }, recapTime: e.recapTime }
+          },
+          telegram: () => telegramSink.send,
           log: fellowsLog,
         })
       : undefined
@@ -248,11 +276,13 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     graph,
     ...(fellows !== undefined ? { fellows } : {}),
     ...(shift !== undefined ? { shift } : {}),
+    ...(recaps !== undefined ? { recaps } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`
   logSink.sink = (level, message) => app.log[level](message)
   if (shift !== undefined && !passive) shift.start()
+  if (recaps !== undefined && !passive) recaps.start()
 
   // Log what the service actually runs with (overrides applied), not the bare baseline.
   app.log.info({ ...describeConfig(effectiveConfig), transportPin: pin }, 'vault-service started')
@@ -289,14 +319,18 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           maintenance.onRunSettled(run.id, onSettled)
           return run
         },
+        // Recap answers in the code grammar are applied instead of ingested (section 9.3).
+        ...(recaps !== undefined ? { recapAnswer: (text: string) => recaps.answerText(text) } : {}),
         log: (level, message) => app.log[level](`[telegram] ${message}`),
       })
     : null
+  if (telegram) telegramSink.send = (messages) => telegram.broadcast(messages)
 
   const stop = async (): Promise<void> => {
     // Bot first: no new updates may reach the queue while it is draining/stopping.
     if (telegram) await telegram.stop()
     shift?.stop()
+    recaps?.stop()
     await watcher.close()
     await vaultWatcher.close()
     retrieveScheduler.close()

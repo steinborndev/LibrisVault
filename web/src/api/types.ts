@@ -160,6 +160,8 @@ export interface Health {
   credentialConfigured: boolean
   /** True on a hosted read-only demo instance: all write surfaces are disabled. */
   demoMode?: boolean
+  /** True when the research agents extension (Fellows, recaps) is on (docs/agents/SPEC.md). */
+  fellows?: boolean
   queue: { inFlight: number; paused: boolean; pauseReason: PauseReason; concurrency: number }
   jobs: Record<string, number>
   /** Server-side caps the client pre-checks against (dropzone size warning). */
@@ -622,3 +624,113 @@ export type BusEvent =
   | { kind: 'vault' }
   /** A coalesced chunk of the answer being written, for the chat's live preview. */
   | { kind: 'chat'; chat: { sessionId: string; requestId?: string; delta: string } }
+
+// ---- Fellows and recaps (docs/agents/SPEC.md sections 5, 6 and 9; behind AGENTS_ENABLED) ----
+
+export type RecapAnswer =
+  | { action: 'pick'; fellow: number; letter: string }
+  | { action: 'veto'; fellow: number; letter?: string }
+  | { action: 'skip' | 'pause' | 'resume'; fellow: number }
+  | { action: 'note'; fellow: number; text: string }
+  | { action: 'model'; fellow: number; value: string }
+  | { action: 'step'; fellow: number; value: string }
+  | { action: 'topic'; fellow: number; letter: string; text: string }
+
+export interface RecapRun {
+  runId: string
+  kind: string
+  topic: string
+  ok: boolean
+  error: string | null
+  pagesCreated: string[]
+  pagesUpdated: string[]
+  commit: string | null
+  costUsd: number | null
+  startedAt: string
+  proposalId: string | null
+}
+
+export interface RecapProposal {
+  /** `1a`, `1b`, ... the answer code. */
+  code: string
+  proposalId: string
+  kind: string
+  topic: string
+  rationale: string
+  provenance: { candidate: string; text: string; sourcePages: string[] }
+  estCostUsd: number | null
+  scopeScore: number
+  drift: boolean
+  status: string
+  rank: number
+}
+
+export interface RecapFellow {
+  index: number
+  agentId: string
+  name: string
+  homeDomain: string
+  model: string
+  autonomy: string
+  state: string
+  sleepCode: string | null
+  sleepReason: string | null
+  skipUntil: string | null
+  notebookPath: string
+  runs: RecapRun[]
+  found: string[]
+  openQuestions: string[]
+  proposals: RecapProposal[]
+  value: { pageOpens: number; recapLinks: number }
+}
+
+export interface RecapModel {
+  cycleDate: string
+  generatedAt: string
+  quiet: boolean
+  since: string
+  window: { start: string; end: string }
+  shift: { trigger: string; startedAt: string; finishedAt: string | null; executed: number; planned: number; skipped: Array<{ agentName: string; reason: string }>; costUsd: number } | null
+  totals: { runs: number; failed: number; costUsd: number; pages: number }
+  usage: { today: { costUsd: number; runs: number }; week: { costUsd: number; runs: number } }
+  value: { pageOpens: number; recapLinks: number }
+  fellows: RecapFellow[]
+  sleeping: Array<{ name: string; reason: string }>
+  summaryNote: string | null
+  summaryCostUsd: number | null
+}
+
+export interface RecapRow {
+  cycleDate: string
+  generatedAt: string
+  /** Vault page, null on a quiet day. */
+  path: string | null
+  quiet: boolean
+  model: RecapModel
+  delivered: { dashboard?: string; telegram?: { chatIds: number[]; at: string } }
+  answeredAt: string | null
+}
+
+export interface RecapStatus {
+  recapTime: string
+  nextAt: string
+  building: boolean
+  latest: RecapRow | null
+}
+
+export interface RecapsResponse {
+  recaps: RecapRow[]
+  status: RecapStatus
+}
+
+export interface RecapAnswerResult {
+  answer: RecapAnswer
+  ok: boolean
+  message: string
+}
+
+export interface RecapAnswersResponse {
+  results: RecapAnswerResult[]
+  errors: string[]
+  recap: RecapRow
+}

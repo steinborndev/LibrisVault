@@ -439,3 +439,22 @@ export async function discardUntrackedDir(vaultRoot: string, relDir: string): Pr
   fs.rmSync(abs, { recursive: true, force: true })
   return true
 }
+
+/** What one commit did to each path: added, modified or deleted (the recap's created/updated split). */
+export async function commitFileStatus(vaultRoot: string, hash: string): Promise<Map<string, 'A' | 'M' | 'D'>> {
+  const out = new Map<string, 'A' | 'M' | 'D'>()
+  try {
+    const stdout = await git(vaultRoot, ['show', '--name-status', '--format=', '-M', hash])
+    for (const line of stdout.split('\n')) {
+      const m = /^([AMDR])\d*\t(.+?)(?:\t(.+))?$/.exec(line)
+      if (!m) continue
+      const status = m[1]!
+      // A rename shows the old and the new path; the new path counts as added.
+      if (status === 'R') out.set(m[3] ?? m[2]!, 'A')
+      else out.set(m[2]!, status as 'A' | 'M' | 'D')
+    }
+  } catch {
+    /* an unknown or unreadable commit reports nothing; the caller falls back to "touched" */
+  }
+  return out
+}

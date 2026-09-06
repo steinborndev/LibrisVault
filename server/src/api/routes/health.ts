@@ -17,6 +17,8 @@ export function registerHealthRoute(app: FastifyInstance, ctx: AppContext): void
       credentialConfigured: ctx.config.auth !== null,
       // True on a hosted read-only instance; the UI swaps write surfaces for demo notices.
       demoMode: ctx.config.demoMode,
+      // The research agents extension (docs/agents/SPEC.md) is on: the UI shows its surfaces.
+      fellows: ctx.fellows !== undefined,
       queue: ctx.queue.stats(),
       jobs: ctx.store.counts(),
       // Client-side pre-checks (the dropzone warns before uploading a file the server

@@ -26,6 +26,7 @@ import {
 } from '../db/agents.js'
 import type { AgentRunRecord, AgentRunStore } from '../db/agent-runs.js'
 import type { JobRow } from '../db/jobs.js'
+import type { ValueCounts, ValueEventStore } from '../db/value-events.js'
 import {
   PENDING_STATUSES,
   type DecisionChannel,
@@ -41,6 +42,7 @@ import { notebookPath, renderLogLines, type NotebookWriter } from './notebook.js
 import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
 import { computeCandidates, knowledgePages, type Candidate } from './candidates.js'
+import { localDate, addDays, windowAt } from './clock.js'
 import type { VaultGraph } from './graph.js'
 import {
   buildProposals,
@@ -133,6 +135,8 @@ export interface FellowCard extends FellowSummary {
   /** Pending first (by rank), then the recent history. */
   readonly proposals: readonly ProposalRecord[]
   readonly spend: FellowSpend
+  /** Page opens and recap link clicks attributed to the Fellow this month (section 9.6). */
+  readonly value: ValueCounts
 }
 
 export interface DecisionInput {
@@ -181,20 +185,12 @@ export interface FellowServiceOptions {
   /** Service-wide block on starting runs (daily budget, rate-limit pause); null = clear. */
   readonly gate?: () => GateBlock | null
   readonly settings?: () => FellowSettings
+  /** The value signal (section 9.6); absent = the card shows no opens. */
+  readonly values?: ValueEventStore
   readonly log?: (level: 'info' | 'warn' | 'error', message: string) => void
 }
 
-/** Local calendar date `YYYY-MM-DD`. */
-export function localDate(d: Date): string {
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-/** `days` after a local calendar date. */
-export function addDays(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number]
-  return localDate(new Date(y, m - 1, d + days))
-}
+export { localDate, addDays }
 
 export { knowledgePages }
 
@@ -213,6 +209,7 @@ export class FellowService {
   private readonly candidatesFn: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
   private readonly gate: () => GateBlock | null
   private readonly settings: () => FellowSettings
+  private readonly values: ValueEventStore | undefined
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   /** One run in flight per Fellow: agent id to tracked run id. */
   private readonly inFlight = new Map<string, string>()
@@ -230,6 +227,7 @@ export class FellowService {
     this.now = opts.now ?? ((): Date => new Date())
     this.gate = opts.gate ?? ((): GateBlock | null => null)
     this.settings = opts.settings ?? ((): FellowSettings => ({ window: DEFAULT_NIGHT_WINDOW, defaultModel: DEFAULT_RESEARCH_MODEL }))
+    this.values = opts.values
     this.log = opts.log ?? ((): void => {})
     const sources = opts.candidateSources
     this.candidatesFn =
@@ -291,7 +289,67 @@ export class FellowService {
       quota: { runsPerDay: agent.quotaRunsPerDay, usedToday },
       proposals: this.proposals.list({ agentId: id, limit: 20 }),
       spend: this.spend(id),
+      value: this.valueCounts(id),
     }
+  }
+
+  /** Opens and recap links attributed to the Fellow since the first of the month. */
+  valueCounts(agentId?: string): ValueCounts {
+    if (!this.values) return { pageOpens: 0, recapLinks: 0 }
+    const now = this.now()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    return this.values.counts(monthStart, agentId)
+  }
+
+  /** The Fellow whose run committed `page`, for value attribution (section 9.6); undefined when none did. */
+  ownerOfPage(page: string): AgentRecord | undefined {
+    const run = this.runs.list({ limit: 1000 }).find((r) => r.agentId && r.pages.includes(page))
+    return run?.agentId ? this.agents.get(run.agentId) : undefined
+  }
+
+  /** Records a value event, attributing the page to its Fellow when the caller named none. */
+  recordValue(kind: 'page_open' | 'recap_link', page: string | null, agentId?: string): { agentId: string | null } {
+    const owner = agentId ?? (page !== null ? this.ownerOfPage(page)?.id : undefined) ?? null
+    this.values?.record({ ts: this.now().toISOString(), kind, agentId: owner, page })
+    return { agentId: owner }
+  }
+
+  /**
+   * "Skip tonight" (docs/tasks/TASKS-A2.md D5): the next shift runs nothing for the Fellow
+   * but still plans for it. Returns the cycle date that is skipped.
+   */
+  async skipTonight(id: string): Promise<{ agent: AgentRecord; cycleDate: string } | undefined> {
+    const agent = this.agents.get(id)
+    if (!agent) return undefined
+    const at = windowAt(this.now(), this.settings().window)
+    const cycleDate = at.current?.cycleDate ?? at.next.cycleDate
+    const next = this.agents.update(id, { skipUntil: cycleDate }, this.now().toISOString())
+    if (!next) return undefined
+    await this.writeNotebook(next)
+    return { agent: next, cycleDate }
+  }
+
+  /** Clears "skip tonight". */
+  async unskip(id: string): Promise<AgentRecord | undefined> {
+    const next = this.agents.update(id, { skipUntil: null }, this.now().toISOString())
+    if (next) await this.writeNotebook(next)
+    return next
+  }
+
+  /**
+   * Files a free-text answer as a note under the notebook's Notes section (D6); the next
+   * planning run reads it as a candidate.
+   */
+  async addNote(id: string, text: string, date: string = localDate(this.now())): Promise<AgentRecord | undefined> {
+    const agent = this.agents.get(id)
+    if (!agent) return undefined
+    const clean = text.replace(/\s+/g, ' ').trim()
+    if (clean === '') return agent
+    await this.writeNotebook(agent, { appendNotes: [`Recap note ${date}: ${clean}`] })
+    if (agent.state === 'sleeping' && (agent.sleepCode === 'covered' || agent.sleepCode === 'stalled')) {
+      return this.agents.update(id, { sleepReason: 'a recap note arrived; the planner reconsiders in the next night shift', sleepCode: 'idle' }, this.now().toISOString())
+    }
+    return agent
   }
 
   /** The Fellow's pending proposals, approved first, then by rank. */
@@ -351,6 +409,7 @@ export class FellowService {
       state: 'proposed',
       sleepReason: null,
       sleepCode: null,
+      skipUntil: null,
       notebookPath: notebookPath(slug),
       createdAt: now,
       updatedAt: now,
@@ -704,13 +763,17 @@ export class FellowService {
   }
 
   /** Renders and commits the notebook with the current Plan section; never throws. */
-  private async writeNotebook(agent: AgentRecord, opts: { readonly forceIntentScope?: boolean } = {}): Promise<Awaited<ReturnType<NotebookWriter['write']>> | undefined> {
+  private async writeNotebook(
+    agent: AgentRecord,
+    opts: { readonly forceIntentScope?: boolean; readonly appendNotes?: readonly string[] } = {},
+  ): Promise<Awaited<ReturnType<NotebookWriter['write']>> | undefined> {
     try {
       const plan = renderPlanSection({
         pending: this.pendingProposals(agent.id),
         autonomy: agent.autonomy,
         window: this.settings().window,
         idleReason: agent.state === 'sleeping' ? agent.sleepReason : null,
+        ...(agent.skipUntil !== null ? { skipUntil: agent.skipUntil } : {}),
       })
       return await this.notebook.write(agent, this.runs.list({ agentId: agent.id, limit: 200 }), plan, opts)
     } catch (err) {
