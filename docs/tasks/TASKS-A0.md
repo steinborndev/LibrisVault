@@ -27,6 +27,15 @@ the flag off behaves exactly as before.
   `queue-integration.test.ts` ("all reach done, every page is committed") failed once on
   "expected [] to have a length of 1"; alone it passes every time, and the full suite passed
   on the next run (758 of 758). Not touched by A0; noted so a later red run is read right.
+- **F6 - the vault commits on its own unless told not to.** The plugin's PostToolUse hook
+  (`hooks/hooks.json`) commits `wiki/` after every write unless `.vault-meta/auto-commit.disabled`
+  exists (LibrisVault found this in M0 and the live vault carries the flag). The dev vault did
+  not: the first real step filed four pages and extended five, all committed as
+  "wiki: auto-commit" while the run was still going, so the service's own commit found
+  "nothing to commit", the run row showed no pages and no hash, and the synthesis check
+  warned although the synthesis page existed. Fix: the flag in the dev vault, and
+  `scripts/dev-instance.sh` creates it when missing. The service side is unchanged: it owns
+  the commit only when the vault lets it.
 - **F4 - a "step" has no topic before A1.** The planner (A1) proposes topics. In A0 a step
   takes the topic from the request and defaults to the Fellow's intent; the spawn's first
   run is always the intent as a full `research` run.
@@ -77,3 +86,10 @@ the flag off behaves exactly as before.
       git vault with a fake agent, routes; `npm test` and `npm run typecheck` green.
 - [ ] One real `research-step` against the demo vault in the dev instance with the budget
       cap, result recorded here.
+      - Run 1 (2026-09-06, before F6 was fixed): `research-step` on the intent, Sonnet 5,
+        cap 4 USD, 6.1 min, 2.59 USD, 1 WebSearch, 5 WebFetch, 5 Write, 18 Edit. The agent
+        filed a synthesis page, three source pages and extended five concept pages, and
+        appended three open questions to the notebook. Attribution, model pin, budget cap,
+        quota gate, notebook rewrite and the state machine all worked; the run row carried
+        no pages because of F6.
+      - Run 2 (after the flag): see below.

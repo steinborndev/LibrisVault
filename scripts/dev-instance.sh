@@ -30,6 +30,12 @@ if [ ! -d "$VAULT_ROOT/wiki" ] || [ ! -d "$VAULT_ROOT/skills" ]; then
   exit 1
 fi
 
+# The vault plugin commits on its own ("wiki: auto-commit …") unless this flag exists. The
+# service must own every run's commit (hard rule 1), or a run's pages are committed out from
+# under it and its row shows no pages. The live vault carries the same flag.
+mkdir -p "$VAULT_ROOT/.vault-meta"
+[ -e "$VAULT_ROOT/.vault-meta/auto-commit.disabled" ] || touch "$VAULT_ROOT/.vault-meta/auto-commit.disabled"
+
 cd "$REPO"
 if [ $# -eq 0 ]; then set -- npm start; fi
 echo "dev instance: port $PORT, vault $VAULT_ROOT, db $DB_PATH, inbox $WATCH_FOLDER"

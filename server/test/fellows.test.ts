@@ -151,6 +151,9 @@ describe('notebook page', () => {
     const sections = parseNotebook(second).sections
     expect(sections.get('Intent')).toBe('A narrower question the user typed in Obsidian')
     expect(sections.get('Open Questions')).toBe('- Which surveys publish raw light curves?')
+    // A run appends below the placeholder; the placeholder must not survive the next render.
+    const appended = second.replace('- Which surveys publish raw light curves?', '- (none yet)\n- Which surveys publish raw light curves?')
+    expect(parseNotebook(renderNotebook({ agent: agentRecord(), runs: [], existing: appended })).sections.get('Open Questions')).toBe('- Which surveys publish raw light curves?')
     expect(sections.get('Notes')).toBe('my own remark')
     expect(sections.get('Log')).toContain('research-step · Limb darkening')
     expect(readBackNotebook(edited)).toEqual({ intent: 'A narrower question the user typed in Obsidian' })

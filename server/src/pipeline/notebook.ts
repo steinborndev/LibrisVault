@@ -94,7 +94,11 @@ export function renderNotebook(input: RenderNotebookInput): string {
   const kept = input.existing ? parseNotebook(input.existing).sections : new Map<string, string>()
   const section = (name: SectionName, fallback: string): string => {
     const v = kept.get(name)
-    return v !== undefined && v.trim() !== '' ? v.trim() : fallback
+    if (v === undefined || v.trim() === '') return fallback
+    // A placeholder line the service wrote earlier must not outlive the first real entry.
+    const lines = v.trim().split('\n')
+    const real = lines.filter((l) => l.trim() !== fallback.trim())
+    return real.length > 0 ? real.join('\n').trim() : fallback
   }
   const log = renderLogLines(input.runs)
   const sections: Record<SectionName, string> = {
