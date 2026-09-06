@@ -1090,6 +1090,7 @@ button {
 
 /* ---- Batch group in the queue ---- */
 .chip .chip-n {
+  margin-left: 5px;
   font-size: 11px;
   color: var(--text-faint);
 }
@@ -6438,20 +6439,124 @@ tr:focus-within .rowacts {
 
 /* ---- Recap (docs/agents/SPEC.md section 9.3): the morning recap and Home's inbox entry ---- */
 
-.recap-inbox { border-color: var(--border-strong); }
-.recap-inbox .box-head { border-bottom: 0; }
-
 .recap { display: flex; flex-direction: column; }
 .recap > .facts.lead { border-bottom: 1px solid var(--border); }
+.recap-fellow { display: flex; flex-direction: column; }
+.recap-note { display: flex; gap: 8px; margin-top: 8px; }
+/* ---- The recap's own typography (2026-09-06): a decision sheet, not a log dump ----
+   Labels in small caps mark the four bands of a Fellow's section; each proposal is a card
+   with its answer on the right; the reasoning under it reads as prose, not as code. */
+.recap-fellow {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  gap: 6px;
+}
+.recap-fhead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+.recap-fname {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+}
+.recap-fmeta { font-size: 12px; color: var(--text-faint); }
+.recap-label {
+  display: block;
+  margin: 8px 0 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.recap-label-sub {
+  margin-left: 6px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-size: 11px;
+}
+.recap-none { margin: 0; font-size: 13px; color: var(--text-faint); }
 
-.recap-fellow { display: flex; flex-direction: column; gap: 8px; }
-.recap-fellow ul { margin: 2px 0 0; padding-left: 18px; }
-.recap-fellow li { margin: 2px 0; }
-.recap-fellow .row { gap: 10px; }
-.recap-fellow .mono-meta { display: block; }
-.recap-fellow > .box-head { gap: 8px; flex-wrap: wrap; }
+/* One proposal: what it would do, why, and the two answers. */
+.prop {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.prop.approved {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+  background: color-mix(in srgb, var(--ok) 7%, var(--bg));
+}
+.prop.vetoed { opacity: 0.6; }
+.prop-main { flex: 1; min-width: 0; }
+.prop-topic { font-size: 13px; line-height: 1.45; max-width: 92ch; }
+.prop-topic .chip { margin-left: 8px; vertical-align: middle; }
+.prop-code {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--research);
+}
+.prop-why,
+.prop-from {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-faint);
+  max-width: 92ch;
+}
+.prop-from { color: color-mix(in srgb, var(--text-faint) 80%, transparent); }
+.prop-acts { display: flex; gap: 6px; flex: none; }
 
-.recap-note { display: flex; gap: 8px; }
+/* What the night actually did, under the decision it feeds. */
+.recap-ran {
+  padding: 7px 0;
+  border-top: 1px dashed var(--border);
+  font-size: 13px;
+}
+.recap-ran:first-of-type { border-top: 0; }
+.recap-ran-line { line-height: 1.45; max-width: 96ch; }
+.recap-ran-meta { margin-top: 1px; font-size: 12px; color: var(--text-dim); }
+.recap-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 4px;
+}
+.recap-pages .k {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.recap-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.recap-list li { margin: 2px 0; max-width: 96ch; }
+.recap-note .input { flex: 1; }
+.recap-foot,
+.recap-line {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.recap-line { padding: 10px 14px; }
+
 /* ---- Home's recap feed (2026-09-06): the newest recap open, the week beside it ----
    The flow box holds two views of one height. This one brings its own fact strip (the day
    in view), the feed, the rail and its foot - the same four bands the activity view has, so

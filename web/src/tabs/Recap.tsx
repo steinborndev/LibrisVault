@@ -150,12 +150,10 @@ export function RecapBody({
       )}
       {m.summaryNote && <div className="toast warn">{m.summaryNote}</div>}
       {m.shift && m.shift.skipped.length > 0 && (
-        <p className="mono-meta" style={{ padding: '8px 14px' }}>
-          Skipped: {m.shift.skipped.map((s) => `${s.agentName} (${s.reason})`).join(' · ')}
-        </p>
+        <p className="recap-line">Skipped: {m.shift.skipped.map((s) => `${s.agentName} (${s.reason})`).join(' · ')}</p>
       )}
       {(m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
-        <p className="mono-meta" style={{ padding: '8px 14px' }}>
+        <p className="recap-line">
           {m.dedupe.merged.map((d, i) => (
             <span key={`m${i}`}>
               Merged {d.droppedAgentName}'s "{d.droppedTopic}" into {d.keptAgentName}'s "{d.keptTopic}".{' '}
@@ -175,7 +173,7 @@ export function RecapBody({
       {only === undefined &&
         m.unclaimed.map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />)}
       {row.path && (
-        <p className="mono-meta" style={{ padding: '8px 14px' }}>
+        <p className="recap-line">
           Vault page: <PageLink vaultName={vaultName} path={row.path} />
           {row.delivered.telegram ? ` · sent to Telegram ${timeAgo(row.delivered.telegram.at)}` : ' · Telegram: no bot connected'}
         </p>
@@ -199,19 +197,24 @@ export function FellowSection({
 }): React.ReactElement {
   const [note, setNote] = useState('')
   const stateLine = f.state === 'sleeping' ? `sleeping: ${f.sleepReason ?? f.sleepCode ?? ''}` : f.state
+  const autonomyLine =
+    f.autonomy === 'manual'
+      ? 'manual: runs only what you approve'
+      : f.autonomy === 'auto'
+        ? 'auto: the top one runs the night it is planned'
+        : 'veto: the top undecided one runs tonight unless vetoed'
   const link = (page: string): React.ReactElement => (
     <span key={page} onClickCapture={() => onFollow(page, f.agentId)}>
       <PageLink vaultName={vaultName} path={page} />
     </span>
   )
-  const list = (pages: string[]): React.ReactElement[] => pages.flatMap((p, i) => (i === 0 ? [link(p)] : [<span key={`${p}-sep`}>, </span>, link(p)]))
   return (
-    <section className="recap-fellow" aria-label={`${f.index}. ${f.name}`} style={{ padding: '12px 14px', borderTop: '1px solid var(--line)' }}>
-      <div className="box-head" style={{ padding: 0, border: 0 }}>
-        <h3 className="box-title">
+    <section className="recap-fellow" aria-label={`${f.index}. ${f.name}`}>
+      <div className="recap-fhead">
+        <h3 className="recap-fname">
           {f.index}. {f.name}
         </h3>
-        <span className="box-sub">
+        <span className="recap-fmeta">
           {f.homeDomain} · {f.model} · {stateLine}
           {f.skipUntil ? ` · skipped tonight (${f.skipUntil})` : ''}
         </span>
@@ -245,52 +248,67 @@ export function FellowSection({
         </select>
       </div>
 
-      <div>
-        <b>Proposals for tonight</b>{' '}
-        <span className="mono-meta">
-          {f.autonomy === 'manual' ? 'manual: runs only what you approve' : f.autonomy === 'auto' ? 'auto: the top one runs the night it is planned' : 'veto: the top undecided one runs tonight unless vetoed'}
-        </span>
-        {f.proposals.length === 0 ? (
-          <p className="mono-meta">None pending. A note steers the next plan.</p>
-        ) : (
-          f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} />)
-        )}
-      </div>
-      <b>What it did last night</b>
+      {/* The decision first: the proposals are what the recap wants an answer to. */}
+      <span className="recap-label">
+        Proposals for tonight <span className="recap-label-sub">{autonomyLine}</span>
+      </span>
+      {f.proposals.length === 0 ? (
+        <p className="recap-none">None pending. A note steers the next plan.</p>
+      ) : (
+        f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} />)
+      )}
+
+      <span className="recap-label">What it did last night</span>
       {f.runs.length === 0 ? (
-        <p className="mono-meta">Ran: nothing since the last recap.</p>
+        <p className="recap-none">Nothing since the last recap.</p>
       ) : (
         f.runs.map((r) => (
-          <div key={r.runId} className="row slim">
-            <div>
-              <b>Ran</b> {r.kind} · {r.topic} ·{' '}
-              {r.ok ? `${r.pagesCreated.length + r.pagesUpdated.length} page(s), ${usd(r.costUsd)}${r.commit ? `, commit ${r.commit.slice(0, 8)}` : ''}` : `failed: ${r.error ?? 'unknown'}`}
-              {r.pagesCreated.length > 0 && <div>Created: {list(r.pagesCreated)}</div>}
-              {r.pagesUpdated.length > 0 && <div>Updated: {list(r.pagesUpdated)}</div>}
+          <div key={r.runId} className="recap-ran">
+            <div className="recap-ran-line">
+              <b>{r.kind}</b> · {r.topic}
             </div>
+            <div className="recap-ran-meta">
+              {r.ok
+                ? `${r.pagesCreated.length} page(s) created, ${r.pagesUpdated.length} updated · ${usd(r.costUsd)}${r.commit ? ` · commit ${r.commit.slice(0, 8)}` : ''}`
+                : `failed: ${r.error ?? 'unknown'}`}
+            </div>
+            {r.pagesCreated.length > 0 && (
+              <div className="recap-pages">
+                <span className="k">Created</span>
+                {r.pagesCreated.map(link)}
+              </div>
+            )}
+            {r.pagesUpdated.length > 0 && (
+              <div className="recap-pages">
+                <span className="k">Updated</span>
+                {r.pagesUpdated.map(link)}
+              </div>
+            )}
           </div>
         ))
       )}
+
       {f.found.length > 0 && (
-        <div>
-          <b>Found</b>
-          <ul>
+        <>
+          <span className="recap-label">Found</span>
+          <ul className="recap-list">
             {f.found.map((l, i) => (
               <li key={i}>{l}</li>
             ))}
           </ul>
-        </div>
+        </>
       )}
       {f.openQuestions.length > 0 && (
-        <div>
-          <b>Open questions</b>
-          <ul>
+        <>
+          <span className="recap-label">Open questions</span>
+          <ul className="recap-list">
             {f.openQuestions.map((q, i) => (
               <li key={i}>{q}</li>
             ))}
           </ul>
-        </div>
+        </>
       )}
+
       <form
         className="recap-note"
         onSubmit={(e) => {
@@ -299,14 +317,13 @@ export function FellowSection({
           onAnswer({ action: 'note', fellow: f.index, text: note.trim() })
           setNote('')
         }}
-        style={{ display: 'flex', gap: 8, marginTop: 8 }}
       >
-        <input className="input" style={{ flex: 1 }} placeholder={`A note for ${f.name}'s next plan (becomes a candidate)`} value={note} onChange={(e) => setNote(e.target.value)} />
+        <input className="input" placeholder={`A note for ${f.name}'s next plan (becomes a candidate)`} value={note} onChange={(e) => setNote(e.target.value)} />
         <button className="btn sm" type="submit" disabled={busy || note.trim() === ''} title={answerCode({ action: 'note', fellow: f.index, text: '…' })}>
           Send note
         </button>
       </form>
-      <p className="mono-meta">
+      <p className="recap-foot">
         Notebook: <PageLink vaultName={vaultName} path={f.notebookPath} /> · opened {f.value.pageOpens} time(s) this month
       </p>
     </section>
@@ -338,17 +355,17 @@ export function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnc
   const [name, setName] = useState(defaultFellowName(u.domain))
   const request = Number(u.code.slice(1))
   return (
-    <section className="recap-fellow" aria-label={`Unclaimed request ${u.code}`} style={{ padding: '12px 14px', borderTop: '1px solid var(--border)' }}>
-      <div className="box-head" style={{ padding: 0, border: 0 }}>
-        <h3 className="box-title">{u.code}. Unclaimed request</h3>
-        <span className="box-sub">
+    <section className="recap-fellow" aria-label={`Unclaimed request ${u.code}`}>
+      <div className="recap-fhead">
+        <h3 className="recap-fname">{u.code}. Unclaimed request</h3>
+        <span className="recap-fmeta">
           {u.domain} · from {u.fromName} · no Fellow covers this domain
         </span>
       </div>
-      <div>{u.question}</div>
-      {u.reason && <div className="mono-meta">Why: {u.reason}</div>}
+      <div className="prop-topic">{u.question}</div>
+      {u.reason && <p className="prop-why">{u.reason}</p>}
       {u.sourcePage && (
-        <p className="mono-meta">
+        <p className="recap-foot">
           From: <PageLink vaultName={vaultName} path={u.sourcePage} />
         </p>
       )}
@@ -358,9 +375,8 @@ export function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnc
           e.preventDefault()
           onAnswer({ action: 'spawn', request, ...(name.trim() !== '' ? { name: name.trim() } : {}) })
         }}
-        style={{ display: 'flex', gap: 8, marginTop: 8 }}
       >
-        <input className="input" style={{ flex: 1 }} aria-label="Name of the new Fellow" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="input" aria-label="Name of the new Fellow" value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn primary sm" type="submit" disabled={busy} title={answerCode({ action: 'spawn', request, name })}>
           Spawn a Fellow for this
         </button>
@@ -373,29 +389,35 @@ function ProposalRow({ fellow, p, onAnswer, busy }: { fellow: number; p: RecapPr
   const pick: RecapAnswer = { action: 'pick', fellow, letter: p.code.slice(-1) }
   const veto: RecapAnswer = { action: 'veto', fellow, letter: p.code.slice(-1) }
   return (
-    <div className="row" style={{ alignItems: 'flex-start' }}>
-      <div style={{ flex: 1 }}>
-        <div>
-          <b>{p.code}</b> {p.kind} · {p.topic} · about {usd(p.estCostUsd)}
-          {p.status === 'approved' && <span className="chip active" style={{ marginLeft: 8 }}>approved</span>}
-          {p.status === 'vetoed' && <span className="chip" style={{ marginLeft: 8 }}>vetoed</span>}
-          {p.drift && <span className="chip" style={{ marginLeft: 8 }} title="Low overlap with the intent; runs only if you approve it">drift</span>}
+    <div className={`prop${p.status === 'approved' ? ' approved' : p.status === 'vetoed' ? ' vetoed' : ''}`}>
+      <div className="prop-main">
+        <div className="prop-topic">
+          <span className="prop-code">{p.code}</span> {p.kind} · {p.topic} · about {usd(p.estCostUsd)}
+          {p.status === 'approved' && <span className="chip ok">runs tonight</span>}
+          {p.status === 'vetoed' && <span className="chip">vetoed</span>}
+          {p.drift && (
+            <span className="chip" title="Low overlap with the intent; runs only if you approve it">
+              drift
+            </span>
+          )}
         </div>
-        {p.rationale && <div className="mono-meta">Why: {p.rationale}</div>}
-        <div className="mono-meta">
-          From: {p.provenance.candidate}: {p.provenance.text}
-        </div>
+        {p.rationale && <p className="prop-why">{p.rationale}</p>}
+        <p className="prop-from">
+          From {p.provenance.candidate}: {p.provenance.text}
+        </p>
       </div>
-      {p.status !== 'approved' && (
-        <button className="btn primary sm" disabled={busy} title={answerCode(pick)} onClick={() => onAnswer(pick)}>
-          Run tonight
-        </button>
-      )}
-      {p.status !== 'vetoed' && (
-        <button className="btn ghost sm" disabled={busy} title={answerCode(veto)} onClick={() => onAnswer(veto)}>
-          Veto
-        </button>
-      )}
+      <div className="prop-acts">
+        {p.status !== 'approved' && (
+          <button className="btn primary sm" disabled={busy} title={answerCode(pick)} onClick={() => onAnswer(pick)}>
+            Run tonight
+          </button>
+        )}
+        {p.status !== 'vetoed' && (
+          <button className="btn ghost sm" disabled={busy} title={answerCode(veto)} onClick={() => onAnswer(veto)}>
+            Veto
+          </button>
+        )}
+      </div>
     </div>
   )
 }
