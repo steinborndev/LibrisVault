@@ -712,6 +712,15 @@ the department and nothing else:
   URL for a web source (a web ingest never links its stored HTML, section 12.6). A filter
   bar above it narrows by title, by page type, and to the pages that have a source at all.
 
+While the window is open the control column belongs to the department, not to the room:
+the department list on top switches which one the window shows, and under it stand the
+department's own figures (pages, stubs, gaps, how many pages came from a document), its
+three most recently changed pages, the Fellows whose home domain it is, the runs that last
+wrote into it, and the documents it was written from, each opening the file. The wheel and
+the arrow keys belong to the window too - the graph zooms and the table scrolls where the
+room used to page - and the graph opens fitted every time rather than where the last look
+left it.
+
 Deep links: `/library?shelf=<domain>` opens the window, `&pane=catalog` on its second view.
 The tab row puts the Library between Research and the two screens it now contains.
 ## 11. Data model (SQLite, operational state only)

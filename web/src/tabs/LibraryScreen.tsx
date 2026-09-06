@@ -25,6 +25,7 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
+import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
@@ -286,7 +287,12 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
 
   return (
     <div className={`workspace lib-workspace${mode === 'focus' ? ' focus' : ''}`}>
-      {mode === 'full' && (
+      {mode === 'full' && shelf !== null && (
+        <aside className="gpanel" aria-label={`${signText(shelf)} department`}>
+          <ShelfPanel domain={shelf} rooms={rooms} departments={departments} onPick={setShelf} />
+        </aside>
+      )}
+      {mode === 'full' && shelf === null && (
         <aside className="gpanel" aria-label="Library controls">
           <div className="gp-sec">
             <div className="gp-head">
