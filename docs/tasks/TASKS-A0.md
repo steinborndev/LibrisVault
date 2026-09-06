@@ -4,6 +4,8 @@ Goal: a Fellow exists as a persistent record with a notebook page in the vault, 
 ordinary sandboxed research run pinned to its model, and every run is attributed to it.
 **Acceptance (docs/agents/SPEC.md section 15): spawn a Fellow, the first run and one manual
 step show up in the notebook and in the run ledger; `npm test` green on both sides.**
+**Status 2026-09-06: done.** 758 server and 280 web tests green, two real steps in the dev
+instance (section 5).
 
 Extension milestone in the Curious fork (branch `research-agents`). LibrisVault's working
 agreement applies: top to bottom, findings recorded here, spec first when the code disagrees.
@@ -84,7 +86,7 @@ the flag off behaves exactly as before.
       ledger (`activity.ts`, `researchRuns.ts`).
 - [x] `server/test/fellows.test.ts`: store, notebook render and merge, service against a
       git vault with a fake agent, routes; `npm test` and `npm run typecheck` green.
-- [ ] One real `research-step` against the demo vault in the dev instance with the budget
+- [x] One real `research-step` against the demo vault in the dev instance with the budget
       cap, result recorded here.
       - Run 1 (2026-09-06, before F6 was fixed): `research-step` on the intent, Sonnet 5,
         cap 4 USD, 6.1 min, 2.59 USD, 1 WebSearch, 5 WebFetch, 5 Write, 18 Edit. The agent
@@ -92,4 +94,9 @@ the flag off behaves exactly as before.
         appended three open questions to the notebook. Attribution, model pin, budget cap,
         quota gate, notebook rewrite and the state machine all worked; the run row carried
         no pages because of F6.
-      - Run 2 (after the flag): see below.
+      - Run 2 (after the flag): `research-step` on one of Ada's own open questions, Sonnet 5,
+        cap 4 USD, 5.4 min, 1.68 USD, 3 WebSearch, 1 WebFetch, 3 Write, 16 Edit. One service
+        commit (`ca179da5`, 11 pages: a new synthesis page, two source pages, three extended
+        concept pages, hot, log, index, the notebook append), no warning, attributed to the
+        Fellow with the model pinned. The notebook Log lists both runs; the card shows
+        `2 of 2` for the day. Acceptance met.
