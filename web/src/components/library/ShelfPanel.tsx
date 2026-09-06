@@ -31,11 +31,14 @@ export function ShelfPanel({
   rooms,
   departments,
   onPick,
+  onOpenPage,
 }: {
   domain: string
   rooms: readonly SceneRoom[]
   departments: readonly SceneDepartment[]
   onPick: (domain: string) => void
+  /** A page named here opens in the window, the same way a row or a node does. */
+  onOpenPage: (path: string) => void
 }): React.ReactElement {
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 5_000 })
@@ -85,8 +88,6 @@ export function ShelfPanel({
       <div className="gp-sec">
         <div className="gp-head">
           <span className="gp-eyebrow">Departments</span>
-          <span className="spacer" />
-          <span className="mono-meta">click to switch</span>
         </div>
         <div className="lib-deps">
           {rooms.map((r) => (
@@ -138,7 +139,9 @@ export function ShelfPanel({
           <ul className="shelf-list">
             {recent.map((n) => (
               <li key={n.path}>
-                <span className="nm">{n.title}</span>
+                <button className="nm linkish" onClick={() => onOpenPage(n.path)} title={`Read ${n.title}`}>
+                  {n.title}
+                </button>
                 <span className="when">{timeAgo(new Date(n.mtimeMs!).toISOString())}</span>
               </li>
             ))}

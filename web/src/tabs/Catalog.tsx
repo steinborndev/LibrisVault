@@ -465,12 +465,15 @@ export function CatalogTable({
   refs,
   vaultName,
   hideDomain = false,
+  onOpenPage,
 }: {
   nodes: readonly GraphNode[]
   refs: Record<string, SourceRef> | undefined
   vaultName: string
   /** The window is already one domain, so its column would repeat the heading. */
   hideDomain?: boolean
+  /** Where a row click goes. Default: the vault viewer. The Library reads the page in place. */
+  onOpenPage?: (path: string) => void
 }): React.ReactElement {
   const shown = nodes
   const sources = { data: { pages: refs } }
@@ -489,7 +492,7 @@ export function CatalogTable({
         </thead>
         <tbody>
           {shown.map((n) => (
-            <tr key={n.path} {...openableRow(() => navigate(pageRoute(n.path)), `Open ${n.title}`)}>
+            <tr key={n.path} {...openableRow(() => (onOpenPage ? onOpenPage(n.path) : navigate(pageRoute(n.path))), `Open ${n.title}`)}>
               <td className="lt-title" title={n.title}>
                 {/* The flex row is a span inside the cell: a `td` set to `display: flex`
                     leaves the table layout, and its baseline then drifts against the

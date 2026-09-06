@@ -7,7 +7,9 @@
  *   Graph     the department's own pages and the links inside it, on the shared canvas
  *   Catalog   the same pages as rows, with the source column that opens the ingested document
  *
- * Escape, handled by the Library, puts the room back.
+ * A page opens as a third level inside the same window - from a node on the canvas, a row
+ * in the table, or a line in the column. Escape steps back one level at a time: the page
+ * closes to the view it came from, the view to the room.
  */
 
 import { useMemo, useState } from 'react'
@@ -15,10 +17,11 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import type { GraphNode } from '../../api/types.ts'
 import { CatalogTable } from '../../tabs/Catalog.tsx'
+import { Markdown } from '../Markdown.tsx'
+import { PageLink } from '../PageLink.tsx'
 import { GraphCanvas, domainColor, TYPE_VARS } from '../GraphCanvas.tsx'
 import { queryState } from '../QueryState.tsx'
 import { signText } from '../../lib/library/room.ts'
-import { navigate, pageRoute } from '../../lib/router.ts'
 
 type Pane = 'graph' | 'catalog'
 
@@ -40,7 +43,22 @@ export function subgraph(nodes: readonly GraphNode[], edges: ReadonlyArray<reado
   return { nodes: out, edges: inner }
 }
 
-export function ShelfWindow({ domain, vaultName, pane: initial = 'graph', onClose }: { domain: string; vaultName: string; pane?: Pane; onClose: () => void }): React.ReactElement {
+export function ShelfWindow({
+  domain,
+  vaultName,
+  pane: initial = 'graph',
+  page,
+  onPage,
+  onClose,
+}: {
+  domain: string
+  vaultName: string
+  pane?: Pane
+  /** The page being read inside the window, or null for the view itself. */
+  page?: string | null
+  onPage: (path: string | null) => void
+  onClose: () => void
+}): React.ReactElement {
   const [pane, setPane] = useState<Pane>(initial)
   const [query, setQuery] = useState('')
   const [type, setType] = useState<string | null>(null)
@@ -82,24 +100,36 @@ export function ShelfWindow({ domain, vaultName, pane: initial = 'graph', onClos
       <div className="box-head">
         <span className="chip-dot" style={{ background: domainColor(domain) }} aria-hidden />
         <h2 className="box-title">{signText(domain)}</h2>
-        <span className="box-sub">
-          {sub.nodes.length} page(s) · {sub.edges.length} link(s) inside the department
-        </span>
+        {page == null ? (
+          <span className="box-sub">
+            {sub.nodes.length} page(s) · {sub.edges.length} link(s) inside the department
+          </span>
+        ) : (
+          <span className="box-sub">reading a page</span>
+        )}
         <span className="spacer" />
-        <div className="seg sm" role="tablist" aria-label="View">
-          <button role="tab" aria-selected={pane === 'graph'} onClick={() => setPane('graph')}>
-            Graph
+        {page == null ? (
+          <div className="seg sm" role="tablist" aria-label="View">
+            <button role="tab" aria-selected={pane === 'graph'} onClick={() => setPane('graph')}>
+              Graph
+            </button>
+            <button role="tab" aria-selected={pane === 'catalog'} onClick={() => setPane('catalog')}>
+              Catalog
+            </button>
+          </div>
+        ) : (
+          <button className="btn ghost sm" onClick={() => onPage(null)}>
+            Back to the {pane} · Esc
           </button>
-          <button role="tab" aria-selected={pane === 'catalog'} onClick={() => setPane('catalog')}>
-            Catalog
-          </button>
-        </div>
+        )}
         <button className="btn ghost sm" onClick={onClose}>
-          Back to the room · Esc
+          {page == null ? 'Back to the room · Esc' : 'Back to the room'}
         </button>
       </div>
 
-      {pane === 'graph' ? (
+      {page != null && <PagePane path={page} vaultName={vaultName} onOpenPage={onPage} />}
+
+      {page != null ? null : pane === 'graph' ? (
         <div className="shelf-graph">
           {state ?? (
             <GraphCanvas
@@ -110,12 +140,12 @@ export function ShelfWindow({ domain, vaultName, pane: initial = 'graph', onClos
               lens="type"
               fitKey={`shelf-${domain}-${sub.nodes.length}-${openedAt}`}
               onSelect={(node) => setSelected(node.path)}
-              onOpen={(node) => navigate(pageRoute(node.path))}
+              onOpen={(node) => onPage(node.path)}
             />
           )}
           {selected !== null && (
             <div className="shelf-picked">
-              <button className="linkish" onClick={() => navigate(pageRoute(selected))}>
+              <button className="linkish" onClick={() => onPage(selected)}>
                 {sub.nodes.find((n) => n.path === selected)?.title ?? selected}
               </button>
               <span className="box-sub">click again on the canvas to open it</span>
@@ -148,9 +178,31 @@ export function ShelfWindow({ domain, vaultName, pane: initial = 'graph', onClos
             </span>
           </div>
           <div className="shelf-table">
-            {state ?? (rows.length === 0 ? <div className="empty">Nothing matches these filters.</div> : <CatalogTable nodes={rows} refs={refs} vaultName={vaultName} hideDomain />)}
+            {state ?? (rows.length === 0 ? <div className="empty">Nothing matches these filters.</div> : <CatalogTable nodes={rows} refs={refs} vaultName={vaultName} hideDomain onOpenPage={onPage} />)}
           </div>
         </>
+      )}
+    </div>
+  )
+}
+
+/** One page, read inside the window: the vault's markdown, its wikilinks still live. */
+function PagePane({ path, vaultName, onOpenPage }: { path: string; vaultName: string; onOpenPage: (path: string | null) => void }): React.ReactElement {
+  const page = useQuery({ queryKey: ['page-full', path], queryFn: () => api.pageFull(path) })
+  const state = queryState(page, 'the page')
+  const body = page.data ? page.data.markdown.replace(/^---[\s\S]*?\n---\n/, '') : ''
+  return (
+    <div className="shelf-page">
+      {state ?? (
+        <article className="page-body">
+          <Markdown source={body} />
+          <p className="recap-foot">
+            Vault page: <PageLink vaultName={vaultName} path={path} /> ·{' '}
+            <button className="linkish" onClick={() => onOpenPage(null)}>
+              back to the department
+            </button>
+          </p>
+        </article>
       )}
     </div>
   )

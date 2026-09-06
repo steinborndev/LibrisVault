@@ -8,7 +8,8 @@
  * Deep links: `/library?agent=<id>` opens the card, `/library?room=<id>` shows a room,
  * `/library?spawn=1` opens the spawn form (Home's empty Fellow slots point here),
  * `/library?shelf=<domain>` opens that department's window straight away, on its graph
- * unless `&pane=catalog` asks for the other view.
+ * unless `&pane=catalog` asks for the other view, and `&page=<vault path>` opens a page
+ * inside it.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -39,7 +40,7 @@ const CANVAS_H = 700
 
 type Mode = 'full' | 'focus'
 
-export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '', shelfParam = '', paneParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string; shelfParam?: string; paneParam?: string }): React.ReactElement {
+export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '', shelfParam = '', paneParam = '', pageParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string; shelfParam?: string; paneParam?: string; pageParam?: string }): React.ReactElement {
   const qc = useQueryClient()
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, refetchInterval: 5_000 })
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
@@ -53,6 +54,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const [board, setBoard] = useState<'hot' | 'recap' | null>(null)
   /** A department opened over the room: its graph and its catalog, filtered (section 10.5). */
   const [shelf, setShelf] = useState<string | null>(shelfParam !== '' ? shelfParam : null)
+  /** A page read inside the shelf window: the third level, closed by the first Escape. */
+  const [shelfPage, setShelfPage] = useState<string | null>(pageParam !== '' ? pageParam : null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [tick, setTick] = useState(0)
   const [exits, setExits] = useState<Exit[]>([])
@@ -200,7 +203,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
       page(-1)
     } else if (e.key === 'Escape') {
       setPopover(null)
-      if (shelf !== null) setShelf(null)
+      if (shelfPage !== null) setShelfPage(null)
+      else if (shelf !== null) setShelf(null)
       else if (board !== null) setBoard(null)
       else if (mode === 'focus') setMode('full')
     }
@@ -282,14 +286,22 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const hhmm = `${String(clock.getHours()).padStart(2, '0')}:${String(clock.getMinutes()).padStart(2, '0')}`
   const departments = scene.data?.departments ?? []
   const byRoom = (id: string): typeof departments => departments.filter((d) => d.room === id).sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
-  const totalBooks = departments.reduce((n, d) => n + d.books + d.volumes, 0)
   const s: LibraryScene | undefined = scene.data
 
   return (
     <div className={`workspace lib-workspace${mode === 'focus' ? ' focus' : ''}`}>
       {mode === 'full' && shelf !== null && (
         <aside className="gpanel" aria-label={`${signText(shelf)} department`}>
-          <ShelfPanel domain={shelf} rooms={rooms} departments={departments} onPick={setShelf} />
+          <ShelfPanel
+            domain={shelf}
+            rooms={rooms}
+            departments={departments}
+            onPick={(d) => {
+              setShelfPage(null)
+              setShelf(d)
+            }}
+            onOpenPage={setShelfPage}
+          />
         </aside>
       )}
       {mode === 'full' && shelf === null && (
@@ -419,34 +431,20 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
       )}
 
       <div className="box lib-box">
-        {mode === 'full' && (
-          <div className="graph-controls">
-            <span className="scopeline">
-              <b>{current?.name ?? 'Library'}</b>
-              {s && ` · ${totalBooks} books in ${departments.length} departments across ${rooms.length - 1} wing${rooms.length - 1 === 1 ? '' : 's'} · ${floorLine(actors)}`}
-              {s && s.gaps > 0 && (
-                <>
-                  {' · '}
-                  <button className="linky" onClick={() => navigate('/graph?gaps=1')}>
-                    {s.gaps} gaps
-                  </button>
-                </>
-              )}
-            </span>
-            <span className="spacer" />
-            <div className="seg sm" role="radiogroup" aria-label="Mode">
-              <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
-                Full
-              </button>
-              <button role="radio" aria-checked={false} onClick={() => setMode('focus')}>
-                Focus
-              </button>
-            </div>
-            <button className="btn" onClick={() => navigate('/catalog')}>
-              Catalog
+        <div className="graph-controls lib-headline">
+          {rooms.length > 0 && current && (
+            <RoomStrip rooms={rooms} current={current.id} activity={activityRooms} night={false} dropTarget={drag?.target ?? null} onPick={pickRoom} />
+          )}
+          <span className="spacer" />
+          <div className="seg sm" role="radiogroup" aria-label="Mode">
+            <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
+              Full
+            </button>
+            <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
+              Focus
             </button>
           </div>
-        )}
+        </div>
         <div className={`lib-area${night ? ' night' : ''}`} ref={areaRef} tabIndex={0} onKeyDown={onKey}>
           {state ?? (current === undefined ? null : (
             <RoomSvg
@@ -475,7 +473,19 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
           ))}
 
           {/* A department's window: its graph and its catalog, over the room (section 10.5). */}
-          {shelf !== null && <ShelfWindow domain={shelf} vaultName={vaultName} pane={paneParam === 'catalog' ? 'catalog' : 'graph'} onClose={() => setShelf(null)} />}
+          {shelf !== null && (
+            <ShelfWindow
+              domain={shelf}
+              vaultName={vaultName}
+              pane={paneParam === 'catalog' ? 'catalog' : 'graph'}
+              page={shelfPage}
+              onPage={setShelfPage}
+              onClose={() => {
+                setShelfPage(null)
+                setShelf(null)
+              }}
+            />
+          )}
 
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
           {shelf === null && board !== null && (
@@ -489,23 +499,6 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
                 </button>
               </div>
               {board === 'hot' ? <HotCache vaultName={vaultName} /> : <RecapFeed vaultName={vaultName} />}
-            </div>
-          )}
-          {rooms.length > 0 && current && (
-            <div className="lib-corner top">
-              <RoomStrip rooms={rooms} current={current.id} activity={activityRooms} night={night} dropTarget={drag?.target ?? null} onPick={pickRoom} />
-            </div>
-          )}
-          {mode === 'focus' && (
-            <div className="lib-corner tr">
-              <div className="seg sm" role="radiogroup" aria-label="Mode">
-                <button role="radio" aria-checked={false} onClick={() => setMode('full')}>
-                  Full
-                </button>
-                <button role="radio" aria-checked={true}>
-                  Focus
-                </button>
-              </div>
             </div>
           )}
           <div className="lib-corner bl">

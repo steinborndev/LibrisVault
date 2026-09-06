@@ -721,8 +721,18 @@ the arrow keys belong to the window too - the graph zooms and the table scrolls 
 room used to page - and the graph opens fitted every time rather than where the last look
 left it.
 
-Deep links: `/library?shelf=<domain>` opens the window, `&pane=catalog` on its second view.
-The tab row puts the Library between Research and the two screens it now contains.
+A page opens as a third level inside the same window: a double click on a node, a row in
+the table, or one of the recently changed pages in the column. It renders the vault's
+markdown in place. Escape steps back one level at a time - the page to the view it came
+from, the view to the room, the room out of focus mode.
+
+The headline carries the room navigation itself and stays put in focus mode, so the Full
+and Focus toggle is reachable while a window is open. The scope sentence and the Catalog
+button are gone: the room strip says which room this is, and the Catalog is a tab.
+
+Deep links: `/library?shelf=<domain>` opens the window, `&pane=catalog` on its second view,
+`&page=<vault path>` on a page inside it. The tab row puts the Library between Research and
+the two screens it now contains.
 ## 11. Data model (SQLite, operational state only)
 
 - `agents`: id, user_id, name, slug, intent, scope, home_domain, extra_domains (json),

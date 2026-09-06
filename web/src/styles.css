@@ -7138,4 +7138,25 @@ tr:focus-within .rowacts {
 .shelf-docs a:hover { text-decoration: underline; }
 .shelf-docs .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shelf-docs .n { color: var(--text-faint); font-family: var(--mono); font-size: 10.5px; }
+/* One page, read inside the window. */
+.shelf-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px 20px 24px;
+}
+.shelf-page .page-body { max-width: 88ch; }
+.shelf-page .page-body h1 { margin: 0 0 8px; font-family: var(--display); font-size: 20px; font-weight: 600; }
+.shelf-page .page-body h2 { margin: 18px 0 5px; font-family: var(--display); font-size: 15px; font-weight: 600; }
+.shelf-page .page-body h3 { margin: 14px 0 4px; font-family: var(--display); font-size: 13px; font-weight: 600; }
+.shelf-page .page-body p { margin: 0 0 10px; color: var(--text-dim); }
+.shelf-page .page-body ul, .shelf-page .page-body ol { margin: 0 0 12px; padding-left: 20px; color: var(--text-dim); }
+.shelf-page .page-body li { margin: 3px 0; }
+.shelf-page .page-body strong { color: var(--text); }
+.shelf-page .page-body code { font-family: var(--mono); font-size: 12.5px; }
+/* The headline carries the room navigation now, in both modes. */
+.lib-headline { gap: 10px; }
+.shelf-list .nm.linkish { text-align: left; }
+
 
