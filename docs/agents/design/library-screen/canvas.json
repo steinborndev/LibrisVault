@@ -38,7 +38,7 @@
       "y": 2350,
       "w": 1440,
       "h": 820,
-      "title": "Growth · wings and spare cases"
+      "title": "Growth · main room and wings"
     },
     {
       "file": "Textures.dc.html",
@@ -63,35 +63,35 @@
       "x": 0,
       "y": -150,
       "w": 520,
-      "text": "Library screen, round 3 (SPEC section 10).\nShell, tokens and controls are lifted from the dashboard (light theme). Archive textures, signs on the shelves in one size with two-line breaks, style A figures without faces, two spare cases near the front."
+      "text": "Library screen, round 4 (SPEC section 10).\nMain room in the centre: fireplace with armchairs for resting Fellows, desks with computers, four favorite slots, notice board, front desk, catalog, unfiled. Wing A through the back door holds the departments; three doors wait for wings you create."
     },
     {
       "id": "night-note",
       "x": 1560,
       "y": -110,
       "w": 420,
-      "text": "Night shift: dark floor, lamps only where someone works. Mutex drawn literally: Ibra waits at the front desk while Ada runs."
+      "text": "Night shift: the fire and the desk lamps are the only light. Mutex drawn literally: Ibra waits at the front desk while Ada runs."
     },
     {
       "id": "focus-note",
       "x": 0,
       "y": 960,
       "w": 520,
-      "text": "Focus mode: the control column, box head and legend recede; the tabs stay for navigation, Fullscreen would hide those too. Click a Fellow for the popover; \"Open card\" leads to the docked card of full mode."
+      "text": "Focus mode: control column, box head and legend recede; the tabs stay. Click a Fellow for the popover; Open card leads to the docked card of full mode."
     },
     {
       "id": "card-note",
       "x": 1560,
       "y": 960,
       "w": 420,
-      "text": "Card docked right per DESIGN.md (canvas shrinks, no overlay on a control corner). Fields per SPEC 10.5, live run with phase bar and log tail."
+      "text": "Card docked right per DESIGN.md. At this size the tiles are below 34 px, so the signs leave the shelves: the level-of-detail rule at work."
     },
     {
       "id": "growth-note",
       "x": 0,
       "y": 2250,
       "w": 520,
-      "text": "Growth (round 3): bays, first-fit in birth order, two spare cases, wings through a doorway. Signs are one size per view and break into two lines."
+      "text": "Growth (round 4): the main room is the hub, wings hang off its four doors, a wing chains onward through its back door. Wings are created, renamed and filled by drag and drop."
     },
     {
       "id": "textures-note",
