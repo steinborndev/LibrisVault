@@ -9,7 +9,7 @@ import { useMemo } from 'react'
 import type { SceneRoom, SceneShelf } from '../../api/types.ts'
 import { domainHue } from '../../lib/domains.ts'
 import { boxFaces, depthOf, fitRoom, hsl, makeProj, mix, pts, seeded, type Proj, type Pt } from '../../lib/library/iso.ts'
-import { CASE_D, CASE_W, DOOR, FAV_I, MID_J, ROOM, WALL_H, WALL_J, breakSign, signText, wingSlotPositions } from '../../lib/library/room.ts'
+import { CASE_D, CASE_W, DOOR, FAV_I, ROOM, WALL_H, WALL_J, breakSign, signText, wingSlotPositions } from '../../lib/library/room.ts'
 import type { Actor } from '../../lib/library/scene.ts'
 
 const FONT = '"Instrument Sans", system-ui, sans-serif'
@@ -19,14 +19,21 @@ const SHELF = {
   day: { top: '#8a6448', left: '#6f4d36', right: '#5a3c29', band: '#4a3122', sign: '#f3e6d6' },
   night: { top: '#4a3324', left: '#3a281c', right: '#2e1f16', band: '#241811', sign: '#e0cdb8' },
 }
+/**
+ * The room's fittings (design round 8, 2026-09-06): oak parquet in panel blocks, sage walls
+ * over a walnut wainscot. `seam` is the joint between the blocks, `base` the skirting and
+ * the cornice - it takes the wainscot's colour, so no pale strip runs along the floor.
+ */
 const FLOOR = {
-  day: { base: '#cfd6e3', tones: ['#e9ecf3', '#e2e6ef'] },
-  night: { base: '#131928', tones: ['#1d2536', '#1a2131'] },
+  day: { base: '#a87d4e', tones: ['#c8985f', '#bf8e57', '#d0a26b'], seam: '#8f6a41' },
+  night: { base: '#3b2d1e', tones: ['#4c3927', '#453422', '#54402b'], seam: '#2c2116' },
 }
 const WALL = {
-  day: { left: '#f3f5fa', right: '#eef1f7', base: '#d9dfeb', line: '#d4dae8' },
-  night: { left: '#141b2c', right: '#111828', base: '#0c101b', line: '#22304a' },
+  day: { left: '#8b9c8a', right: '#82927f', base: '#6d5136', line: '#553f28', rail: '#8a6a43', panel: '#6d5136', hi: '#9c7a52', cornice: '#7b8b7a' },
+  night: { left: '#2f3a34', right: '#28322d', base: '#2e241a', line: '#221a12', rail: '#4a3a26', panel: '#2e241a', hi: '#4a3a26', cornice: '#26302b' },
 }
+/** The wainscot's share of the wall height, and the rail on top of it. */
+const WAINSCOT = 0.44
 const TOK = { accent: '#2f62c9', accentSoft: '#e6eefc', muted: '#6b7890', mutedBg: '#eef1f6', faint: '#8a95ad', dim: '#5c6a85', elev2: '#f1f3f8', border: '#d9dfeb', borderStrong: '#c3cde0', warn: '#b7791f', warnBg: '#fbf1dc', text: '#1a2333' }
 
 interface Item {
@@ -235,15 +242,6 @@ function Tag({ text, kind, night, y }: { text: string; kind: Actor['tag']; night
   )
 }
 
-function Label({ P, i, j, text, night, size = 11, tone = 'dim' }: { P: Proj; i: number; j: number; text: string; night: boolean; size?: number; tone?: 'dim' | 'faint' }): React.ReactElement {
-  const [x, y] = P(i, j, 0)
-  const fill = night ? (tone === 'dim' ? '#9aa7c2' : '#78859f') : tone === 'dim' ? TOK.dim : TOK.faint
-  return (
-    <text x={x.toFixed(1)} y={(y + 4).toFixed(1)} textAnchor="middle" fontFamily={FONT} fontSize={size} fontWeight={500} fill={fill} paintOrder="stroke" stroke={night ? '#0f1524' : '#ffffff'} strokeWidth={3} strokeLinejoin="round">
-      {text}
-    </text>
-  )
-}
 
 export interface RoomSvgProps {
   readonly room: SceneRoom
@@ -258,6 +256,11 @@ export interface RoomSvgProps {
   readonly onShelfPointerDown?: (domain: string, e: React.PointerEvent) => void
   readonly onSlotPointerEnter?: (slot: number) => void
   readonly onActorClick?: (actor: Actor, e: React.MouseEvent) => void
+  /** A board on the short wall was clicked; the screen opens it as a window. */
+  readonly onBoardClick?: ((board: 'hot' | 'recap') => void) | undefined
+  /** The passage in the back wall was clicked; the screen shows the next room. */
+  readonly onPassageClick?: (() => void) | undefined
+  readonly passageTitle?: string | undefined
   readonly idp?: string
 }
 
@@ -279,12 +282,15 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   }
   const diamond = (i0: number, j0: number, i1: number, j1: number): string => pts([P(i0, j0), P(i1, j0), P(i1, j1), P(i0, j1)])
   const wallH = WALL_H
+  const wainH = Math.round(wallH * WAINSCOT)
   const panel = (fill: string, key: string): React.ReactElement => (
     <pattern key={key} id={`${idp}-${key}`} patternUnits="userSpaceOnUse" width={56} height={wallH} patternTransform={`matrix(${key.endsWith('R') ? -k : k} ${kv} 0 1 ${ox} ${oy - wallH})`}>
       <rect width={56} height={wallH} fill={fill} />
-      <line x1={0} y1={wallH - 66} x2={56} y2={wallH - 66} stroke={w.line} strokeWidth={2} />
-      <rect x={7} y={wallH - 58} width={42} height={44} fill="none" stroke={w.line} strokeWidth={1.5} />
-      <rect x={11} y={wallH - 54} width={34} height={36} fill="none" stroke={w.line} strokeWidth={0.8} />
+      <rect x={0} y={wallH - wainH} width={56} height={wainH} fill={w.panel} />
+      <rect x={0} y={wallH - wainH - 5} width={56} height={5} fill={w.rail} />
+      <rect x={0} y={wallH - wainH - 6} width={56} height={1.2} fill={w.hi} />
+      <rect x={6} y={wallH - wainH + 8} width={44} height={wainH - 18} fill="none" stroke={w.line} strokeWidth={1.4} />
+      <rect x={10} y={wallH - wainH + 12} width={36} height={wainH - 26} fill="none" stroke={w.hi} strokeWidth={0.7} />
     </pattern>
   )
 
@@ -294,24 +300,37 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     add(kk + 0.5 - 0.45, `wl${kk}`, (
       <g>
         <polygon points={pts([P(kk, 0, 0), P(kk + 1, 0, 0), P(kk + 1, 0, wallH), P(kk, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
-        <polygon points={pts([P(kk, 0, 0), P(kk + 1, 0, 0), P(kk + 1, 0, 5), P(kk, 0, 5)])} fill={w.base} />
-        <polygon points={pts([P(kk, 0, wallH - 4), P(kk + 1, 0, wallH - 4), P(kk + 1, 0, wallH), P(kk, 0, wallH)])} fill={w.base} />
+        <polygon points={pts([P(kk, 0, 0), P(kk + 1, 0, 0), P(kk + 1, 0, 6), P(kk, 0, 6)])} fill={w.base} />
+        <polygon points={pts([P(kk, 0, wallH - 4), P(kk + 1, 0, wallH - 4), P(kk + 1, 0, wallH), P(kk, 0, wallH)])} fill={w.cornice} />
       </g>
     ))
   }
+  // The passage: a wooden frame around the opening, and the way into the next room.
+  const doorZ = wallH * 0.62
+  const frameC = { frame: night ? '#5b4630' : '#8a6a43', edge: night ? '#3d2f1f' : '#6f5335' }
   add((DOOR.from + DOOR.to) / 2 - 0.45, 'door', (
-    <g>
-      <polygon points={pts([P(DOOR.from, 0, wallH * 0.62), P(DOOR.to, 0, wallH * 0.62), P(DOOR.to, 0, wallH), P(DOOR.from, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
-      <polygon points={pts([P(DOOR.from, 0, wallH - 4), P(DOOR.to, 0, wallH - 4), P(DOOR.to, 0, wallH), P(DOOR.from, 0, wallH)])} fill={w.base} />
-      <polygon points={pts([P(DOOR.from, 0, wallH * 0.62), P(DOOR.to, 0, wallH * 0.62), P(DOOR.to, 0, wallH * 0.62 + 4), P(DOOR.from, 0, wallH * 0.62 + 4)])} fill={w.base} />
+    <g
+      className="lib-passage"
+      onClick={props.onPassageClick}
+      style={{ cursor: props.onPassageClick ? 'pointer' : 'default' }}
+    >
+      <title>{props.passageTitle ?? 'the next room'}</title>
+      <polygon points={pts([P(DOOR.from, 0, doorZ), P(DOOR.to, 0, doorZ), P(DOOR.to, 0, wallH), P(DOOR.from, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
+      <polygon points={pts([P(DOOR.from, 0, wallH - 4), P(DOOR.to, 0, wallH - 4), P(DOOR.to, 0, wallH), P(DOOR.from, 0, wallH)])} fill={w.cornice} />
+      {/* the corridor behind it */}
+      <polygon points={pts([P(DOOR.from, 0, 0), P(DOOR.to, 0, 0), P(DOOR.to, 0, doorZ), P(DOOR.from, 0, doorZ)])} fill={night ? '#080b12' : '#5d6474'} opacity={night ? 0.85 : 0.55} />
+      {/* posts and lintel */}
+      <polygon points={pts([P(DOOR.from - 0.22, 0, 0), P(DOOR.from, 0, 0), P(DOOR.from, 0, doorZ + 9), P(DOOR.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
+      <polygon points={pts([P(DOOR.to, 0, 0), P(DOOR.to + 0.22, 0, 0), P(DOOR.to + 0.22, 0, doorZ + 9), P(DOOR.to, 0, doorZ + 9)])} fill={frameC.edge} stroke={frameC.edge} strokeWidth={0.8} />
+      <polygon points={pts([P(DOOR.from - 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ + 9), P(DOOR.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
     </g>
   ))
   for (let kk = 0; kk < ROOM.NJ; kk++) {
     add(kk + 0.5 - 0.45, `wr${kk}`, (
       <g>
         <polygon points={pts([P(0, kk, 0), P(0, kk + 1, 0), P(0, kk + 1, wallH), P(0, kk, wallH)])} fill={`url(#${idp}-wallR)`} />
-        <polygon points={pts([P(0, kk, 0), P(0, kk + 1, 0), P(0, kk + 1, 5), P(0, kk, 5)])} fill={w.base} />
-        <polygon points={pts([P(0, kk, wallH - 4), P(0, kk + 1, wallH - 4), P(0, kk + 1, wallH), P(0, kk, wallH)])} fill={w.base} />
+        <polygon points={pts([P(0, kk, 0), P(0, kk + 1, 0), P(0, kk + 1, 6), P(0, kk, 6)])} fill={w.base} />
+        <polygon points={pts([P(0, kk, wallH - 4), P(0, kk + 1, wallH - 4), P(0, kk + 1, wallH), P(0, kk, wallH)])} fill={w.cornice} />
       </g>
     ))
   }
@@ -325,10 +344,12 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     add(caseDepth(i, j), `case${slot}`, (
       <g
         className={`lib-slot${shelf ? ' filled' : ' free'}${isDrop ? ' drop' : ''}`}
+        data-slot={slot}
         onClick={shelf && props.onShelfClick ? () => props.onShelfClick!(shelf.domain) : undefined}
         onPointerDown={shelf && props.onShelfPointerDown ? (e) => props.onShelfPointerDown!(shelf.domain, e) : undefined}
         onPointerEnter={props.onSlotPointerEnter ? () => props.onSlotPointerEnter!(slot) : undefined}
-        style={{ cursor: shelf ? 'grab' : 'default', opacity: dragging ? 0.35 : 1 }}
+        /* The shelf under the pointer must not be the one being dragged, or every drop lands on itself. */
+        style={{ cursor: shelf ? 'grab' : 'default', opacity: dragging ? 0.35 : 1, pointerEvents: dragging ? 'none' : undefined }}
       >
         <title>{shelf ? `${signText(shelf.domain)}: ${shelf.books} books, ${shelf.volumes} sources${shelf.stubs > 0 ? `, ${shelf.stubs} stubs` : ''}. Click to open in the graph, drag to move.` : `free slot ${slot + 1}`}</title>
         {isDrop && <polygon points={pts([P(i - 0.15, j - 0.15), P(i + CASE_W + 0.15, j - 0.15), P(i + CASE_W + 0.15, j + CASE_D + 0.15), P(i - 0.15, j + CASE_D + 0.15)])} fill={TOK.accentSoft} stroke={TOK.accent} strokeWidth={1.5} strokeDasharray="5 4" />}
@@ -344,16 +365,39 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
 
   if (room.kind === 'main') {
     FAV_I.forEach((fi, n) => placeCase(fi, WALL_J, n, 'favorite'))
-    // notice board on the short wall
-    add(6.6 + 0.001, 'board', (
-      <g>
-        <polygon points={pts([P(0, 4.4, 60), P(0, 6.6, 60), P(0, 6.6, 110), P(0, 4.4, 110)])} fill={night ? '#2a2414' : '#f5ecd7'} stroke={night ? '#5a4a1a' : '#e0cfa2'} />
-        {[0, 1, 2, 3].map((q) => {
-          const z = 100 - q * 10
-          return <polygon key={q} points={pts([P(0, 4.8, z), P(0, 6.2 - (q % 2) * 0.4, z), P(0, 6.2 - (q % 2) * 0.4, z + 4), P(0, 4.8, z + 4)])} fill={night ? '#5a4a1a' : '#d9c58f'} />
-        })}
-      </g>
-    ))
+    // Two boards on the short wall: the hot cache and the daily recap, each under a title
+    // band. Clicking one opens it as a window over the room (docs/agents/SPEC.md section 10).
+    const board = (j0: number, j1: number, title: string, id: 'hot' | 'recap'): React.ReactNode => {
+      // Above the wainscot, under the cornice: the board with its title band on top.
+      const zBase = 70
+      const zTop = 118
+      const bandTop = 140
+      const face = (z0: number, z1: number, a: number, b: number): string => pts([P(0, a, z0), P(0, b, z0), P(0, b, z1), P(0, a, z1)])
+      // The wall runs towards smaller j as the screen goes right, so the title starts at j1.
+      const [tx, ty] = P(0, j1 - 0.14, bandTop - 15)
+      return (
+        <g
+          key={id}
+          className="lib-board"
+          data-board={id}
+          onClick={props.onBoardClick ? () => props.onBoardClick!(id) : undefined}
+          style={{ cursor: props.onBoardClick ? 'pointer' : 'default' }}
+        >
+          <title>{title}</title>
+          <polygon points={face(bandTop - 22, bandTop, j0 - 0.12, j1 + 0.12)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={1} />
+          <text transform={`matrix(1 -0.5 0 1 ${tx.toFixed(1)} ${ty.toFixed(1)})`} fontFamily={FONT} fontSize={10} fontWeight={600} letterSpacing="0.02em" fill={night ? '#e6dcc6' : '#f6efe2'}>
+            {title}
+          </text>
+          <polygon points={face(zBase, zTop, j0, j1)} fill={night ? '#2a2414' : '#f5ecd7'} stroke={night ? '#5a4a1a' : '#e0cfa2'} />
+          {[0, 1, 2, 3].map((q) => {
+            const z = zTop - 11 - q * 10
+            return <polygon key={q} points={face(z, z + 5, j0 + 0.28, j1 - 0.28 - (q % 2) * 0.42)} fill={night ? '#5a4a1a' : '#d9c58f'} />
+          })}
+        </g>
+      )
+    }
+    add(5.1 + 0.001, 'board-hot', board(2.6, 5.1, 'Hot cache', 'hot'))
+    add(7.9 + 0.001, 'board-recap', board(5.4, 7.9, 'Daily recap', 'recap'))
     // fireplace with the hood, four armchairs
     const fi = 5.5
     const fj = 5.4
@@ -409,7 +453,6 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         <Box P={P} i0={13.8} j0={2.7} a={0.5} b={0.4} h={12} z0={30} c={night ? { top: '#6b5735', left: '#5c4a2c', right: '#4a3b22' } : { top: '#e6cfa6', left: '#d9b98a', right: '#c9a672' }} />
       </g>
     ))
-    top.push(<Label key="l-front" P={P} i={14.7} j={4.1} text="front desk" night={night} />)
     const cartC = night ? { top: '#3a4a6c', left: '#2a3550', right: '#22304a' } : { top: '#e6eaf3', left: '#c9d2e3', right: '#b6c2d8' }
     const [cx, cy] = P(16.4 + 0.45, 3.2 + 0.28, 0)
     add(16.4 + 0.9 + 3.2 + 0.55, 'cart', (
@@ -421,7 +464,6 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         <polygon points={pts([P(16.75, 3.7, 18), P(16.88, 3.7, 18), P(16.88, 3.7, 28), P(16.75, 3.7, 28)])} fill={hsl(330, 45, 50)} />
       </g>
     ))
-    top.push(<Label key="l-intake" P={P} i={16.9} j={4.5} text="intake" night={night} />)
     add(8.4 + 0.8 + 3.6 + 0.8, 'catalog', (
       <g>
         <Box P={P} i0={8.4} j0={3.6} a={0.8} b={0.8} h={42} c={wood} />
@@ -430,13 +472,8 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         ))}
       </g>
     ))
-    top.push(<Label key="l-catalog" P={P} i={8.8} j={5.2} text="catalog" night={night} />)
-    top.push(<Label key="l-door" P={P} i={11.5} j={2.2} text="to the wings" night={night} size={10.5} tone="faint" />)
-    top.push(<Label key="l-board" P={P} i={1.1} j={7.2} text="what's new" night={night} size={10.5} tone="faint" />)
   } else {
     wingSlotPositions().forEach((p, idx) => placeCase(p.i, p.j, idx, 'free'))
-    top.push(<Label key="l-passage" P={P} i={11.4} j={MID_J + 1.0} text="passage" night={night} size={10.5} tone="faint" />)
-    top.push(<Label key="l-next" P={P} i={11.5} j={2.2} text="to the next wing" night={night} size={10.5} tone="faint" />)
   }
 
   // Figures: each in a translated group with a transition; tags ride in the top layer.
@@ -464,12 +501,28 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" className={`lib-svg${night ? ' night' : ''}`} style={{ display: 'block' }}>
       <defs>
+        {/* Oak parquet: four blocks of three staves, every other block turned a quarter. */}
         <pattern id={`${idp}-floor`} patternUnits="userSpaceOnUse" width={56} height={56} patternTransform={`matrix(${k} ${kv} ${-k} ${kv} ${ox} ${oy})`}>
           <rect width={56} height={56} fill={f.base} />
-          <rect x={0.9} y={0.9} width={26.2} height={26.2} fill={f.tones[0]} />
-          <rect x={28.9} y={0.9} width={26.2} height={26.2} fill={f.tones[1]} />
-          <rect x={0.9} y={28.9} width={26.2} height={26.2} fill={f.tones[1]} />
-          <rect x={28.9} y={28.9} width={26.2} height={26.2} fill={f.tones[0]} />
+          {[
+            [0.7, 0.7, true],
+            [28.9, 0.7, false],
+            [0.7, 28.9, false],
+            [28.9, 28.9, true],
+          ].map(([bx, by, horiz], b) =>
+            [0, 1, 2].map((n) => (
+              <rect
+                key={`p${b}-${n}`}
+                x={(horiz as boolean) ? (bx as number) : (bx as number) + n * 8.9}
+                y={(horiz as boolean) ? (by as number) + n * 8.9 : (by as number)}
+                width={(horiz as boolean) ? 26.4 : 7.9}
+                height={(horiz as boolean) ? 7.9 : 26.4}
+                fill={f.tones[n % f.tones.length]}
+              />
+            )),
+          )}
+          <rect x={27.6} y={0} width={0.9} height={56} fill={f.seam} />
+          <rect x={0} y={27.6} width={56} height={0.9} fill={f.seam} />
         </pattern>
         {panel(w.left, 'wallL')}
         {panel(w.right, 'wallR')}

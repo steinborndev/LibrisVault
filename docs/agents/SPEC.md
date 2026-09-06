@@ -678,6 +678,24 @@ Catalog bookmarks working; the Catalog screen gets a one-time hint after the ren
 
 ---
 
+
+### 10.5 Fittings and the two windows (as built, 2026-09-06)
+
+The main room is furnished, not sketched: oak parquet in panel blocks, sage walls over a
+walnut wainscot with a rail, a skirting and a cornice in the wainscot's own colour. The
+labels that used to stand free on the floor (catalog, front desk, intake, to the wings,
+passage, to the next wing) are gone - the furniture reads as itself, and the shelf signs
+carry the only text in the room.
+
+Two boards hang on the short wall, in the look the old notice board had, each under a
+wooden title band: **Hot cache** and **Daily recap**. Clicking one opens it as a window
+covering the room canvas exactly, inside the same box, so nothing on the screen moves;
+`Esc` or the button in its head brings the room back. The hot cache window renders
+`wiki/hot.md`, the recap window is the same feed Home opens on.
+
+The passage in the back wall has a wooden frame (two posts and a lintel) and is the way
+on: clicking it shows the next room, wrapping from the last wing back to the main room.
+Every wing has the same frame around its own passage.
 ## 11. Data model (SQLite, operational state only)
 
 - `agents`: id, user_id, name, slug, intent, scope, home_domain, extra_domains (json),

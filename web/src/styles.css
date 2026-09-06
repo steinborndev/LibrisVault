@@ -6810,6 +6810,43 @@ tr:focus-within .rowacts {
 .lib-area.night { background: #0c101b; }
 .lib-area > svg { width: 100%; height: 100%; }
 .lib-area:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+/* ---- A board's window (design round 8): the room's own frame, filled with a page ----
+   It covers the canvas exactly, so opening one moves nothing on the screen. */
+.lib-window {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+}
+.lib-window-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px 20px 24px;
+}
+.lib-window-body .page-body { max-width: 92ch; }
+.lib-window-body .page-body h1 { margin: 0 0 6px; font-family: var(--display); font-size: 19px; font-weight: 600; }
+.lib-window-body .page-body h2 {
+  margin: 18px 0 4px;
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.lib-window-body .page-body p { margin: 0 0 9px; color: var(--text-dim); }
+.lib-window-body .page-body ul { margin: 0 0 12px; padding-left: 18px; color: var(--text-dim); }
+.lib-window-body .page-body li { margin: 4px 0; }
+.lib-window-body .page-body strong { color: var(--text); }
+.lib-window > .flow-view { border-top: 0; }
+/* The two boards and the passage answer the pointer. */
+.lib-board, .lib-passage { transition: filter 0.12s; }
+.lib-board:hover, .lib-passage:hover { filter: brightness(1.07); }
+
 
 .lib-figure { transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1), opacity 600ms ease; }
 .lib-figure.exiting { opacity: 0.55; }

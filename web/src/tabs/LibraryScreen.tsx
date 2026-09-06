@@ -19,6 +19,9 @@ import { FellowCard } from '../components/library/FellowCard.tsx'
 import { FellowPopover } from '../components/library/FellowPopover.tsx'
 import { SpawnForm } from '../components/library/SpawnForm.tsx'
 import { Icon } from '../components/Icon.tsx'
+import { Markdown } from '../components/Markdown.tsx'
+import { PageLink } from '../components/PageLink.tsx'
+import { RecapFeed } from '../components/RecapFeed.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
@@ -42,6 +45,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
+  /** A board on the main room's wall, opened as a window over the room. Escape closes it. */
+  const [board, setBoard] = useState<'hot' | 'recap' | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [tick, setTick] = useState(0)
   const [exits, setExits] = useState<Exit[]>([])
@@ -183,7 +188,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
       page(-1)
     } else if (e.key === 'Escape') {
       setPopover(null)
-      if (mode === 'focus') setMode('full')
+      if (board !== null) setBoard(null)
+      else if (mode === 'focus') setMode('full')
     }
   }
 
@@ -221,8 +227,9 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
       const el = document.elementFromPoint(ev.clientX, ev.clientY)
       const roomEl = el?.closest<HTMLElement>('[data-room]')
       const slotEl = el?.closest<SVGElement>('.lib-slot')
-      const slot = slotEl ? Number(slotEl.getAttribute('data-slot')) : null
-      setDrag({ domain, x: ev.clientX, y: ev.clientY, target: roomEl?.dataset['room'] ?? null, slot: Number.isFinite(slot) && slot !== null ? slot : null })
+      const raw = slotEl?.getAttribute('data-slot')
+      const slot = raw !== null && raw !== undefined && raw !== '' ? Number(raw) : NaN
+      setDrag({ domain, x: ev.clientX, y: ev.clientY, target: roomEl?.dataset['room'] ?? null, slot: Number.isFinite(slot) ? slot : null })
     }
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove)
@@ -237,6 +244,14 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+  }
+
+  /** The passage in the back wall: on to the next room, wrapping back to the main one. */
+  const nextRoom = (): void => {
+    if (rooms.length < 2 || !current) return
+    const at = rooms.findIndex((r) => r.id === current.id)
+    const next = rooms[(at + 1) % rooms.length]
+    if (next) pickRoom(next.id)
   }
 
   const onActorClick = (a: Actor, e: React.MouseEvent): void => {
@@ -430,9 +445,31 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
               }}
               onShelfPointerDown={onShelfPointerDown}
               onActorClick={onActorClick}
+              onBoardClick={current.kind === 'main' ? setBoard : undefined}
+              onPassageClick={rooms.length > 1 ? nextRoom : undefined}
+              passageTitle={
+                rooms.length > 1
+                  ? `to ${rooms[(rooms.findIndex((r) => r.id === current.id) + 1) % rooms.length]?.name ?? 'the next room'}`
+                  : 'the next room'
+              }
               idp={`lib-${current.id.slice(0, 8)}`}
             />
           ))}
+
+          {/* A board's window: the same frame, the same size, so the screen does not move. */}
+          {board !== null && (
+            <div className="lib-window" role="dialog" aria-label={board === 'hot' ? 'Hot cache' : 'Daily recap'}>
+              <div className="box-head">
+                <h2 className="box-title">{board === 'hot' ? 'Hot cache' : 'Daily recap'}</h2>
+                <span className="box-sub">{board === 'hot' ? "the vault's digest, refreshed after every run" : 'the same view Home opens on'}</span>
+                <span className="spacer" />
+                <button className="btn ghost sm" onClick={() => setBoard(null)}>
+                  Back to the room · Esc
+                </button>
+              </div>
+              {board === 'hot' ? <HotCache vaultName={vaultName} /> : <RecapFeed vaultName={vaultName} />}
+            </div>
+          )}
           {rooms.length > 0 && current && (
             <div className="lib-corner top">
               <RoomStrip rooms={rooms} current={current.id} activity={activityRooms} night={night} dropTarget={drag?.target ?? null} onPick={pickRoom} />
@@ -505,4 +542,29 @@ function moveInOrder(rooms: readonly SceneRoom[], id: string, delta: number): st
   ids.splice(idx, 1)
   ids.splice(to, 0, id)
   return ids
+}
+
+/** The vault's digest page, read straight from the vault (SPEC.md section 12.4). */
+function HotCache({ vaultName }: { vaultName: string }): React.ReactElement {
+  const page = useQuery({ queryKey: ['page', 'wiki/hot.md'], queryFn: () => api.pageFull('wiki/hot.md'), staleTime: 30_000 })
+  const state = queryState(page, 'the hot cache')
+  const body = page.data ? page.data.markdown.replace(/^---[\s\S]*?\n---\n/, '') : ''
+  return (
+    <div className="lib-window-body">
+      {state ??
+        (body.trim() === '' ? (
+          <div className="empty">
+            <h2>No hot cache yet</h2>
+            <p className="qs-line">It is written after the first ingest and refreshed after every run.</p>
+          </div>
+        ) : (
+          <article className="page-body">
+            <Markdown source={body} />
+            <p className="recap-foot">
+              Vault page: <PageLink vaultName={vaultName} path="wiki/hot.md" />
+            </p>
+          </article>
+        ))}
+    </div>
+  )
 }
