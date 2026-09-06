@@ -515,22 +515,23 @@ others wait at the front desk; ingest clerks run in parallel up to `concurrency`
 ### 10.4 Rooms, departments, shelves and books
 
 The library is a **sequence of rooms on one shared grid**, and the screen shows **one room
-at a time**, filling the canvas. Every room is 27 by 11 tiles and every shelf is 3 tiles
-wide, so the camera never changes between rooms and nothing ever gets small, however many
-wings there are. Each room has **one door** at the right end of its long back wall: in the
-main room it leads to the wings, in a wing to the next wing.
+at a time**, filling the canvas. Every room is 23 by 11 tiles with seven shelf slots along
+the long back wall, and every shelf has the same width, so the camera never changes between
+rooms and nothing ever gets small, however many wings there are. Each room has **one door**
+in the middle slot of its long back wall, in line with the passage of the middle row: in
+the main room it leads to the wings, in a wing to the next wing.
 
 **The main room** is the hub the user furnishes: four **favorite slots** along the long
-wall next to the door, the fireplace in the middle-left with four armchairs where Fellows
-rest between steps, four desks with computers in the front where Fellows write, the notice
-board (hot.md) on the long wall's left part, the front desk with the parcels of the ingest
-queue, the **intake cart** with the unfiled books, and the card catalog (the index), all
-near the door. Tall furniture stands only in the back half or free with nothing important
+wall, two on each side of the door, the fireplace in the front left with four armchairs
+where Fellows rest between steps, four desks with computers in the front right where
+Fellows write, the notice board (hot.md) at the left end of the long wall, and beside the
+path from the door the front desk with the parcels of the ingest queue, the **intake cart**
+with the unfiled books, and the card catalog (the index). Tall furniture stands only in the back half or free with nothing important
 behind it; low furniture stands in front.
 
-**A wing** holds **13 shelves in two rows**: seven along the long back wall, and three plus
-a passage plus three in a middle row parallel to it, the passage aligned with the fourth
-slot. All shelves stand parallel to the long wall with their open side toward the viewer,
+**A wing** holds **12 shelves in two rows**: three, the door, three along the long back
+wall, and three plus a passage plus three in a middle row parallel to it, the passage in
+line with the door. All shelves stand parallel to the long wall with their open side toward the viewer,
 so every sign reads in the same direction; there are no shelves along the short wall. Free
 slots are drawn as light shelf silhouettes, so capacity is visible.
 
@@ -628,7 +629,7 @@ Catalog bookmarks working; the Catalog screen gets a one-time hint after the ren
 - `handoffs`: id, from_agent_id, to_agent_id (nullable = unclaimed), question, source_page,
   created_at, status.
 - `wings`: id, name, position (order in the room sequence), created_at.
-- `library_layout`: domain, room (`main` or a wing id), slot (0 to 12 in a wing, 0 to 3 in
+- `library_layout`: domain, room (`main` or a wing id), slot (0 to 11 in a wing, 0 to 3 in
   the main room), placed_by (`user` or `auto`), updated_at.
 - `value_events`: id, ts, kind (`page_open`, `recap_link`), agent_id, page.
 - Settings: the keys of section 8.2 plus `agentsEnabled`.
@@ -764,3 +765,4 @@ user's own account.
 | NEW-7 | Growth model | bays, first-fit in birth order, two spare cases, wings; see 10.8 (decided 2026-09-06) |
 | NEW-8 | Library topology | a central main room (fireplace, desks with computers, four favorite slots, notice board, front desk, catalog) with four doors; wings hang off the doors and chain onward; the user creates, renames and fills wings by drag and drop; start = main room plus Wing A (decided 2026-09-06) |
 | NEW-9 | One room per view | shared 27 by 11 grid, shelves 3 tiles wide, one door per room at the right end of the long wall; a wing holds 7 shelves on the wall and 3 + passage + 3 in the middle; rooms page by wheel, keys, strip and list; intake cart instead of an unfiled shelf; free slots as silhouettes (decided 2026-09-06) |
+| NEW-10 | Door position | the door takes the middle of the seven wall slots, in line with the middle row's passage; six wall shelves plus six middle shelves per wing, room 23 by 11 (decided 2026-09-06) |

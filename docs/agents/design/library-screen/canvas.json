@@ -71,14 +71,14 @@
       "x": 0,
       "y": -150,
       "w": 520,
-      "text": "Library screen, round 5 (SPEC section 10).\nOne room per view on a shared 27 by 10 grid. Main room: four favorite slots, fireplace with armchairs, desks with computers, front desk with the intake cart, catalog, one door to the wings."
+      "text": "Library screen, round 6 (SPEC section 10).\nOne room per view on a shared 23 by 11 grid, the door in the middle of the long wall. Main room: four favorite slots, fireplace with armchairs, desks with computers, front desk with the intake cart, catalog, one door to the wings."
     },
     {
       "id": "wing-note",
       "x": 1560,
       "y": -110,
       "w": 480,
-      "text": "Wing A: seven shelves on the long wall, three plus passage plus three in the middle, all facing you. A shelf is being dragged onto Wing B in the room strip; its slot shows as a dashed outline."
+      "text": "Wing A: three shelves, the door, three shelves on the long wall; three, the passage, three in the middle, all facing you. A shelf is being dragged onto Wing B in the room strip; its slot shows as a dashed outline."
     },
     {
       "id": "night-note",

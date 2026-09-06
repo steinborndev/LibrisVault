@@ -527,13 +527,16 @@ function placeCases(r, deps, spares = 2) {
 // Every room shares one grid, so the camera never changes between rooms. Seven shelf
 // slots along the long back wall, the door at its right end; the middle row uses the same
 // slots with the fourth left open as the passage.
-const ROOM = { NI: 27, NJ: 11 }
-const SLOTS = [0.8, 4.0, 7.2, 10.4, 13.6, 16.8, 20.0]
-const CASE_W = 3.0
+// Seven slots along the long wall; slot 3 is the door, in line with the passage of the
+// middle row. Six shelves on the wall, six in the middle: twelve per wing.
+const ROOM = { NI: 23, NJ: 11 }
+const SLOTS = [1.0, 4.0, 7.0, 10.0, 13.0, 16.0, 19.0]
+const CASE_W = 2.8
 const WALL_J = 0.3, MID_J = 6.4
-const DOOR = { side: 'l', from: 24, to: 27 }
+const DOOR = { side: 'l', from: 10, to: 13 }
+const WALL_SLOTS = [0, 1, 2, 4, 5, 6]
 const MID_SLOTS = [0, 1, 2, 4, 5, 6]
-const WING_CAPACITY = 13
+const WING_CAPACITY = 12
 const FAVORITES = ['astronomy', 'computing', 'climate-science']
 
 function makeRoom(key) { return room(key, 0, 0, ROOM.NI, ROOM.NJ, { doors: [DOOR] }) }
@@ -551,8 +554,8 @@ function windows(P, add, night, list, side = 'l') {
 
 // The wing: 7 cases on the wall, 3 + passage + 3 in the middle, free slots as silhouettes.
 function wingContents({ P, TW, add, top, night, deps, dragSlot }) {
-  windows(P, add, night, [[2.5, 5.0, 96, 136], [9.0, 11.5, 96, 136], [15.5, 18.0, 96, 136]])
-  const places = [...SLOTS.map((i) => ({ i, j: WALL_J })), ...MID_SLOTS.map((k) => ({ i: SLOTS[k], j: MID_J }))]
+  windows(P, add, night, [[2.0, 4.5, 96, 136], [5.5, 8.0, 96, 136], [15.0, 17.5, 96, 136], [18.5, 21.0, 96, 136]])
+  const places = [...WALL_SLOTS.map((k) => ({ i: SLOTS[k], j: WALL_J })), ...MID_SLOTS.map((k) => ({ i: SLOTS[k], j: MID_J }))]
   places.forEach((p, idx) => {
     if (dragSlot === idx) {
       // the case being dragged: its slot shows as a dashed outline on the floor
@@ -561,8 +564,8 @@ function wingContents({ P, TW, add, top, night, deps, dragSlot }) {
     }
     placeCase(P, TW, add, p.i, p.j, deps[idx], night)
   })
-  top.push(label(P, 11.9, MID_J + 1.0, 'passage', night ? '#78859f' : T.faint, night, 10.5))
-  top.push(label(P, 25.5, -0.9, 'to the next wing', night ? '#78859f' : T.faint, night, 10.5))
+  top.push(label(P, 11.4, MID_J + 1.0, 'passage', night ? '#78859f' : T.faint, night, 10.5))
+  top.push(label(P, 11.5, 2.2, 'to the next wing', night ? '#78859f' : T.faint, night, 10.5))
 }
 
 // The main room: favorites on the wall, fireplace and armchairs left, desks with
@@ -572,15 +575,15 @@ function mainContents({ P, TW, add, top, night, idp, favorites }) {
   const wood = { top: sc.top, left: sc.left, right: sc.right }
   const stone = night ? { top: '#4a4a52', left: '#3a3a42', right: '#2e2e36' } : { top: '#cfc9c0', left: '#b8b0a4', right: '#a39a8d' }
   const chairC = night ? { top: '#3a4a6c', left: '#2a3550', right: '#22304a' } : { top: '#c9b8a2', left: '#b39f86', right: '#9c876e' }
-  for (let k = 0; k < 4; k++) placeCase(P, TW, add, SLOTS[k + 3], WALL_J, favorites[k], night, { label: 'favorite' })
+  for (const [n, k] of [[0, 1], [1, 2], [2, 4], [3, 5]]) placeCase(P, TW, add, SLOTS[k], WALL_J, favorites[n], night, { label: 'favorite' })
   // notice board and windows on the long wall, windows on the short wall
-  add(4.7 + 0.001, `<polygon points="${pts([P(2.5, 0, 60), P(4.7, 0, 60), P(4.7, 0, 110), P(2.5, 0, 110)])}" fill="${night ? '#2a2414' : '#f5ecd7'}" stroke="${night ? '#5a4a1a' : '#e0cfa2'}"/>` +
-    [0, 1, 2, 3].map((k) => { const z = 100 - k * 10; return `<polygon points="${pts([P(2.9, 0, z), P(4.3 - (k % 2) * 0.4, 0, z), P(4.3 - (k % 2) * 0.4, 0, z + 4), P(2.9, 0, z + 4)])}" fill="${night ? '#5a4a1a' : '#d9c58f'}"/>` }).join('') +
-    faceText(P, 'i', 2.6, 0, 116, "what's new", night ? '#9aa7c2' : T.faint, 2.2, TW))
-  windows(P, add, night, [[6.5, 9.0, 70, 130]])
+  add(3.4 + 0.001, `<polygon points="${pts([P(1.2, 0, 60), P(3.4, 0, 60), P(3.4, 0, 110), P(1.2, 0, 110)])}" fill="${night ? '#2a2414' : '#f5ecd7'}" stroke="${night ? '#5a4a1a' : '#e0cfa2'}"/>` +
+    [0, 1, 2, 3].map((k) => { const z = 100 - k * 10; return `<polygon points="${pts([P(1.6, 0, z), P(3.0 - (k % 2) * 0.4, 0, z), P(3.0 - (k % 2) * 0.4, 0, z + 4), P(1.6, 0, z + 4)])}" fill="${night ? '#5a4a1a' : '#d9c58f'}"/>` }).join('') +
+    faceText(P, 'i', 1.3, 0, 116, "what's new", night ? '#9aa7c2' : T.faint, 2.2, TW))
+  windows(P, add, night, [[19.5, 21.5, 70, 130]])
   windows(P, add, night, [[2.0, 4.0, 70, 130], [6.0, 8.0, 70, 130]], 'r')
   // fireplace with the hood, four armchairs around it
-  const fi = 6.0, fj = 4.6
+  const fi = 5.5, fj = 5.4
   add(fi + 2.2 + fj + 2.2, box(P, fi, fj, 2.2, 2.2, 34, stone))
   add(fi + 2.2 + fj + 2.2 + 0.01, `<polygon points="${pts([P(fi + 0.4, fj + 2.2, 4), P(fi + 1.8, fj + 2.2, 4), P(fi + 1.8, fj + 2.2, 26), P(fi + 0.4, fj + 2.2, 26)])}" fill="#1a1410"/>` +
     `<polygon points="${pts([P(fi + 0.65, fj + 2.2, 5), P(fi + 1.0, fj + 2.2, 22), P(fi + 1.15, fj + 2.2, 12), P(fi + 1.35, fj + 2.2, 24), P(fi + 1.55, fj + 2.2, 5)])}" fill="#f0a35b"/><polygon points="${pts([P(fi + 0.85, fj + 2.2, 5), P(fi + 1.05, fj + 2.2, 15), P(fi + 1.25, fj + 2.2, 8), P(fi + 1.35, fj + 2.2, 5)])}" fill="#f6d27a"/>`)
@@ -594,23 +597,23 @@ function mainContents({ P, TW, add, top, night, idp, favorites }) {
     if (side === 'f') add(ci + 0.9 + cj + 1.05, box(P, ci, cj + 0.9, 0.9, 0.15, 26, chairC))
   }
   // desks with computers, front right, chairs behind them
-  for (const di of [13.0, 16.0, 19.0, 22.0]) {
+  for (const di of [12.5, 15.3, 18.1, 20.9]) {
     const dj = 7.4, d = di + 1.4 + dj + 0.8
     add(d, box(P, di, dj, 1.4, 0.8, 22, wood))
     add(d + 0.01, boxZ(P, di + 0.75, dj + 0.15, 0.12, 0.5, 22, 13, { top: '#9aa7c2', left: night ? '#7fa7ff' : '#dfe8fb', right: '#1a2333' }))
     add(d + 0.02, boxZ(P, di + 0.15, dj + 0.25, 0.3, 0.3, 22, 2, { top: '#e9edf7', left: '#c3cde0', right: '#b0bcd2' }))
     add(di + 0.7 + dj - 0.1, box(P, di + 0.35, dj - 0.85, 0.7, 0.7, 12, chairC))
-    if (night && (di === 16.0 || di === 19.0)) add(d + 0.03, lamp(P, di + 1.2, dj - 0.2, night, idp))
+    if (night && (di === 15.3 || di === 18.1)) add(d + 0.03, lamp(P, di + 1.2, dj - 0.2, night, idp))
   }
   // near the door: front desk with the parcel, the intake cart, the catalog
-  add(21.0 + 2.4 + 3.0 + 0.8, box(P, 21.0, 3.0, 2.4, 0.8, 30, wood))
-  add(21.0 + 2.4 + 3.0 + 0.8 + 0.01, boxZ(P, 21.3, 3.1, 0.5, 0.4, 30, 12, night ? { top: '#6b5735', left: '#5c4a2c', right: '#4a3b22' } : { top: '#e6cfa6', left: '#d9b98a', right: '#c9a672' }))
-  top.push(label(P, 22.2, 4.5, 'front desk', night ? '#9aa7c2' : T.dim, night))
-  add(23.8 + 0.9 + 4.4 + 0.55, cart(P, 23.8, 4.4, night))
-  top.push(label(P, 24.3, 5.7, 'intake', night ? '#9aa7c2' : T.dim, night))
-  add(17.6 + 0.8 + 3.4 + 0.8, box(P, 17.6, 3.4, 0.8, 0.8, 42, wood) + [0, 1, 2].map((k) => `<polygon points="${pts([P(17.7, 4.2, 6 + k * 12), P(18.3, 4.2, 6 + k * 12), P(18.3, 4.2, 12 + k * 12), P(17.7, 4.2, 12 + k * 12)])}" fill="${night ? '#5a4630' : '#e6d6bf'}" stroke="${night ? '#33261a' : '#b8976a'}"/>`).join(''))
-  top.push(label(P, 18.0, 5.0, 'catalog', night ? '#9aa7c2' : T.dim, night))
-  top.push(label(P, 25.5, -0.9, 'to the wings', night ? '#78859f' : T.faint, night, 10.5))
+  add(13.5 + 2.4 + 2.6 + 0.8, box(P, 13.5, 2.6, 2.4, 0.8, 30, wood))
+  add(13.5 + 2.4 + 2.6 + 0.8 + 0.01, boxZ(P, 13.8, 2.7, 0.5, 0.4, 30, 12, night ? { top: '#6b5735', left: '#5c4a2c', right: '#4a3b22' } : { top: '#e6cfa6', left: '#d9b98a', right: '#c9a672' }))
+  top.push(label(P, 14.7, 4.1, 'front desk', night ? '#9aa7c2' : T.dim, night))
+  add(16.4 + 0.9 + 3.2 + 0.55, cart(P, 16.4, 3.2, night))
+  top.push(label(P, 16.9, 4.5, 'intake', night ? '#9aa7c2' : T.dim, night))
+  add(8.4 + 0.8 + 3.6 + 0.8, box(P, 8.4, 3.6, 0.8, 0.8, 42, wood) + [0, 1, 2].map((k) => `<polygon points="${pts([P(8.5, 4.4, 6 + k * 12), P(9.1, 4.4, 6 + k * 12), P(9.1, 4.4, 12 + k * 12), P(8.5, 4.4, 12 + k * 12)])}" fill="${night ? '#5a4630' : '#e6d6bf'}" stroke="${night ? '#33261a' : '#b8976a'}"/>`).join(''))
+  top.push(label(P, 8.8, 5.2, 'catalog', night ? '#9aa7c2' : T.dim, night))
+  top.push(label(P, 11.5, 2.2, 'to the wings', night ? '#78859f' : T.faint, night, 10.5))
 }
 
 function wingDeps() { return Object.entries(counts).filter(([n]) => n !== 'unassigned' && !FAVORITES.includes(n)).map(([name, pages]) => ({ name, pages })) }
@@ -627,23 +630,23 @@ function roomScene({ kind, night, W, H, idp, dragSlot, fellows = true }) {
       if (!fellows) return
       const astro = domainColor('astronomy')
       if (kind === 'main' && !night) {
-        add(12.0 + 1.6, figure(P, 12.0, 1.6, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: astro }, night, top, anchors))
-        add(16.9 + 8.6, figure(P, 16.9, 8.6, { name: 'Noor · writing', pose: 'desk', color: '#3b8f79' }, night, top, anchors))
-        add(4.65 + 5.75, figure(P, 4.65, 5.75, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
-        add(8.95 + 5.75, figure(P, 8.95, 5.75, { name: 'Mira · waiting', pose: 'sit', color: '#c26b4a' }, night, top, anchors))
-        add(6.05 + 8.25, figure(P, 6.05, 8.25, { name: 'reader', kind: 'visitor', pose: 'sit', color: '#8a95ad' }, night, top, anchors))
-        add(22.9 + 4.9, figure(P, 22.9, 4.9, { name: 'clerk · unpacking', kind: 'visitor', pose: 'carry', color: '#8a95ad' }, night, top, anchors))
+        add(5.4 + 1.6, figure(P, 5.4, 1.6, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: astro }, night, top, anchors))
+        add(15.9 + 8.6, figure(P, 15.9, 8.6, { name: 'Noor · writing', pose: 'desk', color: '#3b8f79' }, night, top, anchors))
+        add(4.15 + 6.55, figure(P, 4.15, 6.55, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
+        add(8.45 + 6.55, figure(P, 8.45, 6.55, { name: 'Mira · waiting', pose: 'sit', color: '#c26b4a' }, night, top, anchors))
+        add(4.55 + 9.05, figure(P, 4.55, 9.05, { name: 'reader', kind: 'visitor', pose: 'sit', color: '#8a95ad' }, night, top, anchors))
+        add(15.0 + 4.5, figure(P, 15.0, 4.5, { name: 'clerk · unpacking', kind: 'visitor', pose: 'carry', color: '#8a95ad' }, night, top, anchors))
       } else if (kind === 'main' && night) {
-        add(19.9 + 8.6, figure(P, 19.9, 8.6, { key: 'ada', name: 'Ada · writing', pose: 'desk', color: '#3b64c9' }, night, top, anchors))
-        add(4.65 + 5.75, figure(P, 4.65, 5.75, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
-        add(8.95 + 5.75, figure(P, 8.95, 5.75, { name: 'Mira · quota spent', kind: 'warn', pose: 'sleep', color: '#c26b4a' }, night, top, anchors))
-        add(6.05 + 8.25, figure(P, 6.05, 8.25, { name: 'Noor · asleep', kind: 'asleep', pose: 'sleep', color: '#3b8f79' }, night, top, anchors))
-        add(23.2 + 5.2, figure(P, 23.2, 5.2, { name: 'Ibra · waiting', pose: 'wait', color: '#b8892c' }, night, top, anchors))
+        add(18.7 + 8.6, figure(P, 18.7, 8.6, { key: 'ada', name: 'Ada · writing', pose: 'desk', color: '#3b64c9' }, night, top, anchors))
+        add(4.15 + 6.55, figure(P, 4.15, 6.55, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
+        add(8.45 + 6.55, figure(P, 8.45, 6.55, { name: 'Mira · quota spent', kind: 'warn', pose: 'sleep', color: '#c26b4a' }, night, top, anchors))
+        add(4.55 + 9.05, figure(P, 4.55, 9.05, { name: 'Noor · asleep', kind: 'asleep', pose: 'sleep', color: '#3b8f79' }, night, top, anchors))
+        add(16.9 + 4.6, figure(P, 16.9, 4.6, { name: 'Ibra · waiting', pose: 'wait', color: '#b8892c' }, night, top, anchors))
       } else if (kind === 'wing' && !night) {
         add(SLOTS[1] + 1.4 + 1.9, figure(P, SLOTS[1] + 1.4, 1.9, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: domainColor(deps[1]?.name ?? 'x') }, night, top, anchors))
         add(SLOTS[5] + 1.5 + 8.0, figure(P, SLOTS[5] + 1.5, 8.0, { name: 'visitor', kind: 'visitor', pose: 'shelf', color: '#8a95ad', book: domainColor(deps[11]?.name ?? 'x') }, night, top, anchors))
-        add(SLOTS[4] + 0.8 + 2.4, figure(P, SLOTS[4] + 0.8, 2.4, { name: 'caretaker · re-sorting', kind: 'visitor', pose: 'wait', color: '#8a95ad' }, night, top, anchors))
-        add(SLOTS[4] + 1.8 + 2.3, cart(P, SLOTS[4] + 1.5, 2.0, night))
+        add(SLOTS[5] + 0.6 + 2.4, figure(P, SLOTS[5] + 0.6, 2.4, { name: 'caretaker · re-sorting', kind: 'visitor', pose: 'wait', color: '#8a95ad' }, night, top, anchors))
+        add(SLOTS[5] + 1.6 + 2.3, cart(P, SLOTS[5] + 1.3, 2.0, night))
       } else {
         add(SLOTS[2] + 1.4 + 1.9, figure(P, SLOTS[2] + 1.4, 1.9, { key: 'ada', name: 'Noor · reading', pose: 'shelf', color: '#3b8f79', book: domainColor(deps[2]?.name ?? 'x') }, night, top, anchors))
         add(SLOTS[2] + 2.2 + 1.5 + 0.5, lamp(P, SLOTS[2] + 2.4, 1.3, night, idp))
@@ -674,8 +677,8 @@ function panel({ night, sel, room = 'main' }) {
     </div>
     <div class="sec"><div class="head"><span class="eyebrow">Rooms</span><span class="spacer"></span><span class="state">scroll or click</span></div>
       ${wrow('Main room', 'favorites 3 of 4', room === 'main', false)}
-      ${wrow('Wing A · Sciences', `${wingA.length} of 13, full`, room === 'wing')}
-      ${wrow('Wing B', `${wingB.length} of 13`, false)}
+      ${wrow('Wing A · Sciences', `${wingA.length} of 12, full`, room === 'wing')}
+      ${wrow('Wing B', `${wingB.length} of 12`, false)}
       <div class="wrow add"><span class="wn">+ New wing</span></div>
     </div>
     <div class="sec"><div class="head"><span class="eyebrow">Tonight</span><span class="spacer"></span><span class="state">01:00 to 06:00</span></div>
@@ -718,7 +721,7 @@ const ARROW_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" 
 function roomStrip({ room, night, target }) {
   const deps = wingDeps()
   const pill = (key, name, extra, on) => `<span class="rp${on ? ' on' : ''}${target === key ? ' target' : ''}">${name}${extra}</span>`
-  return `<div class="strip${night ? ' dark' : ''}"><span class="arr">${ARROW_UP}</span>${pill('main', 'Main room', room === 'main' ? '' : '<span class="adot"></span>', room === 'main')}${pill('wingA', 'Wing A', `<span class="cnt">13</span>${room === 'wing' ? '' : '<span class="adot"></span>'}`, room === 'wing')}${pill('wingB', 'Wing B', `<span class="cnt">${deps.length - WING_CAPACITY}</span>`, false)}<span class="arr">${ARROW_DOWN}</span></div>`
+  return `<div class="strip${night ? ' dark' : ''}"><span class="arr">${ARROW_UP}</span>${pill('main', 'Main room', room === 'main' ? '' : '<span class="adot"></span>', room === 'main')}${pill('wingA', 'Wing A', `<span class="cnt">12</span>${room === 'wing' ? '' : '<span class="adot"></span>'}`, room === 'wing')}${pill('wingB', 'Wing B', `<span class="cnt">${deps.length - WING_CAPACITY}</span>`, false)}<span class="arr">${ARROW_DOWN}</span></div>`
 }
 
 function canvas({ night, card, kind = 'main', drag }) {
@@ -733,7 +736,7 @@ function canvas({ night, card, kind = 'main', drag }) {
     const ghost = `<svg viewBox="0 0 150 120" width="150" height="120" xmlns="http://www.w3.org/2000/svg">${bookcase(makeP(60, 108, 40, 20), 0, 0, 'i', CASE_W, drag.dep.pages, domainHue(drag.dep.name), false, 'walnut', drag.dep.name, 40)}</svg>`
     extra = `<div class="dragghost" style="left:${drag.x}px; top:${drag.y}px">${ghost}</div><div class="hint" style="left:${drag.x + 120}px; top:${drag.y + 96}px">move ${drag.dep.name} to Wing B</div>`
   }
-  const scope = kind === 'main' ? `<b>Main room</b> · 3 favorites, 894 books in 17 departments across 2 wings` : `<b>Wing A · Sciences</b> · 13 of 13 shelves`
+  const scope = kind === 'main' ? `<b>Main room</b> · 3 favorites, 894 books in 17 departments across 2 wings` : `<b>Wing A · Sciences</b> · 12 of 12 shelves`
   return `<div class="wrap">
     <div class="controls"><span class="btn">Fit</span><span class="scope">${scope} · ${night ? 'the night shift is on the floor' : '2 Fellows and 3 visitors on the floor'} · <a href="#">30 gaps</a></span>${modeSeg(false)}<span class="btn">Shortcuts</span><span class="btn">${icon('ext', 14)}Fullscreen</span><span class="search">${icon('search', 15)}Search shelves or Fellows…</span></div>
     <div class="area${night ? ' night' : ''}">${svg}${extra}<div class="corner" style="left:50%; top:10px; transform:translateX(-50%)">${roomStrip({ room: kind, night, target: drag ? 'wingB' : undefined })}</div><div class="corner" style="left:12px; bottom:10px">${nowChip}</div><div class="corner" style="right:12px; bottom:10px">${legend}</div></div>
@@ -891,13 +894,13 @@ function roomsBoard() {
       <div style="display:flex; flex-direction:column; gap:10px; width:600px">
         ${thumb('main', 'Main room', 'favorites, fireplace, desks, front desk with the intake cart, the door to the wings', 'rmain')}
         ${wheel}
-        ${thumb('wing', 'Wing A · Sciences', '7 shelves on the wall, 3 + passage + 3 in the middle, the door to the next wing', 'rwing')}
+        ${thumb('wing', 'Wing A · Sciences', '3 + door + 3 on the wall, 3 + passage + 3 in the middle', 'rwing')}
         ${wheel}
-        <div style="border:1px dashed ${T.borderStrong}; border-radius:12px; padding:14px 16px; font-size:12.5px; color:${T.faint}">Wing B, one shelf so far. The same room again; the next new domain takes its second slot.</div>
+        <div style="border:1px dashed ${T.borderStrong}; border-radius:12px; padding:14px 16px; font-size:12.5px; color:${T.faint}">Wing B, two shelves so far. The same room again; the next new domain takes its third slot.</div>
       </div>
       <div style="flex:1; display:flex; flex-direction:column; gap:14px; padding-top:26px">
-        ${p('One grid, one camera.', '27 by 11 tiles for every room, shelves 3 tiles wide. A wing holds 13 shelves: seven along the long wall, three plus a passage plus three in the middle row. The main room holds four favorite shelves. Nothing is ever fitted or zoomed, so nothing gets small.')}
-        ${p('One door per room,', 'at the right end of the long wall. In the main room it leads to the wings, in a wing to the next wing. The path runs from the door through the back aisle, through the passage of the middle row, to the front.')}
+        ${p('One grid, one camera.', '23 by 11 tiles for every room, shelves all the same width. A wing holds 12 shelves: six along the long wall, three on each side of the door, and three plus a passage plus three in the middle row, the passage in line with the door. The main room holds four favorite shelves. Nothing is ever fitted or zoomed, so nothing gets small.')}
+        ${p('One door per room,', 'in the middle of the long wall, in line with the passage of the middle row, so the path runs straight from the door to the front. In the main room it leads to the wings, in a wing to the next wing.')}
         ${p('Perspective rules.', 'All shelves stand parallel to the long wall with the open side toward you, so every sign reads in the same direction. Tall things (shelves, catalog, chimney hood) stay in the back half or stand free; low things (desks, chairs, carts) stay in front; one tile stays free in front of every shelf; walls carry decoration only where the frame always shows them.')}
         ${p('Free slots are visible.', 'An empty slot is a light shelf silhouette. A new domain takes the first free slot of the newest wing; when no slot is left, a new wing opens, named after its letter until you rename it. A department that outgrows its shelf gets a second shelf of the same width in the next free slot.')}
         ${p('Drag and drop.', 'Drag a shelf onto a room in the strip or in the Rooms list: it moves into the first free slot there, onto Main room into the next free favorite slot. Inside a room, dragging one shelf onto another swaps the two. Everything you placed stays where you put it.')}
@@ -931,7 +934,7 @@ const depsAll = wingDeps()
 seed = 7
 const day = shell({ night: false, badge: '2', body: panel({ night: false, room: 'main' }) + `<div class="stage">${canvas({ night: false, card: false, kind: 'main' })}</div>` })
 seed = 7
-const wing = shell({ night: false, badge: '2', body: panel({ night: false, room: 'wing' }) + `<div class="stage">${canvas({ night: false, card: false, kind: 'wing', drag: { slot: 12, dep: depsAll[12], x: 560, y: 24 } })}</div>` })
+const wing = shell({ night: false, badge: '2', body: panel({ night: false, room: 'wing' }) + `<div class="stage">${canvas({ night: false, card: false, kind: 'wing', drag: { slot: 11, dep: depsAll[11], x: 560, y: 24 } })}</div>` })
 seed = 7
 const night = shell({ night: true, badge: '1', body: panel({ night: true, room: 'main' }) + `<div class="stage">${canvas({ night: true, card: false, kind: 'main' })}</div>` })
 seed = 7
@@ -959,8 +962,8 @@ fs.writeFileSync('canvas.json', JSON.stringify({
     { file: 'Sprites.dc.html', x: 1560, y: 3460, w: 1440, h: 760, title: 'Figures · style A' },
   ],
   annotations: [
-    { id: 'brief', x: 0, y: -150, w: 520, text: 'Library screen, round 5 (SPEC section 10).\nOne room per view on a shared 27 by 10 grid. Main room: four favorite slots, fireplace with armchairs, desks with computers, front desk with the intake cart, catalog, one door to the wings.' },
-    { id: 'wing-note', x: 1560, y: -110, w: 480, text: 'Wing A: seven shelves on the long wall, three plus passage plus three in the middle, all facing you. A shelf is being dragged onto Wing B in the room strip; its slot shows as a dashed outline.' },
+    { id: 'brief', x: 0, y: -150, w: 520, text: 'Library screen, round 6 (SPEC section 10).\nOne room per view on a shared 23 by 11 grid, the door in the middle of the long wall. Main room: four favorite slots, fireplace with armchairs, desks with computers, front desk with the intake cart, catalog, one door to the wings.' },
+    { id: 'wing-note', x: 1560, y: -110, w: 480, text: 'Wing A: three shelves, the door, three shelves on the long wall; three, the passage, three in the middle, all facing you. A shelf is being dragged onto Wing B in the room strip; its slot shows as a dashed outline.' },
     { id: 'night-note', x: 0, y: 960, w: 420, text: 'Night shift in the main room: the fire and two desk lamps are the light; three Fellows sleep by the fire, Ibra waits at the front desk while Ada runs.' },
     { id: 'focus-note', x: 1560, y: 960, w: 480, text: 'Focus mode followed Ada into Wing A: the tabs stay, the strip shrinks to the top, the popover is the only other chrome.' },
     { id: 'card-note', x: 0, y: 2020, w: 420, text: 'Card docked right per DESIGN.md; at this size the tiles drop below 34 px and the signs leave the shelves.' },

@@ -209,3 +209,11 @@ new ideas go here first and reach the spec through a dated decision.
   segment paints over it; a middle shelf row needs about 6 tiles of distance to the wall row
   or its top covers the lowest books behind it; tall furniture within 3 tiles in front of a
   shelf hides the shelf's lower part.
+
+## Design round 6 (2026-09-06)
+
+- NEW-10: the door moves to the middle slot of the long wall, in line with the passage of
+  the middle row; a wing holds 12 shelves (3 + door + 3 on the wall, 3 + passage + 3 in
+  the middle), the room is 23 by 11 tiles. Main room: two favorites on each side of the
+  door, notice board at the wall's left end, fireplace front left, desks front right, front
+  desk, intake cart and catalog beside the path from the door.
