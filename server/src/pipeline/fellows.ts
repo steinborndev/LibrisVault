@@ -51,6 +51,7 @@ import { localDate, addDays, windowAt } from './clock.js'
 import type { VaultGraph } from './graph.js'
 import {
   buildProposals,
+  estimateCostUsd,
   isDrift,
   kindsForStep,
   parsePlannerAnswer,
@@ -59,6 +60,7 @@ import {
   renderPlannerPrompt,
   type DomainHint,
 } from './planner.js'
+import type { GateContext } from './usage-monitor.js'
 import { DEFAULT_NIGHT_WINDOW, DEFAULT_RESEARCH_MODEL } from '../db/settings.js'
 
 /** Per-kind USD cap on Sonnet 5 (docs/agents/SPEC.md sections 6.2 and 7), scaled by the model factor. */
@@ -87,7 +89,7 @@ export interface SpawnInput {
   readonly runFirstStep?: boolean
 }
 
-export type RefusalCode = 'unknown' | 'state' | 'in-flight' | 'quota' | 'budget' | 'kind'
+export type RefusalCode = 'unknown' | 'state' | 'in-flight' | 'quota' | 'budget' | 'kind' | 'reserve' | 'share'
 
 export interface Refusal {
   readonly status: 404 | 409
@@ -129,6 +131,8 @@ export interface FellowSpend {
   readonly weekUsd: number
   readonly runsToday: number
   readonly runsWeek: number
+  /** Plan points of the week's runs where measured (section 8.3), null when none was. */
+  readonly weekPct: number | null
 }
 
 export interface FellowCard extends FellowSummary {
@@ -174,8 +178,10 @@ export interface FellowSettings {
 }
 
 export interface GateBlock {
-  readonly code: 'budget'
+  readonly code: 'budget' | 'reserve' | 'share'
   readonly reason: string
+  /** When the block lifts, if known (a plan window's reset). */
+  readonly resetsAt?: string | null
 }
 
 export interface FellowServiceOptions {
@@ -188,8 +194,10 @@ export interface FellowServiceOptions {
   /** Candidate computation; the default reads the vault, the graph and the job store. */
   readonly candidates?: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
   readonly candidateSources?: CandidateSources
-  /** Service-wide block on starting runs (daily budget, rate-limit pause); null = clear. */
-  readonly gate?: () => GateBlock | null
+  /** Service-wide block on starting a run of this cost and model (daily budget, rate-limit pause, plan gate); null = clear. */
+  readonly gate?: (ctx: GateContext) => GateBlock | null
+  /** Prices a run in plan points once calibrated (section 6.3); null while uncalibrated. */
+  readonly estimatePct?: (costUsd: number, model: AgentModel) => { fiveHour: number | null; sevenDay: number | null }
   readonly settings?: () => FellowSettings
   /** The value signal (section 9.6); absent = the card shows no opens. */
   readonly values?: ValueEventStore
@@ -217,7 +225,8 @@ export class FellowService {
   private readonly notebook: NotebookWriter
   private readonly now: () => Date
   private readonly candidatesFn: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
-  private readonly gate: () => GateBlock | null
+  private readonly gate: (ctx: GateContext) => GateBlock | null
+  private readonly estimatePct: ((costUsd: number, model: AgentModel) => { fiveHour: number | null; sevenDay: number | null }) | undefined
   private readonly settings: () => FellowSettings
   private readonly values: ValueEventStore | undefined
   private readonly handoffs: HandoffStore | undefined
@@ -228,6 +237,8 @@ export class FellowService {
   private readonly inFlight = new Map<string, string>()
   /** Resolves once a run settled AND this service finished its settle handling. */
   private readonly settling = new Map<string, Promise<MaintenanceRun>>()
+  /** The reset instant of the window behind the last plan refusal, for the shift (A5). */
+  private planReset: number | null = null
   /** Notebook rewrites still in progress; `flush()` awaits them. */
   private pending: Promise<unknown>[] = []
 
@@ -239,6 +250,7 @@ export class FellowService {
     this.notebook = opts.notebook
     this.now = opts.now ?? ((): Date => new Date())
     this.gate = opts.gate ?? ((): GateBlock | null => null)
+    this.estimatePct = opts.estimatePct
     this.settings = opts.settings ?? ((): FellowSettings => ({ window: DEFAULT_NIGHT_WINDOW, defaultModel: DEFAULT_RESEARCH_MODEL }))
     this.values = opts.values
     this.handoffs = opts.handoffs
@@ -403,7 +415,9 @@ export class FellowService {
     const todayIso = startOfToday(now).toISOString()
     const todayRuns = weekRuns.filter((r) => r.startedAt >= todayIso)
     const sum = (rs: readonly AgentRunRecord[]): number => Math.round(rs.reduce((acc, r) => acc + (r.costUsd ?? 0), 0) * 100) / 100
-    return { todayUsd: sum(todayRuns), weekUsd: sum(weekRuns), runsToday: todayRuns.length, runsWeek: weekRuns.length }
+    const measured = weekRuns.filter((r) => r.planPctDelta?.['seven_day'] !== undefined)
+    const weekPct = measured.length > 0 ? Math.round(measured.reduce((acc, r) => acc + (r.planPctDelta!['seven_day'] ?? 0), 0) * 100) / 100 : null
+    return { todayUsd: sum(todayRuns), weekUsd: sum(weekRuns), runsToday: todayRuns.length, runsWeek: weekRuns.length, weekPct }
   }
 
   /** Creates the record and its notebook page, then (by default) runs the intent as a full research run. */
@@ -463,9 +477,20 @@ export class FellowService {
         return { status: 409, code: 'quota', error: `${agent.name} used today's quota (${used} of ${agent.quotaRunsPerDay} runs)` }
       }
     }
-    const block = this.gate()
-    if (block) return { status: 409, code: block.code, error: block.reason }
+    // The service-wide gate: the daily budget and the rate-limit pause, and the plan shares
+    // and reserves (section 8.4) for every Fellow run, planning included: a planning run
+    // spends plan points too, and the reserves protect the user's own use of the plan.
+    const block = this.gate({ estCostUsd: estimateCostUsd(kind, agent.model), model: agent.model, kind })
+    if (block) {
+      this.planReset = block.resetsAt ? Date.parse(block.resetsAt) : null
+      return { status: 409, code: block.code, error: block.reason }
+    }
     return null
+  }
+
+  /** The reset instant behind the most recent gate refusal (epoch ms), for the shift's wait (A5 D5). */
+  lastPlanReset(): number | null {
+    return this.planReset !== null && Number.isFinite(this.planReset) ? this.planReset : null
   }
 
   /** The timeout a run of this kind gets for this Fellow (the shift checks the window against it). */
@@ -881,6 +906,7 @@ export class FellowService {
       newId: () => randomUUID(),
       pageExists: (page) => (root === undefined ? true : fs.existsSync(path.join(root, page))),
       ownPages: [...fellowSynthesisPages(this.runs.list({ agentId, limit: 50 })), agent.notebookPath],
+      ...(this.estimatePct ? { estimatePct: (cost, model) => this.estimatePct!(cost, model).sevenDay } : {}),
     })
     for (const r of built.rejected) this.log('warn', `fellows: ${agent.name}: proposal dropped, ${r}`)
     for (const t of built.clamped) this.log('info', `fellows: ${agent.name}: "${t}" clamped to a step, no listed page exists`)

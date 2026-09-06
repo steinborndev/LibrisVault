@@ -265,6 +265,8 @@ export interface BuildProposalsInput {
   readonly pageExists?: (page: string) => boolean
   /** The Fellow's own pages an expand run may always touch: its synthesis pages and its notebook. */
   readonly ownPages?: readonly string[]
+  /** Points of the week a run of that cost takes on that model, once calibrated (A5); null otherwise. */
+  readonly estimatePct?: (costUsd: number, model: AgentModel) => number | null
 }
 
 export interface BuiltProposals {
@@ -332,7 +334,7 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
       provenance,
       pageSet,
       estCostUsd: estimateCostUsd(kind, agent.model),
-      estPlanPct: null,
+      estPlanPct: input.estimatePct ? input.estimatePct(estimateCostUsd(kind, agent.model), agent.model) : null,
       scopeScore: scopeScore(`${p.topic} ${p.rationale} ${candidate.text}`, `${agent.intent} ${agent.scope ?? ''}`),
       rank: proposals.length + 1,
       status: 'proposed',

@@ -21,6 +21,8 @@ import { SqliteValueEventStore } from './db/value-events.js'
 import { SqliteHandoffStore } from './db/handoffs.js'
 import { SqliteLibraryStore } from './db/library.js'
 import { LibraryService } from './pipeline/library.js'
+import { SqliteUsageSampleStore } from './db/usage-samples.js'
+import { UsageMonitor, type EndpointResult } from './pipeline/usage-monitor.js'
 import { indexWikiPages } from './pipeline/citations.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
 import { NightShift } from './pipeline/shift.js'
@@ -137,6 +139,38 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // and the only place a failed run leaves a trace once the in-memory registry evicts it.
   const agentRuns = new SqliteAgentRunStore(db)
 
+  // Plan utilization (docs/agents/SPEC.md section 8.3): samples through the SDK inside runs,
+  // the raw usage endpoint for ticks (OAuth only; a token without the profile scope makes it
+  // refuse, which the monitor reports and falls back from). Fellows only.
+  const planSettings = () => {
+    const e = settings.effective(config)
+    return { researchShareWeekPct: e.researchShareWeekPct, researchShare5hPct: e.researchShare5hPct, reserve5hPct: e.reserve5hPct, reserveWeekPct: e.reserveWeekPct, planWeekUsd: e.planWeekUsd, plan5hUsd: e.plan5hUsd }
+  }
+  const usage =
+    config.agentsEnabled === true && !config.demoMode
+      ? new UsageMonitor({
+          store: new SqliteUsageSampleStore(db),
+          runs: agentRuns,
+          settings: planSettings,
+          ...(config.auth?.mode === 'oauth'
+            ? {
+                fetchEndpoint: async (): Promise<EndpointResult> => {
+                  const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
+                    headers: { authorization: `Bearer ${config.auth!.credential}`, 'anthropic-beta': 'oauth-2025-04-20', accept: 'application/json' },
+                    signal: AbortSignal.timeout(15_000),
+                  })
+                  const json: unknown = await res.json().catch(() => null)
+                  if (!res.ok) {
+                    const message = (json as { error?: { message?: string } } | null)?.error?.message
+                    return { ok: false, reason: message ?? `the usage endpoint answered ${res.status}` }
+                  }
+                  return { ok: true, json }
+                },
+              }
+            : {}),
+        })
+      : undefined
+
   const maintenance = new MaintenanceRunner({
     vaultRoot: config.vaultRoot,
     auth: config.auth,
@@ -146,6 +180,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     validate,
     stateStore: maintenanceState,
     runStore: agentRuns,
+    ...(usage !== undefined ? { usage } : {}),
   })
 
   // Fellows (docs/agents/SPEC.md) live behind AGENTS_ENABLED and never in demo mode. The
@@ -173,13 +208,19 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           candidateSources: { vaultRoot: config.vaultRoot, graph: () => graph.build(), jobs: () => store.list({ status: 'done', limit: 100 }) },
           // The service-wide gate of section 8.4 as far as A1 measures it: the daily budget
           // (the same module the queue and the stats route use) and a rate-limit pause.
-          gate: (): GateBlock | null => {
+          gate: (ctx): GateBlock | null => {
             const budget = budgetStatus(config, settings.effective(config), store)
             if (budget.exceeded) return { code: 'budget', reason: `the daily budget is reached (${budget.spent} of ${budget.limit} ${budget.unit})` }
             const q = queue.stats()
             if (q.paused && q.pauseReason === 'rate-limit') return { code: 'budget', reason: 'the queue is paused on a usage-limit signal' }
+            // The plan shares and reserves (section 8.4), priced per run kind and model.
+            if (usage) {
+              const verdict = usage.gate(ctx)
+              if (verdict) return { code: verdict.code, reason: verdict.reason, resetsAt: verdict.resetsAt }
+            }
             return null
           },
+          ...(usage !== undefined ? { estimatePct: (cost: number, model: Parameters<UsageMonitor['estimatePct']>[1]) => usage.estimatePct(cost, model) } : {}),
           settings: () => {
             const e = settings.effective(config)
             return { window: { start: e.nightWindowStart, end: e.nightWindowEnd }, defaultModel: e.researchModelDefault }
@@ -201,6 +242,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             const e = settings.effective(config)
             return { start: e.nightWindowStart, end: e.nightWindowEnd }
           },
+          // The plan windows before a round (section 8.5), cached by the monitor.
+          ...(usage !== undefined ? { beforeRound: () => usage.refresh() } : {}),
           // Existing synthesis pages, for the dedupe notes (section 6.6).
           synthesisTitles: () =>
             [...indexWikiPages(config.vaultRoot)]
@@ -221,6 +264,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           recaps: new SqliteRecapStore<RecapModel>(db),
           shifts: shiftStore,
           handoffs: handoffStore,
+          ...(usage !== undefined ? { plan: () => usage.status({ estCostUsd: 2, model: settings.effective(config).researchModelDefault }) } : {}),
           maintenance,
           jobs: store,
           commitMutex,
@@ -309,6 +353,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(shift !== undefined ? { shift } : {}),
     ...(recaps !== undefined ? { recaps } : {}),
     ...(library !== undefined ? { library } : {}),
+    ...(usage !== undefined ? { usage } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`

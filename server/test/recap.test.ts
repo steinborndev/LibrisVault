@@ -205,6 +205,48 @@ describe('recap model from fixtures', () => {
     expect(messages[3]).toContain('Answer with codes')
   })
 
+  it('shows the plan windows, the research share and per-run points when the monitor is wired (A5)', () => {
+    const plan = {
+      available: true,
+      source: 'sdk' as const,
+      reason: null,
+      subscription: 'max',
+      sampledAt: '2026-09-07T06:00:00.000Z',
+      windows: [{ window: 'five_hour', utilization: 12, resetsAt: null }, { window: 'seven_day', utilization: 31, resetsAt: null }, { window: 'seven_day_sonnet', utilization: 4, resetsAt: null }],
+      resets: {},
+      calibration: { perModel: { 'sonnet-5': { fiveHour: 1, sevenDay: 0.2, n: 3 } }, ready: true },
+      consumption: { weekPct: 3.2, fiveHourPct: 1, weekUsd: 12.4, fiveHourUsd: 2.1, weekRuns: 9, fiveHourRuns: 1 },
+      settings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80 },
+      shares: { unit: 'points' as const, week: 10, fiveHour: 15, weekUsed: 3.2, fiveHourUsed: 1, stepsLeftWeek: 17 },
+      gate: null,
+    }
+    const m = buildRecapModel({
+      cycleDate: '2026-09-07',
+      now: at(7, 7, 0),
+      since: '2026-09-06T07:00:00.000Z',
+      window: WINDOW,
+      fellows: [agentRecord()],
+      runsOf: () => [runRecord({ planPctDelta: { five_hour: 2.5, seven_day: 0.4 } })],
+      pendingOf: () => [],
+      shift: null,
+      usage: () => ({ costUsd: 2.1, runs: 1 }),
+      valueOf: () => ({ pageOpens: 0, recapLinks: 0 }),
+      readPage: () => undefined,
+      commitStatus: () => undefined,
+      plan,
+    })
+    expect(m.plan).toMatchObject({ available: true, calibrated: true, shares: { unit: 'points', weekUsed: 3.2 } })
+    expect(m.fellows[0]!.runs[0]!.planPct).toEqual({ five_hour: 2.5, seven_day: 0.4 })
+    const page = renderRecapPage(m)
+    expect(page).toContain('**Plan now**: 5-hour 12%, week 31% (sonnet 4%).')
+    expect(page).toContain('**Research share**: 3.2 of 10 points this week, 1 of 15 points in this 5-hour window, about 17 standard step(s) left this week.')
+    expect(page).toContain('3 page(s), 2.10 USD, 0.4 points of the week and 2.5 of the 5-hour window, commit abc123')
+    const usd = buildRecapModel({ cycleDate: '2026-09-07', now: at(7, 7, 0), since: 's', window: WINDOW, fellows: [], runsOf: () => [], pendingOf: () => [], shift: null, usage: () => ({ costUsd: 0, runs: 0 }), valueOf: () => ({ pageOpens: 0, recapLinks: 0 }), readPage: () => undefined, commitStatus: () => undefined, plan: { ...plan, available: false, reason: 'the SDK reports no plan rate limits for this credential', windows: [], shares: { unit: 'usd', week: 100, fiveHour: 12, weekUsed: 12.4, fiveHourUsed: 2.1, stepsLeftWeek: 43 } } })
+    const text = renderRecapPage(usd)
+    expect(text).not.toContain('Plan now')
+    expect(text).toContain('**Research share**: 12.4 of 100 USD this week, 2.1 of 12 USD in this 5-hour window, about 43 standard step(s) left this week (USD-equivalent: the SDK reports no plan rate limits for this credential).')
+  })
+
   it('parses the summary answer and builds its input from runs with text', () => {
     const m = fixture()
     const input = summaryInput(m, (id) => (id === 'a1' ? [runRecord()] : []))

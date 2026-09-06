@@ -71,6 +71,12 @@ export interface AgentRunResult {
    * delivered it. Absent on failure and on runs without a schema.
    */
   readonly structuredOutput?: unknown
+  /**
+   * The SDK's usage responses sampled at the start and at the end of the run (docs/agents
+   * SPEC.md section 8.3), raw; the usage monitor parses them. Either may be missing when the
+   * SDK could not answer.
+   */
+  readonly planUsage?: { readonly before?: unknown; readonly after?: unknown }
 }
 
 export interface AgentAuth {
@@ -133,9 +139,69 @@ export interface RunAgentOptions {
    * not the service (docs/tasks/TASKS-A1.md D3).
    */
   readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
+  /**
+   * Plan utilization sampling (section 8.3): when set, the run asks the SDK's experimental
+   * `usage()` once the session is up and once the result is in, and hands both answers
+   * here (and to the result). `onRateLimit` receives every `rate_limit_event`'s info.
+   */
+  readonly onPlanUsage?: (phase: 'before' | 'after', response: unknown) => void
+  readonly onRateLimit?: (info: unknown) => void
+  /**
+   * How often the plan windows are re-sampled during the run. The SDK's usage data comes
+   * from the API's rate-limit headers, read when a response completes: the samples before
+   * that carry no windows (the SDK streams a response as several assistant messages, one
+   * per content block), and the session is gone with the result message. The runner
+   * therefore samples on assistant messages until one carries windows (the "before"), then
+   * every so often and always on a text-only one (the final answer of a run has no tool
+   * call); the last sample is the "after". Tests pass 0 to sample every message.
+   */
+  readonly usageSampleEveryMs?: number
 }
 
 export const EMPTY_USAGE: AgentUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
+
+/** How long a usage sample may take before the run goes on without it. */
+const USAGE_SAMPLE_TIMEOUT_MS = 8_000
+
+/** Asks the SDK for its usage data, guarded: an SDK without the method, or one that stalls, yields undefined. */
+const DEFAULT_USAGE_SAMPLE_EVERY_MS = 30_000
+
+const BEFORE_SAMPLE_TRIES = 6
+
+/** An assistant message without a tool call: the final answer of a run looks like this. */
+function isTextOnly(message: SDKMessage): boolean {
+  if (message.type !== 'assistant') return false
+  const content = (message as { message?: { content?: unknown } }).message?.content
+  if (!Array.isArray(content)) return false
+  return content.every((block) => (block as { type?: string }).type !== 'tool_use')
+}
+
+/** The SDK's end-of-turn note, sent just before the result: the last chance for a sample. */
+function isTurnSummary(message: SDKMessage): boolean {
+  return message.type === 'system' && (message as { subtype?: string }).subtype === 'post_turn_summary'
+}
+
+/** Whether a usage response carries plan windows (the SDK answers `rate_limits: null` before the first response completes). */
+function hasWindows(sample: unknown): boolean {
+  const limits = (sample as { rate_limits?: unknown } | null)?.rate_limits
+  return limits !== null && limits !== undefined && typeof limits === 'object' && Object.keys(limits as object).length > 0
+}
+
+async function sampleUsage(q: unknown): Promise<unknown> {
+  const fn = (q as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> }).usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
+  if (typeof fn !== 'function') return undefined
+  try {
+    return await Promise.race([
+      fn.call(q),
+      new Promise<undefined>((resolve) => {
+        const t = setTimeout(() => resolve(undefined), USAGE_SAMPLE_TIMEOUT_MS)
+        t.unref?.()
+      }),
+    ])
+  } catch {
+    return undefined
+  }
+}
 
 /** Pulls token counts out of the SDK usage shape without assuming optional fields exist. */
 function readUsage(usage: unknown, costUsd: number): AgentUsage {
@@ -354,12 +420,50 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
     timedOut: false,
   }
 
+  const wantsUsage = opts.onPlanUsage !== undefined
+  const sampleEveryMs = opts.usageSampleEveryMs ?? DEFAULT_USAGE_SAMPLE_EVERY_MS
+  let usageBefore: unknown
+  let usageAfter: unknown
+  let sampledBefore = false
+  let beforeTries = 0
+  let lastSampleAt = 0
   try {
-    for await (const message of query({
+    const q = query({
       prompt: opts.prompt,
       options: buildOptions(opts, abortController, spawnHandle.spawn),
-    })) {
+    })
+    for await (const message of q) {
       opts.onMessage?.(message)
+
+      if (message.type === 'rate_limit_event') opts.onRateLimit?.((message as { rate_limit_info?: unknown }).rate_limit_info)
+
+      if (wantsUsage && (message.type === 'assistant' || isTurnSummary(message))) {
+        if (!sampledBefore) {
+          // The first completed API response of the session: the plan windows before the
+          // work. A sample without windows is too early; a few more tries, then give up.
+          beforeTries++
+          lastSampleAt = Date.now()
+          const sample = await sampleUsage(q)
+          if (sample !== undefined && hasWindows(sample)) {
+            sampledBefore = true
+            usageBefore = sample
+            opts.onPlanUsage?.('before', sample)
+          } else if (beforeTries >= BEFORE_SAMPLE_TRIES) {
+            sampledBefore = true
+            usageBefore = sample
+            if (sample !== undefined) opts.onPlanUsage?.('before', sample)
+          }
+        } else if (Date.now() - lastSampleAt >= sampleEveryMs || isTextOnly(message) || isTurnSummary(message)) {
+          // Re-sample as the work proceeds; the session is gone once the result arrives (the
+          // control request answers "Query closed" then), so the last of these is the "after".
+          lastSampleAt = Date.now()
+          const sample = await sampleUsage(q)
+          if (sample !== undefined) {
+            usageAfter = sample
+            opts.onPlanUsage?.('after', sample)
+          }
+        }
+      }
 
       if (message.type !== 'result') continue
 
@@ -379,6 +483,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
           sessionId: message.session_id,
           timedOut: false,
           ...(message.structured_output !== undefined ? { structuredOutput: message.structured_output } : {}),
+          ...(usageBefore !== undefined || usageAfter !== undefined ? { planUsage: { ...(usageBefore !== undefined ? { before: usageBefore } : {}), ...(usageAfter !== undefined ? { after: usageAfter } : {}) } } : {}),
           ...(reachedModel
             ? {}
             : {
@@ -399,6 +504,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
           sessionId: message.session_id,
           error: `agent run failed: ${message.subtype}`,
           timedOut: false,
+          ...(usageBefore !== undefined || usageAfter !== undefined ? { planUsage: { ...(usageBefore !== undefined ? { before: usageBefore } : {}), ...(usageAfter !== undefined ? { after: usageAfter } : {}) } } : {}),
         }
       }
     }

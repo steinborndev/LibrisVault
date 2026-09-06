@@ -29,6 +29,7 @@ import { parseOpenQuestions, knowledgePages } from './candidates.js'
 import { isDrift } from './planner.js'
 import { startOfToday } from './budget.js'
 import { addDays, atLocalTime, localDate, windowAt, type NightWindow } from './clock.js'
+import type { PlanStatus } from './usage-monitor.js'
 
 export const RECAP_DIR = 'wiki/meta/recaps'
 /**
@@ -52,6 +53,8 @@ export interface RecapRun {
   readonly costUsd: number | null
   readonly startedAt: string
   readonly proposalId: string | null
+  /** Plan points the run consumed per window, when measured (A5). */
+  readonly planPct: Readonly<Record<string, number>> | null
 }
 
 export interface RecapProposal {
@@ -134,6 +137,16 @@ export interface RecapModel {
     readonly merged: ReadonlyArray<{ readonly keptAgentName: string; readonly keptTopic: string; readonly droppedAgentName: string; readonly droppedTopic: string }>
     readonly overlaps: ReadonlyArray<{ readonly agentName: string; readonly topic: string; readonly page: string }>
   }
+  /** Plan utilization now and the research share (A5); null without the monitor. */
+  readonly plan: RecapPlan | null
+}
+
+export interface RecapPlan {
+  readonly available: boolean
+  readonly reason: string | null
+  readonly windows: ReadonlyArray<{ readonly window: string; readonly utilization: number; readonly resetsAt: string | null }>
+  readonly shares: { readonly unit: 'points' | 'usd'; readonly week: number; readonly fiveHour: number; readonly weekUsed: number; readonly fiveHourUsed: number; readonly stepsLeftWeek: number | null }
+  readonly calibrated: boolean
 }
 
 const LETTERS = 'abcdefghij'
@@ -158,6 +171,8 @@ export interface BuildModelInput {
   /** Unclaimed handoffs, for the spawn offers (A3). */
   readonly unclaimed?: readonly HandoffRecord[]
   readonly nameOf?: (agentId: string) => string
+  /** The usage monitor's status (A5). */
+  readonly plan?: PlanStatus | null
 }
 
 /** The deterministic skeleton (section 9.2). Pure: the tests build it from fixtures. */
@@ -190,6 +205,7 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
           costUsd: r.costUsd,
           startedAt: r.startedAt,
           proposalId: r.proposalId ?? null,
+          planPct: r.planPctDelta ?? null,
         }
       })
     const notebook = input.readPage(agent.notebookPath)
@@ -282,6 +298,15 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
       merged: (shift?.summary.merged ?? []).map((m) => ({ keptAgentName: m.keptAgentName, keptTopic: m.keptTopic, droppedAgentName: m.droppedAgentName, droppedTopic: m.droppedTopic })),
       overlaps: (shift?.summary.overlaps ?? []).map((o) => ({ agentName: o.agentName, topic: o.topic, page: o.page })),
     },
+    plan: input.plan
+      ? {
+          available: input.plan.available,
+          reason: input.plan.reason,
+          windows: input.plan.windows,
+          shares: input.plan.shares,
+          calibrated: input.plan.calibration.ready,
+        }
+      : null,
   }
 }
 
@@ -300,6 +325,7 @@ export function withModelDefaults(row: RecapRow<RecapModel>): RecapRow<RecapMode
     dedupe: m.dedupe ?? { merged: [], overlaps: [] },
     summaryNote: m.summaryNote ?? null,
     summaryCostUsd: m.summaryCostUsd ?? null,
+    plan: m.plan ?? null,
   }
   return { ...row, model }
 }
@@ -440,6 +466,22 @@ function renderHeader(model: RecapModel, mode: 'page' | 'text'): string {
   lines.push(
     `${b('Consumption')} (everything, manual runs and ingests included): today ${usd(model.usage.today.costUsd)} in ${model.usage.today.runs} run(s), this week ${usd(model.usage.week.costUsd)} in ${model.usage.week.runs} run(s).`,
   )
+  if (model.plan) {
+    const p = model.plan
+    if (p.available && p.windows.length > 0) {
+      const five = p.windows.find((w) => w.window === 'five_hour')
+      const week = p.windows.find((w) => w.window === 'seven_day')
+      const buckets = p.windows.filter((w) => w.window !== 'five_hour' && w.window !== 'seven_day' && w.window !== 'seven_day_oauth_apps').map((w) => `${w.window.replace('seven_day_', '').replace('model:', '')} ${w.utilization}%`)
+      lines.push(`${b('Plan now')}: 5-hour ${five ? `${five.utilization}%` : '-'}, week ${week ? `${week.utilization}%` : '-'}${buckets.length > 0 ? ` (${buckets.join(', ')})` : ''}.`)
+    }
+    const unit = p.shares.unit === 'points' ? 'points' : 'USD'
+    lines.push(
+      `${b('Research share')}: ${p.shares.weekUsed} of ${p.shares.week} ${unit} this week, ${p.shares.fiveHourUsed} of ${p.shares.fiveHour} ${unit} in this 5-hour window` +
+        (p.shares.stepsLeftWeek !== null ? `, about ${p.shares.stepsLeftWeek} standard step(s) left this week` : '') +
+        (p.shares.unit === 'usd' ? ` (USD-equivalent${p.reason ? `: ${p.reason}` : ''})` : '') +
+        '.',
+    )
+  }
   if (model.shift && model.shift.skipped.length > 0) {
     lines.push(`${b('Skipped')}: ${model.shift.skipped.map((s) => `${s.agentName} (${s.reason})`).join('; ')}.`)
   }
@@ -473,7 +515,8 @@ function renderFellow(model: RecapModel, f: RecapFellow, mode: 'page' | 'text'):
   lines.push('')
   if (f.runs.length === 0) lines.push(`${b('Ran')}: nothing since the last recap.`)
   for (const r of f.runs) {
-    const outcome = r.ok ? `${r.pagesCreated.length + r.pagesUpdated.length} page(s), ${usd(r.costUsd)}${r.commit ? `, commit ${r.commit.slice(0, 8)}` : ''}` : `failed: ${r.error ?? 'unknown'}`
+    const points = r.planPct && (r.planPct['seven_day'] !== undefined || r.planPct['five_hour'] !== undefined) ? `, ${r.planPct['seven_day'] !== undefined ? `${r.planPct['seven_day']} points of the week` : ''}${r.planPct['seven_day'] !== undefined && r.planPct['five_hour'] !== undefined ? ' and ' : ''}${r.planPct['five_hour'] !== undefined ? `${r.planPct['five_hour']} of the 5-hour window` : ''}` : ''
+    const outcome = r.ok ? `${r.pagesCreated.length + r.pagesUpdated.length} page(s), ${usd(r.costUsd)}${points}${r.commit ? `, commit ${r.commit.slice(0, 8)}` : ''}` : `failed: ${r.error ?? 'unknown'}`
     lines.push(`${b('Ran')}: ${r.kind} "${r.topic}" · ${outcome}`)
     if (r.pagesCreated.length > 0) lines.push(`  Created: ${r.pagesCreated.map(link).join(', ')}`)
     if (r.pagesUpdated.length > 0) lines.push(`  Updated: ${r.pagesUpdated.map(link).join(', ')}`)
@@ -612,6 +655,8 @@ export interface RecapServiceOptions {
   readonly shifts: ShiftStore
   /** Unclaimed requests for the spawn offers (A3); absent = none shown. */
   readonly handoffs?: HandoffStore
+  /** The plan status for the header (A5); absent = no plan lines. */
+  readonly plan?: () => PlanStatus | null
   readonly maintenance: MaintenanceRunner
   readonly jobs: Pick<JobStore, 'usageSince'>
   readonly commitMutex: Mutex
@@ -752,6 +797,7 @@ export class RecapService {
       commitStatus: (hash) => statusCache.get(hash),
       unclaimed: this.o.handoffs?.list({ status: ['unclaimed'], limit: 10 }) ?? [],
       nameOf: (id) => this.o.fellows.get(id)?.name ?? 'a Fellow',
+      plan: this.o.plan?.() ?? null,
     })
 
     let summaryRun: MaintenanceRun | null = null

@@ -7,7 +7,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
-import type { SpawnBody } from '../../api/types.ts'
+import type { PlanStatus, SpawnBody } from '../../api/types.ts'
+import { weeklyProjection } from '../../lib/plan.ts'
 
 const MODELS: Array<{ key: string; label: string; factor: number }> = [
   { key: 'sonnet-5', label: 'Sonnet 5', factor: 1 },
@@ -16,7 +17,7 @@ const MODELS: Array<{ key: string; label: string; factor: number }> = [
 ]
 const STEP_COST: Record<string, number> = { small: 2, standard: 6, deep: 6 }
 
-export function SpawnForm({ prefill, onDone, onCancel }: { prefill?: Partial<SpawnBody>; onDone: (agentId: string) => void; onCancel: () => void }): React.ReactElement {
+export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Partial<SpawnBody>; plan?: PlanStatus | undefined; onDone: (agentId: string) => void; onCancel: () => void }): React.ReactElement {
   const qc = useQueryClient()
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const [form, setForm] = useState<SpawnBody>({ name: '', intent: '', homeDomain: '', model: 'sonnet-5', step: 'standard', autonomy: 'veto', quotaRunsPerDay: 1, runFirstStep: true, ...prefill })
@@ -31,6 +32,8 @@ export function SpawnForm({ prefill, onDone, onCancel }: { prefill?: Partial<Spa
   const keys = (domains.data?.domains ?? []).map((d) => d.key).filter((k) => k !== 'meta')
   const model = MODELS.find((m) => m.key === form.model) ?? MODELS[0]!
   const monthly = Math.round(STEP_COST[form.step ?? 'standard']! * model.factor * 30 * (form.quotaRunsPerDay ?? 1) * 10) / 10
+  // The week in the plan's own unit once the model is calibrated (section 5.1, A5).
+  const weekly = weeklyProjection(plan, { stepUsd: STEP_COST[form.step ?? 'standard']! * model.factor, stepsPerDay: form.quotaRunsPerDay ?? 1, model: form.model ?? 'sonnet-5' })
   return (
     <form
       className="lib-spawn"
@@ -97,7 +100,10 @@ export function SpawnForm({ prefill, onDone, onCancel }: { prefill?: Partial<Spa
       <label className="lib-spawn-check">
         <input type="checkbox" checked={form.runFirstStep !== false} onChange={(e) => setForm({ ...form, runFirstStep: e.target.checked })} /> Start the first full run on the intent now
       </label>
-      <p className="mono-meta">About {monthly.toFixed(0)} USD a month at this pace (list price, estimate).</p>
+      <p className="mono-meta">
+        About {monthly.toFixed(0)} USD a month at this pace (list price, estimate)
+        {weekly.weekPct !== null && plan ? `; about ${weekly.weekPct.toFixed(1)} of the week's ${plan.shares.week} research points` : ''}.
+      </p>
       {spawn.error != null && <div className="toast err">{(spawn.error as Error).message}</div>}
       <div className="gx-actions">
         <button className="btn primary sm" type="submit" disabled={spawn.isPending}>

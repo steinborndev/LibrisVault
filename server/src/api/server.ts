@@ -43,6 +43,8 @@ import type { RecapService } from '../pipeline/recap.js'
 import { registerRecapsRoute } from './routes/recaps.js'
 import type { LibraryService } from '../pipeline/library.js'
 import { registerLibraryRoute } from './routes/library.js'
+import type { UsageMonitor } from '../pipeline/usage-monitor.js'
+import { registerUsageRoute } from './routes/usage.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -96,6 +98,8 @@ export interface AppContext {
   readonly recaps?: RecapService
   /** The Library screen's scene and rooms (section 10); registers its routes when present. */
   readonly library?: LibraryService
+  /** Plan utilization (section 8); registers its routes when present. */
+  readonly usage?: UsageMonitor
 }
 
 /** Location of the built frontend (`web/dist`), resolved relative to this source file. */
@@ -156,6 +160,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   if (ctx.fellows !== undefined) registerAgentsRoute(app, ctx, ctx.fellows)
   if (ctx.fellows !== undefined && ctx.recaps !== undefined) registerRecapsRoute(app, ctx, ctx.recaps, ctx.fellows)
   if (ctx.library !== undefined) registerLibraryRoute(app, ctx.library)
+  if (ctx.usage !== undefined) registerUsageRoute(app, ctx.usage, () => (ctx.settings ? ctx.settings.effective(ctx.config).researchModelDefault : 'sonnet-5'))
 
   await registerFrontend(app)
 

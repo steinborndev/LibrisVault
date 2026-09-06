@@ -38,7 +38,7 @@ export type AgentState = (typeof AGENT_STATES)[number]
  * whether to plan the Fellow again: `idle`, `quota`, `budget` and `no-candidates` are
  * planned every night; `covered` and `stalled` only on a wake trigger.
  */
-export const AGENT_SLEEP_CODES = ['idle', 'quota', 'budget', 'no-candidates', 'covered', 'stalled'] as const
+export const AGENT_SLEEP_CODES = ['idle', 'quota', 'budget', 'plan', 'no-candidates', 'covered', 'stalled'] as const
 export type AgentSleepCode = (typeof AGENT_SLEEP_CODES)[number]
 
 export interface AgentRecord {

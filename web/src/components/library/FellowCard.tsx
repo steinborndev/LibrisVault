@@ -155,7 +155,8 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
             <section className="gx-sec">
               <h3>This week</h3>
               <p className="mono-meta">
-                {c.spend.runsWeek} run(s), {usd(c.spend.weekUsd)} · today {c.spend.runsToday} run(s), {usd(c.spend.todayUsd)} · opened {c.value.pageOpens} time(s) this month
+                {c.spend.runsWeek} run(s), {usd(c.spend.weekUsd)}
+                {c.spend.weekPct !== null && ` (${c.spend.weekPct.toFixed(1)} points of the week)`} · today {c.spend.runsToday} run(s), {usd(c.spend.todayUsd)} · opened {c.value.pageOpens} time(s) this month
               </p>
             </section>
             <div className="gx-actions">

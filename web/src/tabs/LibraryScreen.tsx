@@ -23,6 +23,7 @@ import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
 import { navigate } from '../lib/router.ts'
 import { buildActors, floorLine, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
+import { shareLine } from '../lib/plan.ts'
 import { signText, WING_CAPACITY, FAVORITE_SLOTS } from '../lib/library/room.ts'
 
 const CANVAS_W = 1128
@@ -34,6 +35,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam }: { vaultName:
   const qc = useQueryClient()
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, refetchInterval: 5_000 })
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
+  // The plan's research share for the now chip and the spawn projection (A5); the endpoint is cached server-side.
+  const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
   const [mode, setMode] = useState<Mode>('full')
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(false)
@@ -275,6 +278,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam }: { vaultName:
               ))}
             {spawnOpen ? (
               <SpawnForm
+                plan={plan.data}
                 onDone={(id) => {
                   setSpawnOpen(false)
                   openCard(id)
@@ -445,6 +449,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam }: { vaultName:
           <div className="lib-corner bl">
             <span className={`chip${night ? ' dark' : ''}`}>
               <Icon name={night ? 'moon' : 'sun'} /> {hhmm} · {night ? 'night' : 'day'} · {floorLine(actors)}
+              {plan.data && ` · ${shareLine(plan.data)}`}
             </span>
           </div>
           {mode === 'full' && (

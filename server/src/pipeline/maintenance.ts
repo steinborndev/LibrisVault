@@ -28,6 +28,7 @@ import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
 import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit } from './expand.js'
+import { deltaBetween, parseSdkUsage, type UsageMonitor } from './usage-monitor.js'
 import { restoreCommitPaths } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
 import type { DomainCandidate } from './domain-candidates.js'
@@ -192,6 +193,11 @@ export interface MaintenanceRunnerOptions {
   /** Clock for the run records' start and finish stamps; tests pin it (the quota gate reads them). */
   readonly now?: () => Date
   /**
+   * The usage monitor (docs/agents/SPEC.md section 8.3): when present, every run samples the
+   * plan windows before and after through the SDK and the delta lands on its run row.
+   */
+  readonly usage?: UsageMonitor
+  /**
    * Shared with the ingest queue so each side can tell whether it is the sole vault writer
    * (finding F4). Defaults to a private registry when this runner is the only writer.
    */
@@ -247,6 +253,8 @@ export interface MaintenanceResult {
   readonly domainReview?: DomainReview
   /** Present for a `plan` run: the schema-bound answer, still to be validated by the caller. */
   readonly structuredOutput?: unknown
+  /** Plan utilization points the run consumed per window, when both samples were taken (A5). */
+  readonly planPctDelta?: Record<string, number>
 }
 
 export type MaintenanceRunStatus = 'running' | 'done' | 'error'
@@ -354,6 +362,7 @@ export class MaintenanceRunner {
   private readonly stateStore: MaintenanceStateStore | undefined
   private readonly runStore: AgentRunStore | undefined
   private readonly now: () => Date
+  private readonly usage: UsageMonitor | undefined
   /** One maintenance run at a time — they all write the vault. */
   private readonly runMutex = new Mutex()
   /**
@@ -385,6 +394,47 @@ export class MaintenanceRunner {
     this.stateStore = opts.stateStore
     this.runStore = opts.runStore
     this.now = opts.now ?? ((): Date => new Date())
+    this.usage = opts.usage
+  }
+
+  /** The sampling hooks for one run, when a usage monitor is wired (section 8.3); each sample is a run log line. */
+  private usageHooks(runId: string, log: (level: 'info' | 'warn' | 'error', message: string) => void): { onPlanUsage?: (phase: 'before' | 'after', response: unknown) => void; onRateLimit?: (info: unknown) => void } {
+    const usage = this.usage
+    if (!usage) return {}
+    return {
+      onPlanUsage: (phase, response) => {
+        try {
+          const windows = usage.recordSdk(response, phase, runId)
+          if (windows.length > 0) log('info', `plan usage ${phase}: ${windows.map((w) => `${w.window} ${w.utilization}%`).join(', ')}`)
+          else log('info', `plan usage ${phase}: no windows (${parseSdkUsage(response).reason ?? 'unknown'})`)
+        } catch {
+          /* bookkeeping only */
+        }
+      },
+      onRateLimit: (info) => {
+        try {
+          usage.recordEvent(info, runId)
+        } catch {
+          /* bookkeeping only */
+        }
+      },
+    }
+  }
+
+  /**
+   * The per-window delta of a run: its last sample against the monitor's baseline from
+   * just before the run (the previous run's last sample, an endpoint tick), else against
+   * the run's own first sample; undefined without an "after" or any "before".
+   */
+  private planDelta(res: AgentRunResult, startedMs: number): Record<string, number> | undefined {
+    if (!this.usage || !res.planUsage?.after) return undefined
+    const after = parseSdkUsage(res.planUsage.after)
+    if (!after.available) return undefined
+    const own = res.planUsage.before ? parseSdkUsage(res.planUsage.before) : null
+    const before = this.usage.baseline(new Date(startedMs).toISOString()) ?? (own?.available ? own.windows : null)
+    if (!before) return undefined
+    const delta = deltaBetween(before, after.windows)
+    return Object.keys(delta).length > 0 ? delta : undefined
   }
 
   /** The credential for a run. The route 503s in setup mode, so this throwing is a wiring bug. */
@@ -1003,7 +1053,7 @@ export class MaintenanceRunner {
     opts: RunOptions = {},
   ): Promise<void> {
     try {
-      const result = await this.run(kind, prompt, profile, opts)
+      const result = await this.run(kind, prompt, profile, opts, id)
       this.settle(id, result.ok ? 'done' : 'error', {
         result,
         ...(result.ok ? {} : { error: result.error ?? `${kind} failed` }),
@@ -1077,6 +1127,7 @@ export class MaintenanceRunner {
           proposalId: prev.proposalId ?? null,
           // The result text, capped by the store: the recap's summary lines read it later.
           answer: patch.result?.answer ?? null,
+          planPctDelta: patch.result?.planPctDelta ?? null,
           startedAt: prev.startedAt,
           finishedAt: settled.finishedAt ?? this.now().toISOString(),
         })
@@ -1112,6 +1163,7 @@ export class MaintenanceRunner {
     prompt: string,
     profile: StartProfile,
     opts: RunOptions = {},
+    runId = '',
   ): Promise<MaintenanceResult> {
     return this.runMutex.runExclusive(async () => {
       const channel = maintenanceChannel(kind)
@@ -1122,7 +1174,7 @@ export class MaintenanceRunner {
         this.events.publish({ kind: 'log', log: { jobId: channel, ts: new Date().toISOString(), level, message } })
 
       log('info', `maintenance: ${kind} started`)
-      if (profile === 'query') return this.runReadOnly(kind, prompt, opts, log)
+      if (profile === 'query') return this.runReadOnly(kind, prompt, opts, log, runId, startedMs)
       // Read the registry per run (it is a user-editable vault page), unless the caller pinned
       // its own extension text. The hygiene checklist rides along for the same reason it does
       // on ingest runs: any of these runs may write pages.
@@ -1153,17 +1205,21 @@ export class MaintenanceRunner {
         // Any run that may write pages gets the domain rules, not just ingest: a lint fixing a
         // frontmatter gap or an autoresearch filing new pages must obey the same closed list.
         ...(systemPromptExtra ? { systemPromptExtra } : {}),
+        ...this.usageHooks(runId, log),
         onMessage: (m: SDKMessage) => {
           const line = formatMessage(m)
           if (line !== undefined) log('info', line)
           for (const p of extractWrittenPaths(m, this.vaultRoot)) written.add(p)
         },
       })
+      const planPctDelta = this.planDelta(res, startedMs)
+      if (planPctDelta) log('info', `plan usage: ${Object.entries(planPctDelta).map(([w, d]) => `${w} +${d}`).join(', ')} points`)
+      const withDelta = <T extends MaintenanceResult>(r: T): T => (planPctDelta ? { ...r, planPctDelta } : r)
 
       if (!res.ok) {
         endRun()
         log('error', `maintenance: ${kind} failed: ${res.error ?? 'unknown error'}`)
-        return { ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` }
+        return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` })
       }
 
       // One commit per run, serialized against ingest commits. The sole-writer check and the
@@ -1198,7 +1254,7 @@ export class MaintenanceRunner {
           const undone = await this.commitMutex.runExclusive(() => restoreCommitPaths(this.vaultRoot, commitHash, `revert expand ${commitHash.slice(0, 8)}`))
           log(undone.reverted ? 'warn' : 'error', undone.reverted ? `reverted ${commitHash.slice(0, 8)} with ${undone.hash?.slice(0, 8)}` : `revert failed: ${undone.message ?? 'unknown'}`)
           this.events.publish({ kind: 'stats' })
-          return {
+          return withDelta({
             ok: false,
             kind,
             pages: [],
@@ -1206,7 +1262,7 @@ export class MaintenanceRunner {
             usage: res.usage,
             error: `expand run reverted: ${finding}${undone.reverted ? '' : ` (revert failed: ${undone.message ?? 'unknown'})`}`,
             answer: res.result,
-          }
+          })
         }
         log('info', 'research-expand stayed inside its page set')
       }
@@ -1227,7 +1283,7 @@ export class MaintenanceRunner {
         }
       }
 
-      const base: MaintenanceResult = { ok: true, kind, pages, commit: commitHash, usage: res.usage, answer: res.result }
+      const base: MaintenanceResult = withDelta({ ok: true, kind, pages, commit: commitHash, usage: res.usage, answer: res.result })
       if (kind === 'lint') {
         // The report file IS the deliverable: lint-fix is bounded by it, and the status model
         // dates the whole area from it. A run that exits cleanly without writing one leaves
@@ -1246,7 +1302,7 @@ export class MaintenanceRunner {
           return { ...base, lint: fromText }
         }
         log('error', 'lint finished without writing a report to wiki/meta/')
-        return {
+        return withDelta({
           ok: false,
           kind,
           pages,
@@ -1256,7 +1312,7 @@ export class MaintenanceRunner {
             'the lint run finished without writing a report to wiki/meta/ - nothing to base safe ' +
             'fixes on, so the run counts as failed. Re-run the lint.',
           ...(res.result !== undefined ? { answer: res.result } : {}),
-        }
+        })
       }
       if (kind === 'research' || kind === 'research-step' || kind === 'research-expand') {
         /**
@@ -1302,6 +1358,8 @@ export class MaintenanceRunner {
     prompt: string,
     opts: RunOptions,
     log: (level: 'info' | 'warn' | 'error', message: string) => void,
+    runId = '',
+    startedMs = Date.now(),
   ): Promise<MaintenanceResult> {
     const res = await this.runAgentFn({
       vaultRoot: this.vaultRoot,
@@ -1313,21 +1371,25 @@ export class MaintenanceRunner {
       ...(opts.effort ? { effort: opts.effort } : {}),
       ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
       ...(opts.outputFormat ? { outputFormat: opts.outputFormat } : {}),
+      ...this.usageHooks(runId, log),
       onMessage: (m: SDKMessage) => {
         const line = formatMessage(m)
         if (line !== undefined) log('info', line)
       },
     })
+    const planPctDelta = this.planDelta(res, startedMs)
+    if (planPctDelta) log('info', `plan usage: ${Object.entries(planPctDelta).map(([w, d]) => `${w} +${d}`).join(', ')} points`)
+    const withDelta = <T extends MaintenanceResult>(r: T): T => (planPctDelta ? { ...r, planPctDelta } : r)
     if (!res.ok) {
       log('error', `maintenance: ${kind} failed: ${res.error ?? 'unknown error'}`)
-      return { ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` }
+      return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` })
     }
     if (opts.outputFormat && res.structuredOutput === undefined) {
       log('error', `maintenance: ${kind} returned no structured answer`)
-      return { ok: false, kind, pages: [], commit: null, usage: res.usage, error: 'the run returned no structured answer', answer: res.result }
+      return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: 'the run returned no structured answer', answer: res.result })
     }
     log('info', `maintenance: ${kind} complete`)
-    return {
+    return withDelta({
       ok: true,
       kind,
       pages: [],
@@ -1335,7 +1397,7 @@ export class MaintenanceRunner {
       usage: res.usage,
       answer: res.result,
       ...(res.structuredOutput !== undefined ? { structuredOutput: res.structuredOutput } : {}),
-    }
+    })
   }
 
   /** Parses a lint report out of arbitrary answer text (fallback when no file was written). */

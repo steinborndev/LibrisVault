@@ -268,3 +268,80 @@ describe('buildAgentEnv (credential reaches the subprocess)', () => {
     expect(env['ANTHROPIC_API_KEY']).toBe('key-1')
   })
 })
+
+describe('plan usage sampling (A5)', () => {
+  /** A stream that also carries the SDK's experimental usage method, like the real Query object. */
+  function queryWithUsage(messages: unknown[], usage?: () => Promise<unknown>) {
+    const gen = streamOf(...messages)
+    return Object.assign(gen, usage ? { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: usage } : {})
+  }
+  const limits = (five: number | null) => ({ rate_limits_available: true, subscription_type: 'max', rate_limits: five === null ? null : { five_hour: { utilization: five, resets_at: 'r' }, seven_day: { utilization: 1, resets_at: 'w' } } })
+  const five = (res: unknown): string => String((res as { rate_limits: { five_hour: { utilization: number } } | null }).rate_limits?.five_hour.utilization ?? 'none')
+
+  const assistant = (...blocks: Array<Record<string, unknown>>) => ({ type: 'assistant', message: { role: 'assistant', content: blocks } })
+  const thinking = assistant({ type: 'thinking', thinking: '...' })
+  const toolCall = assistant({ type: 'tool_use', id: 't1', name: 'Read', input: {} })
+  const answer = assistant({ type: 'text', text: 'Done.' })
+  const turnSummary = { type: 'system', subtype: 'post_turn_summary' }
+  const sequence = (values: Array<number | null>) => {
+    let n = 0
+    return async () => limits(values[Math.min(n++, values.length - 1)]!)
+  }
+
+  it('samples until windows appear (the before), again on a text-only message and the turn summary, forwards rate-limit events', async () => {
+    // As seen for real: the thinking block streams before the first response completes (no
+    // windows yet), the tool call after it carries them; the throttle skips the second tool
+    // call; the final answer and the SDK's end-of-turn note are sampled.
+    queryMock.mockReturnValue(
+      queryWithUsage(
+        [{ type: 'system', subtype: 'init' }, thinking, toolCall, { type: 'rate_limit_event', rate_limit_info: { rateLimitType: 'five_hour', utilization: 11, status: 'allowed' } }, toolCall, answer, turnSummary, successResult()],
+        sequence([null, 10, 11, 12]),
+      ),
+    )
+    const phases: string[] = []
+    const events: unknown[] = []
+    const run = await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH, onPlanUsage: (phase, res) => phases.push(`${phase}:${five(res)}`), onRateLimit: (info) => events.push(info) })
+    expect(run.ok).toBe(true)
+    expect(phases).toEqual(['before:10', 'after:11', 'after:12'])
+    expect(events).toEqual([{ rateLimitType: 'five_hour', utilization: 11, status: 'allowed' }])
+    expect(run.planUsage).toEqual({ before: limits(10), after: limits(12) })
+
+    // With the throttle off every assistant message is sampled once the before is in.
+    phases.length = 0
+    queryMock.mockReturnValue(queryWithUsage([{ type: 'system', subtype: 'init' }, toolCall, toolCall, answer, successResult()], sequence([10, 11, 12])))
+    const every = await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH, usageSampleEveryMs: 0, onPlanUsage: (phase, res) => phases.push(`${phase}:${five(res)}`) })
+    expect(phases).toEqual(['before:10', 'after:11', 'after:12'])
+    expect(every.planUsage).toEqual({ before: limits(10), after: limits(12) })
+
+    // A single-turn run has a "before" and nothing to diff against.
+    queryMock.mockReturnValue(queryWithUsage([{ type: 'system', subtype: 'init' }, answer, successResult()], sequence([10])))
+    expect((await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH, onPlanUsage: () => {} })).planUsage).toEqual({ before: limits(10) })
+
+    // Windows that never come: the runner gives up on the before after a few tries and reports the last try.
+    phases.length = 0
+    const many = Array.from({ length: 8 }, () => toolCall)
+    queryMock.mockReturnValue(queryWithUsage([{ type: 'system', subtype: 'init' }, ...many, answer, successResult()], sequence([null])))
+    const none = await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH, usageSampleEveryMs: 0, onPlanUsage: (phase, res) => phases.push(`${phase}:${five(res)}`) })
+    expect(phases).toEqual(['before:none', 'after:none', 'after:none', 'after:none'])
+    expect(none.planUsage).toEqual({ before: limits(null), after: limits(null) })
+  })
+
+  it('does nothing without a hook, and copes with an SDK that lacks the method or throws', async () => {
+    let called = 0
+    queryMock.mockReturnValue(queryWithUsage([successResult()], async () => (called++, limits(1))))
+    expect((await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH })).planUsage).toBeUndefined()
+    expect(called).toBe(0)
+
+    queryMock.mockReturnValue(queryWithUsage([answer, successResult()]))
+    const phases: string[] = []
+    const run = await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH, onPlanUsage: (phase) => phases.push(phase) })
+    expect(run.ok).toBe(true)
+    expect(phases).toEqual([])
+    expect(run.planUsage).toBeUndefined()
+
+    queryMock.mockReturnValue(queryWithUsage([answer, successResult()], async () => { throw new Error('not available') }))
+    const failed = await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH, onPlanUsage: (phase) => phases.push(phase) })
+    expect(failed.ok).toBe(true)
+    expect(phases).toEqual([])
+  })
+})

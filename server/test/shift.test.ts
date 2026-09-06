@@ -29,6 +29,8 @@ import { buildServer } from '../src/api/server.js'
 import type { Config } from '../src/config.js'
 import type { AgentRunResult, RunAgentOptions } from '../src/pipeline/agent-runner.js'
 import type { Candidate } from '../src/pipeline/candidates.js'
+import { MemoryUsageSampleStore } from '../src/db/usage-samples.js'
+import { UsageMonitor } from '../src/pipeline/usage-monitor.js'
 
 const INTENT = 'How well can ground-based transit photometry constrain exoplanet atmospheres, and where do the systematics come from?'
 
@@ -67,6 +69,8 @@ interface Harness {
   committedPages: () => string[]
   researchOk: () => boolean
   gate: () => GateBlock | null
+  /** The shift's injected waits (A5 D5): each advances the clock instead of sleeping. */
+  sleeps: number[]
   candidates: () => Candidate[]
   runner: MaintenanceRunner
   service: FellowService
@@ -77,9 +81,20 @@ interface Harness {
   commitMutex: Mutex
   events: EventBus
   runs: SqliteAgentRunStore
+  /** The usage monitor, when the harness was built with one (A5). */
+  usage?: UsageMonitor
+  /** What the fake runner reports as the plan windows before and after each run. */
+  windows: { before: [number, number]; after: [number, number] }
+  planSettings: { researchShareWeekPct: number; researchShare5hPct: number; reserve5hPct: number; reserveWeekPct: number; planWeekUsd: number; plan5hUsd: number }
 }
 
-function makeHarness(): Harness {
+const sdkUsage = (five: number, week: number): Record<string, unknown> => ({
+  rate_limits_available: true,
+  subscription_type: 'max',
+  rate_limits: { five_hour: { utilization: five, resets_at: null }, seven_day: { utilization: week, resets_at: null } },
+})
+
+function makeHarness(withUsage = false): Harness {
   const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-'))
   fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
   fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# index\n')
@@ -88,7 +103,15 @@ function makeHarness(): Harness {
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A')
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed')
   const db = openDb(MEMORY_DB)
-  const h: Partial<Harness> = { vaultRoot, db, calls: [], clock: { now: at(7, 1, 30) } }
+  const h: Partial<Harness> = {
+    vaultRoot,
+    db,
+    calls: [],
+    clock: { now: at(7, 1, 30) },
+    sleeps: [],
+    windows: { before: [10, 20], after: [12, 21] },
+    planSettings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80 },
+  }
   h.planAnswer = () => TWO_PROPOSALS
   h.committedPages = () => ['wiki/questions/Research: Q.md', 'wiki/concepts/New Concept.md']
   h.researchOk = () => true
@@ -98,6 +121,7 @@ function makeHarness(): Harness {
   const commitMutex = new Mutex()
   const events = new EventBus()
   const runs = new SqliteAgentRunStore(db)
+  const usage = withUsage ? new UsageMonitor({ store: new MemoryUsageSampleStore(), runs, settings: () => h.planSettings!, now }) : undefined
   const okResult = (text: string): AgentRunResult => ({ ok: true, result: text, usage: { tokensIn: 12, tokensOut: 3, costUsd: 0.5 }, durationMs: 1, numTurns: 1, sessionId: 's', timedOut: false })
   const runner = new MaintenanceRunner({
     vaultRoot,
@@ -108,15 +132,22 @@ function makeHarness(): Harness {
     runAgent: async (opts) => {
       h.calls!.push(opts)
       await new Promise((r) => setTimeout(r, 15))
+      // The plan samples a real SDK session would yield (A5), reported through the hooks and on the result.
+      const before = sdkUsage(...h.windows!.before)
+      const after = sdkUsage(...h.windows!.after)
+      opts.onPlanUsage?.('before', before)
+      opts.onPlanUsage?.('after', after)
+      const planUsage = opts.onPlanUsage ? { planUsage: { before, after } } : {}
       if (opts.profile === 'query') {
         const answer = h.planAnswer!()
-        if (answer === 'FAIL') return { ...okResult(''), ok: false, error: 'planner exploded' }
-        return { ...okResult('planned'), usage: { tokensIn: 5, tokensOut: 2, costUsd: 0.4 }, structuredOutput: answer }
+        if (answer === 'FAIL') return { ...okResult(''), ok: false, error: 'planner exploded', ...planUsage }
+        return { ...okResult('planned'), usage: { tokensIn: 5, tokensOut: 2, costUsd: 0.4 }, structuredOutput: answer, ...planUsage }
       }
-      return h.researchOk!() ? okResult('filed pages') : { ...okResult(''), ok: false, error: 'agent exploded' }
+      return h.researchOk!() ? { ...okResult('filed pages'), ...planUsage } : { ...okResult(''), ok: false, error: 'agent exploded', ...planUsage }
     },
     commit: async () => ({ committed: true, hash: 'abc12345', committedPages: h.committedPages!() }),
     runStore: runs,
+    ...(usage ? { usage } : {}),
   })
   const agents = new SqliteAgentStore(db)
   const proposals = new SqliteProposalStore(db)
@@ -128,13 +159,71 @@ function makeHarness(): Harness {
     notebook: new NotebookWriter({ vaultRoot, commitMutex }),
     now,
     candidates: () => h.candidates!(),
-    gate: () => h.gate!(),
+    gate: (ctx) => h.gate!() ?? (usage ? usage.gate(ctx) : null),
+    ...(usage ? { estimatePct: (cost: number, model: string) => usage.estimatePct(cost, model) } : {}),
   })
   const shifts = new SqliteShiftStore(db)
-  const shift = new NightShift({ fellows: service, shifts, window: () => ({ start: '01:00', end: '06:00' }), now })
-  Object.assign(h, { runner, service, shift, shifts, proposals, agents, commitMutex, events, runs })
+  const shift = new NightShift({
+    fellows: service,
+    shifts,
+    window: () => ({ start: '01:00', end: '06:00' }),
+    now,
+    sleep: async (ms) => {
+      h.sleeps!.push(ms)
+      h.clock!.now = new Date(h.clock!.now.getTime() + ms)
+    },
+  })
+  Object.assign(h, { runner, service, shift, shifts, proposals, agents, commitMutex, events, runs, ...(usage ? { usage } : {}) })
   return h as Harness
 }
+
+describe('plan points through the whole path (A5)', () => {
+  let h: Harness
+  beforeEach(() => {
+    h = makeHarness(true)
+  })
+  afterEach(() => {
+    h.db.close()
+    fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+  })
+
+  it('deltas land on the run rows, three runs calibrate, proposals and the card carry points, the gate refuses in points', async () => {
+    const { agent } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false, quotaRunsPerDay: 5 })
+    const ada = agent!
+    // A wide 5-hour share: this test is about the week's.
+    h.planSettings = { ...h.planSettings, researchShare5hPct: 60 }
+    // Three manual steps at 0.5 USD, each moving the week by one point and the 5-hour window by two.
+    for (let i = 0; i < 3; i++) {
+      h.windows = { before: [10 + 2 * i, 20 + i], after: [12 + 2 * i, 21 + i] }
+      const { run, refusal } = h.service.step(ada.id, { topic: `Step ${i}` })
+      expect(refusal).toBeUndefined()
+      await h.service.settled(run!.id)
+      h.clock.now = new Date(h.clock.now.getTime() + 60_000)
+    }
+    const rows = h.runs.list({ agentId: ada.id, kind: 'research-step' })
+    expect(rows).toHaveLength(3)
+    // The first run diffs against its own before sample; the later ones against the previous run's after sample (the baseline).
+    expect(rows.map((r) => r.planPctDelta)).toEqual([{ five_hour: 2, seven_day: 1 }, { five_hour: 2, seven_day: 1 }, { five_hour: 2, seven_day: 1 }])
+    expect(h.usage!.calibration()).toEqual({ perModel: { 'sonnet-5': { fiveHour: 4, sevenDay: 2, n: 3 } }, ready: true })
+    expect(h.service.card(ada.id)!.spend).toMatchObject({ runsWeek: 3, weekUsd: 1.5, weekPct: 3 })
+
+    // A planning run prices its proposals in points: a 2 USD step is 4 points of the week.
+    const planned = h.service.plan(ada.id)
+    await h.service.settled(planned.run!.id)
+    expect(h.service.pendingProposals(ada.id).map((p) => [p.estCostUsd, p.estPlanPct])).toEqual([[2, 4], [2, 4]])
+
+    // The share holds 10 points; 4 consumed (the planning run took one too) plus 4 fits.
+    const fits = h.service.step(ada.id, { topic: 'fits' })
+    expect(fits.refusal).toBeUndefined()
+    await h.service.settled(fits.run!.id)
+    expect(h.usage!.consumption()).toMatchObject({ weekPct: 5, weekRuns: 5 })
+    // A share of 6 has no room for another 4-point step.
+    h.planSettings = { ...h.planSettings, researchShareWeekPct: 6 }
+    const refused = h.service.step(ada.id, { topic: 'no room' }).refusal
+    expect(refused).toMatchObject({ code: 'share', error: 'the research share of the week is used up (5 of 6 points, this step about 4)' })
+    expect(h.usage!.status({ estCostUsd: 2, model: 'sonnet-5' }).shares).toEqual({ unit: 'points', week: 6, fiveHour: 60, weekUsed: 5, fiveHourUsed: 10, stepsLeftWeek: 0 })
+  })
+})
 
 describe('planning, proposals and the night shift', () => {
   let h: Harness
@@ -359,6 +448,31 @@ describe('planning, proposals and the night shift', () => {
     expect(late.summary.executed).toEqual([])
     expect(h.shift.status()).toMatchObject({ inWindow: true, cycleDate: '2026-09-09', running: false })
     expect(h.shift.status().nextStartsAt).toBe(at(10, 1).toISOString())
+  })
+
+  it('a plan refusal puts the Fellow to sleep with the plan code; the shift waits for a 5-hour reset inside the window and tries again', async () => {
+    const ada = await spawn({})
+    await h.shift.run('timer')
+    h.clock.now = at(8, 1, 30)
+    // The 5-hour window resets at 02:00: worth waiting for (D5).
+    const resetsAt = at(8, 2, 0).toISOString()
+    h.gate = () => (h.clock.now.getTime() < at(8, 2, 0).getTime() ? { code: 'reserve', reason: 'the 5-hour window is at 70%, above the 60% reserve', resetsAt } : null)
+    const night = await h.shift.run('timer')
+    expect(h.sleeps).toEqual([30 * 60_000 + 30_000])
+    expect(night.summary.executed).toMatchObject([{ agentName: 'Ada', kind: 'research-step', ok: true }])
+    expect(night.summary.skipped.map((s) => s.reason)).toContain('the 5-hour window is at 70%, above the 60% reserve')
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'waiting' })
+
+    // A reset beyond the window (or none) is not waited for: the Fellow sleeps with the plan code.
+    h.clock.now = at(9, 1, 30)
+    h.gate = () => ({ code: 'share', reason: 'the research share of the week is used up (9 of 10 points, this step about 3)', resetsAt: at(12, 0, 0).toISOString() })
+    const blocked = await h.shift.run('timer')
+    expect(h.sleeps).toHaveLength(1)
+    expect(blocked.summary.executed).toEqual([])
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'plan', sleepReason: expect.stringContaining('wakes when the window resets') })
+    // The plan gate holds planning runs as well: they spend plan points too.
+    expect(blocked.summary.planned).toEqual([])
+    expect(blocked.summary.skipped.map((s) => s.reason)).toContain('the research share of the week is used up (9 of 10 points, this step about 3)')
   })
 
   it('an intent edit through the API wins over the page and wakes a sleeping Fellow; retire expires proposals', async () => {

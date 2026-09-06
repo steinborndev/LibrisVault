@@ -49,6 +49,8 @@ export interface AgentRunRecord {
   readonly proposalId?: string | null
   /** The agent's final text, capped (schema v17); the recap's "what it found" reads it. */
   readonly answer?: string | null
+  /** Plan utilization points the run consumed per window (schema v20), null when unmeasured. */
+  readonly planPctDelta?: Readonly<Record<string, number>> | null
 }
 
 /** How much of a run's answer the row keeps. */
@@ -116,6 +118,7 @@ interface Row {
   model: string | null
   proposal_id: string | null
   answer: string | null
+  plan_pct_delta: string | null
 }
 
 function toRecord(row: Row): AgentRunRecord {
@@ -144,6 +147,20 @@ function toRecord(row: Row): AgentRunRecord {
     model: row.model,
     proposalId: row.proposal_id,
     answer: row.answer,
+    planPctDelta: parseDelta(row.plan_pct_delta),
+  }
+}
+
+function parseDelta(text: string | null): Record<string, number> | null {
+  if (text === null) return null
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (parsed === null || typeof parsed !== 'object') return null
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) if (typeof v === 'number' && Number.isFinite(v)) out[k] = v
+    return out
+  } catch {
+    return null
   }
 }
 
@@ -159,8 +176,8 @@ export class SqliteAgentRunStore implements AgentRunStore {
     this.db
       .prepare(
         `INSERT INTO agent_runs
-           (id, user_id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id, answer)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, user_id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id, answer, plan_pct_delta)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            kind = excluded.kind,
            label = excluded.label,
@@ -177,7 +194,8 @@ export class SqliteAgentRunStore implements AgentRunStore {
            agent_id = excluded.agent_id,
            model = excluded.model,
            proposal_id = excluded.proposal_id,
-           answer = excluded.answer`,
+           answer = excluded.answer,
+           plan_pct_delta = excluded.plan_pct_delta`,
       )
       .run(
         run.id,
@@ -198,6 +216,7 @@ export class SqliteAgentRunStore implements AgentRunStore {
         run.model ?? null,
         run.proposalId ?? null,
         run.answer === undefined || run.answer === null ? null : run.answer.slice(0, ANSWER_CAP),
+        run.planPctDelta === undefined || run.planPctDelta === null ? null : JSON.stringify(run.planPctDelta),
       )
     this.prune()
   }
@@ -218,7 +237,7 @@ export class SqliteAgentRunStore implements AgentRunStore {
     params.push(limit)
     const rows = this.db
       .prepare(
-        `SELECT id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id, answer
+        `SELECT id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model, proposal_id, answer, plan_pct_delta
            FROM agent_runs
           WHERE user_id = ?${where}
           ORDER BY finished_at DESC

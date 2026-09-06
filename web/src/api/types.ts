@@ -904,7 +904,7 @@ export interface FellowCard extends FellowSummary {
   lastActive: string | null
   quota: { runsPerDay: number; usedToday: number }
   proposals: ProposalRecord[]
-  spend: { todayUsd: number; weekUsd: number; runsToday: number; runsWeek: number }
+  spend: { todayUsd: number; weekUsd: number; runsToday: number; runsWeek: number; weekPct: number | null }
   value: { pageOpens: number; recapLinks: number }
 }
 
@@ -926,4 +926,28 @@ export interface SpawnBody {
   quotaRunsPerDay?: number
   autonomy?: string
   runFirstStep?: boolean
+}
+
+// ---- Plan utilization (docs/agents/SPEC.md section 8; behind AGENTS_ENABLED) ----
+
+export interface PlanWindow {
+  window: string
+  utilization: number
+  resetsAt: string | null
+}
+
+export interface PlanStatus {
+  available: boolean
+  source: 'sdk' | 'event' | 'endpoint' | null
+  reason: string | null
+  subscription: string | null
+  sampledAt: string | null
+  windows: PlanWindow[]
+  /** When each window resets, as far as the samples or the rate-limit events told. */
+  resets: Record<string, string>
+  calibration: { perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number }>; ready: boolean }
+  consumption: { weekPct: number | null; fiveHourPct: number | null; weekUsd: number; fiveHourUsd: number; weekRuns: number; fiveHourRuns: number }
+  settings: { researchShareWeekPct: number; researchShare5hPct: number; reserve5hPct: number; reserveWeekPct: number; planWeekUsd: number; plan5hUsd: number }
+  shares: { unit: 'points' | 'usd'; week: number; fiveHour: number; weekUsed: number; fiveHourUsed: number; stepsLeftWeek: number | null }
+  gate: { code: 'reserve' | 'share'; window: string; reason: string; resetsAt: string | null } | null
 }

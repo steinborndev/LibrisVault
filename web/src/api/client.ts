@@ -43,6 +43,7 @@ import type {
   FellowCard,
   ProposalRecord,
   SpawnBody,
+  PlanStatus,
   PagePreview,
   PageFull,
   VaultGraph,
@@ -413,6 +414,8 @@ export const api = {
     }),
 
   agents: (): Promise<AgentsResponse> => fetch(`${BASE}/agents`).then(json<AgentsResponse>),
+
+  usagePlan: (): Promise<PlanStatus> => fetch(`${BASE}/usage/plan`).then(json<PlanStatus>),
 
   agentCard: (id: string): Promise<FellowCard> => fetch(`${BASE}/agents/${encodeURIComponent(id)}/card`).then(json<FellowCard>),
 

@@ -524,6 +524,26 @@ CREATE TABLE library_layout (
 );
 `
 
+/**
+ * v20 - plan-percent accounting (docs/agents/SPEC.md sections 8.3 and 11, milestone A5):
+ * utilization samples of the plan windows, and the per-window delta a Fellow run consumed.
+ */
+const V20 = `
+CREATE TABLE usage_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  ts TEXT NOT NULL,
+  window TEXT NOT NULL,
+  utilization REAL NOT NULL,
+  resets_at TEXT,
+  run_id TEXT,
+  phase TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'sdk'
+);
+CREATE INDEX usage_samples_window ON usage_samples (window, ts);
+ALTER TABLE agent_runs ADD COLUMN plan_pct_delta TEXT;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -544,4 +564,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 17, up: V17 },
   { version: 18, up: V18 },
   { version: 19, up: V19 },
+  { version: 20, up: V20 },
 ]

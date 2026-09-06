@@ -37,7 +37,14 @@ export interface NightShiftOptions {
   readonly tickMs?: number
   /** Titles of the existing synthesis pages, for the dedupe notes (section 6.6, A3). */
   readonly synthesisTitles?: () => readonly string[]
+  /** Refreshes the plan usage before a round (the endpoint sample, cached); optional. */
+  readonly beforeRound?: () => Promise<void>
+  /** Waits; injectable so the tests run dry. */
+  readonly sleep?: (ms: number) => Promise<void>
 }
+
+/** How long the shift waits for a 5-hour reset at most (docs/tasks/TASKS-A5.md D5). */
+export const MAX_RESET_WAIT_MS = 4 * 3600_000
 
 /** Two pending topics this alike are one topic (overlap coefficient of the significant tokens). */
 export const DEDUPE_THRESHOLD = 0.6
@@ -64,6 +71,8 @@ export class NightShift {
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   private readonly tickMs: number
   private readonly synthesisTitles: () => readonly string[]
+  private readonly beforeRound: () => Promise<void>
+  private readonly sleep: (ms: number) => Promise<void>
   private timer: ReturnType<typeof setInterval> | undefined
   private running: Promise<ShiftRecord> | null = null
 
@@ -75,6 +84,8 @@ export class NightShift {
     this.log = opts.log ?? ((): void => {})
     this.tickMs = opts.tickMs ?? 60_000
     this.synthesisTitles = opts.synthesisTitles ?? ((): readonly string[] => [])
+    this.beforeRound = opts.beforeRound ?? (async (): Promise<void> => {})
+    this.sleep = opts.sleep ?? ((ms): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)))
   }
 
   /**
@@ -229,6 +240,11 @@ export class NightShift {
         const refusal = outcome.refusal
         if (refusal?.code === 'quota') this.fellows.sleep(agent.id, 'quota', `${refusal.error}; wakes at the next night shift`)
         else if (refusal?.code === 'budget') this.fellows.sleep(agent.id, 'budget', `${refusal.error}; wakes when it clears`)
+        else if (refusal?.code === 'reserve' || refusal?.code === 'share') {
+          this.fellows.sleep(agent.id, 'plan', `${refusal.error}; wakes when the window resets`)
+          const reset = this.fellows.lastPlanReset()
+          if (reset !== null) pendingReset = pendingReset === null ? reset : Math.min(pendingReset, reset)
+        }
         skip(agent, refusal?.error ?? 'could not start')
         return false
       }
@@ -257,14 +273,29 @@ export class NightShift {
       this.log('warn', `shift: dedupe failed: ${(err as Error).message}`)
     }
 
-    // Phase 1: the plans of veto and manual Fellows, in rounds (section 8.5).
+    // Phase 1: the plans of veto and manual Fellows, in rounds (section 8.5). A 5-hour
+    // reset inside the window is worth waiting for (D5): the refused Fellows get another round.
+    let pendingReset: number | null = null
+    let waited = false
     for (let round = 0; round < MAX_ROUNDS; round++) {
+      pendingReset = null
+      await this.beforeRound()
       let progressed = false
       for (const agent of active()) {
         if (agent.autonomy === 'auto') continue
         if (await executeOne(agent)) progressed = true
       }
-      if (!progressed) break
+      if (progressed) continue
+      const now = this.now().getTime()
+      if (!waited && pendingReset !== null && pendingReset > now && (deadline === null || pendingReset < deadline) && pendingReset - now <= MAX_RESET_WAIT_MS) {
+        waited = true
+        const ms = pendingReset - now + 30_000
+        this.log('info', `shift: waiting ${Math.round(ms / 60_000)} min for the 5-hour window to reset`)
+        await this.sleep(ms)
+        for (const s of this.fellows.list().map((x) => x.agent)) if (s.state === 'sleeping' && s.sleepCode === 'plan') this.fellows.sleep(s.id, 'idle', 'the window reset; trying again')
+        continue
+      }
+      break
     }
 
     // Phase 2: one planning run per eligible Fellow against the fresh vault state.
