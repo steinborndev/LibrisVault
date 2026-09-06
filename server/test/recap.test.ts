@@ -569,6 +569,26 @@ describe('recap and value routes', () => {
   })
 })
 
+describe('a recap stored before A3', () => {
+  it('reads with the missing fields filled in', async () => {
+    const h = makeHarness()
+    try {
+      const old = buildRecapModel({ cycleDate: '2026-09-01', now: at(1, 7, 0), since: 's', window: WINDOW, fellows: [], runsOf: () => [], pendingOf: () => [], shift: null, usage: () => ({ costUsd: 0, runs: 0 }), valueOf: () => ({ pageOpens: 0, recapLinks: 0 }), readPage: () => undefined, commitStatus: () => undefined })
+      const withoutA3: Record<string, unknown> = { ...old }
+      delete withoutA3['unclaimed']
+      delete withoutA3['dedupe']
+      h.recapStore.put({ cycleDate: '2026-09-01', generatedAt: 'g', path: null, quiet: true, model: withoutA3 as unknown as RecapModel, delivered: {}, answeredAt: null })
+      expect(h.recaps.get('2026-09-01')!.model).toMatchObject({ unclaimed: [], dedupe: { merged: [], overlaps: [] } })
+      expect(h.recaps.list()[0]!.model.dedupe.merged).toEqual([])
+      expect(h.recaps.latest()!.model.unclaimed).toEqual([])
+      expect(await h.recaps.answerText('spawn u1')).toContain('no unclaimed request u1')
+    } finally {
+      h.db.close()
+      fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('memory stores behave like the sqlite ones', () => {
   it('recaps and value events', () => {
     const recaps = new MemoryRecapStore<{ x: number }>()

@@ -285,6 +285,25 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
   }
 }
 
+/**
+ * A stored model may predate a field (a recap built before A3 has no `unclaimed` and no
+ * `dedupe`); reading fills the defaults, so the dashboard and the answer path never see a
+ * hole. Stored rows are not rewritten.
+ */
+export function withModelDefaults(row: RecapRow<RecapModel>): RecapRow<RecapModel> {
+  const m = row.model as Partial<RecapModel>
+  const model: RecapModel = {
+    ...(m as RecapModel),
+    fellows: m.fellows ?? [],
+    sleeping: m.sleeping ?? [],
+    unclaimed: m.unclaimed ?? [],
+    dedupe: m.dedupe ?? { merged: [], overlaps: [] },
+    summaryNote: m.summaryNote ?? null,
+    summaryCostUsd: m.summaryCostUsd ?? null,
+  }
+  return { ...row, model }
+}
+
 /* --------------------------------- the summary run --------------------------------- */
 
 const summarySchema = z.object({
@@ -627,15 +646,17 @@ export class RecapService {
   }
 
   list(limit = 30): RecapRow<RecapModel>[] {
-    return this.o.recaps.list(limit)
+    return this.o.recaps.list(limit).map(withModelDefaults)
   }
 
   get(cycleDate: string): RecapRow<RecapModel> | undefined {
-    return this.o.recaps.get(cycleDate)
+    const row = this.o.recaps.get(cycleDate)
+    return row ? withModelDefaults(row) : undefined
   }
 
   latest(): RecapRow<RecapModel> | undefined {
-    return this.o.recaps.list(1)[0]
+    const row = this.o.recaps.list(1)[0]
+    return row ? withModelDefaults(row) : undefined
   }
 
   get isBuilding(): boolean {
@@ -802,7 +823,7 @@ export class RecapService {
    * recap's stored mapping; a Fellow number resolves against its order.
    */
   async answer(cycleDate: string, answers: readonly RecapAnswer[], via: DecisionChannel): Promise<{ results: AnswerResult[]; recap: RecapRow<RecapModel> } | undefined> {
-    const recap = this.o.recaps.get(cycleDate)
+    const recap = this.get(cycleDate)
     if (!recap) return undefined
     const results: AnswerResult[] = []
     for (const a of answers) {
@@ -836,8 +857,8 @@ export class RecapService {
         results.push({ answer: a, ok: false, message: (err as Error).message })
       }
     }
-    const updated = this.o.recaps.update(cycleDate, { answeredAt: this.now().toISOString() }) ?? recap
-    return { results, recap: updated }
+    const updated = this.o.recaps.update(cycleDate, { answeredAt: this.now().toISOString() })
+    return { results, recap: updated ? withModelDefaults(updated) : recap }
   }
 
   private async applyOne(a: Exclude<RecapAnswer, { action: 'spawn' }>, fellow: RecapFellow, proposal: RecapProposal | undefined, via: DecisionChannel): Promise<{ ok: boolean; message: string }> {

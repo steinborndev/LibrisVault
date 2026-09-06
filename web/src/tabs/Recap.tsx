@@ -130,7 +130,9 @@ function RecapBody({
   onFollow: (page: string, agentId: string) => void
   busy: boolean
 }): React.ReactElement {
-  const m = row.model
+  // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
+  const stored = row.model
+  const m = { ...stored, unclaimed: stored.unclaimed ?? [], dedupe: stored.dedupe ?? { merged: [], overlaps: [] }, sleeping: stored.sleeping ?? [], fellows: stored.fellows ?? [] }
   return (
     <div className="recap">
       <Facts size="lead">
