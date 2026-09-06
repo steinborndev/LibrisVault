@@ -731,8 +731,35 @@ and Focus toggle is reachable while a window is open. The scope sentence and the
 button are gone: the room strip says which room this is, and the Catalog is a tab.
 
 Deep links: `/library?shelf=<domain>` opens the window, `&pane=catalog` on its second view,
-`&page=<vault path>` on a page inside it. The tab row puts the Library between Research and
-the two screens it now contains.
+`&page=<vault path>` on a page inside it, and `?board=hot|recap|reading` opens a board. The
+tab row puts the Library between Research and the two screens it now contains.
+
+### 10.6 The reading list (as built, 2026-09-06)
+
+A research step reads sources over the web and writes prose about them; nothing of the
+document itself reaches the vault, which is why a Fellow's pages show no source in the
+catalog. Letting the agent download would step around every check the ingest path makes -
+the SSRF guard with its pinned redirects, the size cap, the magic-byte refusal of
+executables, the dedupe and the job log - and a research run reads pages written by
+strangers, so what it is told to save is not always what the user wants saved. The
+`/sources/raw` route hands PDFs to the browser inline, which is the other end of that risk.
+
+So the agent writes the entry and the service does the fetching. The third board on the
+wall, **Reading list**, is that page: every research step appends what it read and thought
+worth having in the original to `wiki/meta/reading-list.md`, one entry per publication, in
+a fixed field shape (`title`, `url`, `ref`, `domain`, `why`, `found`). Append only, no
+duplicates, and never the document itself - the prompt says so in those words.
+
+The board reads the page back, matches each url against the job log, and offers the ingest
+as one click: `POST /api/v1/reading-list/ingest` takes a url that must already stand in the
+list (the route is not an open fetch proxy) and enqueues it as an ordinary web job. From
+there it is a normal ingest: checked, deduped, filed under `.raw/<job-id>/`, and from then
+on the pages it produced carry it in the catalog's source column. A row shows its state -
+queued, ingesting, done with a page count, or a retry after a failure.
+
+A later step could let the shift ingest a capped number of entries by itself (only from an
+allow-list of hosts, inside the plan share); even then the service does the downloading,
+not the agent.
 ## 11. Data model (SQLite, operational state only)
 
 - `agents`: id, user_id, name, slug, intent, scope, home_domain, extra_domains (json),

@@ -24,6 +24,9 @@ const SHELF = {
  * over a walnut wainscot. `seam` is the joint between the blocks, `base` the skirting and
  * the cornice - it takes the wainscot's colour, so no pale strip runs along the floor.
  */
+/** The boards on the short wall, each opening as a window over the room. */
+export type BoardId = 'hot' | 'recap' | 'reading'
+
 /** How far a wall tile reaches into the next one, so no seam of the page shows between them. */
 const SEAM = 0.02
 
@@ -260,7 +263,7 @@ export interface RoomSvgProps {
   readonly onSlotPointerEnter?: (slot: number) => void
   readonly onActorClick?: (actor: Actor, e: React.MouseEvent) => void
   /** A board on the short wall was clicked; the screen opens it as a window. */
-  readonly onBoardClick?: ((board: 'hot' | 'recap') => void) | undefined
+  readonly onBoardClick?: ((board: BoardId) => void) | undefined
   /** The passage in the back wall was clicked; the screen shows the next room. */
   readonly onPassageClick?: (() => void) | undefined
   readonly passageTitle?: string | undefined
@@ -382,7 +385,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     FAV_I.forEach((fi, n) => placeCase(fi, WALL_J, n, 'favorite'))
     // Two boards on the short wall: the hot cache and the daily recap, each under a title
     // band. Clicking one opens it as a window over the room (docs/agents/SPEC.md section 10).
-    const board = (j0: number, j1: number, title: string, id: 'hot' | 'recap'): React.ReactNode => {
+    const board = (j0: number, j1: number, title: string, id: BoardId): React.ReactNode => {
       // Centred on the wall: board plus title band is 70 high, so 40 of wall is left above
       // and below it. It crosses the wainscot rail, the way a framed picture would.
       const zBase = 40
@@ -412,8 +415,14 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         </g>
       )
     }
-    add(4.05 + 0.001, 'board-hot', board(1.55, 4.05, 'Hot cache', 'hot'))
-    add(9.55 + 0.001, 'board-recap', board(7.05, 9.55, 'Daily recap', 'recap'))
+    // Three boards across the short wall, with the same run of wall between and beside them:
+    // 3 x 2.5 wide leaves 3.5 of the 11, split four ways.
+    const bw = 2.5
+    const gap = (ROOM.NJ - 3 * bw) / 4
+    const at = (n: number): [number, number] => [gap + n * (bw + gap), gap + n * (bw + gap) + bw]
+    add(at(0)[1] + 0.001, 'board-hot', board(at(0)[0], at(0)[1], 'Hot cache', 'hot'))
+    add(at(1)[1] + 0.001, 'board-recap', board(at(1)[0], at(1)[1], 'Daily recap', 'recap'))
+    add(at(2)[1] + 0.001, 'board-reading', board(at(2)[0], at(2)[1], 'Reading list', 'reading'))
     // fireplace with the hood, four armchairs
     const fi = 5.5
     const fj = 5.4

@@ -951,3 +951,16 @@ export interface PlanStatus {
   shares: { unit: 'points' | 'usd'; week: number; fiveHour: number; weekUsed: number; fiveHourUsed: number; stepsLeftWeek: number | null }
   gate: { code: 'reserve' | 'share'; window: string; reason: string; resetsAt: string | null } | null
 }
+
+// ---- The reading list (docs/agents/SPEC.md section 10.6) ----
+
+export interface ReadingItem {
+  title: string
+  url: string
+  ref: string | null
+  domain: string | null
+  why: string | null
+  found: string | null
+  /** The ingest of this url, when the service has one. */
+  job: { id: string; status: string; pages: number } | null
+}

@@ -45,6 +45,8 @@ import type { LibraryService } from '../pipeline/library.js'
 import { registerLibraryRoute } from './routes/library.js'
 import type { UsageMonitor } from '../pipeline/usage-monitor.js'
 import { registerUsageRoute } from './routes/usage.js'
+import type { ReadingListService } from '../pipeline/reading-list.js'
+import { registerReadingListRoute } from './routes/reading-list.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -100,6 +102,8 @@ export interface AppContext {
   readonly library?: LibraryService
   /** Plan utilization (section 8); registers its routes when present. */
   readonly usage?: UsageMonitor
+  /** What the Fellows found on the web (section 10.6); registers its routes when present. */
+  readonly reading?: ReadingListService
 }
 
 /** Location of the built frontend (`web/dist`), resolved relative to this source file. */
@@ -161,6 +165,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   if (ctx.fellows !== undefined && ctx.recaps !== undefined) registerRecapsRoute(app, ctx, ctx.recaps, ctx.fellows)
   if (ctx.library !== undefined) registerLibraryRoute(app, ctx.library)
   if (ctx.usage !== undefined) registerUsageRoute(app, ctx.usage, () => (ctx.settings ? ctx.settings.effective(ctx.config).researchModelDefault : 'sonnet-5'))
+  if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue)
 
   await registerFrontend(app)
 

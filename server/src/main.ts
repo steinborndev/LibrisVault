@@ -22,6 +22,7 @@ import { SqliteHandoffStore } from './db/handoffs.js'
 import { SqliteLibraryStore } from './db/library.js'
 import { LibraryService } from './pipeline/library.js'
 import { SqliteUsageSampleStore } from './db/usage-samples.js'
+import { ReadingListService } from './pipeline/reading-list.js'
 import { UsageMonitor, type EndpointResult } from './pipeline/usage-monitor.js'
 import { indexWikiPages } from './pipeline/citations.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
@@ -354,6 +355,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(recaps !== undefined ? { recaps } : {}),
     ...(library !== undefined ? { library } : {}),
     ...(usage !== undefined ? { usage } : {}),
+    ...(config.agentsEnabled === true ? { reading: new ReadingListService(config.vaultRoot, store) } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`

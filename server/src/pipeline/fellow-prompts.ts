@@ -56,6 +56,17 @@ export function renderStepCaps(): string {
     'skills/autoresearch/references/program.md are tightened: at most 1 search round, at most 5 sources ' +
     'fetched, at most 5 new wiki pages. Prefer extending the existing pages named above over filing new ' +
     'ones. If the step finds nothing the wiki does not already hold, keep the synthesis page short and say so.\n' +
+    'Reading list: for every publication you actually read and that is worth having in the original (a paper, ' +
+    'a standard, a dataset note - not a blog index or a search page), append one entry to ' +
+    'wiki/meta/reading-list.md, under its "## Entries" heading, in exactly this shape, one field per line:\n' +
+    '- title: <the publication as its authors name it>\n' +
+    '  url: <a direct https link, the publisher or arXiv abstract page>\n' +
+    '  ref: <DOI or arXiv id, or leave the line out>\n' +
+    '  domain: <the vault domain it belongs to>\n' +
+    '  why: <one sentence on what it settles>\n' +
+    `  found: <your name>, <today's date>\n` +
+    'Append only, never rewrite entries already there, and skip a url the page already lists. Do not download ' +
+    'the document yourself: the list is the request, and the service fetches it when the user asks.\n' +
     '</research_step>'
   )
 }

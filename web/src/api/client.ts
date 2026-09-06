@@ -44,6 +44,7 @@ import type {
   ProposalRecord,
   SpawnBody,
   PlanStatus,
+  ReadingItem,
   PagePreview,
   PageFull,
   VaultGraph,
@@ -416,6 +417,16 @@ export const api = {
   agents: (): Promise<AgentsResponse> => fetch(`${BASE}/agents`).then(json<AgentsResponse>),
 
   usagePlan: (): Promise<PlanStatus> => fetch(`${BASE}/usage/plan`).then(json<PlanStatus>),
+
+  readingList: (): Promise<{ entries: ReadingItem[] }> => fetch(`${BASE}/reading-list`).then(json<{ entries: ReadingItem[] }>),
+
+  /** Fetch one entry through the ordinary URL ingest; the service does the downloading. */
+  ingestReading: (url: string): Promise<{ job: Job }> =>
+    fetch(`${BASE}/reading-list/ingest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+    }).then(json<{ job: Job }>),
 
   agentCard: (id: string): Promise<FellowCard> => fetch(`${BASE}/agents/${encodeURIComponent(id)}/card`).then(json<FellowCard>),
 

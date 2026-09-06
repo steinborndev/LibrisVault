@@ -9,7 +9,7 @@
  * `/library?spawn=1` opens the spawn form (Home's empty Fellow slots point here),
  * `/library?shelf=<domain>` opens that department's window straight away, on its graph
  * unless `&pane=catalog` asks for the other view, and `&page=<vault path>` opens a page
- * inside it.
+ * inside it, and `?board=hot|recap|reading` opens one of the boards.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -27,6 +27,8 @@ import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
+import { ReadingList } from '../components/library/ReadingList.tsx'
+import type { BoardId } from '../components/library/RoomSvg.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
@@ -40,7 +42,14 @@ const CANVAS_H = 700
 
 type Mode = 'full' | 'focus'
 
-export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '', shelfParam = '', paneParam = '', pageParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string; shelfParam?: string; paneParam?: string; pageParam?: string }): React.ReactElement {
+const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Daily recap', reading: 'Reading list' }
+const BOARD_SUBS: Record<BoardId, string> = {
+  hot: "the vault's digest, refreshed after every run",
+  recap: 'the same view Home opens on',
+  reading: 'what the Fellows read on the web; ingesting one is your call',
+}
+
+export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '', shelfParam = '', paneParam = '', pageParam = '', boardParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string; shelfParam?: string; paneParam?: string; pageParam?: string; boardParam?: string }): React.ReactElement {
   const qc = useQueryClient()
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, refetchInterval: 5_000 })
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
@@ -51,7 +60,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /** A board on the main room's wall, opened as a window over the room. Escape closes it. */
-  const [board, setBoard] = useState<'hot' | 'recap' | null>(null)
+  const [board, setBoard] = useState<BoardId | null>(boardParam === 'hot' || boardParam === 'recap' || boardParam === 'reading' ? boardParam : null)
   /** A department opened over the room: its graph and its catalog, filtered (section 10.5). */
   const [shelf, setShelf] = useState<string | null>(shelfParam !== '' ? shelfParam : null)
   /** A page read inside the shelf window: the third level, closed by the first Escape. */
@@ -489,16 +498,16 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
 
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
           {shelf === null && board !== null && (
-            <div className="lib-window" role="dialog" aria-label={board === 'hot' ? 'Hot cache' : 'Daily recap'}>
+            <div className="lib-window" role="dialog" aria-label={BOARD_TITLES[board]}>
               <div className="box-head">
-                <h2 className="box-title">{board === 'hot' ? 'Hot cache' : 'Daily recap'}</h2>
-                <span className="box-sub">{board === 'hot' ? "the vault's digest, refreshed after every run" : 'the same view Home opens on'}</span>
+                <h2 className="box-title">{BOARD_TITLES[board]}</h2>
+                <span className="box-sub">{BOARD_SUBS[board]}</span>
                 <span className="spacer" />
                 <button className="btn ghost sm" onClick={() => setBoard(null)}>
                   Back to the room · Esc
                 </button>
               </div>
-              {board === 'hot' ? <HotCache vaultName={vaultName} /> : <RecapFeed vaultName={vaultName} />}
+              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList />}
             </div>
           )}
           <div className="lib-corner bl">
