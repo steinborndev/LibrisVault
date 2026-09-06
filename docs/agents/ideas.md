@@ -186,3 +186,14 @@ new ideas go here first and reach the spec through a dated decision.
   count with floor and cap, second case instead of a longer one, two spare cases always,
   wings through a doorway when the last spare is taken, level of detail by tile size.
   The Growth artboard shows today, the wing opening, and a filled wing.
+
+## Design round 4 (2026-09-06)
+
+- New topology (NEW-8): a central **main room** with the fireplace and armchairs for resting
+  Fellows, desks with computers, four favorite slots, notice board, front desk, catalog and
+  the unfiled case; four doors, one per side. Start = main room plus Wing A with the
+  current departments; three doors drawn as slots. Wings are created, renamed and filled by
+  drag and drop; a fifth wing chains behind an existing one. Spec 10.4 and 10.8, data model
+  (`wings`, `library_layout`) and API (`/wings`, `/library/move`) updated.
+- Render note: walls carry a cornice so the top edge reads against a floor behind them; the
+  panel wall and the stone floor share a tone otherwise.

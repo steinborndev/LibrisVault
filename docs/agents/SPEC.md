@@ -512,10 +512,19 @@ Every activity becomes an actor with identity, pose, props and exit:
 The maintenance mutex is drawn literally: one researcher or caretaker at a time, the
 others wait at the front desk; ingest clerks run in parallel up to `concurrency`.
 
-### 10.4 Departments, shelves and books
+### 10.4 Rooms, departments, shelves and books
 
-Departments come from the domain registry, laid out by page count with `unassigned` as a
-special shelf near the entrance. **Every bookcase carries its department name as a sign on
+The library is a **main room with wings**. The main room is the hub the user furnishes:
+the fireplace in the middle with four armchairs, where Fellows rest between steps; four
+desks with computers along one side, where Fellows write; **four favorite slots** along the
+back wall, where the user places the departments they want in sight; the notice board
+(hot.md), the card catalog (the index), the front desk with the parcels of the ingest
+queue, and the `unfiled` case near it. The main room has **four doors**, one per side. The
+library starts with the main room and **Wing A**, which holds the current departments;
+the other three doors are drawn as slots until a wing is created for them.
+
+Departments come from the domain registry. Their cases stand in wings, or in a favorite
+slot of the main room, never in both. **Every bookcase carries its department name as a sign on
 the top band of its long face, drawn in the same projection as the shelf** (skewed text on
 the face plane, sized to the shelf length, light on dark wood and dark on light frames), so
 the name reads where the books are instead of on the floor. **The sign text has one size
@@ -567,13 +576,25 @@ pack), judged on consistency and on a license that allows redistribution in the 
 repo. Controls live on the canvas as on the graph screen. The screen follows DESIGN.md
 (fonts, color roles, 1180 px lane or the wide lane, desktop-only, no raw hex).
 
-### 10.8 Growth and layout
+### 10.8 Wings, growth and layout
 
-The room has to stay legible when domains keep coming, so placement is a stable,
-deterministic layout model rather than a picture:
+The user organises the library; the service places only what the user has not decided.
 
-- **Bays.** The floor has fixed bays: the two back walls, two aisle rows of freestanding
-  cases, and a growth row in front of them. A bay holds cases of variable length.
+- **Wings are the user's.** Create a wing (it takes the next free door of the main room),
+  rename it, and move cases between wings and into the favorite slots by **drag and drop**
+  in the Library screen or in the control column's department list. A case keeps its bay
+  until the user moves it.
+- **Doors and chains.** The main room has four doors. When all four wings exist, the next
+  wing opens behind an existing one through that wing's back door, so the library grows
+  as a tree around the hub. Fit frames the whole library, a click on a wing name in the
+  control column focuses it, Focus mode follows the active Fellow across rooms.
+- **Automatic placement, only where undecided.** A new domain lands in the newest wing
+  that still has a spare case; when none is left, a new wing opens (named after its door
+  until renamed). The spare cases are the visible answer to "where does the next
+  department go": two per wing, drawn lighter and without a sign, in the growth row by the
+  door.
+- **Bays inside a wing.** Fixed bays: the two back walls, aisle rows of freestanding
+  cases, and the growth row by the door. A bay holds cases of variable length.
 - **Case length follows the page count** with a floor of two tiles and a cap of five. A
   department that outgrows its case gets a **second case in the next free bay**, never a
   longer one, so neighbours do not shift. Spines saturate on a logarithmic curve: a
@@ -582,14 +603,8 @@ deterministic layout model rather than a picture:
   the order domains are born (registry order, then creation date). A case keeps its bay
   for life; the assignment is stored once. Re-shelving is a maintenance action the
   caretaker performs on screen, never a side effect of a new domain.
-- **Two spare cases, always.** The frontmost free slots hold two empty cases drawn lighter
-  and without a sign. The next domain takes one and a new spare appears behind it. That is
-  the visible answer to "where does the next department go".
-- **Wings.** When the last spare is taken, the next wing opens: the same floor plan
-  through a doorway in the shared wall, with its own spares. The canvas pans and zooms
-  like the graph; Fit frames the whole library, a click on a wing focuses it, and Focus
-  mode follows the active Fellow across wings. The control column groups departments by
-  wing.
+- **The control column groups departments by room**: the main room's favorites first,
+  then each wing, with a drag handle on every row and a rename action on every wing.
 - **Level of detail.** Below a tile size of about 30 px the spines become solid bands and
   the signs move to the floor; below about 18 px only colored blocks and wing names
   remain. A library of fifty departments stays readable at every zoom.
@@ -619,6 +634,10 @@ Catalog bookmarks working; the Catalog screen gets a one-time hint after the ren
   `after`, `tick`).
 - `handoffs`: id, from_agent_id, to_agent_id (nullable = unclaimed), question, source_page,
   created_at, status.
+- `wings`: id, name, door (`l`, `r`, `front-l`, `front-r`, or the parent wing's id for a
+  chained wing), position, created_at.
+- `library_layout`: domain, room (`main` or a wing id), bay, offset, length, placed_by
+  (`user` or `auto`), updated_at. Favorite slots are the main room's four bays.
 - `value_events`: id, ts, kind (`page_open`, `recap_link`), agent_id, page.
 - Settings: the keys of section 8.2 plus `agentsEnabled`.
 
@@ -637,6 +656,8 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 - `GET /library/scene` (snapshot: departments, shelves, actors); live updates reuse the
   existing SSE bus (`job`, `log`, `vault`, `stats`) plus a new `agent` event kind.
 - `POST /value-events` (the dashboard reports page opens and recap link clicks).
+- `GET/POST /wings`; `PATCH /wings/:id` (rename); `DELETE /wings/:id` (only when empty);
+  `POST /library/move` with domain, target room and bay (drag and drop lands here).
 - Existing endpoints stay: `POST /maintenance/research` gains an optional `agentId`.
 
 ---
@@ -748,3 +769,4 @@ user's own account.
 | NEW-5 | Shelf signs | one text size per view, never per shelf; a name that does not fit breaks into two lines at its hyphen (decided 2026-09-06) |
 | NEW-6 | Faces | figures have no faces; hair stays as the silhouette cue (decided 2026-09-06) |
 | NEW-7 | Growth model | bays, first-fit in birth order, two spare cases, wings; see 10.9 (decided 2026-09-06) |
+| NEW-8 | Library topology | a central main room (fireplace, desks with computers, four favorite slots, notice board, front desk, catalog) with four doors; wings hang off the doors and chain onward; the user creates, renames and fills wings by drag and drop; start = main room plus Wing A (decided 2026-09-06) |
