@@ -22,6 +22,7 @@ import type { JobStore } from '../db/jobs.js'
 import type { MaintenanceRun, MaintenanceRunner } from './maintenance.js'
 import type { FellowService } from './fellows.js'
 import type { DecisionChannel, ProposalRecord } from '../db/proposals.js'
+import type { HandoffRecord, HandoffStore } from '../db/handoffs.js'
 import { commitPaths, commitFileStatus, type CommitResult } from './git.js'
 import type { Mutex } from '../util/mutex.js'
 import { parseOpenQuestions, knowledgePages } from './candidates.js'
@@ -89,6 +90,18 @@ export interface RecapFellow {
   readonly value: { readonly pageOpens: number; readonly recapLinks: number }
 }
 
+/** An open question no Fellow's domain covers, offered as a spawn (section 6.6). */
+export interface RecapUnclaimed {
+  /** `u1`, `u2`, ... the answer code. */
+  readonly code: string
+  readonly handoffId: string
+  readonly question: string
+  readonly domain: string
+  readonly fromName: string
+  readonly sourcePage: string | null
+  readonly reason: string
+}
+
 export interface RecapModel {
   readonly cycleDate: string
   readonly generatedAt: string
@@ -114,6 +127,13 @@ export interface RecapModel {
   /** Why the "what it found" lines are missing, when they are. */
   readonly summaryNote: string | null
   readonly summaryCostUsd: number | null
+  /** Unclaimed requests (A3), coded `u1`, `u2`. */
+  readonly unclaimed: readonly RecapUnclaimed[]
+  /** The shift's dedupe notes (A3). */
+  readonly dedupe: {
+    readonly merged: ReadonlyArray<{ readonly keptAgentName: string; readonly keptTopic: string; readonly droppedAgentName: string; readonly droppedTopic: string }>
+    readonly overlaps: ReadonlyArray<{ readonly agentName: string; readonly topic: string; readonly page: string }>
+  }
 }
 
 const LETTERS = 'abcdefghij'
@@ -135,6 +155,9 @@ export interface BuildModelInput {
   readonly readPage: (rel: string) => string | undefined
   /** Created versus updated pages of a commit; undefined = unknown (every page counts as updated). */
   readonly commitStatus: (hash: string) => ReadonlyMap<string, 'A' | 'M' | 'D'> | undefined
+  /** Unclaimed handoffs, for the spawn offers (A3). */
+  readonly unclaimed?: readonly HandoffRecord[]
+  readonly nameOf?: (agentId: string) => string
 }
 
 /** The deterministic skeleton (section 9.2). Pure: the tests build it from fixtures. */
@@ -212,7 +235,16 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
   }
   const allRuns = fellows.flatMap((f) => f.runs)
   const newProposals = fellows.some((f) => f.proposals.some((p) => p.status === 'proposed' && input.pendingOf(f.agentId).some((q) => q.id === p.proposalId && q.createdAt >= input.since)))
-  const quiet = allRuns.length === 0 && !newProposals
+  const unclaimed = (input.unclaimed ?? []).map((h, i): RecapUnclaimed => ({
+    code: `u${i + 1}`,
+    handoffId: h.id,
+    question: h.question,
+    domain: h.domain,
+    fromName: input.nameOf?.(h.fromAgentId) ?? 'a Fellow',
+    sourcePage: h.sourcePage,
+    reason: h.reason,
+  }))
+  const quiet = allRuns.length === 0 && !newProposals && unclaimed.length === 0
   const shift = input.shift
   const dayStart = startOfToday(input.now).toISOString()
   const weekStart = new Date(input.now.getTime() - 7 * 24 * 3600_000).toISOString()
@@ -245,6 +277,11 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
     sleeping,
     summaryNote: null,
     summaryCostUsd: null,
+    unclaimed,
+    dedupe: {
+      merged: (shift?.summary.merged ?? []).map((m) => ({ keptAgentName: m.keptAgentName, keptTopic: m.keptTopic, droppedAgentName: m.droppedAgentName, droppedTopic: m.droppedTopic })),
+      overlaps: (shift?.summary.overlaps ?? []).map((o) => ({ agentName: o.agentName, topic: o.topic, page: o.page })),
+    },
   }
 }
 
@@ -345,11 +382,7 @@ export function renderRecapPage(model: RecapModel): string {
   ].join('\n')
   const lines: string[] = [fm, '', `# Recap: ${model.cycleDate}`, '', renderHeader(model, 'page'), '']
   for (const f of model.fellows) lines.push(renderFellow(model, f, 'page'), '')
-  lines.push(
-    'Answer in the dashboard (Home, Recap), or on Telegram with the codes: `1b` runs that proposal tonight, ' +
-      '`veto 1b` drops it, `skip 1` skips tonight, `pause 1` pauses the Fellow, `note 1: ...` leaves it a note. ' +
-      'This page is rendered by the service; edits here are not read back.',
-  )
+  lines.push(`Answer in the dashboard (Home, Recap), or on Telegram with the codes: ${ANSWER_HINT} This page is rendered by the service; edits here are not read back.`)
   return lines.join('\n') + '\n'
 }
 
@@ -358,7 +391,7 @@ export function renderRecapMessages(model: RecapModel): string[] {
   if (model.quiet) return [renderQuietLine(model)]
   const out = [renderHeader(model, 'text')]
   for (const f of model.fellows) out.push(renderFellow(model, f, 'text'))
-  out.push('Answer with codes: 1b runs it tonight, veto 1b drops it, skip 1 skips tonight, pause 1, resume 1, note 1: your text, model 1 opus-5, step 1 small.')
+  out.push(`Answer with codes: ${ANSWER_HINT}`)
   return out.map((m) => (m.length > 4000 ? `${m.slice(0, 3998)}\n…` : m))
 }
 
@@ -368,6 +401,9 @@ export function renderQuietLine(model: RecapModel): string {
   const reasons = model.sleeping.map((s) => `${s.name}: ${s.reason}`).join('; ')
   return `Recap ${model.cycleDate}: nothing ran tonight. ${n} Fellow${n === 1 ? '' : 's'}${reasons ? ` sleeping (${reasons})` : ''}.`
 }
+
+/** The Telegram answer hint, shared by the page footer and the last message. */
+const ANSWER_HINT = '1b runs it tonight, veto 1b drops it, skip 1 skips tonight, pause 1, resume 1, note 1: your text, model 1 opus-5, step 1 small, spawn u1 <name> spawns a Fellow for an unclaimed request.'
 
 function renderHeader(model: RecapModel, mode: 'page' | 'text'): string {
   const b = (s: string): string => (mode === 'page' ? `**${s}**` : s)
@@ -392,6 +428,19 @@ function renderHeader(model: RecapModel, mode: 'page' | 'text'): string {
     lines.push(`${b('Sleeping')}: ${model.sleeping.map((s) => `${s.name}: ${s.reason}`).join('; ')}.`)
   }
   lines.push(`${b('Value this month')}: ${model.value.pageOpens} page open(s), ${model.value.recapLinks} recap link(s) followed.`)
+  if (model.dedupe.merged.length > 0) {
+    lines.push(`${b('Merged')}: ${model.dedupe.merged.map((m) => `${m.droppedAgentName}'s "${m.droppedTopic}" into ${m.keptAgentName}'s "${m.keptTopic}"`).join('; ')}.`)
+  }
+  if (model.dedupe.overlaps.length > 0) {
+    lines.push(`${b('Overlaps an existing page')}: ${model.dedupe.overlaps.map((o) => `${o.agentName}'s "${o.topic}" (${o.page})`).join('; ')}.`)
+  }
+  if (model.unclaimed.length > 0) {
+    const tick = mode === 'page' ? '`' : ''
+    lines.push(`${b('Unclaimed requests')} (no Fellow covers the domain; ${tick}spawn u1 <name>${tick} spawns one):`)
+    for (const u of model.unclaimed) {
+      lines.push(`- ${b(u.code)} [${u.domain}] ${u.question} (from ${u.fromName}${u.sourcePage ? `, ${mode === 'page' ? wikilink(u.sourcePage) : title(u.sourcePage)}` : ''})${u.reason ? ` · ${u.reason}` : ''}`)
+    }
+  }
   if (model.summaryNote) lines.push(`${b('Note')}: ${model.summaryNote}`)
   return lines.join('\n')
 }
@@ -445,6 +494,8 @@ export type RecapAnswer =
   | { readonly action: 'model'; readonly fellow: number; readonly value: string }
   | { readonly action: 'step'; readonly fellow: number; readonly value: string }
   | { readonly action: 'topic'; readonly fellow: number; readonly letter: string; readonly text: string }
+  /** Spawn a Fellow from an unclaimed request `u<n>` (A3); the name is optional. */
+  | { readonly action: 'spawn'; readonly request: number; readonly name?: string }
 
 const CODE = /^(\d{1,2})([a-j])$/i
 const NUM = /^\d{1,2}$/
@@ -462,11 +513,12 @@ export function parseRecapAnswers(text: string): { answers: RecapAnswer[]; error
     const line = rawLine.trim()
     if (line === '') continue
     // `note N: rest` and `topic Na: rest` take the rest of their line, wherever they start.
-    const free = /(^|[\s,;])(note\s+\d{1,2}\s*:|topic\s+\d{1,2}[a-j]\s*:)/i.exec(line)
+    const free = /(^|[\s,;])(note\s+\d{1,2}\s*:|topic\s+\d{1,2}[a-j]\s*:|spawn\s+u\d{1,2}\b)/i.exec(line)
     const head = free ? line.slice(0, free.index) : line
     const tail = free ? line.slice(free.index + free[1]!.length) : ''
     const noteM = /^note\s+(\d{1,2})\s*:\s*(.*)$/i.exec(tail)
     const topicM = /^topic\s+(\d{1,2})([a-j])\s*:\s*(.*)$/i.exec(tail)
+    const spawnM = /^spawn\s+u(\d{1,2})\s*(.*)$/i.exec(tail)
     const tokens = head.split(/[\s,;]+/).filter((t) => t !== '')
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i]!.toLowerCase()
@@ -510,6 +562,10 @@ export function parseRecapAnswers(text: string): { answers: RecapAnswer[]; error
       const body = noteM[2]!.trim()
       if (body === '') errors.push(`note ${noteM[1]} has no text`)
       else answers.push({ action: 'note', fellow: Number(noteM[1]), text: body })
+    } else if (spawnM) {
+      sawAnswerShape = true
+      const name = spawnM[2]!.trim()
+      answers.push({ action: 'spawn', request: Number(spawnM[1]), ...(name !== '' ? { name } : {}) })
     } else if (topicM) {
       sawAnswerShape = true
       const body = topicM[3]!.trim()
@@ -535,6 +591,8 @@ export interface RecapServiceOptions {
   readonly runs: AgentRunStore
   readonly recaps: RecapStore<RecapModel>
   readonly shifts: ShiftStore
+  /** Unclaimed requests for the spawn offers (A3); absent = none shown. */
+  readonly handoffs?: HandoffStore
   readonly maintenance: MaintenanceRunner
   readonly jobs: Pick<JobStore, 'usageSince'>
   readonly commitMutex: Mutex
@@ -671,6 +729,8 @@ export class RecapService {
         }
       },
       commitStatus: (hash) => statusCache.get(hash),
+      unclaimed: this.o.handoffs?.list({ status: ['unclaimed'], limit: 10 }) ?? [],
+      nameOf: (id) => this.o.fellows.get(id)?.name ?? 'a Fellow',
     })
 
     let summaryRun: MaintenanceRun | null = null
@@ -746,6 +806,24 @@ export class RecapService {
     if (!recap) return undefined
     const results: AnswerResult[] = []
     for (const a of answers) {
+      if (a.action === 'spawn') {
+        const request = recap.model.unclaimed.find((u) => u.code === `u${a.request}`)
+        if (!request) {
+          results.push({ answer: a, ok: false, message: `no unclaimed request u${a.request} in the recap of ${cycleDate}` })
+          continue
+        }
+        try {
+          const outcome = await this.o.fellows.spawnFromHandoff(request.handoffId, a.name !== undefined ? { name: a.name } : {})
+          results.push(
+            outcome.agent
+              ? { answer: a, ok: true, message: `${outcome.agent.name} spawned for ${request.domain} with "${request.question.slice(0, 80)}"${outcome.run ? ', first run started' : ''}` }
+              : { answer: a, ok: false, message: outcome.refusal?.error ?? 'spawn failed' },
+          )
+        } catch (err) {
+          results.push({ answer: a, ok: false, message: (err as Error).message })
+        }
+        continue
+      }
       const fellow = recap.model.fellows.find((f) => f.index === a.fellow)
       if (!fellow) {
         results.push({ answer: a, ok: false, message: `no Fellow ${a.fellow} in the recap of ${cycleDate}` })
@@ -762,7 +840,7 @@ export class RecapService {
     return { results, recap: updated }
   }
 
-  private async applyOne(a: RecapAnswer, fellow: RecapFellow, proposal: RecapProposal | undefined, via: DecisionChannel): Promise<{ ok: boolean; message: string }> {
+  private async applyOne(a: Exclude<RecapAnswer, { action: 'spawn' }>, fellow: RecapFellow, proposal: RecapProposal | undefined, via: DecisionChannel): Promise<{ ok: boolean; message: string }> {
     const f = this.o.fellows
     const needProposal = (): RecapProposal => {
       if (!proposal) throw new Error(`no proposal ${a.fellow}${'letter' in a ? a.letter : ''} in the recap`)

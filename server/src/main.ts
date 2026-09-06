@@ -18,6 +18,8 @@ import { SqliteProposalStore } from './db/proposals.js'
 import { SqliteShiftStore } from './db/shifts.js'
 import { SqliteRecapStore } from './db/recaps.js'
 import { SqliteValueEventStore } from './db/value-events.js'
+import { SqliteHandoffStore } from './db/handoffs.js'
+import { indexWikiPages } from './pipeline/citations.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
 import { NightShift } from './pipeline/shift.js'
 import { RecapService, type RecapModel } from './pipeline/recap.js'
@@ -151,6 +153,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   const fellowsLog = (level: 'info' | 'warn' | 'error', message: string): void => {
     logSink.sink?.(level, message)
   }
+  const handoffStore = new SqliteHandoffStore(db)
   const fellows =
     config.agentsEnabled === true && !config.demoMode
       ? new FellowService({
@@ -180,6 +183,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             return { window: { start: e.nightWindowStart, end: e.nightWindowEnd }, defaultModel: e.researchModelDefault }
           },
           values: new SqliteValueEventStore(db),
+          handoffs: handoffStore,
           log: fellowsLog,
         })
       : undefined
@@ -195,6 +199,11 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             const e = settings.effective(config)
             return { start: e.nightWindowStart, end: e.nightWindowEnd }
           },
+          // Existing synthesis pages, for the dedupe notes (section 6.6).
+          synthesisTitles: () =>
+            [...indexWikiPages(config.vaultRoot)]
+              .filter(([, rel]) => rel.startsWith('wiki/questions/'))
+              .map(([, rel]) => rel.slice('wiki/questions/'.length).replace(/\.md$/, '')),
           log: fellowsLog,
         })
       : undefined
@@ -209,6 +218,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           runs: agentRuns,
           recaps: new SqliteRecapStore<RecapModel>(db),
           shifts: shiftStore,
+          handoffs: handoffStore,
           maintenance,
           jobs: store,
           commitMutex,

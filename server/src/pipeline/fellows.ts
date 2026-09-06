@@ -10,6 +10,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   AGENT_EFFORTS,
   MODEL_FACTOR,
@@ -27,6 +29,9 @@ import {
 import type { AgentRunRecord, AgentRunStore } from '../db/agent-runs.js'
 import type { JobRow } from '../db/jobs.js'
 import type { ValueCounts, ValueEventStore } from '../db/value-events.js'
+import type { HandoffRecord, HandoffStore } from '../db/handoffs.js'
+import { readDomainRegistry } from './domains.js'
+import { fellowSynthesisPages } from './candidates.js'
 import {
   PENDING_STATUSES,
   type DecisionChannel,
@@ -36,7 +41,7 @@ import {
   type ProposalStore,
 } from '../db/proposals.js'
 import type { MaintenanceRunner, MaintenanceRun } from './maintenance.js'
-import { PLAN_TIMEOUT_MS } from './maintenance.js'
+import { PLAN_TIMEOUT_MS, EXPAND_TIMEOUT_MS } from './maintenance.js'
 import { DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import { notebookPath, renderLogLines, type NotebookWriter } from './notebook.js'
 import type { FellowRunContext } from './fellow-prompts.js'
@@ -52,16 +57,17 @@ import {
   plannerSchema,
   renderPlanSection,
   renderPlannerPrompt,
+  type DomainHint,
 } from './planner.js'
 import { DEFAULT_NIGHT_WINDOW, DEFAULT_RESEARCH_MODEL } from '../db/settings.js'
 
 /** Per-kind USD cap on Sonnet 5 (docs/agents/SPEC.md sections 6.2 and 7), scaled by the model factor. */
-export const BUDGET_USD: Readonly<Record<RunKind, number>> = { research: 12, 'research-step': 4, plan: 1 }
+export const BUDGET_USD: Readonly<Record<RunKind, number>> = { research: 12, 'research-step': 4, 'research-expand': 6, plan: 1 }
 /** A `deep` step is a full run with a longer leash (section 7). */
 export const DEEP_TIMEOUT_MS = 45 * 60_000
 const STEP_TIMEOUT_MS = 15 * 60_000
 
-export type StepKind = 'research' | 'research-step'
+export type StepKind = 'research' | 'research-step' | 'research-expand'
 export type RunKind = StepKind | 'plan'
 
 export interface SpawnInput {
@@ -187,6 +193,10 @@ export interface FellowServiceOptions {
   readonly settings?: () => FellowSettings
   /** The value signal (section 9.6); absent = the card shows no opens. */
   readonly values?: ValueEventStore
+  /** Handoffs between Fellows (section 6.6, A3); absent = no routing. */
+  readonly handoffs?: HandoffStore
+  /** The domain registry for the planner's routing; defaults to the vault's page. */
+  readonly registry?: () => readonly DomainHint[]
   readonly log?: (level: 'info' | 'warn' | 'error', message: string) => void
 }
 
@@ -210,6 +220,9 @@ export class FellowService {
   private readonly gate: () => GateBlock | null
   private readonly settings: () => FellowSettings
   private readonly values: ValueEventStore | undefined
+  private readonly handoffs: HandoffStore | undefined
+  private readonly registry: () => readonly DomainHint[]
+  private readonly vaultRoot: string | undefined
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   /** One run in flight per Fellow: agent id to tracked run id. */
   private readonly inFlight = new Map<string, string>()
@@ -228,6 +241,16 @@ export class FellowService {
     this.gate = opts.gate ?? ((): GateBlock | null => null)
     this.settings = opts.settings ?? ((): FellowSettings => ({ window: DEFAULT_NIGHT_WINDOW, defaultModel: DEFAULT_RESEARCH_MODEL }))
     this.values = opts.values
+    this.handoffs = opts.handoffs
+    this.vaultRoot = opts.candidateSources?.vaultRoot
+    this.registry =
+      opts.registry ??
+      ((): readonly DomainHint[] => {
+        const root = opts.candidateSources?.vaultRoot
+        if (!root) return []
+        const reg = readDomainRegistry(root)
+        return reg ? reg.domains.filter((d) => d.key !== 'meta').map((d) => ({ key: d.key, description: d.description })) : []
+      })
     this.log = opts.log ?? ((): void => {})
     const sources = opts.candidateSources
     this.candidatesFn =
@@ -243,7 +266,7 @@ export class FellowService {
         }
         const graph = safely<VaultGraph | null>(sources.graph, null)
         const jobs = safely<JobRow[]>(sources.jobs, [])
-        return computeCandidates({ agent, runs, vaultRoot: sources.vaultRoot, graph, jobs, since })
+        return computeCandidates({ agent, runs, vaultRoot: sources.vaultRoot, graph, jobs, since, handoffs: this.handoffCandidates(agent.id) })
       })
   }
 
@@ -449,6 +472,7 @@ export class FellowService {
   timeoutFor(agent: AgentRecord, kind: RunKind): number {
     if (kind === 'plan') return PLAN_TIMEOUT_MS
     if (kind === 'research-step') return STEP_TIMEOUT_MS
+    if (kind === 'research-expand') return EXPAND_TIMEOUT_MS
     return agent.step === 'deep' ? DEEP_TIMEOUT_MS : DEFAULT_TIMEOUT_MS
   }
 
@@ -458,17 +482,28 @@ export class FellowService {
    */
   step(
     id: string,
-    opts: { readonly topic?: string; readonly kind?: StepKind; readonly lens?: string; readonly proposalId?: string } = {},
+    opts: { readonly topic?: string; readonly kind?: StepKind; readonly lens?: string; readonly proposalId?: string; readonly pageSet?: readonly string[] } = {},
   ): StepOutcome {
     const agent = this.agents.get(id)
     if (!agent) return { refusal: { status: 404, code: 'unknown', error: 'no such Fellow' } }
     const refusal = this.gateFor(agent, opts.kind ?? 'research-step')
     if (refusal) return { refusal }
     const kind: StepKind = opts.kind ?? 'research-step'
+    if (kind === 'research-expand' && (opts.pageSet === undefined || opts.pageSet.length === 0)) {
+      return { refusal: { status: 409, code: 'kind', error: 'an expand run needs a page set' } }
+    }
     const topic = opts.topic?.trim() ? opts.topic.trim() : agent.intent
     const ctx = this.context(agent, kind, opts.proposalId)
     const lens = opts.lens ?? agent.lens
-    const run = kind === 'research' ? this.maintenance.startResearch(topic, lens, ctx) : this.maintenance.startResearchStep(topic, lens, ctx)
+    // The Fellow's own pages are always in an expand's set (D1): the run appends open
+    // questions to its notebook, and its synthesis pages carry the update's summary.
+    const pageSet = kind === 'research-expand' ? [...new Set([...(opts.pageSet ?? []), ...fellowSynthesisPages(this.runs.list({ agentId: agent.id, limit: 50 })), agent.notebookPath])] : []
+    const run =
+      kind === 'research'
+        ? this.maintenance.startResearch(topic, lens, ctx)
+        : kind === 'research-expand'
+          ? this.maintenance.startResearchExpand(topic, lens, ctx, pageSet)
+          : this.maintenance.startResearchStep(topic, lens, ctx)
     this.track(agent.id, run, (settled) => this.onStepSettled(agent.id, settled))
     this.agents.update(id, { state: 'active', sleepReason: null, sleepCode: null }, this.now().toISOString())
     if (opts.proposalId !== undefined) this.proposals.update(opts.proposalId, { status: 'executed', runId: run.id })
@@ -482,10 +517,7 @@ export class FellowService {
     if (!PENDING_STATUSES.includes(proposal.status)) {
       return { refusal: { status: 409, code: 'state', error: `the proposal is ${proposal.status}` } }
     }
-    if (proposal.kind === 'research-expand') {
-      return { refusal: { status: 409, code: 'kind', error: 'research-expand runs arrive with milestone A3' } }
-    }
-    return this.step(proposal.agentId, { topic: proposal.topic, kind: proposal.kind, lens: proposal.lens, proposalId })
+    return this.step(proposal.agentId, { topic: proposal.topic, kind: proposal.kind, lens: proposal.lens, proposalId, pageSet: proposal.pageSet })
   }
 
   /**
@@ -531,6 +563,7 @@ export class FellowService {
     const vetoed = this.proposals
       .list({ agentId: agent.id, status: ['vetoed'], limit: 10 })
       .map((p) => p.topic)
+    const domains = this.handoffs ? this.registry() : []
     const prompt = renderPlannerPrompt({
       agent,
       candidates,
@@ -538,8 +571,9 @@ export class FellowService {
       vetoed,
       runsLeftToday: Math.max(0, agent.quotaRunsPerDay - this.runsToday(agent.id)),
       kinds,
+      domains,
     })
-    const schema = plannerSchema({ kinds, candidateIds: candidates.map((c) => c.id) })
+    const schema = plannerSchema({ kinds, candidateIds: candidates.map((c) => c.id), domainKeys: domains.map((d) => d.key) })
     const run = this.maintenance.startPlan(prompt, this.context(agent, 'plan'), schema)
     this.track(agent.id, run, (settled) => this.onPlanSettled(agent.id, settled, candidates, kinds, cycleDate))
     this.agents.update(agent.id, { state: 'active', sleepReason: null, sleepCode: null }, now.toISOString())
@@ -600,6 +634,103 @@ export class FellowService {
     const next = this.agents.update(id, { state: 'sleeping', sleepReason: reason, sleepCode: code }, this.now().toISOString())
     if (next) this.enqueue(this.writeNotebook(next))
     return next
+  }
+
+  /** The shift's dedupe (section 6.6): an undecided proposal loses to a near-duplicate elsewhere. */
+  supersedeProposal(proposalId: string, note: string): void {
+    const p = this.proposals.get(proposalId)
+    if (!p || p.status !== 'proposed') return
+    this.proposals.update(proposalId, { status: 'superseded', userNote: note })
+    const agent = this.agents.get(p.agentId)
+    if (agent && agent.state === 'waiting' && this.pendingProposals(agent.id).length === 0) {
+      this.agents.update(agent.id, { state: 'sleeping', sleepReason: 'its proposals were merged into another Fellow\'s plan', sleepCode: 'idle' }, this.now().toISOString())
+    }
+  }
+
+  /** Pending handoffs routed to a Fellow, as the candidate computation wants them. */
+  private handoffCandidates(agentId: string): Array<{ id: string; question: string; sourcePage: string | null; fromName: string }> {
+    if (!this.handoffs) return []
+    return this.handoffs.list({ status: ['pending'], toAgentId: agentId, limit: 20 }).map((h) => ({
+      id: h.id,
+      question: h.question,
+      sourcePage: h.sourcePage,
+      fromName: this.agents.get(h.fromAgentId)?.name ?? 'another Fellow',
+    }))
+  }
+
+  /** Every handoff still open: pending ones with their target, unclaimed ones for the recap. */
+  listHandoffs(): HandoffRecord[] {
+    return this.handoffs?.list({ status: ['pending', 'proposed', 'unclaimed'], limit: 100 }) ?? []
+  }
+
+  getHandoff(id: string): HandoffRecord | undefined {
+    return this.handoffs?.get(id)
+  }
+
+  /** The Fellow a question of `domain` is routed to (D4): unretired, unpaused, highest priority, never `except`. */
+  private targetFor(domain: string, except: string): AgentRecord | undefined {
+    return this.agents
+      .list()
+      .filter((a) => a.id !== except && a.state !== 'retired' && a.state !== 'paused' && (a.homeDomain === domain || a.extraDomains.includes(domain)))
+      .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))[0]
+  }
+
+  /** Turns the planner's routed candidates into handoff rows (D4): to a Fellow, or unclaimed. */
+  private routeHandoffs(agent: AgentRecord, answer: { readonly handoffs: ReadonlyArray<{ candidate: string; domain: string; reason: string }> }, candidates: readonly Candidate[], cycleDate: string, now: string): void {
+    if (!this.handoffs) return
+    const known = new Set(this.registry().map((d) => d.key))
+    const open = this.handoffs.list({ status: ['pending', 'unclaimed', 'proposed'], limit: 500 })
+    const norm = (q: string): string => q.toLowerCase().replace(/\s+/g, ' ').trim()
+    for (const h of answer.handoffs) {
+      const candidate = candidates.find((c) => c.id === h.candidate)
+      if (!candidate || candidate.kind === 'handoff') continue
+      if (known.size > 0 && !known.has(h.domain)) {
+        this.log('warn', `fellows: ${agent.name} routed "${candidate.text.slice(0, 60)}" to an unknown domain ${h.domain}; ignored`)
+        continue
+      }
+      if (h.domain === agent.homeDomain || agent.extraDomains.includes(h.domain)) continue
+      if (open.some((o) => norm(o.question) === norm(candidate.text))) continue
+      const target = this.targetFor(h.domain, agent.id)
+      this.handoffs.create({
+        id: randomUUID(),
+        fromAgentId: agent.id,
+        toAgentId: target?.id ?? null,
+        question: candidate.text,
+        sourcePage: candidate.sourcePages[0] ?? null,
+        domain: h.domain,
+        reason: h.reason,
+        createdAt: now,
+        cycleDate,
+        status: target ? 'pending' : 'unclaimed',
+        proposalId: null,
+        updatedAt: now,
+      })
+      this.log('info', `fellows: ${agent.name} handed "${candidate.text.slice(0, 60)}" to ${target ? target.name : `nobody (unclaimed, ${h.domain})`}`)
+    }
+  }
+
+  /**
+   * Spawns a Fellow from an unclaimed request (section 6.6, D5): intent, home domain and
+   * provenance come from the request, the rest from the input; the request is then routed
+   * to the new Fellow as a pending handoff.
+   */
+  async spawnFromHandoff(handoffId: string, input: Partial<SpawnInput> = {}): Promise<SpawnOutcome & { readonly handoff?: HandoffRecord }> {
+    const h = this.handoffs?.get(handoffId)
+    if (!h) return { refusal: { status: 404, code: 'unknown', error: 'no such request' } }
+    if (h.status !== 'unclaimed') return { refusal: { status: 409, code: 'state', error: `the request is ${h.status}` } }
+    const from = this.agents.get(h.fromAgentId)
+    const name = input.name?.trim() || `${h.domain.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} Fellow`
+    const outcome = await this.spawn({
+      ...input,
+      name,
+      intent: input.intent?.trim() || h.question,
+      homeDomain: input.homeDomain ?? h.domain,
+      scope: input.scope ?? `Handed off by ${from?.name ?? 'another Fellow'}${h.sourcePage ? ` from ${h.sourcePage}` : ''}${h.reason ? `: ${h.reason}` : ''}`,
+    })
+    if (!outcome.agent) return outcome
+    const now = this.now().toISOString()
+    const claimed = this.handoffs!.update(handoffId, { toAgentId: outcome.agent.id, status: 'pending', updatedAt: now })
+    return { ...outcome, ...(claimed ? { handoff: claimed } : {}) }
   }
 
   /** What the planner would be shown right now (the dashboard's "why this plan" view). */
@@ -692,7 +823,10 @@ export class FellowService {
     const agent = this.agents.get(agentId)
     if (!agent) return
     let patch: AgentPatch
-    if (settled.status !== 'done') {
+    if (settled.status !== 'done' && settled.kind === 'research-expand' && (settled.error ?? '').startsWith('expand run reverted')) {
+      // D3: the fault is in one run's output, not in the Fellow; the planner carries on.
+      patch = { state: 'sleeping', sleepReason: settled.error ?? 'the expand run was reverted', sleepCode: 'idle' }
+    } else if (settled.status !== 'done') {
       patch = { state: 'blocked', sleepReason: settled.error ?? 'the last run failed', sleepCode: null }
     } else {
       const history = this.runs.list({ agentId, limit: 10 }).filter((r) => isResearchKind(r.kind))
@@ -736,8 +870,21 @@ export class FellowService {
       if (fresh) await this.writeNotebook(fresh)
       return
     }
-    const built = buildProposals({ agent, answer, candidates, kinds, cycleDate, now, newId: () => randomUUID() })
+    const root = this.vaultRoot
+    const built = buildProposals({
+      agent,
+      answer,
+      candidates,
+      kinds,
+      cycleDate,
+      now,
+      newId: () => randomUUID(),
+      pageExists: (page) => (root === undefined ? true : fs.existsSync(path.join(root, page))),
+      ownPages: [...fellowSynthesisPages(this.runs.list({ agentId, limit: 50 })), agent.notebookPath],
+    })
     for (const r of built.rejected) this.log('warn', `fellows: ${agent.name}: proposal dropped, ${r}`)
+    for (const t of built.clamped) this.log('info', `fellows: ${agent.name}: "${t}" clamped to a step, no listed page exists`)
+    this.routeHandoffs(agent, answer, candidates, cycleDate, now)
     // A new plan replaces what was still undecided; approved proposals survive (section 6.5).
     this.proposals.supersede(agentId)
     let kept = 0
@@ -748,6 +895,9 @@ export class FellowService {
       }
       this.proposals.create(p)
       kept++
+      // A proposal built from a handoff settles that handoff (D5).
+      const source = candidates.find((c) => c.text === p.provenance.text && c.kind === 'handoff')
+      if (source?.handoffId !== undefined) this.handoffs?.update(source.handoffId, { status: 'proposed', proposalId: p.id, updatedAt: now })
     }
     const pending = this.pendingProposals(agentId)
     if (pending.length > 0) {
@@ -805,6 +955,9 @@ export class FellowService {
     const agent = this.agents.get(id)
     if (!agent) return undefined
     for (const p of this.pendingProposals(id)) this.proposals.update(p.id, { status: 'expired' })
+    // Pending handoffs to a retired Fellow become unclaimed requests (section 5.2).
+    const unclaimed = this.handoffs?.unclaimTarget(id, this.now().toISOString()) ?? 0
+    if (unclaimed > 0) this.log('info', `fellows: ${unclaimed} handoff(s) to ${agent.name} are unclaimed now`)
     return this.setState(id, { state: 'retired', sleepReason: null, sleepCode: null, retiredAt: this.now().toISOString() })
   }
 

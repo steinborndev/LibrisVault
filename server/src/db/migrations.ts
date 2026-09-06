@@ -475,6 +475,31 @@ ALTER TABLE agent_runs ADD COLUMN answer TEXT;
 ALTER TABLE agents ADD COLUMN skip_until TEXT;
 `
 
+/**
+ * v18 - handoffs between Fellows (docs/agents/SPEC.md section 6.6, milestone A3,
+ * docs/tasks/TASKS-A3.md D4 and D5): an open question routed to the Fellow whose domain
+ * it is, or left unclaimed for the recap's spawn offer. Service-side only: notebooks stay
+ * private to their Fellow.
+ */
+const V18 = `
+CREATE TABLE handoffs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  from_agent_id TEXT NOT NULL,
+  to_agent_id TEXT,
+  question TEXT NOT NULL,
+  source_page TEXT,
+  domain TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  cycle_date TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  proposal_id TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX handoffs_target ON handoffs (to_agent_id, status);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -493,4 +518,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 15, up: V15 },
   { version: 16, up: V16 },
   { version: 17, up: V17 },
+  { version: 18, up: V18 },
 ]

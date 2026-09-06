@@ -242,15 +242,15 @@ describe('planner prompt, schema and answer', () => {
 
   it('builds a strict schema from the allowed kinds and candidate ids', () => {
     const schema = plannerSchema({ kinds: ['research-step'], candidateIds: ['C1', 'C2'] }) as { properties: Record<string, { items?: { properties: Record<string, { enum?: string[] }> } }>; required: string[] }
-    expect(schema.required).toEqual(['proposals', 'nothing_worth_a_run', 'intent_covered', 'reason'])
+    expect(schema.required).toEqual(['proposals', 'handoffs', 'nothing_worth_a_run', 'intent_covered', 'reason'])
     expect(schema.properties['proposals']!.items!.properties['candidate']!.enum).toEqual(['C1', 'C2'])
     expect(schema.properties['proposals']!.items!.properties['kind']!.enum).toEqual(['research-step'])
   })
 
   it('limits the kinds by the step size', () => {
     expect(kindsForStep('small')).toEqual(['research-step'])
-    expect(kindsForStep('standard')).toEqual(['research-step', 'research'])
-    expect(kindsForStep('deep')).toEqual(['research-step', 'research'])
+    expect(kindsForStep('standard')).toEqual(['research-step', 'research-expand', 'research'])
+    expect(kindsForStep('deep')).toEqual(['research-step', 'research-expand', 'research'])
   })
 
   it('parses a schema-shaped answer and rejects garbage', () => {

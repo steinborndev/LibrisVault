@@ -27,6 +27,8 @@ import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
+import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit } from './expand.js'
+import { restoreCommitPaths } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
 import type { DomainCandidate } from './domain-candidates.js'
 import { indexWikiPages } from './citations.js'
@@ -51,6 +53,7 @@ export type MaintenanceKind =
   | 'lint-fix'
   | 'research'
   | 'research-step'
+  | 'research-expand'
   | 'plan'
   | 'recap'
   | 'hot-cache'
@@ -286,6 +289,8 @@ const RUN_HISTORY_CAP = 25
 const STEP_TIMEOUT_MS = 15 * 60_000
 /** A planning run reads and ranks; five minutes is the spec's bound (section 6.2). */
 export const PLAN_TIMEOUT_MS = 5 * 60_000
+/** An expand run deepens a few pages; twenty minutes covers a short web round plus the edits. */
+export const EXPAND_TIMEOUT_MS = 20 * 60_000
 /** The recap's summary lines: three minutes and one USD (section 7). */
 export const RECAP_TIMEOUT_MS = 3 * 60_000
 export const RECAP_BUDGET_USD = 1
@@ -328,6 +333,8 @@ interface RunOptions {
   readonly proposalId?: string
   /** Schema-bound answer (a planning run); the result carries `structuredOutput`. */
   readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
+  /** An expand run's page set: the commit is validated against it and reverted on a violation (A3). */
+  readonly expandPageSet?: readonly string[]
 }
 
 /** What a run may be started as. `query` is read-only and is used by the `plan` kind only. */
@@ -598,6 +605,24 @@ export class MaintenanceRunner {
       profileKey: profile.key,
       ...fellowRunOptions(fellow),
       ...(fellow.timeoutMs === undefined ? { timeoutMs: STEP_TIMEOUT_MS } : {}),
+    })
+  }
+
+  /**
+   * A research EXPAND (docs/agents/SPEC.md section 7, docs/tasks/TASKS-A3.md): deepen the
+   * listed pages append-only. The rules ride in the prompt; the commit is validated against
+   * the page set afterwards and reverted with a new commit when it breaks them.
+   */
+  startResearchExpand(topic: string, profileKey: string | undefined, fellow: FellowRunContext, pageSet: readonly string[]): MaintenanceRun {
+    const profile = getResearchProfile(profileKey)
+    const date = this.now().toISOString().slice(0, 10)
+    const prompt = this.researchPrompt(topic, profile, renderExpandRules(pageSet, date) + renderFellowBlock(fellow))
+    return this.start('research-expand', prompt, 'research', {
+      label: topic,
+      profileKey: profile.key,
+      ...fellowRunOptions(fellow),
+      ...(fellow.timeoutMs === undefined ? { timeoutMs: EXPAND_TIMEOUT_MS } : {}),
+      expandPageSet: pageSet,
     })
   }
 
@@ -1163,6 +1188,29 @@ export class MaintenanceRunner {
       log('info', commit.committed ? `committed ${commit.hash?.slice(0, 8)} (${pages.length} page(s))` : 'nothing to commit')
       this.events.publish({ kind: 'stats' })
 
+      // An expand run is bound to its page set (docs/tasks/TASKS-A3.md D2, D3): validate the
+      // commit against the parent and undo a violation with a NEW commit, then fail the run.
+      if (kind === 'research-expand' && opts.expandPageSet !== undefined && commitHash !== null) {
+        const findings = await validateExpandCommit(gitCommitReader(this.vaultRoot, commitHash), opts.expandPageSet)
+        if (findings.length > 0) {
+          const finding = describeFindings(findings)
+          log('warn', `maintenance: research-expand broke its rules: ${finding}`)
+          const undone = await this.commitMutex.runExclusive(() => restoreCommitPaths(this.vaultRoot, commitHash, `revert expand ${commitHash.slice(0, 8)}`))
+          log(undone.reverted ? 'warn' : 'error', undone.reverted ? `reverted ${commitHash.slice(0, 8)} with ${undone.hash?.slice(0, 8)}` : `revert failed: ${undone.message ?? 'unknown'}`)
+          this.events.publish({ kind: 'stats' })
+          return {
+            ok: false,
+            kind,
+            pages: [],
+            commit: undone.reverted ? (undone.hash ?? null) : commitHash,
+            usage: res.usage,
+            error: `expand run reverted: ${finding}${undone.reverted ? '' : ` (revert failed: ${undone.message ?? 'unknown'})`}`,
+            answer: res.result,
+          }
+        }
+        log('info', 'research-expand stayed inside its page set')
+      }
+
       // Post-run validation, only when the run actually touched pages (a read-only kind like
       // domain-review has nothing to check). Advisory: findings never fail the run.
       const touched = [...new Set([...written, ...pages])]
@@ -1210,7 +1258,7 @@ export class MaintenanceRunner {
           ...(res.result !== undefined ? { answer: res.result } : {}),
         }
       }
-      if (kind === 'research' || kind === 'research-step') {
+      if (kind === 'research' || kind === 'research-step' || kind === 'research-expand') {
         /**
          * The synthesis page IS the deliverable of a research run, the same way the report file
          * is the lint run's - it is what the run detail renders and what the Library lists under

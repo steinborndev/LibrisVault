@@ -16,6 +16,8 @@
  *   POST   /api/v1/agents/:id/pause|resume|retire
  *   POST   /api/v1/proposals/:id/decide       approve, veto, undo, edit the topic, reorder
  *   POST   /api/v1/proposals/:id/run          execute a pending proposal now (202), gated
+ *   GET    /api/v1/handoffs                   routed and unclaimed handoffs between Fellows (A3)
+ *   POST   /api/v1/handoffs/:id/spawn         spawn a Fellow from an unclaimed request, prefilled (201)
  *
  * Every run-starting POST answers 503 in setup mode, like the maintenance routes.
  */
@@ -55,7 +57,9 @@ const patchSchema = spawnSchema
 
 const stepSchema = z.object({
   topic: z.string().trim().min(3).max(500).optional(),
-  kind: z.enum(['research', 'research-step']).optional(),
+  kind: z.enum(['research', 'research-step', 'research-expand']).optional(),
+  /** For an expand step started by hand: the existing pages it may deepen. */
+  pageSet: z.array(z.string().trim().min(1).max(500)).max(8).optional(),
 })
 
 const decideSchema = z.object({
@@ -173,7 +177,7 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     const { id } = req.params as { id: string }
     const parsed = stepSchema.safeParse(req.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: issues(parsed.error) })
-    const outcome = fellows.step(id, compact(parsed.data) as { topic?: string; kind?: StepKind })
+    const outcome = fellows.step(id, compact(parsed.data) as { topic?: string; kind?: StepKind; pageSet?: string[] })
     if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
     return reply.code(202).send({ run: outcome.run })
   })
@@ -195,6 +199,24 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
       return reply.send({ agent })
     })
   }
+
+  // Handoffs (docs/agents/SPEC.md section 6.6, A3): what is routed and what is unclaimed.
+  app.get('/api/v1/handoffs', async (_req, reply) => {
+    return reply.send({ handoffs: fellows.listHandoffs() })
+  })
+
+  app.post('/api/v1/handoffs/:id/spawn', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const parsed = spawnSchema.partial().safeParse(req.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: issues(parsed.error) })
+    const body = parsed.data
+    const bad = (body.homeDomain !== undefined ? domainError(body.homeDomain) : null) ?? lensError(body.lens)
+    if (bad) return reply.code(400).send({ error: bad })
+    if (body.runFirstStep !== false && credentialMissing(reply)) return reply
+    const outcome = await fellows.spawnFromHandoff(id, compact(body) as Partial<SpawnInput>)
+    if (outcome.refusal && !outcome.agent) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    return reply.code(201).send({ agent: outcome.agent, run: outcome.run ?? null, handoff: outcome.handoff ?? null, refusal: outcome.refusal?.error ?? null })
+  })
 
   app.post('/api/v1/proposals/:id/decide', async (req, reply) => {
     const { id } = req.params as { id: string }

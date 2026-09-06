@@ -635,6 +635,18 @@ export type RecapAnswer =
   | { action: 'model'; fellow: number; value: string }
   | { action: 'step'; fellow: number; value: string }
   | { action: 'topic'; fellow: number; letter: string; text: string }
+  | { action: 'spawn'; request: number; name?: string }
+
+/** An open question no Fellow's domain covers, offered as a spawn (A3). */
+export interface RecapUnclaimed {
+  code: string
+  handoffId: string
+  question: string
+  domain: string
+  fromName: string
+  sourcePage: string | null
+  reason: string
+}
 
 export interface RecapRun {
   runId: string
@@ -698,6 +710,11 @@ export interface RecapModel {
   sleeping: Array<{ name: string; reason: string }>
   summaryNote: string | null
   summaryCostUsd: number | null
+  unclaimed: RecapUnclaimed[]
+  dedupe: {
+    merged: Array<{ keptAgentName: string; keptTopic: string; droppedAgentName: string; droppedTopic: string }>
+    overlaps: Array<{ agentName: string; topic: string; page: string }>
+  }
 }
 
 export interface RecapRow {

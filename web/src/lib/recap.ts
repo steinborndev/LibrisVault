@@ -34,6 +34,8 @@ export function answerCode(answer: RecapAnswer): string {
       return `${answer.action} ${answer.fellow} ${answer.value}`
     case 'topic':
       return `topic ${answer.fellow}${answer.letter}: ${answer.text}`
+    case 'spawn':
+      return `spawn u${answer.request}${answer.name !== undefined ? ` ${answer.name}` : ''}`
   }
 }
 

@@ -9,7 +9,8 @@
  * anyway; awaiting each lets the shift read the outcome before it decides the next one.
  */
 
-import type { ShiftRecord, ShiftStore, ShiftTrigger, ShiftExecution, ShiftPlanning, ShiftSkip } from '../db/shifts.js'
+import type { ShiftRecord, ShiftStore, ShiftTrigger, ShiftExecution, ShiftPlanning, ShiftSkip, ShiftMerge, ShiftOverlap } from '../db/shifts.js'
+import { tokenize } from './related-pages.js'
 import type { AgentRecord } from '../db/agents.js'
 import type { FellowService } from './fellows.js'
 import { localDate, windowAt, type NightWindow } from './clock.js'
@@ -34,6 +35,22 @@ export interface NightShiftOptions {
   readonly log?: (level: 'info' | 'warn' | 'error', message: string) => void
   /** How often the timer checks the window; a minute by default. */
   readonly tickMs?: number
+  /** Titles of the existing synthesis pages, for the dedupe notes (section 6.6, A3). */
+  readonly synthesisTitles?: () => readonly string[]
+}
+
+/** Two pending topics this alike are one topic (overlap coefficient of the significant tokens). */
+export const DEDUPE_THRESHOLD = 0.6
+/** A pending topic this close to an existing synthesis page is noted (never dropped). */
+export const OVERLAP_NOTE_THRESHOLD = 0.7
+
+export function topicOverlap(a: string, b: string): number {
+  const ta = tokenize(a)
+  const tb = tokenize(b)
+  if (ta.size === 0 || tb.size === 0) return 0
+  let shared = 0
+  for (const t of ta) if (tb.has(t)) shared++
+  return Math.round((shared / Math.min(ta.size, tb.size)) * 100) / 100
 }
 
 /** Safety bound on execution rounds per shift (round-robin, section 8.5). */
@@ -46,6 +63,7 @@ export class NightShift {
   private readonly now: () => Date
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   private readonly tickMs: number
+  private readonly synthesisTitles: () => readonly string[]
   private timer: ReturnType<typeof setInterval> | undefined
   private running: Promise<ShiftRecord> | null = null
 
@@ -56,6 +74,43 @@ export class NightShift {
     this.now = opts.now ?? ((): Date => new Date())
     this.log = opts.log ?? ((): void => {})
     this.tickMs = opts.tickMs ?? 60_000
+    this.synthesisTitles = opts.synthesisTitles ?? ((): readonly string[] => [])
+  }
+
+  /**
+   * Dedupe before the shift (section 6.6, D6): pairwise over the undecided proposals of all
+   * Fellows in shift order, the later Fellow's near-duplicate is superseded (approved ones
+   * never lose); a topic close to an existing synthesis page is noted, not dropped.
+   */
+  dedupe(): { merged: ShiftMerge[]; overlaps: ShiftOverlap[] } {
+    const merged: ShiftMerge[] = []
+    const overlaps: ShiftOverlap[] = []
+    const fellows = this.fellows.list().map((s) => s.agent).filter((a) => a.state !== 'retired')
+    const kept: Array<{ agentId: string; agentName: string; id: string; topic: string; status: string }> = []
+    for (const agent of fellows) {
+      for (const p of this.fellows.pendingProposals(agent.id)) {
+        const twin = p.status === 'approved' ? undefined : kept.find((k) => k.agentId !== agent.id && topicOverlap(k.topic, p.topic) >= DEDUPE_THRESHOLD)
+        if (twin) {
+          const score = topicOverlap(twin.topic, p.topic)
+          this.fellows.supersedeProposal(p.id, `merged into ${twin.agentName}'s "${twin.topic}" (overlap ${score})`)
+          merged.push({ keptAgentName: twin.agentName, keptTopic: twin.topic, droppedAgentName: agent.name, droppedTopic: p.topic, score })
+          continue
+        }
+        kept.push({ agentId: agent.id, agentName: agent.name, id: p.id, topic: p.topic, status: p.status })
+      }
+    }
+    const titles = this.synthesisTitles()
+    for (const k of kept) {
+      for (const title of titles) {
+        const score = topicOverlap(k.topic, title)
+        if (score >= OVERLAP_NOTE_THRESHOLD) {
+          overlaps.push({ agentName: k.agentName, topic: k.topic, page: title, score })
+          break
+        }
+      }
+    }
+    if (merged.length > 0 || overlaps.length > 0) this.log('info', `shift: dedupe merged ${merged.length}, noted ${overlaps.length} overlap(s) with existing pages`)
+    return { merged, overlaps }
   }
 
   /** Starts the timer. Idempotent. */
@@ -121,6 +176,7 @@ export class NightShift {
     const executed: ShiftExecution[] = []
     const planned: ShiftPlanning[] = []
     const skipped: ShiftSkip[] = []
+    let dedupe: { merged: ShiftMerge[]; overlaps: ShiftOverlap[] } = { merged: [], overlaps: [] }
     const skippedOnce = new Set<string>()
     const skip = (agent: AgentRecord, reason: string): void => {
       const key = `${agent.id}:${reason}`
@@ -133,12 +189,14 @@ export class NightShift {
       planned,
       skipped,
       costUsd: Math.round((executed.reduce((a, e) => a + (e.costUsd ?? 0), 0) + planned.reduce((a, p) => a + (p.costUsd ?? 0), 0)) * 100) / 100,
+      merged: dedupe.merged,
+      overlaps: dedupe.overlaps,
     })
     const record = (finishedAt: string | null): ShiftRecord => ({ cycleDate, trigger, startedAt: startedAt.toISOString(), finishedAt, summary: summary() })
     this.shifts.put(record(null))
     this.log('info', `shift: ${trigger} shift for cycle ${cycleDate} started`)
 
-    const roomFor = (agent: AgentRecord, kind: 'research' | 'research-step' | 'plan'): boolean =>
+    const roomFor = (agent: AgentRecord, kind: 'research' | 'research-step' | 'research-expand' | 'plan'): boolean =>
       deadline === null || this.now().getTime() + this.fellows.timeoutFor(agent, kind) <= deadline
 
     const active = (): AgentRecord[] => this.fellows.list().map((s) => s.agent).filter((a) => a.state !== 'retired' && a.state !== 'paused')
@@ -160,10 +218,6 @@ export class NightShift {
       const proposal = this.fellows.runnable(agent.id)
       if (!proposal) {
         skip(agent, agent.autonomy === 'manual' ? 'manual mode and nothing approved' : 'nothing runnable')
-        return false
-      }
-      if (proposal.kind === 'research-expand') {
-        skip(agent, 'research-expand proposals cannot run before A3')
         return false
       }
       if (!roomFor(agent, proposal.kind)) {
@@ -194,6 +248,13 @@ export class NightShift {
       })
       this.shifts.put(record(null))
       return true
+    }
+
+    // Dedupe first (section 6.6): near-duplicate topics across Fellows run once.
+    try {
+      dedupe = this.dedupe()
+    } catch (err) {
+      this.log('warn', `shift: dedupe failed: ${(err as Error).message}`)
     }
 
     // Phase 1: the plans of veto and manual Fellows, in rounds (section 8.5).

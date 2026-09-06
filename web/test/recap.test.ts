@@ -38,6 +38,8 @@ const model = (over: Partial<RecapModel> = {}): RecapModel => ({
   sleeping: [],
   summaryNote: null,
   summaryCostUsd: null,
+  unclaimed: [],
+  dedupe: { merged: [], overlaps: [] },
   ...over,
 })
 
@@ -57,6 +59,8 @@ describe('recap helpers', () => {
     expect(answerCode({ action: 'note', fellow: 2, text: 'hi' })).toBe('note 2: hi')
     expect(answerCode({ action: 'model', fellow: 2, value: 'opus-5' })).toBe('model 2 opus-5')
     expect(answerCode({ action: 'topic', fellow: 2, letter: 'a', text: 'new' })).toBe('topic 2a: new')
+    expect(answerCode({ action: 'spawn', request: 1, name: 'Cleo' })).toBe('spawn u1 Cleo')
+    expect(answerCode({ action: 'spawn', request: 2 })).toBe('spawn u2')
   })
 
   it('sums the night into one line', () => {

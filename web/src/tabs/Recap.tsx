@@ -11,7 +11,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
-import type { RecapAnswer, RecapAnswerResult, RecapFellow, RecapProposal, RecapRow } from '../api/types.ts'
+import type { RecapAnswer, RecapAnswerResult, RecapFellow, RecapProposal, RecapRow, RecapUnclaimed } from '../api/types.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { queryState } from '../components/QueryState.tsx'
@@ -152,7 +152,24 @@ function RecapBody({
           Skipped: {m.shift.skipped.map((s) => `${s.agentName} (${s.reason})`).join(' · ')}
         </p>
       )}
+      {(m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
+        <p className="mono-meta" style={{ padding: '8px 14px' }}>
+          {m.dedupe.merged.map((d, i) => (
+            <span key={`m${i}`}>
+              Merged {d.droppedAgentName}'s "{d.droppedTopic}" into {d.keptAgentName}'s "{d.keptTopic}".{' '}
+            </span>
+          ))}
+          {m.dedupe.overlaps.map((o, i) => (
+            <span key={`o${i}`}>
+              {o.agentName}'s "{o.topic}" overlaps the existing page "{o.page}".{' '}
+            </span>
+          ))}
+        </p>
+      )}
       {!m.quiet && m.fellows.map((f) => <FellowSection key={f.agentId} f={f} vaultName={vaultName} onAnswer={onAnswer} onFollow={onFollow} busy={busy} />)}
+      {m.unclaimed.map((u) => (
+        <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />
+      ))}
       {row.path && (
         <p className="mono-meta" style={{ padding: '8px 14px' }}>
           Vault page: <PageLink vaultName={vaultName} path={row.path} />
@@ -287,6 +304,48 @@ function FellowSection({
       <p className="mono-meta">
         Notebook: <PageLink vaultName={vaultName} path={f.notebookPath} /> · opened {f.value.pageOpens} time(s) this month
       </p>
+    </section>
+  )
+}
+
+/** An unclaimed request (A3): no Fellow covers the domain; a prefilled spawn is one click away. */
+/** `climate-science` reads as "Climate Science Fellow", the same default the server uses. */
+function defaultFellowName(domain: string): string {
+  const words = domain.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+  return words.concat(['Fellow']).join(' ')
+}
+
+function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnclaimed; vaultName: string; onAnswer: (a: RecapAnswer) => void; busy: boolean }): React.ReactElement {
+  const [name, setName] = useState(defaultFellowName(u.domain))
+  const request = Number(u.code.slice(1))
+  return (
+    <section className="recap-fellow" aria-label={`Unclaimed request ${u.code}`} style={{ padding: '12px 14px', borderTop: '1px solid var(--border)' }}>
+      <div className="box-head" style={{ padding: 0, border: 0 }}>
+        <h3 className="box-title">{u.code}. Unclaimed request</h3>
+        <span className="box-sub">
+          {u.domain} · from {u.fromName} · no Fellow covers this domain
+        </span>
+      </div>
+      <div>{u.question}</div>
+      {u.reason && <div className="mono-meta">Why: {u.reason}</div>}
+      {u.sourcePage && (
+        <p className="mono-meta">
+          From: <PageLink vaultName={vaultName} path={u.sourcePage} />
+        </p>
+      )}
+      <form
+        className="recap-note"
+        onSubmit={(e) => {
+          e.preventDefault()
+          onAnswer({ action: 'spawn', request, ...(name.trim() !== '' ? { name: name.trim() } : {}) })
+        }}
+        style={{ display: 'flex', gap: 8, marginTop: 8 }}
+      >
+        <input className="input" style={{ flex: 1 }} aria-label="Name of the new Fellow" value={name} onChange={(e) => setName(e.target.value)} />
+        <button className="btn primary sm" type="submit" disabled={busy} title={answerCode({ action: 'spawn', request, name })}>
+          Spawn a Fellow for this
+        </button>
+      </form>
     </section>
   )
 }

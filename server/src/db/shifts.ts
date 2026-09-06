@@ -40,11 +40,30 @@ export interface ShiftSkip {
   readonly reason: string
 }
 
+/** A near-duplicate the shift merged before running (section 6.6, A3). */
+export interface ShiftMerge {
+  readonly keptAgentName: string
+  readonly keptTopic: string
+  readonly droppedAgentName: string
+  readonly droppedTopic: string
+  readonly score: number
+}
+
+/** A pending topic that overlaps an existing synthesis page (noted, not dropped). */
+export interface ShiftOverlap {
+  readonly agentName: string
+  readonly topic: string
+  readonly page: string
+  readonly score: number
+}
+
 export interface ShiftSummary {
   readonly executed: readonly ShiftExecution[]
   readonly planned: readonly ShiftPlanning[]
   readonly skipped: readonly ShiftSkip[]
   readonly costUsd: number
+  readonly merged?: readonly ShiftMerge[]
+  readonly overlaps?: readonly ShiftOverlap[]
 }
 
 export interface ShiftRecord {
@@ -96,6 +115,8 @@ function toRecord(row: Row): ShiftRecord {
       planned: Array.isArray(parsed.planned) ? parsed.planned : [],
       skipped: Array.isArray(parsed.skipped) ? parsed.skipped : [],
       costUsd: typeof parsed.costUsd === 'number' ? parsed.costUsd : 0,
+      ...(Array.isArray(parsed.merged) ? { merged: parsed.merged } : {}),
+      ...(Array.isArray(parsed.overlaps) ? { overlaps: parsed.overlaps } : {}),
     }
   } catch {
     /* a corrupt summary must not hide the shift */

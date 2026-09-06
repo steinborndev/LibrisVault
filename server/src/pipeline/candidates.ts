@@ -53,6 +53,16 @@ export interface Candidate {
   readonly sourcePages: readonly string[]
   /** Ordering weight; higher first. */
   readonly weight: number
+  /** For kind `handoff`: the handoff row, so a proposal built from it can mark it (A3). */
+  readonly handoffId?: string
+}
+
+/** What a pending handoff to the Fellow looks like to the candidate computation (A3). */
+export interface HandoffCandidate {
+  readonly id: string
+  readonly question: string
+  readonly sourcePage: string | null
+  readonly fromName: string
 }
 
 /** A page under this many bytes is a stub (kept in step with `STUB_BYTES` in web/src/lib/domains.ts). */
@@ -61,6 +71,7 @@ export const STUB_BYTES = 1024
 export const MAX_CANDIDATES = 20
 const MAX_QUESTIONS = 10
 const MAX_NOTES = 3
+const MAX_HANDOFFS = 5
 const MAX_GAPS = 8
 const MAX_STUBS = 5
 const MAX_INGESTS = 5
@@ -76,6 +87,8 @@ export interface CandidateInput {
   readonly jobs: readonly JobRow[]
   /** Only ingests finished after this instant count; null = every ingest. */
   readonly since: string | null
+  /** Pending handoffs routed to this Fellow (section 6.6). */
+  readonly handoffs?: readonly HandoffCandidate[]
 }
 
 /** The domains a Fellow reads as its own: home plus extras. */
@@ -201,6 +214,11 @@ export function computeCandidates(input: CandidateInput): Candidate[] {
     raw.push({ kind: 'note', text: note, sourcePages: [agent.notebookPath], weight: 3.5 })
   }
   raw.push(...questions)
+
+  // 5. Handoffs from other Fellows (section 6.6): another Fellow's question in this domain.
+  for (const h of (input.handoffs ?? []).slice(0, MAX_HANDOFFS)) {
+    raw.push({ kind: 'handoff', text: `${h.question} (handed off by ${h.fromName})`, sourcePages: h.sourcePage ? [h.sourcePage] : [], weight: 2.5, handoffId: h.id })
+  }
 
   if (graph !== null) {
     const own = fellowPages(runs)

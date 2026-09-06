@@ -15,8 +15,8 @@ import { RESEARCH_PROFILES } from './research-profiles.js'
 import { tokenize } from './related-pages.js'
 import type { Candidate } from './candidates.js'
 
-/** The kinds the planner may propose in this milestone (docs/tasks/TASKS-A1.md D1). */
-export const PLANNER_KINDS: readonly ProposalKind[] = ['research-step', 'research']
+/** The kinds the planner may propose, smallest first (A3 added `research-expand`). */
+export const PLANNER_KINDS: readonly ProposalKind[] = ['research-step', 'research-expand', 'research']
 
 /** Rough list-price cost per kind on Sonnet 5 (spec section 16), scaled by the model factor. */
 export const KIND_COST_USD: Readonly<Record<ProposalKind | 'plan', number>> = {
@@ -31,6 +31,8 @@ export const DRIFT_THRESHOLD = 0.2
 
 /** How many proposals a planning run may leave. */
 export const MAX_PROPOSALS = 3
+/** How many existing pages an expand proposal may list (its own pages come on top, D1). */
+export const EXPAND_PAGE_CAP = 4
 
 export function estimateCostUsd(kind: ProposalKind | 'plan', model: AgentModel): number {
   return Math.round(KIND_COST_USD[kind] * MODEL_FACTOR[model] * 100) / 100
@@ -70,7 +72,7 @@ export function scopeScore(topicAndRationale: string, intentAndScope: string): n
 
 export const isDrift = (score: number): boolean => score < DRIFT_THRESHOLD
 
-/** The largest kind a step size allows. */
+/** The largest kind a step size allows: `small` is steps only; `standard` and `deep` may expand and sweep. */
 export function kindsForStep(step: AgentStep, allowed: readonly ProposalKind[] = PLANNER_KINDS): ProposalKind[] {
   return allowed.filter((k) => step !== 'small' || k === 'research-step')
 }
@@ -78,6 +80,11 @@ export function kindsForStep(step: AgentStep, allowed: readonly ProposalKind[] =
 /** Clamps a proposed kind to what the Fellow's step allows. */
 export function clampKind(kind: ProposalKind, step: AgentStep): ProposalKind {
   return step === 'small' ? 'research-step' : kind
+}
+
+export interface DomainHint {
+  readonly key: string
+  readonly description: string
 }
 
 export interface PlannerInput {
@@ -89,12 +96,14 @@ export interface PlannerInput {
   readonly vetoed: readonly string[]
   readonly runsLeftToday: number
   readonly kinds: readonly ProposalKind[]
+  /** The domain registry, for routing (A3); empty when the vault has none. */
+  readonly domains?: readonly DomainHint[]
 }
 
 const KIND_HELP: Readonly<Record<ProposalKind, string>> = {
   'research-step': 'one question: 1 search round, at most 5 sources and 5 new pages, about 2 USD',
   research: 'a full sweep of a broader topic: 3 rounds, up to 15 pages, about 6 USD',
-  'research-expand': 'deepen listed pages append-only, about 3 USD',
+  'research-expand': 'deepen up to 4 EXISTING pages you name in `pages` with dated append-only update sections, about 3 USD',
 }
 
 /** The planning prompt. Everything the planner may draw on is vault-internal (section 13). */
@@ -118,19 +127,29 @@ export function renderPlannerPrompt(input: PlannerInput): string {
     'Choose the SMALLEST kind that fits each candidate: a single question is a research-step; only a genuinely broad, ' +
     'multi-question theme deserves a full research sweep. ' +
     `Lenses: ${lenses}; "${agent.lens}" is the Fellow's default.\n` +
-    `The Fellow has ${input.runsLeftToday} run(s) left today.\n\n` +
-    'Read the candidates\' source pages with your read tools when you need to judge them; you have no web access and ' +
+    `The Fellow has ${input.runsLeftToday} run(s) left today.\n` +
+    (input.domains !== undefined && input.domains.length > 0
+      ? `\nThe library's domains (registry keys): ${input.domains.map((d) => `${d.key} (${d.description})`).join('; ')}.\n`
+      : '') +
+    '\nRead the candidates\' source pages with your read tools when you need to judge them; you have no web access and ' +
     'must not write anything. Then answer in the required structured format: at most ' +
     `${MAX_PROPOSALS} proposals, best first, each with the candidate id, the kind, a precise topic sentence a ` +
-    'research run can act on, and one paragraph of rationale against the intent. Merge candidates that are the same ' +
-    'question. Skip candidates the wiki already answers or that fall outside the intent. If nothing is worth a run, ' +
-    'return no proposals, set nothing_worth_a_run and say why; set intent_covered only when the intent itself is ' +
-    'answered as far as the library can take it.'
+    'research run can act on, one paragraph of rationale against the intent, and for research-expand the vault-relative ' +
+    'paths of the existing pages to deepen in `pages` (leave `pages` empty for the other kinds). Merge candidates that ' +
+    'are the same question. Skip candidates the wiki already answers or that fall outside the intent. ' +
+    (input.domains !== undefined && input.domains.length > 0
+      ? 'A candidate that is a real question but belongs to ANOTHER domain of the library is a handoff, not a proposal: ' +
+        'list it under `handoffs` with its candidate id, the registry key of that domain and a short reason, so the ' +
+        "Fellow of that domain gets it (or the user is offered to spawn one). Do not hand off the Fellow's own questions. "
+      : '') +
+    'If nothing is worth a run, return no proposals, set nothing_worth_a_run and say why; set intent_covered only when ' +
+    'the intent itself is answered as far as the library can take it.'
   )
 }
 
-/** JSON schema for the planning answer, built from the kinds and candidate ids of this run. */
-export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; readonly candidateIds: readonly string[] }): Record<string, unknown> {
+/** JSON schema for the planning answer, built from the kinds, candidate ids and domains of this run. */
+export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; readonly candidateIds: readonly string[]; readonly domainKeys?: readonly string[] }): Record<string, unknown> {
+  const domainKeys = input.domainKeys ?? []
   return {
     type: 'object',
     properties: {
@@ -144,8 +163,22 @@ export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; 
             topic: { type: 'string' },
             rationale: { type: 'string' },
             lens: { type: 'string', enum: RESEARCH_PROFILES.map((p) => p.key) },
+            pages: { type: 'array', items: { type: 'string' } },
           },
-          required: ['candidate', 'kind', 'topic', 'rationale', 'lens'],
+          required: ['candidate', 'kind', 'topic', 'rationale', 'lens', 'pages'],
+          additionalProperties: false,
+        },
+      },
+      handoffs: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            candidate: { type: 'string', enum: [...input.candidateIds] },
+            domain: domainKeys.length > 0 ? { type: 'string', enum: [...domainKeys] } : { type: 'string' },
+            reason: { type: 'string' },
+          },
+          required: ['candidate', 'domain', 'reason'],
           additionalProperties: false,
         },
       },
@@ -153,7 +186,7 @@ export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; 
       intent_covered: { type: 'boolean' },
       reason: { type: 'string' },
     },
-    required: ['proposals', 'nothing_worth_a_run', 'intent_covered', 'reason'],
+    required: ['proposals', 'handoffs', 'nothing_worth_a_run', 'intent_covered', 'reason'],
     additionalProperties: false,
   }
 }
@@ -167,8 +200,18 @@ const answerSchema = z.object({
       topic: z.string().trim().min(3).max(500),
       rationale: z.string().trim().max(2000).default(''),
       lens: z.string().optional(),
+      pages: z.array(z.string().trim().min(1)).max(20).default([]),
     }),
   ),
+  handoffs: z
+    .array(
+      z.object({
+        candidate: z.string(),
+        domain: z.string().trim().min(1).max(64),
+        reason: z.string().trim().max(1000).default(''),
+      }),
+    )
+    .default([]),
   nothing_worth_a_run: z.boolean(),
   intent_covered: z.boolean().default(false),
   reason: z.string().trim().max(2000).default(''),
@@ -181,7 +224,10 @@ export interface PlannerAnswer {
     readonly topic: string
     readonly rationale: string
     readonly lens?: string
+    readonly pages: readonly string[]
   }>
+  /** Candidates the planner routed to another domain (A3). */
+  readonly handoffs: ReadonlyArray<{ readonly candidate: string; readonly domain: string; readonly reason: string }>
   readonly nothingWorthARun: boolean
   readonly intentCovered: boolean
   readonly reason: string
@@ -197,8 +243,10 @@ export function parsePlannerAnswer(raw: unknown): PlannerAnswer | undefined {
       kind: p.kind,
       topic: p.topic,
       rationale: p.rationale,
+      pages: p.pages,
       ...(p.lens !== undefined ? { lens: p.lens } : {}),
     })),
+    handoffs: parsed.data.handoffs.map((h) => ({ candidate: h.candidate.trim().toUpperCase(), domain: h.domain.trim().toLowerCase(), reason: h.reason })),
     nothingWorthARun: parsed.data.nothing_worth_a_run,
     intentCovered: parsed.data.intent_covered,
     reason: parsed.data.reason,
@@ -213,12 +261,18 @@ export interface BuildProposalsInput {
   readonly cycleDate: string
   readonly now: string
   readonly newId: () => string
+  /** Whether a vault-relative page exists (an expand page set keeps only existing pages, D1). */
+  readonly pageExists?: (page: string) => boolean
+  /** The Fellow's own pages an expand run may always touch: its synthesis pages and its notebook. */
+  readonly ownPages?: readonly string[]
 }
 
 export interface BuiltProposals {
   readonly proposals: ProposalRecord[]
   /** Why an answer's proposal was dropped, for the log. */
   readonly rejected: string[]
+  /** Expand proposals clamped to a step because no listed page existed. */
+  readonly clamped: string[]
 }
 
 /**
@@ -233,6 +287,7 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
   const lensKeys = new Set<string>(RESEARCH_PROFILES.map((p) => p.key))
   const proposals: ProposalRecord[] = []
   const rejected: string[] = []
+  const clamped: string[] = []
   const seenTopics = new Set<string>()
   for (const p of input.answer.proposals) {
     if (proposals.length >= MAX_PROPOSALS) {
@@ -251,7 +306,19 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
     }
     seenTopics.add(topicKey)
     const allowed: ProposalKind = input.kinds.includes(p.kind) ? p.kind : 'research-step'
-    const kind = clampKind(allowed, agent.step)
+    let kind = clampKind(allowed, agent.step)
+    let pageSet: string[] = []
+    if (kind === 'research-expand') {
+      // D1: the listed pages that exist, capped, plus the Fellow's own pages; none listed = a step.
+      const exists = input.pageExists ?? ((): boolean => true)
+      const listed = [...new Set([...p.pages, ...candidate.sourcePages])].filter((pg) => pg.startsWith('wiki/') && exists(pg)).slice(0, EXPAND_PAGE_CAP)
+      if (listed.length === 0) {
+        kind = 'research-step'
+        clamped.push(p.topic)
+      } else {
+        pageSet = [...new Set([...listed, ...(input.ownPages ?? []).filter(exists)])]
+      }
+    }
     const provenance: Provenance = { candidate: candidate.kind, text: candidate.text, sourcePages: candidate.sourcePages }
     proposals.push({
       id: input.newId(),
@@ -263,7 +330,7 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
       lens: p.lens !== undefined && lensKeys.has(p.lens) ? p.lens : agent.lens,
       rationale: p.rationale,
       provenance,
-      pageSet: [],
+      pageSet,
       estCostUsd: estimateCostUsd(kind, agent.model),
       estPlanPct: null,
       scopeScore: scopeScore(`${p.topic} ${p.rationale} ${candidate.text}`, `${agent.intent} ${agent.scope ?? ''}`),
@@ -275,7 +342,7 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
       runId: null,
     })
   }
-  return { proposals, rejected }
+  return { proposals, rejected, clamped }
 }
 
 /** The notebook's Plan section, rendered from the pending proposals (section 5.4). */
