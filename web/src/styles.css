@@ -6845,6 +6845,8 @@ tr:focus-within .rowacts {
 .lib-window > .flow-view { border-top: 0; }
 /* The two boards and the passage answer the pointer. */
 .lib-board, .lib-passage { transition: filter 0.12s; }
+/* A desk lamp: dark by day, lit through the night shift (the glow rides in the SVG). */
+.lib-lamp { transition: opacity 0.3s; }
 .lib-board:hover, .lib-passage:hover { filter: brightness(1.07); }
 
 
@@ -7015,3 +7017,60 @@ tr:focus-within .rowacts {
 .lib-spawn .gx-actions { display: flex; gap: 6px; }
 .lib-svg { display: block; user-select: none; }
 .lib-svg text { pointer-events: none; }
+
+/* ---- A shelf's window: the department's graph and its catalog (section 10.5) ---- */
+.shelf-window .box-head { gap: 9px; }
+.shelf-graph {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.shelf-graph > .graph-canvas-wrap,
+.shelf-graph > div:first-child { flex: 1; min-height: 0; }
+.shelf-legend {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elev) 84%, transparent);
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.shelf-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 999px; margin-right: 5px; }
+.shelf-picked {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+  font-size: 12px;
+}
+.shelf-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  flex: none;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.shelf-filter .input { min-width: 220px; }
+.shelf-table {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.shelf-table .empty { padding: 44px 20px; }

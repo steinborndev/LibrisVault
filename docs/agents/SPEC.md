@@ -696,6 +696,24 @@ covering the room canvas exactly, inside the same box, so nothing on the screen 
 The passage in the back wall has a wooden frame (two posts and a lintel) and is the way
 on: clicking it shows the next room, wrapping from the last wing back to the main room.
 Every wing has the same frame around its own passage.
+
+The two boards sit centred in their half of the short wall, and every desk carries a lamp
+that lights up through the night shift.
+
+**A shelf opens its department.** Clicking one used to leave for the Graph screen with a
+domain filter applied. It opens a third window instead, over the room, with two views of
+the department and nothing else:
+
+- **Graph**: its pages and only the links that run between them, on the shared canvas, with
+  a legend by page type. Clicking a node names it, clicking again opens the page.
+- **Catalog**: the same pages as rows, in the table the Catalog screen renders, minus the
+  domain column that would repeat the heading. It carries the **source column**: the
+  document each page was written from, opening the stored file for an ingest and the live
+  URL for a web source (a web ingest never links its stored HTML, section 12.6). A filter
+  bar above it narrows by title, by page type, and to the pages that have a source at all.
+
+Deep links: `/library?shelf=<domain>` opens the window, `&pane=catalog` on its second view.
+The tab row puts the Library between Research and the two screens it now contains.
 ## 11. Data model (SQLite, operational state only)
 
 - `agents`: id, user_id, name, slug, intent, scope, home_domain, extra_domains (json),

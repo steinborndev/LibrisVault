@@ -401,85 +401,7 @@ export function Catalog({
             <div className="empty">Nothing matches the current filters.</div>
           </div>
         ) : (
-          <table className="dtable lib-table">
-            <thead>
-              <tr>
-                <th>Page</th>
-                <th>Domain</th>
-                <th className="num">In / out</th>
-                <th>Changed</th>
-                <th>Source</th>
-                <th aria-hidden />
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((n) => (
-                <tr key={n.path} {...openableRow(() => navigate(pageRoute(n.path)), `Open ${n.title}`)}>
-                  <td className="lt-title" title={n.title}>
-                    {/* The flex row is a span inside the cell: a `td` set to `display: flex`
-                        leaves the table layout, and its baseline then drifts against the
-                        cells beside it, a little further with every row. */}
-                    <span className="lt-cell">
-                      {/* The chip sits in a fixed slot, not just next to the title: its width
-                          follows the label ("Meta" 48px, "Comparisons" 97px), which started
-                          every title at a different x - five distinct ones down one screen. */}
-                      <span className="lt-kind">
-                        <span className="badge type">{bucketLabel(n.type)}</span>
-                      </span>
-                      <strong className="lt-name">{n.title}</strong>
-                      {isOrphan(n) && <span className="lt-flag err">orphan</span>}
-                      {isStub(n) && <span className="lt-flag warn">stub</span>}
-                    </span>
-                  </td>
-                  <td className="lt-domain">
-                    {n.domain !== null ? (
-                      <>
-                        <span className="chip-dot" style={{ background: domainColor(n.domain) }} />
-                        {n.domain}
-                      </>
-                    ) : (
-                      <span className="dim">-</span>
-                    )}
-                  </td>
-                  <td className="num lt-links">
-                    {n.in} / {n.out}
-                  </td>
-                  <td className="lt-when">{n.mtimeMs !== undefined ? timeAgo(new Date(n.mtimeMs).toISOString()) : ''}</td>
-                  {/* The document this page came from. The click must not also open the
-                      page - the whole row is a link to it. */}
-                  <td className="lt-source" onClick={(e) => e.stopPropagation()}>
-                    <SourceCell node={n} refs={sources.data?.pages} />
-                  </td>
-                  {/* Zero-width cell: the buttons float out of it on hover instead of
-                      reserving 78px in every row for something that is invisible most of
-                      the time. They land over "Changed", never over Source - covering the
-                      link the column exists for would be a poor trade. */}
-                  <td className="lt-acts" onClick={(e) => e.stopPropagation()}>
-                    <span className="lt-actgroup">
-                      <button
-                        className="btn ghost"
-                        aria-label={`Focus ${n.title} in the graph`}
-                        title="Focus in graph"
-                        onClick={() => navigate(`/graph?focus=${encodeURIComponent(n.path)}`)}
-                      >
-                        <Icon name="spotlight" />
-                      </button>
-                      <button
-                        className="btn ghost"
-                        aria-label={`Open ${n.title} in Obsidian`}
-                        title="Open in Obsidian"
-                        onClick={() => {
-                          window.location.href = obsidianUri(vaultName, n.path)
-                        }}
-                      >
-                        <Icon name="link" />
-                      </button>
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} />
         )}
         {/* Watched by the observer above; 200px of root margin means the next page is in
             place before the reader reaches the bottom. */}
@@ -530,5 +452,110 @@ function SourceCell({
       <Icon name={link.icon} />
       {link.label}
     </a>
+  )
+}
+
+/**
+ * The page table itself (2026-09-06): the Catalog screen renders it over the whole vault,
+ * the Library's shelf window over one department. One table, so the two can never drift
+ * apart on what a row shows or what clicking it does.
+ */
+export function CatalogTable({
+  nodes,
+  refs,
+  vaultName,
+  hideDomain = false,
+}: {
+  nodes: readonly GraphNode[]
+  refs: Record<string, SourceRef> | undefined
+  vaultName: string
+  /** The window is already one domain, so its column would repeat the heading. */
+  hideDomain?: boolean
+}): React.ReactElement {
+  const shown = nodes
+  const sources = { data: { pages: refs } }
+  const domainCol = !hideDomain
+  return (
+      <table className="dtable lib-table">
+        <thead>
+          <tr>
+            <th>Page</th>
+            {domainCol && <th>Domain</th>}
+            <th className="num">In / out</th>
+            <th>Changed</th>
+            <th>Source</th>
+            <th aria-hidden />
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((n) => (
+            <tr key={n.path} {...openableRow(() => navigate(pageRoute(n.path)), `Open ${n.title}`)}>
+              <td className="lt-title" title={n.title}>
+                {/* The flex row is a span inside the cell: a `td` set to `display: flex`
+                    leaves the table layout, and its baseline then drifts against the
+                    cells beside it, a little further with every row. */}
+                <span className="lt-cell">
+                  {/* The chip sits in a fixed slot, not just next to the title: its width
+                      follows the label ("Meta" 48px, "Comparisons" 97px), which started
+                      every title at a different x - five distinct ones down one screen. */}
+                  <span className="lt-kind">
+                    <span className="badge type">{bucketLabel(n.type)}</span>
+                  </span>
+                  <strong className="lt-name">{n.title}</strong>
+                  {isOrphan(n) && <span className="lt-flag err">orphan</span>}
+                  {isStub(n) && <span className="lt-flag warn">stub</span>}
+                </span>
+              </td>
+              {domainCol && (
+                <td className="lt-domain">
+                  {n.domain !== null ? (
+                    <>
+                      <span className="chip-dot" style={{ background: domainColor(n.domain) }} />
+                      {n.domain}
+                    </>
+                  ) : (
+                    <span className="dim">-</span>
+                  )}
+                </td>
+              )}
+              <td className="num lt-links">
+                {n.in} / {n.out}
+              </td>
+              <td className="lt-when">{n.mtimeMs !== undefined ? timeAgo(new Date(n.mtimeMs).toISOString()) : ''}</td>
+              {/* The document this page came from. The click must not also open the
+                  page - the whole row is a link to it. */}
+              <td className="lt-source" onClick={(e) => e.stopPropagation()}>
+                <SourceCell node={n} refs={sources.data?.pages} />
+              </td>
+              {/* Zero-width cell: the buttons float out of it on hover instead of
+                  reserving 78px in every row for something that is invisible most of
+                  the time. They land over "Changed", never over Source - covering the
+                  link the column exists for would be a poor trade. */}
+              <td className="lt-acts" onClick={(e) => e.stopPropagation()}>
+                <span className="lt-actgroup">
+                  <button
+                    className="btn ghost"
+                    aria-label={`Focus ${n.title} in the graph`}
+                    title="Focus in graph"
+                    onClick={() => navigate(`/graph?focus=${encodeURIComponent(n.path)}`)}
+                  >
+                    <Icon name="spotlight" />
+                  </button>
+                  <button
+                    className="btn ghost"
+                    aria-label={`Open ${n.title} in Obsidian`}
+                    title="Open in Obsidian"
+                    onClick={() => {
+                      window.location.href = obsidianUri(vaultName, n.path)
+                    }}
+                  >
+                    <Icon name="link" />
+                  </button>
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
   )
 }

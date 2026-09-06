@@ -6,7 +6,9 @@
  * canvas box holds the room, the strip, the now chip and the legend; the card docks beside.
  *
  * Deep links: `/library?agent=<id>` opens the card, `/library?room=<id>` shows a room,
- * `/library?spawn=1` opens the spawn form (Home's empty Fellow slots point here).
+ * `/library?spawn=1` opens the spawn form (Home's empty Fellow slots point here),
+ * `/library?shelf=<domain>` opens that department's window straight away, on its graph
+ * unless `&pane=catalog` asks for the other view.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -22,6 +24,7 @@ import { Icon } from '../components/Icon.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
+import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
@@ -35,7 +38,7 @@ const CANVAS_H = 700
 
 type Mode = 'full' | 'focus'
 
-export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string }): React.ReactElement {
+export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '', shelfParam = '', paneParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string; shelfParam?: string; paneParam?: string }): React.ReactElement {
   const qc = useQueryClient()
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, refetchInterval: 5_000 })
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
@@ -47,6 +50,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /** A board on the main room's wall, opened as a window over the room. Escape closes it. */
   const [board, setBoard] = useState<'hot' | 'recap' | null>(null)
+  /** A department opened over the room: its graph and its catalog, filtered (section 10.5). */
+  const [shelf, setShelf] = useState<string | null>(shelfParam !== '' ? shelfParam : null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [tick, setTick] = useState(0)
   const [exits, setExits] = useState<Exit[]>([])
@@ -61,6 +66,9 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   useEffect(() => {
     if (spawnParam !== '') setSpawnOpen(true)
   }, [spawnParam])
+  useEffect(() => {
+    if (shelfParam !== '') setShelf(shelfParam)
+  }, [shelfParam])
 
   // Live log lines change poses without a new snapshot: re-render on a line of any channel in play.
   const channels = useMemo(() => {
@@ -188,7 +196,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
       page(-1)
     } else if (e.key === 'Escape') {
       setPopover(null)
-      if (board !== null) setBoard(null)
+      if (shelf !== null) setShelf(null)
+      else if (board !== null) setBoard(null)
       else if (mode === 'focus') setMode('full')
     }
   }
@@ -441,7 +450,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
               draggingDomain={drag?.domain ?? null}
               dropSlot={drag && drag.target === null ? drag.slot : null}
               onShelfClick={(domain) => {
-                if (!drag) navigate(`/graph?domain=${encodeURIComponent(domain)}`)
+                if (!drag) setShelf(domain)
               }}
               onShelfPointerDown={onShelfPointerDown}
               onActorClick={onActorClick}
@@ -456,8 +465,11 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
             />
           ))}
 
+          {/* A department's window: its graph and its catalog, over the room (section 10.5). */}
+          {shelf !== null && <ShelfWindow domain={shelf} vaultName={vaultName} pane={paneParam === 'catalog' ? 'catalog' : 'graph'} onClose={() => setShelf(null)} />}
+
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
-          {board !== null && (
+          {shelf === null && board !== null && (
             <div className="lib-window" role="dialog" aria-label={board === 'hot' ? 'Hot cache' : 'Daily recap'}>
               <div className="box-head">
                 <h2 className="box-title">{board === 'hot' ? 'Hot cache' : 'Daily recap'}</h2>
@@ -493,21 +505,6 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
               {plan.data && ` · ${shareLine(plan.data)}`}
             </span>
           </div>
-          {mode === 'full' && (
-            <div className="lib-corner br">
-              <div className={`lib-legend${night ? ' dark' : ''}`}>
-                <div>
-                  <span className="sw" style={{ background: 'var(--accent)' }} /> Fellow, named, lives here
-                </div>
-                <div>
-                  <span className="sw" style={{ background: 'var(--text-faint)' }} /> Visitor: your run, a reader, the clerk
-                </div>
-                <div>
-                  <span className="sw" style={{ background: 'var(--gold)' }} /> Fireplace: where Fellows rest between steps
-                </div>
-              </div>
-            </div>
-          )}
           {popover && (
             <FellowPopover
               fellow={popover.fellow}

@@ -49,9 +49,11 @@ interface TabItem {
 const TABS: TabItem[] = [
   { id: 'home', label: 'Home', icon: 'home', route: '/' },
   { id: 'research', label: 'Research', icon: 'flask', route: '/research' },
+  // The Library sits right after Research and before the two screens it now contains: a
+  // shelf opens the graph and the catalog of its department without leaving the room.
+  { id: 'library', label: 'Library', icon: 'library', route: '/library' },
   { id: 'vault', label: 'Graph', icon: 'graph', route: '/graph' },
   { id: 'catalog', label: 'Catalog', icon: 'book', route: '/catalog' },
-  { id: 'library', label: 'Library', icon: 'library', route: '/library' },
   { id: 'system', label: 'System', icon: 'gear', route: '/system' },
 ]
 
@@ -394,7 +396,7 @@ export function App(): React.ReactElement {
             <div className="lane wide">
               {libraryMounted && (
                 <ErrorBoundary label="Library">
-                  <LibraryScreen vaultName={vaultName} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} spawnParam={screen === 'library' ? (query.get('spawn') ?? '') : ''} />
+                  <LibraryScreen vaultName={vaultName} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} spawnParam={screen === 'library' ? (query.get('spawn') ?? '') : ''} shelfParam={screen === 'library' ? (query.get('shelf') ?? '') : ''} paneParam={screen === 'library' ? (query.get('pane') ?? '') : ''} />
                 </ErrorBoundary>
               )}
             </div>

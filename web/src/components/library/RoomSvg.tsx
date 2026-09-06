@@ -368,10 +368,11 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     // Two boards on the short wall: the hot cache and the daily recap, each under a title
     // band. Clicking one opens it as a window over the room (docs/agents/SPEC.md section 10).
     const board = (j0: number, j1: number, title: string, id: 'hot' | 'recap'): React.ReactNode => {
-      // Above the wainscot, under the cornice: the board with its title band on top.
-      const zBase = 70
-      const zTop = 118
-      const bandTop = 140
+      // Centred on the wall: board plus title band is 70 high, so 40 of wall is left above
+      // and below it. It crosses the wainscot rail, the way a framed picture would.
+      const zBase = 40
+      const zTop = 88
+      const bandTop = 110
       const face = (z0: number, z1: number, a: number, b: number): string => pts([P(0, a, z0), P(0, b, z0), P(0, b, z1), P(0, a, z1)])
       // The wall runs towards smaller j as the screen goes right, so the title starts at j1.
       const [tx, ty] = P(0, j1 - 0.14, bandTop - 15)
@@ -396,8 +397,8 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         </g>
       )
     }
-    add(5.1 + 0.001, 'board-hot', board(2.6, 5.1, 'Hot cache', 'hot'))
-    add(7.9 + 0.001, 'board-recap', board(5.4, 7.9, 'Daily recap', 'recap'))
+    add(4.05 + 0.001, 'board-hot', board(1.55, 4.05, 'Hot cache', 'hot'))
+    add(9.55 + 0.001, 'board-recap', board(7.05, 9.55, 'Daily recap', 'recap'))
     // fireplace with the hood, four armchairs
     const fi = 5.5
     const fj = 5.4
@@ -435,16 +436,17 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         </g>
       ))
       add(di + 0.7 + dj - 0.1, `deskchair${n}`, <Box P={P} i0={di + 0.35} j0={dj - 0.85} a={0.7} b={0.7} h={12} c={chairC} />)
-      if (night && (n === 1 || n === 2)) {
-        const [lx, ly] = P(di + 1.2, dj - 0.2, 0)
-        add(d + 0.03, `lamp${n}`, (
-          <g>
-            <ellipse cx={lx} cy={ly - 8} rx={70} ry={38} fill={`url(#${idp}-glow)`} />
-            <rect x={lx - 1} y={ly - 44} width={2} height={36} fill="#78859f" />
-            <path d={`M${lx - 9} ${ly - 44} h18 l-4 -8 h-10 z`} fill="#e2b45c" />
-          </g>
-        ))
-      }
+      // A desk lamp on every desk: an arm, a shade, and light on the desktop at night.
+      const [lx, ly] = P(di + 0.22, dj + 0.62, 22)
+      add(d + 0.04, `lamp${n}`, (
+        <g className={`lib-lamp${night ? ' lit' : ''}`}>
+          {night && <ellipse cx={lx} cy={ly + 2} rx={52} ry={26} fill={`url(#${idp}-glow)`} />}
+          <ellipse cx={lx} cy={ly} rx={5} ry={2.5} fill={night ? '#4a3a26' : '#8a95ad'} />
+          <path d={`M${lx} ${ly - 1} l3 -13`} stroke={night ? '#6b5735' : '#8a95ad'} strokeWidth={1.6} fill="none" strokeLinecap="round" />
+          <path d={`M${lx - 2} ${ly - 14} h11 l-3 -7 h-6 z`} fill={night ? '#e2b45c' : '#b8c0d0'} stroke={night ? '#8a6a43' : '#98a2b5'} strokeWidth={0.8} />
+          {night && <ellipse cx={lx + 3.5} cy={ly - 13.5} rx={5} ry={1.6} fill="#f6d27a" />}
+        </g>
+      ))
     })
     // front desk with a parcel, the intake cart, the catalog
     add(13.5 + 2.4 + 2.6 + 0.8, 'frontdesk', (
