@@ -554,7 +554,6 @@ function windows(P, add, night, list, side = 'l') {
 
 // The wing: 7 cases on the wall, 3 + passage + 3 in the middle, free slots as silhouettes.
 function wingContents({ P, TW, add, top, night, deps, dragSlot }) {
-  windows(P, add, night, [[2.0, 4.5, 96, 136], [5.5, 8.0, 96, 136], [15.0, 17.5, 96, 136], [18.5, 21.0, 96, 136]])
   const places = [...WALL_SLOTS.map((k) => ({ i: SLOTS[k], j: WALL_J })), ...MID_SLOTS.map((k) => ({ i: SLOTS[k], j: MID_J }))]
   places.forEach((p, idx) => {
     if (dragSlot === idx) {
@@ -575,13 +574,12 @@ function mainContents({ P, TW, add, top, night, idp, favorites }) {
   const wood = { top: sc.top, left: sc.left, right: sc.right }
   const stone = night ? { top: '#4a4a52', left: '#3a3a42', right: '#2e2e36' } : { top: '#cfc9c0', left: '#b8b0a4', right: '#a39a8d' }
   const chairC = night ? { top: '#3a4a6c', left: '#2a3550', right: '#22304a' } : { top: '#c9b8a2', left: '#b39f86', right: '#9c876e' }
-  for (const [n, k] of [[0, 1], [1, 2], [2, 4], [3, 5]]) placeCase(P, TW, add, SLOTS[k], WALL_J, favorites[n], night, { label: 'favorite' })
+  const FAV_I = [2.1, 5.1, 15.1, 18.1]
+  FAV_I.forEach((fi, n) => placeCase(P, TW, add, fi, WALL_J, favorites[n], night, { label: 'favorite' }))
   // notice board and windows on the long wall, windows on the short wall
-  add(3.4 + 0.001, `<polygon points="${pts([P(1.2, 0, 60), P(3.4, 0, 60), P(3.4, 0, 110), P(1.2, 0, 110)])}" fill="${night ? '#2a2414' : '#f5ecd7'}" stroke="${night ? '#5a4a1a' : '#e0cfa2'}"/>` +
-    [0, 1, 2, 3].map((k) => { const z = 100 - k * 10; return `<polygon points="${pts([P(1.6, 0, z), P(3.0 - (k % 2) * 0.4, 0, z), P(3.0 - (k % 2) * 0.4, 0, z + 4), P(1.6, 0, z + 4)])}" fill="${night ? '#5a4a1a' : '#d9c58f'}"/>` }).join('') +
-    faceText(P, 'i', 1.3, 0, 116, "what's new", night ? '#9aa7c2' : T.faint, 2.2, TW))
-  windows(P, add, night, [[19.5, 21.5, 70, 130]])
-  windows(P, add, night, [[2.0, 4.0, 70, 130], [6.0, 8.0, 70, 130]], 'r')
+  add(6.6 + 0.001, `<polygon points="${pts([P(0, 4.4, 60), P(0, 6.6, 60), P(0, 6.6, 110), P(0, 4.4, 110)])}" fill="${night ? '#2a2414' : '#f5ecd7'}" stroke="${night ? '#5a4a1a' : '#e0cfa2'}"/>` +
+    [0, 1, 2, 3].map((k) => { const z = 100 - k * 10; return `<polygon points="${pts([P(0, 4.8, z), P(0, 6.2 - (k % 2) * 0.4, z), P(0, 6.2 - (k % 2) * 0.4, z + 4), P(0, 4.8, z + 4)])}" fill="${night ? '#5a4a1a' : '#d9c58f'}"/>` }).join('') +
+    faceText(P, 'j', 0, 6.5, 116, "what's new", night ? '#9aa7c2' : T.faint, 2.2, TW))
   // fireplace with the hood, four armchairs around it
   const fi = 5.5, fj = 5.4
   add(fi + 2.2 + fj + 2.2, box(P, fi, fj, 2.2, 2.2, 34, stone))
@@ -630,7 +628,7 @@ function roomScene({ kind, night, W, H, idp, dragSlot, fellows = true }) {
       if (!fellows) return
       const astro = domainColor('astronomy')
       if (kind === 'main' && !night) {
-        add(5.4 + 1.6, figure(P, 5.4, 1.6, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: astro }, night, top, anchors))
+        add(3.5 + 1.6, figure(P, 3.5, 1.6, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: astro }, night, top, anchors))
         add(15.9 + 8.6, figure(P, 15.9, 8.6, { name: 'Noor · writing', pose: 'desk', color: '#3b8f79' }, night, top, anchors))
         add(4.15 + 6.55, figure(P, 4.15, 6.55, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
         add(8.45 + 6.55, figure(P, 8.45, 6.55, { name: 'Mira · waiting', pose: 'sit', color: '#c26b4a' }, night, top, anchors))
@@ -892,7 +890,7 @@ function roomsBoard() {
     <div style="display:flex; align-items:baseline; gap:14px"><div style="font-family:${DISPLAY}; font-size:22px; font-weight:650">Rooms</div><div style="font-size:13px; color:${T.dim}">one room fills the screen; every room shares the same grid, so the camera never changes and the library can have any number of wings (SPEC 10.4, 10.8).</div></div>
     <div style="display:flex; gap:28px; align-items:flex-start">
       <div style="display:flex; flex-direction:column; gap:10px; width:600px">
-        ${thumb('main', 'Main room', 'favorites, fireplace, desks, front desk with the intake cart, the door to the wings', 'rmain')}
+        ${thumb('main', 'Main room', 'favorites centred beside the door, notice board on the short wall, fireplace, desks, front desk with the intake cart', 'rmain')}
         ${wheel}
         ${thumb('wing', 'Wing A · Sciences', '3 + door + 3 on the wall, 3 + passage + 3 in the middle', 'rwing')}
         ${wheel}

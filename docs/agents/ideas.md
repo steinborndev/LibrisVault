@@ -217,3 +217,9 @@ new ideas go here first and reach the spec through a dated decision.
   the middle), the room is 23 by 11 tiles. Main room: two favorites on each side of the
   door, notice board at the wall's left end, fireplace front left, desks front right, front
   desk, intake cart and catalog beside the path from the door.
+
+## Design round 7 (2026-09-06), last details before A0
+
+- No windows on any wall. The notice board sits centred on the short wall. In the main
+  room each favorite pair is centred in its wall section (2.1 tiles of space on both sides
+  of a 5.8-tile pair in a 10-tile section). Design rounds closed; next is milestone A0.

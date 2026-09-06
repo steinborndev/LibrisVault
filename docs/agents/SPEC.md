@@ -522,11 +522,12 @@ in the middle slot of its long back wall, in line with the passage of the middle
 the main room it leads to the wings, in a wing to the next wing.
 
 **The main room** is the hub the user furnishes: four **favorite slots** along the long
-wall, two on each side of the door, the fireplace in the front left with four armchairs
-where Fellows rest between steps, four desks with computers in the front right where
-Fellows write, the notice board (hot.md) at the left end of the long wall, and beside the
-path from the door the front desk with the parcels of the ingest queue, the **intake cart**
-with the unfiled books, and the card catalog (the index). Tall furniture stands only in the back half or free with nothing important
+wall, a pair on each side of the door, each pair centred in its wall section with equal
+space on both sides; the fireplace in the front left with four armchairs where Fellows
+rest between steps; four desks with computers in the front right where Fellows write; the
+notice board (hot.md) centred on the short wall; and beside the path from the door the
+front desk with the parcels of the ingest queue, the **intake cart** with the unfiled
+books, and the card catalog (the index). Walls carry no windows. Tall furniture stands only in the back half or free with nothing important
 behind it; low furniture stands in front.
 
 **A wing** holds **12 shelves in two rows**: three, the door, three along the long back
