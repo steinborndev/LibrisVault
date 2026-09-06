@@ -152,7 +152,9 @@ USD accounting); A2 done 2026-09-06 (docs/tasks/TASKS-A2.md: recap page, quiet d
 dashboard inbox and Recap view, Telegram text and coded answers, adjust actions, value
 events); A3 done 2026-09-06 (docs/tasks/TASKS-A3.md: research-expand with validation and
 revert, routing of foreign questions to the Fellow of the domain or to unclaimed requests
-with a prefilled spawn, dedupe before the shift). Next: A4 (Library screen).
+with a prefilled spawn, dedupe before the shift); A4 done 2026-09-06 (docs/tasks/TASKS-A4.md:
+the Library screen with one room per view, the existing runs and the Fellows as figures,
+the docked card, wings and drag and drop, Catalog rename). Next: A5 (plan-percent quota).
 
 Follow-ups noted during A1, not yet decided:
 
