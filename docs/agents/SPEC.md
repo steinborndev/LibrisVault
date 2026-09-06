@@ -768,5 +768,5 @@ user's own account.
 | OPEN-23 | Textures for floor, walls, shelves | Archive preset: stone floor, panelled walls, walnut shelves (decided 2026-09-06) |
 | NEW-5 | Shelf signs | one text size per view, never per shelf; a name that does not fit breaks into two lines at its hyphen (decided 2026-09-06) |
 | NEW-6 | Faces | figures have no faces; hair stays as the silhouette cue (decided 2026-09-06) |
-| NEW-7 | Growth model | bays, first-fit in birth order, two spare cases, wings; see 10.9 (decided 2026-09-06) |
+| NEW-7 | Growth model | bays, first-fit in birth order, two spare cases, wings; see 10.8 (decided 2026-09-06) |
 | NEW-8 | Library topology | a central main room (fireplace, desks with computers, four favorite slots, notice board, front desk, catalog) with four doors; wings hang off the doors and chain onward; the user creates, renames and fills wings by drag and drop; start = main room plus Wing A (decided 2026-09-06) |
