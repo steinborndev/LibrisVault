@@ -66,6 +66,11 @@ export interface AgentRunResult {
   readonly error?: string
   /** True when the timeout fired rather than the agent finishing. */
   readonly timedOut: boolean
+  /**
+   * The parsed structured result when the run asked for one (`outputFormat`) and the SDK
+   * delivered it. Absent on failure and on runs without a schema.
+   */
+  readonly structuredOutput?: unknown
 }
 
 export interface AgentAuth {
@@ -122,6 +127,12 @@ export interface RunAgentOptions {
    * `total_cost_usd` reports). The run ends with `error_max_budget_usd` when reached.
    */
   readonly maxBudgetUsd?: number
+  /**
+   * A JSON schema the final answer must satisfy (SDK structured output). The result then
+   * carries `structuredOutput`; the caller still validates it, the schema binds the model,
+   * not the service (docs/tasks/TASKS-A1.md D3).
+   */
+  readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
 }
 
 export const EMPTY_USAGE: AgentUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
@@ -202,6 +213,8 @@ export function buildOptions(
     ...(opts.model ? { model: opts.model } : {}),
     ...(opts.effort ? { effort: opts.effort } : {}),
     ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
+    // Schema-bound final answer (a Fellow's planning run).
+    ...(opts.outputFormat ? { outputFormat: { type: opts.outputFormat.type, schema: opts.outputFormat.schema } } : {}),
     // Resume a prior SDK session so query follow-ups keep context (SPEC.md §5). Ignored
     // (undefined) for a fresh run.
     ...(opts.resumeSessionId ? { resume: opts.resumeSessionId } : {}),
@@ -365,6 +378,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
           numTurns: message.num_turns,
           sessionId: message.session_id,
           timedOut: false,
+          ...(message.structured_output !== undefined ? { structuredOutput: message.structured_output } : {}),
           ...(reachedModel
             ? {}
             : {

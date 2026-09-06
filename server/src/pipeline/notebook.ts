@@ -86,6 +86,11 @@ export interface RenderNotebookInput {
   /** What the next run will be, rendered under Plan; null = nothing planned. */
   readonly plan?: string | null
   readonly now?: string
+  /**
+   * Take Intent and Scope from the record instead of the page: an edit through the API has
+   * to win over the page once, or the page would restore the old text at the next settle.
+   */
+  readonly forceIntentScope?: boolean
 }
 
 export function renderNotebook(input: RenderNotebookInput): string {
@@ -102,9 +107,9 @@ export function renderNotebook(input: RenderNotebookInput): string {
   }
   const log = renderLogLines(input.runs)
   const sections: Record<SectionName, string> = {
-    Intent: section('Intent', agent.intent),
-    Scope: section('Scope', agent.scope ?? '(none)'),
-    Plan: input.plan ?? 'Nothing planned yet. The planner arrives with milestone A1; until then a step is started by hand from the card.',
+    Intent: input.forceIntentScope ? agent.intent : section('Intent', agent.intent),
+    Scope: input.forceIntentScope ? (agent.scope ?? '(none)') : section('Scope', agent.scope ?? '(none)'),
+    Plan: input.plan ?? 'Nothing planned. The planner runs in the next night shift.',
     Log: log.length > 0 ? log.map((l) => `- ${l}`).join('\n') : '- (no runs yet)',
     'Open Questions': section('Open Questions', '- (none yet)'),
     Notes: section('Notes', '(yours)'),
@@ -167,12 +172,23 @@ export class NotebookWriter {
     }
   }
 
-  async write(agent: AgentRecord, runs: readonly AgentRunRecord[], plan: string | null = null): Promise<NotebookWriteResult> {
+  async write(
+    agent: AgentRecord,
+    runs: readonly AgentRunRecord[],
+    plan: string | null = null,
+    opts: { readonly forceIntentScope?: boolean } = {},
+  ): Promise<NotebookWriteResult> {
     return this.commitMutex.runExclusive(async () => {
       const abs = path.join(this.vaultRoot, agent.notebookPath)
       const existing = this.read(agent)
-      const readBack = existing ? readBackNotebook(existing) : {}
-      const markdown = renderNotebook({ agent, runs, plan, ...(existing !== undefined ? { existing } : {}) })
+      const readBack = existing && !opts.forceIntentScope ? readBackNotebook(existing) : {}
+      const markdown = renderNotebook({
+        agent,
+        runs,
+        plan,
+        ...(existing !== undefined ? { existing } : {}),
+        ...(opts.forceIntentScope ? { forceIntentScope: true } : {}),
+      })
       fs.mkdirSync(path.dirname(abs), { recursive: true })
       fs.writeFileSync(abs, markdown, 'utf8')
       const commit = this.autoCommit()

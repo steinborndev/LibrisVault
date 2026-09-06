@@ -23,6 +23,10 @@ export interface FellowRunContext {
   readonly maxBudgetUsd: number
   /** The notebook's most recent log lines, newest last, so the run knows what came before. */
   readonly recentLog: readonly string[]
+  /** Per-run timeout override (a `deep` step, a planning run); absent = the kind's default. */
+  readonly timeoutMs?: number
+  /** The proposal this run executes, for the run log. */
+  readonly proposalId?: string
 }
 
 /** Who is working, on what standing intent, and where to leave open questions. */

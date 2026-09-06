@@ -93,6 +93,23 @@ describe('buildOptions', () => {
   })
 })
 
+describe('structured output (a Fellow planning run)', () => {
+  it('passes the schema to the SDK and surfaces structured_output on the result', async () => {
+    const schema = { type: 'object', properties: { proposals: { type: 'array' } }, required: ['proposals'] }
+    const o = buildOptions({ vaultRoot: VAULT, prompt: 'plan', auth: AUTH, profile: 'query', outputFormat: { type: 'json_schema', schema } }, new AbortController())
+    expect(o.outputFormat).toEqual({ type: 'json_schema', schema })
+    expect(buildOptions({ vaultRoot: VAULT, prompt: 'x', auth: AUTH }, new AbortController()).outputFormat).toBeUndefined()
+
+    queryMock.mockReturnValue(streamOf(successResult({ structured_output: { proposals: [] } })))
+    const run = await runAgent({ vaultRoot: VAULT, prompt: 'plan', auth: AUTH, profile: 'query', outputFormat: { type: 'json_schema', schema } })
+    expect(run.ok).toBe(true)
+    expect(run.structuredOutput).toEqual({ proposals: [] })
+
+    queryMock.mockReturnValue(streamOf(successResult()))
+    expect((await runAgent({ vaultRoot: VAULT, prompt: 'x', auth: AUTH })).structuredOutput).toBeUndefined()
+  })
+})
+
 describe('runAgent', () => {
   it('returns the result and usage from a successful run', async () => {
     queryMock.mockReturnValue(streamOf(successResult()))

@@ -40,7 +40,7 @@ const STOPWORDS = new Set([
  * Splits text into significant, normalised tokens: lower-cased, punctuation-stripped, stopwords
  * and short tokens dropped, and a single trailing plural `s` removed so "lipids" matches "lipid".
  */
-function tokenize(text: string): Set<string> {
+export function tokenize(text: string): Set<string> {
   const tokens = new Set<string>()
   for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
     if (raw.length < 3) continue

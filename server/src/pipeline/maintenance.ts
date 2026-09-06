@@ -51,6 +51,7 @@ export type MaintenanceKind =
   | 'lint-fix'
   | 'research'
   | 'research-step'
+  | 'plan'
   | 'hot-cache'
   | 'save'
   | 'domain-backfill'
@@ -184,6 +185,8 @@ export interface MaintenanceRunnerOptions {
   readonly runAgent?: MaintenanceAgentRunner
   readonly commit?: (vaultRoot: string, message: string, opts?: CommitOptions) => Promise<CommitResult>
   readonly timeoutMs?: number
+  /** Clock for the run records' start and finish stamps; tests pin it (the quota gate reads them). */
+  readonly now?: () => Date
   /**
    * Shared with the ingest queue so each side can tell whether it is the sole vault writer
    * (finding F4). Defaults to a private registry when this runner is the only writer.
@@ -238,6 +241,8 @@ export interface MaintenanceResult {
   readonly reportPath?: string
   /** Present for a domain-review run: the agent's verdict per candidate. */
   readonly domainReview?: DomainReview
+  /** Present for a `plan` run: the schema-bound answer, still to be validated by the caller. */
+  readonly structuredOutput?: unknown
 }
 
 export type MaintenanceRunStatus = 'running' | 'done' | 'error'
@@ -265,6 +270,8 @@ export interface MaintenanceRun {
   readonly agentId?: string
   /** The SDK model id the run was pinned to, when one was. */
   readonly model?: string
+  /** The proposal this run executes, when it executes one. */
+  readonly proposalId?: string
   readonly startedAt: string
   readonly finishedAt?: string
   readonly result?: MaintenanceResult
@@ -276,11 +283,20 @@ export interface MaintenanceRun {
 const RUN_HISTORY_CAP = 25
 /** A research step is a bounded run; half the default timeout is plenty for one round. */
 const STEP_TIMEOUT_MS = 15 * 60_000
+/** A planning run reads and ranks; five minutes is the spec's bound (section 6.2). */
+export const PLAN_TIMEOUT_MS = 5 * 60_000
 
 /** The per-run knobs a Fellow context pins (model, effort, budget) plus its attribution. */
 function fellowRunOptions(fellow: FellowRunContext | undefined): Partial<RunOptions> {
   if (!fellow) return {}
-  return { agentId: fellow.agentId, model: fellow.model, effort: fellow.effort, maxBudgetUsd: fellow.maxBudgetUsd }
+  return {
+    agentId: fellow.agentId,
+    model: fellow.model,
+    effort: fellow.effort,
+    maxBudgetUsd: fellow.maxBudgetUsd,
+    ...(fellow.timeoutMs !== undefined ? { timeoutMs: fellow.timeoutMs } : {}),
+    ...(fellow.proposalId !== undefined ? { proposalId: fellow.proposalId } : {}),
+  }
 }
 
 /** Per-run knobs that differ between the kinds. */
@@ -304,7 +320,14 @@ interface RunOptions {
   readonly maxBudgetUsd?: number
   /** Per-kind timeout override; absent = the runner's default. */
   readonly timeoutMs?: number
+  /** The proposal the run executes (docs/agents/SPEC.md section 6.5); on the run log row. */
+  readonly proposalId?: string
+  /** Schema-bound answer (a planning run); the result carries `structuredOutput`. */
+  readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
 }
+
+/** What a run may be started as. `query` is read-only and is used by the `plan` kind only. */
+type StartProfile = 'ingest' | 'research' | 'query'
 
 export class MaintenanceRunner {
   private readonly vaultRoot: string
@@ -319,6 +342,7 @@ export class MaintenanceRunner {
   private readonly buildIndex: RetrieveIndexBuilder
   private readonly stateStore: MaintenanceStateStore | undefined
   private readonly runStore: AgentRunStore | undefined
+  private readonly now: () => Date
   /** One maintenance run at a time — they all write the vault. */
   private readonly runMutex = new Mutex()
   /**
@@ -349,6 +373,7 @@ export class MaintenanceRunner {
     this.buildIndex = opts.buildIndex ?? buildRetrieveIndex
     this.stateStore = opts.stateStore
     this.runStore = opts.runStore
+    this.now = opts.now ?? ((): Date => new Date())
   }
 
   /** The credential for a run. The route 503s in setup mode, so this throwing is a wiring bug. */
@@ -568,7 +593,22 @@ export class MaintenanceRunner {
       label: topic,
       profileKey: profile.key,
       ...fellowRunOptions(fellow),
-      timeoutMs: STEP_TIMEOUT_MS,
+      ...(fellow.timeoutMs === undefined ? { timeoutMs: STEP_TIMEOUT_MS } : {}),
+    })
+  }
+
+  /**
+   * A Fellow's PLANNING run (docs/agents/SPEC.md section 6.2): read-only `query` profile, so
+   * the sandbox gives it no vault write path and no web; the answer is bound to `schema` and
+   * comes back on the result as `structuredOutput`. Tracked, logged and attributed like every
+   * other run, serialized on the run mutex, and it commits nothing (docs/tasks/TASKS-A1.md D2).
+   */
+  startPlan(prompt: string, fellow: FellowRunContext, schema: Record<string, unknown>): MaintenanceRun {
+    return this.start('plan', prompt, 'query', {
+      label: `planning for ${fellow.name}`,
+      ...fellowRunOptions(fellow),
+      timeoutMs: fellow.timeoutMs ?? PLAN_TIMEOUT_MS,
+      outputFormat: { type: 'json_schema', schema },
     })
   }
 
@@ -839,7 +879,7 @@ export class MaintenanceRunner {
       kind: 'retrieve-index',
       channel: maintenanceChannel('retrieve-index'),
       status: 'running',
-      startedAt: new Date().toISOString(),
+      startedAt: this.now().toISOString(),
     }
     this.runs.set(id, run)
     this.evictOldRuns()
@@ -887,7 +927,7 @@ export class MaintenanceRunner {
   private start(
     kind: MaintenanceKind,
     prompt: string,
-    profile: 'ingest' | 'research',
+    profile: StartProfile,
     opts: RunOptions = {},
   ): MaintenanceRun {
     const id = randomUUID()
@@ -900,7 +940,8 @@ export class MaintenanceRunner {
       ...(opts.profileKey !== undefined ? { profileKey: opts.profileKey } : {}),
       ...(opts.agentId !== undefined ? { agentId: opts.agentId } : {}),
       ...(opts.model !== undefined ? { model: opts.model } : {}),
-      startedAt: new Date().toISOString(),
+      ...(opts.proposalId !== undefined ? { proposalId: opts.proposalId } : {}),
+      startedAt: this.now().toISOString(),
     }
     this.runs.set(id, run)
     this.evictOldRuns()
@@ -914,7 +955,7 @@ export class MaintenanceRunner {
     id: string,
     kind: MaintenanceKind,
     prompt: string,
-    profile: 'ingest' | 'research',
+    profile: StartProfile,
     opts: RunOptions = {},
   ): Promise<void> {
     try {
@@ -952,7 +993,7 @@ export class MaintenanceRunner {
   private settle(id: string, status: MaintenanceRunStatus, patch: { result?: MaintenanceResult; error?: string }): void {
     const prev = this.runs.get(id)
     if (!prev) return
-    const settled: MaintenanceRun = { ...prev, status, finishedAt: new Date().toISOString(), ...patch }
+    const settled: MaintenanceRun = { ...prev, status, finishedAt: this.now().toISOString(), ...patch }
     this.runs.set(id, settled)
     // Persist the per-kind outcome (SPEC.md §12.7 Stufe b). A store failure must never
     // corrupt the settle itself — the in-memory record above stays the runtime truth.
@@ -964,7 +1005,7 @@ export class MaintenanceRunner {
           ok: status === 'done',
           pages: patch.result?.pages.length ?? 0,
           error: patch.error ?? null,
-          finishedAt: settled.finishedAt ?? new Date().toISOString(),
+          finishedAt: settled.finishedAt ?? this.now().toISOString(),
         })
       } catch {
         /* swallowed — operational bookkeeping only */
@@ -989,8 +1030,9 @@ export class MaintenanceRunner {
           commitHash: patch.result?.commit ?? null,
           agentId: prev.agentId ?? null,
           model: prev.model ?? null,
+          proposalId: prev.proposalId ?? null,
           startedAt: prev.startedAt,
-          finishedAt: settled.finishedAt ?? new Date().toISOString(),
+          finishedAt: settled.finishedAt ?? this.now().toISOString(),
         })
       } catch {
         /* swallowed - operational bookkeeping only */
@@ -1022,7 +1064,7 @@ export class MaintenanceRunner {
   private async run(
     kind: MaintenanceKind,
     prompt: string,
-    profile: 'ingest' | 'research',
+    profile: StartProfile,
     opts: RunOptions = {},
   ): Promise<MaintenanceResult> {
     return this.runMutex.runExclusive(async () => {
@@ -1034,6 +1076,7 @@ export class MaintenanceRunner {
         this.events.publish({ kind: 'log', log: { jobId: channel, ts: new Date().toISOString(), level, message } })
 
       log('info', `maintenance: ${kind} started`)
+      if (profile === 'query') return this.runReadOnly(kind, prompt, opts, log)
       // Read the registry per run (it is a user-editable vault page), unless the caller pinned
       // its own extension text. The hygiene checklist rides along for the same reason it does
       // on ingest runs: any of these runs may write pages.
@@ -1178,6 +1221,52 @@ export class MaintenanceRunner {
       log('info', `maintenance: ${kind} complete`)
       return base
     })
+  }
+
+  /**
+   * A read-only run (the `plan` kind): the agent reads the vault under the `query` profile
+   * and answers, nothing is written, so there is no writer registration, no sweep, no commit
+   * and no validation. Still inside the run mutex, so a night's runs stay sequential.
+   */
+  private async runReadOnly(
+    kind: MaintenanceKind,
+    prompt: string,
+    opts: RunOptions,
+    log: (level: 'info' | 'warn' | 'error', message: string) => void,
+  ): Promise<MaintenanceResult> {
+    const res = await this.runAgentFn({
+      vaultRoot: this.vaultRoot,
+      prompt,
+      auth: this.assertAuth(),
+      profile: 'query',
+      timeoutMs: opts.timeoutMs ?? this.timeoutMs,
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.effort ? { effort: opts.effort } : {}),
+      ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
+      ...(opts.outputFormat ? { outputFormat: opts.outputFormat } : {}),
+      onMessage: (m: SDKMessage) => {
+        const line = formatMessage(m)
+        if (line !== undefined) log('info', line)
+      },
+    })
+    if (!res.ok) {
+      log('error', `maintenance: ${kind} failed: ${res.error ?? 'unknown error'}`)
+      return { ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` }
+    }
+    if (opts.outputFormat && res.structuredOutput === undefined) {
+      log('error', `maintenance: ${kind} returned no structured answer`)
+      return { ok: false, kind, pages: [], commit: null, usage: res.usage, error: 'the run returned no structured answer', answer: res.result }
+    }
+    log('info', `maintenance: ${kind} complete`)
+    return {
+      ok: true,
+      kind,
+      pages: [],
+      commit: null,
+      usage: res.usage,
+      answer: res.result,
+      ...(res.structuredOutput !== undefined ? { structuredOutput: res.structuredOutput } : {}),
+    }
   }
 
   /** Parses a lint report out of arbitrary answer text (fallback when no file was written). */

@@ -9,7 +9,8 @@ describe('tab responsibility for a run in flight', () => {
     const research = kinds.filter((k) => !isMaintenanceRun(k))
     const system = kinds.filter((k) => isMaintenanceRun(k))
     expect([...research, ...system].sort()).toEqual([...kinds].sort())
-    expect(research).toEqual(['research', 'save'])
+    // A Fellow's step and its planning run are research work too (docs/agents/SPEC.md section 7).
+    expect(research).toEqual(['research', 'research-step', 'plan', 'save'])
   })
 
   it('claims the maintenance kinds for System', () => {

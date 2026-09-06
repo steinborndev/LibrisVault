@@ -38,6 +38,7 @@ import { registerSourcesRoute } from './routes/sources.js'
 import { registerDomainsRoute } from './routes/domains.js'
 import { registerAgentsRoute } from './routes/agents.js'
 import type { FellowService } from '../pipeline/fellows.js'
+import type { NightShift } from '../pipeline/shift.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -85,6 +86,8 @@ export interface AppContext {
   readonly graph?: GraphBuilder
   /** Fellows (docs/agents/SPEC.md); present only with `AGENTS_ENABLED`, which registers the routes. */
   readonly fellows?: FellowService
+  /** The Fellows' night shift; absent in tests that do not need it (the shift routes then 503). */
+  readonly shift?: NightShift
 }
 
 /** Location of the built frontend (`web/dist`), resolved relative to this source file. */

@@ -64,6 +64,14 @@ export const SETTINGS_SCHEMA = z
      * `pipeline/budget.ts`. `null` (the default) means no budget. Applied live.
      */
     dailyBudget: z.number().positive().nullable(),
+    /**
+     * The Fellows' night shift window, local wall-clock `HH:MM` (docs/agents/SPEC.md
+     * section 8.2). Read at every scheduler tick, so a change applies to the next night.
+     */
+    nightWindowStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+    nightWindowEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+    /** Default model for a newly spawned Fellow. */
+    researchModelDefault: z.enum(['sonnet-5', 'opus-5', 'fable-5-1']).nullable(),
   })
   .partial()
   .strict()
@@ -85,7 +93,16 @@ export interface EffectiveSettings {
   readonly doiDedupe: boolean
   /** null = no daily budget (the default). Unit depends on auth mode — see pipeline/budget.ts. */
   readonly dailyBudget: number | null
+  /** The Fellows' night shift, local `HH:MM` (docs/agents/SPEC.md section 8.2). */
+  readonly nightWindowStart: string
+  readonly nightWindowEnd: string
+  /** Model a new Fellow gets when the spawn names none. */
+  readonly researchModelDefault: 'sonnet-5' | 'opus-5' | 'fable-5-1'
 }
+
+/** The night shift defaults (review decision OPEN-11). */
+export const DEFAULT_NIGHT_WINDOW = { start: '01:00', end: '06:00' } as const
+export const DEFAULT_RESEARCH_MODEL = 'sonnet-5' as const
 
 /** Baseline (start-time) values, before any override is applied. */
 export function baselineSettings(config: Config): EffectiveSettings {
@@ -98,6 +115,9 @@ export function baselineSettings(config: Config): EffectiveSettings {
     // No env baseline: a budget is opt-in, so "unset" means unlimited. Clearing the override
     // therefore lands back on null, which reads the same as never having set one.
     dailyBudget: null,
+    nightWindowStart: DEFAULT_NIGHT_WINDOW.start,
+    nightWindowEnd: DEFAULT_NIGHT_WINDOW.end,
+    researchModelDefault: DEFAULT_RESEARCH_MODEL,
   }
 }
 
@@ -111,6 +131,9 @@ export function effectiveSettings(config: Config, overrides: SettingsOverrides):
     gitAutoCommit: overrides.gitAutoCommit ?? base.gitAutoCommit,
     doiDedupe: overrides.doiDedupe ?? base.doiDedupe,
     dailyBudget: overrides.dailyBudget ?? base.dailyBudget,
+    nightWindowStart: overrides.nightWindowStart ?? base.nightWindowStart,
+    nightWindowEnd: overrides.nightWindowEnd ?? base.nightWindowEnd,
+    researchModelDefault: overrides.researchModelDefault ?? base.researchModelDefault,
   }
 }
 

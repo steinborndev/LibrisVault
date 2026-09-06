@@ -14,7 +14,10 @@ import { DomainDismissalStore } from './db/domain-dismissals.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
 import { SqliteAgentStore } from './db/agents.js'
-import { FellowService } from './pipeline/fellows.js'
+import { SqliteProposalStore } from './db/proposals.js'
+import { SqliteShiftStore } from './db/shifts.js'
+import { FellowService, type GateBlock } from './pipeline/fellows.js'
+import { NightShift } from './pipeline/shift.js'
 import { NotebookWriter } from './pipeline/notebook.js'
 import { TelegramDropStore } from './db/telegram-drops.js'
 import { IngestQueue } from './pipeline/queue.js'
@@ -140,17 +143,54 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
 
   // Fellows (docs/agents/SPEC.md) live behind AGENTS_ENABLED and never in demo mode. The
   // notebook writer commits behind the shared mutex and honours gitAutoCommit like a user edit.
+  // The app logger exists only after buildServer; until then Fellow log lines are dropped.
+  const logSink: { sink?: (level: 'info' | 'warn' | 'error', message: string) => void } = {}
+  const fellowsLog = (level: 'info' | 'warn' | 'error', message: string): void => {
+    logSink.sink?.(level, message)
+  }
   const fellows =
     config.agentsEnabled === true && !config.demoMode
       ? new FellowService({
           agents: new SqliteAgentStore(db),
           runs: agentRuns,
+          proposals: new SqliteProposalStore(db),
           maintenance,
           notebook: new NotebookWriter({
             vaultRoot: config.vaultRoot,
             commitMutex,
             autoCommit: () => settings.effective(config).gitAutoCommit,
           }),
+          // Candidates (docs/agents/SPEC.md section 6.1) come from the vault, the live graph and
+          // the finished ingests; the same graph the routes serve, so nothing is built twice.
+          candidateSources: { vaultRoot: config.vaultRoot, graph: () => graph.build(), jobs: () => store.list({ status: 'done', limit: 100 }) },
+          // The service-wide gate of section 8.4 as far as A1 measures it: the daily budget
+          // (the same module the queue and the stats route use) and a rate-limit pause.
+          gate: (): GateBlock | null => {
+            const budget = budgetStatus(config, settings.effective(config), store)
+            if (budget.exceeded) return { code: 'budget', reason: `the daily budget is reached (${budget.spent} of ${budget.limit} ${budget.unit})` }
+            const q = queue.stats()
+            if (q.paused && q.pauseReason === 'rate-limit') return { code: 'budget', reason: 'the queue is paused on a usage-limit signal' }
+            return null
+          },
+          settings: () => {
+            const e = settings.effective(config)
+            return { window: { start: e.nightWindowStart, end: e.nightWindowEnd }, defaultModel: e.researchModelDefault }
+          },
+          log: fellowsLog,
+        })
+      : undefined
+  // The night shift (section 4.2) ticks once a minute and runs inside the window; it never
+  // starts in setup or demo mode, where nothing may spawn an agent.
+  const shift =
+    fellows !== undefined
+      ? new NightShift({
+          fellows,
+          shifts: new SqliteShiftStore(db),
+          window: () => {
+            const e = settings.effective(config)
+            return { start: e.nightWindowStart, end: e.nightWindowEnd }
+          },
+          log: fellowsLog,
         })
       : undefined
 
@@ -207,9 +247,12 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     telegramDrops,
     graph,
     ...(fellows !== undefined ? { fellows } : {}),
+    ...(shift !== undefined ? { shift } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`
+  logSink.sink = (level, message) => app.log[level](message)
+  if (shift !== undefined && !passive) shift.start()
 
   // Log what the service actually runs with (overrides applied), not the bare baseline.
   app.log.info({ ...describeConfig(effectiveConfig), transportPin: pin }, 'vault-service started')
@@ -253,6 +296,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   const stop = async (): Promise<void> => {
     // Bot first: no new updates may reach the queue while it is draining/stopping.
     if (telegram) await telegram.stop()
+    shift?.stop()
     await watcher.close()
     await vaultWatcher.close()
     retrieveScheduler.close()

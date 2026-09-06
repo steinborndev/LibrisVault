@@ -33,6 +33,13 @@ export const AGENT_AUTONOMIES = ['manual', 'veto', 'auto'] as const
 export type AgentAutonomy = (typeof AGENT_AUTONOMIES)[number]
 export const AGENT_STATES = ['proposed', 'active', 'waiting', 'sleeping', 'paused', 'blocked', 'retired'] as const
 export type AgentState = (typeof AGENT_STATES)[number]
+/**
+ * Why a Fellow sleeps (docs/tasks/TASKS-A1.md D6). The night shift reads it to decide
+ * whether to plan the Fellow again: `idle`, `quota`, `budget` and `no-candidates` are
+ * planned every night; `covered` and `stalled` only on a wake trigger.
+ */
+export const AGENT_SLEEP_CODES = ['idle', 'quota', 'budget', 'no-candidates', 'covered', 'stalled'] as const
+export type AgentSleepCode = (typeof AGENT_SLEEP_CODES)[number]
 
 export interface AgentRecord {
   readonly id: string
@@ -54,6 +61,8 @@ export interface AgentRecord {
   readonly priority: number
   readonly state: AgentState
   readonly sleepReason: string | null
+  /** Machine-readable sleep reason (v16); null unless the state is `sleeping`. */
+  readonly sleepCode: AgentSleepCode | null
   readonly notebookPath: string
   readonly createdAt: string
   readonly updatedAt: string
@@ -78,6 +87,7 @@ export type AgentPatch = Partial<
     | 'priority'
     | 'state'
     | 'sleepReason'
+    | 'sleepCode'
     | 'retiredAt'
   >
 >
@@ -156,6 +166,7 @@ interface Row {
   priority: number
   state: string
   sleep_reason: string | null
+  sleep_code: string | null
   notebook_path: string
   created_at: string
   updated_at: string
@@ -164,7 +175,7 @@ interface Row {
 
 const COLUMNS =
   'id, name, slug, intent, scope, home_domain, extra_domains, lens, model, effort, step, quota_runs_per_day, ' +
-  'quota_week_pct, autonomy, priority, state, sleep_reason, notebook_path, created_at, updated_at, retired_at'
+  'quota_week_pct, autonomy, priority, state, sleep_reason, sleep_code, notebook_path, created_at, updated_at, retired_at'
 
 function toRecord(row: Row): AgentRecord {
   let extra: string[] = []
@@ -192,6 +203,7 @@ function toRecord(row: Row): AgentRecord {
     priority: row.priority,
     state: row.state as AgentState,
     sleepReason: row.sleep_reason,
+    sleepCode: row.sleep_code as AgentSleepCode | null,
     notebookPath: row.notebook_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -209,7 +221,7 @@ export class SqliteAgentStore implements AgentStore {
     this.db
       .prepare(
         `INSERT INTO agents (${COLUMNS}, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         r.id,
@@ -229,6 +241,7 @@ export class SqliteAgentStore implements AgentStore {
         r.priority,
         r.state,
         r.sleepReason,
+        r.sleepCode,
         r.notebookPath,
         r.createdAt,
         r.updatedAt,
@@ -266,7 +279,7 @@ export class SqliteAgentStore implements AgentStore {
       .prepare(
         `UPDATE agents SET name = ?, intent = ?, scope = ?, home_domain = ?, extra_domains = ?, lens = ?, model = ?,
            effort = ?, step = ?, quota_runs_per_day = ?, quota_week_pct = ?, autonomy = ?, priority = ?, state = ?,
-           sleep_reason = ?, updated_at = ?, retired_at = ?
+           sleep_reason = ?, sleep_code = ?, updated_at = ?, retired_at = ?
          WHERE id = ? AND user_id = ?`,
       )
       .run(
@@ -285,6 +298,7 @@ export class SqliteAgentStore implements AgentStore {
         next.priority,
         next.state,
         next.sleepReason,
+        next.sleepCode,
         next.updatedAt,
         next.retiredAt,
         id,

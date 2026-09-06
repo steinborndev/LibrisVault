@@ -14,6 +14,7 @@ import type { FastifyInstance } from 'fastify'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { SqliteAgentStore, slugify, type AgentRecord } from '../src/db/agents.js'
 import { SqliteAgentRunStore, type AgentRunRecord } from '../src/db/agent-runs.js'
+import { SqliteProposalStore } from '../src/db/proposals.js'
 import { renderNotebook, parseNotebook, readBackNotebook, notebookPath, NotebookWriter } from '../src/pipeline/notebook.js'
 import { FellowService } from '../src/pipeline/fellows.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
@@ -54,6 +55,7 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   priority: 0,
   state: 'proposed',
   sleepReason: null,
+  sleepCode: null,
   notebookPath: notebookPath('ada'),
   createdAt: '2026-09-06T08:00:00.000Z',
   updatedAt: '2026-09-06T08:00:00.000Z',
@@ -196,6 +198,7 @@ describe('FellowService against a git vault', () => {
     service = new FellowService({
       agents: new SqliteAgentStore(db),
       runs,
+      proposals: new SqliteProposalStore(db),
       maintenance: runner,
       notebook: new NotebookWriter({ vaultRoot, commitMutex }),
     })
@@ -323,7 +326,7 @@ describe('agents routes', () => {
       commit: async () => ({ committed: true, hash: 'abc12345', committedPages: [] }),
       runStore: runs,
     })
-    service = new FellowService({ agents: new SqliteAgentStore(db), runs, maintenance: runner, notebook: new NotebookWriter({ vaultRoot, commitMutex }) })
+    service = new FellowService({ agents: new SqliteAgentStore(db), runs, proposals: new SqliteProposalStore(db), maintenance: runner, notebook: new NotebookWriter({ vaultRoot, commitMutex }) })
     const queue = new IngestQueue({ store, vaultRoot, auth: config.auth, runIngest: async () => { throw new Error('no agent') } })
     app = await buildServer({ config, store, chat: new ChatStore(db), queue, events, maintenance: runner, logger: false, commitMutex, agentRuns: runs, fellows: service })
   })

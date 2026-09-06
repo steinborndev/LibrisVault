@@ -1,0 +1,449 @@
+/**
+ * Milestone A1 (docs/tasks/TASKS-A1.md): the Fellow service's planning run, proposals and
+ * decisions, and the night shift, against a real git vault with a fake agent and a pinned
+ * clock. Acceptance: proposals appear after the night, the undecided top one runs the next
+ * night, the quota stops the second.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import type { FastifyInstance } from 'fastify'
+import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
+import { SqliteAgentStore, type AgentRecord } from '../src/db/agents.js'
+import { SqliteAgentRunStore } from '../src/db/agent-runs.js'
+import { SqliteProposalStore, type ProposalRecord } from '../src/db/proposals.js'
+import { SqliteShiftStore } from '../src/db/shifts.js'
+import { NotebookWriter } from '../src/pipeline/notebook.js'
+import { FellowService, type GateBlock } from '../src/pipeline/fellows.js'
+import { NightShift } from '../src/pipeline/shift.js'
+import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
+import { EventBus } from '../src/pipeline/events.js'
+import { Mutex } from '../src/util/mutex.js'
+import { JobStore } from '../src/db/jobs.js'
+import { ChatStore } from '../src/db/chat.js'
+import { IngestQueue } from '../src/pipeline/queue.js'
+import { buildServer } from '../src/api/server.js'
+import type { Config } from '../src/config.js'
+import type { AgentRunResult, RunAgentOptions } from '../src/pipeline/agent-runner.js'
+import type { Candidate } from '../src/pipeline/candidates.js'
+
+const INTENT = 'How well can ground-based transit photometry constrain exoplanet atmospheres, and where do the systematics come from?'
+
+const CANDIDATES: Candidate[] = [
+  { id: 'C1', kind: 'open-question', text: 'Does the precision hold for fainter hosts?', sourcePages: ['wiki/meta/agents/ada.md'], weight: 3 },
+  { id: 'C2', kind: 'gap', text: 'Limb Darkening', sourcePages: ['wiki/concepts/Transit Photometry.md'], weight: 1.1 },
+]
+
+const TWO_PROPOSALS = {
+  proposals: [
+    { candidate: 'C1', kind: 'research-step', topic: 'Does the transit photometry precision hold for faint host stars?', rationale: 'Bears on the systematics of ground-based transit photometry that constrain atmospheres.', lens: 'broad' },
+    { candidate: 'C2', kind: 'research-step', topic: 'Limb darkening models in transit photometry of exoplanet atmospheres', rationale: 'Limb darkening is a systematic of transit photometry.', lens: 'broad' },
+  ],
+  nothing_worth_a_run: false,
+  intent_covered: false,
+  reason: '',
+}
+
+const DRIFT_PROPOSAL = {
+  proposals: [{ candidate: 'C1', kind: 'research-step', topic: 'Sourdough starter hydration ratios', rationale: 'Bread baking at home.', lens: 'broad' }],
+  nothing_worth_a_run: false,
+  intent_covered: false,
+  reason: '',
+}
+
+const NOTHING = { proposals: [], nothing_worth_a_run: true, intent_covered: true, reason: 'the library answers the intent as far as it can' }
+
+const at = (d: number, h: number, mi = 0): Date => new Date(2026, 8, d, h, mi)
+
+interface Harness {
+  vaultRoot: string
+  db: Db
+  calls: RunAgentOptions[]
+  clock: { now: Date }
+  planAnswer: () => unknown
+  committedPages: () => string[]
+  researchOk: () => boolean
+  gate: () => GateBlock | null
+  candidates: () => Candidate[]
+  runner: MaintenanceRunner
+  service: FellowService
+  shift: NightShift
+  shifts: SqliteShiftStore
+  proposals: SqliteProposalStore
+  agents: SqliteAgentStore
+  commitMutex: Mutex
+  events: EventBus
+  runs: SqliteAgentRunStore
+}
+
+function makeHarness(): Harness {
+  const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-'))
+  fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+  fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# index\n')
+  const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, ...args], { encoding: 'utf8' })
+  git('init', '-q')
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A')
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed')
+  const db = openDb(MEMORY_DB)
+  const h: Partial<Harness> = { vaultRoot, db, calls: [], clock: { now: at(7, 1, 30) } }
+  h.planAnswer = () => TWO_PROPOSALS
+  h.committedPages = () => ['wiki/questions/Research: Q.md', 'wiki/concepts/New Concept.md']
+  h.researchOk = () => true
+  h.gate = () => null
+  h.candidates = () => CANDIDATES
+  const now = (): Date => h.clock!.now
+  const commitMutex = new Mutex()
+  const events = new EventBus()
+  const runs = new SqliteAgentRunStore(db)
+  const okResult = (text: string): AgentRunResult => ({ ok: true, result: text, usage: { tokensIn: 12, tokensOut: 3, costUsd: 0.5 }, durationMs: 1, numTurns: 1, sessionId: 's', timedOut: false })
+  const runner = new MaintenanceRunner({
+    vaultRoot,
+    auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+    events,
+    commitMutex,
+    now,
+    runAgent: async (opts) => {
+      h.calls!.push(opts)
+      await new Promise((r) => setTimeout(r, 15))
+      if (opts.profile === 'query') {
+        const answer = h.planAnswer!()
+        if (answer === 'FAIL') return { ...okResult(''), ok: false, error: 'planner exploded' }
+        return { ...okResult('planned'), usage: { tokensIn: 5, tokensOut: 2, costUsd: 0.4 }, structuredOutput: answer }
+      }
+      return h.researchOk!() ? okResult('filed pages') : { ...okResult(''), ok: false, error: 'agent exploded' }
+    },
+    commit: async () => ({ committed: true, hash: 'abc12345', committedPages: h.committedPages!() }),
+    runStore: runs,
+  })
+  const agents = new SqliteAgentStore(db)
+  const proposals = new SqliteProposalStore(db)
+  const service = new FellowService({
+    agents,
+    runs,
+    proposals,
+    maintenance: runner,
+    notebook: new NotebookWriter({ vaultRoot, commitMutex }),
+    now,
+    candidates: () => h.candidates!(),
+    gate: () => h.gate!(),
+  })
+  const shifts = new SqliteShiftStore(db)
+  const shift = new NightShift({ fellows: service, shifts, window: () => ({ start: '01:00', end: '06:00' }), now })
+  Object.assign(h, { runner, service, shift, shifts, proposals, agents, commitMutex, events, runs })
+  return h as Harness
+}
+
+describe('planning, proposals and the night shift', () => {
+  let h: Harness
+  beforeEach(() => {
+    h = makeHarness()
+  })
+  afterEach(() => {
+    h.db.close()
+    fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+  })
+
+  const spawn = async (over: Partial<Parameters<FellowService['spawn']>[0]> = {}): Promise<AgentRecord> => {
+    const { agent, refusal } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false, ...over })
+    expect(refusal).toBeUndefined()
+    return agent!
+  }
+  const notebook = (agent: AgentRecord): string => fs.readFileSync(path.join(h.vaultRoot, agent.notebookPath), 'utf8')
+  const pending = (id: string): ProposalRecord[] => h.service.pendingProposals(id)
+
+  it('acceptance: proposals appear after the night, the top undecided one runs the next night, the quota stops the second', async () => {
+    const ada = await spawn({ quotaRunsPerDay: 1 })
+    expect(ada.state).toBe('proposed')
+
+    // Night 1: nothing to execute yet; the planner writes two proposals.
+    const night1 = await h.shift.run('timer')
+    expect(night1.cycleDate).toBe('2026-09-07')
+    expect(night1.summary.executed).toEqual([])
+    expect(night1.summary.planned).toMatchObject([{ agentName: 'Ada', ok: true, proposals: 2, costUsd: 0.4 }])
+    expect(night1.summary.costUsd).toBe(0.4)
+    const planCall = h.calls.find((c) => c.profile === 'query')!
+    expect(planCall).toMatchObject({ model: 'claude-sonnet-5', maxBudgetUsd: 1, timeoutMs: 5 * 60_000 })
+    expect(planCall.outputFormat?.type).toBe('json_schema')
+    expect(planCall.prompt).toContain('C1 [open-question')
+    const afterPlan = h.service.get(ada.id)!
+    expect(afterPlan.state).toBe('waiting')
+    const [p1, p2] = pending(ada.id)
+    expect([p1!.rank, p2!.rank]).toEqual([1, 2])
+    expect(p1).toMatchObject({ kind: 'research-step', status: 'proposed', cycleDate: '2026-09-07', estCostUsd: 2, provenance: { candidate: 'open-question' } })
+    expect(p1!.scopeScore).toBeGreaterThanOrEqual(0.2)
+    expect(notebook(ada)).toContain(`1. research-step · ${p1!.topic} · undecided · about 2.00 USD`)
+    expect(h.service.list()[0]).toMatchObject({ pendingProposals: 2, next: { id: p1!.id } })
+    // The run log carries the planning run, attributed and costed; the ledger's quota ignores it.
+    expect(h.runs.list({ agentId: ada.id })[0]).toMatchObject({ kind: 'plan', costUsd: 0.4, ok: true })
+    expect(h.service.card(ada.id)!.quota).toEqual({ runsPerDay: 1, usedToday: 0 })
+
+    // The same night again: the row exists, the timer does nothing.
+    expect(await h.shift.tick()).toBeNull()
+
+    // Night 2: the top undecided proposal runs; the second round hits the quota; a new plan follows.
+    h.clock.now = at(8, 1, 30)
+    const night2 = (await h.shift.tick())!
+    expect(night2.cycleDate).toBe('2026-09-08')
+    expect(night2.summary.executed).toMatchObject([{ agentName: 'Ada', proposalId: p1!.id, kind: 'research-step', topic: p1!.topic, ok: true, pages: 2, costUsd: 0.5 }])
+    expect(night2.summary.skipped.map((s) => s.reason)).toEqual(expect.arrayContaining([expect.stringContaining("used today's quota (1 of 1 runs)")]))
+    expect(night2.summary.planned).toMatchObject([{ agentName: 'Ada', ok: true, proposals: 2 }])
+    const executed = h.service.getProposal(p1!.id)!
+    expect(executed).toMatchObject({ status: 'executed' })
+    expect(h.runs.list({ agentId: ada.id }).find((r) => r.id === executed.runId)).toMatchObject({ kind: 'research-step', proposalId: p1!.id, label: p1!.topic })
+    expect(h.service.getProposal(p2!.id)!.status).toBe('superseded')
+    const fresh = pending(ada.id)
+    expect(fresh).toHaveLength(2)
+    expect(fresh.every((p) => p.cycleDate === '2026-09-08')).toBe(true)
+    expect(h.service.get(ada.id)!.state).toBe('waiting')
+    const stepCall = h.calls.find((c) => c.profile === 'research')!
+    expect(stepCall.prompt).toContain('<research_step>')
+    expect(stepCall.prompt).toContain(p1!.topic)
+    expect(h.shifts.list().map((s) => s.cycleDate)).toEqual(['2026-09-08', '2026-09-07'])
+    const card = h.service.card(ada.id)!
+    expect(card.spend).toMatchObject({ runsToday: 2, todayUsd: 0.9 })
+    expect(card.proposals.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('manual mode runs nothing unapproved; an approval runs it and beats the rank', async () => {
+    const bo = await spawn({ name: 'Bo', autonomy: 'manual', quotaRunsPerDay: 2 })
+    await h.shift.run('timer')
+    const [p1, p2] = pending(bo.id)
+    expect(h.service.runnable(bo.id)).toBeUndefined()
+    expect(notebook(bo)).toContain('Manual mode: a proposal runs only after you approve it.')
+
+    // The user approves the second one during the day; it beats the rank at night.
+    const decided = await h.service.decide(p2!.id, { status: 'approved', note: 'this one first', via: 'telegram' })
+    expect(decided.proposal).toMatchObject({ status: 'approved', decidedVia: 'telegram', userNote: 'this one first' })
+    expect(h.service.runnable(bo.id)?.id).toBe(p2!.id)
+    h.clock.now = at(8, 1, 30)
+    const night2 = await h.shift.run('timer')
+    expect(night2.summary.executed).toMatchObject([{ proposalId: p2!.id }])
+    expect(night2.summary.skipped.map((s) => s.reason)).toContain('manual mode and nothing approved')
+    // The planner superseded the undecided p1 while the executed p2 keeps its row.
+    expect(h.service.getProposal(p1!.id)!.status).toBe('superseded')
+    expect(h.service.getProposal(p2!.id)!.status).toBe('executed')
+
+    // Fresh, unapproved proposals: the next night runs nothing.
+    h.clock.now = at(9, 1, 30)
+    const night3 = await h.shift.run('timer')
+    expect(night3.summary.executed).toEqual([])
+    expect(pending(bo.id).every((p) => p.status === 'proposed')).toBe(true)
+  })
+
+  it('a drift proposal never runs undecided in veto mode, is dropped in auto mode, and runs when approved', async () => {
+    h.planAnswer = () => DRIFT_PROPOSAL
+    const vi = await spawn({ name: 'Vi' })
+    const cy = await spawn({ name: 'Cy', autonomy: 'auto' })
+    await h.shift.run('timer')
+    const [drift] = pending(vi.id)
+    expect(drift!.scopeScore).toBe(0)
+    expect(h.service.runnable(vi.id)).toBeUndefined()
+    expect(notebook(vi)).toContain('flagged as drift')
+    expect(pending(cy.id)).toEqual([])
+    expect(h.service.get(cy.id)).toMatchObject({ state: 'sleeping', sleepCode: 'covered' })
+
+    await h.service.decide(drift!.id, { status: 'approved' })
+    expect(h.service.runnable(vi.id)?.id).toBe(drift!.id)
+  })
+
+  it('auto mode plans and runs the top proposal in the same night', async () => {
+    const cy = await spawn({ name: 'Cy', autonomy: 'auto' })
+    const night = await h.shift.run('timer')
+    expect(night.summary.planned).toMatchObject([{ agentName: 'Cy', proposals: 2 }])
+    expect(night.summary.executed).toMatchObject([{ agentName: 'Cy', kind: 'research-step' }])
+    expect(h.calls.map((c) => c.profile)).toEqual(['query', 'research'])
+    expect(h.service.get(cy.id)!.state).toBe('waiting')
+    expect(pending(cy.id)).toHaveLength(1)
+  })
+
+  it('decisions: veto, undo, topic edit and reorder; an executed proposal refuses them; vetoes reach the planner', async () => {
+    const ada = await spawn({})
+    await h.shift.run('timer')
+    const [p1, p2] = pending(ada.id)
+    expect((await h.service.decide(p1!.id, { status: 'vetoed' })).proposal!.status).toBe('vetoed')
+    expect(h.service.runnable(ada.id)?.id).toBe(p2!.id)
+    expect((await h.service.decide(p1!.id, { status: 'proposed' })).proposal).toMatchObject({ status: 'proposed', decidedAt: null, decidedVia: null })
+    const moved = await h.service.decide(p2!.id, { rank: 1, topic: 'Limb darkening, edited by hand' })
+    expect(moved.proposal).toMatchObject({ rank: 1, topic: 'Limb darkening, edited by hand' })
+    expect(pending(ada.id).map((p) => [p.id, p.rank])).toEqual([
+      [p2!.id, 1],
+      [p1!.id, 2],
+    ])
+    expect(h.service.runnable(ada.id)?.id).toBe(p2!.id)
+    // Vetoing everything leaves the Fellow idle until the next plan.
+    await h.service.decide(p1!.id, { status: 'vetoed' })
+    await h.service.decide(p2!.id, { status: 'vetoed' })
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'idle' })
+    expect((await h.service.decide('nope', { status: 'vetoed' })).refusal?.status).toBe(404)
+
+    h.clock.now = at(8, 1, 30)
+    await h.shift.run('timer')
+    const planPrompt = h.calls.filter((c) => c.profile === 'query').at(-1)!.prompt
+    expect(planPrompt).toContain('vetoed these topics recently')
+    expect(planPrompt).toContain('Limb darkening, edited by hand')
+    const [fresh] = pending(ada.id)
+    const run = h.service.execute(fresh!.id)
+    expect(run.run).toBeDefined()
+    await h.service.settled(run.run!.id)
+    expect((await h.service.decide(fresh!.id, { status: 'vetoed' })).refusal).toMatchObject({ status: 409 })
+    expect(h.service.execute(fresh!.id).refusal?.error).toContain('executed')
+  })
+
+  it('two runs without a knowledge page stall the Fellow; an ingest into its domain wakes it', async () => {
+    h.committedPages = () => ['wiki/questions/Research: Q.md', 'wiki/meta/agents/dee.md', 'wiki/hot.md']
+    const dee = await spawn({ name: 'Dee', quotaRunsPerDay: 3 })
+    const first = h.service.step(dee.id, { topic: 'One' })
+    await h.service.settled(first.run!.id)
+    expect(h.service.get(dee.id)).toMatchObject({ state: 'sleeping', sleepCode: 'idle' })
+    const second = h.service.step(dee.id, { topic: 'Two' })
+    await h.service.settled(second.run!.id)
+    expect(h.service.get(dee.id)).toMatchObject({ state: 'sleeping', sleepCode: 'stalled' })
+    expect(h.service.runnable(dee.id)).toBeUndefined()
+
+    const asleep = await h.shift.run('timer')
+    expect(asleep.summary.planned).toEqual([])
+    expect(asleep.summary.skipped.map((s) => s.reason)).toContain('sleeps (stalled) and nothing new arrived in its domains')
+
+    h.candidates = () => [...CANDIDATES, { id: 'C3', kind: 'ingest', text: 'new-paper.pdf', sourcePages: ['wiki/sources/New Paper.md'], weight: 2 }]
+    h.clock.now = at(8, 1, 30)
+    const awake = await h.shift.run('timer')
+    expect(awake.summary.planned).toMatchObject([{ agentName: 'Dee', proposals: 2 }])
+    expect(h.service.get(dee.id)!.state).toBe('waiting')
+  })
+
+  it('no candidates means no planner cost; a failed or malformed planning run leaves an idle sleep with the reason', async () => {
+    h.candidates = () => []
+    const ada = await spawn({})
+    const skipped = h.service.plan(ada.id)
+    expect(skipped.skipped).toContain('no open questions and no candidates in astronomy')
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'no-candidates' })
+    expect(h.calls).toHaveLength(0)
+
+    h.candidates = () => CANDIDATES
+    h.planAnswer = () => 'FAIL'
+    const failed = h.service.plan(ada.id)
+    await h.service.settled(failed.run!.id)
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'idle', sleepReason: expect.stringContaining('planner exploded') })
+
+    h.planAnswer = () => ({ nonsense: true })
+    const malformed = h.service.plan(ada.id)
+    await h.service.settled(malformed.run!.id)
+    expect(h.service.get(ada.id)!.sleepReason).toContain('did not match the schema')
+    expect(notebook(ada)).toContain('Nothing planned: the planning run failed')
+
+    h.planAnswer = () => NOTHING
+    const nothing = h.service.plan(ada.id)
+    await h.service.settled(nothing.run!.id)
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'covered', sleepReason: 'the library answers the intent as far as it can' })
+  })
+
+  it('the gate refuses on the daily budget and the shift records a budget sleep; a timer shift respects the window', async () => {
+    const ada = await spawn({})
+    await h.shift.run('timer')
+    h.gate = () => ({ code: 'budget', reason: 'the daily budget is reached (3 of 3 jobs)' })
+    expect(h.service.step(ada.id).refusal).toMatchObject({ code: 'budget' })
+    h.clock.now = at(8, 1, 30)
+    const night = await h.shift.run('timer')
+    expect(night.summary.executed).toEqual([])
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'budget' })
+    // Planning is not a step: it still runs behind the budget gate? No: the gate blocks every run.
+    expect(night.summary.planned).toEqual([])
+
+    h.gate = () => null
+    h.clock.now = at(9, 5, 55)
+    const late = await h.shift.run('timer')
+    expect(late.summary.skipped.map((s) => s.reason)).toContain('the window has no room left for a research-step')
+    expect(late.summary.executed).toEqual([])
+    expect(h.shift.status()).toMatchObject({ inWindow: true, cycleDate: '2026-09-09', running: false })
+    expect(h.shift.status().nextStartsAt).toBe(at(10, 1).toISOString())
+  })
+
+  it('an intent edit through the API wins over the page and wakes a sleeping Fellow; retire expires proposals', async () => {
+    const ada = await spawn({})
+    await h.shift.run('timer')
+    const [p1] = pending(ada.id)
+    await h.service.decide(p1!.id, { status: 'vetoed' })
+    h.agents.update(ada.id, { state: 'sleeping', sleepCode: 'covered', sleepReason: 'covered' })
+    const updated = await h.service.update(ada.id, { intent: 'A new intent typed in the dashboard' })
+    expect(updated).toMatchObject({ intent: 'A new intent typed in the dashboard', sleepCode: 'idle' })
+    expect(notebook(ada)).toContain('## Intent\n\nA new intent typed in the dashboard')
+    await h.service.retire(ada.id)
+    expect(pending(ada.id)).toEqual([])
+    expect(h.service.getProposal(p1!.id)!.status).toBe('vetoed')
+  })
+})
+
+describe('proposal and shift routes', () => {
+  let h: Harness
+  let app: FastifyInstance
+  beforeEach(async () => {
+    h = makeHarness()
+    const config: Config = {
+      vaultRoot: h.vaultRoot,
+      obsidianVaultName: 'vault',
+      demoMode: false,
+      agentsEnabled: true,
+      auth: { mode: 'oauth', credential: 'x', envVar: 'CLAUDE_CODE_OAUTH_TOKEN' },
+      telegram: null,
+      server: { host: '127.0.0.1', port: 0, watchFolder: path.join(h.vaultRoot, 'inbox'), maxUploadBytes: 1024 * 1024, authMode: 'local-single-user' },
+    }
+    const store = new JobStore(h.db, h.events)
+    const queue = new IngestQueue({ store, vaultRoot: h.vaultRoot, auth: config.auth, runIngest: async () => { throw new Error('no agent') } })
+    app = await buildServer({ config, store, chat: new ChatStore(h.db), queue, events: h.events, maintenance: h.runner, logger: false, commitMutex: h.commitMutex, agentRuns: h.runs, fellows: h.service, shift: h.shift })
+  })
+  afterEach(async () => {
+    await app.close()
+    h.db.close()
+    fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+  })
+
+  it('plans, lists and decides proposals, and runs the shift by hand', async () => {
+    const created = await app.inject({ method: 'POST', url: '/api/v1/agents', payload: { name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false } })
+    const { agent } = created.json() as { agent: AgentRecord }
+
+    const list = await app.inject({ method: 'GET', url: '/api/v1/agents' })
+    expect((list.json() as { shift: { window: { start: string } } }).shift.window.start).toBe('01:00')
+
+    const planned = await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/plan` })
+    expect(planned.statusCode).toBe(202)
+    const planRun = (planned.json() as { run: { id: string; kind: string } }).run
+    expect(planRun.kind).toBe('plan')
+    expect((await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/plan` })).statusCode).toBe(409)
+    await h.service.settled(planRun.id)
+
+    const proposals = await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}/proposals` })
+    const body = proposals.json() as { proposals: ProposalRecord[]; next: ProposalRecord | null }
+    expect(body.proposals).toHaveLength(2)
+    expect(body.next?.rank).toBe(1)
+
+    const bad = await app.inject({ method: 'POST', url: `/api/v1/proposals/${body.proposals[0]!.id}/decide`, payload: { status: 'maybe' } })
+    expect(bad.statusCode).toBe(400)
+    const vetoed = await app.inject({ method: 'POST', url: `/api/v1/proposals/${body.proposals[0]!.id}/decide`, payload: { status: 'vetoed', note: 'not now' } })
+    expect(vetoed.statusCode).toBe(200)
+    expect((vetoed.json() as { proposal: ProposalRecord }).proposal).toMatchObject({ status: 'vetoed', userNote: 'not now', decidedVia: 'dashboard' })
+    expect((await app.inject({ method: 'POST', url: '/api/v1/proposals/nope/decide', payload: { status: 'approved' } })).statusCode).toBe(404)
+
+    const status = await app.inject({ method: 'GET', url: '/api/v1/agents/shift' })
+    expect(status.statusCode).toBe(200)
+    expect((status.json() as { last: unknown }).last).toBeNull()
+    const started = await app.inject({ method: 'POST', url: '/api/v1/agents/shift' })
+    expect(started.statusCode).toBe(202)
+    for (let i = 0; i < 400 && h.shift.isRunning; i++) await new Promise((r) => setTimeout(r, 5))
+    expect(h.shift.isRunning).toBe(false)
+    const after = (await app.inject({ method: 'GET', url: '/api/v1/agents/shift' })).json() as { last: { trigger: string; summary: { executed: unknown[] } } }
+    expect(after.last.trigger).toBe('manual')
+    expect(after.last.summary.executed).toHaveLength(1)
+
+    const card = (await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}/card` })).json() as { proposals: ProposalRecord[]; spend: { runsToday: number } }
+    expect(card.proposals.length).toBeGreaterThanOrEqual(3)
+    expect(card.spend.runsToday).toBeGreaterThanOrEqual(2)
+
+    const next = (await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}/proposals` })).json() as { next: ProposalRecord | null }
+    const run = await app.inject({ method: 'POST', url: `/api/v1/proposals/${next.next!.id}/run` })
+    expect(run.statusCode).toBe(409)
+    expect((run.json() as { error: string }).error).toContain("used today's quota")
+  })
+})

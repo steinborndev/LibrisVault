@@ -395,6 +395,52 @@ ALTER TABLE agent_runs ADD COLUMN model TEXT;
 CREATE INDEX agent_runs_agent ON agent_runs (agent_id, started_at);
 `
 
+/**
+ * v16 - planning and the night shift (docs/agents/SPEC.md sections 6 and 8, milestone A1).
+ *
+ * `agent_proposals` is what a Fellow's planning run leaves behind and what the user decides
+ * on in the veto window; `agent_shifts` is one row per cycle date so a restart never runs
+ * the night twice; `agents.sleep_code` says WHY a Fellow sleeps (the wake evaluator reads
+ * it); `agent_runs.proposal_id` ties a run to the proposal it executed. Operational state
+ * only (hard rule 1): the notebook's Plan section is rendered from these rows, never read.
+ */
+const V16 = `
+CREATE TABLE agent_proposals (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  agent_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  cycle_date TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  lens TEXT NOT NULL DEFAULT 'broad',
+  rationale TEXT NOT NULL DEFAULT '',
+  provenance TEXT NOT NULL DEFAULT '{}',
+  page_set TEXT NOT NULL DEFAULT '[]',
+  est_cost_usd REAL,
+  est_plan_pct REAL,
+  scope_score REAL NOT NULL DEFAULT 0,
+  rank INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'proposed',
+  decided_at TEXT,
+  decided_via TEXT,
+  user_note TEXT,
+  run_id TEXT
+);
+CREATE INDEX agent_proposals_agent ON agent_proposals (agent_id, status, rank);
+CREATE TABLE agent_shifts (
+  cycle_date TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  trigger TEXT NOT NULL DEFAULT 'timer',
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  summary TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY (user_id, cycle_date)
+);
+ALTER TABLE agents ADD COLUMN sleep_code TEXT;
+ALTER TABLE agent_runs ADD COLUMN proposal_id TEXT;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -411,4 +457,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 13, up: V13 },
   { version: 14, up: V14 },
   { version: 15, up: V15 },
+  { version: 16, up: V16 },
 ]
