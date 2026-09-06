@@ -316,10 +316,17 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
 - **Routing.** An open question outside the Fellow's domains becomes a handoff to the
   Fellow whose home domain matches (a candidate for that Fellow's next planning run). With
   no match it becomes an **unclaimed request** in the recap, offered as a spawn proposal
-  that opens the spawn dialog prefilled with intent, domain and provenance.
+  that opens the spawn dialog prefilled with intent, domain and provenance. As built (A3):
+  the planner names the domain of a candidate it judges foreign (the registry rides in
+  its prompt); the service picks the target Fellow (home or extra domain, highest priority,
+  never the source) or leaves the request unclaimed; the recap codes requests `u1`, `u2`
+  and the dashboard's Recap view carries the prefilled spawn form.
 - **Dedupe.** Before the night shift the scheduler compares all pending topics with the
   overlap tokenizer and against existing synthesis pages; near-duplicates are merged into
-  one proposal for one Fellow and noted in the recap.
+  one proposal for one Fellow and noted in the recap. As built (A3): undecided topics with
+  an overlap coefficient of at least 0.6 across Fellows lose to the earlier Fellow in shift
+  order (approved ones never lose) and are superseded with a note; a topic within 0.7 of an
+  existing synthesis page title is noted, not dropped.
 - **Notebooks are private.** Handoffs live in the `handoffs` table, never in another
   Fellow's page.
 
@@ -353,7 +360,12 @@ body text, frontmatter `updated`, `related` and `tags` may change. After the com
 service validates with `git diff --numstat` against the commit's parent: any modified page
 outside the set, or any deleted body line inside the set, fails the run; the service
 **reverts the commit with a new commit** (never a history rewrite) and marks the run
-`failed` with the finding. New pages obey the normal hygiene and address rules.
+`failed` with the finding. New pages obey the normal hygiene and address rules. As built
+(A3, docs/tasks/TASKS-A3.md D1 to D3): the page set is the planner's listed pages that
+exist (at most 4) plus the Fellow's synthesis pages and notebook; "deleted body line" is
+checked as the old body surviving line by line in order (insertions allowed); at most 3
+new pages; the revert restores the commit's paths from its parent in a new commit; the
+Fellow sleeps `idle` with the finding rather than going `blocked`, so the planner carries on.
 
 **Caps on every run.** Timeout per kind, `maxBudgetUsd` per kind scaled by the model
 factor, the `research` profile's web hygiene, and the existing zero-token guard.
@@ -644,7 +656,8 @@ Catalog bookmarks working; the Catalog screen gets a one-time hint after the ren
 - `usage_samples`: id, ts, window, utilization, resets_at, run_id, phase (`before`,
   `after`, `tick`).
 - `handoffs`: id, from_agent_id, to_agent_id (nullable = unclaimed), question, source_page,
-  created_at, status.
+  domain, reason, created_at, cycle_date, status (`pending`, `proposed`, `unclaimed`,
+  `expired`), proposal_id, updated_at (as built in A3).
 - `wings`: id, name, position (order in the room sequence), created_at.
 - `library_layout`: domain, room (`main` or a wing id), slot (0 to 11 in a wing, 0 to 3 in
   the main room), placed_by (`user` or `auto`), updated_at.
@@ -670,6 +683,10 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
   (structured answers, or a text in the code grammar `1b`, `veto 1b`, `skip 1`, `pause 1`,
   `resume 1`, `note 1: ...`, `model 1 opus-5`, `step 1 small`, `topic 1a: ...`);
   `POST /recaps/build` (build now, `force` rebuilds). Added in A2.
+- `GET /handoffs` (routed and unclaimed); `POST /handoffs/:id/spawn` (spawn a Fellow from
+  an unclaimed request, prefilled with intent, domain and provenance; the body may override
+  name, model, step, autonomy and `runFirstStep`). The recap answer `spawn u1 <name>` does
+  the same. Added in A3.
 - `GET /usage/plan` (windows, calibration, shares); `GET /usage/samples`.
 - `GET /library/scene` (snapshot: departments, shelves, actors); live updates reuse the
   existing SSE bus (`job`, `log`, `vault`, `stats`) plus a new `agent` event kind.

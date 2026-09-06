@@ -150,7 +150,9 @@ Build status: A0 done 2026-09-06 (docs/tasks/TASKS-A0.md); A1 done 2026-09-06
 (docs/tasks/TASKS-A1.md: candidates, planner, proposals, veto window, night shift, quota,
 USD accounting); A2 done 2026-09-06 (docs/tasks/TASKS-A2.md: recap page, quiet day,
 dashboard inbox and Recap view, Telegram text and coded answers, adjust actions, value
-events). Next: A3 (expand runs, routing, dedupe, unclaimed requests).
+events); A3 done 2026-09-06 (docs/tasks/TASKS-A3.md: research-expand with validation and
+revert, routing of foreign questions to the Fellow of the domain or to unclaimed requests
+with a prefilled spawn, dedupe before the shift). Next: A4 (Library screen).
 
 Follow-ups noted during A1, not yet decided:
 
