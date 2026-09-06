@@ -140,10 +140,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
     if (!scene.data) return []
     return buildActors({
       scene: scene.data,
-      lastLine: (channel) => {
-        const lines = logStore.snapshot(channel)
-        return lines.length > 0 ? lines[lines.length - 1]!.message : null
-      },
+      lines: (channel) => logStore.snapshot(channel),
       exits,
       now: Date.now(),
     })

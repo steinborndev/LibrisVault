@@ -548,10 +548,20 @@ Every activity becomes an actor with identity, pose, props and exit:
   by kind: an **anonymous visiting researcher** (manual research), reader (vault research
   chat), acquisition clerk (ingest), inspector (read-only maintenance), caretaker (writing
   maintenance).
-- **Pose rule.** The pose follows the tool family of the most recent log line: `Read`,
-  `Grep`, `Glob`, `WebSearch`, `WebFetch` = at the shelf; `Write`, `Edit` = at the desk;
-  commit = shelving; no line for a while = thinking. Job states override (queued = at the
-  front desk, preprocessing = unpacking). Research keeps its finer phase bar.
+- **Pose rule.** The pose follows the tool family the run has been in **recently**, not the
+  single newest line: `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch` = at the shelf;
+  `Write`, `Edit` = at the desk; commit = shelving; nothing in the window = thinking. Job
+  states override (queued = at the front desk, preprocessing = unpacking). Research keeps
+  its finer phase bar.
+  Read off the newest line alone the figure flickered: an agent logs `→ Write(…)` and
+  `← tool ok` 20 ms apart, and the confirmation is not idleness. So lines that carry no tool
+  are skipped, and of the rest inside a 30 s window the family with the most lines wins - a
+  tie keeps the earlier one, so a new family has to outweigh the old before the figure
+  moves. A commit is a moment, not a phase: it takes the pose for 8 s and then counts for
+  nothing. This matters beyond the pose, because reading sends a Fellow to the shelf of its
+  home department - often in another wing, where the main room simply does not draw it.
+  A Fellow that is `active` between two steps keeps its desk instead of jumping to the door,
+  and a figure entering a room fades in rather than appearing hard on the floor.
 - **Props** carry the differences: book = page, parcel = raw file, notice board = hot.md,
   card catalog = index, clipboard = inspection, cart = re-sorting, label = tag fix.
 - **Exit.** Done = shelves and leaves (visitor) or sits down and sleeps (Fellow);

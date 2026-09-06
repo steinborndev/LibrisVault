@@ -2,8 +2,11 @@
  * The scene adapter (docs/agents/SPEC.md sections 10.2 and 10.3): every activity the
  * service reports becomes an actor with an identity, a pose, a place and an exit. Fellows
  * are residents (named figures), runs without a Fellow are visitors by kind, jobs are the
- * acquisition clerk. The pose follows the tool family of the most recent log line; job
- * states override; a settled activity keeps its figure for a few seconds in its exit pose.
+ * acquisition clerk. The pose follows the tool family the run has been in RECENTLY, not the
+ * single newest line: an agent logs `→ Write(…)` and `← tool ok` 20 ms apart, and a pose read
+ * off the last line alone made the figure flicker between two poses - and, when reading sent
+ * it to a shelf in another wing, vanish from the room for those milliseconds. Job states
+ * override; a settled activity keeps its figure for a few seconds in its exit pose.
  * Pure: the tests feed it snapshots and log lines.
  */
 
@@ -67,6 +70,56 @@ export function poseForFamily(family: ToolFamily): Pose {
   }
 }
 
+/** A log line as the adapter reads it: when it arrived and what it said. */
+export interface LogLine {
+  readonly ts: string
+  readonly message: string
+}
+
+/** How far back a figure's pose looks. Long enough that one stray tool call cannot move it. */
+export const POSE_WINDOW_MS = 30_000
+/** A commit closes a run; while it is this fresh it takes the pose whatever else happened. */
+export const COMMIT_HOLD_MS = 8_000
+
+const FAMILIES = ['read', 'write'] as const
+
+/**
+ * What a run has been doing lately, as one family. The lines that carry no tool at all -
+ * the model's prose, `← tool ok`, the usage notes - say nothing about the pose and are
+ * skipped rather than read as idleness. Of what is left inside the window the family with
+ * the most lines wins, so a phase of writing is not broken by a single lookup in between,
+ * and a tie keeps the one that started earlier: a new family has to outweigh the old one
+ * before the figure moves, which is what stops it hopping between rooms. A fresh commit
+ * outranks all of it - it is the closing act of a run, and rare enough to stay calm.
+ */
+export function steadyFamily(lines: readonly LogLine[], now: number): ToolFamily {
+  const counts: Record<'read' | 'write', number> = { read: 0, write: 0 }
+  const first: Record<'read' | 'write', number> = { read: Infinity, write: Infinity }
+  let commit = false
+  // The buffer holds up to a couple of thousand lines per channel and this runs on every one
+  // of them, so walk back from the newest and stop at the edge of the window.
+  for (let k = lines.length - 1; k >= 0; k--) {
+    const line = lines[k]!
+    const at = Date.parse(line.ts)
+    if (Number.isNaN(at)) continue
+    if (now - at > POSE_WINDOW_MS) break
+    const family = toolFamily(line.message)
+    if (family === 'none') continue
+    // A commit is a moment, not a phase: it holds the pose while it is fresh and counts for
+    // nothing once it is old, so the run's next line takes over instead of a stale shelving.
+    if (family === 'commit') {
+      if (now - at <= COMMIT_HOLD_MS) commit = true
+      continue
+    }
+    counts[family]++
+    first[family] = Math.min(first[family], at)
+  }
+  if (commit) return 'commit'
+  const top = Math.max(counts.read, counts.write)
+  if (top === 0) return 'none'
+  return FAMILIES.filter((f) => counts[f] === top).reduce((a, b) => (first[b] < first[a] ? b : a))
+}
+
 /** A settled activity the screen still shows in its exit pose. */
 export interface Exit {
   readonly id: string
@@ -82,8 +135,8 @@ export const EXIT_MS = 6000
 
 export interface AdapterInput {
   readonly scene: LibraryScene
-  /** The most recent log line of a channel, or null. */
-  readonly lastLine: (channel: string) => string | null
+  /** The log lines of a channel, oldest first; the pose reads the recent ones (see {@link steadyFamily}). */
+  readonly lines: (channel: string) => readonly LogLine[]
   readonly exits: readonly Exit[]
   readonly now: number
 }
@@ -179,7 +232,7 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
   const color = fellowColor(f.agentId)
   const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId }
   if (f.run) {
-    const family = toolFamily(input.lastLine(f.run.channel))
+    const family = steadyFamily(input.lines(f.run.channel), input.now)
     const planning = f.run.kind === 'plan'
     const pose: Pose = planning ? 'think' : poseForFamily(family)
     const caption = `${f.name} (${planning ? 'planning' : POSE_CAPTION[pose]})`
@@ -211,6 +264,12 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
       const q = ANCHORS.frontDeskQueue[index % ANCHORS.frontDeskQueue.length]!
       return { ...base, caption: `${f.name} (new)`, pose: 'wait', room: 'main', i: q.i, j: q.j, tag: 'fellow' }
     }
+    case 'active': {
+      // Between two steps of a shift the run is gone for a moment. The Fellow stays at its
+      // desk and thinks; sending it to the door and back would be a jump across the room.
+      const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
+      return { ...base, caption: `${f.name} (thinking)`, pose: 'think', room: 'main', i: desk.i, j: desk.j, tag: 'fellow' }
+    }
     default:
       return { ...base, caption: `${f.name} (${f.state})`, pose: 'stand', room: 'main', i: ANCHORS.door.i, j: ANCHORS.door.j, tag: 'fellow' }
   }
@@ -219,7 +278,7 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
 function runActor(scene: LibraryScene, r: SceneRun, index: number, input: AdapterInput): Actor | null {
   const role = roleOfRun(r.kind)
   if (role === null) return null
-  const family = toolFamily(input.lastLine(r.channel))
+  const family = steadyFamily(input.lines(r.channel), input.now)
   const base = { id: `run:${r.id}`, role, color: VISITOR, tag: 'visitor' as const, runId: r.id, channel: r.channel, room: 'main' }
   const what = RUN_CAPTION[r.kind] ?? r.kind
   if (role === 'researcher') {
@@ -248,7 +307,7 @@ function jobActor(scene: LibraryScene, job: SceneJob, index: number, queued: num
     return { ...base, id: `parcel:${job.id}`, name: 'parcel', caption: `${job.name} · queued`, pose: 'wait', i: q.i, j: q.j }
   }
   if (job.status === 'preprocessing') return { ...base, caption: `clerk · unpacking ${job.name}`, pose: 'carry', i: ANCHORS.frontDesk.i + 0.6, j: ANCHORS.frontDesk.j + 0.6 + index * 0.5 }
-  const family = toolFamily(input.lastLine(job.id))
+  const family = steadyFamily(input.lines(job.id), input.now)
   if (family === 'write') {
     const desk = ANCHORS.desks[(2 - index + ANCHORS.desks.length) % ANCHORS.desks.length]!
     return { ...base, caption: `clerk · writing pages for ${job.name}`, pose: 'desk', i: desk.i, j: desk.j }

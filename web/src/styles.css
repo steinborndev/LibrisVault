@@ -6868,8 +6868,20 @@ tr:focus-within .rowacts {
 .lib-board:hover, .lib-passage:hover { filter: brightness(1.07); }
 
 
-.lib-figure { transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1), opacity 600ms ease; }
+/*
+ * A figure glides to its next tile. Walking to a shelf in another wing is not a glide though -
+ * the figure is simply not drawn in the room you are looking at - so arriving fades in rather
+ * than appearing hard on the floor.
+ */
+.lib-figure { transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1), opacity 600ms ease; animation: lib-figure-in 260ms ease-out; }
 .lib-figure.exiting { opacity: 0.55; }
+@keyframes lib-figure-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lib-figure { transition: none; animation: none; }
+}
 .lib-figure.selected > g > ellipse:first-child { stroke: var(--accent); stroke-width: 2; }
 .lib-slot.free { opacity: 0.85; }
 .lib-slot.drop polygon { transition: opacity 200ms; }

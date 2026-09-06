@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeProj, boxFaces, depthOf, fitRoom, mix, seeded } from '../src/lib/library/iso.ts'
 import { ROOM, WALL_H, wingSlotPositions, mainSlotPositions, shelfStand, breakSign, signText, ANCHORS, SLOTS } from '../src/lib/library/room.ts'
-import { toolFamily, poseForFamily, buildActors, floorLine, EXIT_MS, type AdapterInput } from '../src/lib/library/scene.ts'
+import { toolFamily, poseForFamily, steadyFamily, buildActors, floorLine, EXIT_MS, POSE_WINDOW_MS, COMMIT_HOLD_MS, type AdapterInput } from '../src/lib/library/scene.ts'
 import type { LibraryScene, SceneFellow } from '../src/api/types.ts'
 
 describe('isometric projection', () => {
@@ -72,7 +72,17 @@ const scene = (over: Partial<LibraryScene> = {}): LibraryScene => ({
   ...over,
 })
 
-const input = (s: LibraryScene, lines: Record<string, string | null> = {}, exits: AdapterInput['exits'] = []): AdapterInput => ({ scene: s, lastLine: (ch) => lines[ch] ?? null, exits, now: 1_000_000 })
+const NOW = 1_000_000
+/** One recent line per channel is enough for the placement tests; the pose window is tested on its own. */
+const input = (s: LibraryScene, lines: Record<string, string | null> = {}, exits: AdapterInput['exits'] = []): AdapterInput => ({
+  scene: s,
+  lines: (ch) => {
+    const message = lines[ch]
+    return message === undefined || message === null ? [] : [{ ts: new Date(NOW - 1_000).toISOString(), message }]
+  },
+  exits,
+  now: NOW,
+})
 
 describe('scene adapter', () => {
   it('reads the tool family off a log line and maps it to a pose', () => {
@@ -87,6 +97,27 @@ describe('scene adapter', () => {
     expect(poseForFamily('write')).toBe('desk')
     expect(poseForFamily('commit')).toBe('shelve')
     expect(poseForFamily('none')).toBe('think')
+  })
+
+  it('takes the pose from the recent lines, so a confirmation between two tool calls moves nothing', () => {
+    const at = (msAgo: number, message: string): { ts: string; message: string } => ({ ts: new Date(NOW - msAgo).toISOString(), message })
+    // What the flicker looked like: a tool call and its `tool ok` 20 ms apart.
+    const writing = [at(3_000, '→ Write({"file_path":"wiki/x.md"})'), at(2_980, '[user] ← tool ok'), at(1_000, '[assistant] Now the entity pages.')]
+    expect(steadyFamily(writing, NOW)).toBe('write')
+    // A single lookup does not pull a writing Fellow to a shelf in another wing.
+    expect(steadyFamily([...writing, at(500, '→ Read({})')], NOW)).toBe('write')
+    // A reading phase reads, even with one write in it.
+    expect(steadyFamily([at(9_000, '→ WebSearch({})'), at(6_000, '→ WebFetch({})'), at(3_000, '→ Edit({})')], NOW)).toBe('read')
+    // A fresh commit closes the run whatever else it did.
+    expect(steadyFamily([at(9_000, '→ Write({})'), at(8_000, '→ Write({})'), at(2_000, 'committed 8431766 (6 page(s))')], NOW)).toBe('commit')
+    expect(steadyFamily([at(COMMIT_HOLD_MS + 1_000, 'committed abc (1 page)'), at(1_000, '→ Write({})')], NOW)).toBe('write')
+    // Nothing but prose, nothing at all, or nothing recent: the figure thinks.
+    expect(steadyFamily([at(1_000, '[assistant] Let me think about this.')], NOW)).toBe('none')
+    expect(steadyFamily([], NOW)).toBe('none')
+    expect(steadyFamily([at(POSE_WINDOW_MS + 1_000, '→ Read({})')], NOW)).toBe('none')
+    // A tie keeps the family that started earlier, so the figure stays where it is.
+    expect(steadyFamily([at(5_000, '→ Read({})'), at(2_000, '→ Write({})')], NOW)).toBe('read')
+    expect(steadyFamily([at(5_000, '→ Read({})'), at(2_000, '→ Write({})'), at(1_000, '→ Edit({})')], NOW)).toBe('write')
   })
 
   it('renders the existing runs with zero Fellows: researcher at the shelf, clerks by job state, inspector, caretaker', () => {
@@ -137,10 +168,43 @@ describe('scene adapter', () => {
     expect(byName['Ed']).toMatchObject({ pose: 'wait', tag: 'warn' })
     expect(byName['Fay']).toBeUndefined()
     expect(byName['Gus']).toMatchObject({ pose: 'wait', caption: 'Gus (new)' })
+    // Active but between two steps: the desk it just left, not the door across the room.
+    const between = buildActors(input(scene({ fellows: [fellow({ agentId: 'a1', name: 'Ada', state: 'active', run: null })] })))
+    expect(between[0]).toMatchObject({ pose: 'think', room: 'main', caption: 'Ada (thinking)', i: ANCHORS.desks[0]!.i, j: ANCHORS.desks[0]!.j })
     // A writing Fellow sits at a desk in the main room.
     const writing = buildActors(input(s, { 'maintenance:research-step': '→ Edit({})' }))
     expect(writing.find((a) => a.name === 'Ada')).toMatchObject({ pose: 'desk', room: 'main' })
     expect(floorLine(actors)).toBe('2 Fellows at work')
+  })
+
+  it('holds a working Fellow still: the real line sequence of a run moves it once, not eight times', () => {
+    // Taken off the live event stream of a research run - a tool call and its confirmation
+    // land 20 ms apart, and reading the newest line alone made the figure flicker.
+    const real: Array<[number, string]> = [
+      [0, 'plan usage after: five_hour 8%, seven_day 46%'],
+      [155, '[assistant] → Edit({"file_path":"wiki/concepts/X.md"})'],
+      [175, '[user] ← tool ok'],
+      [2_676, '[assistant] Now the remaining three concept pages.'],
+      [18_462, '[assistant] → Write({"file_path":"wiki/concepts/Y.md"})'],
+      [18_478, '[user] ← tool ok'],
+      [20_000, '[assistant] → Read({"file_path":"wiki/concepts/Z.md"})'],
+      [20_020, '[user] ← tool ok'],
+      [24_355, '[assistant] → Write({"file_path":"wiki/concepts/Z.md"})'],
+      [24_366, '[user] ← tool ok'],
+      [26_957, '[assistant] All 5 concept pages done.'],
+    ]
+    const start = NOW - 30_000
+    const s = scene({ fellows: [fellow({ agentId: 'a1', name: 'Ada', homeDomain: 'astronomy', state: 'active', run: { id: 'r1', kind: 'research-step', channel: 'c', label: 'T', startedAt: 's' } })] })
+    const seen = new Set<string>()
+    for (let k = 1; k <= real.length; k++) {
+      const lines = real.slice(0, k).map(([ms, message]) => ({ ts: new Date(start + ms).toISOString(), message }))
+      const at = start + real[k - 1]![0]
+      const actor = buildActors({ scene: s, lines: () => lines, exits: [], now: at }).find((a) => a.name === 'Ada')!
+      seen.add(`${actor.room}/${actor.pose}`)
+    }
+    // Astronomy stands in Wing A, so a pose read off a single `Read` line would have taken
+    // the figure out of the main room and back again mid-run.
+    expect([...seen]).toEqual(['main/think', 'main/desk'])
   })
 
   it('shows exits for a few seconds and never beside a live twin', () => {
