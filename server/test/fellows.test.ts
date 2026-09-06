@@ -1,0 +1,383 @@
+/**
+ * Milestone A0 (docs/tasks/TASKS-A0.md): the Fellow record and store, the notebook page,
+ * the service's spawn / step gate / settle handling against a real git vault with a fake
+ * agent, and the routes. Acceptance: spawn a Fellow, the first run and one manual step show
+ * up in the notebook and in the run log.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import type { FastifyInstance } from 'fastify'
+import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
+import { SqliteAgentStore, slugify, type AgentRecord } from '../src/db/agents.js'
+import { SqliteAgentRunStore, type AgentRunRecord } from '../src/db/agent-runs.js'
+import { renderNotebook, parseNotebook, readBackNotebook, notebookPath, NotebookWriter } from '../src/pipeline/notebook.js'
+import { FellowService } from '../src/pipeline/fellows.js'
+import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
+import { EventBus } from '../src/pipeline/events.js'
+import { Mutex } from '../src/util/mutex.js'
+import { JobStore } from '../src/db/jobs.js'
+import { ChatStore } from '../src/db/chat.js'
+import { IngestQueue } from '../src/pipeline/queue.js'
+import { buildServer } from '../src/api/server.js'
+import type { Config } from '../src/config.js'
+import type { AgentRunResult, RunAgentOptions } from '../src/pipeline/agent-runner.js'
+
+const okResult = (text: string): AgentRunResult => ({
+  ok: true,
+  result: text,
+  usage: { tokensIn: 12, tokensOut: 3, costUsd: 0.5 },
+  durationMs: 1,
+  numTurns: 1,
+  sessionId: 's',
+  timedOut: false,
+})
+
+const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
+  id: 'a1',
+  name: 'Ada',
+  slug: 'ada',
+  intent: 'How far can ground-based transit photometry constrain atmospheric retrievals?',
+  scope: null,
+  homeDomain: 'astronomy',
+  extraDomains: [],
+  lens: 'broad',
+  model: 'sonnet-5',
+  effort: 'high',
+  step: 'standard',
+  quotaRunsPerDay: 1,
+  quotaWeekPct: null,
+  autonomy: 'veto',
+  priority: 0,
+  state: 'proposed',
+  sleepReason: null,
+  notebookPath: notebookPath('ada'),
+  createdAt: '2026-09-06T08:00:00.000Z',
+  updatedAt: '2026-09-06T08:00:00.000Z',
+  retiredAt: null,
+  ...over,
+})
+
+const runRecord = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
+  id: 'r1',
+  kind: 'research-step',
+  label: 'Limb darkening',
+  profileKey: 'broad',
+  ok: true,
+  pages: ['wiki/questions/Research: Limb darkening.md'],
+  tokensIn: 100,
+  tokensOut: 10,
+  costUsd: 2.1,
+  error: null,
+  commitHash: 'abc',
+  startedAt: '2026-09-06T09:00:00.000Z',
+  finishedAt: '2026-09-06T09:12:00.000Z',
+  agentId: 'a1',
+  model: 'claude-sonnet-5',
+  ...over,
+})
+
+describe('slugify', () => {
+  it('makes a filename-safe, unique-enough slug', () => {
+    expect(slugify('Ada Lovelace')).toBe('ada-lovelace')
+    expect(slugify('  Müller & Söhne  ')).toBe('muller-sohne')
+    expect(slugify('***')).toBe('fellow')
+    expect(slugify('x'.repeat(80)).length).toBeLessThanOrEqual(48)
+  })
+})
+
+describe('SqliteAgentStore', () => {
+  let db: Db
+  beforeEach(() => {
+    db = openDb(MEMORY_DB)
+  })
+  afterEach(() => {
+    db.close()
+  })
+
+  it('creates, reads by id and slug, lists retired last, updates and removes', () => {
+    const store = new SqliteAgentStore(db)
+    store.create(agentRecord())
+    store.create(agentRecord({ id: 'a2', name: 'Noor', slug: 'noor', state: 'retired', createdAt: '2026-09-05T08:00:00.000Z' }))
+    expect(store.get('a1')?.name).toBe('Ada')
+    expect(store.bySlug('noor')?.id).toBe('a2')
+    expect(store.list().map((a) => a.id)).toEqual(['a1', 'a2'])
+    const updated = store.update('a1', { state: 'sleeping', sleepReason: 'nothing planned', model: 'opus-5' }, '2026-09-06T10:00:00.000Z')
+    expect(updated).toMatchObject({ state: 'sleeping', model: 'opus-5', updatedAt: '2026-09-06T10:00:00.000Z' })
+    expect(store.get('a1')?.extraDomains).toEqual([])
+    expect(store.remove('a2')).toBe(true)
+    expect(store.list()).toHaveLength(1)
+  })
+
+  it('refuses a second Fellow with the same slug', () => {
+    const store = new SqliteAgentStore(db)
+    store.create(agentRecord())
+    expect(() => store.create(agentRecord({ id: 'dup' }))).toThrow()
+  })
+
+  it('the run log filters by Fellow and by start time', () => {
+    const runs = new SqliteAgentRunStore(db)
+    runs.record(runRecord())
+    runs.record(runRecord({ id: 'r2', agentId: 'other', startedAt: '2026-09-06T11:00:00.000Z', finishedAt: '2026-09-06T11:05:00.000Z' }))
+    runs.record(runRecord({ id: 'r0', startedAt: '2026-09-05T09:00:00.000Z', finishedAt: '2026-09-05T09:10:00.000Z' }))
+    expect(runs.list({ agentId: 'a1' }).map((r) => r.id)).toEqual(['r1', 'r0'])
+    expect(runs.list({ agentId: 'a1', since: '2026-09-06T00:00:00.000Z' }).map((r) => r.id)).toEqual(['r1'])
+    expect(runs.list({ agentId: 'a1' })[0]).toMatchObject({ model: 'claude-sonnet-5', agentId: 'a1' })
+  })
+})
+
+describe('notebook page', () => {
+  it('renders frontmatter, title and the six sections', () => {
+    const md = renderNotebook({ agent: agentRecord(), runs: [runRecord()], now: '2026-09-06T12:00:00.000Z' })
+    expect(md.startsWith('---\ntype: meta\n')).toBe(true)
+    expect(md).toContain('title: "Fellow: Ada"')
+    expect(md).toContain('updated: 2026-09-06')
+    expect(md).toContain('agent_id: a1')
+    for (const s of ['## Intent', '## Scope', '## Plan', '## Log', '## Open Questions', '## Notes']) expect(md).toContain(s)
+    expect(md).toContain('2026-09-06 · research-step · Limb darkening · 1 page(s) · 2.10 USD')
+    expect(parseNotebook(md).sections.get('Intent')).toBe(agentRecord().intent)
+  })
+
+  it('keeps what the page owns and re-renders what the service owns', () => {
+    const first = renderNotebook({ agent: agentRecord(), runs: [] })
+    const edited = first
+      .replace(agentRecord().intent, 'A narrower question the user typed in Obsidian')
+      .replace('- (none yet)', '- Which surveys publish raw light curves?')
+      .replace('(yours)', 'my own remark')
+    const second = renderNotebook({ agent: agentRecord(), runs: [runRecord()], existing: edited })
+    const sections = parseNotebook(second).sections
+    expect(sections.get('Intent')).toBe('A narrower question the user typed in Obsidian')
+    expect(sections.get('Open Questions')).toBe('- Which surveys publish raw light curves?')
+    expect(sections.get('Notes')).toBe('my own remark')
+    expect(sections.get('Log')).toContain('research-step · Limb darkening')
+    expect(readBackNotebook(edited)).toEqual({ intent: 'A narrower question the user typed in Obsidian' })
+  })
+})
+
+describe('FellowService against a git vault', () => {
+  let vaultRoot: string
+  let db: Db
+  let calls: RunAgentOptions[]
+  let agentOk: boolean
+  let runner: MaintenanceRunner
+  let service: FellowService
+  const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, ...args], { encoding: 'utf8' })
+
+  beforeEach(() => {
+    vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fellows-'))
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# index\n')
+    git('init', '-q')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed')
+    db = openDb(MEMORY_DB)
+    calls = []
+    agentOk = true
+    const commitMutex = new Mutex()
+    const runs = new SqliteAgentRunStore(db)
+    runner = new MaintenanceRunner({
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex,
+      runAgent: async (opts) => {
+        calls.push(opts)
+        return agentOk ? okResult('filed 3 pages') : ({ ...okResult(''), ok: false, error: 'agent exploded' } as AgentRunResult)
+      },
+      commit: async () => ({ committed: true, hash: 'abc12345', committedPages: ['wiki/questions/Research: Q.md'] }),
+      runStore: runs,
+    })
+    service = new FellowService({
+      agents: new SqliteAgentStore(db),
+      runs,
+      maintenance: runner,
+      notebook: new NotebookWriter({ vaultRoot, commitMutex }),
+    })
+  })
+  afterEach(() => {
+    db.close()
+    fs.rmSync(vaultRoot, { recursive: true, force: true })
+  })
+
+  const waitSettled = async (id: string): Promise<void> => {
+    for (let i = 0; i < 400; i++) {
+      const run = runner.getRun(id)
+      if (run !== undefined && run.status !== 'running') {
+        await service.flush()
+        return
+      }
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    throw new Error('run never settled')
+  }
+
+  it('spawns: record, committed notebook, and the intent as a first full run pinned to the model', async () => {
+    const { agent, run, refusal } = await service.spawn({ name: 'Ada', intent: agentRecord().intent, homeDomain: 'astronomy', model: 'opus-5', quotaRunsPerDay: 2 })
+    expect(refusal).toBeUndefined()
+    expect(agent).toMatchObject({ slug: 'ada', state: 'active', model: 'opus-5', notebookPath: 'wiki/meta/agents/ada.md' })
+    expect(run).toMatchObject({ kind: 'research', label: agentRecord().intent, agentId: agent!.id, model: 'claude-opus-5' })
+    expect(fs.existsSync(path.join(vaultRoot, 'wiki/meta/agents/ada.md'))).toBe(true)
+    expect(git('log', '--format=%s')).toContain('fellow: notebook of Ada')
+
+    await waitSettled(run!.id)
+    const [call] = calls
+    expect(call).toMatchObject({ profile: 'research', model: 'claude-opus-5', effort: 'high', maxBudgetUsd: 30 })
+    expect(call!.prompt).toContain('<fellow>')
+    expect(call!.prompt).toContain('wiki/meta/agents/ada.md')
+    expect(call!.prompt).not.toContain('<research_step>')
+
+    const card = service.card(agent!.id)!
+    expect(card.agent.state).toBe('sleeping')
+    expect(card.runs).toHaveLength(1)
+    expect(card.runs[0]).toMatchObject({ kind: 'research', agentId: agent!.id, model: 'claude-opus-5', ok: true })
+    expect(card.pages).toEqual(['wiki/questions/Research: Q.md'])
+    expect(card.quota).toEqual({ runsPerDay: 2, usedToday: 1 })
+    const notebook = fs.readFileSync(path.join(vaultRoot, 'wiki/meta/agents/ada.md'), 'utf8')
+    expect(notebook).toContain('research · ' + agentRecord().intent)
+    expect(notebook).toContain('1 page(s) · 0.50 USD')
+  })
+
+  it('a manual step is a research-step with tightened caps, and the daily quota gates the next one', async () => {
+    const { agent } = await service.spawn({ name: 'Noor', intent: 'Heat transport in ice shelves', homeDomain: 'climate-science', runFirstStep: false })
+    expect(agent!.state).toBe('proposed')
+    expect(calls).toHaveLength(0)
+
+    const first = service.step(agent!.id, { topic: 'Basal melt rates under warm cavities' })
+    expect(first.run).toMatchObject({ kind: 'research-step', label: 'Basal melt rates under warm cavities', model: 'claude-sonnet-5' })
+    expect(service.step(agent!.id).refusal).toMatchObject({ status: 409 })
+    await waitSettled(first.run!.id)
+    expect(calls[0]!.prompt).toContain('<research_step>')
+    expect(calls[0]).toMatchObject({ maxBudgetUsd: 4 })
+
+    const second = service.step(agent!.id)
+    expect(second.refusal?.error).toContain("used today's quota (1 of 1 runs)")
+    expect(service.card(agent!.id)!.agent.state).toBe('sleeping')
+  })
+
+  it('a failed run blocks the Fellow with the reason; pause refuses steps; retire then remove', async () => {
+    agentOk = false
+    const { agent, run } = await service.spawn({ name: 'Tomas', intent: 'Cache coherence in NUMA systems', homeDomain: 'computing' })
+    await waitSettled(run!.id)
+    expect(service.get(agent!.id)).toMatchObject({ state: 'blocked', sleepReason: expect.stringContaining('agent exploded') })
+
+    await service.pause(agent!.id)
+    expect(service.step(agent!.id).refusal?.error).toContain('paused')
+    await service.resume(agent!.id)
+    expect(service.get(agent!.id)?.state).toBe('sleeping')
+    expect(service.remove(agent!.id)).toMatchObject({ status: 409 })
+    await service.retire(agent!.id)
+    expect(fs.readFileSync(path.join(vaultRoot, agent!.notebookPath), 'utf8')).toContain('status: retired')
+    expect(service.remove(agent!.id)).toEqual({ ok: true })
+    expect(service.get(agent!.id)).toBeUndefined()
+  })
+
+  it('reads intent edits back from the page after a run', async () => {
+    const { agent, run } = await service.spawn({ name: 'Mira', intent: 'Original intent', homeDomain: 'neuroscience' })
+    const abs = path.join(vaultRoot, agent!.notebookPath)
+    fs.writeFileSync(abs, fs.readFileSync(abs, 'utf8').replace('Original intent', 'Edited in Obsidian'))
+    await waitSettled(run!.id)
+    expect(service.get(agent!.id)?.intent).toBe('Edited in Obsidian')
+  })
+})
+
+describe('agents routes', () => {
+  let vaultRoot: string
+  let app: FastifyInstance
+  let runner: MaintenanceRunner
+  let service: FellowService
+  const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, ...args], { encoding: 'utf8' })
+
+  beforeEach(async () => {
+    vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fellows-api-'))
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# index\n')
+    git('init', '-q')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed')
+    const db = openDb(MEMORY_DB)
+    const events = new EventBus()
+    const store = new JobStore(db, events)
+    const config: Config = {
+      vaultRoot,
+      obsidianVaultName: 'vault',
+      demoMode: false,
+      agentsEnabled: true,
+      auth: { mode: 'oauth', credential: 'x', envVar: 'CLAUDE_CODE_OAUTH_TOKEN' },
+      telegram: null,
+      server: { host: '127.0.0.1', port: 0, watchFolder: path.join(vaultRoot, 'inbox'), maxUploadBytes: 1024 * 1024, authMode: 'local-single-user' },
+    }
+    const commitMutex = new Mutex()
+    const runs = new SqliteAgentRunStore(db)
+    runner = new MaintenanceRunner({
+      vaultRoot,
+      auth: config.auth,
+      events,
+      commitMutex,
+      runAgent: async () => okResult('done'),
+      commit: async () => ({ committed: true, hash: 'abc12345', committedPages: [] }),
+      runStore: runs,
+    })
+    service = new FellowService({ agents: new SqliteAgentStore(db), runs, maintenance: runner, notebook: new NotebookWriter({ vaultRoot, commitMutex }) })
+    const queue = new IngestQueue({ store, vaultRoot, auth: config.auth, runIngest: async () => { throw new Error('no agent') } })
+    app = await buildServer({ config, store, chat: new ChatStore(db), queue, events, maintenance: runner, logger: false, commitMutex, agentRuns: runs, fellows: service })
+  })
+  afterEach(async () => {
+    await app.close()
+    fs.rmSync(vaultRoot, { recursive: true, force: true })
+  })
+
+  const settle = async (id: string): Promise<void> => {
+    for (let i = 0; i < 400; i++) {
+      const run = runner.getRun(id)
+      if (run !== undefined && run.status !== 'running') {
+        await service.flush()
+        return
+      }
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    throw new Error('run never settled')
+  }
+
+  it('spawns, lists, shows the card, steps, refuses over quota, pauses, retires, removes', async () => {
+    const bad = await app.inject({ method: 'POST', url: '/api/v1/agents', payload: { name: 'Ada', intent: 'Transit photometry systematics', homeDomain: 'Not A Key' } })
+    expect(bad.statusCode).toBe(400)
+
+    const created = await app.inject({ method: 'POST', url: '/api/v1/agents', payload: { name: 'Ada', intent: 'Transit photometry systematics', homeDomain: 'astronomy', quotaRunsPerDay: 1 } })
+    expect(created.statusCode).toBe(201)
+    const { agent, run } = created.json() as { agent: AgentRecord; run: { id: string; kind: string } }
+    expect(run.kind).toBe('research')
+    await settle(run.id)
+
+    const dup = await app.inject({ method: 'POST', url: '/api/v1/agents', payload: { name: 'Ada', intent: 'Another', homeDomain: 'astronomy' } })
+    expect(dup.statusCode).toBe(409)
+
+    const list = await app.inject({ method: 'GET', url: '/api/v1/agents' })
+    expect((list.json() as { fellows: unknown[] }).fellows).toHaveLength(1)
+
+    const card = await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}/card` })
+    expect(card.statusCode).toBe(200)
+    expect((card.json() as { quota: { usedToday: number } }).quota.usedToday).toBe(1)
+
+    const over = await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/step`, payload: { topic: 'A follow-up' } })
+    expect(over.statusCode).toBe(409)
+
+    const patched = await app.inject({ method: 'PATCH', url: `/api/v1/agents/${agent.id}`, payload: { quotaRunsPerDay: 3, model: 'fable-5-1' } })
+    expect((patched.json() as { agent: AgentRecord }).agent).toMatchObject({ quotaRunsPerDay: 3, model: 'fable-5-1' })
+
+    const step = await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/step`, payload: { topic: 'A follow-up' } })
+    expect(step.statusCode).toBe(202)
+    const stepRun = (step.json() as { run: { id: string; kind: string; model: string } }).run
+    expect(stepRun).toMatchObject({ kind: 'research-step', model: 'claude-fable-5-1' })
+    await settle(stepRun.id)
+
+    expect((await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/pause` })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/step` })).statusCode).toBe(409)
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/agents/${agent.id}` })).statusCode).toBe(409)
+    expect((await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/retire` })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/agents/${agent.id}` })).statusCode).toBe(204)
+    expect((await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}` })).statusCode).toBe(404)
+  })
+})

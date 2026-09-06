@@ -98,6 +98,12 @@ export interface Config {
    * no Telegram, no maintenance scheduling. Runs without a credential by design.
    */
   readonly demoMode: boolean
+  /**
+   * Research agents extension (docs/agents/SPEC.md): `AGENTS_ENABLED=1` registers the
+   * Fellow routes and the notebook writer. Off by default so a merged LibrisVault behaves
+   * exactly as before. Optional so existing config fixtures need no change.
+   */
+  readonly agentsEnabled?: boolean
 }
 
 /** True for a loopback bind — the only bind allowed without an HTTP auth token (hard rule 2). */
@@ -304,6 +310,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     ? ['true', '1', 'yes'].includes(parsed.data.WATCH_POLLING)
     : undefined
   const demoMode = ['true', '1', 'yes'].includes((merged['DEMO_MODE'] ?? '').trim().toLowerCase())
+  const agentsEnabled = ['true', '1', 'yes'].includes((merged['AGENTS_ENABLED'] ?? '').trim().toLowerCase())
   const server: ServerConfig = {
     host: parsed.data.HOST ?? DEFAULT_HOST,
     port: parsed.data.PORT ?? DEFAULT_PORT,
@@ -328,6 +335,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     server,
     telegram: parseTelegram(parsed.data.TELEGRAM_BOT_TOKEN, parsed.data.TELEGRAM_ALLOWED_USER_IDS),
     demoMode,
+    agentsEnabled,
   }
 }
 
@@ -364,5 +372,6 @@ export function describeConfig(config: Config): Record<string, string> {
         `${config.telegram.allowedUserIds.length} allowlisted user(s)`
       : 'off',
     demoMode: config.demoMode ? 'on (read-only)' : 'off',
+    fellows: config.agentsEnabled ? 'on' : 'off',
   }
 }

@@ -49,6 +49,8 @@ export interface ResearchRunEntry {
 }
 
 export const RESEARCH_PREFIX = 'Research: '
+/** Both research kinds file synthesis pages: a full run and a Fellow's bounded step. */
+export const isResearchKind = (kind: string): boolean => kind === 'research' || kind === 'research-step'
 
 /** How far apart a page mtime and a run settle may be and still be the same run. */
 const SAME_RUN_MS = 60 * 60 * 1000
@@ -98,7 +100,7 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   const runFingerprints: Array<{ topic: string; profileKey: string | null; at: number }> = []
 
   for (const h of input.history ?? []) {
-    if (h.kind !== 'research') continue
+    if (!isResearchKind(h.kind)) continue
     seenIds.add(h.id)
     for (const p of h.pages) claimedPages.add(p)
     runFingerprints.push({
@@ -126,7 +128,7 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   }
 
   for (const r of input.runs) {
-    if (r.kind !== 'research') continue
+    if (!isResearchKind(r.kind)) continue
     // The run log already carries every settled run; the registry only adds what is live.
     if (seenIds.has(r.id)) continue
     const status: ResearchRunEntry['status'] =
@@ -203,7 +205,7 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   // A failed run writes no page and leaves no tracked record after a restart - the settle
   // record is the only trace it ever happened, so it earns a row of its own.
   for (const a of input.lastRuns) {
-    if (a.kind !== 'research' || a.ok) continue
+    if (!isResearchKind(a.kind) || a.ok) continue
     if (seenIds.has(a.runId) || out.some((e) => e.id === a.runId)) continue
     out.push({
       id: `state:${a.runId}`,

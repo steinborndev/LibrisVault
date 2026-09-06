@@ -355,6 +355,46 @@ const V14 = `
 ALTER TABLE jobs ADD COLUMN outcome TEXT;
 `
 
+/**
+ * v15 - resident research agents ("Fellows", docs/agents/SPEC.md sections 5 and 11).
+ *
+ * `agents` is the Fellow record: identity, intent, home domain, model, step size, quota and
+ * state. Operational state only (hard rule 1): the notebook page in the vault carries the
+ * user-facing text, and losing this table loses the Fellows' settings, never vault content.
+ * `agent_runs` learns which Fellow a run belonged to and which model it ran on, so the run
+ * log can be filtered per Fellow and the quota gate can count a Fellow's runs.
+ */
+const V15 = `
+CREATE TABLE agents (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  intent TEXT NOT NULL,
+  scope TEXT,
+  home_domain TEXT NOT NULL,
+  extra_domains TEXT NOT NULL DEFAULT '[]',
+  lens TEXT NOT NULL DEFAULT 'broad',
+  model TEXT NOT NULL DEFAULT 'sonnet-5',
+  effort TEXT NOT NULL DEFAULT 'high',
+  step TEXT NOT NULL DEFAULT 'standard',
+  quota_runs_per_day INTEGER NOT NULL DEFAULT 1,
+  quota_week_pct REAL,
+  autonomy TEXT NOT NULL DEFAULT 'veto',
+  priority INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'proposed',
+  sleep_reason TEXT,
+  notebook_path TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  retired_at TEXT,
+  UNIQUE (user_id, slug)
+);
+ALTER TABLE agent_runs ADD COLUMN agent_id TEXT;
+ALTER TABLE agent_runs ADD COLUMN model TEXT;
+CREATE INDEX agent_runs_agent ON agent_runs (agent_id, started_at);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -370,4 +410,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 12, up: V12 },
   { version: 13, up: V13 },
   { version: 14, up: V14 },
+  { version: 15, up: V15 },
 ]

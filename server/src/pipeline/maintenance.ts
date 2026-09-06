@@ -31,7 +31,8 @@ import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './do
 import type { DomainCandidate } from './domain-candidates.js'
 import { indexWikiPages } from './citations.js'
 import { findRelatedPages, renderOverlapBlock } from './related-pages.js'
-import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate } from './research-profiles.js'
+import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate, type ResearchProfile } from './research-profiles.js'
+import { renderFellowBlock, renderStepCaps, type FellowRunContext } from './fellow-prompts.js'
 import { HOT_CACHE_WORD_BUDGET, type Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { buildRetrieveIndex, hasRetrieveScripts, RetrieveScriptsMissingError, type RetrieveIndexBuilder } from './retrieve-index.js'
@@ -49,6 +50,7 @@ export type MaintenanceKind =
   | 'lint'
   | 'lint-fix'
   | 'research'
+  | 'research-step'
   | 'hot-cache'
   | 'save'
   | 'domain-backfill'
@@ -259,6 +261,10 @@ export interface MaintenanceRun {
   readonly label?: string
   /** Research runs only: the lens key the run was started under (SPEC.md, "Achse A"). */
   readonly profileKey?: string
+  /** The Fellow this run belongs to, when one started it. */
+  readonly agentId?: string
+  /** The SDK model id the run was pinned to, when one was. */
+  readonly model?: string
   readonly startedAt: string
   readonly finishedAt?: string
   readonly result?: MaintenanceResult
@@ -268,6 +274,14 @@ export interface MaintenanceRun {
 
 /** How many finished runs to retain for polling before the oldest is evicted. */
 const RUN_HISTORY_CAP = 25
+/** A research step is a bounded run; half the default timeout is plenty for one round. */
+const STEP_TIMEOUT_MS = 15 * 60_000
+
+/** The per-run knobs a Fellow context pins (model, effort, budget) plus its attribution. */
+function fellowRunOptions(fellow: FellowRunContext | undefined): Partial<RunOptions> {
+  if (!fellow) return {}
+  return { agentId: fellow.agentId, model: fellow.model, effort: fellow.effort, maxBudgetUsd: fellow.maxBudgetUsd }
+}
 
 /** Per-run knobs that differ between the kinds. */
 interface RunOptions {
@@ -281,6 +295,15 @@ interface RunOptions {
   readonly commitMessage?: string
   /** Vault-derived system-prompt extension; defaults to the domain registry for write runs. */
   readonly systemPromptExtra?: string
+  /** The Fellow this run belongs to (docs/agents/SPEC.md); attributed in the run log. */
+  readonly agentId?: string
+  /** SDK model id the run is pinned to; absent = CLI default. */
+  readonly model?: string
+  readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /** Hard USD cap against the SDK's list-price estimate. */
+  readonly maxBudgetUsd?: number
+  /** Per-kind timeout override; absent = the runner's default. */
+  readonly timeoutMs?: number
 }
 
 export class MaintenanceRunner {
@@ -488,30 +511,65 @@ export class MaintenanceRunner {
    * overlap block: that block argues for extending what exists, and a broad run once read it
    * as licence to file no synthesis at all (2026-09-04, see `renderSynthesisMandate`).
    */
-  startResearch(topic: string, profileKey?: string): MaintenanceRun {
+  /**
+   * The research prompt every research kind shares: the skill's flow, the lens, the overlap
+   * block, then whatever the caller adds (a step's caps, a Fellow's context), then the
+   * synthesis mandate LAST - it is the one instruction that must survive the overlap block's
+   * "prefer what already exists", and it is the run's definition of done.
+   */
+  private researchPrompt(topic: string, profile: ResearchProfile, extra: string): string {
     const overlap = renderOverlapBlock(findRelatedPages(this.vaultRoot, topic))
-    const profile = getResearchProfile(profileKey)
     const lens = renderProfileBlock(profile)
-    return this.start(
-      'research',
+    return (
       'Use the autoresearch skill to research this topic and file the findings into the wiki: ' +
-        `${topic}\n\n` +
-        'Before starting, read skills/autoresearch/references/program.md to load the research ' +
-        'constraints and objectives. Then run the research loop: search the web, fetch sources, ' +
-        'synthesize, and file structured pages into the wiki. ' +
-        'Afterwards update wiki/index.md, wiki/log.md and wiki/hot.md. ' +
-        'Finally report how many pages you created and the key findings. ' +
-        'Stay focused on the stated topic rather than broadening the scope.' +
-        lens +
-        overlap +
-        // Last, deliberately: it is the one instruction that must survive the overlap block's
-        // "prefer what already exists", and it is the run's definition of done.
-        renderSynthesisMandate(profile, topic),
-      'research',
-      // The topic and lens ride on the run record so every OTHER screen can name what is
-      // running - the dashboard used to know this only inside the composer that started it.
-      { label: topic, profileKey: profile.key },
+      `${topic}\n\n` +
+      'Before starting, read skills/autoresearch/references/program.md to load the research ' +
+      'constraints and objectives. Then run the research loop: search the web, fetch sources, ' +
+      'synthesize, and file structured pages into the wiki. ' +
+      'Afterwards update wiki/index.md, wiki/log.md and wiki/hot.md. ' +
+      'Finally report how many pages you created and the key findings. ' +
+      'Stay focused on the stated topic rather than broadening the scope.' +
+      lens +
+      overlap +
+      extra +
+      renderSynthesisMandate(profile, topic)
     )
+  }
+
+  /**
+   * Starts an autoresearch run in the background; returns its tracked run immediately.
+   *
+   * The prompt spells the flow out rather than sending `/autoresearch <topic>`. That slash form
+   * was what M4 shipped, and the first REAL run proved it never worked: the vault is loaded as a
+   * plugin, so its commands are namespaced and the bare `/autoresearch` came back as
+   * "Unknown command" - a zero-token no-op the SDK still reported as success. Overlap steering
+   * (`findRelatedPages`) and the lens ("Achse A") are described on `researchPrompt`.
+   *
+   * With a `fellow` context (docs/agents/SPEC.md section 7) the run is pinned to the Fellow's
+   * model, effort and budget cap, carries the Fellow block in its prompt, and is attributed
+   * to the Fellow in the run log.
+   */
+  startResearch(topic: string, profileKey?: string, fellow?: FellowRunContext): MaintenanceRun {
+    const profile = getResearchProfile(profileKey)
+    const prompt = this.researchPrompt(topic, profile, fellow ? renderFellowBlock(fellow) : '')
+    // The topic and lens ride on the run record so every OTHER screen can name what is
+    // running - the dashboard used to know this only inside the composer that started it.
+    return this.start('research', prompt, 'research', { label: topic, profileKey: profile.key, ...fellowRunOptions(fellow) })
+  }
+
+  /**
+   * A research STEP (docs/agents/SPEC.md section 7): the same flow as `research` with the
+   * program's caps tightened to one round, five sources and five pages, always for a Fellow.
+   */
+  startResearchStep(topic: string, profileKey: string | undefined, fellow: FellowRunContext): MaintenanceRun {
+    const profile = getResearchProfile(profileKey)
+    const prompt = this.researchPrompt(topic, profile, renderStepCaps() + renderFellowBlock(fellow))
+    return this.start('research-step', prompt, 'research', {
+      label: topic,
+      profileKey: profile.key,
+      ...fellowRunOptions(fellow),
+      timeoutMs: STEP_TIMEOUT_MS,
+    })
   }
 
   /**
@@ -840,6 +898,8 @@ export class MaintenanceRunner {
       status: 'running',
       ...(opts.label !== undefined ? { label: opts.label } : {}),
       ...(opts.profileKey !== undefined ? { profileKey: opts.profileKey } : {}),
+      ...(opts.agentId !== undefined ? { agentId: opts.agentId } : {}),
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
       startedAt: new Date().toISOString(),
     }
     this.runs.set(id, run)
@@ -927,6 +987,8 @@ export class MaintenanceRunner {
           costUsd: patch.result?.usage.costUsd ?? null,
           error: patch.error ?? patch.result?.error ?? null,
           commitHash: patch.result?.commit ?? null,
+          agentId: prev.agentId ?? null,
+          model: prev.model ?? null,
           startedAt: prev.startedAt,
           finishedAt: settled.finishedAt ?? new Date().toISOString(),
         })
@@ -990,7 +1052,11 @@ export class MaintenanceRunner {
         prompt,
         auth: this.assertAuth(),
         profile,
-        timeoutMs: this.timeoutMs,
+        timeoutMs: opts.timeoutMs ?? this.timeoutMs,
+        // A Fellow's run is pinned to its model, effort and budget cap (docs/agents/SPEC.md).
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.effort ? { effort: opts.effort } : {}),
+        ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
         // A save resumes the chat's SDK session so the agent still has the conversation it is
         // being asked to write up. The profile is applied fresh per run, so resuming a
         // read-only chat under a write-enabled profile is what grants the save its write access.
@@ -1080,7 +1146,7 @@ export class MaintenanceRunner {
           ...(res.result !== undefined ? { answer: res.result } : {}),
         }
       }
-      if (kind === 'research') {
+      if (kind === 'research' || kind === 'research-step') {
         /**
          * The synthesis page IS the deliverable of a research run, the same way the report file
          * is the lint run's - it is what the run detail renders and what the Library lists under

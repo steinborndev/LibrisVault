@@ -36,6 +36,8 @@ import { registerPagesRoute } from './routes/pages.js'
 import { registerGraphRoute } from './routes/graph.js'
 import { registerSourcesRoute } from './routes/sources.js'
 import { registerDomainsRoute } from './routes/domains.js'
+import { registerAgentsRoute } from './routes/agents.js'
+import type { FellowService } from '../pipeline/fellows.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -81,6 +83,8 @@ export interface AppContext {
    * the graph cache is warmed once; when omitted (tests) the server builds its own.
    */
   readonly graph?: GraphBuilder
+  /** Fellows (docs/agents/SPEC.md); present only with `AGENTS_ENABLED`, which registers the routes. */
+  readonly fellows?: FellowService
 }
 
 /** Location of the built frontend (`web/dist`), resolved relative to this source file. */
@@ -138,6 +142,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerGraphRoute(app, ctx, graphBuilder)
   registerSourcesRoute(app, ctx)
   registerDomainsRoute(app, ctx, graphBuilder, dismissals)
+  if (ctx.fellows !== undefined) registerAgentsRoute(app, ctx, ctx.fellows)
 
   await registerFrontend(app)
 

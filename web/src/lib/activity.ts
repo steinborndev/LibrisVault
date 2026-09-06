@@ -96,7 +96,8 @@ export function contentPages(paths: readonly string[]): string[] {
 }
 
 /** Research is its own kind; every other agent run is maintenance. */
-const kindOfRun = (runKind: string): ActivityKind => (runKind === 'research' ? 'research' : 'maintenance')
+// A Fellow's research step is research too (docs/agents/SPEC.md section 7).
+const kindOfRun = (runKind: string): ActivityKind => (runKind === 'research' || runKind === 'research-step' ? 'research' : 'maintenance')
 
 /**
  * How close a commit has to be to a settled run to count as that run's commit. Only used for

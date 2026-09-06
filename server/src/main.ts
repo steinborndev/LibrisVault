@@ -13,6 +13,9 @@ import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
+import { SqliteAgentStore } from './db/agents.js'
+import { FellowService } from './pipeline/fellows.js'
+import { NotebookWriter } from './pipeline/notebook.js'
 import { TelegramDropStore } from './db/telegram-drops.js'
 import { IngestQueue } from './pipeline/queue.js'
 import { EventBus } from './pipeline/events.js'
@@ -135,6 +138,22 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     runStore: agentRuns,
   })
 
+  // Fellows (docs/agents/SPEC.md) live behind AGENTS_ENABLED and never in demo mode. The
+  // notebook writer commits behind the shared mutex and honours gitAutoCommit like a user edit.
+  const fellows =
+    config.agentsEnabled === true && !config.demoMode
+      ? new FellowService({
+          agents: new SqliteAgentStore(db),
+          runs: agentRuns,
+          maintenance,
+          notebook: new NotebookWriter({
+            vaultRoot: config.vaultRoot,
+            commitMutex,
+            autoCommit: () => settings.effective(config).gitAutoCommit,
+          }),
+        })
+      : undefined
+
   // The start-time-bound settings folded into the config the watcher and HTTP server see. The
   // bind (host/port) is deliberately NOT overridable — it stays whatever assertBindAllowed
   // approved above (hard rule 2).
@@ -187,6 +206,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     agentRuns,
     telegramDrops,
     graph,
+    ...(fellows !== undefined ? { fellows } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`

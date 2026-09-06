@@ -41,6 +41,10 @@ export interface AgentRunRecord {
   readonly commitHash: string | null
   readonly startedAt: string
   readonly finishedAt: string
+  /** The Fellow this run belonged to (schema v15), null for a run the user started by hand. */
+  readonly agentId?: string | null
+  /** The SDK model id the run was pinned to (schema v15), null when the runner's default ran. */
+  readonly model?: string | null
 }
 
 export interface AgentRunQuery {
@@ -48,6 +52,10 @@ export interface AgentRunQuery {
   readonly kind?: string
   /** Newest first, capped by the caller. */
   readonly limit?: number
+  /** Only runs of this Fellow. */
+  readonly agentId?: string
+  /** Only runs started at or after this ISO timestamp (the quota gate's day window). */
+  readonly since?: string
 }
 
 /**
@@ -72,6 +80,8 @@ export class MemoryAgentRunStore implements AgentRunStore {
   list(query: AgentRunQuery = {}): AgentRunRecord[] {
     const rows = [...this.runs.values()]
       .filter((r) => query.kind === undefined || r.kind === query.kind)
+      .filter((r) => query.agentId === undefined || r.agentId === query.agentId)
+      .filter((r) => query.since === undefined || r.startedAt >= query.since)
       .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))
     return query.limit === undefined ? rows : rows.slice(0, query.limit)
   }
@@ -95,6 +105,8 @@ interface Row {
   commit_hash: string | null
   started_at: string
   finished_at: string
+  agent_id: string | null
+  model: string | null
 }
 
 function toRecord(row: Row): AgentRunRecord {
@@ -119,6 +131,8 @@ function toRecord(row: Row): AgentRunRecord {
     commitHash: row.commit_hash,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
+    agentId: row.agent_id,
+    model: row.model,
   }
 }
 
@@ -134,8 +148,8 @@ export class SqliteAgentRunStore implements AgentRunStore {
     this.db
       .prepare(
         `INSERT INTO agent_runs
-           (id, user_id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, user_id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            kind = excluded.kind,
            label = excluded.label,
@@ -148,7 +162,9 @@ export class SqliteAgentRunStore implements AgentRunStore {
            error = excluded.error,
            commit_hash = excluded.commit_hash,
            started_at = excluded.started_at,
-           finished_at = excluded.finished_at`,
+           finished_at = excluded.finished_at,
+           agent_id = excluded.agent_id,
+           model = excluded.model`,
       )
       .run(
         run.id,
@@ -165,19 +181,29 @@ export class SqliteAgentRunStore implements AgentRunStore {
         run.commitHash,
         run.startedAt,
         run.finishedAt,
+        run.agentId ?? null,
+        run.model ?? null,
       )
     this.prune()
   }
 
   list(query: AgentRunQuery = {}): AgentRunRecord[] {
-    const where = query.kind === undefined ? '' : ' AND kind = ?'
+    let where = query.kind === undefined ? '' : ' AND kind = ?'
     const params: Array<string | number> = [this.userId]
     if (query.kind !== undefined) params.push(query.kind)
+    if (query.agentId !== undefined) {
+      where += ' AND agent_id = ?'
+      params.push(query.agentId)
+    }
+    if (query.since !== undefined) {
+      where += ' AND started_at >= ?'
+      params.push(query.since)
+    }
     const limit = query.limit ?? RUN_HISTORY_LIMIT
     params.push(limit)
     const rows = this.db
       .prepare(
-        `SELECT id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at
+        `SELECT id, kind, label, profile_key, ok, pages, tokens_in, tokens_out, cost_usd, error, commit_hash, started_at, finished_at, agent_id, model
            FROM agent_runs
           WHERE user_id = ?${where}
           ORDER BY finished_at DESC

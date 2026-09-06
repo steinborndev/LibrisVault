@@ -110,6 +110,18 @@ export interface RunAgentOptions {
    * registry (SPEC.md §12.4). Ignored for `query`, which must stay read-only and minimal.
    */
   readonly systemPromptExtra?: string
+  /**
+   * Pins the run to one model (SDK model id such as `claude-sonnet-5`). A Fellow's model
+   * applies to all of its runs (docs/agents/SPEC.md section 7); omitted = the CLI default.
+   */
+  readonly model?: string
+  /** Reasoning effort for the run; omitted = the CLI default. */
+  readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /**
+   * Hard stop in USD against the SDK's client-side list-price estimate (the same number
+   * `total_cost_usd` reports). The run ends with `error_max_budget_usd` when reached.
+   */
+  readonly maxBudgetUsd?: number
 }
 
 export const EMPTY_USAGE: AgentUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
@@ -186,6 +198,10 @@ export function buildOptions(
     plugins: [{ type: 'local', path: opts.vaultRoot }],
     // "This is the single place to turn skills on" (SDK docs).
     skills: 'all',
+    // Per-run model, effort and budget cap (Fellow runs); absent = CLI defaults.
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.effort ? { effort: opts.effort } : {}),
+    ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
     // Resume a prior SDK session so query follow-ups keep context (SPEC.md §5). Ignored
     // (undefined) for a fresh run.
     ...(opts.resumeSessionId ? { resume: opts.resumeSessionId } : {}),
