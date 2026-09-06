@@ -154,7 +154,11 @@ events); A3 done 2026-09-06 (docs/tasks/TASKS-A3.md: research-expand with valida
 revert, routing of foreign questions to the Fellow of the domain or to unclaimed requests
 with a prefilled spawn, dedupe before the shift); A4 done 2026-09-06 (docs/tasks/TASKS-A4.md:
 the Library screen with one room per view, the existing runs and the Fellows as figures,
-the docked card, wings and drag and drop, Catalog rename). Next: A5 (plan-percent quota).
+the docked card, wings and drag and drop, Catalog rename); A5 done 2026-09-06
+(docs/tasks/TASKS-A5.md: usage monitor with SDK samples inside runs, deltas on the run row,
+median calibration, USD-equivalent shares until calibrated, the plan gate with the sleep
+code `plan`, the shift's reset wait, points in recap and card, the System Plan panel).
+Next: A6.
 
 Follow-ups noted during A1, not yet decided:
 

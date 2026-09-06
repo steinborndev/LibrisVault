@@ -393,8 +393,11 @@ API key (the existing daily budget's unit rule).
 | `researchModelDefault` | `sonnet-5` | default model for new Fellows |
 
 Settings keys as implemented: `nightWindowStart`, `nightWindowEnd` (local `HH:MM`),
-`researchModelDefault` (A1) and `recapTime` (A2, default 07:00); the shares and reserves
-arrive with A5.
+`researchModelDefault` (A1), `recapTime` (A2, default 07:00), and since A5 the shares and
+reserves above plus `planWeekUsd` (default 1000) and `plan5hUsd` (default 80): the section
+16 reference sizes of the two windows in USD list price, which turn the percent shares into
+USD budgets while no plan data is measured (8.3). All six are settings-API keys; the
+dashboard shows them in the System's Plan panel and does not edit them yet.
 
 The global daily budget of LibrisVault (jobs per day or USD per day) stays the outer
 ceiling; Fellow runs count against it like any other run. **Manual research runs are not
@@ -413,6 +416,26 @@ into the research share. Fallbacks: `rate_limit_event` utilization when present,
 raw usage endpoint (cached 3 minutes), then USD-only accounting. Interactive use during a
 run adds noise; night runs and the median absorb it.
 
+As built (A5, docs/tasks/TASKS-A5.md): the SDK's usage data comes from the API's
+rate-limit headers, so the sample taken before a session's first request carries no
+windows and the session is gone with the result message. The runner therefore samples on
+assistant messages: the first one is the "before", later ones every 30 seconds and always
+on a text-only message (the final answer), and the last of them is the "after". Every
+sample lands in `usage_samples` (window, utilization, reset, phase, source, run); the
+per-window delta lands on the run row (`agent_runs.plan_pct_delta`), diffed against the
+newest sample from at most three minutes before the run when there is one (the previous
+run's "after" in a shift, an endpoint tick) and against the run's own "before" otherwise,
+so the first request of a session is not lost in a shift. Utilization comes as
+integer percent, so single-run deltas are coarse and the median over runs is what
+calibrates; three measured runs per model make a calibration. The `rate_limit_event`
+messages seen so far carry the window and its reset time but no utilization; the monitor
+keeps the reset times from them, so the consumption windows and the refusals know when a
+window turns even before a utilization sample exists. The raw usage endpoint refuses a
+setup token without the `user:profile` scope (`permission_error`); the monitor reports the
+refusal as the reason and accounts in USD-equivalent until a sample arrives. Without
+calibration the shares gate in USD-equivalent (8.2); once calibrated for a model, points
+take over per window. The reserves need a measured utilization and stay off without one.
+
 ### 8.4 Gate and exhaustion
 
 A step starts only if: the Fellow has runs-per-day left; the research shares (week,
@@ -420,12 +443,24 @@ A step starts only if: the Fellow has runs-per-day left; the research shares (we
 is not exceeded; the queue is not rate-limit paused. Otherwise the Fellow sleeps with the
 reason, visible on the card and in the Library, and wakes at the relevant `resets_at`.
 
+As built (A5): the gate prices every Fellow run by its kind and model (section 16 sizes,
+in points once calibrated) and holds planning runs as well, because they spend plan points
+too and the reserves protect the user's own use of the plan; only the runs-per-day quota
+skips planning. The refusal codes are `reserve` and `share`, each naming the window and,
+when known, its reset; the shift turns them into the sleep code `plan`. Manual steps from
+the card or the API get the same refusal (409) and leave the Fellow's state alone.
+
 ### 8.5 Ordering inside the night shift
 
 Fellows run in a round-robin by priority (user-set, default equal), one step each, then a
 second round if quota and window remain. Runs are sequential (mutex) and each run has its
 timeout, so a five-hour night fits roughly ten to twenty full runs. The scheduler prefers
 to start right after a 5-hour `resets_at` inside the window.
+
+As built (A5): when a round makes no progress and a plan refusal named a reset that lies
+inside the window and at most four hours ahead, the shift waits for it once (plus half a
+minute), wakes the Fellows sleeping on `plan`, and runs another round. The monitor's
+endpoint sample is refreshed before every round.
 
 ---
 
@@ -691,6 +726,9 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 - `GET /library/scene` (snapshot: departments, shelves, actors); live updates reuse the
   existing SSE bus (`job`, `log`, `vault`, `stats`) plus a new `agent` event kind.
 - `POST /value-events` (the dashboard reports page opens and recap link clicks).
+- `GET /usage/plan` (availability and source, the windows and their resets, calibration,
+  consumption, the shares in their unit, the gate's answer for a standard step on the
+  default model), `GET /usage/samples?limit=` (newest samples). Added in A5.
 - `GET/POST /wings`; `PATCH /wings/:id` (rename); `DELETE /wings/:id` (only when empty);
   `POST /library/move` with domain, target room and optional slot (drag and drop lands here);
   `PATCH /wings/order` (reorder).
