@@ -784,6 +784,18 @@ the new one. The vault's own candidates are offered as one-click fills.
 
 The column's department rows lost their move dropdown and their drag hint: a row is still a
 drag handle onto a room, and a plain click jumps to the room that department stands in.
+
+Two drawing rules the room needs to stay readable: a figure sorts in FRONT of the furniture
+on its own tile (a Fellow half-hidden behind an armchair loses the subject of the picture),
+and its bubble names it in one word - `Ada (planning)`, `Cy (quota)` - because a sentence
+hanging in an isometric room covers what is behind it.
+
+The graph inside a department window fits on every mount, not only when its fit key changes:
+positions and the camera are module state shared with the Graph screen, so a canvas mounting
+on an already-placed subgraph would otherwise inherit a camera pointing somewhere else. The
+fit waits one frame, for the canvas to be measured. The states this covers were walked
+through with a browser script (open, catalog and back, switching departments from the
+column, reading a page and returning, reopening a department, focus and full).
 ## 11. Data model (SQLite, operational state only)
 
 - `agents`: id, user_id, name, slug, intent, scope, home_domain, extra_domains (json),

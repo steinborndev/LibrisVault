@@ -141,6 +141,7 @@ export function ShelfWindow({
               lens="type"
               fitKey={`shelf-${domain}-${sub.nodes.length}-${openedAt}-${layoutKey}`}
               openOnClick
+              fitOnMount
               onSelect={(node) => onPage(node.path)}
               onOpen={(node) => onPage(node.path)}
             />

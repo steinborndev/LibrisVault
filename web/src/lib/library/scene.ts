@@ -156,15 +156,19 @@ const RUN_CAPTION: Record<string, string> = {
   'hot-cache': 'renewing the notice board',
 }
 
+/**
+ * What the bubble over a figure says, in one word: it hangs in the drawing, where a
+ * sentence covers the furniture behind it. `Ada (planning)` reads at a glance.
+ */
 const POSE_CAPTION: Record<Pose, string> = {
   stand: 'here',
   wait: 'waiting',
-  shelf: 'at the shelf',
+  shelf: 'reading',
   desk: 'writing',
   shelve: 'shelving',
   carry: 'unpacking',
-  cart: 'with the cart',
-  clipboard: 'with the clipboard',
+  cart: 'sorting',
+  clipboard: 'checking',
   sit: 'resting',
   sleep: 'asleep',
   think: 'thinking',
@@ -178,7 +182,7 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
     const family = toolFamily(input.lastLine(f.run.channel))
     const planning = f.run.kind === 'plan'
     const pose: Pose = planning ? 'think' : poseForFamily(family)
-    const caption = planning ? `${f.name} · planning` : `${f.name} · ${POSE_CAPTION[pose]}`
+    const caption = `${f.name} (${planning ? 'planning' : POSE_CAPTION[pose]})`
     if (pose === 'shelf' || pose === 'shelve') {
       const place = shelfPlace(scene, f.homeDomain)
       return { ...base, caption, pose, room: place.room, i: place.tile.i, j: place.tile.j, book: domainColor(f.homeDomain), tag: 'fellow', runId: f.run.id, channel: f.run.channel }
@@ -192,23 +196,23 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
   switch (f.state) {
     case 'sleeping': {
       const warn = f.sleepCode === 'quota' || f.sleepCode === 'budget'
-      const reason = f.sleepCode === 'quota' ? 'quota spent' : f.sleepCode === 'budget' ? 'budget reached' : f.sleepCode === 'covered' ? 'intent covered' : f.sleepCode === 'stalled' ? 'stalled' : f.sleepCode === 'no-candidates' ? 'nothing to plan' : 'asleep'
-      return { ...base, caption: `${f.name} · ${reason}`, pose: 'sleep', room: 'main', i: seat.i, j: seat.j, tag: warn ? 'warn' : 'asleep' }
+      const reason = f.sleepCode === 'quota' ? 'quota' : f.sleepCode === 'budget' ? 'budget' : f.sleepCode === 'covered' ? 'covered' : f.sleepCode === 'stalled' ? 'stalled' : f.sleepCode === 'no-candidates' ? 'idle' : 'asleep'
+      return { ...base, caption: `${f.name} (${reason})`, pose: 'sleep', room: 'main', i: seat.i, j: seat.j, tag: warn ? 'warn' : 'asleep' }
     }
     case 'waiting':
-      return { ...base, caption: `${f.name} · ${f.next ? 'plan for tonight' : 'waiting'}`, pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
+      return { ...base, caption: `${f.name} (${f.next ? 'ready' : 'waiting'})`, pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
     case 'paused':
-      return { ...base, caption: `${f.name} · paused`, pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'asleep' }
+      return { ...base, caption: `${f.name} (paused)`, pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'asleep' }
     case 'blocked': {
       const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
-      return { ...base, caption: `${f.name} · needs attention`, pose: 'wait', room: 'main', i: desk.i, j: desk.j, tag: 'warn' }
+      return { ...base, caption: `${f.name} (blocked)`, pose: 'wait', room: 'main', i: desk.i, j: desk.j, tag: 'warn' }
     }
     case 'proposed': {
       const q = ANCHORS.frontDeskQueue[index % ANCHORS.frontDeskQueue.length]!
-      return { ...base, caption: `${f.name} · new`, pose: 'wait', room: 'main', i: q.i, j: q.j, tag: 'fellow' }
+      return { ...base, caption: `${f.name} (new)`, pose: 'wait', room: 'main', i: q.i, j: q.j, tag: 'fellow' }
     }
     default:
-      return { ...base, caption: `${f.name} · ${f.state}`, pose: 'stand', room: 'main', i: ANCHORS.door.i, j: ANCHORS.door.j, tag: 'fellow' }
+      return { ...base, caption: `${f.name} (${f.state})`, pose: 'stand', room: 'main', i: ANCHORS.door.i, j: ANCHORS.door.j, tag: 'fellow' }
   }
 }
 

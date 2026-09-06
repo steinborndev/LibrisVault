@@ -135,6 +135,13 @@ export interface GraphCanvasProps {
    */
   openOnClick?: boolean
   /**
+   * Fit once on mount, whatever the fit key says. Positions and the camera are module state
+   * shared with the Graph screen, so a canvas that mounts on an already-placed subgraph
+   * inherits whatever pan and zoom the last view left - which, for a different subgraph, is
+   * usually off screen. Hosts that open and close (the Library's department window) set it.
+   */
+  fitOnMount?: boolean
+  /**
    * Spotlight click on an isolatable community - on one of its member nodes OR anywhere
    * inside its hull (the hull is one clickable surface; demanding a precise node hit made
    * the isolation gesture fiddly). The canvas guarantees the cid is isolatable (spotlight
@@ -246,7 +253,7 @@ const persist = {
   settled: { current: true },
 }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitKey, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const positionsRef = persist.positions
   const posByPathRef = persist.posByPath
@@ -1181,9 +1188,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // cooling the canvas goes blank and the entrance frames and builds it in on settle, and
   // when none is (a view change that only re-frames) the fit here is the whole job. First
   // mount keeps the first-layout fit path.
-  const prevFitKeyRef = useRef(fitKey)
+  // `undefined` when the host wants a fit on mount: the first run of the effect below then
+  // sees a changed key and frames the graph, instead of trusting a camera from another view.
+  const prevFitKeyRef = useRef<string | undefined>(fitOnMount ? undefined : fitKey)
   useEffect(() => {
     if (prevFitKeyRef.current === fitKey) return
+    const first = prevFitKeyRef.current === undefined
     prevFitKeyRef.current = fitKey
     userMovedRef.current = false // an explicit view change wins over an old pan/zoom
     if (!persist.settled.current) {
@@ -1193,7 +1203,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       fitPendingRef.current = true
       armEntranceRef.current()
     }
+    // A mount fit has to wait for the canvas to be measured: the sizing effect runs after
+    // this one, and fitting a zero-sized canvas leaves the camera anywhere but on the graph.
+    if (first) {
+      const raf = requestAnimationFrame(() => fitToView())
+      return () => cancelAnimationFrame(raf)
+    }
     fitToView()
+    return undefined
   }, [fitKey, fitToView])
 
   // Canvas sizing (device-pixel aware) + redraw on resize and theme change.

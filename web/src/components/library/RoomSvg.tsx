@@ -155,6 +155,8 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
   const paper = night ? '#dfe4ef' : '#ffffff'
   const parcel = night ? { fill: '#5c4a2c', stroke: '#3a2f1c' } : { fill: '#d9b98a', stroke: '#b08d5a' }
   const shadow = <ellipse cx={0} cy={0} rx={10} ry={4.5} fill={night ? '#0a0d16' : '#c9d0de'} opacity={0.55} />
+  const edge = night ? '#e9edf7' : '#1a2333'
+  const halo = night ? <ellipse cx={0} cy={-22} rx={22} ry={24} fill="#e9edf7" opacity={0.07} /> : null
   if (a.name === 'parcel') {
     return (
       <g>
@@ -168,9 +170,10 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
     return (
       <g>
         {shadow}
-        <rect x={-12} y={-34} width={24} height={26} rx={5} fill={night ? '#30405f' : '#c3cde0'} />
-        <rect x={-9} y={-22} width={18} height={14} rx={4} fill={shirt} />
-        <circle cx={1} cy={-26} r={6} fill={skin} />
+        {halo}
+        <rect x={-12} y={-34} width={24} height={26} rx={5} fill={night ? '#30405f' : '#c3cde0'} stroke={edge} strokeWidth={0.9} strokeOpacity={0.35} />
+        <rect x={-9} y={-22} width={18} height={14} rx={4} fill={shirt} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
+        <circle cx={1} cy={-26} r={6} fill={skin} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
         <path d="M-5 -30 q6 -6 12 0" fill={hair} />
         <rect x={-10} y={-12} width={20} height={6} rx={3} fill={night ? '#1a2233' : '#9aa7c2'} />
         {a.pose === 'sleep' && (
@@ -191,14 +194,15 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
   return (
     <g>
       {shadow}
+      {halo}
       {!seated && (
         <>
           <rect x={-5} y={-14} width={4} height={13} rx={1.5} fill={pants} />
           <rect x={1} y={-14} width={4} height={13} rx={1.5} fill={pants} />
         </>
       )}
-      <rect x={-7} y={bodyY} width={14} height={seated ? 14 : 18} rx={4} fill={shirt} />
-      <circle cx={0} cy={bodyY - 6} r={6} fill={skin} />
+      <rect x={-7} y={bodyY} width={14} height={seated ? 14 : 18} rx={4} fill={shirt} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
+      <circle cx={0} cy={bodyY - 6} r={6} fill={skin} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
       <path d={`M-6 ${bodyY - 8} q6 -7 12 0`} fill={hair} />
       {(a.pose === 'shelf' || a.pose === 'shelve') && <rect x={5} y={bodyY - 2} width={7} height={9} rx={1} fill={a.book ?? '#2f62c9'} transform={`rotate(${a.pose === 'shelve' ? -35 : -10} 8 ${bodyY + 2})`} />}
       {a.pose === 'carry' && (
@@ -231,7 +235,7 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
 }
 
 function Tag({ text, kind, night, y }: { text: string; kind: Actor['tag']; night: boolean; y: number }): React.ReactElement {
-  const w = text.length * 6.4 + 18
+  const w = text.length * 6.15 + 14
   const fills = {
     fellow: [night ? '#1b2947' : TOK.accentSoft, night ? '#7fa7ff' : TOK.accent, night ? '#30405f' : '#c5d3f4'],
     visitor: [night ? '#232a3a' : TOK.mutedBg, night ? '#9aa7c2' : TOK.muted, night ? '#30405f' : '#d1d7e2'],
@@ -554,7 +558,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     if (a.room !== room.id) continue
     const [x, y] = P(a.i, a.j, 0)
     const selected = props.selectedAgentId !== undefined && props.selectedAgentId !== null && a.agentId === props.selectedAgentId
-    add(depthOf(a.i, a.j) + 0.05, `actor-${a.id}`, (
+    add(depthOf(a.i, a.j) + 0.55, `actor-${a.id}`, (
       <g className={`lib-figure${a.exiting ? ' exiting' : ''}${selected ? ' selected' : ''}`} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`} onClick={props.onActorClick ? (e) => props.onActorClick!(a, e) : undefined} style={{ cursor: a.agentId ? 'pointer' : 'default' }}>
         <title>{a.caption}</title>
         <Figure a={a} night={night} />

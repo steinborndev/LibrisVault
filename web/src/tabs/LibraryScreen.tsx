@@ -56,7 +56,9 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
   // The plan's research share for the now chip and the spawn projection (A5); the endpoint is cached server-side.
   const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
-  const [mode, setMode] = useState<Mode>('focus')
+  // Focus is the resting state; a department needs the column, so a deep link into one
+  // opens in full, the same as a click on its shelf does.
+  const [mode, setMode] = useState<Mode>(shelfParam !== '' ? 'full' : 'focus')
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
