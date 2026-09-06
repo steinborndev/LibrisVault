@@ -267,6 +267,10 @@ export interface RoomSvgProps {
   /** The passage in the back wall was clicked; the screen shows the next room. */
   readonly onPassageClick?: (() => void) | undefined
   readonly passageTitle?: string | undefined
+  /** The wing's banner was clicked; the screen offers the rename. */
+  readonly onBannerClick?: (() => void) | undefined
+  /** A free shelf was clicked; the screen offers a new department for that slot. */
+  readonly onEmptySlotClick?: ((slot: number) => void) | undefined
   readonly idp?: string
 }
 
@@ -323,8 +327,8 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       style={{ cursor: props.onPassageClick ? 'pointer' : 'default' }}
     >
       <title>{props.passageTitle ?? 'the next room'}</title>
-      <polygon points={pts([P(DOOR.from, 0, doorZ), P(DOOR.to, 0, doorZ), P(DOOR.to, 0, wallH), P(DOOR.from, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
-      <polygon points={pts([P(DOOR.from, 0, wallH - 4), P(DOOR.to, 0, wallH - 4), P(DOOR.to, 0, wallH), P(DOOR.from, 0, wallH)])} fill={w.cornice} />
+      <polygon points={pts([P(DOOR.from - SEAM, 0, doorZ), P(DOOR.to + SEAM, 0, doorZ), P(DOOR.to + SEAM, 0, wallH), P(DOOR.from - SEAM, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
+      <polygon points={pts([P(DOOR.from - SEAM, 0, wallH - 4), P(DOOR.to + SEAM, 0, wallH - 4), P(DOOR.to + SEAM, 0, wallH), P(DOOR.from - SEAM, 0, wallH)])} fill={w.cornice} />
       {/* the corridor behind it */}
       <polygon points={pts([P(DOOR.from, 0, 0), P(DOOR.to, 0, 0), P(DOOR.to, 0, doorZ), P(DOOR.from, 0, doorZ)])} fill={night ? '#080b12' : '#5d6474'} opacity={night ? 0.85 : 0.55} />
       {/* posts and lintel */}
@@ -363,13 +367,13 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       <g
         className={`lib-slot${shelf ? ' filled' : ' free'}${isDrop ? ' drop' : ''}`}
         data-slot={slot}
-        onClick={shelf && props.onShelfClick ? () => props.onShelfClick!(shelf.domain) : undefined}
+        onClick={shelf ? (props.onShelfClick ? () => props.onShelfClick!(shelf.domain) : undefined) : props.onEmptySlotClick ? () => props.onEmptySlotClick!(slot) : undefined}
         onPointerDown={shelf && props.onShelfPointerDown ? (e) => props.onShelfPointerDown!(shelf.domain, e) : undefined}
         onPointerEnter={props.onSlotPointerEnter ? () => props.onSlotPointerEnter!(slot) : undefined}
         /* The shelf under the pointer must not be the one being dragged, or every drop lands on itself. */
-        style={{ cursor: shelf ? 'grab' : 'default', opacity: dragging ? 0.35 : 1, pointerEvents: dragging ? 'none' : undefined }}
+        style={{ cursor: shelf ? 'grab' : props.onEmptySlotClick ? 'pointer' : 'default', opacity: dragging ? 0.35 : 1, pointerEvents: dragging ? 'none' : undefined }}
       >
-        <title>{shelf ? `${signText(shelf.domain)}: ${shelf.books} books, ${shelf.volumes} sources${shelf.stubs > 0 ? `, ${shelf.stubs} stubs` : ''}. Click to open in the graph, drag to move.` : `free slot ${slot + 1}`}</title>
+        <title>{shelf ? `${signText(shelf.domain)}: ${shelf.books} books, ${shelf.volumes} sources${shelf.stubs > 0 ? `, ${shelf.stubs} stubs` : ''}. Click to open the department, drag to move.` : `Free slot ${slot + 1}. Click to start a department here.`}</title>
         {isDrop && <polygon points={pts([P(i - 0.15, j - 0.15), P(i + CASE_W + 0.15, j - 0.15), P(i + CASE_W + 0.15, j + CASE_D + 0.15), P(i - 0.15, j + CASE_D + 0.15)])} fill={TOK.accentSoft} stroke={TOK.accent} strokeWidth={1.5} strokeDasharray="5 4" />}
         {shelf ? <Bookcase P={P} i0={i} j0={j} shelf={shelf} night={night} /> : <Bookcase P={P} i0={i} j0={j} shelf={null} night={night} spare={spareLabel} />}
       </g>
@@ -500,6 +504,49 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     ))
   } else {
     wingSlotPositions().forEach((p, idx) => placeCase(p.i, p.j, idx, 'free'))
+    // The wing's name on a banner, on the wall the main room hangs its boards on.
+    const bj0 = 1.6
+    const bj1 = 9.4
+    const face = (z0: number, z1: number, a: number, b: number): string => pts([P(0, a, z0), P(0, b, z0), P(0, b, z1), P(0, a, z1)])
+    const bBottom = 90
+    const bTop = 136
+    const [nx, ny] = P(0, (bj0 + bj1) / 2, (bTop + bBottom) / 2 - 9)
+    const li = 0.7
+    const lj = 10.25
+    const [lx, ly] = P(li, lj, 0)
+    add(li + lj + 0.2, 'wing-lamp', (
+      <g className={`lib-lamp${night ? ' lit' : ''}`}>
+        {night && <ellipse cx={lx} cy={ly - 30} rx={96} ry={64} fill={`url(#${idp}-glow)`} />}
+        <ellipse cx={lx} cy={ly} rx={9} ry={4.5} fill={night ? '#3d2f1f' : '#8a95ad'} />
+        <rect x={lx - 1.4} y={ly - 76} width={2.8} height={74} fill={night ? '#6b5735' : '#98a2b5'} />
+        <path d={`M${lx - 13} ${ly - 76} h26 l-6 -17 h-14 z`} fill={night ? '#e2b45c' : '#b8c0d0'} stroke={night ? '#8a6a43' : '#98a2b5'} strokeWidth={1} />
+        {night && <ellipse cx={lx} cy={ly - 76} rx={12.5} ry={3.2} fill="#f6d27a" />}
+      </g>
+    ))
+    add(bj1 + 0.001, 'wing-banner', (
+      <g
+        className="lib-banner"
+        onClick={props.onBannerClick}
+        style={{ cursor: props.onBannerClick ? 'pointer' : 'default' }}
+      >
+        <title>{`${room.name} - click to rename`}</title>
+        <polygon points={face(bBottom - 5, bBottom, bj0 + 0.08, bj1 + 0.08)} fill={night ? '#0b1610' : '#22382e'} opacity={0.4} />
+        <polygon points={face(bBottom, bTop, bj0, bj1)} fill={night ? '#1f3329' : '#37564a'} stroke={night ? '#132119' : '#283f36'} strokeWidth={1} />
+        <polygon points={face(bTop - 7, bTop, bj0 - 0.16, bj1 + 0.16)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
+        <polygon points={face(bBottom, bBottom + 5, bj0, bj1)} fill={night ? '#152219' : '#2b4438'} />
+        <text
+          transform={`matrix(1 -0.5 0 1 ${nx.toFixed(1)} ${ny.toFixed(1)})`}
+          textAnchor="middle"
+          fontFamily={FONT}
+          fontSize={26}
+          fontWeight={600}
+          letterSpacing="0.04em"
+          fill={night ? '#c9d6c8' : '#f2ede0'}
+        >
+          {room.name}
+        </text>
+      </g>
+    ))
   }
 
   // Figures: each in a translated group with a transition; tags ride in the top layer.

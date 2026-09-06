@@ -1,17 +1,35 @@
 /**
- * The room strip on the canvas (docs/agents/SPEC.md section 10.8): pills with the room
- * names, shelf counts and an activity dot; pages between rooms, and takes a dragged shelf.
+ * The room strip in the headline (docs/agents/SPEC.md section 10.8): pills with the room
+ * names, shelf counts and an activity dot. It takes a dragged shelf, and its last button
+ * opens a new wing. The arrows are gone: the pills are the navigation, and the wheel pages
+ * through the rooms.
  */
 
 import type { SceneRoom } from '../../api/types.ts'
+import { Icon } from '../Icon.tsx'
 
-export function RoomStrip({ rooms, current, activity, night, dropTarget, onPick, onHover }: { rooms: readonly SceneRoom[]; current: string; activity: ReadonlySet<string>; night: boolean; dropTarget: string | null; onPick: (id: string) => void; onHover?: (id: string | null) => void }): React.ReactElement {
-  const idx = rooms.findIndex((r) => r.id === current)
+export function RoomStrip({
+  rooms,
+  current,
+  activity,
+  night,
+  dropTarget,
+  onPick,
+  onHover,
+  onNewWing,
+}: {
+  rooms: readonly SceneRoom[]
+  current: string
+  activity: ReadonlySet<string>
+  night: boolean
+  dropTarget: string | null
+  onPick: (id: string) => void
+  onHover?: (id: string | null) => void
+  /** Opens another wing; absent while one is being created. */
+  onNewWing?: () => void
+}): React.ReactElement {
   return (
     <div className={`lib-strip${night ? ' dark' : ''}`} role="tablist" aria-label="Rooms">
-      <button className="arr" aria-label="Previous room" disabled={idx <= 0} onClick={() => idx > 0 && onPick(rooms[idx - 1]!.id)}>
-        ↑
-      </button>
       {rooms.map((r) => (
         <button
           key={r.id}
@@ -28,8 +46,8 @@ export function RoomStrip({ rooms, current, activity, night, dropTarget, onPick,
           {activity.has(r.id) && r.id !== current && <span className="adot" aria-label="activity" />}
         </button>
       ))}
-      <button className="arr" aria-label="Next room" disabled={idx < 0 || idx >= rooms.length - 1} onClick={() => idx < rooms.length - 1 && onPick(rooms[idx + 1]!.id)}>
-        ↓
+      <button className="arr" aria-label="New wing" title="Open another wing" disabled={onNewWing === undefined} onClick={() => onNewWing?.()}>
+        <Icon name="plus" />
       </button>
     </div>
   )

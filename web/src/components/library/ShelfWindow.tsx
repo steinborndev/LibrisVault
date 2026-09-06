@@ -48,12 +48,15 @@ export function ShelfWindow({
   vaultName,
   pane: initial = 'graph',
   page,
+  layoutKey = '',
   onPage,
   onClose,
 }: {
   domain: string
   vaultName: string
   pane?: Pane
+  /** Changes when the space around the canvas does, so the graph refits instead of sitting off centre. */
+  layoutKey?: string
   /** The page being read inside the window, or null for the view itself. */
   page?: string | null
   onPage: (path: string | null) => void
@@ -136,7 +139,7 @@ export function ShelfWindow({
               focusIndex={null}
               matches={new Set()}
               lens="type"
-              fitKey={`shelf-${domain}-${sub.nodes.length}-${openedAt}`}
+              fitKey={`shelf-${domain}-${sub.nodes.length}-${openedAt}-${layoutKey}`}
               openOnClick
               onSelect={(node) => onPage(node.path)}
               onOpen={(node) => onPage(node.path)}

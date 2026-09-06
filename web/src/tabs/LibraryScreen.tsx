@@ -28,6 +28,7 @@ import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
+import { NewDepartment } from '../components/library/NewDepartment.tsx'
 import type { BoardId } from '../components/library/RoomSvg.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
@@ -55,7 +56,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
   // The plan's research share for the now chip and the spawn projection (A5); the endpoint is cached server-side.
   const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
-  const [mode, setMode] = useState<Mode>('full')
+  const [mode, setMode] = useState<Mode>('focus')
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
@@ -63,6 +64,8 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const [board, setBoard] = useState<BoardId | null>(boardParam === 'hot' || boardParam === 'recap' || boardParam === 'reading' ? boardParam : null)
   /** A department opened over the room: its graph and its catalog, filtered (section 10.5). */
   const [shelf, setShelf] = useState<string | null>(shelfParam !== '' ? shelfParam : null)
+  /** A free slot clicked in the room: the form for the department that would stand there. */
+  const [newSlot, setNewSlot] = useState<number | null>(null)
   /** A page read inside the shelf window: the third level, closed by the first Escape. */
   const [shelfPage, setShelfPage] = useState<string | null>(pageParam !== '' ? pageParam : null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
@@ -212,10 +215,11 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
       page(-1)
     } else if (e.key === 'Escape') {
       setPopover(null)
-      if (shelfPage !== null) setShelfPage(null)
-      else if (shelf !== null) setShelf(null)
+      if (renaming !== null) setRenaming(null)
+      else if (newSlot !== null) setNewSlot(null)
+      else if (shelfPage !== null) setShelfPage(null)
+      else if (shelf !== null) closeShelf()
       else if (board !== null) setBoard(null)
-      else if (mode === 'focus') setMode('full')
     }
   }
 
@@ -270,6 +274,17 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+  }
+
+  /** A department opens with the column beside it; leaving one returns to the room, in focus. */
+  const openShelf = (domain: string): void => {
+    setShelf(domain)
+    setMode('full')
+  }
+  const closeShelf = (): void => {
+    setShelfPage(null)
+    setShelf(null)
+    setMode('focus')
   }
 
   /** The passage in the back wall: on to the next room, wrapping back to the main one. */
@@ -402,34 +417,26 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
           <div className="gp-sec grow">
             <div className="gp-head">
               <span className="gp-eyebrow">Departments</span>
-              <span className="spacer" />
-              <span className="mono-meta">drag onto a room</span>
             </div>
             <div className="lib-deps">
               {rooms.map((r) => (
                 <div key={r.id}>
                   <div className="lib-grp">{r.name}</div>
                   {byRoom(r.id).map((d) => (
-                    <div key={d.domain} className="lib-drow" data-domain={d.domain} onPointerDown={(e) => onShelfPointerDown(d.domain, e)} style={{ cursor: 'grab' }}>
+                    <button
+                      key={d.domain}
+                      className="lib-drow"
+                      data-domain={d.domain}
+                      title={`${signText(d.domain)} stands in ${r.name}`}
+                      onPointerDown={(e) => onShelfPointerDown(d.domain, e)}
+                      onClick={() => {
+                        if (!drag) pickRoom(r.id)
+                      }}
+                    >
                       <span className="dot" style={{ background: domainColor(d.domain) }} aria-hidden />
                       <span className="nm">{signText(d.domain)}</span>
                       <span className="n">{d.books + d.volumes}</span>
-                      <select
-                        className="select sm"
-                        aria-label={`Move ${d.domain}`}
-                        value=""
-                        onChange={(e) => {
-                          if (e.target.value !== '') move.mutate({ domain: d.domain, room: e.target.value })
-                        }}
-                      >
-                        <option value="">move…</option>
-                        {rooms.filter((x) => x.id !== r.id).map((x) => (
-                          <option key={x.id} value={x.id}>
-                            {x.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    </button>
                   ))}
                 </div>
               ))}
@@ -441,18 +448,37 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
 
       <div className="box lib-box">
         <div className="graph-controls lib-headline">
-          {rooms.length > 0 && current && (
-            <RoomStrip rooms={rooms} current={current.id} activity={activityRooms} night={false} dropTarget={drag?.target ?? null} onPick={pickRoom} />
-          )}
-          <span className="spacer" />
           <div className="seg sm" role="radiogroup" aria-label="Mode">
-            <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
-              Full
-            </button>
             <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
               Focus
             </button>
+            <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
+              Full
+            </button>
           </div>
+          {rooms.length > 0 && current && (
+            <RoomStrip
+              rooms={rooms}
+              current={current.id}
+              activity={activityRooms}
+              night={false}
+              dropTarget={drag?.target ?? null}
+              onPick={pickRoom}
+              {...(createWing.isPending ? {} : { onNewWing: () => createWing.mutate() })}
+            />
+          )}
+          <span className="spacer" />
+          {mode === 'focus' && shelf === null && (
+            <button
+              className="btn primary"
+              onClick={() => {
+                setMode('full')
+                setSpawnOpen(true)
+              }}
+            >
+              Spawn a Fellow
+            </button>
+          )}
         </div>
         <div className={`lib-area${night ? ' night' : ''}`} ref={areaRef} tabIndex={0} onKeyDown={onKey}>
           {state ?? (current === undefined ? null : (
@@ -466,8 +492,10 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
               draggingDomain={drag?.domain ?? null}
               dropSlot={drag && drag.target === null ? drag.slot : null}
               onShelfClick={(domain) => {
-                if (!drag) setShelf(domain)
+                if (!drag) openShelf(domain)
               }}
+              onEmptySlotClick={(slot) => setNewSlot(slot)}
+              {...(current.kind === 'wing' ? { onBannerClick: () => setRenaming({ id: current.id, name: current.name }) } : {})}
               onShelfPointerDown={onShelfPointerDown}
               onActorClick={onActorClick}
               onBoardClick={current.kind === 'main' ? setBoard : undefined}
@@ -487,13 +515,43 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
               domain={shelf}
               vaultName={vaultName}
               pane={paneParam === 'catalog' ? 'catalog' : 'graph'}
+              layoutKey={mode}
               page={shelfPage}
               onPage={setShelfPage}
-              onClose={() => {
-                setShelfPage(null)
-                setShelf(null)
-              }}
+              onClose={closeShelf}
             />
+          )}
+
+          {shelf === null && newSlot !== null && (
+            <NewDepartment slot={newSlot} roomName={current?.name ?? 'the room'} onClose={() => setNewSlot(null)} />
+          )}
+
+          {/* The banner's rename, over the room: focus mode has no column to put it in. */}
+          {renaming !== null && current?.id === renaming.id && (
+            <form
+              className="lib-rename"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const name = renaming.name.trim()
+                if (name !== '') renameWing.mutate({ id: renaming.id, name })
+                setRenaming(null)
+              }}
+            >
+              <input
+                className="input"
+                aria-label="Wing name"
+                value={renaming.name}
+                maxLength={40}
+                autoFocus
+                onChange={(e) => setRenaming({ id: renaming.id, name: e.target.value })}
+              />
+              <button className="btn primary sm" type="submit">
+                Rename
+              </button>
+              <button className="btn ghost sm" type="button" onClick={() => setRenaming(null)}>
+                Cancel
+              </button>
+            </form>
           )}
 
           {/* A board's window: the same frame, the same size, so the screen does not move. */}

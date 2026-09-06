@@ -760,6 +760,30 @@ queued, ingesting, done with a page count, or a retry after a failure.
 A later step could let the shift ingest a capped number of entries by itself (only from an
 allow-list of hosts, inside the plan share); even then the service does the downloading,
 not the agent.
+
+### 10.7 Working in the room (as built, 2026-09-06)
+
+Focus is the screen's resting state and sits first in the toggle: the room fills the width
+and the control column is out of the way. Opening a department brings the column back (it
+becomes the department's, section 10.5); closing it returns to the room in focus. The
+headline carries the mode toggle, the room strip and, in focus, the spawn button, which
+opens the column with the form.
+
+The room strip lost its arrows - the pills are the navigation and the wheel pages through
+the rooms - and gained a plus that opens another wing.
+
+A **wing wears its name on a banner** in the green field above the wainscot, and a click on
+it renames the wing where it hangs. A floor lamp stands beside it and lights up through the
+night shift, like the desk lamps in the main room.
+
+An **empty shelf starts a department**: a click opens the same three steps the System screen
+offers, in the room where the shelf stands. The key and its description go into the vault's
+domain registry, an optional read-only review run checks the key against the registry and
+the pages it would claim, and an optional backfill files the pages that carry no domain into
+the new one. The vault's own candidates are offered as one-click fills.
+
+The column's department rows lost their move dropdown and their drag hint: a row is still a
+drag handle onto a room, and a plain click jumps to the room that department stands in.
 ## 11. Data model (SQLite, operational state only)
 
 - `agents`: id, user_id, name, slug, intent, scope, home_domain, extra_domains (json),

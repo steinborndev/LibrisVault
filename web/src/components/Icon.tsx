@@ -33,6 +33,7 @@ export type IconName =
   | 'play'
   | 'commit'
   | 'chevron'
+  | 'plus'
   | 'clock'
   | 'keyboard'
   | 'bolt'
@@ -239,6 +240,7 @@ const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
     </>
   ),
   chevron: <path d="M7 10l5 5 5-5" />,
+  plus: <path d="M12 6v12M6 12h12" />,
   keyboard: (
     <>
       <rect x="2.5" y="6" width="19" height="12" rx="2.5" />

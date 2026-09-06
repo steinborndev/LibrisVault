@@ -6827,7 +6827,16 @@ tr:focus-within .rowacts {
   scrollbar-gutter: stable;
   padding: 16px 20px 24px;
 }
-.lib-window-body .page-body { max-width: 92ch; }
+/* Inside a window the page IS the surface: the card border and its ground would be a box
+   drawn inside a box. */
+.lib-window-body .page-body,
+.shelf-page .page-body {
+  max-width: 92ch;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
 .lib-window-body .page-body h1 { margin: 0 0 6px; font-family: var(--display); font-size: 19px; font-weight: 600; }
 .lib-window-body .page-body h2 {
   margin: 18px 0 4px;
@@ -6844,7 +6853,16 @@ tr:focus-within .rowacts {
 .lib-window-body .page-body strong { color: var(--text); }
 .lib-window > .flow-view { border-top: 0; }
 /* The two boards and the passage answer the pointer. */
-.lib-board, .lib-passage { transition: filter 0.12s; }
+/* The headline flattens buttons to fit the bar; the spawn call to action keeps its weight. */
+.graph-controls .btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  padding: 0 12px;
+}
+.lib-board, .lib-passage, .lib-banner { transition: filter 0.12s; }
+.lib-banner:hover { filter: brightness(1.07); }
 /* A desk lamp: dark by day, lit through the night shift (the glow rides in the SVG). */
 .lib-lamp { transition: opacity 0.3s; }
 .lib-board:hover, .lib-passage:hover { filter: brightness(1.07); }
@@ -7167,5 +7185,45 @@ tr:focus-within .rowacts {
 /* The headline carries the room navigation now, in both modes. */
 .lib-headline { gap: 10px; }
 .shelf-list .nm.linkish { text-align: left; }
+/* The banner's rename, floating over the room (focus mode has no column for it). */
+.lib-rename {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+.lib-rename .input { min-width: 220px; }
+
+/* The new-department form. */
+.lib-window-body.newdep { max-width: 720px; }
+.newdep .hint { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+.newdep-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.newdep-suggest .chip { cursor: pointer; }
+.newdep-suggest .chip .n { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.newdep-field { display: grid; gap: 4px; margin-bottom: 12px; }
+.newdep-field > span:first-child {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.newdep-field textarea.input { height: auto; min-height: 64px; padding: 8px 11px; resize: vertical; }
+.newdep-opts { display: grid; gap: 8px; margin: 14px 0 18px; }
+.newdep-opts label { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--text-dim); }
+.newdep-opts b { color: var(--text); font-weight: 600; }
+.newdep-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* The department rows are buttons now: no move dropdown, a click goes to their room. */
+.lib-drow { width: 100%; border: 0; background: none; text-align: left; cursor: grab; }
+.lib-drow:hover { background: var(--bg-elev-2); }
+
 
 
