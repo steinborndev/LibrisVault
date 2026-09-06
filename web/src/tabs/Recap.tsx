@@ -117,31 +117,31 @@ export function Recap({ date }: { date: string }): React.ReactElement {
   )
 }
 
-function RecapBody({
+export function RecapBody({
   row,
   vaultName,
   onAnswer,
   onFollow,
   busy,
+  facts = true,
+  only,
 }: {
   row: RecapRow
   vaultName: string
   onAnswer: (a: RecapAnswer) => void
   onFollow: (page: string, agentId: string) => void
   busy: boolean
+  /** The five lead figures. Home's feed shows them once, in the box, for the day in view. */
+  facts?: boolean
+  /** Only this Fellow's section, by name. Home's feed uses it for the Fellow filter. */
+  only?: string
 }): React.ReactElement {
   // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
   const stored = row.model
   const m = { ...stored, unclaimed: stored.unclaimed ?? [], dedupe: stored.dedupe ?? { merged: [], overlaps: [] }, sleeping: stored.sleeping ?? [], fellows: stored.fellows ?? [] }
   return (
     <div className="recap">
-      <Facts size="lead">
-        <Fact k="Night" v={nightLine(m)} sub={m.shift ? `${m.shift.trigger} shift, ${m.shift.executed} run(s), ${m.shift.planned} plan(s)` : 'no shift ran'} size="lead" />
-        <Fact k="Consumption today" v={usd(m.usage.today.costUsd)} sub={`${m.usage.today.runs} run(s), manual ones included`} size="lead" />
-        <Fact k="This week" v={usd(m.usage.week.costUsd)} sub={`${m.usage.week.runs} run(s)`} size="lead" />
-        <Fact k="Undecided" v={undecidedCount(m)} sub={row.answeredAt ? `last answered ${timeAgo(row.answeredAt)}` : 'nothing answered yet'} size="lead" tone={undecidedCount(m) > 0 ? 'warn' : undefined} />
-        <Fact k="Value this month" v={m.value.pageOpens} sub={`page opens · ${m.value.recapLinks} recap links followed`} size="lead" />
-      </Facts>
+      {facts && <RecapFacts row={row} />}
       {m.quiet && (
         <div className="empty">
           <p className="qs-line">Nothing ran tonight.</p>
@@ -168,10 +168,12 @@ function RecapBody({
           ))}
         </p>
       )}
-      {!m.quiet && m.fellows.map((f) => <FellowSection key={f.agentId} f={f} vaultName={vaultName} onAnswer={onAnswer} onFollow={onFollow} busy={busy} />)}
-      {m.unclaimed.map((u) => (
-        <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />
-      ))}
+      {!m.quiet &&
+        m.fellows
+          .filter((f) => only === undefined || f.name === only)
+          .map((f) => <FellowSection key={f.agentId} f={f} vaultName={vaultName} onAnswer={onAnswer} onFollow={onFollow} busy={busy} />)}
+      {only === undefined &&
+        m.unclaimed.map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />)}
       {row.path && (
         <p className="mono-meta" style={{ padding: '8px 14px' }}>
           Vault page: <PageLink vaultName={vaultName} path={row.path} />
@@ -182,7 +184,7 @@ function RecapBody({
   )
 }
 
-function FellowSection({
+export function FellowSection({
   f,
   vaultName,
   onAnswer,
@@ -243,6 +245,18 @@ function FellowSection({
         </select>
       </div>
 
+      <div>
+        <b>Proposals for tonight</b>{' '}
+        <span className="mono-meta">
+          {f.autonomy === 'manual' ? 'manual: runs only what you approve' : f.autonomy === 'auto' ? 'auto: the top one runs the night it is planned' : 'veto: the top undecided one runs tonight unless vetoed'}
+        </span>
+        {f.proposals.length === 0 ? (
+          <p className="mono-meta">None pending. A note steers the next plan.</p>
+        ) : (
+          f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} />)
+        )}
+      </div>
+      <b>What it did last night</b>
       {f.runs.length === 0 ? (
         <p className="mono-meta">Ran: nothing since the last recap.</p>
       ) : (
@@ -277,17 +291,6 @@ function FellowSection({
           </ul>
         </div>
       )}
-      <div>
-        <b>Proposals for tonight</b>{' '}
-        <span className="mono-meta">
-          {f.autonomy === 'manual' ? 'manual: runs only what you approve' : f.autonomy === 'auto' ? 'auto: the top one runs the night it is planned' : 'veto: the top undecided one runs tonight unless vetoed'}
-        </span>
-        {f.proposals.length === 0 ? (
-          <p className="mono-meta">None pending. A note steers the next plan.</p>
-        ) : (
-          f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} />)
-        )}
-      </div>
       <form
         className="recap-note"
         onSubmit={(e) => {
@@ -310,6 +313,20 @@ function FellowSection({
   )
 }
 
+/** The five lead figures of one recap. Rendered by the screen and by Home's feed alike. */
+export function RecapFacts({ row }: { row: RecapRow }): React.ReactElement {
+  const m = row.model
+  return (
+    <Facts size="lead">
+      <Fact k="Night" v={nightLine(m)} sub={m.shift ? `${m.shift.trigger} shift, ${m.shift.executed} run(s), ${m.shift.planned} plan(s)` : 'no shift ran'} size="lead" />
+      <Fact k="Consumption today" v={usd(m.usage.today.costUsd)} sub={`${m.usage.today.runs} run(s), manual ones included`} size="lead" />
+      <Fact k="This week" v={usd(m.usage.week.costUsd)} sub={`${m.usage.week.runs} run(s)`} size="lead" />
+      <Fact k="Undecided" v={undecidedCount(m)} sub={row.answeredAt ? `last answered ${timeAgo(row.answeredAt)}` : 'nothing answered yet'} size="lead" tone={undecidedCount(m) > 0 ? 'warn' : undefined} />
+      <Fact k="Value this month" v={m.value.pageOpens} sub={`page opens · ${m.value.recapLinks} recap links followed`} size="lead" />
+    </Facts>
+  )
+}
+
 /** An unclaimed request (A3): no Fellow covers the domain; a prefilled spawn is one click away. */
 /** `climate-science` reads as "Climate Science Fellow", the same default the server uses. */
 function defaultFellowName(domain: string): string {
@@ -317,7 +334,7 @@ function defaultFellowName(domain: string): string {
   return words.concat(['Fellow']).join(' ')
 }
 
-function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnclaimed; vaultName: string; onAnswer: (a: RecapAnswer) => void; busy: boolean }): React.ReactElement {
+export function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnclaimed; vaultName: string; onAnswer: (a: RecapAnswer) => void; busy: boolean }): React.ReactElement {
   const [name, setName] = useState(defaultFellowName(u.domain))
   const request = Number(u.code.slice(1))
   return (

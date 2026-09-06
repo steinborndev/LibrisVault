@@ -158,7 +158,9 @@ the docked card, wings and drag and drop, Catalog rename); A5 done 2026-09-06
 (docs/tasks/TASKS-A5.md: usage monitor with SDK samples inside runs, deltas on the run row,
 median calibration, USD-equivalent shares until calibrated, the plan gate with the sleep
 code `plan`, the shift's reset wait, points in recap and card, the System Plan panel).
-Next: A6.
+Next: A6. Home's flow zone was rebuilt on 2026-09-06 (SPEC section 9.3): the recap banner
+and the activity box became one box with two views, recaps leading, with a week-and-Fellow
+rail beside the feed.
 
 Follow-ups noted during A1, not yet decided:
 

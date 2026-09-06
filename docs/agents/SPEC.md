@@ -486,8 +486,20 @@ and Telegram ("nothing ran, N Fellows sleeping, reasons"), no vault page.
 
 ### 9.3 Channels
 
-- Dashboard: an inbox entry on Home and a "Recap" view (`/recap`, `/recap/<date>`) with
-  the multiple-choice blocks as buttons; the card links back.
+- Dashboard: Home's flow box and a "Recap" view (`/recap`, `/recap/<date>`) with the
+  multiple-choice blocks as buttons; the card links back. As built (2026-09-06): Home's
+  flow zone is one box with two views, switched in its head and holding one height, so the
+  screen never jumps. **Daily recaps** leads and is what the screen opens on: the newest
+  recap is open and answerable straight away, the earlier ones follow under it in one
+  scroll region, and the day in view drives the five lead figures. Its rail carries the
+  Fellows as pills (name and home domain, five slots, an empty one deep-links to the
+  Library's spawn form at `/library?spawn=1`) and one calendar week of days, newest first,
+  with arrows stepping a week at a time. Picking a Fellow dims the nights it did not work
+  and those days still open with the reason, taken from the shift's skip note, the sleeping
+  note, or the Fellow's own state; picking a day shows that day alone. **Activity** is the
+  stream that was there before, one click away. In every recap a Fellow's proposals come
+  first and the night's work reads as context under them, on Home and on the Recap screen
+  alike.
 - Vault: `wiki/meta/recaps/Recap <date>.md`, `type: meta`, readable in Obsidian. Rendering
   only in v1: edits made in Obsidian are not read back (a later upgrade). (The file carries
   the `Recap` prefix because the vault's `.gitignore` ignores bare date names; A2.)

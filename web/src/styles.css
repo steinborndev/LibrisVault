@@ -5429,6 +5429,9 @@ tr:focus-within .rowacts {
 .seg.sm { padding: 2px; }
 .seg.sm button { height: 21px; padding: 0 9px; font-size: 11px; }
 .seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   height: 24px;
   padding: 0 12px;
   border: 0;
@@ -5443,6 +5446,7 @@ tr:focus-within .rowacts {
 .seg button:hover {
   color: var(--text);
 }
+.seg button[aria-selected='true'],
 .seg button[aria-checked='true'] {
   background: color-mix(in srgb, var(--research) 20%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--research) 55%, transparent);
@@ -6448,6 +6452,222 @@ tr:focus-within .rowacts {
 .recap-fellow > .box-head { gap: 8px; flex-wrap: wrap; }
 
 .recap-note { display: flex; gap: 8px; }
+/* ---- Home's recap feed (2026-09-06): the newest recap open, the week beside it ----
+   The flow box holds two views of one height. This one brings its own fact strip (the day
+   in view), the feed, the rail and its foot - the same four bands the activity view has, so
+   switching between them moves nothing. */
+.flow-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.recap-facts-empty { grid-template-columns: repeat(2, minmax(126px, 220px)); }
+
+.rfeed-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 236px;
+  flex: 1;
+  min-height: 0;
+}
+.rfeed {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.rfeed > .toast { margin: 10px 14px 0; }
+.rfeed > .empty { padding: 48px 20px; }
+.rfeed-day { border-bottom: 1px solid var(--border-strong); }
+.rfeed-day:last-child { border-bottom: 0; }
+/* The date stays put while its day is on screen, and the next one pushes it out. */
+.rfeed-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  background: color-mix(in srgb, var(--bg-elev) 92%, var(--accent));
+  border-bottom: 1px solid var(--border);
+}
+.rfeed-date {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+/* Why the picked Fellow stayed put that night. */
+.recap-absent {
+  margin: 0;
+  padding: 14px 14px 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.recap-absent b { color: var(--text); font-weight: 600; }
+
+.rrail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.rrail-sec {
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rrail-sec:last-child { border-bottom: 0; }
+.rrail-k {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.rrail-pills { display: grid; gap: 4px; }
+.rrail-hint {
+  margin: 8px 4px 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-faint);
+}
+
+/* One Fellow: name, home domain, and what it did in the week the rail shows. */
+.fpill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+.fpill:hover { border-color: var(--border-strong); color: var(--text); }
+.fpill[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.fpill .who { display: grid; min-width: 0; line-height: 1.25; }
+.fpill .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpill .dm {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fpill[aria-pressed='true'] .dm { color: color-mix(in srgb, var(--accent) 75%, var(--text-faint)); }
+.fpill.empty {
+  border-style: dashed;
+  background: none;
+  color: var(--text-faint);
+  opacity: 0.75;
+}
+.fpill.empty:hover {
+  opacity: 1;
+  color: var(--research);
+  border-color: color-mix(in srgb, var(--research) 45%, var(--border));
+}
+.fpill.empty .dot { border: 1px dashed var(--border-strong); background: none; }
+
+/* One week at a time, newest day on top. */
+.wknav { margin-left: auto; display: inline-flex; gap: 2px; }
+.wknav button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+.wknav button:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.wknav button:disabled { opacity: 0.35; cursor: default; }
+/* One chevron in the set, pointing down: a quarter turn each way points it back and forward. */
+.wknav svg { width: 12px; height: 12px; }
+.wknav .up svg { transform: rotate(90deg); }
+.wknav .down svg { transform: rotate(-90deg); }
+
+.wk-label {
+  padding: 0 2px 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.daylist { display: grid; gap: 1px; }
+.day-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: left;
+}
+.day-row:hover:not(:disabled) { background: var(--bg-elev-2); color: var(--text); }
+.day-row[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+/* Where the feed currently is, when no single day is picked. */
+.day-row[aria-current='true']:not([aria-pressed='true']) {
+  background: var(--bg-elev-2);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.day-row:disabled { color: var(--text-faint); opacity: 0.5; cursor: default; }
+.day-row.today .d { font-weight: 600; }
+/* The picked Fellow did nothing that night. Dimmed, not disabled: the reason is inside. */
+.day-row.idle { color: var(--text-faint); }
+.day-row.idle .d { opacity: 0.72; }
+.day-row .rn {
+  margin-left: auto;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--gold-bg);
+  color: var(--gold);
+  font-size: 10px;
+}
+.day-row .rq { margin-left: auto; font-size: 10px; color: var(--text-faint); }
+.day-row .rq.idle { color: var(--text-faint); }
+
+/* Narrow: the rail drops under the feed as two columns of its own. */
+@media (max-width: 1100px) {
+  .rfeed-split { grid-template-columns: minmax(0, 1fr); }
+  .rrail {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .rrail-sec { border-bottom: 0; }
+}
+
 
 /* Text inputs and selects that stand on their own, outside a settings form. */
 .input,

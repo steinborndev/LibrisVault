@@ -5,7 +5,8 @@
  * registry. The control column holds the Fellows, the Rooms and the Departments; the
  * canvas box holds the room, the strip, the now chip and the legend; the card docks beside.
  *
- * Deep links: `/library?agent=<id>` opens the card, `/library?room=<id>` shows a room.
+ * Deep links: `/library?agent=<id>` opens the card, `/library?room=<id>` shows a room,
+ * `/library?spawn=1` opens the spawn form (Home's empty Fellow slots point here).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -31,7 +32,7 @@ const CANVAS_H = 700
 
 type Mode = 'full' | 'focus'
 
-export function LibraryScreen({ vaultName, agentParam, roomParam }: { vaultName: string; agentParam: string; roomParam: string }): React.ReactElement {
+export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string }): React.ReactElement {
   const qc = useQueryClient()
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, refetchInterval: 5_000 })
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
@@ -39,7 +40,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam }: { vaultName:
   const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
   const [mode, setMode] = useState<Mode>('full')
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
-  const [spawnOpen, setSpawnOpen] = useState(false)
+  const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [tick, setTick] = useState(0)
@@ -48,10 +49,13 @@ export function LibraryScreen({ vaultName, agentParam, roomParam }: { vaultName:
   const [drag, setDrag] = useState<{ domain: string; x: number; y: number; target: string | null; slot: number | null } | null>(null)
   const areaRef = useRef<HTMLDivElement>(null)
 
-  // Deep links: the room and the card follow the URL.
+  // Deep links: the room, the card and the spawn form follow the URL.
   useEffect(() => {
     if (roomParam !== '') setRoom(roomParam)
   }, [roomParam])
+  useEffect(() => {
+    if (spawnParam !== '') setSpawnOpen(true)
+  }, [spawnParam])
 
   // Live log lines change poses without a new snapshot: re-render on a line of any channel in play.
   const channels = useMemo(() => {

@@ -52,7 +52,8 @@ import {
   type ActivityState,
 } from '../lib/activity.ts'
 import { navigate } from '../lib/router.ts'
-import { needsDecision, nightLine, undecidedCount } from '../lib/recap.ts'
+import { undecidedCount } from '../lib/recap.ts'
+import { RecapFeed } from '../components/RecapFeed.tsx'
 import { knowledgeSubgraph, vaultShape } from '../lib/vaultShape.ts'
 import { TYPE_VARS } from '../lib/domains.ts'
 
@@ -112,12 +113,21 @@ const runIdOf = (e: ActivityEvent): string | null => (e.id.startsWith('logrun:')
 /** Where the second panel's choice is remembered. */
 const PANEL_KEY = 'bv.home.panel'
 
+/**
+ * The flow zone holds two views in one box (2026-09-06): the daily recaps and the activity
+ * stream. Recaps lead - they are the thing that wants an answer - and the box keeps its
+ * height across the switch, so nothing below it moves.
+ */
+type FlowView = 'recaps' | 'activity'
+
 export function Home({ statusFilter = '' }: { statusFilter?: string }): React.ReactElement {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<ActivityFilter>(DEFAULT_FILTER)
   const [limit, setLimit] = useState(WINDOW_STEP)
   /** The activity row being read, by event id. Null = the stream itself. */
   const [detailId, setDetailId] = useState<string | null>(null)
+  /** Which of the flow zone's two views is on show. Recaps by default, activity on click. */
+  const [flow, setFlow] = useState<FlowView>('recaps')
   /**
    * Which of the five second-panel views is on show. Remembered per browser: it is a
    * standing preference about this vault, not a per-visit choice, and re-picking it on every
@@ -152,12 +162,15 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   // Same cached query the app shell uses; on a read-only demo the intake surface is gone.
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
-  // The morning recap, only on an instance with Fellows (docs/agents/SPEC.md section 9.3).
-  const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, enabled: health.data?.fellows === true, staleTime: 30_000, refetchInterval: 60_000 })
-  const latestRecap = (() => {
+  // The morning recaps, only on an instance with Fellows (docs/agents/SPEC.md section 9.3).
+  // The feed reads the same cached query; this one is here for the toggle's count.
+  const fellowsOn = health.data?.fellows === true
+  const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, enabled: fellowsOn, staleTime: 30_000, refetchInterval: 60_000 })
+  const waiting = (() => {
     const latest = recaps.data?.recaps[0]
-    return latest !== undefined && needsDecision(latest) ? latest : null
+    return latest !== undefined && !latest.quiet ? undecidedCount(latest.model) : 0
   })()
+  const view: FlowView = fellowsOn ? flow : 'activity'
   const demoMode = health.data?.demoMode === true
   const jobsQ = useQuery({ queryKey: ['jobs', limit], queryFn: () => api.jobs({ limit }) })
   // The persistent run log (schema v12): every settled agent run, not just the newest per
@@ -569,25 +582,63 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
           />
         </section>
 
-        {/* The morning recap's inbox entry (docs/agents/SPEC.md section 9.3): only on an
-            instance with Fellows, and only while the latest recap still wants a decision. */}
-        {latestRecap !== null && (
-          <div className="box recap-inbox" role="status">
+        {/* ZONE 2 - the flow. One box, two views (2026-09-06): the daily recaps, which want
+            an answer, and the activity stream. The head carries the switch, each view brings
+            its own five lead figures, and the box keeps its height across the switch. */}
+        <div className="box">
+          {(view === 'recaps' || detailEvent === null) && (
             <div className="box-head">
-              <h2 className="box-title">Recap · {latestRecap.cycleDate}</h2>
+              {fellowsOn ? (
+                <div className="seg" role="tablist" aria-label="Flow view">
+                  <button
+                    role="tab"
+                    aria-selected={view === 'recaps'}
+                    aria-controls="flow-recaps"
+                    onClick={() => setFlow('recaps')}
+                  >
+                    Daily recaps
+                    {waiting > 0 && <span className="chip-n">{waiting}</span>}
+                  </button>
+                  <button role="tab" aria-selected={view === 'activity'} aria-controls="flow-activity" onClick={() => setFlow('activity')}>
+                    Activity
+                  </button>
+                </div>
+              ) : (
+                <h2 className="box-title">Activity</h2>
+              )}
               <span className="box-sub">
-                {nightLine(latestRecap.model)} · {undecidedCount(latestRecap.model)} proposal(s) waiting for you
+                {view === 'recaps'
+                  ? "what the Fellows did last night, and what they propose for tonight"
+                  : `${filter.kind === 'all' ? 'everything' : KINDS.find((k) => k.id === filter.kind)!.label.toLowerCase()}${filter.state !== null ? `, ${filter.state}` : ''}${filter.channel !== null ? `, via ${channelLabel(filter.channel).toLowerCase()}` : ''}${filter.days === null ? ', all time' : filter.days === 1 ? ', today' : `, last ${filter.days} days`}`}
               </span>
               <span className="spacer" />
-              <button className="btn primary" onClick={() => navigate('/recap')}>
-                Open recap
-              </button>
+              {view === 'activity' && clearCount > 0 && (
+                <button
+                  className={`btn ${armedLeft !== null ? 'armed' : 'ghost danger'}`}
+                  disabled={clear.isPending}
+                  onClick={onClear}
+                  title={
+                    clearable === null
+                      ? 'Deletes every stored history entry (all statuses, including ones not shown), and with it the token and cost history those entries carry - System → Usage & cost counts from them, and so does the daily budget. The vault and created pages stay untouched.'
+                      : `Deletes every stored "${clearable}" entry, including ones the filters hide, and with it the token and cost history those entries carry. The vault and created pages stay untouched.`
+                  }
+                >
+                  {armedLeft !== null
+                    ? `Really delete ${clearCount} ${clearable === null ? 'entries' : `${clearable} entries`}? (${armedLeft})`
+                    : clearable === null
+                      ? 'Clear history'
+                      : `Clear ${clearable}`}
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ZONE 2 - the flow. The operational figures sit on top of the table they describe. */}
-        <div className="box">
+          {view === 'recaps' ? (
+            <div className="flow-view" id="flow-recaps" role="tabpanel">
+              <RecapFeed vaultName={vaultName} />
+            </div>
+          ) : (
+            <>
           <Facts size="lead">
             <Fact
               k="In flight"
@@ -646,35 +697,6 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
 
         {detailEvent === null ? (
           <>
-          <div className="box-head">
-            <h2 className="box-title">Activity</h2>
-            <span className="box-sub">
-              {filter.kind === 'all' ? 'everything' : KINDS.find((k) => k.id === filter.kind)!.label.toLowerCase()}
-              {filter.state !== null ? `, ${filter.state}` : ''}
-              {filter.channel !== null ? `, via ${channelLabel(filter.channel).toLowerCase()}` : ''}
-              {filter.days === null ? ', all time' : filter.days === 1 ? ', today' : `, last ${filter.days} days`}
-            </span>
-            <span className="spacer" />
-            {clearCount > 0 && (
-              <button
-                className={`btn ${armedLeft !== null ? 'armed' : 'ghost danger'}`}
-                disabled={clear.isPending}
-                onClick={onClear}
-                title={
-                  clearable === null
-                    ? 'Deletes every stored history entry (all statuses, including ones not shown), and with it the token and cost history those entries carry - System → Usage & cost counts from them, and so does the daily budget. The vault and created pages stay untouched.'
-                    : `Deletes every stored "${clearable}" entry, including ones the filters hide, and with it the token and cost history those entries carry. The vault and created pages stay untouched.`
-                }
-              >
-                {armedLeft !== null
-                  ? `Really delete ${clearCount} ${clearable === null ? 'entries' : `${clearable} entries`}? (${armedLeft})`
-                  : clearable === null
-                    ? 'Clear history'
-                    : `Clear ${clearable}`}
-              </button>
-            )}
-          </div>
-
           {clear.error != null && <div className="toast err">Clearing failed: {(clear.error as Error).message}</div>}
 
           <div className="box-body">
@@ -774,6 +796,8 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
             onBack={() => setDetailId(null)}
           />
         )}
+            </>
+          )}
         </div>
       </div>
 

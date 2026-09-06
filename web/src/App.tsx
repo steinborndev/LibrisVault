@@ -394,7 +394,7 @@ export function App(): React.ReactElement {
             <div className="lane wide">
               {libraryMounted && (
                 <ErrorBoundary label="Library">
-                  <LibraryScreen vaultName={vaultName} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} />
+                  <LibraryScreen vaultName={vaultName} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} spawnParam={screen === 'library' ? (query.get('spawn') ?? '') : ''} />
                 </ErrorBoundary>
               )}
             </div>
