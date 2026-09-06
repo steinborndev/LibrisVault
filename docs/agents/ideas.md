@@ -197,3 +197,15 @@ new ideas go here first and reach the spec through a dated decision.
   (`wings`, `library_layout`) and API (`/wings`, `/library/move`) updated.
 - Render note: walls carry a cornice so the top edge reads against a floor behind them; the
   panel wall and the stone floor share a tone otherwise.
+
+## Design round 5 (2026-09-06)
+
+- NEW-9: one room per view on a shared 27 by 11 grid, shelves 3 tiles wide, one door per
+  room at the right end of the long wall. Wing = 7 shelves on the wall + 3, passage, 3 in
+  the middle, all facing the viewer. Rooms page by wheel, keys, the room strip and the Rooms
+  list; wings are created, renamed, reordered and filled by drag and drop; free slots are
+  light silhouettes; the unfiled shelf became an intake cart by the front desk.
+- Render lessons: wall decoration needs the drawing depth of its end point, or a later wall
+  segment paints over it; a middle shelf row needs about 6 tiles of distance to the wall row
+  or its top covers the lowest books behind it; tall furniture within 3 tiles in front of a
+  shelf hides the shelf's lower part.

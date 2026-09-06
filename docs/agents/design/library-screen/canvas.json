@@ -6,52 +6,60 @@
       "y": 0,
       "w": 1440,
       "h": 900,
-      "title": "Library · day"
+      "title": "Library · main room"
+    },
+    {
+      "file": "Wing.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · Wing A, dragging a shelf"
     },
     {
       "file": "Night.dc.html",
-      "x": 1560,
-      "y": 0,
+      "x": 0,
+      "y": 1060,
       "w": 1440,
       "h": 900,
       "title": "Library · night shift"
     },
     {
       "file": "Focus.dc.html",
-      "x": 0,
+      "x": 1560,
       "y": 1060,
       "w": 1440,
       "h": 900,
-      "title": "Library · focus mode"
+      "title": "Library · focus mode in Wing A"
     },
     {
       "file": "Card.dc.html",
-      "x": 1560,
-      "y": 1060,
+      "x": 0,
+      "y": 2120,
       "w": 1440,
-      "h": 1130,
+      "h": 1200,
       "title": "Library · Fellow card docked"
     },
     {
-      "file": "Growth.dc.html",
-      "x": 0,
-      "y": 2350,
+      "file": "Rooms.dc.html",
+      "x": 1560,
+      "y": 2120,
       "w": 1440,
-      "h": 820,
-      "title": "Growth · main room and wings"
+      "h": 1180,
+      "title": "Rooms · one room per view"
     },
     {
       "file": "Textures.dc.html",
-      "x": 1560,
-      "y": 2350,
+      "x": 0,
+      "y": 3460,
       "w": 1440,
       "h": 1180,
       "title": "Textures · Archive chosen"
     },
     {
       "file": "Sprites.dc.html",
-      "x": 0,
-      "y": 3330,
+      "x": 1560,
+      "y": 3460,
       "w": 1440,
       "h": 760,
       "title": "Figures · style A"
@@ -63,49 +71,56 @@
       "x": 0,
       "y": -150,
       "w": 520,
-      "text": "Library screen, round 4 (SPEC section 10).\nMain room in the centre: fireplace with armchairs for resting Fellows, desks with computers, four favorite slots, notice board, front desk, catalog, unfiled. Wing A through the back door holds the departments; three doors wait for wings you create."
+      "text": "Library screen, round 5 (SPEC section 10).\nOne room per view on a shared 27 by 10 grid. Main room: four favorite slots, fireplace with armchairs, desks with computers, front desk with the intake cart, catalog, one door to the wings."
+    },
+    {
+      "id": "wing-note",
+      "x": 1560,
+      "y": -110,
+      "w": 480,
+      "text": "Wing A: seven shelves on the long wall, three plus passage plus three in the middle, all facing you. A shelf is being dragged onto Wing B in the room strip; its slot shows as a dashed outline."
     },
     {
       "id": "night-note",
-      "x": 1560,
-      "y": -110,
+      "x": 0,
+      "y": 960,
       "w": 420,
-      "text": "Night shift: the fire and the desk lamps are the only light. Mutex drawn literally: Ibra waits at the front desk while Ada runs."
+      "text": "Night shift in the main room: the fire and two desk lamps are the light; three Fellows sleep by the fire, Ibra waits at the front desk while Ada runs."
     },
     {
       "id": "focus-note",
-      "x": 0,
+      "x": 1560,
       "y": 960,
-      "w": 520,
-      "text": "Focus mode: control column, box head and legend recede; the tabs stay. Click a Fellow for the popover; Open card leads to the docked card of full mode."
+      "w": 480,
+      "text": "Focus mode followed Ada into Wing A: the tabs stay, the strip shrinks to the top, the popover is the only other chrome."
     },
     {
       "id": "card-note",
-      "x": 1560,
-      "y": 960,
+      "x": 0,
+      "y": 2020,
       "w": 420,
-      "text": "Card docked right per DESIGN.md. At this size the tiles are below 34 px, so the signs leave the shelves: the level-of-detail rule at work."
+      "text": "Card docked right per DESIGN.md; at this size the tiles drop below 34 px and the signs leave the shelves."
     },
     {
-      "id": "growth-note",
-      "x": 0,
-      "y": 2250,
+      "id": "rooms-note",
+      "x": 1560,
+      "y": 2020,
       "w": 520,
-      "text": "Growth (round 4): the main room is the hub, wings hang off its four doors, a wing chains onward through its back door. Wings are created, renamed and filled by drag and drop."
+      "text": "Rooms: the paging model, capacity, free slots, automatic placement and drag and drop, with the two rooms as thumbnails."
     },
     {
       "id": "textures-note",
-      "x": 1560,
-      "y": 2250,
+      "x": 0,
+      "y": 3360,
       "w": 420,
-      "text": "Archive preset chosen (F3 stone, W2 panels, S3 walnut). The other options stay for reference."
+      "text": "Archive preset chosen (F3 stone, W2 panels, S3 walnut)."
     },
     {
       "id": "figures-note",
-      "x": 0,
-      "y": 3230,
+      "x": 1560,
+      "y": 3360,
       "w": 420,
-      "text": "Style A, no faces (decided). Hair stays as the silhouette cue."
+      "text": "Style A, no faces (decided)."
     }
   ],
   "launch": {

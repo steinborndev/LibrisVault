@@ -96,6 +96,7 @@ const BAND = (TW) => Math.round(2 * signSize(TW) + 6)
 // One text size per view (never per shelf); a name that does not fit the face breaks at
 // its hyphen or space into two lines. `zb` is the bottom of the sign band.
 function faceText(P, along, i, j, zb, text, fill, maxLen, TW) {
+  if (TW < 34) return ''
   const size = signSize(TW), band = BAND(TW)
   const facePx = maxLen * TW / 2
   const width = (t) => t.length * size * 0.58
@@ -521,114 +522,131 @@ function placeCases(r, deps, spares = 2) {
   return { cases, left }
 }
 
-/* ---------------------------------------------------------- the main room */
-function mainRoomContents({ P, TW, add, top, night, idp, simple, favorites, day }) {
+
+/* --------------------------------------------------------------- one room */
+// Every room shares one grid, so the camera never changes between rooms. Seven shelf
+// slots along the long back wall, the door at its right end; the middle row uses the same
+// slots with the fourth left open as the passage.
+const ROOM = { NI: 27, NJ: 11 }
+const SLOTS = [0.8, 4.0, 7.2, 10.4, 13.6, 16.8, 20.0]
+const CASE_W = 3.0
+const WALL_J = 0.3, MID_J = 6.4
+const DOOR = { side: 'l', from: 24, to: 27 }
+const MID_SLOTS = [0, 1, 2, 4, 5, 6]
+const WING_CAPACITY = 13
+const FAVORITES = ['astronomy', 'computing', 'climate-science']
+
+function makeRoom(key) { return room(key, 0, 0, ROOM.NI, ROOM.NJ, { doors: [DOOR] }) }
+const caseDepth = (i, j) => i + CASE_W + j + 0.72
+function placeCase(P, TW, add, i, j, dep, night, opts = {}) {
+  if (dep) add(caseDepth(i, j), bookcase(P, i, j, 'i', CASE_W, dep.pages, domainHue(dep.name), night, 'walnut', dep.name, TW, opts))
+  else add(caseDepth(i, j), bookcase(P, i, j, 'i', CASE_W, 0, 0, night, 'walnut', '', TW, { ...opts, spare: true }).replace(/>free</g, opts.label ? `>${opts.label}<` : '>free<'))
+}
+function windows(P, add, night, list, side = 'l') {
+  for (const [a, b, z0, z1] of list) {
+    const poly = side === 'l' ? [P(a, 0, z0), P(b, 0, z0), P(b, 0, z1), P(a, 0, z1)] : [P(0, a, z0), P(0, b, z0), P(0, b, z1), P(0, a, z1)]
+    add(b + 0.001, `<polygon points="${pts(poly)}" fill="${night ? '#0c101b' : '#dfe8fb'}" stroke="${night ? '#30405f' : '#c3cde0'}"/>`)
+  }
+}
+
+// The wing: 7 cases on the wall, 3 + passage + 3 in the middle, free slots as silhouettes.
+function wingContents({ P, TW, add, top, night, deps, dragSlot }) {
+  windows(P, add, night, [[2.5, 5.0, 96, 136], [9.0, 11.5, 96, 136], [15.5, 18.0, 96, 136]])
+  const places = [...SLOTS.map((i) => ({ i, j: WALL_J })), ...MID_SLOTS.map((k) => ({ i: SLOTS[k], j: MID_J }))]
+  places.forEach((p, idx) => {
+    if (dragSlot === idx) {
+      // the case being dragged: its slot shows as a dashed outline on the floor
+      add(caseDepth(p.i, p.j), `<polygon points="${pts([P(p.i, p.j), P(p.i + CASE_W, p.j), P(p.i + CASE_W, p.j + 0.72), P(p.i, p.j + 0.72)])}" fill="${T.accentSoft}" stroke="${T.accent}" stroke-width="1.5" stroke-dasharray="5 4"/>`)
+      return
+    }
+    placeCase(P, TW, add, p.i, p.j, deps[idx], night)
+  })
+  top.push(label(P, 11.9, MID_J + 1.0, 'passage', night ? '#78859f' : T.faint, night, 10.5))
+  top.push(label(P, 25.5, -0.9, 'to the next wing', night ? '#78859f' : T.faint, night, 10.5))
+}
+
+// The main room: favorites on the wall, fireplace and armchairs left, desks with
+// computers right, front desk with the intake cart and the catalog near the door.
+function mainContents({ P, TW, add, top, night, idp, favorites }) {
   const sc = SHELF.walnut[night ? 'night' : 'day']
   const wood = { top: sc.top, left: sc.left, right: sc.right }
   const stone = night ? { top: '#4a4a52', left: '#3a3a42', right: '#2e2e36' } : { top: '#cfc9c0', left: '#b8b0a4', right: '#a39a8d' }
   const chairC = night ? { top: '#3a4a6c', left: '#2a3550', right: '#22304a' } : { top: '#c9b8a2', left: '#b39f86', right: '#9c876e' }
-  const h = simple ? 0.5 : 1
-  // favorites: four bays along the back-left wall, two on each side of the door
-  const slots = [1.0, 4.3, 11.4, 14.7]
-  slots.forEach((si, k) => {
-    const fav = favorites[k]
-    const d = si + 3.0 + 0.3 + 0.72
-    if (fav) add(d, bookcase(P, si, 0.3, 'i', 3.0, fav.pages, domainHue(fav.name), night, 'walnut', fav.name, TW, { simple }))
-    else add(d, bookcase(P, si, 0.3, 'i', 3.0, 0, 0, night, 'walnut', '', TW, { simple, spare: true }).replace(/>free</g, '>favorite<'))
-  })
-  if (simple) {
-    add(9.6 + 8.2, box(P, 7.6, 6.0, 2.2, 2.2, 14, stone))
-    for (const [ci, cj] of [[5.4, 6.7], [10.8, 6.7], [7.0, 9.4], [9.6, 9.4]]) add(ci + cj + 1.8, box(P, ci, cj, 0.9, 0.9, 6, chairC))
-    for (const dj of [2.4, 4.6, 6.8, 9.0]) add(15.0 + dj + 0.8, box(P, 13.6, dj, 1.4, 0.8, 8, wood))
-    add(16.8 + 12.6, box(P, 14.4, 11.8, 2.4, 0.8, 10, wood))
-    return
-  }
-  // windows and the notice board on the back-right wall
-  for (const [a, b] of [[1.2, 3.2], [11.5, 13.5]]) add(a + 0.5 - 0.3, `<polygon points="${pts([P(0, a, 70), P(0, b, 70), P(0, b, 130), P(0, a, 130)])}" fill="${night ? '#0c101b' : '#dfe8fb'}" stroke="${night ? '#30405f' : '#c3cde0'}"/>`)
-  add(5.6 - 0.3, `<polygon points="${pts([P(0, 4.6, 60), P(0, 6.8, 60), P(0, 6.8, 110), P(0, 4.6, 110)])}" fill="${night ? '#2a2414' : '#f5ecd7'}" stroke="${night ? '#5a4a1a' : '#e0cfa2'}"/>` +
-    [0, 1, 2, 3].map((k) => { const z = 100 - k * 10; return `<polygon points="${pts([P(0, 5.0, z), P(0, 6.4 - (k % 2) * 0.4, z), P(0, 6.4 - (k % 2) * 0.4, z + 4), P(0, 5.0, z + 4)])}" fill="${night ? '#5a4a1a' : '#d9c58f'}"/>` }).join('') +
-    faceText(P, 'j', 0, 6.7, 116, "what's new", night ? '#9aa7c2' : T.faint, 2.2, TW))
-  // desks with computers along the right side
-  for (const dj of [2.4, 4.6, 6.8, 9.0]) {
-    const d = 13.6 + 1.4 + dj + 0.8
-    add(d, box(P, 13.6, dj, 1.4, 0.8, 22, wood))
-    add(d + 0.01, boxZ(P, 14.35, dj + 0.15, 0.12, 0.5, 22, 13, { top: '#9aa7c2', left: night ? '#7fa7ff' : '#dfe8fb', right: '#1a2333' }))
-    add(d + 0.02, boxZ(P, 13.75, dj + 0.25, 0.3, 0.3, 22, 2, { top: '#e9edf7', left: '#c3cde0', right: '#b0bcd2' }))
-    add(12.7 + dj + 0.7, box(P, 12.6, dj + 0.05, 0.7, 0.7, 12, chairC))
-    if (night && (dj === 4.6 || dj === 6.8)) add(d + 0.03, lamp(P, 14.9, dj - 0.1, night, idp))
-  }
-  // the fireplace in the middle, armchairs around it
-  add(9.8 + 8.2, box(P, 7.6, 6.0, 2.2, 2.2, 34, stone))
-  add(9.8 + 8.2 + 0.01, `<polygon points="${pts([P(8.0, 8.2, 4), P(9.4, 8.2, 4), P(9.4, 8.2, 26), P(8.0, 8.2, 26)])}" fill="#1a1410"/>` +
-    `<polygon points="${pts([P(8.25, 8.2, 5), P(8.6, 8.2, 22), P(8.75, 8.2, 12), P(8.95, 8.2, 24), P(9.15, 8.2, 5)])}" fill="#f0a35b"/><polygon points="${pts([P(8.45, 8.2, 5), P(8.65, 8.2, 15), P(8.85, 8.2, 8), P(8.95, 8.2, 5)])}" fill="#f6d27a"/>`)
-  add(9.8 + 8.2 + 0.02, boxZ(P, 8.05, 6.45, 1.3, 1.3, 34, 76, stone))
-  if (night) { const [fx, fy] = P(8.7, 8.4, 10); add(9.8 + 8.2 + 0.03, `<ellipse cx="${fx}" cy="${fy}" rx="90" ry="46" fill="url(#${idp}-fire)"/>`) }
-  const chairs = [[5.4, 6.7, 'l'], [10.8, 6.7, 'r'], [7.0, 9.4, 'f'], [9.6, 9.4, 'f']]
+  for (let k = 0; k < 4; k++) placeCase(P, TW, add, SLOTS[k + 3], WALL_J, favorites[k], night, { label: 'favorite' })
+  // notice board and windows on the long wall, windows on the short wall
+  add(4.7 + 0.001, `<polygon points="${pts([P(2.5, 0, 60), P(4.7, 0, 60), P(4.7, 0, 110), P(2.5, 0, 110)])}" fill="${night ? '#2a2414' : '#f5ecd7'}" stroke="${night ? '#5a4a1a' : '#e0cfa2'}"/>` +
+    [0, 1, 2, 3].map((k) => { const z = 100 - k * 10; return `<polygon points="${pts([P(2.9, 0, z), P(4.3 - (k % 2) * 0.4, 0, z), P(4.3 - (k % 2) * 0.4, 0, z + 4), P(2.9, 0, z + 4)])}" fill="${night ? '#5a4a1a' : '#d9c58f'}"/>` }).join('') +
+    faceText(P, 'i', 2.6, 0, 116, "what's new", night ? '#9aa7c2' : T.faint, 2.2, TW))
+  windows(P, add, night, [[6.5, 9.0, 70, 130]])
+  windows(P, add, night, [[2.0, 4.0, 70, 130], [6.0, 8.0, 70, 130]], 'r')
+  // fireplace with the hood, four armchairs around it
+  const fi = 6.0, fj = 4.6
+  add(fi + 2.2 + fj + 2.2, box(P, fi, fj, 2.2, 2.2, 34, stone))
+  add(fi + 2.2 + fj + 2.2 + 0.01, `<polygon points="${pts([P(fi + 0.4, fj + 2.2, 4), P(fi + 1.8, fj + 2.2, 4), P(fi + 1.8, fj + 2.2, 26), P(fi + 0.4, fj + 2.2, 26)])}" fill="#1a1410"/>` +
+    `<polygon points="${pts([P(fi + 0.65, fj + 2.2, 5), P(fi + 1.0, fj + 2.2, 22), P(fi + 1.15, fj + 2.2, 12), P(fi + 1.35, fj + 2.2, 24), P(fi + 1.55, fj + 2.2, 5)])}" fill="#f0a35b"/><polygon points="${pts([P(fi + 0.85, fj + 2.2, 5), P(fi + 1.05, fj + 2.2, 15), P(fi + 1.25, fj + 2.2, 8), P(fi + 1.35, fj + 2.2, 5)])}" fill="#f6d27a"/>`)
+  add(fi + 2.2 + fj + 2.2 + 0.02, boxZ(P, fi + 0.45, fj + 0.45, 1.3, 1.3, 34, 76, stone))
+  if (night) { const [fx, fy] = P(fi + 1.1, fj + 2.4, 10); add(fi + 2.2 + fj + 2.2 + 0.03, `<ellipse cx="${fx}" cy="${fy}" rx="96" ry="48" fill="url(#${idp}-fire)"/>`) }
+  const chairs = [[fi - 1.8, fj + 0.7, 'l'], [fi + 2.5, fj + 0.7, 'r'], [fi - 0.4, fj + 3.2, 'f'], [fi + 1.7, fj + 3.2, 'f']]
   for (const [ci, cj, side] of chairs) {
     add(ci + cj + 1.8, box(P, ci, cj, 0.9, 0.9, 12, chairC))
     if (side === 'l') add(ci + cj + 0.15, box(P, ci - 0.15, cj, 0.15, 0.9, 26, chairC))
     if (side === 'r') add(ci + 0.9 + cj + 0.9 + 0.15, box(P, ci + 0.9, cj, 0.15, 0.9, 26, chairC))
     if (side === 'f') add(ci + 0.9 + cj + 1.05, box(P, ci, cj + 0.9, 0.9, 0.15, 26, chairC))
   }
-  // intake: unfiled case, catalog, front desk with the parcel
-  add(16.4 + 0.72 + 5.4 + 2.6, bookcase(P, 16.4, 5.4, 'j', 2.6, counts.unassigned ?? 20, 220, night, 'walnut', 'unfiled', TW))
-  add(16.6 + 0.8 + 9.6 + 0.8, box(P, 16.6, 9.6, 0.8, 0.8, 42, wood) + [0, 1, 2].map((k) => `<polygon points="${pts([P(16.7, 10.4, 6 + k * 12), P(17.3, 10.4, 6 + k * 12), P(17.3, 10.4, 12 + k * 12), P(16.7, 10.4, 12 + k * 12)])}" fill="${night ? '#5a4630' : '#e6d6bf'}" stroke="${night ? '#33261a' : '#b8976a'}"/>`).join(''))
-  top.push(label(P, 17.0, 11.3, 'catalog', night ? '#9aa7c2' : T.dim, night))
-  add(14.4 + 2.4 + 11.8 + 0.8, box(P, 14.4, 11.8, 2.4, 0.8, 30, wood))
-  add(14.4 + 2.4 + 11.8 + 0.8 + 0.01, boxZ(P, 14.7, 11.9, 0.5, 0.4, 30, 12, night ? { top: '#6b5735', left: '#5c4a2c', right: '#4a3b22' } : { top: '#e6cfa6', left: '#d9b98a', right: '#c9a672' }))
-  top.push(label(P, 15.6, 13.3, 'front desk', night ? '#9aa7c2' : T.dim, night))
-}
-
-/* --------------------------------------------------------------- the library */
-const FAVORITES = ['astronomy', 'computing', 'climate-science']
-function libraryRooms() {
-  const main = room('main', 0, 0, 18, 14, { doors: [{ side: 'l', from: 8, to: 11 }, { side: 'r', from: 8, to: 11 }] })
-  const wingA = room('wingA', -2, -17, 22, 15)
-  return {
-    rooms: [wingA, main],
-    corridors: [{ i0: 8, j0: -2, i1: 11, j1: 0 }],
-    stubs: [
-      { i0: -2, j0: 8, i1: 0, j1: 11, posts: [[-0.3, 7.7], [-0.3, 11.0]] },
-      { i0: 18, j0: 6, i1: 20, j1: 9, posts: [[18.0, 5.7], [18.0, 9.0]] },
-      { i0: 6, j0: 14, i1: 9, j1: 16, posts: [[5.7, 14.0], [9.0, 14.0]] },
-    ],
-    main, wingA,
+  // desks with computers, front right, chairs behind them
+  for (const di of [13.0, 16.0, 19.0, 22.0]) {
+    const dj = 7.4, d = di + 1.4 + dj + 0.8
+    add(d, box(P, di, dj, 1.4, 0.8, 22, wood))
+    add(d + 0.01, boxZ(P, di + 0.75, dj + 0.15, 0.12, 0.5, 22, 13, { top: '#9aa7c2', left: night ? '#7fa7ff' : '#dfe8fb', right: '#1a2333' }))
+    add(d + 0.02, boxZ(P, di + 0.15, dj + 0.25, 0.3, 0.3, 22, 2, { top: '#e9edf7', left: '#c3cde0', right: '#b0bcd2' }))
+    add(di + 0.7 + dj - 0.1, box(P, di + 0.35, dj - 0.85, 0.7, 0.7, 12, chairC))
+    if (night && (di === 16.0 || di === 19.0)) add(d + 0.03, lamp(P, di + 1.2, dj - 0.2, night, idp))
   }
-}
-function wingDeps() {
-  return Object.entries(counts).filter(([n]) => n !== 'unassigned' && !FAVORITES.includes(n)).map(([name, pages]) => ({ name, pages }))
+  // near the door: front desk with the parcel, the intake cart, the catalog
+  add(21.0 + 2.4 + 3.0 + 0.8, box(P, 21.0, 3.0, 2.4, 0.8, 30, wood))
+  add(21.0 + 2.4 + 3.0 + 0.8 + 0.01, boxZ(P, 21.3, 3.1, 0.5, 0.4, 30, 12, night ? { top: '#6b5735', left: '#5c4a2c', right: '#4a3b22' } : { top: '#e6cfa6', left: '#d9b98a', right: '#c9a672' }))
+  top.push(label(P, 22.2, 4.5, 'front desk', night ? '#9aa7c2' : T.dim, night))
+  add(23.8 + 0.9 + 4.4 + 0.55, cart(P, 23.8, 4.4, night))
+  top.push(label(P, 24.3, 5.7, 'intake', night ? '#9aa7c2' : T.dim, night))
+  add(17.6 + 0.8 + 3.4 + 0.8, box(P, 17.6, 3.4, 0.8, 0.8, 42, wood) + [0, 1, 2].map((k) => `<polygon points="${pts([P(17.7, 4.2, 6 + k * 12), P(18.3, 4.2, 6 + k * 12), P(18.3, 4.2, 12 + k * 12), P(17.7, 4.2, 12 + k * 12)])}" fill="${night ? '#5a4630' : '#e6d6bf'}" stroke="${night ? '#33261a' : '#b8976a'}"/>`).join(''))
+  top.push(label(P, 18.0, 5.0, 'catalog', night ? '#9aa7c2' : T.dim, night))
+  top.push(label(P, 25.5, -0.9, 'to the wings', night ? '#78859f' : T.faint, night, 10.5))
 }
 
-function libraryScene({ night, W, H, focus, idp = 'lib' }) {
-  const L = libraryRooms()
-  const favorites = FAVORITES.map((name) => ({ name, pages: counts[name] ?? 30 }))
-  const { cases } = placeCases(L.wingA, wingDeps())
+function wingDeps() { return Object.entries(counts).filter(([n]) => n !== 'unassigned' && !FAVORITES.includes(n)).map(([name, pages]) => ({ name, pages })) }
+
+// kind: 'main' | 'wing'. The wing takes the first 13 departments; the rest overflow to Wing B.
+function roomScene({ kind, night, W, H, idp, dragSlot, fellows = true }) {
+  const r = makeRoom(kind)
+  const deps = wingDeps()
   return renderLibrary({
-    night, W, H, rooms: L.rooms, corridors: L.corridors, stubs: L.stubs, idp,
-    build: ({ P, TW, add, top, anchors, wallH }) => {
-      mainRoomContents({ P, TW, add, top, night, idp, simple: false, favorites })
-      for (const c of cases) add(c.along === 'i' ? c.i + c.len + c.j + 0.72 : c.i + 0.72 + c.j + c.len, bookcase(P, c.i, c.j, c.along, c.len, c.pages ?? 0, c.spare ? 0 : domainHue(c.name), night, 'walnut', c.spare ? '' : c.name, TW, { spare: c.spare === true }))
-      // wing windows on its back-left wall, and its name
-      for (const wi of [2, 9, 16]) add(L.wingA.i0 + wi + 1.3 + L.wingA.j0 - 0.3, `<polygon points="${pts([P(L.wingA.i0 + wi, L.wingA.j0, 70), P(L.wingA.i0 + wi + 2.6, L.wingA.j0, 70), P(L.wingA.i0 + wi + 2.6, L.wingA.j0, 130), P(L.wingA.i0 + wi, L.wingA.j0, 130)])}" fill="${night ? '#0c101b' : '#dfe8fb'}" stroke="${night ? '#30405f' : '#c3cde0'}"/>`)
-      top.push(label(P, L.wingA.i0 + L.wingA.NI / 2 + 3, L.wingA.j0 + L.wingA.NJ / 2 + 1.2, 'Wing A · Sciences', night ? '#9aa7c2' : T.dim, night, 11, 600))
-      top.push(label(P, 9.5, -1.0, 'to Wing A', night ? '#78859f' : T.faint, night, 10.5))
-      const shelfOf = (name) => cases.find((c) => c.name === name)
+    night, W, H, rooms: [r], idp,
+    build: ({ P, TW, add, top, anchors }) => {
+      if (kind === 'main') mainContents({ P, TW, add, top, night, idp, favorites: FAVORITES.map((name) => ({ name, pages: counts[name] ?? 30 })) })
+      else wingContents({ P, TW, add, top, night, deps: deps.slice(0, WING_CAPACITY), dragSlot })
+      if (!fellows) return
       const astro = domainColor('astronomy')
-      if (!night) {
-        add(2.6 + 1.6, figure(P, 2.6, 1.6, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: astro }, night, top, anchors))
-        add(14.3 + 8.0, figure(P, 14.3, 8.0, { name: 'Noor · writing', pose: 'desk', color: '#3b8f79' }, night, top, anchors))
-        add(5.85 + 7.2, figure(P, 5.85, 7.2, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
-        add(11.25 + 7.2, figure(P, 11.25, 7.2, { name: 'Mira · waiting', pose: 'sit', color: '#c26b4a' }, night, top, anchors))
-        add(7.45 + 9.9, figure(P, 7.45, 9.9, { name: 'reader', kind: 'visitor', pose: 'sit', color: '#8a95ad' }, night, top, anchors))
-        add(15.7 + 13.2, figure(P, 15.7, 13.2, { name: 'clerk · unpacking', kind: 'visitor', pose: 'carry', color: '#8a95ad' }, night, top, anchors))
-        const cr = shelfOf('cryptography'); if (cr) add(cr.i + 1.2 + cr.j + 1.7, figure(P, cr.i + 1.2, cr.j + 1.7, { name: 'visitor', kind: 'visitor', pose: 'shelf', color: '#8a95ad', book: domainColor('cryptography') }, night, top, anchors))
-        const ml = shelfOf('machine-learning'); if (ml) { add(ml.i + 1.0 + ml.j + 2.2, figure(P, ml.i + 1.0, ml.j + 2.2, { name: 'caretaker · re-sorting', kind: 'visitor', pose: 'wait', color: '#8a95ad' }, night, top, anchors)); add(ml.i + 1.6 + ml.j + 2.4, cart(P, ml.i + 1.4, ml.j + 2.0, night)) }
+      if (kind === 'main' && !night) {
+        add(12.0 + 1.6, figure(P, 12.0, 1.6, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: astro }, night, top, anchors))
+        add(16.9 + 8.6, figure(P, 16.9, 8.6, { name: 'Noor · writing', pose: 'desk', color: '#3b8f79' }, night, top, anchors))
+        add(4.65 + 5.75, figure(P, 4.65, 5.75, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
+        add(8.95 + 5.75, figure(P, 8.95, 5.75, { name: 'Mira · waiting', pose: 'sit', color: '#c26b4a' }, night, top, anchors))
+        add(6.05 + 8.25, figure(P, 6.05, 8.25, { name: 'reader', kind: 'visitor', pose: 'sit', color: '#8a95ad' }, night, top, anchors))
+        add(22.9 + 4.9, figure(P, 22.9, 4.9, { name: 'clerk · unpacking', kind: 'visitor', pose: 'carry', color: '#8a95ad' }, night, top, anchors))
+      } else if (kind === 'main' && night) {
+        add(19.9 + 8.6, figure(P, 19.9, 8.6, { key: 'ada', name: 'Ada · writing', pose: 'desk', color: '#3b64c9' }, night, top, anchors))
+        add(4.65 + 5.75, figure(P, 4.65, 5.75, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
+        add(8.95 + 5.75, figure(P, 8.95, 5.75, { name: 'Mira · quota spent', kind: 'warn', pose: 'sleep', color: '#c26b4a' }, night, top, anchors))
+        add(6.05 + 8.25, figure(P, 6.05, 8.25, { name: 'Noor · asleep', kind: 'asleep', pose: 'sleep', color: '#3b8f79' }, night, top, anchors))
+        add(23.2 + 5.2, figure(P, 23.2, 5.2, { name: 'Ibra · waiting', pose: 'wait', color: '#b8892c' }, night, top, anchors))
+      } else if (kind === 'wing' && !night) {
+        add(SLOTS[1] + 1.4 + 1.9, figure(P, SLOTS[1] + 1.4, 1.9, { key: 'ada', name: 'Ada · at the shelf', pose: 'shelf', color: '#3b64c9', book: domainColor(deps[1]?.name ?? 'x') }, night, top, anchors))
+        add(SLOTS[5] + 1.5 + 8.0, figure(P, SLOTS[5] + 1.5, 8.0, { name: 'visitor', kind: 'visitor', pose: 'shelf', color: '#8a95ad', book: domainColor(deps[11]?.name ?? 'x') }, night, top, anchors))
+        add(SLOTS[4] + 0.8 + 2.4, figure(P, SLOTS[4] + 0.8, 2.4, { name: 'caretaker · re-sorting', kind: 'visitor', pose: 'wait', color: '#8a95ad' }, night, top, anchors))
+        add(SLOTS[4] + 1.8 + 2.3, cart(P, SLOTS[4] + 1.5, 2.0, night))
       } else {
-        add(14.3 + 5.8, figure(P, 14.3, 5.8, { key: 'ada', name: 'Ada · writing', pose: 'desk', color: '#3b64c9' }, night, top, anchors))
-        const ms = shelfOf('materials-science'); if (ms) { add(ms.i + 1.0 + ms.j + 1.6, figure(P, ms.i + 1.0, ms.j + 1.6, { name: 'Noor · reading', pose: 'shelf', color: '#3b8f79', book: domainColor('materials-science') }, night, top, anchors)); add(ms.i + 1.5 + ms.j + 1.2 + 0.5, lamp(P, ms.i + 1.9, ms.j + 1.0, night, idp)) }
-        add(5.85 + 7.2, figure(P, 5.85, 7.2, { name: 'Tomas · asleep', kind: 'asleep', pose: 'sleep', color: '#8a6db8' }, night, top, anchors))
-        add(11.25 + 7.2, figure(P, 11.25, 7.2, { name: 'Mira · quota spent', kind: 'warn', pose: 'sleep', color: '#c26b4a' }, night, top, anchors))
-        add(16.2 + 13.4, figure(P, 16.2, 13.4, { name: 'Ibra · waiting', pose: 'wait', color: '#b8892c' }, night, top, anchors))
+        add(SLOTS[2] + 1.4 + 1.9, figure(P, SLOTS[2] + 1.4, 1.9, { key: 'ada', name: 'Noor · reading', pose: 'shelf', color: '#3b8f79', book: domainColor(deps[2]?.name ?? 'x') }, night, top, anchors))
+        add(SLOTS[2] + 2.2 + 1.5 + 0.5, lamp(P, SLOTS[2] + 2.4, 1.3, night, idp))
       }
     },
   })
@@ -637,74 +655,103 @@ function libraryScene({ night, W, H, focus, idp = 'lib' }) {
 /* ------------------------------------------------------------------ panel */
 const FELLOWS = [
   { name: 'Ada', dom: 'astronomy', st: 'at the shelf · Sonnet 5', c: '#3b64c9', night: 'writing · step 2 of 2' },
-  { name: 'Noor', dom: 'climate-science', st: 'writing · Sonnet 5', c: '#3b8f79', night: 'reading · step 1 of 1' },
+  { name: 'Noor', dom: 'climate-science', st: 'writing · Sonnet 5', c: '#3b8f79', night: 'asleep · step done' },
   { name: 'Tomas', dom: 'computing', st: 'asleep · no open questions', c: '#8a6db8', night: 'asleep · no open questions' },
   { name: 'Mira', dom: 'neuroscience', st: 'waiting · plan for tonight', c: '#c26b4a', night: 'asleep · quota spent' },
   { name: 'Ibra', dom: 'economics', st: 'waiting · plan for tonight', c: '#b8892c', night: 'waiting · front desk' },
 ]
 const grip = `<svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" style="flex:none; color:${T.borderStrong}"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="6" r="1.2"/><circle cx="6" cy="6" r="1.2"/><circle cx="2" cy="10" r="1.2"/><circle cx="6" cy="10" r="1.2"/></svg>`
 const pencil = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M12 6l4 4"/></svg>`
-function panel({ night, sel }) {
-  const wingList = wingDeps()
-  const row = (d, n) => `<div class="row"><span style="display:inline-flex; margin-right:2px">${grip}</span><span class="dot" style="background:${d === 'unassigned' ? T.borderStrong : domainColor(d)}"></span><span class="nm">${d === 'unassigned' ? 'unfiled' : d}</span><span class="n">${n}</span></div>`
+function panel({ night, sel, room = 'main' }) {
+  const deps = wingDeps()
+  const wingA = deps.slice(0, WING_CAPACITY), wingB = deps.slice(WING_CAPACITY)
+  const row = (d, n) => `<div class="row"><span style="display:inline-flex; margin-right:2px">${grip}</span><span class="dot" style="background:${domainColor(d)}"></span><span class="nm">${d}</span><span class="n">${n}</span></div>`
+  const wrow = (name, sub, on, act = true) => `<div class="wrow${on ? ' on' : ''}"><span class="wn">${name}</span><span class="ws">${sub}</span>${act ? `<span class="wact">${pencil}</span>` : ''}</div>`
   return `<aside class="gpanel">
-    <div class="sec"><div class="head"><span class="eyebrow">Fellows</span><span class="spacer"></span><span class="state">${night ? '2 at work' : '2 at work · 3 waiting'}</span></div>
+    <div class="sec"><div class="head"><span class="eyebrow">Fellows</span><span class="spacer"></span><span class="state">${night ? '1 at work' : '2 at work · 3 waiting'}</span></div>
       ${FELLOWS.map((f) => `<div class="frow${sel === f.name ? ' sel' : ''}"><span class="d" style="background:${f.c}; width:10px; height:10px; box-shadow:none"></span><span class="who"><b>${f.name}</b><span class="st">${night ? f.night : f.st}</span></span><span class="n" style="font-family:${MONO}; font-size:11px; color:${T.faint}">${f.dom.split('-')[0]}</span></div>`).join('')}
       <div style="margin-top:10px"><span class="btn primary wide">Spawn a Fellow</span></div>
     </div>
-    <div class="sec"><div class="head"><span class="eyebrow">Wings</span><span class="spacer"></span><span class="state">1 of 4 doors used</span></div>
-      <div class="wrow"><span class="wn">Main room</span><span class="ws">favorites 3 of 4</span></div>
-      <div class="wrow"><span class="wn">Wing A · Sciences</span><span class="ws">${wingList.length} shelves</span><span class="wact">${pencil}</span></div>
-      <div class="wrow add"><span class="wn">+ New wing</span><span class="ws">3 doors free</span></div>
+    <div class="sec"><div class="head"><span class="eyebrow">Rooms</span><span class="spacer"></span><span class="state">scroll or click</span></div>
+      ${wrow('Main room', 'favorites 3 of 4', room === 'main', false)}
+      ${wrow('Wing A · Sciences', `${wingA.length} of 13, full`, room === 'wing')}
+      ${wrow('Wing B', `${wingB.length} of 13`, false)}
+      <div class="wrow add"><span class="wn">+ New wing</span></div>
     </div>
     <div class="sec"><div class="head"><span class="eyebrow">Tonight</span><span class="spacer"></span><span class="state">01:00 to 06:00</span></div>
       <div class="facts"><div><b>3</b> steps planned, 2 approved</div><div><b>4.2 %</b> of the week, share is 10 %</div><div><b>${night ? '02:41' : '07:00'}</b> ${night ? 'now, step 2 of 3 running' : 'recap lands here and in Telegram'}</div></div>
     </div>
-    <div class="sec grow"><div class="head"><span class="eyebrow">Departments</span><span class="spacer"></span><span class="state">drag onto a wing or a favorite slot</span></div>
+    <div class="sec grow"><div class="head"><span class="eyebrow">Departments</span><span class="spacer"></span><span class="state">drag onto a room to move</span></div>
       <div class="grp">Main room · favorites</div>
       ${FAVORITES.map((d) => row(d, counts[d])).join('')}
       <div class="grp">Wing A · Sciences</div>
-      ${wingList.slice(0, 6).map((d) => row(d.name, d.pages)).join('')}
+      ${wingA.slice(0, 5).map((d) => row(d.name, d.pages)).join('')}
     </div>
   </aside>`
 }
 
 const CSS2 = CSS + `
-  .wrow { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+  .wrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin: 0 -8px; border-radius: 8px; font-size: 13px; }
+  .wrow.on { background: ${T.accentSoft}; }
   .wrow .wn { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .wrow .ws { font-size: 11px; color: ${T.faint}; white-space: nowrap; }
   .wrow .wact { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: ${T.faint}; border: 1px solid ${T.border}; }
   .wrow.add .wn { color: ${T.accent}; font-weight: 500; }
   .grp { font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: ${T.faint}; margin: 8px 0 2px; }
+  .strip { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid ${T.border}; border-radius: 999px; background: rgba(255,255,255,0.94); box-shadow: 0 2px 10px rgba(20,30,60,0.08); }
+  .strip.dark { background: rgba(19,25,40,0.94); border-color: #30405f; }
+  .strip .rp { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px; border-radius: 999px; font-size: 12px; font-weight: 500; color: ${T.dim}; white-space: nowrap; }
+  .strip.dark .rp { color: #9aa7c2; }
+  .strip .rp.on { background: ${T.accentSoft}; color: ${T.accent}; font-weight: 600; }
+  .strip.dark .rp.on { background: #1b2947; color: #7fa7ff; }
+  .strip .rp.target { outline: 2px dashed ${T.accent}; outline-offset: -2px; background: ${T.accentSoft}; }
+  .strip .rp .cnt { font-family: ${MONO}; font-size: 10.5px; color: ${T.faint}; }
+  .strip .rp .adot { width: 6px; height: 6px; border-radius: 50%; background: ${T.ok}; }
+  .strip .arr { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: ${T.faint}; }
+  .dragghost { position: absolute; opacity: 0.85; filter: drop-shadow(0 6px 14px rgba(20,30,60,0.25)); pointer-events: none; }
+  .hint { position: absolute; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; background: ${T.text}; color: #fff; font-size: 11.5px; font-weight: 500; white-space: nowrap; }
 `
 
 const modeSeg = (focus) => `<div class="seg"><span class="${focus ? '' : 'on'}">${icon('layers', 14)}Full</span><span class="${focus ? 'on' : ''}">${icon('eye', 14)}Focus</span></div>`
+const ARROW_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
+const ARROW_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>'
+function roomStrip({ room, night, target }) {
+  const deps = wingDeps()
+  const pill = (key, name, extra, on) => `<span class="rp${on ? ' on' : ''}${target === key ? ' target' : ''}">${name}${extra}</span>`
+  return `<div class="strip${night ? ' dark' : ''}"><span class="arr">${ARROW_UP}</span>${pill('main', 'Main room', room === 'main' ? '' : '<span class="adot"></span>', room === 'main')}${pill('wingA', 'Wing A', `<span class="cnt">13</span>${room === 'wing' ? '' : '<span class="adot"></span>'}`, room === 'wing')}${pill('wingB', 'Wing B', `<span class="cnt">${deps.length - WING_CAPACITY}</span>`, false)}<span class="arr">${ARROW_DOWN}</span></div>`
+}
 
-function canvas({ night, card }) {
+function canvas({ night, card, kind = 'main', drag }) {
   const legend = `<div class="legend${night ? ' dark' : ''}"><div class="l"><span class="sw" style="background:${T.accent}"></span>Fellow, named, lives here</div><div class="l"><span class="sw" style="background:${T.muted}"></span>Visitor: your run, a reader, the clerk</div><div class="l"><span class="sw" style="background:${T.gold}"></span>Fireplace: where Fellows rest between steps</div></div>`
   const nowChip = night
     ? `<span class="chip dark">${icon('moon', 14)}02:41 · night shift · step 2 of 3</span>`
     : `<span class="chip">${icon('sun', 14)}14:12 · day · 3 at work, one clerk unpacking</span>`
-  const { svg } = libraryScene({ night, W: card ? 780 : 1128, H: card ? 900 : 760, idp: card ? 'card' : night ? 'night' : 'day' })
+  const idp = (card ? 'card' : night ? 'night' : 'day') + kind
+  const { svg, P } = roomScene({ kind, night, W: card ? 780 : 1128, H: card ? 900 : 760, idp, dragSlot: drag ? drag.slot : undefined })
+  let extra = ''
+  if (drag) {
+    const ghost = `<svg viewBox="0 0 150 120" width="150" height="120" xmlns="http://www.w3.org/2000/svg">${bookcase(makeP(60, 108, 40, 20), 0, 0, 'i', CASE_W, drag.dep.pages, domainHue(drag.dep.name), false, 'walnut', drag.dep.name, 40)}</svg>`
+    extra = `<div class="dragghost" style="left:${drag.x}px; top:${drag.y}px">${ghost}</div><div class="hint" style="left:${drag.x + 120}px; top:${drag.y + 96}px">move ${drag.dep.name} to Wing B</div>`
+  }
+  const scope = kind === 'main' ? `<b>Main room</b> · 3 favorites, 894 books in 17 departments across 2 wings` : `<b>Wing A · Sciences</b> · 13 of 13 shelves`
   return `<div class="wrap">
-    <div class="controls"><span class="btn">Fit</span><span class="scope">Showing <b>894 books</b> in <b>17 departments</b>, main room and Wing A · ${night ? 'the night shift is on the floor' : '2 Fellows and 4 visitors on the floor'} · <a href="#">30 gaps</a></span>${modeSeg(false)}<span class="btn">Shortcuts</span><span class="btn">${icon('ext', 14)}Fullscreen</span><span class="search">${icon('search', 15)}Search shelves or Fellows…</span></div>
-    <div class="area${night ? ' night' : ''}">${svg}<div class="corner" style="left:12px; bottom:10px">${nowChip}</div><div class="corner" style="right:12px; bottom:10px">${legend}</div></div>
+    <div class="controls"><span class="btn">Fit</span><span class="scope">${scope} · ${night ? 'the night shift is on the floor' : '2 Fellows and 3 visitors on the floor'} · <a href="#">30 gaps</a></span>${modeSeg(false)}<span class="btn">Shortcuts</span><span class="btn">${icon('ext', 14)}Fullscreen</span><span class="search">${icon('search', 15)}Search shelves or Fellows…</span></div>
+    <div class="area${night ? ' night' : ''}">${svg}${extra}<div class="corner" style="left:50%; top:10px; transform:translateX(-50%)">${roomStrip({ room: kind, night, target: drag ? 'wingB' : undefined })}</div><div class="corner" style="left:12px; bottom:10px">${nowChip}</div><div class="corner" style="right:12px; bottom:10px">${legend}</div></div>
   </div>`
 }
 
 function focusCanvas() {
-  const { svg, anchors } = libraryScene({ night: false, W: 1412, H: 820, focus: true, idp: 'focus' })
+  const { svg, anchors } = roomScene({ kind: 'wing', night: false, W: 1412, H: 820, idp: 'focuswing' })
   const [ax, ay] = anchors.ada
   const pop = `<div class="pop side" style="left:${Math.round(ax + 44)}px; top:${Math.round(ay - 160)}px">
-    <div class="kicker">Fellow · astronomy · at the shelf</div><div class="ttl">Ada</div>
+    <div class="kicker">Fellow · astronomy · at the shelf, Wing A</div><div class="ttl">Ada</div>
     <div class="ln"><span class="k">Now</span><span class="v">Limb darkening in transit photometry<small>research-step · reading sources, step 3 of 5</small></span></div>
     <div class="ln"><span class="k">Tonight</span><span class="v">Compare detrending baselines across three surveys<small>approved · about 2 USD</small></span></div>
     <div class="acts"><span class="btn sm primary">Open card</span><span class="btn sm">${icon('pause', 12)}Pause</span></div>
     <span class="arrow"></span>
   </div>`
-  return `<div class="wrap"><div class="area">${svg}${pop}<div class="corner float" style="right:12px; top:12px">${modeSeg(true)}<span class="btn icon">${icon('search', 15)}</span></div><div class="corner" style="left:12px; bottom:10px"><span class="chip">${icon('sun', 14)}14:12 · day · 3 at work</span></div></div></div>`
+  return `<div class="wrap"><div class="area">${svg}${pop}<div class="corner" style="left:50%; top:12px; transform:translateX(-50%)">${roomStrip({ room: 'wing', night: false })}</div><div class="corner float" style="right:12px; top:12px">${modeSeg(true)}<span class="btn icon">${icon('search', 15)}</span></div><div class="corner" style="left:12px; bottom:10px"><span class="chip">${icon('sun', 14)}14:12 · day · followed Ada into Wing A</span></div></div></div>`
 }
-
 function cardAside() {
   return `<aside class="aside">
     <span class="close">${icon('x', 16)}</span>
@@ -830,63 +877,32 @@ function texturesBoard() {
 
 
 
-/* ---------------------------------------------------------------- growth */
-const NEW_DOMAINS = [['oceanography', 14], ['horology', 9], ['ceramics', 11], ['game-theory', 18], ['beekeeping', 7], ['urban-planning', 16], ['glaciology', 12], ['paper-making', 6], ['acoustics', 21], ['viticulture', 10], ['orbital-mechanics', 15], ['sign-language', 8]]
-
-// Mini libraries for the growth board: the cross topology around the main room.
-// state: which wings exist and which departments they hold.
-function miniLibrary(state, W, H, idp) {
-  const main = room('main', 0, 0, 18, 14, { doors: [] })
-  const rooms = [main], corridors = [], stubs = []
-  const wings = []
-  const doorOf = {
-    A: { side: 'l', from: 8, to: 11, room: () => room('A', -2, -17, 22, 15), corridor: { i0: 8, j0: -2, i1: 11, j1: 0 }, stub: { i0: 8, j0: -2, i1: 11, j1: 0 } },
-    B: { side: 'r', from: 8, to: 11, room: () => room('B', -17, -2, 15, 22), corridor: { i0: -2, j0: 8, i1: 0, j1: 11 }, stub: { i0: -2, j0: 8, i1: 0, j1: 11 } },
-    C: { side: null, room: () => room('C', 20, -2, 22, 15, { doors: [{ side: 'r', from: 6, to: 9 }] }), corridor: { i0: 18, j0: 6, i1: 20, j1: 9 }, stub: { i0: 18, j0: 6, i1: 20, j1: 9 } },
-    D: { side: null, room: () => room('D', -2, 16, 22, 15, { doors: [{ side: 'l', from: 6, to: 9 }] }), corridor: { i0: 6, j0: 14, i1: 9, j1: 16 }, stub: { i0: 6, j0: 14, i1: 9, j1: 16 } },
+/* ----------------------------------------------------------------- rooms board */
+function roomsBoard() {
+  const thumb = (kind, title, sub, idp) => {
+    const { svg } = roomScene({ kind, night: false, W: 600, H: 330, idp, fellows: false })
+    return `<div style="display:flex; flex-direction:column; gap:6px"><div style="display:flex; align-items:baseline; gap:10px"><span style="font-size:13px; font-weight:600">${title}</span><span style="font-size:11.5px; color:${T.faint}">${sub}</span></div><div style="border:1px solid ${T.border}; border-radius:12px; background:${T.elev}; overflow:hidden">${svg}</div></div>`
   }
-  for (const key of ['A', 'B', 'C', 'D']) {
-    const d = doorOf[key]
-    if (state.wings[key]) {
-      const r = d.room(); rooms.unshift(r); wings.push({ key, r, deps: state.wings[key] }); corridors.push(d.corridor)
-      if (d.side) main.doors.push({ side: d.side, from: d.from, to: d.to })
-    } else stubs.push({ ...d.stub, posts: [] })
-  }
-  if (state.chain) { const r = room('A2', -2, -34, 22, 15); rooms.unshift(r); corridors.push({ i0: 8, j0: -19, i1: 11, j1: -17 }); const A = rooms.find((x) => x.key === 'A'); A.doors.push({ side: 'l', from: 8, to: 11 }); wings.push({ key: 'A2', r, deps: state.chain }) }
-  if (state.chain) state.names.A2 = 'Wing E'
-  // rooms behind the main room first, then main, then rooms in front (C, D) by depth
-  rooms.sort((a, b) => (a.i0 + a.j0) - (b.i0 + b.j0))
-  return renderLibrary({
-    night: false, W, H, rooms, corridors, stubs, idp, simple: true,
-    build: ({ P, TW, add, top }) => {
-      mainRoomContents({ P, TW, add, top, night: false, idp, simple: true, favorites: state.favorites.map((name) => ({ name, pages: counts[name] ?? 30 })) })
-      for (const w of wings) {
-        const { cases } = placeCases(w.r, w.deps.map(([name, pages]) => ({ name, pages })), 2)
-        for (const c of cases) add(c.along === 'i' ? c.i + c.len + c.j + 0.72 : c.i + 0.72 + c.j + c.len, bookcase(P, c.i, c.j, c.along, c.len, c.pages ?? 0, c.spare ? 0 : domainHue(c.name), false, 'walnut', '', TW, { simple: true, spare: c.spare === true }))
-        top.push(label(P, w.r.i0 + w.r.NI / 2 + 2, w.r.j0 + w.r.NJ / 2 + 1, state.names[w.key] ?? `Wing ${w.key}`, T.dim, false, 10, 600))
-      }
-      top.push(label(P, 9, -1.4 + 0, '', T.dim, false, 10))
-    },
-  }).svg
-}
-
-function growthBoard() {
-  const base = Object.entries(counts).filter(([n]) => n !== 'unassigned' && !FAVORITES.includes(n))
-  const s1 = { favorites: FAVORITES, wings: { A: base }, names: { A: 'Wing A · Sciences' } }
-  const s2 = { favorites: FAVORITES, wings: { A: base.slice(0, 6), B: base.slice(6) }, names: { A: 'Wing A · Sciences', B: 'Wing B · Humanities' } }
-  const s3 = { favorites: FAVORITES, wings: { A: base.slice(0, 6), B: base.slice(6), C: NEW_DOMAINS.slice(0, 5), D: NEW_DOMAINS.slice(5, 9) }, names: { A: 'Wing A · Sciences', B: 'Wing B · Humanities', C: 'Wing C', D: 'Wing D' }, chain: NEW_DOMAINS.slice(9) }
-  const panel = (title, state, caption, w, h) => `<div style="display:flex; flex-direction:column; gap:8px; width:${w}px"><div style="font-size:13px; font-weight:600">${title}</div><div style="border:1px solid ${T.border}; border-radius:12px; background:${T.elev}; overflow:hidden">${miniLibrary(state, w, h, 'g' + w + h + title.length)}</div><div style="font-size:11.5px; color:${T.faint}">${caption}</div></div>`
-  return `<div style="width:1440px; height:820px; box-sizing:border-box; padding:32px 40px; background:${T.bg}; display:flex; flex-direction:column; gap:18px; font-family:${FONT}; color:${T.text}">
-    <div style="display:flex; align-items:baseline; gap:14px"><div style="font-family:${DISPLAY}; font-size:22px; font-weight:650">Growth</div><div style="font-size:13px; color:${T.dim}">the main room is the hub; wings hang off its four doors, and a wing can chain onward through its own back door (SPEC 10.8).</div></div>
-    <div style="display:flex; gap:20px; align-items:flex-start">
-      ${panel('Start: main room and Wing A', s1, 'Four favorite slots along the back wall, the fireplace in the middle, desks on the right, unfiled and the front desk near the entrance. Wing A holds the current departments; three doors wait.', 420, 300)}
-      ${panel('You add Wing B and drag six departments over', s2, 'Wings are yours: create, rename, drag shelves between them and into the favorite slots. Cases keep their bay until you move them; new domains land in the newest wing with a spare.', 480, 300)}
-      ${panel('Four doors used, a fifth wing chains behind A', s3, 'When every door is taken, the next wing opens behind an existing one. Fit frames it all; a click on a wing name in the control column focuses it.', 440, 300)}
-    </div>
-    <div style="display:flex; gap:28px; font-size:12.5px; color:${T.dim}; padding: 0 4px">
-      <div style="flex:1"><b style="color:${T.text}">Placement inside a wing</b> stays the bay model: walls first, then aisle rows, then the growth row by the door; two spare cases per wing; case length follows the page count with a floor of two tiles and a cap of five; a department that outgrows its case gets a second one.</div>
-      <div style="flex:1"><b style="color:${T.text}">Automatic only where you did not decide.</b> A new domain goes to the newest wing with a spare, or opens a wing when none is left. Everything you placed by hand stays where you put it; re-shelving is a maintenance action the caretaker performs on screen.</div>
-      <div style="flex:1"><b style="color:${T.text}">Level of detail.</b> Below a tile of 34 px the signs move off the shelves, below 18 px only colored blocks and wing names remain. Fit shows the whole library; Focus follows the active Fellow across rooms.</div>
+  const wheel = `<div style="display:flex; align-items:center; gap:8px; color:${T.faint}; font-size:11.5px; padding:2px 0 2px 12px">${ARROW_DOWN}<span>wheel, arrow keys, the room strip, or the Rooms list: the next room slides in</span></div>`
+  const p = (t, b) => `<div style="font-size:12.5px; color:${T.dim}; line-height:1.5"><b style="color:${T.text}">${t}</b> ${b}</div>`
+  return `<div style="width:1440px; height:1180px; box-sizing:border-box; padding:32px 40px; background:${T.bg}; display:flex; flex-direction:column; gap:18px; font-family:${FONT}; color:${T.text}">
+    <div style="display:flex; align-items:baseline; gap:14px"><div style="font-family:${DISPLAY}; font-size:22px; font-weight:650">Rooms</div><div style="font-size:13px; color:${T.dim}">one room fills the screen; every room shares the same grid, so the camera never changes and the library can have any number of wings (SPEC 10.4, 10.8).</div></div>
+    <div style="display:flex; gap:28px; align-items:flex-start">
+      <div style="display:flex; flex-direction:column; gap:10px; width:600px">
+        ${thumb('main', 'Main room', 'favorites, fireplace, desks, front desk with the intake cart, the door to the wings', 'rmain')}
+        ${wheel}
+        ${thumb('wing', 'Wing A · Sciences', '7 shelves on the wall, 3 + passage + 3 in the middle, the door to the next wing', 'rwing')}
+        ${wheel}
+        <div style="border:1px dashed ${T.borderStrong}; border-radius:12px; padding:14px 16px; font-size:12.5px; color:${T.faint}">Wing B, one shelf so far. The same room again; the next new domain takes its second slot.</div>
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:14px; padding-top:26px">
+        ${p('One grid, one camera.', '27 by 11 tiles for every room, shelves 3 tiles wide. A wing holds 13 shelves: seven along the long wall, three plus a passage plus three in the middle row. The main room holds four favorite shelves. Nothing is ever fitted or zoomed, so nothing gets small.')}
+        ${p('One door per room,', 'at the right end of the long wall. In the main room it leads to the wings, in a wing to the next wing. The path runs from the door through the back aisle, through the passage of the middle row, to the front.')}
+        ${p('Perspective rules.', 'All shelves stand parallel to the long wall with the open side toward you, so every sign reads in the same direction. Tall things (shelves, catalog, chimney hood) stay in the back half or stand free; low things (desks, chairs, carts) stay in front; one tile stays free in front of every shelf; walls carry decoration only where the frame always shows them.')}
+        ${p('Free slots are visible.', 'An empty slot is a light shelf silhouette. A new domain takes the first free slot of the newest wing; when no slot is left, a new wing opens, named after its letter until you rename it. A department that outgrows its shelf gets a second shelf of the same width in the next free slot.')}
+        ${p('Drag and drop.', 'Drag a shelf onto a room in the strip or in the Rooms list: it moves into the first free slot there, onto Main room into the next free favorite slot. Inside a room, dragging one shelf onto another swaps the two. Everything you placed stays where you put it.')}
+        ${p('Focus follows.', 'In focus mode the screen pages to the room where the active Fellow works. The strip shows a green dot on rooms with activity, so you know where to scroll.')}
+      </div>
     </div>
   </div>`
 }
@@ -911,41 +927,47 @@ ${body}
 </html>
 `
 const plain = `body { margin:0; background:${T.bg}; } a { color:${T.accent}; } a:hover { color:${T.accent}; }`
+const depsAll = wingDeps()
 seed = 7
-const day = shell({ night: false, badge: '2', body: panel({ night: false }) + `<div class="stage">${canvas({ night: false, card: false })}</div>` })
+const day = shell({ night: false, badge: '2', body: panel({ night: false, room: 'main' }) + `<div class="stage">${canvas({ night: false, card: false, kind: 'main' })}</div>` })
 seed = 7
-const night = shell({ night: true, badge: '2', body: panel({ night: true }) + `<div class="stage">${canvas({ night: true, card: false })}</div>` })
+const wing = shell({ night: false, badge: '2', body: panel({ night: false, room: 'wing' }) + `<div class="stage">${canvas({ night: false, card: false, kind: 'wing', drag: { slot: 12, dep: depsAll[12], x: 560, y: 24 } })}</div>` })
+seed = 7
+const night = shell({ night: true, badge: '1', body: panel({ night: true, room: 'main' }) + `<div class="stage">${canvas({ night: true, card: false, kind: 'main' })}</div>` })
 seed = 7
 const focus = shell({ night: false, badge: '2', focus: true, body: `<div class="stage">${focusCanvas()}</div>` })
 seed = 7
-const card = shell({ night: false, badge: '2', height: 1130, body: panel({ night: false, sel: 'Ada' }) + `<div class="stage">${canvas({ night: false, card: true })}${cardAside()}</div>` })
-fs.writeFileSync('Main.dc.html', doc('Library, day', CSS2, day))
+const card = shell({ night: false, badge: '2', height: 1200, body: panel({ night: false, sel: 'Ada', room: 'main' }) + `<div class="stage">${canvas({ night: false, card: true, kind: 'main' })}${cardAside()}</div>` })
+fs.writeFileSync('Main.dc.html', doc('Library, main room', CSS2, day))
+fs.writeFileSync('Wing.dc.html', doc('Library, Wing A', CSS2, wing))
 fs.writeFileSync('Night.dc.html', doc('Library, night shift', CSS2, night))
 fs.writeFileSync('Focus.dc.html', doc('Library, focus mode', CSS2, focus))
 fs.writeFileSync('Card.dc.html', doc('Library, Fellow card', CSS2, card))
 fs.writeFileSync('Sprites.dc.html', doc('Figures, style A', plain, figuresBoard()))
 fs.writeFileSync('Textures.dc.html', doc('Textures', plain, texturesBoard()))
 seed = 7
-fs.writeFileSync('Growth.dc.html', doc('Growth', plain, growthBoard()))
+fs.writeFileSync('Rooms.dc.html', doc('Rooms', plain + CSS2, roomsBoard()))
 fs.writeFileSync('canvas.json', JSON.stringify({
   artboards: [
-    { file: 'Main.dc.html', x: 0, y: 0, w: 1440, h: 900, title: 'Library · day' },
-    { file: 'Night.dc.html', x: 1560, y: 0, w: 1440, h: 900, title: 'Library · night shift' },
-    { file: 'Focus.dc.html', x: 0, y: 1060, w: 1440, h: 900, title: 'Library · focus mode' },
-    { file: 'Card.dc.html', x: 1560, y: 1060, w: 1440, h: 1130, title: 'Library · Fellow card docked' },
-    { file: 'Growth.dc.html', x: 0, y: 2350, w: 1440, h: 820, title: 'Growth · main room and wings' },
-    { file: 'Textures.dc.html', x: 1560, y: 2350, w: 1440, h: 1180, title: 'Textures · Archive chosen' },
-    { file: 'Sprites.dc.html', x: 0, y: 3330, w: 1440, h: 760, title: 'Figures · style A' },
+    { file: 'Main.dc.html', x: 0, y: 0, w: 1440, h: 900, title: 'Library · main room' },
+    { file: 'Wing.dc.html', x: 1560, y: 0, w: 1440, h: 900, title: 'Library · Wing A, dragging a shelf' },
+    { file: 'Night.dc.html', x: 0, y: 1060, w: 1440, h: 900, title: 'Library · night shift' },
+    { file: 'Focus.dc.html', x: 1560, y: 1060, w: 1440, h: 900, title: 'Library · focus mode in Wing A' },
+    { file: 'Card.dc.html', x: 0, y: 2120, w: 1440, h: 1200, title: 'Library · Fellow card docked' },
+    { file: 'Rooms.dc.html', x: 1560, y: 2120, w: 1440, h: 1180, title: 'Rooms · one room per view' },
+    { file: 'Textures.dc.html', x: 0, y: 3460, w: 1440, h: 1180, title: 'Textures · Archive chosen' },
+    { file: 'Sprites.dc.html', x: 1560, y: 3460, w: 1440, h: 760, title: 'Figures · style A' },
   ],
   annotations: [
-    { id: 'brief', x: 0, y: -150, w: 520, text: 'Library screen, round 4 (SPEC section 10).\nMain room in the centre: fireplace with armchairs for resting Fellows, desks with computers, four favorite slots, notice board, front desk, catalog, unfiled. Wing A through the back door holds the departments; three doors wait for wings you create.' },
-    { id: 'night-note', x: 1560, y: -110, w: 420, text: 'Night shift: the fire and the desk lamps are the only light. Mutex drawn literally: Ibra waits at the front desk while Ada runs.' },
-    { id: 'focus-note', x: 0, y: 960, w: 520, text: 'Focus mode: control column, box head and legend recede; the tabs stay. Click a Fellow for the popover; Open card leads to the docked card of full mode.' },
-    { id: 'card-note', x: 1560, y: 960, w: 420, text: 'Card docked right per DESIGN.md. At this size the tiles are below 34 px, so the signs leave the shelves: the level-of-detail rule at work.' },
-    { id: 'growth-note', x: 0, y: 2250, w: 520, text: 'Growth (round 4): the main room is the hub, wings hang off its four doors, a wing chains onward through its back door. Wings are created, renamed and filled by drag and drop.' },
-    { id: 'textures-note', x: 1560, y: 2250, w: 420, text: 'Archive preset chosen (F3 stone, W2 panels, S3 walnut). The other options stay for reference.' },
-    { id: 'figures-note', x: 0, y: 3230, w: 420, text: 'Style A, no faces (decided). Hair stays as the silhouette cue.' },
+    { id: 'brief', x: 0, y: -150, w: 520, text: 'Library screen, round 5 (SPEC section 10).\nOne room per view on a shared 27 by 10 grid. Main room: four favorite slots, fireplace with armchairs, desks with computers, front desk with the intake cart, catalog, one door to the wings.' },
+    { id: 'wing-note', x: 1560, y: -110, w: 480, text: 'Wing A: seven shelves on the long wall, three plus passage plus three in the middle, all facing you. A shelf is being dragged onto Wing B in the room strip; its slot shows as a dashed outline.' },
+    { id: 'night-note', x: 0, y: 960, w: 420, text: 'Night shift in the main room: the fire and two desk lamps are the light; three Fellows sleep by the fire, Ibra waits at the front desk while Ada runs.' },
+    { id: 'focus-note', x: 1560, y: 960, w: 480, text: 'Focus mode followed Ada into Wing A: the tabs stay, the strip shrinks to the top, the popover is the only other chrome.' },
+    { id: 'card-note', x: 0, y: 2020, w: 420, text: 'Card docked right per DESIGN.md; at this size the tiles drop below 34 px and the signs leave the shelves.' },
+    { id: 'rooms-note', x: 1560, y: 2020, w: 520, text: 'Rooms: the paging model, capacity, free slots, automatic placement and drag and drop, with the two rooms as thumbnails.' },
+    { id: 'textures-note', x: 0, y: 3360, w: 420, text: 'Archive preset chosen (F3 stone, W2 panels, S3 walnut).' },
+    { id: 'figures-note', x: 1560, y: 3360, w: 420, text: 'Style A, no faces (decided).' },
   ],
   launch: { view: 'canvas' },
 }, null, 2))
-console.log('wrote', ['Main', 'Night', 'Focus', 'Card', 'Sprites', 'Textures', 'Growth'].map((n) => `${n} ${fs.statSync(n + '.dc.html').size} B`).join(', '))
+console.log('wrote', ['Main', 'Wing', 'Night', 'Focus', 'Card', 'Rooms', 'Sprites', 'Textures'].map((n) => `${n} ${fs.statSync(n + '.dc.html').size} B`).join(', '))

@@ -514,29 +514,31 @@ others wait at the front desk; ingest clerks run in parallel up to `concurrency`
 
 ### 10.4 Rooms, departments, shelves and books
 
-The library is a **main room with wings**. The main room is the hub the user furnishes:
-the fireplace in the middle with four armchairs, where Fellows rest between steps; four
-desks with computers along one side, where Fellows write; **four favorite slots** along the
-back wall, where the user places the departments they want in sight; the notice board
-(hot.md), the card catalog (the index), the front desk with the parcels of the ingest
-queue, and the `unfiled` case near it. The main room has **four doors**, one per side. The
-library starts with the main room and **Wing A**, which holds the current departments;
-the other three doors are drawn as slots until a wing is created for them.
+The library is a **sequence of rooms on one shared grid**, and the screen shows **one room
+at a time**, filling the canvas. Every room is 27 by 11 tiles and every shelf is 3 tiles
+wide, so the camera never changes between rooms and nothing ever gets small, however many
+wings there are. Each room has **one door** at the right end of its long back wall: in the
+main room it leads to the wings, in a wing to the next wing.
 
-Departments come from the domain registry. Their cases stand in wings, or in a favorite
-slot of the main room, never in both. **Every bookcase carries its department name as a sign on
-the top band of its long face, drawn in the same projection as the shelf** (skewed text on
-the face plane, sized to the shelf length, light on dark wood and dark on light frames), so
-the name reads where the books are instead of on the floor. **The sign text has one size
-per view, never per shelf**; a name that does not fit its case breaks into two lines at its
-hyphen or space, and the sign band is tall enough for two lines on every case. Textures:
-the **Archive** preset, a stone floor, panelled walls and walnut shelves, day and night. **Books** are knowledge pages: concepts, entities and
-syntheses stand as books; **source pages are thin volumes** in the same shelf; meta pages
-are invisible. The first render builds shelves from the vault stats; commits add books
-with a shelving animation (the vault watcher publishes the events). **Day and night follow
-the real clock**: dark with reading lamps during the night shift, bright by day. Clicking
-a shelf opens the graph filtered to that domain through a new `?domain=<key>` parameter
-on the graph route.
+**The main room** is the hub the user furnishes: four **favorite slots** along the long
+wall next to the door, the fireplace in the middle-left with four armchairs where Fellows
+rest between steps, four desks with computers in the front where Fellows write, the notice
+board (hot.md) on the long wall's left part, the front desk with the parcels of the ingest
+queue, the **intake cart** with the unfiled books, and the card catalog (the index), all
+near the door. Tall furniture stands only in the back half or free with nothing important
+behind it; low furniture stands in front.
+
+**A wing** holds **13 shelves in two rows**: seven along the long back wall, and three plus
+a passage plus three in a middle row parallel to it, the passage aligned with the fourth
+slot. All shelves stand parallel to the long wall with their open side toward the viewer,
+so every sign reads in the same direction; there are no shelves along the short wall. Free
+slots are drawn as light shelf silhouettes, so capacity is visible.
+
+Departments come from the domain registry. A department's shelf stands in a wing or in a
+favorite slot of the main room, never in both. Every bookcase carries its department name
+as a sign on the top band of its face, one text size per view, two lines for long names.
+Textures: the **Archive** preset, a stone floor, panelled walls and walnut shelves, day
+and night.
 
 ### 10.5 Fellow card
 
@@ -576,38 +578,29 @@ pack), judged on consistency and on a license that allows redistribution in the 
 repo. Controls live on the canvas as on the graph screen. The screen follows DESIGN.md
 (fonts, color roles, 1180 px lane or the wide lane, desktop-only, no raw hex).
 
-### 10.8 Wings, growth and layout
+### 10.8 Rooms, navigation, growth
 
-The user organises the library; the service places only what the user has not decided.
-
-- **Wings are the user's.** Create a wing (it takes the next free door of the main room),
-  rename it, and move cases between wings and into the favorite slots by **drag and drop**
-  in the Library screen or in the control column's department list. A case keeps its bay
-  until the user moves it.
-- **Doors and chains.** The main room has four doors. When all four wings exist, the next
-  wing opens behind an existing one through that wing's back door, so the library grows
-  as a tree around the hub. Fit frames the whole library, a click on a wing name in the
-  control column focuses it, Focus mode follows the active Fellow across rooms.
-- **Automatic placement, only where undecided.** A new domain lands in the newest wing
-  that still has a spare case; when none is left, a new wing opens (named after its door
-  until renamed). The spare cases are the visible answer to "where does the next
-  department go": two per wing, drawn lighter and without a sign, in the growth row by the
-  door.
-- **Bays inside a wing.** Fixed bays: the two back walls, aisle rows of freestanding
-  cases, and the growth row by the door. A bay holds cases of variable length.
-- **Case length follows the page count** with a floor of two tiles and a cap of five. A
-  department that outgrows its case gets a **second case in the next free bay**, never a
-  longer one, so neighbours do not shift. Spines saturate on a logarithmic curve: a
-  thousand-page department looks full, not ten times longer than a hundred-page one.
-- **Birth order, first fit, never move.** A new domain takes the first bay with room, in
-  the order domains are born (registry order, then creation date). A case keeps its bay
-  for life; the assignment is stored once. Re-shelving is a maintenance action the
-  caretaker performs on screen, never a side effect of a new domain.
-- **The control column groups departments by room**: the main room's favorites first,
-  then each wing, with a drag handle on every row and a rename action on every wing.
-- **Level of detail.** Below a tile size of about 30 px the spines become solid bands and
-  the signs move to the floor; below about 18 px only colored blocks and wing names
-  remain. A library of fifty departments stays readable at every zoom.
+- **One room per view.** The mouse wheel, the arrow keys, a **room strip** on the canvas
+  (pills with the room names, shelf counts and an activity dot) and the Rooms list in the
+  control column all page between rooms; the next room slides in. Main room first, then the
+  wings in the user's order. Fit and zoom act within the room. Focus mode pages to the room
+  where the active Fellow works.
+- **Wings are the user's.** Create a wing (it is appended to the sequence), rename it,
+  reorder wings, and move shelves by **drag and drop**: onto a room in the strip or the
+  Rooms list to move a shelf into that room's first free slot, onto the main room into the
+  next free favorite slot, onto another shelf in the same room to swap the two. A shelf
+  keeps its slot until the user moves it.
+- **Automatic placement, only where undecided.** A new domain takes the first free slot of
+  the newest wing; when no slot is left, a new wing opens, named after its letter until
+  renamed. A department that outgrows its shelf gets a second shelf of the same width in
+  the next free slot. Spines saturate on a logarithmic curve, so a thousand-page department
+  looks full, not larger.
+- **Perspective rules the renderer enforces.** Shelves only parallel to the long wall, open
+  side toward the viewer; tall objects only in the back half or free-standing; one tile
+  free in front of every shelf; wall decoration only where the frame always shows it, with
+  a drawing depth behind nothing that overlaps it.
+- **Level of detail.** Below a tile size of about 34 px the signs leave the shelves (the
+  docked-card view, thumbnails); below about 18 px only colored blocks remain.
 
 ### 10.9 Navigation and naming
 
@@ -634,10 +627,9 @@ Catalog bookmarks working; the Catalog screen gets a one-time hint after the ren
   `after`, `tick`).
 - `handoffs`: id, from_agent_id, to_agent_id (nullable = unclaimed), question, source_page,
   created_at, status.
-- `wings`: id, name, door (`l`, `r`, `front-l`, `front-r`, or the parent wing's id for a
-  chained wing), position, created_at.
-- `library_layout`: domain, room (`main` or a wing id), bay, offset, length, placed_by
-  (`user` or `auto`), updated_at. Favorite slots are the main room's four bays.
+- `wings`: id, name, position (order in the room sequence), created_at.
+- `library_layout`: domain, room (`main` or a wing id), slot (0 to 12 in a wing, 0 to 3 in
+  the main room), placed_by (`user` or `auto`), updated_at.
 - `value_events`: id, ts, kind (`page_open`, `recap_link`), agent_id, page.
 - Settings: the keys of section 8.2 plus `agentsEnabled`.
 
@@ -657,7 +649,8 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
   existing SSE bus (`job`, `log`, `vault`, `stats`) plus a new `agent` event kind.
 - `POST /value-events` (the dashboard reports page opens and recap link clicks).
 - `GET/POST /wings`; `PATCH /wings/:id` (rename); `DELETE /wings/:id` (only when empty);
-  `POST /library/move` with domain, target room and bay (drag and drop lands here).
+  `POST /library/move` with domain, target room and optional slot (drag and drop lands here);
+  `PATCH /wings/order` (reorder).
 - Existing endpoints stay: `POST /maintenance/research` gains an optional `agentId`.
 
 ---
@@ -770,3 +763,4 @@ user's own account.
 | NEW-6 | Faces | figures have no faces; hair stays as the silhouette cue (decided 2026-09-06) |
 | NEW-7 | Growth model | bays, first-fit in birth order, two spare cases, wings; see 10.8 (decided 2026-09-06) |
 | NEW-8 | Library topology | a central main room (fireplace, desks with computers, four favorite slots, notice board, front desk, catalog) with four doors; wings hang off the doors and chain onward; the user creates, renames and fills wings by drag and drop; start = main room plus Wing A (decided 2026-09-06) |
+| NEW-9 | One room per view | shared 27 by 11 grid, shelves 3 tiles wide, one door per room at the right end of the long wall; a wing holds 7 shelves on the wall and 3 + passage + 3 in the middle; rooms page by wheel, keys, strip and list; intake cart instead of an unfiled shelf; free slots as silhouettes (decided 2026-09-06) |
