@@ -146,6 +146,20 @@ See the design session notes; each item below gets a decision in the spec review
 SPEC.md v0.2 (2026-09-05) integrates every decision above. The review round is closed;
 new ideas go here first and reach the spec through a dated decision.
 
+Build status: A0 done 2026-09-06 (docs/tasks/TASKS-A0.md); A1 done 2026-09-06
+(docs/tasks/TASKS-A1.md: candidates, planner, proposals, veto window, night shift, quota,
+USD accounting). Next: A2 (recap).
+
+Follow-ups noted during A1, not yet decided:
+
+- Candidate dedupe is exact-text only; the notebook and a synthesis page often carry the
+  same question in slightly different words, so the planner sees both (it is told to merge
+  them). A token-overlap dedupe, as the shift's cross-Fellow dedupe in A3 will need anyway,
+  would trim the list.
+- The synthetic demo vault cross-links domains at random, so "gaps wanted by the Fellow's
+  domain" include titles from other fields. Real vaults link by meaning; the planner reads
+  the source pages and discards them, at a token cost.
+
 ## Fork and dev instance (2026-09-05)
 
 - This repo is the private fork: `upstream` is the public LibrisVault repo, `main` tracks

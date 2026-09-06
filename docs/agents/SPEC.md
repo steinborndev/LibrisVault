@@ -380,6 +380,9 @@ API key (the existing daily budget's unit rule).
 | `recapTime` | 07:00 local | when the recap is built |
 | `researchModelDefault` | `sonnet-5` | default model for new Fellows |
 
+Settings keys as implemented in A1: `nightWindowStart`, `nightWindowEnd` (local `HH:MM`) and
+`researchModelDefault`; `recapTime` arrives with A2, the shares and reserves with A5.
+
 The global daily budget of LibrisVault (jobs per day or USD per day) stays the outer
 ceiling; Fellow runs count against it like any other run. **Manual research runs are not
 limited by the research share or the reserves**: they are the user's own decision and run
@@ -616,7 +619,13 @@ Catalog bookmarks working; the Catalog screen gets a one-time hint after the ren
 
 - `agents`: id, user_id, name, slug, intent, scope, home_domain, extra_domains (json),
   lens, model, effort, step, quota_runs_per_day, quota_week_pct, autonomy, priority,
-  state, sleep_reason, notebook_path, created_at, updated_at, retired_at.
+  state, sleep_reason, sleep_code (added in A1: `idle`, `quota`, `budget`, `no-candidates`,
+  `covered`, `stalled`; the night shift's wake evaluator reads it), notebook_path,
+  created_at, updated_at, retired_at.
+- `agent_shifts` (added in A1): cycle_date, trigger (`timer`, `manual`), started_at,
+  finished_at, summary (json: executed, planned, skipped, cost). One row per cycle date, so
+  a restart inside or after the window never runs a second shift the same night; the recap
+  reads the summary.
 - `agent_proposals`: id, agent_id, created_at, cycle_date, kind, topic, lens, rationale,
   provenance (json), page_set (json), est_cost_usd, est_plan_pct, scope_score, rank,
   status (`proposed`, `approved`, `vetoed`, `executed`, `expired`, `superseded`),
@@ -644,7 +653,12 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 
 - `GET/POST /agents` (POST carries `runFirstStep`, default true);
   `GET/PATCH/DELETE /agents/:id`; `POST /agents/:id/pause|resume|retire|step`.
-- `GET /agents/:id/proposals`; `POST /proposals/:id/decide` with status, note, edits.
+- `GET /agents/:id/proposals`; `POST /proposals/:id/decide` with status, note, edits
+  (topic text, rank); `POST /proposals/:id/run` executes a pending proposal now, gated.
+- `POST /agents/:id/plan` (plan now; 200 with the reason when there was nothing to plan
+  from); `GET /agents/shift` (window, cycle, next start, recent shifts) and
+  `POST /agents/shift` (run the shift now, ignoring the window). Added in A1 so the user
+  and the tests can drive a cycle without waiting for 01:00.
 - `GET /recaps`; `GET /recaps/:date`; `POST /recaps/:date/answers` (batch decide).
 - `GET /usage/plan` (windows, calibration, shares); `GET /usage/samples`.
 - `GET /library/scene` (snapshot: departments, shelves, actors); live updates reuse the
