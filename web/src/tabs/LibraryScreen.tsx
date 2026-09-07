@@ -37,6 +37,7 @@ import { navigate } from '../lib/router.ts'
 import { buildActors, floorLine, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
 import { signText, WING_CAPACITY, FAVORITE_SLOTS } from '../lib/library/room.ts'
+import { roomToFollow } from '../lib/library/follow.ts'
 
 const CANVAS_W = 1128
 const CANVAS_H = 700
@@ -154,11 +155,16 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const activityRooms = useMemo(() => new Set(actors.filter((a) => !a.exiting && a.pose !== 'sleep' && a.pose !== 'sit').map((a) => a.room)), [actors])
   const night = scene.data?.night ?? false
 
-  // Focus mode follows the active Fellow's room.
+  // Focus mode follows the Fellow at work - once per move, not on every render. Followed on
+  // every render it also followed you back: a step to the main room while a Fellow stood at a
+  // shelf in a wing was undone immediately, and you were stuck there until its run ended.
+  const followed = useRef<string | null>(null)
   useEffect(() => {
     if (mode !== 'focus') return
     const active = actors.find((a) => a.role === 'fellow' && (a.pose === 'shelf' || a.pose === 'desk' || a.pose === 'shelve'))
-    if (active && active.room !== room) setRoom(active.room)
+    const next = roomToFollow(active?.room ?? null, room, { followed: followed.current })
+    if (active) followed.current = active.room
+    if (next !== null) setRoom(next)
   }, [mode, actors, room])
 
   const pickRoom = useCallback(

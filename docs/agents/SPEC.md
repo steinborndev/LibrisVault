@@ -909,6 +909,17 @@ on its own tile (a Fellow half-hidden behind an armchair loses the subject of th
 and its bubble names it in one word - `Ada (planning)`, `Cy (quota)` - because a sentence
 hanging in an isometric room covers what is behind it.
 
+A bookcase sorts by its front edge but by the MIDDLE of its width (2026-09-07). Claiming its
+full width put it in front of the very figure standing at it, since that figure stands centred
+on the case, 1.55 tiles out: a Fellow reading at a shelf was drawn behind the shelf. Nothing
+ever stands between a case and the wall, so the narrower claim costs nothing.
+
+**Focus follows the Fellow once per move, not on every render.** The mode exists to show the
+room where something happens, but re-applied continuously it also pulled the reader BACK:
+walking to the main room while a Fellow stood at a shelf in a wing was undone by the next
+render, and the wing held you until the step ended. The screen now remembers the room it last
+followed into; while that has not changed, your own navigation stands.
+
 The graph inside a department window fits on every mount, not only when its fit key changes:
 positions and the camera are module state shared with the Graph screen, so a canvas mounting
 on an already-placed subgraph would otherwise inherit a camera pointing somewhere else. The

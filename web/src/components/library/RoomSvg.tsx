@@ -361,7 +361,14 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     ))
   }
 
-  const caseDepth = (i: number, j: number): number => i + CASE_W + j + CASE_D
+  /**
+   * Where a bookcase sorts in painter's order. Its FRONT edge in j, but its MIDDLE in i: a
+   * figure standing at the case (1.55 tiles in front of it, centred on its width) otherwise
+   * came out behind it, because the case claimed its full width - 2.8 tiles - against a
+   * figure that stands at the middle of that width. The case still sorts in front of
+   * everything actually behind it, since nothing stands between a case and the wall.
+   */
+  const caseDepth = (i: number, j: number): number => i + CASE_W / 2 + j + CASE_D
   const shelfAt = (slot: number): SceneShelf | null => room.shelves.find((s) => s.slot === slot) ?? null
   const placeCase = (i: number, j: number, slot: number, spareLabel: string): void => {
     const shelf = shelfAt(slot)
