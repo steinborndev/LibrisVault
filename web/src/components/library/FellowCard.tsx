@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../api/client.ts'
+import { api, ApiError } from '../../api/client.ts'
 import type { FellowCard as CardData, ProposalRecord } from '../../api/types.ts'
 import { queryState } from '../QueryState.tsx'
 import { PageLink } from '../PageLink.tsx'
@@ -15,6 +15,7 @@ import { useJobLog } from '../../hooks/useJobLog.ts'
 import { timeAgo, usd } from '../../lib/format.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
 import { obsidianUri } from '../../lib/obsidian.ts'
+import { stepButton } from '../../lib/stepAction.ts'
 import { toolFamily } from '../../lib/library/scene.ts'
 
 const STATE_TEXT: Record<string, string> = {
@@ -56,6 +57,8 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
   const qc = useQueryClient()
   const card = useQuery({ queryKey: ['agent-card', agentId], queryFn: () => api.agentCard(agentId), refetchInterval: 10_000 })
   const [toast, setToast] = useState<string | null>(null)
+  /** The daily quota is used up and the card is asking whether to run anyway (section 8.4). */
+  const [confirmStep, setConfirmStep] = useState(false)
   const refresh = (): void => {
     void qc.invalidateQueries({ queryKey: ['agent-card', agentId] })
     void qc.invalidateQueries({ queryKey: ['agents'] })
@@ -63,16 +66,24 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
     void qc.invalidateQueries({ queryKey: ['maintenance-runs'] })
   }
   const act = useMutation({
-    mutationFn: async (what: { kind: 'step' } | { kind: 'pause' | 'resume' | 'retire' } | { kind: 'veto'; proposalId: string }) => {
-      if (what.kind === 'step') return api.stepAgent(agentId).then(() => 'a step is running')
+    mutationFn: async (
+      what: { kind: 'step'; override?: boolean } | { kind: 'plan' } | { kind: 'pause' | 'resume' | 'retire' } | { kind: 'veto'; proposalId: string },
+    ) => {
+      if (what.kind === 'step') return api.stepAgent(agentId, what.override === true ? { override: true } : {}).then(() => 'a step is running')
+      if (what.kind === 'plan') return api.planAgent(agentId).then((r) => (r.run ? 'a planning run is going' : `nothing to plan: ${r.skipped ?? 'no candidates'}`))
       if (what.kind === 'veto') return api.decideProposal(what.proposalId, { status: 'vetoed' }).then(() => 'the next proposal is vetoed')
       return api.agentAction(agentId, what.kind).then((r) => `${r.agent.name} is ${r.agent.state}`)
     },
     onSuccess: (msg) => {
       setToast(msg)
+      setConfirmStep(false)
       refresh()
     },
-    onError: (err) => setToast((err as Error).message),
+    onError: (err) => {
+      // The quota ran out between the render and the click: ask instead of just refusing.
+      if (err instanceof ApiError && err.code === 'quota') setConfirmStep(true)
+      setToast((err as Error).message)
+    },
   })
   const state = queryState(card, 'the Fellow')
   const c: CardData | undefined = card.data
@@ -160,8 +171,25 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
               </p>
             </section>
             <div className="gx-actions">
-              <button className="btn primary sm" disabled={act.isPending || c.agent.state === 'active' || c.agent.state === 'paused' || c.agent.state === 'retired'} onClick={() => act.mutate({ kind: 'step' })}>
-                Run next step now
+              {(() => {
+                const step = stepButton(c.quota, confirmStep)
+                const busy = act.isPending || c.agent.state === 'active' || c.agent.state === 'paused' || c.agent.state === 'retired'
+                return (
+                  <>
+                    <button className="btn primary sm" disabled={busy} onClick={() => (step.asks ? setConfirmStep(true) : act.mutate({ kind: 'step', override: step.override }))}>
+                      {step.label}
+                    </button>
+                    {confirmStep && (
+                      <button className="btn sm" disabled={act.isPending} onClick={() => setConfirmStep(false)}>
+                        Cancel
+                      </button>
+                    )}
+                    {step.note !== null && <p className="mono-meta">{step.note}</p>}
+                  </>
+                )
+              })()}
+              <button className="btn sm" disabled={act.isPending || c.agent.state === 'active' || c.agent.state === 'paused' || c.agent.state === 'retired'} onClick={() => act.mutate({ kind: 'plan' })}>
+                Plan again now
               </button>
               {c.agent.state === 'paused' || c.agent.state === 'blocked' ? (
                 <button className="btn sm" disabled={act.isPending} onClick={() => act.mutate({ kind: 'resume' })}>

@@ -260,8 +260,15 @@ describe('FellowService against a git vault', () => {
     expect(calls[0]).toMatchObject({ maxBudgetUsd: 4 })
 
     const second = service.step(agent!.id)
+    expect(second.refusal).toMatchObject({ status: 409, code: 'quota' })
     expect(second.refusal?.error).toContain("used today's quota (1 of 1 runs)")
     expect(service.card(agent!.id)!.agent.state).toBe('sleeping')
+
+    // A deliberate manual start passes the quota: it limits the autopilot, not the user.
+    const anyway = service.step(agent!.id, { override: true })
+    expect(anyway.run).toMatchObject({ kind: 'research-step' })
+    await waitSettled(anyway.run!.id)
+
   })
 
   it('a failed run blocks the Fellow with the reason; pause refuses steps; retire then remove', async () => {

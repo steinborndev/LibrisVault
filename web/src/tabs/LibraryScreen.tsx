@@ -56,9 +56,9 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
   // The plan's research share for the now chip and the spawn projection (A5); the endpoint is cached server-side.
   const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
-  // Focus is the resting state; a department needs the column, so a deep link into one
-  // opens in full, the same as a click on its shelf does.
-  const [mode, setMode] = useState<Mode>(shelfParam !== '' ? 'full' : 'focus')
+  // Focus is the resting state; a department and a Fellow card both live in the column, so a
+  // deep link into either opens in full, the same as a click on the shelf or the figure does.
+  const [mode, setMode] = useState<Mode>(shelfParam !== '' || agentParam !== '' ? 'full' : 'focus')
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
@@ -91,6 +91,9 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   useEffect(() => {
     if (shelfParam !== '') setShelf(shelfParam)
   }, [shelfParam])
+  useEffect(() => {
+    if (agentParam !== '') setMode('full')
+  }, [agentParam])
 
   // Live log lines change poses without a new snapshot: re-render on a line of any channel in play.
   const channels = useMemo(() => {

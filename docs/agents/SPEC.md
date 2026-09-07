@@ -464,6 +464,21 @@ skips planning. The refusal codes are `reserve` and `share`, each naming the win
 when known, its reset; the shift turns them into the sleep code `plan`. Manual steps from
 the card or the API get the same refusal (409) and leave the Fellow's state alone.
 
+**The one limit a manual run may pass is runs per day.** It is a limit on the autopilot,
+not on the user: the user set it so the night shift would stop, and a deliberate click has
+already made that decision again. So `POST /agents/:id/step` and `POST /proposals/:id/run`
+take `override: true`, which skips **only** the runs-per-day check. Everything else holds
+for a manual run exactly as for the shift - the shares, the reserves, the daily budget and
+the rate-limit pause guard the user's own capacity, and a click must not spend it silently.
+The run counts in the ledger like any other. The night shift never sends the flag.
+
+The card asks before the click rather than answering with a 409 after it: once the quota is
+spent the button reads "Run a step anyway · 1 of 1 today", and only the confirming click
+carries the override, next to a line saying which limits still apply. Every refusal reply
+carries its `code` beside the message, so the screen can tell an overridable quota from a
+share or a reserve. The card also carries **"Plan again now"** for `POST /agents/:id/plan`,
+the planning run the quota never gated in the first place.
+
 ### 8.5 Ordering inside the night shift
 
 Fellows run in a round-robin by priority (user-set, default equal), one step each, then a
@@ -764,8 +779,10 @@ the room · Esc`, and while a page is open `Back to the graph · Esc` or `Back t
 · Esc` in front of it). Nothing in the window's own body repeats them.
 
 Deep links: `/library?shelf=<domain>` opens the window, `&pane=catalog` on its second view,
-`&page=<vault path>` on a page inside it, and `?board=hot|recap|reading` opens a board. The
-tab row puts the Library between Research and the two screens it now contains.
+`&page=<vault path>` on a page inside it, and `?board=hot|recap|reading` opens a board.
+`?agent=<id>` opens that Fellow's card; like a shelf it needs the column, so it opens in full
+even though focus is the resting state. The tab row puts the Library between Research and the
+two screens it now contains.
 
 ### 10.6 The reading list (as built, 2026-09-06)
 

@@ -465,15 +465,21 @@ export class FellowService {
    * Why a run may not start for this Fellow right now, or null. The gate of section 8.4 as far
    * as A1 measures it: state, one run in flight per Fellow, runs per day, the daily budget and
    * the rate-limit pause. A planning run skips the quota (it is not a step).
+   *
+   * `manual` marks a run the user asked for by hand. It skips ONLY the runs-per-day quota,
+   * which is a self-imposed limit on the autopilot and has no meaning against a deliberate
+   * click. Everything else holds: the shares, the reserves, the daily budget and the
+   * rate-limit pause protect the user's own capacity, and overriding those would quietly
+   * spend it.
    */
-  gateFor(agent: AgentRecord, kind: RunKind): Refusal | null {
+  gateFor(agent: AgentRecord, kind: RunKind, opts: { readonly manual?: boolean } = {}): Refusal | null {
     if (agent.state === 'retired') return { status: 409, code: 'state', error: `${agent.name} is retired` }
     if (agent.state === 'paused') return { status: 409, code: 'state', error: `${agent.name} is paused; resume first` }
     // In flight until the run settled AND its settle handling (state, proposals, notebook) is done.
     if (this.inFlight.has(agent.id)) {
       return { status: 409, code: 'in-flight', error: `${agent.name} already has a run in flight` }
     }
-    if (kind !== 'plan') {
+    if (kind !== 'plan' && opts.manual !== true) {
       const used = this.runsToday(agent.id)
       if (used >= agent.quotaRunsPerDay) {
         return { status: 409, code: 'quota', error: `${agent.name} used today's quota (${used} of ${agent.quotaRunsPerDay} runs)` }
@@ -509,11 +515,19 @@ export class FellowService {
    */
   step(
     id: string,
-    opts: { readonly topic?: string; readonly kind?: StepKind; readonly lens?: string; readonly proposalId?: string; readonly pageSet?: readonly string[] } = {},
+    opts: {
+      readonly topic?: string
+      readonly kind?: StepKind
+      readonly lens?: string
+      readonly proposalId?: string
+      readonly pageSet?: readonly string[]
+      /** Set by a deliberate manual start: run even though today's quota is used up. */
+      readonly override?: boolean
+    } = {},
   ): StepOutcome {
     const agent = this.agents.get(id)
     if (!agent) return { refusal: { status: 404, code: 'unknown', error: 'no such Fellow' } }
-    const refusal = this.gateFor(agent, opts.kind ?? 'research-step')
+    const refusal = this.gateFor(agent, opts.kind ?? 'research-step', { manual: opts.override === true })
     if (refusal) return { refusal }
     const kind: StepKind = opts.kind ?? 'research-step'
     if (kind === 'research-expand' && (opts.pageSet === undefined || opts.pageSet.length === 0)) {
@@ -537,14 +551,24 @@ export class FellowService {
     return { run }
   }
 
-  /** Executes a pending proposal now (the shift's path, and the card's "run this one"). */
-  execute(proposalId: string): StepOutcome {
+  /**
+   * Executes a pending proposal now (the shift's path, and the card's "run this one"). The
+   * shift never passes `override`; only a click does.
+   */
+  execute(proposalId: string, opts: { readonly override?: boolean } = {}): StepOutcome {
     const proposal = this.proposals.get(proposalId)
     if (!proposal) return { refusal: { status: 404, code: 'unknown', error: 'no such proposal' } }
     if (!PENDING_STATUSES.includes(proposal.status)) {
       return { refusal: { status: 409, code: 'state', error: `the proposal is ${proposal.status}` } }
     }
-    return this.step(proposal.agentId, { topic: proposal.topic, kind: proposal.kind, lens: proposal.lens, proposalId, pageSet: proposal.pageSet })
+    return this.step(proposal.agentId, {
+      topic: proposal.topic,
+      kind: proposal.kind,
+      lens: proposal.lens,
+      proposalId,
+      pageSet: proposal.pageSet,
+      ...(opts.override === true ? { override: true } : {}),
+    })
   }
 
   /**

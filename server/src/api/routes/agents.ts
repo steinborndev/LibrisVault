@@ -60,7 +60,15 @@ const stepSchema = z.object({
   kind: z.enum(['research', 'research-step', 'research-expand']).optional(),
   /** For an expand step started by hand: the existing pages it may deepen. */
   pageSet: z.array(z.string().trim().min(1).max(500)).max(8).optional(),
+  /**
+   * A deliberate manual start: run even though today's runs-per-day quota is used up
+   * (section 8.4). The quota limits the autopilot, not the user; the shares, reserves,
+   * budget and rate-limit pause still refuse.
+   */
+  override: z.boolean().optional(),
 })
+
+const runProposalSchema = z.object({ override: z.boolean().optional() })
 
 const decideSchema = z.object({
   status: z.enum(['approved', 'vetoed', 'proposed']).optional(),
@@ -108,7 +116,7 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     if (bad) return reply.code(400).send({ error: bad })
     if (body.runFirstStep !== false && credentialMissing(reply)) return reply
     const outcome = await fellows.spawn(compact(body) as SpawnInput)
-    if (outcome.refusal && !outcome.agent) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    if (outcome.refusal && !outcome.agent) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error, code: outcome.refusal.code })
     return reply.code(201).send({ agent: outcome.agent, run: outcome.run ?? null, refusal: outcome.refusal?.error ?? null })
   })
 
@@ -177,8 +185,8 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     const { id } = req.params as { id: string }
     const parsed = stepSchema.safeParse(req.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: issues(parsed.error) })
-    const outcome = fellows.step(id, compact(parsed.data) as { topic?: string; kind?: StepKind; pageSet?: string[] })
-    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    const outcome = fellows.step(id, compact(parsed.data) as { topic?: string; kind?: StepKind; pageSet?: string[]; override?: boolean })
+    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error, code: outcome.refusal.code })
     return reply.code(202).send({ run: outcome.run })
   })
 
@@ -186,7 +194,7 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     if (credentialMissing(reply)) return reply
     const { id } = req.params as { id: string }
     const outcome = fellows.plan(id)
-    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error, code: outcome.refusal.code })
     if (outcome.skipped !== undefined) return reply.send({ run: null, skipped: outcome.skipped, agent: fellows.get(id) })
     return reply.code(202).send({ run: outcome.run })
   })
@@ -214,7 +222,7 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     if (bad) return reply.code(400).send({ error: bad })
     if (body.runFirstStep !== false && credentialMissing(reply)) return reply
     const outcome = await fellows.spawnFromHandoff(id, compact(body) as Partial<SpawnInput>)
-    if (outcome.refusal && !outcome.agent) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    if (outcome.refusal && !outcome.agent) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error, code: outcome.refusal.code })
     return reply.code(201).send({ agent: outcome.agent, run: outcome.run ?? null, handoff: outcome.handoff ?? null, refusal: outcome.refusal?.error ?? null })
   })
 
@@ -223,15 +231,17 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     const parsed = decideSchema.safeParse(req.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: issues(parsed.error) })
     const outcome = await fellows.decide(id, compact(parsed.data) as DecisionInput)
-    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error, code: outcome.refusal.code })
     return reply.send({ proposal: outcome.proposal })
   })
 
   app.post('/api/v1/proposals/:id/run', async (req, reply) => {
     if (credentialMissing(reply)) return reply
     const { id } = req.params as { id: string }
-    const outcome = fellows.execute(id)
-    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    const parsed = runProposalSchema.safeParse(req.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: issues(parsed.error) })
+    const outcome = fellows.execute(id, compact(parsed.data) as { override?: boolean })
+    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error, code: outcome.refusal.code })
     return reply.code(202).send({ run: outcome.run })
   })
 }

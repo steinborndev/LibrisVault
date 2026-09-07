@@ -564,6 +564,24 @@ describe('proposal and shift routes', () => {
     const next = (await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}/proposals` })).json() as { next: ProposalRecord | null }
     const run = await app.inject({ method: 'POST', url: `/api/v1/proposals/${next.next!.id}/run` })
     expect(run.statusCode).toBe(409)
-    expect((run.json() as { error: string }).error).toContain("used today's quota")
+    const refused = run.json() as { error: string; code: string }
+    expect(refused.error).toContain("used today's quota")
+    // The code travels with the refusal: the card needs to tell an overridable quota from a
+    // share or a reserve, which it may not override.
+    expect(refused.code).toBe('quota')
+
+    // A deliberate manual start passes the quota, by the proposal route and by the step route.
+    const anyway = await app.inject({ method: 'POST', url: `/api/v1/proposals/${next.next!.id}/run`, payload: { override: true } })
+    expect(anyway.statusCode).toBe(202)
+    await h.service.settled((anyway.json() as { run: { id: string } }).run.id)
+    const stepAnyway = await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/step`, payload: { override: true } })
+    expect(stepAnyway.statusCode).toBe(202)
+    await h.service.settled((stepAnyway.json() as { run: { id: string } }).run.id)
+
+    // What the override never passes: the gate that protects the user's own capacity.
+    h.gate = () => ({ code: 'reserve', reason: 'the weekly reserve is reached' })
+    const hard = await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/step`, payload: { override: true } })
+    expect(hard.statusCode).toBe(409)
+    expect((hard.json() as { code: string }).code).toBe('reserve')
   })
 })

@@ -55,19 +55,38 @@ import type {
 
 const BASE = '/api/v1'
 
+/**
+ * A failed request, with the machine-readable reason where the endpoint sends one. The
+ * message stays what it always was; `code` lets a screen tell one refusal from another -
+ * a used-up daily quota (which the user may override) from a share or reserve (which
+ * protects the user's own capacity and may not).
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = ''
+    let code: string | undefined
     try {
-      const body = (await res.json()) as { error?: string; issues?: string[] }
+      const body = (await res.json()) as { error?: string; issues?: string[]; code?: string }
       detail = body.error ? `: ${body.error}` : ''
+      code = body.code
       // Validation endpoints (e.g. PUT /settings) return per-field issues - surfacing them
       // turns "400 Bad Request" into something the user can actually act on.
       if (Array.isArray(body.issues) && body.issues.length > 0) detail += ` (${body.issues.join('; ')})`
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(`${res.status} ${res.statusText}${detail}`)
+    throw new ApiError(`${res.status} ${res.statusText}${detail}`, res.status, code)
   }
   return res.json() as Promise<T>
 }
@@ -433,8 +452,12 @@ export const api = {
   spawnAgent: (body: SpawnBody): Promise<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }> =>
     fetch(`${BASE}/agents`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }>),
 
-  stepAgent: (id: string, body: { topic?: string; kind?: string } = {}): Promise<{ run: MaintenanceRun }> =>
+  stepAgent: (id: string, body: { topic?: string; kind?: string; override?: boolean } = {}): Promise<{ run: MaintenanceRun }> =>
     fetch(`${BASE}/agents/${encodeURIComponent(id)}/step`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ run: MaintenanceRun }>),
+
+  /** Starts a planning run now; the daily quota does not apply to planning (section 8.4). */
+  planAgent: (id: string): Promise<{ run: MaintenanceRun | null; skipped?: string }> =>
+    fetch(`${BASE}/agents/${encodeURIComponent(id)}/plan`, { method: 'POST' }).then(json<{ run: MaintenanceRun | null; skipped?: string }>),
 
   agentAction: (id: string, action: 'pause' | 'resume' | 'retire'): Promise<{ agent: FellowRecord }> =>
     fetch(`${BASE}/agents/${encodeURIComponent(id)}/${action}`, { method: 'POST' }).then(json<{ agent: FellowRecord }>),
