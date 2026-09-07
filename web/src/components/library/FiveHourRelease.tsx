@@ -30,16 +30,28 @@ export function FiveHourRelease({
   onDone: () => void
 }): React.ReactElement {
   const [asking, setAsking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  /**
+   * What came back, and whether it was an answer or a fault.
+   *
+   * "a run is in flight" is the service doing its job, not something breaking - but rendered in
+   * red under the button, next to where run feedback appears, it read as a failed run. A
+   * refusal says what to do instead; only an unexpected fault is an error.
+   */
+  const [said, setSaid] = useState<{ text: string; refusal: boolean } | null>(null)
 
   const act = useMutation({
     mutationFn: (what: 'grant' | 'withdraw') => (what === 'grant' ? api.releaseFiveHour() : api.withdrawFiveHour()),
     onSuccess: () => {
       setAsking(false)
-      setError(null)
+      setSaid(null)
       onDone()
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : (err as Error).message),
+    onError: (err) => {
+      const refusal = err instanceof ApiError && err.status === 409
+      // The 409 body carries the reason already; the HTTP prefix adds nothing a reader wants.
+      const text = err instanceof ApiError ? err.message.replace(/^\d{3} [A-Za-z ]+: /, '') : (err as Error).message
+      setSaid({ text, refusal })
+    },
   })
 
   if (release.active) {
@@ -64,7 +76,7 @@ export function FiveHourRelease({
         <button className="lp-rel" onClick={() => setAsking(false)}>
           no
         </button>
-        {error !== null && <span className="lp-err">{error}</span>}
+        {said !== null && <span className={said.refusal ? 'lp-note' : 'lp-err'}>{said.text}</span>}
       </span>
     )
   }
@@ -78,7 +90,7 @@ export function FiveHourRelease({
         (fiveHourUsed !== null ? ` The window is at ${fiveHourUsed}% now.` : '')
       }
       onClick={() => {
-        setError(null)
+        setSaid(null)
         setAsking(true)
       }}
     >

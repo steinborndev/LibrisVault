@@ -534,6 +534,12 @@ reach either. The controls are therefore all about the blast radius:
   the log** per grant. Every grant is a row in `plan_overrides` - a table rather than a setting,
   because a setting does not expire, and the row IS the record of what was released until when.
 
+The status reports the LIFTED share while a grant is live, not the setting: the panel saying
+"8 of 15 points" while the gate let work through up to 90 is the number that decides the night
+disagreeing with the one that actually decides it. And a refusal is drawn as an answer rather
+than a fault - "a run is in flight" is the service working, and in red beside the run feedback
+it read as a failed run.
+
 The button sits in the Library's plan corner, next to the age of the measurement - which is now
 always shown, "0m old" included, so the button never moves. A first click turns it into
 `yes, to 90%` / `no`, the same two-step the Fellow card's quota override uses. While a grant is
@@ -1321,6 +1327,14 @@ available for a day. Three changes make it honest - `liveReason` says why the li
 silent even while old numbers are shown, the monitor logs the refusal once and again when it
 changes, and a refused endpoint is asked back on a doubling delay up to about 48 minutes instead
 of every three, because asking a rate limiter more often cannot help.
+
+`liveReason` reads the ENDPOINT's own reason, kept apart from the general one (fixed
+2026-09-07). The general reason is cleared by any successful sample, the SDK's included - and
+the SDK samples only inside runs, so a run cleared the one field that explains why nothing
+refreshes between them. Measured on this vault: 390 samples, every one from the SDK, and the
+field reading null. The endpoint's refusals here are two, alternating: "Rate limited. Please try
+again later." and "OAuth token does not meet scope requirement user:profile" - the second is not
+a wait but a missing scope, so with this credential the endpoint will not answer at all.
 
 **The four arrows walk the library** (2026-09-07). Left and right switch the two views of a
 department; up and down step to the next department, in the order the shelves stand in - rooms

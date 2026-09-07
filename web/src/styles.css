@@ -7025,9 +7025,14 @@ tr:focus-within .rowacts {
 .lp-ask .lp-rel {
   margin-left: 0;
 }
+/* An answer, not a fault: "not while a run is in flight" is the service working. */
+.lp-note {
+  color: var(--text-dim);
+  max-width: 190px;
+}
 .lp-err {
   color: var(--err);
-  max-width: 150px;
+  max-width: 190px;
 }
 
 .lib-strip {

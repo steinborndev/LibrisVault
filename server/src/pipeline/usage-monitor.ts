@@ -237,6 +237,15 @@ export class UsageMonitor {
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   private lastFetch = 0
   private lastReason: string | null = null
+  /**
+   * Why the ENDPOINT is silent, kept apart from `lastReason`.
+   *
+   * `lastReason` is cleared by any successful sample, the SDK's included - and the SDK samples
+   * only inside runs. So a run cleared the one field that was supposed to explain why nothing
+   * refreshes BETWEEN runs, and the explanation vanished exactly when it stopped being obvious.
+   * Measured: 390 samples, every one of them from the SDK, and `liveReason` reading null.
+   */
+  private endpointReason: string | null = null
   /** The reason logged last, so a refusal that repeats every three minutes is said once. */
   private saidReason: string | null = null
   /** Consecutive refusals; the wait between attempts doubles with each one. */
@@ -286,6 +295,7 @@ export class UsageMonitor {
    */
   private note(reason: string | null): void {
     this.lastReason = reason
+    this.endpointReason = reason
     this.failures = reason === null ? 0 : Math.min(this.failures + 1, MAX_BACKOFF_STEPS)
     if (reason === this.saidReason) return
     this.saidReason = reason
@@ -565,12 +575,19 @@ export class UsageMonitor {
   status(standardStep: { estCostUsd: number; model: AgentModel }): PlanStatus {
     const s = this.o.settings()
     const latest = this.latest()
+    /*
+     * The same lifted bound the gate reads. Without it the panel said "8 of 15 points" while
+     * the gate was letting work through up to 90 - the number that decides whether tonight is
+     * affordable, disagreeing with the one that actually decides it.
+     */
+    const lifted = this.overrideNow()
     const calibration = this.calibration()
     const consumption = this.consumption()
     const est = this.estimatePct(standardStep.estCostUsd, standardStep.model)
     const points = consumption.weekPct !== null && est.sevenDay !== null
     const weekShare = points ? s.researchShareWeekPct : (s.researchShareWeekPct / 100) * s.planWeekUsd
-    const fiveShare = points ? s.researchShare5hPct : (s.researchShare5hPct / 100) * s.plan5hUsd
+    const share5h = lifted?.pct ?? s.researchShare5hPct
+    const fiveShare = points ? share5h : (share5h / 100) * s.plan5hUsd
     const weekUsed = points ? consumption.weekPct! : consumption.weekUsd
     const perStep = points ? est.sevenDay! : standardStep.estCostUsd
     return {
@@ -583,7 +600,9 @@ export class UsageMonitor {
        * so an endpoint that stopped answering left the screen showing hours-old percentages
        * with nothing to say about it.
        */
-      liveReason: this.o.fetchEndpoint ? this.lastReason : 'no plan windows on an API key; the numbers come from runs only',
+      liveReason: this.o.fetchEndpoint
+        ? this.endpointReason
+        : 'no plan windows on an API key; the numbers come from runs only',
       sinceSample: this.sinceSample(),
       override: ((): PlanStatus['override'] => {
         const live = this.overrideNow()

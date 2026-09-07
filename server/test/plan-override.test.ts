@@ -48,7 +48,7 @@ describe('the five-hour release', () => {
     sample('seven_day', 40, '2026-09-10T12:00:00.000Z')
   })
 
-  const gate = (): ReturnType<UsageMonitor['gate']> => monitor.gate({ estCostUsd: 2, model: 'sonnet-5' })
+  const gate = (): ReturnType<UsageMonitor['gate']> => monitor.gate({ estCostUsd: 2, model: 'sonnet-5', kind: 'research-step' })
 
   it('opens a window the reserve had closed, and closes it again when the grant ends', () => {
     // 70 % used is past the 60 % reserve: without a grant nothing runs.
@@ -104,6 +104,33 @@ describe('the five-hour release', () => {
     })
     expect(fresh.grantFiveHour()).toMatchObject({ ok: false })
     expect((fresh.grantFiveHour() as { reason: string }).reason).toContain('no known reset time')
+  })
+
+  it('reports the lifted share, not the setting - the panel must not disagree with the gate', () => {
+    const before = monitor.status({ estCostUsd: 2, model: 'sonnet-5' })
+    expect(before.shares.fiveHour).toBe((15 / 100) * 80)
+    monitor.grantFiveHour()
+    const after = monitor.status({ estCostUsd: 2, model: 'sonnet-5' })
+    expect(after.shares.fiveHour).toBe((OVERRIDE_PCT / 100) * 80)
+  })
+
+  it('keeps saying why the endpoint is silent after a run has sampled', () => {
+    // The SDK samples only inside runs, so a run used to clear the one field that explains
+    // why nothing refreshes between them.
+    const withEndpoint = new UsageMonitor({
+      store: new SqliteUsageSampleStore(db),
+      overrides: new SqlitePlanOverrideStore(db),
+      runs: new SqliteAgentRunStore(db),
+      settings: () => SETTINGS,
+      now: () => clock,
+      fetchEndpoint: async () => ({ ok: false, reason: 'the token lacks user:profile' }),
+    })
+    return withEndpoint.refresh(true).then(() => {
+      expect(withEndpoint.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason).toBe('the token lacks user:profile')
+      // A run samples successfully - and the endpoint's silence still has its reason.
+      withEndpoint.recordSdk({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 5, resets_at: RESET } } }, 'after', 'r1')
+      expect(withEndpoint.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason).toBe('the token lacks user:profile')
+    })
   })
 
   it('can be withdrawn on the spot', () => {
