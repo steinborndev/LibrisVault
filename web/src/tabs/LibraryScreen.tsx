@@ -38,6 +38,7 @@ import { navigate } from '../lib/router.ts'
 import { buildActors, floorLine, roleOfRun, ROLE_NAME, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
 import { planCorner } from '../lib/library/planCorner.ts'
+import { FiveHourRelease } from '../components/library/FiveHourRelease.tsx'
 import { signText } from '../lib/library/room.ts'
 import { undecidedCount } from '../lib/recap.ts'
 import { roomToFollow } from '../lib/library/follow.ts'
@@ -749,11 +750,20 @@ export function LibraryScreen({
                       </span>
                     </div>
                   ))}
-                  {corner.stale && (
-                    <div className="lp-stale" title={corner.reason ?? 'the plan endpoint has not answered since'}>
-                      {corner.ageMin}m old
-                    </div>
-                  )}
+                  {/* The age is always said - "0m old" is a fact worth having - and the
+                      release button stands next to it. */}
+                  <div className="lp-foot">
+                    <span className={corner.stale ? 'lp-stale' : 'lp-age'} title={corner.stale ? (corner.reason ?? 'the plan endpoint has not answered since') : 'when the plan last reported these numbers'}>
+                      {corner.ageText}
+                    </span>
+                    {corner.release.enabled && (
+                      <FiveHourRelease
+                        release={corner.release}
+                        fiveHourUsed={corner.lines.find((l) => l.window === 'five_hour')?.usedPct ?? null}
+                        onDone={() => void qc.invalidateQueries({ queryKey: ['usage-plan'] })}
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
             )

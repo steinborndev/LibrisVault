@@ -59,6 +59,10 @@ export interface PlanCorner {
   readonly reason: string | null
   /** Runs that have finished since the newest measurement and are therefore not in it. */
   readonly runsSince: number
+  /** The age line, always shown; the release button sits beside it. */
+  readonly ageText: string
+  /** The five-hour release: may it be granted, is one live, and until when. */
+  readonly release: { readonly enabled: boolean; readonly active: boolean; readonly pct: number; readonly until: string | null }
 }
 
 /** The two windows everyone has; the rest are named from their key. */
@@ -127,6 +131,15 @@ export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorne
     stale: ageMin !== null && ageMin * 60_000 > STALE_MS && lines.some((l) => !l.reset),
     /** How many runs the shown figures do not include yet. */
     runsSince: plan.sinceSample?.runs ?? 0,
+    // Always said, even at zero: the age is the line the release button stands next to, and a
+    // line that appears and disappears takes the button with it.
+    ageText: ageMin === null ? 'never measured' : `${ageMin}m old`,
+    release: {
+      enabled: plan.override?.enabled ?? false,
+      active: plan.override?.active ?? false,
+      pct: plan.override?.pct ?? 90,
+      until: plan.override?.expiresAt ?? null,
+    },
     reason: plan.liveReason,
   }
 }

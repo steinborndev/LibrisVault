@@ -443,6 +443,16 @@ export const api = {
 
   usagePlan: (): Promise<PlanStatus> => fetch(`${BASE}/usage/plan`).then(json<PlanStatus>),
 
+  /**
+   * Releases the rest of the current 5-hour window to the Fellows, until that window resets
+   * (SPEC section 8.6). POST on purpose: it hands out budget, and a GET would be reachable
+   * from anything that can only fetch.
+   */
+  releaseFiveHour: (): Promise<{ override: { pct: number; expiresAt: string } }> =>
+    fetch(`${BASE}/usage/override`, { method: 'POST' }).then(json<{ override: { pct: number; expiresAt: string } }>),
+
+  withdrawFiveHour: (): Promise<{ override: unknown }> => fetch(`${BASE}/usage/override`, { method: 'DELETE' }).then(json<{ override: unknown }>),
+
   readingList: (): Promise<{ entries: ReadingItem[] }> => fetch(`${BASE}/reading-list`).then(json<{ entries: ReadingItem[] }>),
 
   /** Fetch one entry through the ordinary URL ingest; the service does the downloading. */

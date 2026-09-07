@@ -11,7 +11,7 @@
  */
 
 import type { AgentRunRecord, AgentRunStore } from '../db/agent-runs.js'
-import type { UsageSample, UsageSampleStore, SamplePhase } from '../db/usage-samples.js'
+import type { UsageSample, UsageSampleStore, SamplePhase, PlanOverride, PlanOverrideStore } from '../db/usage-samples.js'
 import { MODEL_IDS, type AgentModel } from '../db/agents.js'
 
 export interface WindowSample {
@@ -29,6 +29,8 @@ export interface PlanSettings {
   readonly plan5hUsd: number
   /** What the user calls their subscription; '' = show what was measured instead. */
   readonly planName: string
+  /** Whether the five-hour release may be granted at all (section 8.6). */
+  readonly fiveHourOverrideEnabled: boolean
 }
 
 export interface EndpointResult {
@@ -41,6 +43,8 @@ export interface UsageMonitorOptions {
   readonly store: UsageSampleStore
   readonly runs: AgentRunStore
   readonly settings: () => PlanSettings
+  /** Live grants that lift a window's bounds (section 8.6); absent = the feature is off. */
+  readonly overrides?: PlanOverrideStore
   /** The raw usage endpoint; undefined = none (an API key). */
   readonly fetchEndpoint?: () => Promise<EndpointResult>
   readonly now?: () => Date
@@ -83,6 +87,14 @@ export interface PlanStatus {
   readonly reason: string | null
   /** Why the between-runs source is silent, even while old samples are still being shown. */
   readonly liveReason: string | null
+  /** The five-hour release (section 8.6): whether it may be granted, and whether one is live. */
+  readonly override: {
+    readonly enabled: boolean
+    readonly active: boolean
+    /** What a grant lifts the bounds to, live or not. */
+    readonly pct: number
+    readonly expiresAt: string | null
+  }
   /** Estimated window percent spent by runs that started after the newest sample. */
   readonly sinceSample: { readonly runs: number; readonly fiveHour: number | null; readonly sevenDay: number | null }
   readonly subscription: string | null
@@ -133,6 +145,12 @@ function parseWindows(limits: unknown): WindowSample[] {
   }
   return out
 }
+
+/**
+ * The ceiling a five-hour override may lift the bounds to. Not 100: the last tenth of a window
+ * stays the user's, so releasing the rest of an afternoon can never leave them with nothing.
+ */
+export const OVERRIDE_PCT = 90
 
 /** How far the wait between refused endpoint calls doubles: 180 s becomes at most ~48 min. */
 const MAX_BACKOFF_STEPS = 4
@@ -469,10 +487,19 @@ export class UsageMonitor {
   gate(ctx: GateContext): GateVerdict | null {
     const s = this.o.settings()
     const latest = this.latest()
+    /*
+     * A live grant lifts BOTH five-hour bounds to the same number (section 8.6). Both, because
+     * either alone does nothing: a share of 90 still stops at a reserve of 60, and a reserve of
+     * 90 still stops at a share of 15. The week is deliberately untouched - it is the bound
+     * that survives every grant, and it is what makes a released afternoon a bounded decision.
+     */
+    const lifted = this.overrideNow()
+    const reserve5h = lifted?.pct ?? s.reserve5hPct
+    const share5h = lifted?.pct ?? s.researchShare5hPct
     if (latest.available) {
       const five = latest.windows.find((w) => w.window === 'five_hour')
-      if (five && five.utilization > s.reserve5hPct) {
-        return { code: 'reserve', window: 'five_hour', reason: `the 5-hour window is at ${five.utilization}%, above the ${s.reserve5hPct}% reserve`, resetsAt: five.resetsAt }
+      if (five && five.utilization > reserve5h) {
+        return { code: 'reserve', window: 'five_hour', reason: `the 5-hour window is at ${five.utilization}%, above the ${reserve5h}% reserve`, resetsAt: five.resetsAt }
       }
       const week = latest.windows.find((w) => w.window === 'seven_day')
       if (week && week.utilization > s.reserveWeekPct) {
@@ -492,14 +519,46 @@ export class UsageMonitor {
       return { code: 'share', window: 'seven_day', reason: `the research share of the week is used up (${c.weekUsd.toFixed(2)} of about ${budget} USD, this step about ${ctx.estCostUsd} USD)`, resetsAt: weekReset }
     }
     if (c.fiveHourPct !== null && est.fiveHour !== null) {
-      if (c.fiveHourPct + est.fiveHour > s.researchShare5hPct) {
-        return { code: 'share', window: 'five_hour', reason: `the research share of this 5-hour window is used up (${c.fiveHourPct} of ${s.researchShare5hPct} points, this step about ${est.fiveHour})`, resetsAt: fiveReset }
+      if (c.fiveHourPct + est.fiveHour > share5h) {
+        return { code: 'share', window: 'five_hour', reason: `the research share of this 5-hour window is used up (${c.fiveHourPct} of ${share5h} points, this step about ${est.fiveHour})`, resetsAt: fiveReset }
       }
-    } else if (c.fiveHourUsd + ctx.estCostUsd > (s.researchShare5hPct / 100) * s.plan5hUsd) {
-      const budget = Math.round((s.researchShare5hPct / 100) * s.plan5hUsd * 100) / 100
+    } else if (c.fiveHourUsd + ctx.estCostUsd > (share5h / 100) * s.plan5hUsd) {
+      const budget = Math.round((share5h / 100) * s.plan5hUsd * 100) / 100
       return { code: 'share', window: 'five_hour', reason: `the research share of this 5-hour window is used up (${c.fiveHourUsd.toFixed(2)} of about ${budget} USD, this step about ${ctx.estCostUsd} USD)`, resetsAt: fiveReset }
     }
     return null
+  }
+
+  /** The live five-hour grant, or null. Expiry is a comparison, never a timer. */
+  overrideNow(): PlanOverride | null {
+    return this.o.overrides?.active('five_hour', this.now().toISOString()) ?? null
+  }
+
+  /**
+   * Releases the rest of the current five-hour window to the Fellows, until that window resets.
+   *
+   * Refuses without a known reset instant: a grant with no end is exactly what this must never
+   * become, and the plan's own `resets_at` is the only bound here that cannot be argued with.
+   */
+  grantFiveHour(): { readonly ok: true; readonly override: PlanOverride } | { readonly ok: false; readonly reason: string } {
+    if (!this.o.overrides) return { ok: false, reason: 'no override store is wired' }
+    const now = this.now()
+    const live = this.o.overrides.active('five_hour', now.toISOString())
+    if (live) return { ok: false, reason: `already released until ${live.expiresAt}` }
+    const reset = this.resetOf('five_hour')
+    if (reset === null) return { ok: false, reason: 'the 5-hour window has no known reset time yet; run something first so the plan reports one' }
+    const expires = Date.parse(reset)
+    if (Number.isNaN(expires) || expires <= now.getTime()) return { ok: false, reason: 'the 5-hour window has already reset; nothing to release' }
+    const override = this.o.overrides.grant({ window: 'five_hour', pct: OVERRIDE_PCT, grantedAt: now.toISOString(), expiresAt: reset })
+    this.log('warn', `usage: the 5-hour window is released to ${OVERRIDE_PCT}% until ${reset}`)
+    return { ok: true, override }
+  }
+
+  /** Ends a live grant early. */
+  revokeFiveHour(): PlanOverride | null {
+    const ended = this.o.overrides?.revoke('five_hour', this.now().toISOString()) ?? null
+    if (ended) this.log('info', 'usage: the 5-hour release was withdrawn')
+    return ended
   }
 
   /** Everything the dashboard shows (D7). */
@@ -526,6 +585,15 @@ export class UsageMonitor {
        */
       liveReason: this.o.fetchEndpoint ? this.lastReason : 'no plan windows on an API key; the numbers come from runs only',
       sinceSample: this.sinceSample(),
+      override: ((): PlanStatus['override'] => {
+        const live = this.overrideNow()
+        return {
+          enabled: s.fiveHourOverrideEnabled,
+          active: live !== null,
+          pct: live?.pct ?? OVERRIDE_PCT,
+          expiresAt: live?.expiresAt ?? null,
+        }
+      })(),
       subscription: s.planName !== '' ? s.planName : this.subscription,
       sampledAt: latest.sampledAt,
       windows: latest.windows,

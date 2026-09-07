@@ -101,3 +101,87 @@ export class SqliteUsageSampleStore implements UsageSampleStore {
     return rows.map(toSample)
   }
 }
+
+/**
+ * A grant that lifts a plan window's bounds for the rest of that window (SPEC section 8.6).
+ *
+ * The row IS the record: granting writes one, the gate reads the newest live one, and the
+ * history of what was released and until when is the table itself. Nothing renews a grant -
+ * it expires with the window it was written for, which is the one bound that cannot be
+ * argued with, because the plan draws it.
+ */
+export interface PlanOverride {
+  readonly id: number
+  readonly window: string
+  /** The percent both five-hour bounds are lifted to while this is live. */
+  readonly pct: number
+  readonly grantedAt: string
+  readonly expiresAt: string
+  readonly revokedAt: string | null
+}
+
+interface OverrideRow {
+  id: number
+  window: string
+  pct: number
+  granted_at: string
+  expires_at: string
+  revoked_at: string | null
+}
+
+const toOverride = (r: OverrideRow): PlanOverride => ({
+  id: r.id,
+  window: r.window,
+  pct: r.pct,
+  grantedAt: r.granted_at,
+  expiresAt: r.expires_at,
+  revokedAt: r.revoked_at,
+})
+
+export interface PlanOverrideStore {
+  /** The live grant for a window at `now`, or undefined. */
+  active(window: string, now: string): PlanOverride | undefined
+  grant(input: { window: string; pct: number; grantedAt: string; expiresAt: string }): PlanOverride
+  /** Ends a live grant early; returns what it ended. */
+  revoke(window: string, now: string): PlanOverride | undefined
+  list(limit?: number): PlanOverride[]
+}
+
+export class SqlitePlanOverrideStore implements PlanOverrideStore {
+  constructor(
+    private readonly db: Db,
+    private readonly userId = 'local',
+  ) {}
+
+  active(window: string, now: string): PlanOverride | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id, window, pct, granted_at, expires_at, revoked_at FROM plan_overrides
+         WHERE user_id = ? AND window = ? AND expires_at > ? AND revoked_at IS NULL
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(this.userId, window, now) as OverrideRow | undefined
+    return row ? toOverride(row) : undefined
+  }
+
+  grant(input: { window: string; pct: number; grantedAt: string; expiresAt: string }): PlanOverride {
+    const info = this.db
+      .prepare('INSERT INTO plan_overrides (user_id, window, pct, granted_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+      .run(this.userId, input.window, input.pct, input.grantedAt, input.expiresAt)
+    return { id: Number(info.lastInsertRowid), window: input.window, pct: input.pct, grantedAt: input.grantedAt, expiresAt: input.expiresAt, revokedAt: null }
+  }
+
+  revoke(window: string, now: string): PlanOverride | undefined {
+    const live = this.active(window, now)
+    if (!live) return undefined
+    this.db.prepare('UPDATE plan_overrides SET revoked_at = ? WHERE id = ? AND user_id = ?').run(now, live.id, this.userId)
+    return { ...live, revokedAt: now }
+  }
+
+  list(limit = 20): PlanOverride[] {
+    const rows = this.db
+      .prepare('SELECT id, window, pct, granted_at, expires_at, revoked_at FROM plan_overrides WHERE user_id = ? ORDER BY id DESC LIMIT ?')
+      .all(this.userId, limit) as OverrideRow[]
+    return rows.map(toOverride)
+  }
+}

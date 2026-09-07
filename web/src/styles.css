@@ -6973,10 +6973,61 @@ tr:focus-within .rowacts {
   color: var(--text-faint);
   cursor: help;
 }
+/* The age, and the button that stands next to it. */
+.lp-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+}
+.lp-age {
+  color: var(--text-faint);
+  cursor: help;
+}
 .lp-stale {
-  margin-top: 3px;
   color: var(--warn);
   cursor: help;
+}
+/* The one control here that hands out budget: quiet until asked, then it says the number. */
+.lp-rel {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.lp-rel:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.lp-rel.go {
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+  color: var(--warn);
+}
+.lp-rel.on {
+  border-color: color-mix(in srgb, var(--ok) 60%, transparent);
+  color: var(--ok);
+}
+.lp-ask {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.lp-ask .lp-rel {
+  margin-left: 0;
+}
+.lp-err {
+  color: var(--err);
+  max-width: 150px;
 }
 
 .lib-strip {

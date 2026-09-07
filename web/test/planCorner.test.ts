@@ -19,6 +19,7 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus =>
     reason: null,
     liveReason: null,
     sinceSample: { runs: 0, fiveHour: null, sevenDay: null },
+    override: { enabled: false, active: false, pct: 90, expiresAt: null },
     subscription: null,
     sampledAt: ago(60_000),
     windows: [
@@ -141,6 +142,18 @@ describe('what the corner says', () => {
       NOW,
     )!
     expect(c.lines[0]).toMatchObject({ label: 'week · fable', sincePct: null })
+  })
+
+  it('always says the age, so the button beside it never moves', () => {
+    expect(planCorner(plan({ sampledAt: ago(0) }), NOW)!.ageText).toBe('0m old')
+    expect(planCorner(plan({ sampledAt: null }), NOW)!.ageText).toBe('never measured')
+  })
+
+  it('carries the release: whether it may be granted, and whether one is live', () => {
+    expect(planCorner(plan(), NOW)!.release).toMatchObject({ enabled: false, active: false, pct: 90 })
+    const on = planCorner(plan({ override: { enabled: true, active: true, pct: 90, expiresAt: ahead(3600_000) } }), NOW)!
+    expect(on.release).toMatchObject({ enabled: true, active: true, pct: 90 })
+    expect(on.release.until).not.toBeNull()
   })
 
   it('passes on why the numbers stopped refreshing', () => {

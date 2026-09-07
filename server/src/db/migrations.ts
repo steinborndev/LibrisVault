@@ -562,6 +562,29 @@ ALTER TABLE agents ADD COLUMN task_cursor INTEGER NOT NULL DEFAULT 0;
 UPDATE agents SET tasks = json_array(json_object('id', 't1', 'text', intent, 'kind', 'explore', 'state', 'active'));
 `
 
+/*
+ * Releasing the rest of a five-hour window to the Fellows (SPEC section 8.6).
+ *
+ * A finished afternoon often leaves plan budget standing that nothing will use before the
+ * window resets. One grant lifts both five-hour bounds for THAT window only.
+ *
+ * A table rather than a settings key, for two reasons. It expires - a setting does not, and a
+ * limit that quietly stays raised is the thing this must never become. And every grant is a
+ * row, so the record of who raised what and until when is the same object that raises it.
+ */
+const V22 = `
+CREATE TABLE plan_overrides (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL DEFAULT 'local',
+  window TEXT NOT NULL,
+  pct REAL NOT NULL,
+  granted_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX idx_plan_overrides_window ON plan_overrides (user_id, window, expires_at);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -584,4 +607,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 19, up: V19 },
   { version: 20, up: V20 },
   { version: 21, up: V21 },
+  { version: 22, up: V22 },
 ]

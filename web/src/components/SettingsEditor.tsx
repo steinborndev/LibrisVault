@@ -170,6 +170,13 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
         )}
 
         {row(
+          'fiveHourOverrideEnabled',
+          '5-hour release',
+          'Lets you hand the rest of a 5-hour window to the Fellows from the Library corner - up to 90 % of it, until that window resets. Off by default and off means gone: no button, and the endpoint refuses whoever asks. The week\'s reserve is never touched, a release ends with its window and renews nothing, and it is refused while a run is in flight.',
+          <input type="checkbox" checked={draft.fiveHourOverrideEnabled} onChange={(e) => setDraft({ ...draft, fiveHourOverrideEnabled: e.target.checked })} />,
+        )}
+
+        {row(
           'gitAutoCommit',
           'Git auto-commit',
           'Commit automatically after every ingest. Off: pages land on disk without a commit.',

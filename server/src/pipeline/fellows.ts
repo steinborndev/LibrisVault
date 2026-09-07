@@ -369,6 +369,18 @@ export class FellowService {
       .map((agent) => this.summary(agent))
   }
 
+  /**
+   * Whether any Fellow has a run going. Read by the five-hour release, which refuses while one
+   * does: a Fellow that could raise the bound mid-flight would be granting itself budget for
+   * the run it is already in (SPEC section 8.6, the security review of 2026-09-07).
+   */
+  anyRunInFlight(): boolean {
+    for (const runId of this.inFlight.values()) {
+      if (this.maintenance.getRun(runId)?.status === 'running') return true
+    }
+    return false
+  }
+
   private summary(agent: AgentRecord): FellowSummary {
     const runId = this.inFlight.get(agent.id)
     const tracked = runId ? this.maintenance.getRun(runId) : undefined

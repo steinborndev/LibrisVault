@@ -567,6 +567,8 @@ export interface EffectiveSettings {
    * the usage endpoint that also carries it is often rate limited. '' = show what is measured.
    */
   planName: string
+  /** Whether the 5-hour release may be granted at all (SPEC section 8.6). */
+  fiveHourOverrideEnabled: boolean
 }
 
 /**
@@ -989,6 +991,11 @@ export interface PlanStatus {
    * shown figure is behind by. Null per window while the calibration cannot price a run.
    */
   sinceSample: { runs: number; fiveHour: number | null; sevenDay: number | null }
+  /**
+   * The five-hour release (SPEC section 8.6): whether it may be granted at all, whether one is
+   * live, what it lifts the bounds to, and when it ends.
+   */
+  override: { enabled: boolean; active: boolean; pct: number; expiresAt: string | null }
   subscription: string | null
   sampledAt: string | null
   windows: PlanWindow[]

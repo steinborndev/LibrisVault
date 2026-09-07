@@ -21,7 +21,7 @@ import { SqliteValueEventStore } from './db/value-events.js'
 import { SqliteHandoffStore } from './db/handoffs.js'
 import { SqliteLibraryStore } from './db/library.js'
 import { LibraryService } from './pipeline/library.js'
-import { SqliteUsageSampleStore } from './db/usage-samples.js'
+import { SqliteUsageSampleStore, SqlitePlanOverrideStore } from './db/usage-samples.js'
 import { ReadingListService } from './pipeline/reading-list.js'
 import { UsageMonitor, type EndpointResult } from './pipeline/usage-monitor.js'
 import { indexWikiPages } from './pipeline/citations.js'
@@ -145,7 +145,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // refuse, which the monitor reports and falls back from). Fellows only.
   const planSettings = () => {
     const e = settings.effective(config)
-    return { researchShareWeekPct: e.researchShareWeekPct, researchShare5hPct: e.researchShare5hPct, reserve5hPct: e.reserve5hPct, reserveWeekPct: e.reserveWeekPct, planWeekUsd: e.planWeekUsd, plan5hUsd: e.plan5hUsd, planName: e.planName }
+    return { researchShareWeekPct: e.researchShareWeekPct, researchShare5hPct: e.researchShare5hPct, reserve5hPct: e.reserve5hPct, reserveWeekPct: e.reserveWeekPct, planWeekUsd: e.planWeekUsd, plan5hUsd: e.plan5hUsd, planName: e.planName, fiveHourOverrideEnabled: e.fiveHourOverrideEnabled }
   }
   // The app logger exists only after buildServer; until then these lines are dropped. Declared
   // here because the usage monitor below wants it too - a plan endpoint that stops answering is
@@ -159,6 +159,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     config.agentsEnabled === true && !config.demoMode
       ? new UsageMonitor({
           store: new SqliteUsageSampleStore(db),
+          overrides: new SqlitePlanOverrideStore(db),
           runs: agentRuns,
           settings: planSettings,
           log: fellowsLog,

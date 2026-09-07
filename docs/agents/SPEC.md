@@ -503,6 +503,42 @@ inside the window and at most four hours ahead, the shift waits for it once (plu
 minute), wakes the Fellows sleeping on `plan`, and runs another round. The monitor's
 endpoint sample is refreshed before every round.
 
+### 8.6 Releasing a five-hour window (as built, 2026-09-07)
+
+A finished afternoon often leaves plan budget standing that nothing will use before the window
+resets. One grant hands the rest of THAT window to the Fellows: `POST /usage/override` lifts
+both five-hour bounds - the reserve and the research share - to 90 %, until the window's own
+`resets_at`. Both, because either alone does nothing: a share of 90 still stops at a reserve of
+60, and a reserve of 90 still stops at a share of 15.
+
+**What makes it safe is what a grant can do, not who may ask.** The security review of
+2026-09-07 found the guard could not be the caller's identity: the API is unauthenticated on a
+loopback port that every WSL distribution on the machine shares, an agent run reaches it
+through `python3` (the bash denylist blocks `curl` and says of itself that a denylist can be
+evaded), and `PUT /settings` already accepts the same two numbers - so a Fellow could raise its
+own limit before this feature existed. No secret the browser holds is out of a local process's
+reach either. The controls are therefore all about the blast radius:
+
+- **A ceiling of 90 %**, never 100: the last tenth of the window stays the user's.
+- **An expiry the plan draws.** The grant ends at the window's own `resets_at` and renews
+  nothing; a second grant while one is live is refused rather than extending it. Without a known
+  reset instant the grant is refused outright - an open-ended release is the one thing this must
+  never become.
+- **The week is untouched.** `reserveWeekPct` and `researchShareWeekPct` survive every grant,
+  which is what makes a released afternoon a bounded decision rather than an open tap.
+- **Refused while a run is in flight**, so no Fellow can raise the bound it is running under.
+- **A settings switch**, `fiveHourOverrideEnabled`, off by default. Off means the button is gone
+  and the endpoint refuses whoever asks: a feature that can only be turned off after the fact is
+  not a safety switch.
+- **POST only**, so a tool that can merely fetch cannot trigger it, and **one warning line in
+  the log** per grant. Every grant is a row in `plan_overrides` - a table rather than a setting,
+  because a setting does not expire, and the row IS the record of what was released until when.
+
+The button sits in the Library's plan corner, next to the age of the measurement - which is now
+always shown, "0m old" included, so the button never moves. A first click turns it into
+`yes, to 90%` / `no`, the same two-step the Fellow card's quota override uses. While a grant is
+live the button says `90% until 18:20` and withdraws it on click.
+
 ---
 
 ## 9. Daily recap

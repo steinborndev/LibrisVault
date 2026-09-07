@@ -164,7 +164,11 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   if (ctx.fellows !== undefined) registerAgentsRoute(app, ctx, ctx.fellows)
   if (ctx.fellows !== undefined && ctx.recaps !== undefined) registerRecapsRoute(app, ctx, ctx.recaps, ctx.fellows)
   if (ctx.library !== undefined) registerLibraryRoute(app, ctx.library)
-  if (ctx.usage !== undefined) registerUsageRoute(app, ctx.usage, () => (ctx.settings ? ctx.settings.effective(ctx.config).researchModelDefault : 'sonnet-5'))
+  if (ctx.usage !== undefined)
+    registerUsageRoute(app, ctx.usage, () => (ctx.settings ? ctx.settings.effective(ctx.config).researchModelDefault : 'sonnet-5'), {
+      enabled: () => ctx.settings?.effective(ctx.config).fiveHourOverrideEnabled ?? false,
+      runInFlight: () => ctx.fellows?.anyRunInFlight() ?? false,
+    })
   if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue)
 
   await registerFrontend(app)
