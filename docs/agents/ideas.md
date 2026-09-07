@@ -539,6 +539,22 @@ unreachable, that nothing written escapes to the host, and that pandoc, pdftotex
 python3 with its packages still work in there. Last run: 13 checks, all as expected. The unit
 tests read the argument list and prove the policy; only the probe proves it is applied.
 
+### Still open: the root spec has not been told (todo, for A6)
+
+`CLAUDE.md` hard rule 6 and this spec's mirror of it carry the boundary, but the root
+`SPEC.md` section 5 still describes the preprocessing chain as it was: a plugin chain of
+external tools, with no word about what contains them. That file is LibrisVault's
+authoritative spec ("do not edit without being asked"), so it is merge-prep work, not
+sandbox work - it belongs in A6 beside the feature-flag review and section 12.10.
+
+What it needs to say, in one paragraph beside the tool table: converters run through
+`runConverter`, not `runTool`; the jail is bubblewrap with no network, no `$HOME`, a
+read-only `/usr` and `/etc`, the input file and one writable output directory; the tool's
+own prefix is bound when it lives outside `/usr`, never a home directory; `yt-dlp` is the
+documented exception; a missing bubblewrap fails the conversion unless
+`PREPROCESS_SANDBOX=off`; and `preprocprobe` is to this what `permprobe` is to section 7 -
+the only check that sees whether the policy is applied rather than merely written.
+
 ### Why markitdown itself is not worth it
 
 - It is a converter, not a fetcher past a block. Its own README: "Like `open()` or

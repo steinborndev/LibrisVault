@@ -1471,7 +1471,7 @@ unmeasurable, which the end-to-end tests read as a drift score of 0.00.
 | A3 | Expand and collaboration | `research-expand` with validation and revert, routing, dedupe, unclaimed requests with prefilled spawn | a violating expand run is reverted; a cross-domain question reaches the other Fellow |
 | A4 | Library | sprite test and asset decision, Catalog rename, scene adapter for existing runs, then Fellows, card with live run, departments and books, graph domain link, day and night | existing runs animate with zero Fellows; the card opens by click and deep link |
 | A5 | Plan-percent quota | usage sampling, calibration, shares and reserves, proposal pricing in points | a step is refused when the share is used up; the recap shows points per run |
-| A6 | Merge prep | feature flag review, docs, screenshots, SPEC section 12.10, PR into LibrisVault | LibrisVault unchanged with the flag off; review passed |
+| A6 | Merge prep | feature flag review, docs, screenshots, SPEC section 12.10, **root SPEC.md section 5: the preprocessing containment (2026-09-08) is in CLAUDE.md and here, not yet in LibrisVault's own spec**, PR into LibrisVault | LibrisVault unchanged with the flag off; review passed |
 
 A0 to A3 are server-first and usable without the Library screen; A4 can start in
 parallel after A0 because it depends only on existing signals.
