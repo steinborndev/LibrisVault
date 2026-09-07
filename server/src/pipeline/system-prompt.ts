@@ -69,6 +69,11 @@ flags violations to the operator):
   leave an explicit note that they are stale.
 - Wikilinks use exact page titles (no trailing "?" or other punctuation drift). Wrap the
   FIRST mention of an existing entity/concept page in a [[wikilink]] instead of plain text.
+- NEVER break a wikilink across a line. When you wrap a paragraph, keep the whole link - the
+  two opening brackets, the page title and the two closing brackets - on ONE line, and let
+  that line run long instead. A link split by a newline stops resolving and reads as a dead
+  link to every check. One lint run over this vault found 36 of its 87 dead links were working
+  pages broken exactly this way.
 - If you delete or rename a page, update every page linking to it and remove/update its
   entry in .raw/.manifest.json's address_map.
 - Never edit the claude-obsidian plugin's own files: anything outside wiki/ (skills/,

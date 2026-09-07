@@ -874,6 +874,10 @@ the vault, and the Fellow that asked for it never learned it had arrived.
   `filedAt` written into them - the link the row shows and the record that the Fellow has been
   told, so the note goes out once. The Fellow that asked gets one line in its notebook: the
   title, the page, and its own reason for wanting it.
+- **A wikilink never breaks across a line**, and the hygiene checklist says so for every
+  writing run. A link split by a paragraph wrap stops resolving and reads as dead to every
+  check; a lint run over the demo vault found 36 of its 87 dead links were working pages
+  broken exactly that way. The rule costs a long line and saves a class of silent rot.
 - **The page is append-only for EVERY run, and the hygiene checklist now says so.** An ingest
   started from the list deleted the very entry that had asked for the document it was filing:
   reasonable-looking housekeeping that throws away the request, its reason, and the mark the

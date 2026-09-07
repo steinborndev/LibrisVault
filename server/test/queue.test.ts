@@ -149,6 +149,8 @@ describe('system-prompt extension', () => {
     // and the Fellow behind it disappear (section 10.6).
     expect(extra).toContain('wiki/meta/reading-list.md is append-only')
     expect(extra).toContain('NEVER remove or rewrite one')
+    // A link split by a paragraph wrap stops resolving and reads as a dead link everywhere.
+    expect(extra).toContain('NEVER break a wikilink across a line')
   })
 })
 
