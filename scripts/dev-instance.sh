@@ -5,9 +5,8 @@
 #   scripts/dev-instance.sh                      # tsx from source (npm start), port 8421
 #   scripts/dev-instance.sh npm run start:prod   # the built JS instead
 #
-# Its port, SQLite database, watch folder and Telegram wiring stay separate from the live
-# service (Telegram allows one poller per token, and the live bot owns it). The credential
-# file is shared on purpose. Any variable can be overridden from the environment.
+# Its port, SQLite database and watch folder stay separate from the live service. The
+# credential file is shared on purpose. Any variable can be overridden from the environment.
 #
 # THE VAULT IS NOT SEPARATE ANY MORE (2026-09-07). The seeded demo vault was archived and
 # this instance now runs against the real vault, which the live service also writes to. Each
@@ -25,7 +24,10 @@ export VAULT_ROOT="${VAULT_ROOT:-$HOME/vault}"
 export DB_PATH="${DB_PATH:-$DATA/jobs.db}"
 export WATCH_FOLDER="${WATCH_FOLDER:-$DATA/inbox}"
 export OBSIDIAN_VAULT_NAME="${OBSIDIAN_VAULT_NAME:-vault}"
-export TELEGRAM_BOT_TOKEN=""
+# Telegram allows exactly ONE poller per token. The live service owned the bot until it was
+# stopped and disabled (2026-09-07); this instance owns it now, and the token comes from the
+# shared credential file like every other credential. Hand it back with TELEGRAM_BOT_TOKEN=""
+# before starting the live service again, or both pollers fight over the same updates.
 export AGENTS_ENABLED="${AGENTS_ENABLED:-1}"
 # nvm's node is not on PATH in non-interactive shells.
 export PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH"
@@ -40,6 +42,13 @@ case "$DB_PATH" in
     exit 1
     ;;
 esac
+
+# Both services write the same vault and would poll the same bot token. Say so rather than
+# let it be discovered as missing commits or as Telegram dropping half the updates.
+if systemctl --user is-active --quiet vault-service 2>/dev/null; then
+  echo "warning: the live service is running - it writes the same vault and owns the same" >&2
+  echo "         bot token. Stop it (systemctl --user stop vault-service) first." >&2
+fi
 
 mkdir -p "$DATA" "$WATCH_FOLDER"
 if [ ! -d "$VAULT_ROOT/wiki" ] || [ ! -d "$VAULT_ROOT/skills" ]; then
