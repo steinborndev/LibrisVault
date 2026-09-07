@@ -730,9 +730,16 @@ export function LibraryScreen({
                     <span className="lp-unit">{corner.unit}</span>
                   </div>
                   {corner.lines.map((l) => (
-                    <div key={l.window} className={`lp-row${l.usedPct >= 90 ? ' spent' : l.usedPct >= 75 ? ' low' : ''}`}>
+                    <div key={l.window} className={`lp-row${l.usedPct + (l.sincePct ?? 0) >= 90 ? ' spent' : l.usedPct + (l.sincePct ?? 0) >= 75 ? ' low' : ''}`}>
                       <span className="lp-w">{l.label}</span>
-                      <span className="lp-n">{l.usedPct}%</span>
+                      <span className="lp-n">
+                        {l.usedPct}%
+                        {l.sincePct !== null && (
+                          <span className="lp-est" title={`plus about ${l.sincePct}% from ${corner.runsSince} run(s) since the last measurement`}>
+                            +{l.sincePct}
+                          </span>
+                        )}
+                      </span>
                     </div>
                   ))}
                   {corner.stale && (

@@ -46,8 +46,9 @@ describe('a department subgraph', () => {
   })
 })
 
-describe('the legend filter', () => {
+describe('the band filter', () => {
   const nodes = [node('A', 'computing'), node('S', 'computing', 'sources'), node('C', 'computing'), node('T', 'computing', 'sources')]
+  const ofType = (t: string) => (n: { type: string }) => n.type === t
   const edges: Array<[number, number]> = [
     [0, 1], // concept to source
     [1, 3], // source to source
@@ -56,16 +57,23 @@ describe('the legend filter', () => {
   ]
 
   it('keeps one page type and the links that stay inside it', () => {
-    const only = narrow({ nodes, edges }, 'sources')
+    const only = narrow({ nodes, edges }, ofType('sources'))
     expect(only.nodes.map((n) => n.title)).toEqual(['S', 'T'])
     expect(only.edges).toEqual([[0, 1]])
   })
 
-  it('no type picked leaves the department whole', () => {
+  it('no filter set leaves the department whole', () => {
     expect(narrow({ nodes, edges }, null)).toEqual({ nodes, edges })
   })
 
-  it('a type nobody carries yields nothing', () => {
-    expect(narrow({ nodes, edges }, 'questions')).toEqual({ nodes: [], edges: [] })
+  it('a filter nothing matches yields nothing', () => {
+    expect(narrow({ nodes, edges }, ofType('questions'))).toEqual({ nodes: [], edges: [] })
+  })
+
+  it('takes any predicate, which is what lets the search and "has a source" reach the graph', () => {
+    // The whole point of the change: the band's other two controls narrow the map as well.
+    const byTitle = narrow({ nodes, edges }, (n) => n.title === 'A' || n.title === 'C')
+    expect(byTitle.nodes.map((n) => n.title)).toEqual(['A', 'C'])
+    expect(byTitle.edges).toEqual([[0, 1]])
   })
 })

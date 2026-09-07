@@ -27,8 +27,14 @@ export interface PlanLine {
   readonly window: string
   /** What the corner calls it. */
   readonly label: string
-  /** Percent of the window consumed, 0 to 100, rounded to a whole number. */
+  /** Percent of the window consumed as last MEASURED, 0 to 100, rounded to a whole number. */
   readonly usedPct: number
+  /**
+   * Estimated percent spent since that measurement, or null when nothing can price it. The
+   * two are kept apart on purpose: one was read off the plan, the other is arithmetic, and a
+   * reader deciding whether tonight is affordable should be able to tell which is which.
+   */
+  readonly sincePct: number | null
   /** True when this window has rolled over since the sample: the number is a fresh 0. */
   readonly reset: boolean
   /**
@@ -51,6 +57,8 @@ export interface PlanCorner {
   readonly unit: 'used'
   /** Why they are not refreshing, when the service knows; for the tooltip. */
   readonly reason: string | null
+  /** Runs that have finished since the newest measurement and are therefore not in it. */
+  readonly runsSince: number
 }
 
 /** The two windows everyone has; the rest are named from their key. */
@@ -80,13 +88,27 @@ export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorne
   const sampled = plan.sampledAt === null ? null : Date.parse(plan.sampledAt)
   const ageMin = sampled === null || Number.isNaN(sampled) ? null : Math.max(0, Math.floor((now - sampled) / 60_000))
 
+  /*
+   * What each window is behind by. Only the two the estimate knows: a per-model week is not
+   * priced by the calibration, and guessing there would be worse than saying nothing.
+   */
+  const since: Record<string, number | null> = { five_hour: plan.sinceSample?.fiveHour ?? null, seven_day: plan.sinceSample?.sevenDay ?? null }
+
   const lines: Array<Omit<PlanLine, 'tightest'>> = []
   for (const w of plan.windows) {
     const resetsAt = plan.resets[w.window] ?? w.resetsAt
     const parsed = resetsAt === null || resetsAt === undefined ? NaN : Date.parse(resetsAt)
     const reset = !Number.isNaN(parsed) && parsed <= now
     const used = reset ? 0 : w.utilization
-    lines.push({ window: w.window, label: windowLabel(w.window), usedPct: Math.max(0, Math.min(100, Math.round(used))), reset })
+    // A window that has rolled over owes nothing to the runs before the rollover either.
+    const est = reset ? null : since[w.window] ?? null
+    lines.push({
+      window: w.window,
+      label: windowLabel(w.window),
+      usedPct: Math.max(0, Math.min(100, Math.round(used))),
+      sincePct: est !== null && est > 0 ? Math.round(est * 10) / 10 : null,
+      reset,
+    })
   }
   if (lines.length === 0) return null
   lines.sort((a, b) => (RANK[a.window] ?? 2) - (RANK[b.window] ?? 2) || a.window.localeCompare(b.window))
@@ -103,6 +125,8 @@ export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorne
     // A window that has reset carries no stale figure, so an old sample behind a full window
     // is not worth flagging - only one whose number is still being shown.
     stale: ageMin !== null && ageMin * 60_000 > STALE_MS && lines.some((l) => !l.reset),
+    /** How many runs the shown figures do not include yet. */
+    runsSince: plan.sinceSample?.runs ?? 0,
     reason: plan.liveReason,
   }
 }

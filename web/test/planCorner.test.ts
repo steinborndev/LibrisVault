@@ -18,6 +18,7 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus =>
     source: 'sdk',
     reason: null,
     liveReason: null,
+    sinceSample: { runs: 0, fiveHour: null, sevenDay: null },
     subscription: null,
     sampledAt: ago(60_000),
     windows: [
@@ -109,6 +110,37 @@ describe('what the corner says', () => {
   it('does not call an old sample stale when every window it describes has since reset', () => {
     const c = planCorner(plan({ sampledAt: ago(6 * 3600_000), windows: [{ window: 'five_hour', utilization: 91, resetsAt: ago(3600_000) }] }), NOW)!
     expect(c.stale).toBe(false)
+  })
+
+  it('carries what has run since the measurement, per window, apart from the measured figure', () => {
+    const c = planCorner(plan({ sinceSample: { runs: 3, fiveHour: 6.2, sevenDay: 1.4 } }), NOW)!
+    expect(c.runsSince).toBe(3)
+    expect(c.lines.map((l) => [l.usedPct, l.sincePct])).toEqual([
+      [24, 6.2],
+      [53, 1.4],
+    ])
+  })
+
+  it('estimates nothing for a window that has rolled over - the runs before it are gone too', () => {
+    const c = planCorner(
+      plan({ sinceSample: { runs: 2, fiveHour: 9, sevenDay: 1 }, windows: [{ window: 'five_hour', utilization: 91, resetsAt: ago(60_000) }] }),
+      NOW,
+    )!
+    expect(c.lines[0]).toMatchObject({ usedPct: 0, sincePct: null })
+  })
+
+  it('says nothing rather than guessing where the calibration cannot price a run', () => {
+    const c = planCorner(plan({ sinceSample: { runs: 4, fiveHour: null, sevenDay: null } }), NOW)!
+    expect(c.lines.every((l) => l.sincePct === null)).toBe(true)
+    expect(c.runsSince).toBe(4)
+  })
+
+  it('leaves a per-model window without an estimate, because the calibration does not price one', () => {
+    const c = planCorner(
+      plan({ sinceSample: { runs: 1, fiveHour: 2, sevenDay: 1 }, windows: [{ window: 'seven_day_fable', utilization: 81, resetsAt: ahead(3600_000) }] }),
+      NOW,
+    )!
+    expect(c.lines[0]).toMatchObject({ label: 'week · fable', sincePct: null })
   })
 
   it('passes on why the numbers stopped refreshing', () => {

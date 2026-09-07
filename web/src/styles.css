@@ -6966,6 +6966,13 @@ tr:focus-within .rowacts {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+/* What has run since the last measurement, priced from the calibration. Set apart from the
+   figure beside it because one was read off the plan and the other is arithmetic. */
+.lp-est {
+  margin-left: 4px;
+  color: var(--text-faint);
+  cursor: help;
+}
 .lp-stale {
   margin-top: 3px;
   color: var(--warn);

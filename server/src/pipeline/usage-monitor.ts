@@ -83,6 +83,8 @@ export interface PlanStatus {
   readonly reason: string | null
   /** Why the between-runs source is silent, even while old samples are still being shown. */
   readonly liveReason: string | null
+  /** Estimated window percent spent by runs that started after the newest sample. */
+  readonly sinceSample: { readonly runs: number; readonly fiveHour: number | null; readonly sevenDay: number | null }
   readonly subscription: string | null
   readonly sampledAt: string | null
   readonly windows: readonly WindowSample[]
@@ -386,6 +388,40 @@ export class UsageMonitor {
     return { fiveHour: round(cal.fiveHour), sevenDay: round(cal.sevenDay) }
   }
 
+  /**
+   * What has been spent SINCE the newest sample, in window percent, estimated.
+   *
+   * The windows are only ever measured inside a run - `usage()` needs an API response in the
+   * session (measured: `server/src/cli/usageprobe.ts`) - and the endpoint that could fill the
+   * gap is rate limited. So between samples the shown figure is not merely old, it is behind
+   * by everything that has run since, and a reader has no way to tell whether that is nothing
+   * or a night's work.
+   *
+   * This closes the gap without spending anything: each settled run's own cost, priced through
+   * the same per-model calibration the gate uses. Null while the calibration is not ready -
+   * an estimate nobody can check is worse than an honest gap.
+   */
+  sinceSample(): { readonly runs: number; readonly fiveHour: number | null; readonly sevenDay: number | null } {
+    const at = this.latest().sampledAt
+    if (at === null) return { runs: 0, fiveHour: null, sevenDay: null }
+    const since = Date.parse(at)
+    if (Number.isNaN(since)) return { runs: 0, fiveHour: null, sevenDay: null }
+    // A run that STARTED before the sample is already in it; one that started after is not.
+    const runs = this.o.runs.list({ limit: 200 }).filter((r) => r.costUsd !== null && r.costUsd > 0 && Date.parse(r.startedAt) > since)
+    let five = 0
+    let seven = 0
+    let known = false
+    for (const r of runs) {
+      const est = this.estimatePct(r.costUsd!, r.model ?? '')
+      if (est.fiveHour === null || est.sevenDay === null) continue
+      known = true
+      five += est.fiveHour
+      seven += est.sevenDay
+    }
+    if (!known) return { runs: runs.length, fiveHour: null, sevenDay: null }
+    return { runs: runs.length, fiveHour: Math.round(five * 10) / 10, sevenDay: Math.round(seven * 10) / 10 }
+  }
+
   /** What the Fellows consumed in the current windows: points where measured, USD always. */
   consumption(): Consumption {
     const now = this.now().getTime()
@@ -489,6 +525,7 @@ export class UsageMonitor {
        * with nothing to say about it.
        */
       liveReason: this.o.fetchEndpoint ? this.lastReason : 'no plan windows on an API key; the numbers come from runs only',
+      sinceSample: this.sinceSample(),
       subscription: s.planName !== '' ? s.planName : this.subscription,
       sampledAt: latest.sampledAt,
       windows: latest.windows,

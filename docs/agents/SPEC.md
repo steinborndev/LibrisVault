@@ -820,7 +820,14 @@ the department and nothing else:
   domain column that would repeat the heading. It carries the **source column**: the
   document each page was written from, opening the stored file for an ingest and the live
   URL for a web source (a web ingest never links its stored HTML, section 12.6). A filter
-  bar above it narrows by title, by page type, and to the pages that have a source at all.
+  bar above it narrows by title, by page type, and to the pages that have a source at all. All
+  three reach BOTH views (fixed 2026-09-07): the graph honoured only the page-type chips, so
+  the search field and "has a source" narrowed the table while the canvas drew the department
+  untouched - two of the three controls above it doing nothing to it. `narrow` now takes the
+  band's whole predicate rather than a type, one node set feeds both views, and the link count
+  follows the filter too instead of describing a department nobody is looking at. The search
+  matches a page's other names as well as its title, since a page found under the name it calls
+  itself is still that page.
 
 While the window is open the control column belongs to the department, not to the room:
 the department list on top switches which one the window shows, and under it stand the
@@ -1248,6 +1255,25 @@ three minutes. The screen polls once a minute while the Library is the tab in fr
 it is mounted behind another, and not faster than the endpoint's own cache - refetches on window
 focus, and re-reads the moment a run settles, which is the one event that certainly moved the
 windows.
+
+**There is no free sample** (measured 2026-09-07, `server/src/cli/usageprobe.ts`). `usage()` is
+a control request to the CLI, not a call to the model, so it might in principle answer at
+startup - it does not. Before any API response it returns no windows and says so ("no API
+response in this session"), at every message until one happens; and by the fourth message a
+one-word prompt had already cost 0.30 USD, because every session loads the vault's CLAUDE.md,
+claude-obsidian as a plugin and all its skills before it says anything. A periodic ping to
+refresh the numbers would therefore cost a run each time, and the SDK's own type says these
+windows come "from the claude.ai usage endpoint" - the same endpoint that is rate limiting us,
+so a ping is not a way around that either.
+
+**What runs since the last measurement have spent is estimated instead** (`sinceSample`). Each
+settled run's cost, priced through the same per-model calibration the gate uses, summed for the
+runs that started after the newest sample; the card shows it beside the measured figure as
+`24% +6.2` and never merged into it, because one was read off the plan and the other is
+arithmetic. Null per window while the calibration cannot price a run - an estimate nobody can
+check is worse than an honest gap - and null for a window that has rolled over, whose earlier
+runs are gone with it. The colour thresholds read measured plus estimate, since that is the
+better guess at where the window actually stands.
 
 Against this vault the endpoint answers "Rate limited. Please try again later.", so between runs
 nothing refreshes at all. That used to be invisible: the reason was recorded and never spoken,

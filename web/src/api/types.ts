@@ -963,6 +963,11 @@ export interface PlanStatus {
    * source that stopped answering would otherwise leave hours-old percentages unexplained.
    */
   liveReason: string | null
+  /**
+   * Estimated window percent spent by runs that started after the newest sample - what the
+   * shown figure is behind by. Null per window while the calibration cannot price a run.
+   */
+  sinceSample: { runs: number; fiveHour: number | null; sevenDay: number | null }
   subscription: string | null
   sampledAt: string | null
   windows: PlanWindow[]

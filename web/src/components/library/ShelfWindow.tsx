@@ -44,13 +44,23 @@ export function subgraph(nodes: readonly GraphNode[], edges: ReadonlyArray<reado
   return { nodes: out, edges: inner }
 }
 
-/** One department narrowed to a single page type, with the links inside it re-indexed. */
-export function narrow(sub: { nodes: readonly GraphNode[]; edges: ReadonlyArray<readonly [number, number]> }, type: string | null): { nodes: GraphNode[]; edges: Array<[number, number]> } {
-  if (type === null) return { nodes: [...sub.nodes], edges: sub.edges.map(([a, b]) => [a, b] as [number, number]) }
+/**
+ * One department narrowed to the pages a filter keeps, with the links inside it re-indexed.
+ *
+ * `keep` is the whole band, not just the type chips: the search field and "has a source" used
+ * to narrow the TABLE while the graph drew the department untouched, so two of the three
+ * controls above the canvas did nothing to it. One predicate for both views is what makes the
+ * band mean the same thing in either.
+ */
+export function narrow(
+  sub: { nodes: readonly GraphNode[]; edges: ReadonlyArray<readonly [number, number]> },
+  keepNode: ((n: GraphNode) => boolean) | null,
+): { nodes: GraphNode[]; edges: Array<[number, number]> } {
+  if (keepNode === null) return { nodes: [...sub.nodes], edges: sub.edges.map(([a, b]) => [a, b] as [number, number]) }
   const keep = new Map<number, number>()
   const nodes: GraphNode[] = []
   sub.nodes.forEach((n, i) => {
-    if (n.type !== type) return
+    if (!keepNode(n)) return
     keep.set(i, nodes.length)
     nodes.push(n)
   })
@@ -119,16 +129,27 @@ export function ShelfWindow({
   }, [sub.nodes])
   const withSource = useMemo(() => (refs === undefined ? 0 : sub.nodes.filter((n) => refs[n.path] !== undefined).length), [sub.nodes, refs])
 
-  /** The subgraph the graph draws: the department, narrowed to one page type when the legend picks one. */
-  const drawn = useMemo(() => (type === null ? sub : narrow(sub, type)), [sub, type])
-
-
-  const rows = useMemo(() => {
+  /**
+   * What the band keeps - one predicate, used by both views, so a chip narrows the map and the
+   * list alike. The search matches the page's other names too (its frontmatter title and its
+   * aliases), because a page found under the name it calls itself is still that page.
+   */
+  const keepNode = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return sub.nodes
-      .filter((n) => (type === null || n.type === type) && (!srcOnly || (refs !== undefined && refs[n.path] !== undefined)) && (q === '' || n.title.toLowerCase().includes(q)))
-      .sort((a, b) => b.in + b.out - (a.in + a.out))
-  }, [sub.nodes, query, type, srcOnly, refs])
+    if (type === null && !srcOnly && q === '') return null
+    return (n: GraphNode): boolean =>
+      (type === null || n.type === type) &&
+      (!srcOnly || (refs !== undefined && refs[n.path] !== undefined)) &&
+      (q === '' || n.title.toLowerCase().includes(q) || (n.names ?? []).some((x) => x.toLowerCase().includes(q)))
+  }, [query, type, srcOnly, refs])
+
+  /** The subgraph the graph draws: the department as the band leaves it. */
+  const drawn = useMemo(() => narrow(sub, keepNode), [sub, keepNode])
+
+  const rows = useMemo(
+    () => (keepNode === null ? [...sub.nodes] : sub.nodes.filter(keepNode)).sort((a, b) => b.in + b.out - (a.in + a.out)),
+    [sub.nodes, keepNode],
+  )
 
   const state = queryState(graph, 'the graph')
 
@@ -163,7 +184,10 @@ export function ShelfWindow({
             </button>
           </div>
           <span className="box-sub sf-count">
-            {rows.length} of {sub.nodes.length} page(s) · {sub.edges.length} link(s)
+            {rows.length} of {sub.nodes.length} page(s) ·{' '}
+            {/* The links follow the filter once one is set: saying 2475 while the canvas draws
+                one node was the count describing a department nobody is looking at. */}
+            {keepNode === null ? `${sub.edges.length} link(s)` : `${drawn.edges.length} of ${sub.edges.length} link(s)`}
           </span>
           <div className="sf-actions">
             {pane === 'graph' && (
@@ -189,7 +213,7 @@ export function ShelfWindow({
               focusIndex={null}
               matches={new Set()}
               lens="type"
-              fitKey={`shelf-${domain}-${drawn.nodes.length}-${type ?? 'all'}-${openedAt}-${layoutKey}-${fitNonce}-v${graphVisits}`}
+              fitKey={`shelf-${domain}-${drawn.nodes.length}-${type ?? 'all'}-${srcOnly}-${query.trim()}-${openedAt}-${layoutKey}-${fitNonce}-v${graphVisits}`}
               openOnClick
               fitOnMount
               onSelect={(node) => onPage(node.path)}

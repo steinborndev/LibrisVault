@@ -210,7 +210,7 @@ describe('recap model from fixtures', () => {
       available: true,
       source: 'sdk' as const,
       reason: null,
-      liveReason: null,
+      liveReason: null, sinceSample: { runs: 0, fiveHour: null, sevenDay: null },
       subscription: 'max',
       sampledAt: '2026-09-07T06:00:00.000Z',
       windows: [{ window: 'five_hour', utilization: 12, resetsAt: null }, { window: 'seven_day', utilization: 31, resetsAt: null }, { window: 'seven_day_sonnet', utilization: 4, resetsAt: null }],
@@ -242,7 +242,7 @@ describe('recap model from fixtures', () => {
     expect(page).toContain('**Plan now**: 5-hour 12%, week 31% (sonnet 4%).')
     expect(page).toContain('**Research share**: 3.2 of 10 points this week, 1 of 15 points in this 5-hour window, about 17 standard step(s) left this week.')
     expect(page).toContain('3 page(s), 2.10 USD, 0.4 points of the week and 2.5 of the 5-hour window, commit abc123')
-    const usd = buildRecapModel({ cycleDate: '2026-09-07', now: at(7, 7, 0), since: 's', window: WINDOW, fellows: [], runsOf: () => [], pendingOf: () => [], shift: null, usage: () => ({ costUsd: 0, runs: 0 }), valueOf: () => ({ pageOpens: 0, recapLinks: 0 }), readPage: () => undefined, commitStatus: () => undefined, plan: { ...plan, available: false, reason: 'the SDK reports no plan rate limits for this credential', liveReason: null, windows: [], shares: { unit: 'usd', week: 100, fiveHour: 12, weekUsed: 12.4, fiveHourUsed: 2.1, stepsLeftWeek: 43 } } })
+    const usd = buildRecapModel({ cycleDate: '2026-09-07', now: at(7, 7, 0), since: 's', window: WINDOW, fellows: [], runsOf: () => [], pendingOf: () => [], shift: null, usage: () => ({ costUsd: 0, runs: 0 }), valueOf: () => ({ pageOpens: 0, recapLinks: 0 }), readPage: () => undefined, commitStatus: () => undefined, plan: { ...plan, available: false, reason: 'the SDK reports no plan rate limits for this credential', liveReason: null, sinceSample: { runs: 0, fiveHour: null, sevenDay: null }, windows: [], shares: { unit: 'usd', week: 100, fiveHour: 12, weekUsed: 12.4, fiveHourUsed: 2.1, stepsLeftWeek: 43 } } })
     const text = renderRecapPage(usd)
     expect(text).not.toContain('Plan now')
     expect(text).toContain('**Research share**: 12.4 of 100 USD this week, 2.1 of 12 USD in this 5-hour window, about 43 standard step(s) left this week (USD-equivalent: the SDK reports no plan rate limits for this credential).')
