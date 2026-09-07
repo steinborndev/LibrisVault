@@ -17,7 +17,7 @@ import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { ChatStore } from '../src/db/chat.js'
 import { Mutex } from '../src/util/mutex.js'
 import { buildServer } from '../src/api/server.js'
-import { ReadingListService, parseReadingList, reachOf, urlKey, entryRef, READING_LIST_PAGE, type ReadingEntry } from '../src/pipeline/reading-list.js'
+import { ReadingListService, parseReadingList, reachOf, urlKey, urlFileName, entryRef, READING_LIST_PAGE, type ReadingEntry } from '../src/pipeline/reading-list.js'
 import { refKey } from '../src/pipeline/dedupe.js'
 import type { Config } from '../src/config.js'
 
@@ -251,6 +251,70 @@ title: "Reading list"
       byUrl: () => ({ page: 'wiki/sources/By Url.md' }),
     })
     expect(reading.entries()[0]).toMatchObject({ page: 'wiki/sources/By Identifier.md', via: 'ref' })
+  })
+
+  /*
+   * The route of last resort, and the case that needed it: a regulator's PDF with no DOI,
+   * whose ingest wrote the local staging path into the page's `url:` rather than an address,
+   * dropped in by hand so the job log has no url either. Every other route is blind to it. The
+   * one thing left is the file name - a browser names a download after the last segment of the
+   * url it came from, which is the very link the board offers.
+   */
+  const PAGE_OF_A_DOWNLOAD = `---
+type: meta
+title: "Reading list"
+---
+# Reading list
+
+## Entries
+
+- title: An agency's own assessment report
+  url: https://agency.invalid/en/documents/assessment-report/kostaive-epar-public-assessment-report_en.pdf
+  domain: biomedicine
+  why: The regulator's own reading of the sponsor's claim.
+  by: Beatrice
+  at: 2026-09-07
+`
+
+  const droppedFile = (name: string): string => {
+    const { job } = store.create({ source: 'drop', type: 'pdf', originalName: name })
+    store.setCreatedPages(job.id, [`wiki/sources/${name}.md`])
+    for (const to of ['preprocessing', 'ingesting', 'done'] as const) store.transition(job.id, to)
+    return job.id
+  }
+
+  it('recognizes the file the user downloaded from the link on the board', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_OF_A_DOWNLOAD)
+    droppedFile('kostaive-epar-public-assessment-report_en.pdf')
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    expect(reading.entries()[0]).toMatchObject({
+      page: 'wiki/sources/kostaive-epar-public-assessment-report_en.pdf.md',
+      via: 'file',
+      job: null,
+    })
+    const filed = await reading.reconcile('2026-09-08')
+    expect(filed).toHaveLength(1)
+    expect(filed[0]!.entry).toMatchObject({ by: 'Beatrice' })
+  })
+
+  it('refuses to guess when a file name is not unambiguous', () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_OF_A_DOWNLOAD)
+    // Two ingests of the same name: which document the entry asked for is no longer knowable,
+    // and a wrong answer would tell a Fellow its publication had arrived over someone else's.
+    droppedFile('kostaive-epar-public-assessment-report_en.pdf')
+    droppedFile('kostaive-epar-public-assessment-report_en.pdf')
+    const reading = new ReadingListService(vaultRoot, store, {})
+    expect(reading.entries()[0]).toMatchObject({ page: null, via: null })
+  })
+
+  it('reads a file name off a url only when there is one', () => {
+    expect(urlFileName('https://a.invalid/x/report_en.pdf')).toBe('report_en.pdf')
+    // Capitalisation and a tracking parameter do not change the file.
+    expect(urlFileName('https://a.invalid/x/Report_EN.PDF?utm=1')).toBe('report_en.pdf')
+    // An article id is not a file, or every entry on such a host would compete for one match.
+    expect(urlFileName('https://a.invalid/abt/article/9/3/332/8697373')).toBeUndefined()
+    expect(urlFileName('https://a.invalid/doi/10.1056/NEJMoa2504747')).toBeUndefined()
+    expect(urlFileName('https://a.invalid/')).toBeUndefined()
   })
 
   /*

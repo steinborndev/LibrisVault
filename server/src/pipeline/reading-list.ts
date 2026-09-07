@@ -66,9 +66,10 @@ export interface ReadingItem extends ReadingEntry {
   readonly page: string | null
   /**
    * How it was recognized, weakest last: its DOI / arXiv id (`ref`), the url a source page
-   * records (`url`), or the ingest that ran for its url (`job`).
+   * records (`url`), the ingest that ran for its url (`job`), or a dropped file named exactly
+   * as its url names it (`file`).
    */
-  readonly via: 'job' | 'ref' | 'url' | null
+  readonly via: 'job' | 'ref' | 'url' | 'file' | null
 }
 
 const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat)\s*:\s*(.*)$/i
@@ -118,6 +119,20 @@ export function entryRef(entry: Pick<ReadingEntry, 'ref' | 'url'>): string | und
 
 /** Re-exported from the dedupe index, which needs the same normalization for its page urls. */
 export { urlKey } from './dedupe.js'
+
+/**
+ * The file a url points at, lowercased, or undefined when the url ends in something that is
+ * not a filename.
+ *
+ * The last path segment only counts as one when it carries an extension: `/8697373` and
+ * `/NEJMoa2504747` are article ids and must never be read as files, or every entry on such a
+ * host would compete for the same match.
+ */
+export function urlFileName(url: string): string | undefined {
+  const trimmed = urlKey(url)
+  const last = trimmed.slice(trimmed.lastIndexOf('/') + 1)
+  return /^[^/]+\.[a-z0-9]{2,5}$/.test(last) ? last : undefined
+}
 
 const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -225,11 +240,49 @@ export class ReadingListService {
     } catch {
       return []
     }
+    const list = parseReadingList(markdown)
     const jobs = this.jobsByUrl()
-    return parseReadingList(markdown).map((e) => {
-      const { job, page, via } = this.locate(e, jobs)
+    const files = this.filesFor(list)
+    return list.map((e) => {
+      const { job, page, via } = this.locate(e, jobs, files)
       return { ...e, job, reach: reachOf(e), page, via }
     })
+  }
+
+  /**
+   * Ingested files, by name, for the entries whose url names a file - and ONLY where the name
+   * is unambiguous on both sides.
+   *
+   * A browser names a download after the last segment of the url it came from, so a document
+   * the user fetched from the very link the board offers arrives carrying that name. That is
+   * the only thing such an ingest and its entry still have in common: there is no identifier,
+   * the page records the local staging path rather than an address, and a dropped file puts no
+   * url in the job log.
+   *
+   * The guard is what keeps a filename honest. A name shared by two entries, or by two
+   * ingests, matches NOTHING: a wrong match here would mark an entry filed and tell a Fellow
+   * its publication had arrived, pointing at someone else's document. Refusing to guess is
+   * cheap; the entry simply stays open, which is where it was anyway.
+   */
+  private filesFor(list: readonly ReadingEntry[]): Map<string, { id: string; status: string }> {
+    const wanted = new Map<string, number>()
+    for (const e of list) {
+      const name = urlFileName(e.url)
+      if (name !== undefined) wanted.set(name, (wanted.get(name) ?? 0) + 1)
+    }
+    const out = new Map<string, { id: string; status: string }>()
+    const ambiguous = new Set<string>()
+    for (const j of this.jobs.list({ limit: 500 })) {
+      const name = (j.original_name ?? '').trim().toLowerCase()
+      if (name === '' || wanted.get(name) !== 1) continue
+      if (out.has(name)) {
+        ambiguous.add(name)
+        continue
+      }
+      out.set(name, { id: j.id, status: j.status })
+    }
+    for (const name of ambiguous) out.delete(name)
+    return out
   }
 
   /** What the job log knows about each ingested url, first job per url, built once per pass. */
@@ -262,14 +315,18 @@ export class ReadingListService {
    * In order of certainty:
    *   1. the entry says `filed` itself
    *   2. its identifier stands on a source page (a DOI is the same publication anywhere)
-   *   3. a source page records its url (weaker, and the only route for a paper with no DOI
-   *      that arrived as a hand-dropped PDF)
+   *   3. a source page records its url (weaker, and one route for a paper with no DOI that
+   *      arrived as a hand-dropped PDF - but only when the ingest wrote a real address, which
+   *      it can only do when the document itself carried one)
    *   4. an ingest ran for its url and finished
+   *   5. an ingest of a file named exactly as the entry's url names it (weakest, guarded by
+   *      {@link filesFor}: the download the user made from the link on the board)
    */
   private locate(
     e: ReadingEntry,
     jobs: Map<string, { id: string; status: string; pages: number }>,
-  ): { job: { id: string; status: string; pages: number } | null; page: string | null; via: 'job' | 'ref' | 'url' | null } {
+    files: Map<string, { id: string; status: string }>,
+  ): { job: { id: string; status: string; pages: number } | null; page: string | null; via: 'job' | 'ref' | 'url' | 'file' | null } {
     const job = jobs.get(urlKey(e.url)) ?? null
     if (e.filed !== null) return { job, page: e.filed, via: 'ref' }
     const ref = entryRef(e)
@@ -278,7 +335,11 @@ export class ReadingListService {
     const byUrl = this.byUrl(e.url)?.page ?? null
     if (byUrl !== null) return { job, page: byUrl, via: 'url' }
     const fromJob = job?.status === 'done' ? (this.pageOfJob(job.id) ?? null) : null
-    return { job, page: fromJob, via: fromJob === null ? null : 'job' }
+    if (fromJob !== null) return { job, page: fromJob, via: 'job' }
+    const name = urlFileName(e.url)
+    const dropped = name !== undefined ? files.get(name) : undefined
+    const fromFile = dropped?.status === 'done' ? (this.pageOfJob(dropped.id) ?? null) : null
+    return { job, page: fromFile, via: fromFile === null ? null : 'file' }
   }
 
   /** The first source page an ingest wrote, for the row's link into the vault. */
@@ -357,13 +418,15 @@ export class ReadingListService {
       return []
     }
     const found: Array<{ entry: ReadingEntry; page: string }> = []
+    const list = parseReadingList(markdown)
     const jobs = this.jobsByUrl()
+    const files = this.filesFor(list)
     let next = markdown
-    for (const entry of parseReadingList(markdown)) {
+    for (const entry of list) {
       if (entry.filed !== null) continue
       // The same resolver the board uses, so what a row shows and what the Fellow is told
       // can never be two different answers again.
-      const page = this.locate(entry, jobs).page
+      const page = this.locate(entry, jobs, files).page
       if (page === null) continue
       // The entry's own block gains two lines; nothing else on the page is touched.
       const block = new RegExp(`(^[ \t]*[-*][ \t]+title:[ \t]*${escapeRe(entry.title)}[ \t]*$)`, 'm')

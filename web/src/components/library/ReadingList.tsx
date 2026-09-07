@@ -91,7 +91,7 @@ export function ReadingList({ vaultName }: { vaultName: string }): React.ReactEl
                     {e.page !== null && (
                       <p className="rl-filed">
                         In the vault as <PageLink vaultName={vaultName} path={e.page} />
-                        {e.job === null && e.via === 'ref' ? ' · matched by its identifier' : e.job === null && e.via === 'url' ? ' · matched by its source url' : ''}
+                        {e.job === null ? (e.via === 'ref' ? ' · matched by its identifier' : e.via === 'url' ? ' · matched by its source url' : e.via === 'file' ? ' · matched by the file name it was downloaded as' : '') : ''}
                       </p>
                     )}
                   </div>

@@ -1034,7 +1034,7 @@ export interface ReadingItem {
   /** The source page this publication became, whatever route it took into the vault. */
   page: string | null
   /** How it was recognized: the ingest that ran for its url, or its DOI / arXiv id. */
-  via: 'job' | 'ref' | 'url' | null
+  via: 'job' | 'ref' | 'url' | 'file' | null
   filed: string | null
   filedAt: string | null
   /** The ingest of this url, when the service has one. */
