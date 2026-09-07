@@ -7167,10 +7167,18 @@ tr:focus-within .rowacts {
 .sf-actions .btn.sf-deepen {
   width: 156px;
 }
+/* The two halves share the width evenly and sit inset from the pill's own edge, so the
+   selected one reads as a pill INSIDE a pill rather than as a filled half of one. Centring
+   needs justify-content, not text-align: the buttons are flex containers themselves. */
+.lib-headline .seg.shelf-view {
+  padding: 3px;
+  gap: 4px;
+}
 .lib-headline .seg.shelf-view button {
   flex: 1;
+  min-width: 0;
   padding-inline: 0;
-  text-align: center;
+  justify-content: center;
 }
 .sf-actions .btn.sf-deepen {
   justify-content: center;
