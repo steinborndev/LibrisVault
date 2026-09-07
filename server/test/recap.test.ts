@@ -631,6 +631,14 @@ describe('the newest recap keeps its decision half current', () => {
     expect(fresh.model.sinceBuilt).toMatchObject({ runs: 1 })
     // A day that looked quiet at build time is not quiet any more, so the page stops saying so.
     expect(fresh.model.quiet).toBe(false)
+    /*
+     * And the row says the same. The cheap flag is what the Library's decisions counter, the
+     * Home inbox and the feed's chip read; while it stayed at what the night was built as,
+     * they reported nothing to decide over a recap whose body listed the proposals.
+     */
+    expect(fresh.quiet).toBe(false)
+    // The stored row is untouched: freshening is a view, not a write.
+    expect(h.recapStore.get(row.cycleDate)?.quiet).toBe(true)
   })
 
   it('names the publications that reached the vault in this window', async () => {

@@ -445,7 +445,15 @@ export function freshenRecap(
     pages: runs.reduce((a, r) => a + r.pagesCreated.length + r.pagesUpdated.length, 0),
   }
   const quiet = row.model.quiet && newRuns === 0 && newProposals === 0
-  return { ...row, model: { ...row.model, fellows: all, quiet, totals, sinceBuilt: { runs: newRuns, proposals: newProposals } } }
+  /*
+   * The row carries the flag too, and it has to be the SAME flag. It was left at what the
+   * night was built as, so a recap that started quiet and then gained runs answered "quiet"
+   * at the row and "not quiet" in its model - and every consumer that reads the cheap one
+   * (the Library's decisions counter, the Home inbox, the feed's chip, the list's badge) said
+   * there was nothing to decide over a body listing six proposals. This is a read-time view;
+   * nothing here is written back, so the stored row keeps the night as it was built.
+   */
+  return { ...row, quiet, model: { ...row.model, fellows: all, quiet, totals, sinceBuilt: { runs: newRuns, proposals: newProposals } } }
 }
 
 /* --------------------------------- the summary run --------------------------------- */
