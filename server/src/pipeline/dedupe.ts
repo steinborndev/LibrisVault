@@ -120,6 +120,13 @@ export function pmcIn(text: string): string[] {
  * normalized, so `https://doi.org/10.1/x`, `doi:10.1/X` and `10.1/x` are one key, and so are
  * an abs link, a pdf link and a bare id.
  */
+/**
+ * The url as identity: the same document with a tracking parameter or a trailing slash is
+ * the same document. Lives here rather than in the reading list because the page index needs
+ * it too, and the reading list already imports its identity helpers from this module.
+ */
+export const urlKey = (url: string): string => url.trim().replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase()
+
 export function refKey(text: string | null | undefined): string | undefined {
   if (text === null || text === undefined || text.trim() === '') return undefined
   const doi = doisIn(text)[0]
@@ -169,6 +176,29 @@ export function pageRefs(markdown: string): string[] {
   return [...new Set(out)]
 }
 
+/**
+ * The urls a source page declares about ITSELF: its `url` and `source_url` frontmatter,
+ * normalized. Same rule as {@link pageDois} - the body is not scanned, because a review's
+ * body links dozens of other papers.
+ *
+ * This is the identity of last resort. A publication with a DOI is matched by that, whatever
+ * route it took into the vault; one without a DOI - and a great many articles have none in
+ * their url - can only be recognised by where it came from.
+ */
+export function pageUrls(markdown: string): string[] {
+  const fm = frontmatterOf(markdown)
+  if (fm === null) return []
+  const out: string[] = []
+  for (const line of fm.split('\n')) {
+    const m = /^(url|source_url)\s*:\s*(.*)$/i.exec(line)
+    if (m === null) continue
+    // Frontmatter values are often quoted; the quotes are not part of the url.
+    const raw = m[2]!.trim().replace(/^["']|["']$/g, '')
+    if (/^https?:\/\//i.test(raw)) out.push(urlKey(raw))
+  }
+  return [...new Set(out)]
+}
+
 function readJson<T>(file: string): T | null {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as T
@@ -196,6 +226,8 @@ interface PageEntry {
   readonly dois: readonly string[]
   /** DOIs and arXiv ids together: the identity the reading list matches on. */
   readonly refs: readonly string[]
+  /** Normalized `url`/`source_url` frontmatter: the fallback identity, for pages with no DOI. */
+  readonly urls: readonly string[]
   readonly mtimeMs: number
 }
 
@@ -235,6 +267,23 @@ export class DedupeIndex {
     this.refreshPages()
     for (const [page, entry] of this.pages) {
       if (entry.refs.includes(wanted)) return { ref: wanted, page }
+    }
+    return undefined
+  }
+
+  /**
+   * The source page that came from this url, if any. The weaker sibling of {@link byRef} and
+   * deliberately second in line: an identifier says two documents ARE the same publication,
+   * a url only says one page recorded that address. It is what catches the case a DOI cannot
+   * - a paper whose url carries no identifier, dropped in as a PDF by hand, where the only
+   * thing the entry and the page have in common is where the document came from.
+   */
+  byUrl(url: string): { readonly url: string; readonly page: string } | undefined {
+    const wanted = urlKey(url)
+    if (wanted === '') return undefined
+    this.refreshPages()
+    for (const [page, entry] of this.pages) {
+      if (entry.urls.includes(wanted)) return { url: wanted, page }
     }
     return undefined
   }
@@ -327,6 +376,7 @@ export class DedupeIndex {
       if (this.pages.get(rel)?.stamp === stamp) continue
       let dois: string[]
       let refs: string[]
+      let urls: string[]
       try {
         // Frontmatter sits at the top; 8 KB covers any page's header without reading a
         // long article for a field that is never past its first lines.
@@ -337,14 +387,16 @@ export class DedupeIndex {
           const head = buf.subarray(0, n).toString('utf8')
           dois = pageDois(head)
           refs = pageRefs(head)
+          urls = pageUrls(head)
         } finally {
           fs.closeSync(fd)
         }
       } catch {
         dois = []
         refs = []
+        urls = []
       }
-      this.pages.set(rel, { stamp, dois, refs, mtimeMs: st.mtimeMs })
+      this.pages.set(rel, { stamp, dois, refs, urls, mtimeMs: st.mtimeMs })
     }
   }
 }

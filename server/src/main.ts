@@ -199,12 +199,14 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // The app logger exists only after buildServer; until then Fellow log lines are dropped.
   const handoffStore = new SqliteHandoffStore(db)
   // One reading list for the whole service: the routes read it, the Fellows write to it, and
-  // it recognizes a publication by its DOI or arXiv id through the queue's dedupe index - which
-  // is how a PDF the user fetched by hand closes the entry that asked for it.
+  // it recognizes a publication through the queue's dedupe index - by its DOI or arXiv id, and
+  // failing that by the url a source page records, which is how a PDF the user fetched by hand
+  // closes the entry that asked for it even when the publication names no identifier.
   const readingList = new ReadingListService(config.vaultRoot, store, {
     commitMutex,
     autoCommit: () => settings.effective(config).gitAutoCommit,
     byRef: (ref) => queue.dedupeIndex.byRef(ref),
+    byUrl: (url) => queue.dedupeIndex.byUrl(url),
   })
   const fellows =
     config.agentsEnabled === true && !config.demoMode

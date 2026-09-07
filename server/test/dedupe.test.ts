@@ -17,7 +17,7 @@ import path from 'node:path'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { JobStore } from '../src/db/jobs.js'
 import { IngestQueue, type IngestRunner } from '../src/pipeline/queue.js'
-import { DedupeIndex, extractDoi, normalizeDoi, pageDois } from '../src/pipeline/dedupe.js'
+import { DedupeIndex, extractDoi, normalizeDoi, pageDois, pageUrls, urlKey } from '../src/pipeline/dedupe.js'
 import type { AgentRunResult } from '../src/pipeline/agent-runner.js'
 import type { ToolAvailability } from '../src/pipeline/preprocess/index.js'
 
@@ -198,6 +198,17 @@ describe('pageDois', () => {
   })
 })
 
+describe('pageUrls', () => {
+  it('takes url and source_url from the frontmatter, quoted or not, and nothing from the body', () => {
+    const md = `---\ntitle: T\nurl: "https://Example.invalid/a/?utm=1"\nsource_url: https://example.invalid/b\ndoi: 10.1/x\n---\nbody links https://example.invalid/c\n`
+    expect(pageUrls(md)).toEqual(['https://example.invalid/a', 'https://example.invalid/b'])
+    // A `doi:` line is an identifier, not an address, and a relative value is not a url.
+    expect(pageUrls(`---\nurl: paper.pdf\n---\n`)).toEqual([])
+    expect(pageUrls('# no frontmatter')).toEqual([])
+    expect(urlKey('https://X.invalid/A/#frag')).toBe('https://x.invalid/a')
+  })
+})
+
 describe('DedupeIndex', () => {
   it('finds a hash in the .raw manifests and re-reads only what changed', () => {
     seedPriorIngest({ sha256: SHA_OF_SAME })
@@ -219,6 +230,20 @@ describe('DedupeIndex', () => {
     expect(hit?.page).toBe('wiki/sources/Paper.md')
     expect(hit?.jobId).toBe('JOBOLD')
     expect(index.byDoi('10.1002/unknown')).toBeUndefined()
+  })
+
+  /*
+   * The identity of last resort. Most journal urls carry no DOI, so a paper the user fetched
+   * by hand and dropped in has nothing in common with the reading-list entry that asked for
+   * it except the address it came from.
+   */
+  it('maps a source url to its page, for a publication with no identifier at all', () => {
+    write('wiki/sources/Approved Antibodies.md', `---\ntitle: T\nurl: "https://journal.invalid/abt/article/9/3/332/8697373"\n---\nbody\n`)
+    const index = new DedupeIndex(vaultRoot)
+    // A tracking parameter, a trailing slash and a different case are the same address.
+    expect(index.byUrl('https://Journal.invalid/abt/article/9/3/332/8697373/?utm_source=x')?.page).toBe('wiki/sources/Approved Antibodies.md')
+    expect(index.byUrl('https://journal.invalid/other')).toBeUndefined()
+    expect(index.byUrl('')).toBeUndefined()
   })
 
   it('resolves no job for a page the delta tracker does not attribute', () => {

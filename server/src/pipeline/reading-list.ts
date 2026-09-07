@@ -19,7 +19,7 @@ import path from 'node:path'
 import type { JobStore } from '../db/jobs.js'
 import type { Mutex } from '../util/mutex.js'
 import { commitPaths, type CommitResult } from './git.js'
-import { refKey } from './dedupe.js'
+import { refKey, urlKey } from './dedupe.js'
 
 /** Where the Fellows write their finds. One page, appended to, never rewritten. */
 export const READING_LIST_PAGE = 'wiki/meta/reading-list.md'
@@ -64,8 +64,11 @@ export interface ReadingItem extends ReadingEntry {
   readonly reach: ReadingAccess | 'unknown'
   /** The source page this publication became, from the entry itself or found by identity. */
   readonly page: string | null
-  /** How it was recognized: the ingest that ran for its url, or its DOI / arXiv id. */
-  readonly via: 'job' | 'ref' | null
+  /**
+   * How it was recognized, weakest last: its DOI / arXiv id (`ref`), the url a source page
+   * records (`url`), or the ingest that ran for its url (`job`).
+   */
+  readonly via: 'job' | 'ref' | 'url' | null
 }
 
 const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat)\s*:\s*(.*)$/i
@@ -113,8 +116,8 @@ export function entryRef(entry: Pick<ReadingEntry, 'ref' | 'url'>): string | und
   return refKey(entry.ref) ?? refKey(entry.url)
 }
 
-/** The url as identity: the same document with a tracking parameter is the same entry. */
-export const urlKey = (url: string): string => url.trim().replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase()
+/** Re-exported from the dedupe index, which needs the same normalization for its page urls. */
+export { urlKey } from './dedupe.js'
 
 const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -189,6 +192,11 @@ export interface ReadingListWriteOptions {
   readonly autoCommit?: () => boolean
   /** The dedupe index's lookup by DOI / arXiv id; without it only the job log is matched. */
   readonly byRef?: (ref: string) => { readonly page: string } | undefined
+  /**
+   * The dedupe index's lookup by source url - the fallback for a publication whose url names
+   * no DOI, which is most articles outside the preprint servers.
+   */
+  readonly byUrl?: (url: string) => { readonly page: string } | undefined
 }
 
 export class ReadingListService {
@@ -201,10 +209,13 @@ export class ReadingListService {
   ) {
     this.write = write
     this.byRef = write.byRef ?? ((): undefined => undefined)
+    this.byUrl = write.byUrl ?? ((): undefined => undefined)
   }
 
   /** Looks a publication up by its DOI or arXiv id; wired to the dedupe index in the service. */
   private readonly byRef: (ref: string) => { readonly page: string } | undefined
+  /** The same, by the url a source page records; the fallback when there is no identifier. */
+  private readonly byUrl: (url: string) => { readonly page: string } | undefined
 
   entries(): ReadingItem[] {
     const file = path.join(this.vaultRoot, READING_LIST_PAGE)
@@ -214,35 +225,60 @@ export class ReadingListService {
     } catch {
       return []
     }
-    const jobs = this.jobs.list({ limit: 500 }).filter((j) => typeof j.url === 'string' && j.url !== null)
-    const byUrl = new Map<string, { id: string; status: string; pages: number }>()
-    for (const j of jobs) {
-      const key = urlKey(j.url ?? '')
-      if (key === '' || byUrl.has(key)) continue
+    const jobs = this.jobsByUrl()
+    return parseReadingList(markdown).map((e) => {
+      const { job, page, via } = this.locate(e, jobs)
+      return { ...e, job, reach: reachOf(e), page, via }
+    })
+  }
+
+  /** What the job log knows about each ingested url, first job per url, built once per pass. */
+  private jobsByUrl(): Map<string, { id: string; status: string; pages: number }> {
+    const out = new Map<string, { id: string; status: string; pages: number }>()
+    for (const j of this.jobs.list({ limit: 500 })) {
+      if (typeof j.url !== 'string' || j.url === null) continue
+      const key = urlKey(j.url)
+      if (key === '' || out.has(key)) continue
       let pages: number
       try {
         pages = (JSON.parse(j.created_pages ?? '[]') as unknown[]).length
       } catch {
         pages = 0
       }
-      byUrl.set(key, { id: j.id, status: j.status, pages })
+      out.set(key, { id: j.id, status: j.status, pages })
     }
-    return parseReadingList(markdown).map((e) => {
-      const job = byUrl.get(urlKey(e.url)) ?? null
-      // Three ways to know a publication is already in the vault, in order of certainty: the
-      // entry says so, an ingest ran for its url, or a source page carries its identifier -
-      // which is the only one that catches a PDF the user dropped in by hand.
-      const ref = entryRef(e)
-      const found = e.filed !== null ? { page: e.filed, via: 'ref' as const } : ref !== undefined ? { page: this.byRef(ref)?.page ?? null, via: 'ref' as const } : { page: null, via: null }
-      const page = found.page ?? (job?.status === 'done' ? (this.pageOfJob(job.id) ?? null) : null)
-      return {
-        ...e,
-        job,
-        reach: reachOf(e),
-        page,
-        via: page === null ? null : (found.page !== null ? 'ref' : 'job') as 'job' | 'ref',
-      }
-    })
+    return out
+  }
+
+  /**
+   * Where an entry's publication already sits in the vault, and what the job log knows about
+   * it. THE one answer, used by both the board and the nightly reconcile.
+   *
+   * They used to answer separately, and differently: the board knew four ways in and the
+   * reconcile only the identifier, so an entry without a DOI was shown as "in the vault" and
+   * never written back as filed - and the Fellow that had asked for it was never told. A
+   * single resolver is the fix; two call sites cannot drift apart if there is only one.
+   *
+   * In order of certainty:
+   *   1. the entry says `filed` itself
+   *   2. its identifier stands on a source page (a DOI is the same publication anywhere)
+   *   3. a source page records its url (weaker, and the only route for a paper with no DOI
+   *      that arrived as a hand-dropped PDF)
+   *   4. an ingest ran for its url and finished
+   */
+  private locate(
+    e: ReadingEntry,
+    jobs: Map<string, { id: string; status: string; pages: number }>,
+  ): { job: { id: string; status: string; pages: number } | null; page: string | null; via: 'job' | 'ref' | 'url' | null } {
+    const job = jobs.get(urlKey(e.url)) ?? null
+    if (e.filed !== null) return { job, page: e.filed, via: 'ref' }
+    const ref = entryRef(e)
+    const byRef = ref !== undefined ? (this.byRef(ref)?.page ?? null) : null
+    if (byRef !== null) return { job, page: byRef, via: 'ref' }
+    const byUrl = this.byUrl(e.url)?.page ?? null
+    if (byUrl !== null) return { job, page: byUrl, via: 'url' }
+    const fromJob = job?.status === 'done' ? (this.pageOfJob(job.id) ?? null) : null
+    return { job, page: fromJob, via: fromJob === null ? null : 'job' }
   }
 
   /** The first source page an ingest wrote, for the row's link into the vault. */
@@ -321,12 +357,14 @@ export class ReadingListService {
       return []
     }
     const found: Array<{ entry: ReadingEntry; page: string }> = []
+    const jobs = this.jobsByUrl()
     let next = markdown
     for (const entry of parseReadingList(markdown)) {
       if (entry.filed !== null) continue
-      const ref = entryRef(entry)
-      const page = ref !== undefined ? this.byRef(ref)?.page : undefined
-      if (page === undefined) continue
+      // The same resolver the board uses, so what a row shows and what the Fellow is told
+      // can never be two different answers again.
+      const page = this.locate(entry, jobs).page
+      if (page === null) continue
       // The entry's own block gains two lines; nothing else on the page is touched.
       const block = new RegExp(`(^[ \t]*[-*][ \t]+title:[ \t]*${escapeRe(entry.title)}[ \t]*$)`, 'm')
       if (!block.test(next)) continue

@@ -1004,9 +1004,21 @@ the vault, and the Fellow that asked for it never learned it had arrived.
 
 - **Identity is the DOI or the arXiv id**, taken from the entry's `ref` or out of its url. The
   queue's dedupe index (one instance, shared) now reads arXiv ids beside DOIs off the `url`,
-  `doi` and `source_url` frontmatter of every source page, and answers `byRef`. An entry is
-  matched three ways, in order of certainty: it says `filed` itself, its identifier is on a
-  source page, or an ingest ran for its url. The row links that page.
+  `doi` and `source_url` frontmatter of every source page, and answers `byRef`. The row links
+  that page.
+- **And the source url when there is no identifier** (as built, 2026-09-08). Most journal urls
+  carry no DOI, and a paper the user fetched by hand shares nothing with the entry that asked
+  for it except the address it came from - so the index indexes that too (`pageUrls`, `byUrl`,
+  the same normalization the list already dedupes urls with). It is deliberately the weaker
+  claim and ranks below the identifier: a DOI says two documents ARE the same publication, a
+  url only says one page recorded that address.
+- **One resolver, four routes, in order of certainty:** the entry says `filed` itself, its
+  identifier stands on a source page, a source page records its url, or an ingest ran for its
+  url and finished. The board and the nightly reconcile ask the same function (`locate`). They
+  used to ask separately and got different answers - the board knew three routes and the
+  reconcile only the identifier - so an entry without a DOI was shown as "in the vault" while
+  it stayed unfiled and the Fellow that had asked was never told. Two call sites cannot drift
+  apart if there is only one.
 - **The night shift reconciles first.** Entries whose publication has arrived get `filed` and
   `filedAt` written into them - the link the row shows and the record that the Fellow has been
   told, so the note goes out once. The Fellow that asked gets one line in its notebook: the

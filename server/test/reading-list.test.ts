@@ -203,6 +203,78 @@ title: "Reading list"
     // And the entry that is not in the vault is untouched.
     expect(parseReadingList(page)[1]).toMatchObject({ filed: null, filedAt: null })
   })
+
+  /*
+   * The case that started this: a Fellow asks for an article whose url names no DOI, the user
+   * fetches the PDF and drops it in, and the entry and the source page have nothing in common
+   * but the address the document came from. Before `byUrl` the entry stayed unfiled forever and
+   * the Fellow was never told the paper it had asked for was sitting in the vault.
+   */
+  const PAGE_WITHOUT_A_REF = `---
+type: meta
+title: "Reading list"
+---
+# Reading list
+
+## Entries
+
+- title: An article whose url carries no identifier
+  url: https://journal.invalid/abt/article/9/3/332/8697373
+  domain: biomedicine
+  why: It lists what was approved last year.
+  by: Beatrice
+  at: 2026-09-07
+`
+
+  it('falls back to the source url when the publication names no identifier', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITHOUT_A_REF)
+    const opts = {
+      commitMutex: new Mutex(),
+      autoCommit: () => false,
+      // A tracking parameter and a trailing slash are the same address.
+      byUrl: (url: string) =>
+        urlKey(url) === 'https://journal.invalid/abt/article/9/3/332/8697373' ? { page: 'wiki/sources/Approved Antibodies.md' } : undefined,
+    }
+    const reading = new ReadingListService(vaultRoot, store, opts)
+    expect(reading.entries()[0]).toMatchObject({ page: 'wiki/sources/Approved Antibodies.md', via: 'url', job: null })
+
+    const filed = await reading.reconcile('2026-09-08')
+    expect(filed).toHaveLength(1)
+    expect(filed[0]!.entry).toMatchObject({ title: 'An article whose url carries no identifier', by: 'Beatrice' })
+    expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toContain('  filed: wiki/sources/Approved Antibodies.md')
+  })
+
+  it('an identifier still beats a url, because it is the stronger claim', () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
+    const reading = new ReadingListService(vaultRoot, store, {
+      byRef: () => ({ page: 'wiki/sources/By Identifier.md' }),
+      byUrl: () => ({ page: 'wiki/sources/By Url.md' }),
+    })
+    expect(reading.entries()[0]).toMatchObject({ page: 'wiki/sources/By Identifier.md', via: 'ref' })
+  })
+
+  /*
+   * The board and the nightly reconcile used to answer this question separately, and the
+   * reconcile knew one route where the board knew three: a row could read "in the vault" while
+   * the entry stayed unfiled and the Fellow uninformed. They share one resolver now.
+   */
+  it('files what an ingest of its url produced, the way the board already showed it', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITHOUT_A_REF)
+    const { job } = store.create({
+      source: 'url',
+      type: 'web',
+      url: 'https://journal.invalid/abt/article/9/3/332/8697373?utm_source=x',
+      originalName: 'article',
+    })
+    store.setCreatedPages(job.id, ['wiki/sources/From The Board.md'])
+    for (const to of ['preprocessing', 'ingesting', 'done'] as const) store.transition(job.id, to)
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    expect(reading.entries()[0]).toMatchObject({ page: 'wiki/sources/From The Board.md', via: 'job' })
+
+    const filed = await reading.reconcile('2026-09-08')
+    expect(filed).toHaveLength(1)
+    expect(filed[0]).toMatchObject({ page: 'wiki/sources/From The Board.md' })
+  })
 })
 
 describe('entries the service writes for the planner', () => {
