@@ -938,8 +938,10 @@ does. Now:
   wing's heading keeps real space above it: the groups sit in their own wrappers, so a
   `:first-child` reset had been flattening the gap in front of every heading but the first. The
   room list is gone - it repeated the strip in the headline - and so is the second spawn
-  button, which the headline already carries. Renaming a wing stays on its banner, and
-  deleting an empty one moved there too; reordering wings has no home in the UI any more.
+  button, which the headline already carries. **The wing actions moved into the strip**, which
+  is where a wing is a thing you can point at: the pills show the wings in their order, so
+  dragging one along the strip reorders them, and the pill of the room you are standing in
+  offers to delete it while it is an empty wing. Renaming stays on the banner in the wing.
 - **The headline carries a `Decisions` count** beside the spawn button: the proposals the
   newest recap is still waiting on, summed over every Fellow in it, quiet at zero and in the
   warning colour above it. A click opens the daily recap board, which is where they are made.

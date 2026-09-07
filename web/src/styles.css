@@ -6914,6 +6914,37 @@ tr:focus-within .rowacts {
   box-shadow: var(--shadow);
 }
 .lib-strip.dark { background: rgba(19, 25, 40, 0.94); border-color: #30405f; }
+/* A wing's pill is also its handle: dragging one along the strip is what reorders the wings. */
+.rpw { display: inline-flex; align-items: center; position: relative; }
+.lib-strip.dragging .rp { cursor: grabbing; }
+.rpw.held .rp { opacity: 0.45; }
+.rpw.over::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+/* Only the wing you are standing in offers to go, and only while nothing stands in it. */
+.rdel {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 0 2px 0 -4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.rdel:hover { background: var(--danger-bg, var(--warn-bg)); color: var(--danger, var(--warn)); }
 .lib-strip .rp {
   display: inline-flex;
   align-items: center;

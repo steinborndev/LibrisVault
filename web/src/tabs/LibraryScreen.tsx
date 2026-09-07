@@ -315,6 +315,7 @@ export function LibraryScreen({
     pickRoom(r.wing.id)
   } })
   const renameWing = useMutation({ mutationFn: (b: { id: string; name: string }) => api.renameWing(b.id, b.name), onSuccess: invalidate })
+  const reorder = useMutation({ mutationFn: (ids: string[]) => api.reorderWings(ids), onSuccess: invalidate })
   const deleteWing = useMutation({ mutationFn: (id: string) => api.deleteWing(id), onSuccess: () => {
     invalidate()
     pickRoom('main')
@@ -508,6 +509,8 @@ export function LibraryScreen({
                 night={false}
                 dropTarget={drag?.target ?? null}
                 onPick={pickRoom}
+                onReorder={(ids) => reorder.mutate(ids)}
+                onDelete={(id) => deleteWing.mutate(id)}
                 {...(createWing.isPending ? {} : { onNewWing: () => createWing.mutate() })}
               />
             )}
@@ -649,13 +652,6 @@ export function LibraryScreen({
               <button className="btn ghost sm" type="button" onClick={() => setRenaming(null)}>
                 Cancel
               </button>
-              {/* Deleting an empty wing lived in the room list that is gone; the banner is
-                  where the wing itself is, so it belongs here - and only while it is empty. */}
-              {current?.kind === 'wing' && current.shelves.length === 0 && (
-                <button className="btn ghost sm danger" type="button" onClick={() => deleteWing.mutate(renaming.id)}>
-                  Delete this empty wing
-                </button>
-              )}
             </form>
           )}
 
