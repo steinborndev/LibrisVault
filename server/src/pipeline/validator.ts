@@ -23,6 +23,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseWikilinks } from './citations.js'
+import { findWrappedLinks } from './link-repair.js'
 import { pluginDocPages } from './upstream-guard.js'
 import { parseFrontmatterMeta, type VaultGraph } from './graph.js'
 
@@ -31,6 +32,7 @@ export type ValidationRule =
   | 'dates'
   | 'address'
   | 'dead-link'
+  | 'wrapped-link'
   | 'orphan'
   | 'address-map'
   | 'stale-counter'
@@ -328,10 +330,35 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       }
     }
 
+    /*
+     * A link broken by a line wrap is its own finding, not a dead link. It names a page that
+     * EXISTS, so calling it dead buries a one-character repair in a list of genuine gaps -
+     * one lint run reported 36 of these among 87 "dead" links. `link-repair.ts` fixes them
+     * without a model; this is what tells anyone they are there.
+     */
+    const joined = new Set<string>()
+    if (!skipLinkCheck(rel, pluginDocs)) {
+      const wrapped = findWrappedLinks(markdown)
+      if (wrapped.length > 0) {
+        fileIndex ??= buildFileIndex(vaultRoot)
+        for (const w of wrapped) {
+          if (!linkResolves(vaultRoot, fileIndex, w.target)) continue
+          joined.add(w.target.toLowerCase())
+          findings.push({
+            rule: 'wrapped-link',
+            path: rel,
+            message: `[[${w.target}]] is split across a line break, so it resolves to nothing - join it back onto one line`,
+          })
+        }
+      }
+    }
+
     const targets = skipLinkCheck(rel, pluginDocs) ? [] : parseWikilinks(markdown)
     if (targets.length > 0) {
       fileIndex ??= buildFileIndex(vaultRoot)
       for (const t of targets) {
+        // Reported as a wrapped link already: one repair, one finding.
+        if (joined.has(t.replace(/\s+/g, ' ').trim().toLowerCase())) continue
         if (!linkResolves(vaultRoot, fileIndex, t)) {
           findings.push({ rule: 'dead-link', path: rel, message: `[[${t}]] does not resolve to any file in the vault` })
         }

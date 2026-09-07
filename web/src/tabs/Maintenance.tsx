@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type {
   GraphNode,
@@ -66,6 +66,14 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
   const lintFix = useMaintenanceRun(() => api.lintFix())
   const hot = useMaintenanceRun(() => api.hotCache())
   const backfill = useMaintenanceRun(() => api.domainBackfill())
+  // Joining wikilinks a line wrap broke is mechanical, so it runs in code rather than in a
+  // fix run: no model, no cost, one commit. It sits beside lint because that is where those
+  // links are reported (as 'wrapped-link', apart from the genuinely dead ones).
+  const [joined, setJoined] = useState<{ fixed: number; pages: number; left: number } | null>(null)
+  const rejoin = useMutation({
+    mutationFn: () => api.rejoinLinks(),
+    onSuccess: (r) => setJoined({ fixed: r.fixed, pages: r.pages.length, left: r.left }),
+  })
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   // How much of the vault is still unfiled - the number that says whether a backfill is due.
@@ -155,6 +163,14 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
               >
                 {lintFix.running ? 'Fixing…' : 'Fix safe findings'}
               </button>
+              <button
+                className="btn"
+                disabled={rejoin.isPending || lint.running || lintFix.running}
+                onClick={() => rejoin.mutate()}
+                title="Join wikilinks a line wrap broke apart, where the collapsed title names a page that exists (one git commit, no agent run)"
+              >
+                {rejoin.isPending ? 'Joining…' : 'Join broken links'}
+              </button>
               <button className="btn primary" disabled={lint.running || lintFix.running} onClick={lint.start}>
                 {lint.running ? 'Running…' : 'Start lint'}
               </button>
@@ -177,7 +193,15 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
             ) : (
               <>No lint report in the vault yet.</>
             )}
+            {joined !== null && (
+              <span>
+                {' '}
+                · joined {joined.fixed} broken link(s) in {joined.pages} page(s)
+                {joined.left > 0 ? `, ${joined.left} left as genuinely dead` : ''}
+              </span>
+            )}
           </div>
+          {rejoin.error != null && <div className="toast err">{(rejoin.error as Error).message}</div>}
           {lastReport !== null && !lint.running && lint.result === undefined && (
             <ReportPeek path={lastReport.path} />
           )}

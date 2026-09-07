@@ -235,6 +235,12 @@ export const api = {
   hotCache: (): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/hot-cache`, { method: 'POST' }).then(json<MaintenanceRun>),
 
+  /** Joins wikilinks a line wrap broke. Deterministic: no agent, no cost. */
+  rejoinLinks: (dry = false): Promise<{ pages: string[]; fixed: number; left: number; commit: string | null }> =>
+    fetch(`${BASE}/maintenance/rejoin-links${dry ? '?dry=1' : ''}`, { method: 'POST' }).then(
+      json<{ pages: string[]; fixed: number; left: number; commit: string | null }>,
+    ),
+
   /** Resolve open graph gaps by unlinking them (one bounded run; titles must be live gaps). */
   cleanupGaps: (titles: readonly string[]): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/cleanup`, {

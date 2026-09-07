@@ -878,6 +878,18 @@ the vault, and the Fellow that asked for it never learned it had arrived.
   writing run. A link split by a paragraph wrap stops resolving and reads as dead to every
   check; a lint run over the demo vault found 36 of its 87 dead links were working pages
   broken exactly that way. The rule costs a long line and saves a class of silent rot.
+- **The existing ones are joined in code, not by a run** (`link-repair.ts`, `POST
+  /maintenance/rejoin-links`, `?dry=1` to count first). The rule is mechanical - brackets that
+  span a newline, whose collapsed title names a page that exists - so it is exact, free and
+  under test, where the lint-FIX run that was the alternative wrote 19 fresh ones of its own.
+  A link that would still not resolve is LEFT alone: that is a real gap and stays a finding.
+  The joined pages are one commit behind the shared mutex, so a repair is revertable like
+  every other write. The Health screen offers it beside the lint buttons; over the demo vault
+  it joined 67 links in 37 pages, and it changes nothing but the newline inside the brackets.
+- **The lint reports the two apart.** `wrapped-link` is its own rule, ahead of the dead-link
+  loop, so a broken-by-wrap link is no longer counted as a missing page: the fix run stops
+  being told to create a stub for a page that exists, and the number left under `dead-link`
+  is the number of genuine gaps.
 - **The page is append-only for EVERY run, and the hygiene checklist now says so.** An ingest
   started from the list deleted the very entry that had asked for the document it was filing:
   reasonable-looking housekeeping that throws away the request, its reason, and the mark the
@@ -1045,6 +1057,9 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 - `GET/POST /wings`; `PATCH /wings/:id` (rename); `DELETE /wings/:id` (only when empty);
   `POST /library/move` with domain, target room and optional slot (drag and drop lands here);
   `PATCH /wings/order` (reorder).
+- `POST /maintenance/rejoin-links` (`?dry=1` counts without writing) joins wikilinks a line
+  wrap broke apart, deterministically and with no agent in the loop; it answers with the pages,
+  the number joined, the number left as genuinely dead, and the commit.
 - Existing endpoints stay: `POST /maintenance/research` gains an optional `agentId`.
 
 ---
