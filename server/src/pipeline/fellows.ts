@@ -44,7 +44,7 @@ import type { MaintenanceRunner, MaintenanceRun } from './maintenance.js'
 import { PLAN_TIMEOUT_MS, EXPAND_TIMEOUT_MS } from './maintenance.js'
 import { DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import { notebookPath, renderLogLines, type NotebookWriter } from './notebook.js'
-import type { ReadingEntry as ReadingEntryInput } from './reading-list.js'
+import { READING_LIST_PAGE, type ReadingEntry as ReadingEntryInput } from './reading-list.js'
 import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
 import { computeCandidates, knowledgePages, type Candidate } from './candidates.js'
@@ -555,9 +555,18 @@ export class FellowService {
     const topic = opts.topic?.trim() ? opts.topic.trim() : agent.intent
     const ctx = this.context(agent, kind, opts.proposalId)
     const lens = opts.lens ?? agent.lens
-    // The Fellow's own pages are always in an expand's set (D1): the run appends open
-    // questions to its notebook, and its synthesis pages carry the update's summary.
-    const pageSet = kind === 'research-expand' ? [...new Set([...(opts.pageSet ?? []), ...fellowSynthesisPages(this.runs.list({ agentId: agent.id, limit: 50 })), agent.notebookPath])] : []
+    /*
+     * The Fellow's own pages are always in an expand's set (D1): the run appends open
+     * questions to its notebook, and its synthesis pages carry the update's summary. The
+     * reading list belongs with them since every writing run carries that rule (10.6) - left
+     * out, an expand that noted one publication was reverted whole, which is exactly what
+     * happened on the first real one. Being IN the set rather than exempt from the check is
+     * the point: the subsequence rule then holds it to appending, which is what the page is.
+     */
+    const pageSet =
+      kind === 'research-expand'
+        ? [...new Set([...(opts.pageSet ?? []), ...fellowSynthesisPages(this.runs.list({ agentId: agent.id, limit: 50 })), agent.notebookPath, READING_LIST_PAGE])]
+        : []
     const run =
       kind === 'research'
         ? this.maintenance.startResearch(topic, lens, ctx)

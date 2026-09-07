@@ -172,6 +172,9 @@ describe('an expand run against a git vault', () => {
     expect(calls[0]!.prompt).toContain('  - wiki/concepts/Transit Photometry.md')
     // The notebook joins the manual page set, so the run's open-question append is no violation.
     expect(calls[0]!.prompt).toContain('  - wiki/meta/agents/ada.md')
+    // And so does the reading list: every writing run carries that rule (section 10.6), and
+    // the first real expand was reverted whole for noting one publication in it.
+    expect(calls[0]!.prompt).toContain('  - wiki/meta/reading-list.md')
     expect(calls[0]).toMatchObject({ maxBudgetUsd: 6, timeoutMs: 20 * 60_000 })
     // The notebook rewrite commits after the run's own commit.
     expect(git('log', '--format=%s', '-3')).toContain('maintenance: research-expand')

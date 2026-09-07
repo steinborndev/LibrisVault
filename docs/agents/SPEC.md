@@ -874,6 +874,11 @@ the vault, and the Fellow that asked for it never learned it had arrived.
   `filedAt` written into them - the link the row shows and the record that the Fellow has been
   told, so the note goes out once. The Fellow that asked gets one line in its notebook: the
   title, the page, and its own reason for wanting it.
+- **An expand run may write it too.** The reading list joins the Fellow's own pages in an
+  expand's page set, next to the notebook and the synthesis pages - IN the set rather than
+  exempt from the check, so the append-only rule still holds it. Left out, the first real
+  expand run was reverted whole for noting a single publication, which is what every writing
+  run is now told to do.
 - **The planner sees it as a candidate**, of kind `reading` and above every other weight: the
   question is already written down, the document is here, and reading it beats another search
   round. The proposal it becomes points at the source page.
