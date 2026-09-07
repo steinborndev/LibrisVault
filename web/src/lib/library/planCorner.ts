@@ -1,20 +1,20 @@
 /**
- * The three lines in the Library's bottom-right corner (docs/agents/SPEC.md section 10.7):
- * which plan is running, and how much of the five-hour and the seven-day window is LEFT.
+ * The lines in the Library's bottom-right corner (docs/agents/SPEC.md section 10.7): which plan
+ * is running, and how much of each window has been USED.
  *
- * The endpoint reports utilisation - what has been used - and the room should say what is
- * still there: standing in the library, the question is how much of the night is affordable,
- * not how much of the day is gone.
+ * Used, the same way the plan's own clients report it, so the two can be read side by side
+ * without arithmetic - a remaining figure beside a used one looks like a contradiction rather
+ * than the same fact twice.
  *
- * Two things make this less simple than subtracting from a hundred, and both are the reason
- * this is a tested function rather than three lines of JSX:
+ * Two things make this less simple than copying a number, and both are the reason this is a
+ * tested function rather than three lines of JSX:
  *
  *  - **The numbers age.** They are sampled inside runs and, between runs, from an endpoint
  *    that is itself rate limited. A percentage with no age on it is a percentage that lies
  *    quietly, so a stale one says how old it is.
  *  - **A window that has reset is not stale, it is empty.** Past its `resetsAt`, the last
- *    sample describes a window that no longer exists: the honest answer is a full 100 %,
- *    not the figure from before the reset.
+ *    sample describes a window that no longer exists: the honest answer is 0 % used, not the
+ *    figure from before the rollover.
  */
 
 import type { PlanStatus } from '../../api/types.ts'
@@ -27,11 +27,11 @@ export interface PlanLine {
   readonly window: string
   /** What the corner calls it. */
   readonly label: string
-  /** Percent of the window still available, 0 to 100, rounded to a whole number. */
-  readonly leftPct: number
-  /** True when this window has rolled over since the sample: the number is a fresh 100. */
+  /** Percent of the window consumed, 0 to 100, rounded to a whole number. */
+  readonly usedPct: number
+  /** True when this window has rolled over since the sample: the number is a fresh 0. */
   readonly reset: boolean
-  /** The window with the least left - the one that stops the next run. */
+  /** The window with the most used - the one that stops the next run. */
   readonly tightest: boolean
 }
 
@@ -43,6 +43,8 @@ export interface PlanCorner {
   readonly ageMin: number | null
   /** True when the numbers have stopped refreshing and should be read with that in mind. */
   readonly stale: boolean
+  /** The word for what the percentages measure, said once in the head. */
+  readonly unit: 'used'
   /** Why they are not refreshing, when the service knows; for the tooltip. */
   readonly reason: string | null
 }
@@ -79,18 +81,19 @@ export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorne
     const resetsAt = plan.resets[w.window] ?? w.resetsAt
     const parsed = resetsAt === null || resetsAt === undefined ? NaN : Date.parse(resetsAt)
     const reset = !Number.isNaN(parsed) && parsed <= now
-    const left = reset ? 100 : 100 - w.utilization
-    lines.push({ window: w.window, label: windowLabel(w.window), leftPct: Math.max(0, Math.min(100, Math.round(left))), reset })
+    const used = reset ? 0 : w.utilization
+    lines.push({ window: w.window, label: windowLabel(w.window), usedPct: Math.max(0, Math.min(100, Math.round(used))), reset })
   }
   if (lines.length === 0) return null
   lines.sort((a, b) => (RANK[a.window] ?? 2) - (RANK[b.window] ?? 2) || a.window.localeCompare(b.window))
-  // The window with the least left is the one that stops the next run, whichever it is. It
-  // carries a mark so the binding limit is visible without reading three numbers and
-  // comparing them - which is the whole reason the per-model windows are shown at all.
-  const tightest = lines.reduce((a, b) => (b.leftPct < a.leftPct ? b : a))
+  // The fullest window is the one that stops the next run, whichever it is. It carries a mark
+  // so the binding limit is visible without reading three numbers and comparing them - which
+  // is the whole reason the per-model windows are shown at all.
+  const tightest = lines.reduce((a, b) => (b.usedPct > a.usedPct ? b : a))
 
   return {
     plan: plan.subscription !== null && plan.subscription !== '' ? plan.subscription : null,
+    unit: 'used',
     lines: lines.map((l) => ({ ...l, tightest: l.window === tightest.window })),
     ageMin,
     // A window that has reset carries no stale figure, so an old sample behind a full window

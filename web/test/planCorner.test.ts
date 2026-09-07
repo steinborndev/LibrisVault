@@ -34,11 +34,12 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus =>
   }) as PlanStatus
 
 describe('what the corner says', () => {
-  it('reports what is LEFT, not what was used, as whole percents', () => {
+  it('reports what has been USED, the way the plan\'s own clients do, as whole percents', () => {
     const c = planCorner(plan(), NOW)!
-    expect(c.lines.map((l) => [l.label, l.leftPct])).toEqual([
-      ['5 h', 76],
-      ['week', 47],
+    expect(c.unit).toBe('used')
+    expect(c.lines.map((l) => [l.label, l.usedPct])).toEqual([
+      ['5 h', 24],
+      ['week', 53],
     ])
   })
 
@@ -55,10 +56,10 @@ describe('what the corner says', () => {
     )!
     // Five hours, then the plain week, then the per-model ones - and each named, not skipped.
     expect(c.lines.map((l) => l.label)).toEqual(['5 h', 'week', 'week · fable'])
-    expect(c.lines.map((l) => l.leftPct)).toEqual([73, 46, 19])
+    expect(c.lines.map((l) => l.usedPct)).toEqual([27, 54, 81])
   })
 
-  it('marks the window with the least left, which is the one that stops the next run', () => {
+  it('marks the fullest window, which is the one that stops the next run', () => {
     const c = planCorner(
       plan({
         windows: [
@@ -84,7 +85,7 @@ describe('what the corner says', () => {
 
   it('shows a window that has rolled over as empty, not as the figure from before it', () => {
     const c = planCorner(plan({ windows: [{ window: 'five_hour', utilization: 91, resetsAt: ago(60_000) }] }), NOW)!
-    expect(c.lines[0]).toMatchObject({ leftPct: 100, reset: true })
+    expect(c.lines[0]).toMatchObject({ usedPct: 0, reset: true })
   })
 
   it('prefers the reset the service tracked over the one on the sample', () => {
@@ -96,6 +97,13 @@ describe('what the corner says', () => {
     expect(planCorner(plan(), NOW)!.stale).toBe(false)
     expect(planCorner(plan({ sampledAt: ago(STALE_MS + 60_000) }), NOW)!.ageMin).toBe(21)
     expect(planCorner(plan({ sampledAt: ago(STALE_MS + 60_000) }), NOW)!.stale).toBe(true)
+  })
+
+  it('warns only on a window that is genuinely running out - the thresholds are on the used side', () => {
+    // 53 % used is the fullest window here and still nowhere near a warning: the mark says
+    // "this one binds first", the colour says "and it is nearly gone".
+    const c = planCorner(plan(), NOW)!
+    expect(c.lines.map((l) => l.usedPct >= 75)).toEqual([false, false])
   })
 
   it('does not call an old sample stale when every window it describes has since reset', () => {

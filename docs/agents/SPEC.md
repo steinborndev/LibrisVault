@@ -1205,12 +1205,13 @@ the wrong place. Every return to the graph re-frames it - the canvas keeps pan a
 state, which is right for a view that continues and wrong for one being opened again, so the
 number of returns rides in the fit key.
 
-**The plan in the corner of the room** (2026-09-07). Bottom right of the drawing area, three
-lines: the plan's name and how much of the five-hour and the seven-day window is LEFT, whole
-percent. Left rather than used, because the question asked while looking at the Fellows is what
-is still affordable tonight. `planCorner` derives it, and two cases make that a tested function:
-a window past its `resetsAt` reads a full 100 % rather than the figure from before the rollover,
-and a sample old enough to matter carries its age.
+**The plan in the corner of the room** (2026-09-07). Bottom right of the drawing area: the
+plan's name, then one row per window with the percent USED, whole numbers. Used rather than
+remaining, because the plan's own clients report it that way and the two are read side by side -
+a remaining figure beside a used one looks like a contradiction rather than the same fact twice.
+`planCorner` derives it, and two cases make that a tested function: a window past its `resetsAt`
+reads 0 % rather than the figure from before the rollover, and a sample old enough to matter
+carries its age.
 
 **Every window the plan reports gets a row**, not the two the card knew by name. A plan also
 carries per-model weekly limits (`seven_day_opus`, `seven_day_fable`), and one of those is
@@ -1218,9 +1219,9 @@ regularly the tightest of the lot: skipping the keys it did not recognise hid ex
 that binds first. Anything `seven_day_x` reads as "week · x", anything else is its key without
 the underscores, and the rows sort five hours, week, then the per-model ones.
 
-Two signals, kept apart. The window with the LEAST left is emphasised - it is the one that stops
-the next run, and finding it should not mean comparing three numbers. The COLOUR is the level,
-and only a genuinely thin window earns it (warn at 25 %, error at 10 %): 47 % left is not a
+Two signals, kept apart. The FULLEST window is emphasised - it is the one that stops the next
+run, and finding it should not mean comparing three numbers. The COLOUR is the level, and only a
+window genuinely running out earns it (warn at 75 % used, error at 90 %): 53 % used is not a
 warning, and a card that shouts at a healthy plan teaches the reader to ignore it.
 
 The name comes from the `planName` setting first and the SDK's `subscription_type` second: the

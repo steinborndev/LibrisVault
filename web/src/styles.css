@@ -6944,9 +6944,9 @@ tr:focus-within .rowacts {
   white-space: nowrap;
 }
 /*
- * Two separate signals, because they answer two questions. The window with the least left is
- * the one that stops the next run - emphasis, not alarm; 47 % left is not a warning. The
- * COLOUR is the level, and only a genuinely thin window earns it.
+ * Two separate signals, because they answer two questions. The fullest window is the one that
+ * stops the next run - emphasis, not alarm; 53 % used is not a warning. The COLOUR is the
+ * level, and only a window that is genuinely running out earns it.
  */
 .lp-row.tight .lp-w,
 .lp-row.tight .lp-n {
