@@ -302,3 +302,44 @@ Two honest options instead, both small:
 The first is the more valuable one and the more work, because it touches every figure; the
 second is nearly free and only helps lint and lint-fix.
 
+**A percentage in every bubble.** The ask: `Ada (writing 60%)` instead of `Ada (writing)`, for
+Fellows and visitors alike. There is no progress signal in an agent run - the SDK reports tool
+calls, not a fraction of the work - so any number is an estimate, and the question is which
+estimate is honest enough to show.
+
+Measured over this vault's own run log (2026-09-07), duration per kind is far more predictable
+than it feels:
+
+| kind | runs | avg | min | max |
+|---|---|---|---|---|
+| research | 7 | 749 s | 601 | 875 |
+| research-expand | 2 | 590 s | 527 | 653 |
+| research-step | 3 | 392 s | 358 | 451 |
+| plan | 6 | 127 s | 84 | 177 |
+| lint | 1 | 512 s | - | - |
+| hot-cache | 1 | 21 s | - | - |
+
+Spread inside a kind is roughly ±20 %, which is good enough for a bubble and useless for a
+progress bar - so show it as a coarse number, in steps of ten, never as a precise one.
+
+The build, in three parts, none of them large:
+
+1. **Elapsed against the median of the same kind and model.** `agent_runs` already holds
+   `started_at`/`finished_at` per kind, so the median is a query; the scene already carries
+   `run.startedAt`. The server would add one field per running run (`typicalMs`) and the
+   adapter would compute `min(95, elapsed / typical)`. A fresh vault with no history falls back
+   to the sizes in SPEC section 16.
+2. **Anchored on the phase, so it cannot lie badly.** The pose already knows what the run is
+   doing from its log lines. Reading caps the number below ~50 %, writing below ~85 %, and a
+   commit line pins it at 95 % whatever the clock says. That turns a pure stopwatch into
+   something that tracks the work: a run that finishes early jumps forward instead of sitting
+   at 40 % while it commits.
+3. **Never go backwards, never reach 100.** Keep the last value per run in the adapter and
+   take the maximum; a run at 95 % that is still going says 95 % until it settles, because a
+   bubble that hits 100 and keeps talking is worse than one that says 90.
+
+An optional fourth part, if the estimate is not good enough: ask the run to log its own
+progress (`progress: 2/5 sources fetched`), which the research skill's rounds and the lint
+skill's ten checks would make natural. That is the only source of a REAL fraction, but it
+depends on the model obeying, so it would layer on top of the estimate rather than replace it.
+
