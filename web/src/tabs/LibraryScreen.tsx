@@ -51,7 +51,28 @@ const BOARD_SUBS: Record<BoardId, string> = {
   reading: 'what the Fellows read on the web; ingesting one is your call',
 }
 
-export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '', shelfParam = '', paneParam = '', pageParam = '', boardParam = '' }: { vaultName: string; agentParam: string; roomParam: string; spawnParam?: string; shelfParam?: string; paneParam?: string; pageParam?: string; boardParam?: string }): React.ReactElement {
+export function LibraryScreen({
+  vaultName,
+  agentParam,
+  roomParam,
+  active = true,
+  spawnParam = '',
+  shelfParam = '',
+  paneParam = '',
+  pageParam = '',
+  boardParam = '',
+}: {
+  vaultName: string
+  agentParam: string
+  roomParam: string
+  /** Whether the Library tab is the one showing; the screen stays mounted either way. */
+  active?: boolean
+  spawnParam?: string
+  shelfParam?: string
+  paneParam?: string
+  pageParam?: string
+  boardParam?: string
+}): React.ReactElement {
   const qc = useQueryClient()
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, refetchInterval: 5_000 })
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
@@ -81,6 +102,25 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
   const seen = useRef<Map<string, { name: string; role: Actor['role']; agentId?: string }>>(new Map())
   const [drag, setDrag] = useState<{ domain: string; x: number; y: number; target: string | null; slot: number | null } | null>(null)
   const areaRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * Leaving the tab closes the room's windows. The screen stays mounted while another tab
+   * shows (it polls the scene), so a board or a department window left open was still there
+   * on the way back - the Library reopened on whatever had been in front of the room rather
+   * than on the room. Coming back is the main room in focus, the resting state of 10.7.
+   */
+  useEffect(() => {
+    if (active) return
+    setBoard(null)
+    setShelf(null)
+    setShelfPage(null)
+    setNewSlot(null)
+    setRenaming(null)
+    setSpawnOpen(false)
+    setPopover(null)
+    setRoom('main')
+    setMode('focus')
+  }, [active])
 
   // Deep links: the room, the card and the spawn form follow the URL.
   useEffect(() => {

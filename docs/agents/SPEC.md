@@ -914,6 +914,11 @@ full width put it in front of the very figure standing at it, since that figure 
 on the case, 1.55 tiles out: a Fellow reading at a shelf was drawn behind the shelf. Nothing
 ever stands between a case and the wall, so the narrower claim costs nothing.
 
+**Leaving the tab closes the room's windows** (2026-09-07). The screen stays mounted while
+another tab shows, because it polls the scene, so a board or a department window left open was
+still open on the way back and the Library reopened on whatever stood in front of the room.
+Coming back is now always the resting state: main room, focus mode, nothing over it.
+
 **Focus follows the Fellow once per move, not on every render.** The mode exists to show the
 room where something happens, but re-applied continuously it also pulled the reader BACK:
 walking to the main room while a Fellow stood at a shelf in a wing was undone by the next
