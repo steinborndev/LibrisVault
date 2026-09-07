@@ -17,7 +17,7 @@ import { SqliteAgentRunStore } from '../src/db/agent-runs.js'
 import { SqliteProposalStore, type ProposalRecord } from '../src/db/proposals.js'
 import { SqliteShiftStore } from '../src/db/shifts.js'
 import { NotebookWriter } from '../src/pipeline/notebook.js'
-import { FellowService, type GateBlock } from '../src/pipeline/fellows.js'
+import { taskForTonight, FellowService, type GateBlock } from '../src/pipeline/fellows.js'
 import { NightShift } from '../src/pipeline/shift.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { EventBus } from '../src/pipeline/events.js'
@@ -290,6 +290,22 @@ describe('planning, proposals and the night shift', () => {
     expect(second).toContain("Tonight's task (2 of 2): How far can photometry")
     expect(second).toContain('an explore task')
     expect(h.service.get(ada.id)!.taskCursor).toBe(0)
+  })
+
+  it('counts the spawn run as the first task\'s turn, so the first night plans the SECOND task', async () => {
+    const ada = await spawn({
+      runFirstStep: true,
+      tasks: [
+        { text: 'the first task', kind: 'explore' },
+        { text: 'the second task', kind: 'explore' },
+      ],
+    })
+    // The spawn run is a research run on task 1, not a planning run - the rotation used to
+    // advance only when the planner started, which gave task 1 a run AND the first plan.
+    expect(h.service.get(ada.id)!.taskCursor).toBe(1)
+    // Which is what the next planning run reads: from here the rotation puts task 2 up.
+    expect(taskForTonight(h.service.get(ada.id)!.tasks, h.service.get(ada.id)!.taskCursor)).toMatchObject({ index: 1 })
+    await h.service.flush()
   })
 
   it('rests the task the planner answered and keeps the Fellow working the others', async () => {

@@ -554,6 +554,15 @@ export class FellowService {
     await this.writeNotebook(agent)
     if (input.runFirstStep === false) return { agent }
     const outcome = this.step(agent.id, { kind: 'research', topic: agent.intent })
+    /*
+     * The first run IS the first task's turn, so the turn moves on. It is not a planning run,
+     * and the rotation otherwise advances only when the planner starts - which left the first
+     * task planned again on the first night, after it had already had its run.
+     */
+    if (outcome.run) {
+      const next = taskForTonight(agent.tasks, 0)
+      if (next) this.agents.update(agent.id, { taskCursor: next.nextCursor }, this.now().toISOString())
+    }
     return { agent: this.agents.get(agent.id) ?? agent, ...(outcome.run ? { run: outcome.run } : {}), ...(outcome.refusal ? { refusal: outcome.refusal } : {}) }
   }
 
