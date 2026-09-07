@@ -1349,8 +1349,24 @@ of every three, because asking a rate limiter more often cannot help.
 the SDK samples only inside runs, so a run cleared the one field that explains why nothing
 refreshes between them. Measured on this vault: 390 samples, every one from the SDK, and the
 field reading null. The endpoint's refusals here are two, alternating: "Rate limited. Please try
-again later." and "OAuth token does not meet scope requirement user:profile" - the second is not
-a wait but a missing scope, so with this credential the endpoint will not answer at all.
+again later." and "OAuth token does not meet scope requirement user:profile".
+
+**The second is not a wait, and is no longer treated as one** (2026-09-07). A long-lived token -
+`claude setup-token`, `CLAUDE_CODE_OAUTH_TOKEN` - is inference-only by design; Claude Code says
+so itself ("limited to inference-only for security reasons"), and `user:profile` belongs to an
+interactive sign-in. That is the point of the restriction: a token sitting unattended in an
+environment file should not read the account's profile. So the endpoint is asked ONCE more after
+that answer and then not again - retrying it on any schedule is knocking at a locked door, and
+the second refusal it produced sent one investigation down the wrong path. What the status says
+from then on is the reason rather than the HTTP answer: the credential is inference-only by
+design, and the plan windows come from runs. The flag lives in memory, so a restart - which is
+what a changed credential means - gives it another try. A refusal that IS a moment, like a rate
+limit or a 503, keeps its doubling backoff.
+
+Switching the token is therefore not an option to weigh: `claude setup-token` issues another
+inference-only token, and a full-scope credential from `claude auth login` lives in the CLI's own
+refreshing store, which is a different lifecycle from a static value in the service environment -
+and would put in an unattended service exactly the token the restriction exists to keep out.
 
 **The four arrows walk the library** (2026-09-07). Left and right switch the two views of a
 department; up and down step to the next department, in the order the shelves stand in - rooms

@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { openDb, MEMORY_DB, migrate, type Db } from '../src/db/index.js'
 import { SqlitePlanOverrideStore, SqliteUsageSampleStore } from '../src/db/usage-samples.js'
-import { UsageMonitor, OVERRIDE_PCT, type PlanSettings } from '../src/pipeline/usage-monitor.js'
+import { UsageMonitor, OVERRIDE_PCT, isPermanentRefusal, type PlanSettings } from '../src/pipeline/usage-monitor.js'
 import { SqliteAgentRunStore } from '../src/db/agent-runs.js'
 
 const SETTINGS: PlanSettings = {
@@ -123,13 +123,14 @@ describe('the five-hour release', () => {
       runs: new SqliteAgentRunStore(db),
       settings: () => SETTINGS,
       now: () => clock,
-      fetchEndpoint: async () => ({ ok: false, reason: 'the token lacks user:profile' }),
+      // A transient reason, so this tests the masking and not the permanent-refusal path.
+      fetchEndpoint: async () => ({ ok: false, reason: 'the usage endpoint answered 503' }),
     })
     return withEndpoint.refresh(true).then(() => {
-      expect(withEndpoint.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason).toBe('the token lacks user:profile')
+      expect(withEndpoint.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason).toBe('the usage endpoint answered 503')
       // A run samples successfully - and the endpoint's silence still has its reason.
       withEndpoint.recordSdk({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 5, resets_at: RESET } } }, 'after', 'r1')
-      expect(withEndpoint.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason).toBe('the token lacks user:profile')
+      expect(withEndpoint.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason).toBe('the usage endpoint answered 503')
     })
   })
 
@@ -143,6 +144,51 @@ describe('the five-hour release', () => {
     // Withdrawn: the very next start is bound by the quota again, which is what stops a round
     // that is still walking its Fellows.
     expect(suspended()).toBe(false)
+  })
+
+  it('stops asking once the endpoint refuses for a reason no waiting fixes, and says why', async () => {
+    let asked = 0
+    const m = new UsageMonitor({
+      store: new SqliteUsageSampleStore(db),
+      overrides: new SqlitePlanOverrideStore(db),
+      runs: new SqliteAgentRunStore(db),
+      settings: () => SETTINGS,
+      now: () => clock,
+      fetchEndpoint: async () => {
+        asked++
+        return { ok: false, reason: 'OAuth token does not meet scope requirement user:profile' }
+      },
+    })
+    await m.refresh(true)
+    expect(asked).toBe(1)
+    // Asked again, forced, and after the cache would have expired: still not asked.
+    await m.refresh(true)
+    clock = new Date(clock.getTime() + 6 * 3600_000)
+    await m.refresh()
+    expect(asked).toBe(1)
+    // And what it says is the reason, not the HTTP answer that produced it.
+    const reason = m.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason ?? ''
+    expect(reason).toContain('inference-only by design')
+    expect(reason).not.toContain('scope requirement')
+  })
+
+  it('keeps retrying a refusal that IS a moment, like a rate limit', async () => {
+    let asked = 0
+    const m = new UsageMonitor({
+      store: new SqliteUsageSampleStore(db),
+      overrides: new SqlitePlanOverrideStore(db),
+      runs: new SqliteAgentRunStore(db),
+      settings: () => SETTINGS,
+      now: () => clock,
+      fetchEndpoint: async () => {
+        asked++
+        return { ok: false, reason: 'Rate limited. Please try again later.' }
+      },
+    })
+    await m.refresh(true)
+    await m.refresh(true)
+    expect(asked).toBe(2)
+    expect(m.status({ estCostUsd: 2, model: 'sonnet-5' }).liveReason).toContain('Rate limited')
   })
 
   it('can be withdrawn on the spot', () => {
@@ -160,5 +206,18 @@ describe('the five-hour release', () => {
     expect(store.list()).toHaveLength(1)
     expect(store.list()[0]).toMatchObject({ window: 'five_hour', pct: OVERRIDE_PCT, expiresAt: RESET })
     expect(store.list()[0]!.revokedAt).not.toBeNull()
+  })
+})
+
+describe('telling a permanent refusal from a moment', () => {
+  it('knows the scope refusal, whatever wording it arrives in', () => {
+    expect(isPermanentRefusal('OAuth token does not meet scope requirement user:profile')).toBe(true)
+    expect(isPermanentRefusal('missing user:profile')).toBe(true)
+  })
+
+  it('leaves everything else to the backoff', () => {
+    expect(isPermanentRefusal('Rate limited. Please try again later.')).toBe(false)
+    expect(isPermanentRefusal('the usage endpoint answered 503')).toBe(false)
+    expect(isPermanentRefusal(null)).toBe(false)
   })
 })

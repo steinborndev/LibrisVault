@@ -155,6 +155,27 @@ export const OVERRIDE_PCT = 90
 /** How far the wait between refused endpoint calls doubles: 180 s becomes at most ~48 min. */
 const MAX_BACKOFF_STEPS = 4
 
+/**
+ * What the plan endpoint says when the credential structurally cannot read it.
+ *
+ * A long-lived token - `claude setup-token`, `CLAUDE_CODE_OAUTH_TOKEN` - is inference-only by
+ * design; Claude Code says so itself ("limited to inference-only for security reasons"), and
+ * `user:profile` belongs to an interactive sign-in. That is the whole point of the restriction:
+ * a token sitting unattended in an environment file should not read the account's profile.
+ *
+ * So this refusal is not a wait. Retrying it on any schedule is knocking at a door that is
+ * locked, and it produced a second, misleading reason ("Rate limited") that sent one
+ * investigation down the wrong path.
+ */
+const SCOPE_REFUSAL = /scope requirement|user:profile/i
+
+/** What to say instead, once we know the door is not going to open. */
+const INFERENCE_ONLY =
+  'this credential is inference-only by design - a long-lived token carries no user:profile scope - so the plan windows come from runs, not from the endpoint'
+
+/** Whether a refusal is the permanent kind. Pure, so the wording is pinned by a test. */
+export const isPermanentRefusal = (reason: string | null): boolean => reason !== null && SCOPE_REFUSAL.test(reason)
+
 /** The SDK's `usage()` response: availability, subscription, windows. */
 export function parseSdkUsage(res: unknown): { available: boolean; subscription: string | null; windows: WindowSample[]; reason: string | null } {
   if (res === null || typeof res !== 'object') return { available: false, subscription: null, windows: [], reason: 'no usage response' }
@@ -250,6 +271,12 @@ export class UsageMonitor {
   private saidReason: string | null = null
   /** Consecutive refusals; the wait between attempts doubles with each one. */
   private failures = 0
+  /**
+   * Set once the endpoint refuses for a reason no waiting fixes. From then on it is not asked
+   * again: the flag lives in memory, so a restart - which is what a changed credential means -
+   * gives it another try.
+   */
+  private closed = false
   private readonly resets = new Map<string, string>()
   private subscription: string | null = null
   private pendingFetch: Promise<void> | null = null
@@ -294,6 +321,17 @@ export class UsageMonitor {
    * any sample. A silent refusal that stops the only live source is worth one line.
    */
   private note(reason: string | null): void {
+    if (isPermanentRefusal(reason)) {
+      // Said once, then never asked again. It is a property of the credential, not a moment.
+      this.closed = true
+      this.lastReason = INFERENCE_ONLY
+      this.endpointReason = INFERENCE_ONLY
+      if (this.saidReason !== INFERENCE_ONLY) {
+        this.saidReason = INFERENCE_ONLY
+        this.log('info', `usage: the plan endpoint will not be asked again - ${INFERENCE_ONLY}`)
+      }
+      return
+    }
     this.lastReason = reason
     this.endpointReason = reason
     this.failures = reason === null ? 0 : Math.min(this.failures + 1, MAX_BACKOFF_STEPS)
@@ -305,7 +343,7 @@ export class UsageMonitor {
 
   /** Fetches the endpoint when the latest endpoint sample is older than the cache; one flight at a time. */
   async refresh(force = false): Promise<void> {
-    if (!this.o.fetchEndpoint) return
+    if (!this.o.fetchEndpoint || this.closed) return
     const cacheMs = this.o.cacheMs ?? 180_000
     /*
      * A refused endpoint is asked back less often, doubling up to half an hour. The one this

@@ -207,7 +207,9 @@ describe('the monitor', () => {
 
   it('refreshes from the endpoint behind a cache, one flight at a time, and keeps its refusal', async () => {
     let calls = 0
-    let answer: EndpointResult = { ok: false, reason: 'OAuth token does not meet scope requirement user:profile' }
+    // A refusal that IS a moment: the scope refusal closes the endpoint for good and is
+    // covered in plan-override.test.ts, so it would not test the cache at all.
+    let answer: EndpointResult = { ok: false, reason: 'the usage endpoint answered 503' }
     let clock = NOW
     const { m } = monitorWith([], async () => {
       calls++
@@ -215,7 +217,7 @@ describe('the monitor', () => {
     }, () => clock)
     await m.refresh()
     expect(calls).toBe(1)
-    expect(m.status({ estCostUsd: 2, model: 'sonnet-5' })).toMatchObject({ available: false, reason: 'OAuth token does not meet scope requirement user:profile', shares: { unit: 'usd' } })
+    expect(m.status({ estCostUsd: 2, model: 'sonnet-5' })).toMatchObject({ available: false, reason: 'the usage endpoint answered 503', shares: { unit: 'usd' } })
     await m.refresh()
     expect(calls).toBe(1)
     answer = { ok: true, json: { five_hour: { utilization: 22, resets_at: FIVE_RESET }, seven_day: { utilization: 9, resets_at: WEEK_RESET } } }
