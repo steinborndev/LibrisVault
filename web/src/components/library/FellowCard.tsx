@@ -17,6 +17,7 @@ import { navigate, pageRoute } from '../../lib/router.ts'
 import { obsidianUri } from '../../lib/obsidian.ts'
 import { stepButton } from '../../lib/stepAction.ts'
 import { toolFamily } from '../../lib/library/scene.ts'
+import { taskState, TASK_HINT, TASK_LABEL } from '../../lib/library/tasks.ts'
 import { DeepenDialog } from './DeepenDialog.tsx'
 
 const STATE_TEXT: Record<string, string> = {
@@ -116,8 +117,23 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
           )}
           <div className="gx-body">
             <section className="gx-sec">
-              <h3>Intent</h3>
-              <p>{c.agent.intent}</p>
+              <h3>Standing work</h3>
+              {/* The tasks and where each one stands. The Fellow takes them in turn, so which
+                  is up next is as much a fact about tonight as the state below it. */}
+              <ul className="fc-tasks">
+                {(c.agent.tasks ?? []).map((t, i) => {
+                  const at = taskState(t, c.agent.taskCursor ?? 0, i, c.agent.tasks ?? [])
+                  return (
+                    <li key={t.id} className={`fc-task ${at === 'up next' ? 'on' : at === 'resting' ? 'rest' : ''}`}>
+                      <span className="fc-task-k" title={TASK_HINT[t.kind]}>
+                        {TASK_LABEL[t.kind]}
+                      </span>
+                      <span className="fc-task-t">{t.text}</span>
+                      <span className="mono-meta">{at}</span>
+                    </li>
+                  )
+                })}
+              </ul>
               {c.agent.scope && <p className="mono-meta">Scope: {c.agent.scope}</p>}
               <p className="mono-meta">
                 {STATE_TEXT[c.agent.state] ?? c.agent.state}

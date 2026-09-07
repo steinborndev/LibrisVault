@@ -33,6 +33,9 @@ import { windowAt } from '../src/pipeline/shift.js'
 import { addDays, knowledgePages, localDate } from '../src/pipeline/fellows.js'
 import { notebookPath } from '../src/pipeline/notebook.js'
 
+/** The task every planner prompt is now asked for; the tests judge against this one. */
+const TASK = { id: 't1', text: 'x', kind: 'explore' as const, state: 'active' as const }
+
 const INTENT = 'How well can ground-based transit photometry constrain exoplanet atmospheres, and where do the systematics come from?'
 
 const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
@@ -41,6 +44,8 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   slug: 'ada',
   intent: INTENT,
   scope: null,
+  tasks: [{ id: 't1', text: 'x', kind: 'explore', state: 'active' }],
+  taskCursor: 0,
   homeDomain: 'astronomy',
   extraDomains: [],
   lens: 'broad',
@@ -243,7 +248,7 @@ describe('planner prompt, schema and answer', () => {
   ]
 
   it('renders the prompt with candidates, kinds, vetoes and quota', () => {
-    const prompt = renderPlannerPrompt({ agent: agentRecord(), candidates, recentLog: ['2026-09-06 · research-step · x · 1 page(s) · 2.00 USD'], vetoed: ['Old topic'], runsLeftToday: 1, kinds: ['research-step', 'research'] })
+    const prompt = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: ['2026-09-06 · research-step · x · 1 page(s) · 2.00 USD'], vetoed: ['Old topic'], runsLeftToday: 1, kinds: ['research-step', 'research'] })
     expect(prompt).toContain('C1 [open-question; from wiki/meta/agents/ada.md] Does the precision hold')
     expect(prompt).toContain('C2 [gap; from wiki/concepts/Transit Photometry.md] Limb Darkening')
     expect(prompt).toContain('do not propose them again:\n- Old topic')
@@ -344,13 +349,13 @@ describe('planner prompt, schema and answer', () => {
     expect(item['topic']).toMatchObject({ maxLength: FIELD_CAPS.topic, minLength: 3 })
     expect(item['rationale']).toMatchObject({ maxLength: FIELD_CAPS.rationale })
     expect(item['pages']).toMatchObject({ maxItems: FIELD_CAPS.pages })
-    const prompt = renderPlannerPrompt({ agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    const prompt = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
     expect(prompt).toContain(`at most ${FIELD_CAPS.topic} characters`)
     // The planner writes nothing itself; the reading entries come back as data.
     expect(prompt).toContain('could NOT get')
     expect(prompt).toContain('you must not write to any page')
     expect(prompt).not.toContain('NOTE:')
-    const again = renderPlannerPrompt({ agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], retryNote: 'its answer did not match the schema' })
+    const again = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], retryNote: 'its answer did not match the schema' })
     expect(again).toContain('NOTE: its answer did not match the schema')
   })
 

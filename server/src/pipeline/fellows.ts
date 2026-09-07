@@ -16,7 +16,11 @@ import {
   AGENT_EFFORTS,
   MODEL_FACTOR,
   MODEL_IDS,
+  MAX_TASKS,
+  TASK_KINDS,
   slugify,
+  type AgentTask,
+  type TaskInput,
   type AgentAutonomy,
   type AgentEffort,
   type AgentModel,
@@ -49,14 +53,16 @@ import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
 import { EXPAND_MANUAL_MAX_PAGES, expandBudgetUsd, expandTimeoutMs } from './expand.js'
 import { parseFrontmatterMeta } from './graph.js'
-import { computeCandidates, knowledgePages, type Candidate } from './candidates.js'
+import { computeCandidates, fellowDomains, knowledgePages, type Candidate } from './candidates.js'
+import { rankForDeepening } from './deepen-rank.js'
+import { EXPAND_MAX_PAGES } from './expand.js'
 import { localDate, addDays, windowAt } from './clock.js'
 import type { VaultGraph } from './graph.js'
 import {
   buildProposals,
   estimateCostUsd,
   isDrift,
-  kindsForStep,
+  kindsForTask,
   parsePlannerAnswer,
   plannerSchema,
   renderPlanSection,
@@ -65,6 +71,46 @@ import {
 } from './planner.js'
 import type { GateContext } from './usage-monitor.js'
 import { DEFAULT_NIGHT_WINDOW, DEFAULT_RESEARCH_MODEL } from '../db/settings.js'
+
+/**
+ * The task list as it goes into the record: trimmed, empty ones dropped, capped at MAX_TASKS,
+ * each with a stable id. Ids are positional (`t1`..`t3`) because the list is short and edited
+ * whole; nothing outside a Fellow's own record refers to them.
+ */
+export function normalizeTasks(input: readonly TaskInput[]): AgentTask[] {
+  const out: AgentTask[] = []
+  for (const t of input) {
+    const text = t.text.trim()
+    if (text === '') continue
+    out.push({ id: `t${out.length + 1}`, text, kind: TASK_KINDS.includes(t.kind) ? t.kind : 'explore', state: 'active' })
+    if (out.length >= MAX_TASKS) break
+  }
+  return out
+}
+
+/**
+ * The task the planner works tonight, and where the cursor lands next.
+ *
+ * Round robin over the ACTIVE tasks: a resting one is stepped over rather than removed, so it
+ * stays visible on the card and can be replaced. Null when every task rests - that is what puts
+ * the Fellow to sleep, rather than the first answered question doing it (docs/agents/ideas.md,
+ * decision 2026-09-07).
+ */
+export function taskForTonight(tasks: readonly AgentTask[], cursor: number): { task: AgentTask; index: number; nextCursor: number } | null {
+  if (tasks.length === 0) return null
+  const start = ((cursor % tasks.length) + tasks.length) % tasks.length
+  for (let step = 0; step < tasks.length; step++) {
+    const i = (start + step) % tasks.length
+    const task = tasks[i]!
+    if (task.state === 'active') return { task, index: i, nextCursor: (i + 1) % tasks.length }
+  }
+  return null
+}
+
+/** The task list with one task put to rest; only an explore task may reach that state. */
+export function restTask(tasks: readonly AgentTask[], id: string): AgentTask[] {
+  return tasks.map((t) => (t.id === id && t.kind === 'explore' ? { ...t, state: 'resting' as const } : t))
+}
 
 /** Per-kind USD cap on Sonnet 5 (docs/agents/SPEC.md sections 6.2 and 7), scaled by the model factor. */
 export const BUDGET_USD: Readonly<Record<RunKind, number>> = { research: 12, 'research-step': 4, 'research-expand': 6, plan: 1 }
@@ -79,7 +125,10 @@ export type RunKind = StepKind | 'plan'
 
 export interface SpawnInput {
   readonly name: string
+  /** The first task's sentence; kept for callers that spawn with one line. */
   readonly intent: string
+  /** The standing work, one to three. Absent = the intent as a single explore task. */
+  readonly tasks?: readonly TaskInput[]
   readonly scope?: string
   readonly homeDomain: string
   readonly extraDomains?: readonly string[]
@@ -245,6 +294,8 @@ export class FellowService {
   private readonly handoffs: HandoffStore | undefined
   private readonly registry: () => readonly DomainHint[]
   private readonly vaultRoot: string | undefined
+  /** Where the candidate machinery reads from; the deepen ranking needs the graph too. */
+  private readonly sources: CandidateSources | undefined
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   /** One run in flight per Fellow: agent id to tracked run id. */
   private readonly inFlight = new Map<string, string>()
@@ -279,6 +330,7 @@ export class FellowService {
       })
     this.log = opts.log ?? ((): void => {})
     const sources = opts.candidateSources
+    this.sources = sources
     this.candidatesFn =
       opts.candidates ??
       ((agent, runs, since): Candidate[] => {
@@ -450,12 +502,23 @@ export class FellowService {
       return { refusal: { status: 409, code: 'state', error: `a Fellow named "${input.name}" (slug ${slug}) already exists` } }
     }
     const now = this.now().toISOString()
+    /*
+     * The standing work. `tasks` when the caller sends them, otherwise the single intent as one
+     * explore task - the shape every Fellow spawned before 2026-09-07 has, and the shape the
+     * API keeps accepting so a one-line spawn stays a one-line spawn.
+     */
+    const tasks = normalizeTasks(input.tasks ?? [{ text: input.intent, kind: 'explore' }])
+    if (tasks.length === 0) {
+      return { refusal: { status: 409, code: 'kind', error: 'a Fellow needs at least one task' } }
+    }
     const agent: AgentRecord = {
       id: randomUUID(),
       name: input.name.trim(),
       slug,
-      intent: input.intent.trim(),
+      intent: tasks[0]!.text,
       scope: input.scope?.trim() ? input.scope.trim() : null,
+      tasks,
+      taskCursor: 0,
       homeDomain: input.homeDomain,
       extraDomains: input.extraDomains ?? [],
       lens: input.lens ?? 'broad',
@@ -682,7 +745,32 @@ export class FellowService {
       this.sleep(agent.id, 'no-candidates', reason)
       return { skipped: reason }
     }
-    const kinds = kindsForStep(agent.step)
+    /*
+     * Tonight's task, taken in turn. Every task resting is what puts the Fellow to sleep now -
+     * one answered question used to do it for the whole Fellow (decision 2026-09-07).
+     */
+    const tonight = taskForTonight(agent.tasks, agent.taskCursor)
+    if (tonight === null) {
+      const reason = 'every standing task is answered as far as the library can take it'
+      this.sleep(agent.id, 'covered', reason)
+      return { skipped: reason }
+    }
+    const kinds = kindsForTask(tonight.task.kind, agent.step)
+    /*
+     * A deepen task names a theme, so the pages are ranked afresh here rather than stored:
+     * what has already been built out falls to the back on its own (decision 2026-09-07). The
+     * planner is handed them as the set it may name; without any, there is nothing to deepen.
+     */
+    const deepenPages =
+      tonight.task.kind === 'deepen'
+        ? rankForDeepening(this.graphOf(), fellowDomains(agent), tonight.task.text, EXPAND_MAX_PAGES).map((r) => r.path)
+        : []
+    if (tonight.task.kind === 'deepen' && deepenPages.length === 0) {
+      const reason = `nothing to deepen for "${tonight.task.text}" in ${[agent.homeDomain, ...agent.extraDomains].join(', ')}`
+      this.agents.update(agent.id, { taskCursor: tonight.nextCursor }, now.toISOString())
+      this.log('info', `fellows: ${agent.name} skips tonight - ${reason}`)
+      return { skipped: reason }
+    }
     const vetoed = this.proposals
       .list({ agentId: agent.id, status: ['vetoed'], limit: 10 })
       .map((p) => p.topic)
@@ -695,14 +783,19 @@ export class FellowService {
       vetoed,
       runsLeftToday: Math.max(0, agent.quotaRunsPerDay - this.runsToday(agent.id)),
       kinds,
+      task: tonight.task,
+      taskIndex: tonight.index,
+      ...(deepenPages.length > 0 ? { deepenPages } : {}),
       domains,
       ...(opts.retryNote !== undefined ? { retryNote: opts.retryNote } : {}),
     })
     const schema = plannerSchema({ kinds, candidateIds: candidates.map((c) => c.id), domainKeys: domains.map((d) => d.key) })
     const run = this.maintenance.startPlan(prompt, this.context(agent, 'plan'), schema)
-    this.track(agent.id, run, (settled) => this.onPlanSettled(agent.id, settled, candidates, kinds, cycleDate, attempt))
-    this.agents.update(agent.id, { state: 'active', sleepReason: null, sleepCode: null }, now.toISOString())
-    this.log('info', `fellows: planning run for ${agent.name} started with ${candidates.length} candidate(s)`)
+    this.track(agent.id, run, (settled) => this.onPlanSettled(agent.id, settled, candidates, kinds, cycleDate, attempt, tonight.task))
+    // The cursor moves when the run STARTS, so a failed or retried planning run does not put
+    // the same task up two nights running.
+    this.agents.update(agent.id, { state: 'active', sleepReason: null, sleepCode: null, taskCursor: tonight.nextCursor }, now.toISOString())
+    this.log('info', `fellows: planning run for ${agent.name} started on task ${tonight.index + 1} (${tonight.task.kind}) with ${candidates.length} candidate(s)`)
     return { run }
   }
 
@@ -995,6 +1088,15 @@ export class FellowService {
     }
   }
 
+  /** The vault graph when the service was given one; null in tests and read-only wirings. */
+  private graphOf(): VaultGraph | null {
+    try {
+      return this.sources?.graph?.() ?? null
+    } catch {
+      return null
+    }
+  }
+
   /** The settle state machine for a research kind (docs/tasks/TASKS-A1.md D8). */
   private async onStepSettled(agentId: string, settled: MaintenanceRun): Promise<void> {
     const now = this.now().toISOString()
@@ -1036,6 +1138,7 @@ export class FellowService {
     kinds: readonly ProposalKind[],
     cycleDate: string,
     attempt = 1,
+    task?: AgentTask,
   ): Promise<void> {
     const now = this.now().toISOString()
     const agent = this.agents.get(agentId)
@@ -1107,6 +1210,7 @@ export class FellowService {
       answer,
       candidates,
       kinds,
+      ...(task !== undefined ? { task } : {}),
       cycleDate,
       now,
       newId: () => randomUUID(),
@@ -1136,9 +1240,30 @@ export class FellowService {
       this.agents.update(agentId, { state: 'waiting', sleepReason: null, sleepCode: null }, now)
       this.log('info', `fellows: ${agent.name} has ${kept} new proposal(s), ${pending.length} pending`)
     } else {
-      const reason = answer.reason.trim() || (answer.intentCovered ? 'the planner reports the intent as covered' : 'the planner found nothing worth a run')
-      this.agents.update(agentId, { state: 'sleeping', sleepReason: reason, sleepCode: 'covered' }, now)
-      this.log('info', `fellows: ${agent.name} sleeps: ${reason}`)
+      /*
+       * `intent_covered` is per task now, and only an explore task can reach it: watch and
+       * deepen are standing work, and standing work that declares itself finished is a bug.
+       * The Fellow sleeps only once every task rests - one answered question used to send the
+       * whole Fellow to bed.
+       */
+      const covered = answer.intentCovered && task !== undefined && task.kind === 'explore'
+      const tasks = covered ? restTask(agent.tasks, task.id) : agent.tasks
+      if (covered) this.log('info', `fellows: ${agent.name} rests task "${task.text}" - answered as far as the library can take it`)
+      /*
+       * Sleep only when there is nothing ELSE to try. A task that was answered rests and the
+       * others carry on; a night that simply had nothing in it does not stop a Fellow whose
+       * next task is a different subject. With one task both come out as before - it sleeps -
+       * which is right: planning into the same emptiness every night costs a run each time.
+       */
+      const elsewhere = tasks.some((t) => t.state === 'active' && t.id !== task?.id)
+      const reason = answer.reason.trim() || (covered ? 'the planner reports this task as covered' : 'the planner found nothing worth a run')
+      if (elsewhere) {
+        this.agents.update(agentId, { state: 'waiting', sleepReason: null, sleepCode: null, ...(covered ? { tasks } : {}) }, now)
+        this.log('info', `fellows: ${agent.name} has nothing for tonight (${reason}); ${tasks.filter((t) => t.state === 'active').length} task(s) still standing`)
+      } else {
+        this.agents.update(agentId, { state: 'sleeping', sleepReason: reason, sleepCode: 'covered', ...(covered ? { tasks } : {}) }, now)
+        this.log('info', `fellows: ${agent.name} sleeps: ${reason}`)
+      }
     }
     const fresh = this.agents.get(agentId)
     if (fresh) await this.writeNotebook(fresh)
@@ -1213,15 +1338,35 @@ export class FellowService {
    * Edits the record. An intent or scope edit is written through to the notebook (the page
    * would otherwise win it back at the next settle) and wakes a sleeping Fellow (section 5.3).
    */
-  async update(id: string, patch: AgentPatch): Promise<AgentRecord | undefined> {
+  /**
+   * Edits a Fellow. A task list arrives from the API as sentences and arts; the ids, the
+   * `intent` summary and the cursor are this method's business, so no caller can leave a
+   * Fellow with a cursor pointing past its own list or an intent that no longer matches its
+   * first task.
+   */
+  async update(id: string, patch: AgentPatch & { readonly taskInput?: readonly TaskInput[] }): Promise<AgentRecord | undefined> {
     const prev = this.agents.get(id)
     if (!prev) return undefined
-    const intentEdit = (patch.intent !== undefined && patch.intent !== prev.intent) || (patch.scope !== undefined && patch.scope !== prev.scope)
+    const { taskInput, ...rest } = patch
+    let edit: AgentPatch = rest
+    if (taskInput !== undefined) {
+      const tasks = normalizeTasks(taskInput)
+      if (tasks.length === 0) return prev
+      // A task the user kept keeps its state: replacing the list should not wake a task the
+      // planner has already answered, and editing its wording should.
+      const withState = tasks.map((t) => {
+        const before = prev.tasks.find((p) => p.text === t.text && p.kind === t.kind)
+        return before ? { ...t, state: before.state } : t
+      })
+      edit = { ...edit, tasks: withState, intent: withState[0]!.text, taskCursor: Math.min(prev.taskCursor, withState.length - 1) }
+    }
+    const patchedIntent = edit.intent
+    const intentEdit = (patchedIntent !== undefined && patchedIntent !== prev.intent) || (edit.scope !== undefined && edit.scope !== prev.scope)
     const wake: AgentPatch =
       intentEdit && prev.state === 'sleeping'
         ? { state: 'sleeping', sleepReason: 'intent edited; the planner reconsiders in the next night shift', sleepCode: 'idle' }
         : {}
-    const next = this.agents.update(id, { ...patch, ...wake }, this.now().toISOString())
+    const next = this.agents.update(id, { ...edit, ...wake }, this.now().toISOString())
     if (!next) return undefined
     if (intentEdit) await this.writeNotebook(next, { forceIntentScope: true })
     return next

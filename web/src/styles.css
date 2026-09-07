@@ -7176,6 +7176,78 @@ tr:focus-within .rowacts {
 .lib-spawn label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text-dim); }
 /* A label that carries a footnote: the marker sits ON the baseline of the word, not under it. */
 .sp-lbl { display: inline-flex; align-items: center; gap: 5px; }
+/* The standing work on the card: what each task is, and where it stands tonight. */
+.fc-tasks {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.fc-task {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+}
+.fc-task-k {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  cursor: help;
+}
+.fc-task.on .fc-task-k,
+.fc-task.on .fc-task-t {
+  color: var(--accent);
+}
+.fc-task.rest .fc-task-t {
+  color: var(--text-faint);
+}
+
+/* The standing work: one to three tasks, each an art and a sentence. */
+.sp-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.sp-task {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+.sp-task-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sp-task-head .select {
+  width: auto;
+  min-width: 96px;
+}
+.sp-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: 6px;
+  color: var(--text-faint);
+}
+.sp-x:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
 .lib-spawn .input, .lib-spawn .select { width: 100%; }
 .lib-spawn textarea.input { height: auto; padding: 6px 10px; resize: vertical; }
 .lib-spawn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

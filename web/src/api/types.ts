@@ -679,7 +679,8 @@ export interface RecapProposal {
   kind: string
   topic: string
   rationale: string
-  provenance: { candidate: string; text: string; sourcePages: string[] }
+  /** `task` names the Fellow's standing task this proposal was planned for. */
+  provenance: { candidate: string; text: string; sourcePages: string[]; task?: string }
   estCostUsd: number | null
   scopeScore: number
   drift: boolean
@@ -864,6 +865,10 @@ export interface FellowRecord {
   slug: string
   intent: string
   scope: string | null
+  /** The standing work, one to three; the first one's text is `intent`. */
+  tasks: AgentTask[]
+  /** Which task is up next. */
+  taskCursor: number
   homeDomain: string
   extraDomains: string[]
   lens: string
@@ -893,7 +898,8 @@ export interface ProposalRecord {
   topic: string
   lens: string
   rationale: string
-  provenance: { candidate: string; text: string; sourcePages: string[] }
+  /** `task` names the Fellow's standing task this proposal was planned for. */
+  provenance: { candidate: string; text: string; sourcePages: string[]; task?: string }
   pageSet: string[]
   estCostUsd: number | null
   estPlanPct: number | null
@@ -932,9 +938,24 @@ export interface AgentsResponse {
   shift: { window: { start: string; end: string }; inWindow: boolean; cycleDate: string | null; nextStartsAt: string; running: boolean } | null
 }
 
+/** One piece of a Fellow's standing work (docs/agents/ideas.md, decision 2026-09-07). */
+export type TaskKind = 'watch' | 'explore' | 'deepen'
+export const TASK_KINDS: TaskKind[] = ['watch', 'explore', 'deepen']
+export const MAX_TASKS = 3
+
+export interface AgentTask {
+  id: string
+  text: string
+  kind: TaskKind
+  /** `resting` = answered as far as the library can take it; only an explore task reaches it. */
+  state: 'active' | 'resting'
+}
+
 export interface SpawnBody {
   name: string
+  /** The first task's sentence; sent alongside `tasks` and derived from it. */
   intent: string
+  tasks?: Array<{ text: string; kind: TaskKind }>
   scope?: string
   homeDomain: string
   model?: string

@@ -1309,6 +1309,49 @@ Two things around it were fixed in the same pass:
 
 ---
 
+### 10.11 A Fellow's standing work (as built, 2026-09-07)
+
+A Fellow had one `intent`, and the scope score was measured against it - so widening the
+sentence widened what counted as on topic. That made a broad subject both likely and
+unmeasurable, which the end-to-end tests read as a drift score of 0.00.
+
+- **One to three tasks replace it**, each a sentence and an ART: `watch` (look for what is new),
+  `explore` (pursue an open question), `deepen` (build out what the vault holds). Stored as JSON
+  on `agents` beside `extra_domains`; `intent` stays as the first task's sentence, because every
+  notebook page and recap written before this refers to it and a dropped column is a rollback
+  that cannot happen (migration v21 writes the intent into the list).
+- **Three at most.** At one run a day, three means each task comes round every third night. A
+  fourth subject is a second Fellow: a list long enough to starve its own tail is worse than the
+  single intent it replaced.
+- **One task a night, in turn** (`taskForTonight`). The planner sees the whole candidate pool
+  and only tonight's task as the yardstick - the other tasks are named as NOT for tonight - and
+  the cursor moves when the run STARTS, so a failed or retried plan does not repeat a task. The
+  scope score measures against that task, which is what makes the number mean something again.
+- **The art picks the run** (`kindsForTask`): a deepen task runs `research-expand`, a watch may
+  sweep, and the step size only sizes an explore run. It used to be a prohibition - `small`
+  allowed nothing but `research-step` - which would have made a deepen task unrunnable.
+- **A deepen task names a theme, not pages.** `rankForDeepening` picks them afresh each run:
+  token overlap against the theme, then the same demand-against-substance ranking the Deepen
+  dialog uses, bounded to the Fellow's own domains. What has been built out falls behind on its
+  own; a fixed set would run dry after two nights. Nothing to deepen skips the night rather than
+  guessing. (The ranking exists twice, here and in `web/src/lib/deepen.ts`, because the two
+  workspaces share no code; both name the other.)
+- **Only an explore task can be finished.** `intent_covered` is per task and applies to explore
+  alone: watch and deepen are standing work, and standing work that declares itself finished is
+  a bug. A rested task is stepped over, not removed, so it stays visible and replaceable. The
+  Fellow sleeps only when there is nothing else to try - which for a single-task Fellow is the
+  behaviour it always had.
+- **Drift is still only marked.** The measure got sharper; the consequence did not. A newly
+  sharpened measure turned straight into a veto would pay for its first misreading in lost work,
+  and the score is token overlap, which a well-put question in other words can fail.
+- **Seen where decisions are made.** The card lists the tasks with their state (up next /
+  waiting / resting), and a proposal carries the task it was planned for in its provenance, so
+  the recap can say so. Not in the bubble over the figure: that says what the Fellow is DOING.
+- **Every field of the spawn form now carries a footnote**, because it is the first form a user
+  meets and none of it explained itself.
+
+---
+
 ## 15. Milestones
 
 | # | Milestone | Content | Acceptance |

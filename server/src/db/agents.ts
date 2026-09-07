@@ -44,13 +44,46 @@ export type AgentState = (typeof AGENT_STATES)[number]
 export const AGENT_SLEEP_CODES = ['idle', 'quota', 'budget', 'plan', 'plan-failed', 'no-candidates', 'covered', 'stalled'] as const
 export type AgentSleepCode = (typeof AGENT_SLEEP_CODES)[number]
 
+/** What a Fellow keeps doing, and how (docs/agents/ideas.md, decision 2026-09-07). */
+export const TASK_KINDS = ['watch', 'explore', 'deepen'] as const
+export type TaskKind = (typeof TASK_KINDS)[number]
+/** More than three starves the tail: at one run a day the fourth comes up twice a fortnight. */
+export const MAX_TASKS = 3
+
+export interface AgentTask {
+  readonly id: string
+  /** One sentence: the question, the thing to watch, or the theme to build out. */
+  readonly text: string
+  readonly kind: TaskKind
+  /**
+   * `resting` = the planner reported this task answered as far as the library can take it.
+   * Only an `explore` task can reach it: a watch or a deepen is standing work, and standing
+   * work that declares itself finished is a bug.
+   */
+  readonly state: 'active' | 'resting'
+}
+
+/** A task as it comes in from the API, before it gets its id. */
+export interface TaskInput {
+  readonly text: string
+  readonly kind: TaskKind
+}
+
 export interface AgentRecord {
   readonly id: string
   readonly name: string
   /** URL- and filename-safe form of the name; names the notebook page. Unique per user. */
   readonly slug: string
+  /**
+   * The first task's sentence, kept in step with `tasks[0]`. Every notebook page, recap and
+   * prompt written before 2026-09-07 refers to it, so it stays the Fellow's one-line summary.
+   */
   readonly intent: string
   readonly scope: string | null
+  /** The standing work, one to three. Never empty: a Fellow without a task has nothing to do. */
+  readonly tasks: readonly AgentTask[]
+  /** Which task is up next; the planner takes them in turn and advances it. */
+  readonly taskCursor: number
   readonly homeDomain: string
   readonly extraDomains: readonly string[]
   readonly lens: string
@@ -80,6 +113,8 @@ export type AgentPatch = Partial<
     | 'name'
     | 'intent'
     | 'scope'
+    | 'tasks'
+    | 'taskCursor'
     | 'homeDomain'
     | 'extraDomains'
     | 'lens'
@@ -178,11 +213,44 @@ interface Row {
   created_at: string
   updated_at: string
   retired_at: string | null
+  tasks: string | null
+  task_cursor: number | null
 }
 
 const COLUMNS =
   'id, name, slug, intent, scope, home_domain, extra_domains, lens, model, effort, step, quota_runs_per_day, ' +
-  'quota_week_pct, autonomy, priority, state, sleep_reason, sleep_code, skip_until, notebook_path, created_at, updated_at, retired_at'
+  'quota_week_pct, autonomy, priority, state, sleep_reason, sleep_code, skip_until, notebook_path, created_at, updated_at, retired_at, ' +
+  'tasks, task_cursor'
+
+/** The stored list, or the intent as one explore task when it is missing or corrupt. */
+export function parseTasks(raw: string | null | undefined, intent: string): AgentTask[] {
+  const fallback = (): AgentTask[] => [{ id: 't1', text: intent, kind: 'explore', state: 'active' }]
+  if (raw === null || raw === undefined || raw === '') return fallback()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return fallback()
+  }
+  if (!Array.isArray(parsed)) return fallback()
+  const out: AgentTask[] = []
+  for (const t of parsed) {
+    if (t === null || typeof t !== 'object') continue
+    const r = t as Record<string, unknown>
+    const text = typeof r['text'] === 'string' ? r['text'].trim() : ''
+    if (text === '') continue
+    const kind = TASK_KINDS.includes(r['kind'] as TaskKind) ? (r['kind'] as TaskKind) : 'explore'
+    out.push({
+      id: typeof r['id'] === 'string' && r['id'] !== '' ? r['id'] : `t${out.length + 1}`,
+      text,
+      kind,
+      // Only an explore task may rest; anything else read back as resting is a stored mistake.
+      state: r['state'] === 'resting' && kind === 'explore' ? 'resting' : 'active',
+    })
+    if (out.length >= MAX_TASKS) break
+  }
+  return out.length > 0 ? out : fallback()
+}
 
 function toRecord(row: Row): AgentRecord {
   let extra: string[] = []
@@ -198,6 +266,10 @@ function toRecord(row: Row): AgentRecord {
     slug: row.slug,
     intent: row.intent,
     scope: row.scope,
+    // A Fellow whose task list is missing or unreadable still has its intent, and a Fellow with
+    // nothing to do is worse than one working from a single sentence.
+    tasks: parseTasks(row.tasks, row.intent),
+    taskCursor: row.task_cursor ?? 0,
     homeDomain: row.home_domain,
     extraDomains: extra,
     lens: row.lens,
@@ -229,7 +301,7 @@ export class SqliteAgentStore implements AgentStore {
     this.db
       .prepare(
         `INSERT INTO agents (${COLUMNS}, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         r.id,
@@ -255,6 +327,8 @@ export class SqliteAgentStore implements AgentStore {
         r.createdAt,
         r.updatedAt,
         r.retiredAt,
+        JSON.stringify(r.tasks),
+        r.taskCursor,
         this.userId,
       )
   }
@@ -288,7 +362,8 @@ export class SqliteAgentStore implements AgentStore {
       .prepare(
         `UPDATE agents SET name = ?, intent = ?, scope = ?, home_domain = ?, extra_domains = ?, lens = ?, model = ?,
            effort = ?, step = ?, quota_runs_per_day = ?, quota_week_pct = ?, autonomy = ?, priority = ?, state = ?,
-           sleep_reason = ?, sleep_code = ?, skip_until = ?, updated_at = ?, retired_at = ?
+           sleep_reason = ?, sleep_code = ?, skip_until = ?, updated_at = ?, retired_at = ?,
+           tasks = ?, task_cursor = ?
          WHERE id = ? AND user_id = ?`,
       )
       .run(
@@ -311,6 +386,8 @@ export class SqliteAgentStore implements AgentStore {
         next.skipUntil,
         next.updatedAt,
         next.retiredAt,
+        JSON.stringify(next.tasks),
+        next.taskCursor,
         id,
         this.userId,
       )

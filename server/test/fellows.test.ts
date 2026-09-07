@@ -43,6 +43,8 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   slug: 'ada',
   intent: 'How far can ground-based transit photometry constrain atmospheric retrievals?',
   scope: null,
+  tasks: [{ id: 't1', text: 'How far can ground-based transit photometry constrain atmospheric retrievals?', kind: 'explore', state: 'active' }],
+  taskCursor: 0,
   homeDomain: 'astronomy',
   extraDomains: [],
   lens: 'broad',

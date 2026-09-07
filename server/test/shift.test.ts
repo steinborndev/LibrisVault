@@ -260,6 +260,61 @@ describe('planning, proposals and the night shift', () => {
   const notebook = (agent: AgentRecord): string => fs.readFileSync(path.join(h.vaultRoot, agent.notebookPath), 'utf8')
   const pending = (id: string): ProposalRecord[] => h.service.pendingProposals(id)
 
+  /**
+   * The task rotation (docs/agents/ideas.md, decision 2026-09-07). The unit tests pin the
+   * arithmetic; this pins the thing that actually matters - that a different task reaches the
+   * prompt each night, and that one answered task does not stop the Fellow.
+   */
+  it('takes its tasks in turn: a different one reaches the planner each night, and only that one', async () => {
+    const ada = await spawn({
+      tasks: [
+        { text: 'new ground-based transit surveys and their first results', kind: 'watch' },
+        { text: 'How far can photometry constrain atmospheric retrievals?', kind: 'explore' },
+      ],
+    })
+    expect(ada.tasks.map((t) => t.kind)).toEqual(['watch', 'explore'])
+    expect(ada.intent).toBe('new ground-based transit surveys and their first results')
+
+    await h.shift.run('timer')
+    const first = h.calls.filter((c) => c.profile === 'query').at(-1)!.prompt
+    expect(first).toContain("Tonight's task (1 of 2): new ground-based transit surveys")
+    expect(first).toContain('a watch task')
+    // The other task is named as NOT for tonight, so the planner cannot plan against both.
+    expect(first).toContain('do not propose against them')
+    expect(h.service.get(ada.id)!.taskCursor).toBe(1)
+
+    // Night two: the next task, and a step size that no longer forbids anything but a step.
+    h.clock!.now = new Date('2026-09-08T01:10:00.000Z')
+    await h.shift.run('timer')
+    const second = h.calls.filter((c) => c.profile === 'query').at(-1)!.prompt
+    expect(second).toContain("Tonight's task (2 of 2): How far can photometry")
+    expect(second).toContain('an explore task')
+    expect(h.service.get(ada.id)!.taskCursor).toBe(0)
+  })
+
+  it('rests the task the planner answered and keeps the Fellow working the others', async () => {
+    const ada = await spawn({
+      tasks: [
+        { text: 'a watch that never ends', kind: 'watch' },
+        { text: 'a question that can be answered', kind: 'explore' },
+      ],
+    })
+    // Night one is the watch task; it finds nothing, which must NOT put the Fellow to sleep,
+    // because a different task is up tomorrow.
+    h.planAnswer = () => ({ proposals: [], handoffs: [], reading: [], nothing_worth_a_run: true, intent_covered: false, reason: 'quiet field' })
+    await h.shift.run('timer')
+    expect(h.service.get(ada.id)!.state).toBe('waiting')
+
+    // Night two is the explore task, and the planner reports it answered.
+    h.clock!.now = new Date('2026-09-08T01:10:00.000Z')
+    h.planAnswer = () => ({ proposals: [], handoffs: [], reading: [], nothing_worth_a_run: true, intent_covered: true, reason: 'answered' })
+    await h.shift.run('timer')
+    const after = h.service.get(ada.id)!
+    expect(after.tasks.map((t) => t.state)).toEqual(['active', 'resting'])
+    // The watch is still standing, so the Fellow is not asleep.
+    expect(after.state).toBe('waiting')
+  })
+
   it('acceptance: proposals appear after the night, the top undecided one runs the next night, the quota stops the second', async () => {
     const ada = await spawn({ quotaRunsPerDay: 1 })
     expect(ada.state).toBe('proposed')

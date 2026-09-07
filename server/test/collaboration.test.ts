@@ -34,6 +34,9 @@ import type { AgentRunResult, RunAgentOptions } from '../src/pipeline/agent-runn
 import { computeCandidates, type Candidate } from '../src/pipeline/candidates.js'
 import { buildProposals, parsePlannerAnswer, plannerSchema, renderPlannerPrompt, kindsForStep } from '../src/pipeline/planner.js'
 
+/** The task every planner prompt is now asked for; the tests judge against this one. */
+const TASK = { id: 't1', text: 'x', kind: 'explore' as const, state: 'active' as const }
+
 const INTENT = 'How well can ground-based transit photometry constrain exoplanet atmospheres, and where do the systematics come from?'
 const at = (d: number, h: number, mi = 0): Date => new Date(2026, 8, d, h, mi)
 const WINDOW = { start: '01:00', end: '06:00' }
@@ -158,7 +161,7 @@ function makeHarness(): Harness {
 
 describe('planner: expand page sets and handoffs', () => {
   const agent = (over: Partial<AgentRecord> = {}): AgentRecord => ({
-    id: 'a1', name: 'Ada', slug: 'ada', intent: INTENT, scope: null, homeDomain: 'astronomy', extraDomains: [], lens: 'broad', model: 'sonnet-5', effort: 'high', step: 'standard',
+    id: 'a1', name: 'Ada', slug: 'ada', intent: INTENT, scope: null, tasks: [{ id: 't1', text: INTENT, kind: 'explore', state: 'active' }], taskCursor: 0, homeDomain: 'astronomy', extraDomains: [], lens: 'broad', model: 'sonnet-5', effort: 'high', step: 'standard',
     quotaRunsPerDay: 1, quotaWeekPct: null, autonomy: 'veto', priority: 0, state: 'waiting', sleepReason: null, sleepCode: null, skipUntil: null, notebookPath: 'wiki/meta/agents/ada.md',
     createdAt: '2026-09-06T08:00:00.000Z', updatedAt: '2026-09-06T08:00:00.000Z', retiredAt: null, ...over,
   })
@@ -166,7 +169,7 @@ describe('planner: expand page sets and handoffs', () => {
   it('offers expand to standard and deep Fellows, carries the registry and asks for handoffs', () => {
     expect(kindsForStep('standard')).toEqual(['research-step', 'research-expand', 'research'])
     expect(kindsForStep('small')).toEqual(['research-step'])
-    const prompt = renderPlannerPrompt({ agent: agent(), candidates: CANDIDATES_ADA, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: kindsForStep('standard'), domains: DOMAINS })
+    const prompt = renderPlannerPrompt({ task: TASK, agent: agent(), candidates: CANDIDATES_ADA, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: kindsForStep('standard'), domains: DOMAINS })
     expect(prompt).toContain("The library's domains (registry keys): astronomy (stars, planets, instruments); climate-science")
     expect(prompt).toContain('list it under `handoffs`')
     expect(prompt).toContain('research-expand (deepen up to 4 EXISTING pages')

@@ -434,6 +434,7 @@ function ProposalRow({ fellow, p, onAnswer, busy }: { fellow: number; p: RecapPr
         </div>
         {p.rationale && <p className="prop-why">{p.rationale}</p>}
         <p className="prop-from">
+          {p.provenance.task !== undefined && <>For &ldquo;{p.provenance.task}&rdquo; · </>}
           From {p.provenance.candidate}: {p.provenance.text}
         </p>
       </div>

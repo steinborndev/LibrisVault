@@ -28,6 +28,7 @@ import type { AppContext } from '../server.js'
 import type { FellowService, SpawnInput, StepKind, DecisionInput } from '../../pipeline/fellows.js'
 import { EXPAND_MANUAL_MAX_PAGES } from '../../pipeline/expand.js'
 import type { AgentPatch } from '../../db/agents.js'
+import { MAX_TASKS, TASK_KINDS } from '../../db/agents.js'
 import { AGENT_AUTONOMIES, AGENT_EFFORTS, AGENT_MODELS, AGENT_STEPS, MODEL_FACTOR, MODEL_IDS } from '../../db/agents.js'
 import { readDomainRegistry, isValidDomainKey } from '../../pipeline/domains.js'
 import { isResearchProfileKey } from '../../pipeline/research-profiles.js'
@@ -36,9 +37,17 @@ import { KIND_COST_USD } from '../../pipeline/planner.js'
 /** zod leaves optional keys as `undefined`; the service types are exact-optional, so drop them. */
 const compact = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
 
+/** One piece of standing work: a sentence and what kind of work it is (decision 2026-09-07). */
+const taskSchema = z.object({
+  text: z.string().trim().min(3).max(2000),
+  kind: z.enum(TASK_KINDS),
+})
+
 const spawnSchema = z.object({
   name: z.string().trim().min(1).max(40),
+  /** The first task's sentence; a caller may still spawn with one line and no task list. */
   intent: z.string().trim().min(3).max(2000),
+  tasks: z.array(taskSchema).min(1).max(MAX_TASKS).optional(),
   scope: z.string().trim().max(2000).optional(),
   homeDomain: z.string().trim().min(1).max(64),
   extraDomains: z.array(z.string().trim().min(1).max(64)).max(8).optional(),
@@ -53,7 +62,7 @@ const spawnSchema = z.object({
 })
 
 const patchSchema = spawnSchema
-  .pick({ name: true, intent: true, scope: true, homeDomain: true, extraDomains: true, lens: true, model: true, effort: true, step: true, quotaRunsPerDay: true, autonomy: true, priority: true })
+  .pick({ name: true, intent: true, tasks: true, scope: true, homeDomain: true, extraDomains: true, lens: true, model: true, effort: true, step: true, quotaRunsPerDay: true, autonomy: true, priority: true })
   .partial()
 
 const stepSchema = z.object({
@@ -169,7 +178,13 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     const body = parsed.data
     const bad = (body.homeDomain !== undefined ? domainError(body.homeDomain) : null) ?? lensError(body.lens)
     if (bad) return reply.code(400).send({ error: bad })
-    const agent = await fellows.update(id, compact({ ...body, ...(body.scope !== undefined ? { scope: body.scope === '' ? null : body.scope } : {}) }) as AgentPatch)
+    // `tasks` goes in as sentences and arts; the service gives them ids and keeps `intent`
+    // and the cursor in step with the list.
+    const { tasks, ...fields } = body
+    const agent = await fellows.update(id, {
+      ...(compact({ ...fields, ...(fields.scope !== undefined ? { scope: fields.scope === '' ? null : fields.scope } : {}) }) as AgentPatch),
+      ...(tasks !== undefined ? { taskInput: tasks } : {}),
+    })
     if (!agent) return reply.code(404).send({ error: 'no such Fellow' })
     return reply.send({ agent })
   })

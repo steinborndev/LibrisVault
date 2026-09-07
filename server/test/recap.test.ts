@@ -54,6 +54,8 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   slug: 'ada',
   intent: INTENT,
   scope: null,
+  tasks: [{ id: 't1', text: 'x', kind: 'explore', state: 'active' }],
+  taskCursor: 0,
   homeDomain: 'astronomy',
   extraDomains: [],
   lens: 'broad',

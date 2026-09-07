@@ -28,6 +28,12 @@ export interface Provenance {
   readonly text: string
   /** Vault-relative pages the candidate was read from. */
   readonly sourcePages: readonly string[]
+  /**
+   * The Fellow's task this proposal was planned for (decision 2026-09-07). Stored here rather
+   * than in a column because provenance is already the record of where a proposal came from,
+   * and a task's wording can change under it without invalidating the row.
+   */
+  readonly task?: string
 }
 
 export interface ProposalRecord {
@@ -189,6 +195,7 @@ function toRecord(row: Row): ProposalRecord {
       candidate: typeof prov.candidate === 'string' ? prov.candidate : 'unknown',
       text: typeof prov.text === 'string' ? prov.text : '',
       sourcePages: Array.isArray(prov.sourcePages) ? prov.sourcePages.filter((p): p is string => typeof p === 'string') : [],
+      ...(typeof prov.task === 'string' && prov.task !== '' ? { task: prov.task } : {}),
     },
     pageSet: parseJson<unknown>(row.page_set, []) as string[],
     estCostUsd: row.est_cost_usd,

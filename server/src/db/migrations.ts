@@ -544,6 +544,24 @@ CREATE INDEX usage_samples_window ON usage_samples (window, ts);
 ALTER TABLE agent_runs ADD COLUMN plan_pct_delta TEXT;
 `
 
+/*
+ * A Fellow's standing work becomes a LIST (docs/agents/ideas.md, decision 2026-09-07).
+ *
+ * One intent made a broad subject both likely and unmeasurable: the scope score is computed
+ * against it, so widening the sentence widens what counts as on topic. Tasks are one to three
+ * sentences, each with an art - watch, explore, deepen - taken one a night in turn.
+ *
+ * `intent` stays on the table and stays the first task's sentence: every existing Fellow, every
+ * notebook page and every recap already refers to it, and a column dropped is a rollback that
+ * cannot happen. `tasks` is JSON, like `extra_domains` beside it, and the migration writes the
+ * intent into it so no Fellow wakes up without work.
+ */
+const V21 = `
+ALTER TABLE agents ADD COLUMN tasks TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE agents ADD COLUMN task_cursor INTEGER NOT NULL DEFAULT 0;
+UPDATE agents SET tasks = json_array(json_object('id', 't1', 'text', intent, 'kind', 'explore', 'state', 'active'));
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -565,4 +583,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 18, up: V18 },
   { version: 19, up: V19 },
   { version: 20, up: V20 },
+  { version: 21, up: V21 },
 ]
