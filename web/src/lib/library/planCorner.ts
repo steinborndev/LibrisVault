@@ -45,7 +45,12 @@ export interface PlanCorner {
   readonly reason: string | null
 }
 
-const LABEL: Record<string, string> = { five_hour: '5 h', seven_day: 'week' }
+/*
+ * The row says "left" because the number is what remains, and the reader has a usage figure
+ * in the other window: 76 beside a 27 reads as a contradiction until the row names which of
+ * the two it is. Two words are cheaper than the doubt.
+ */
+const LABEL: Record<string, string> = { five_hour: '5 h left', seven_day: 'week left' }
 
 /** The corner's content for this plan status, as of `now`. */
 export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorner | null {

@@ -37,8 +37,8 @@ describe('what the corner says', () => {
   it('reports what is LEFT, not what was used, as whole percents', () => {
     const c = planCorner(plan(), NOW)!
     expect(c.lines.map((l) => [l.label, l.leftPct])).toEqual([
-      ['5 h', 76],
-      ['week', 47],
+      ['5 h left', 76],
+      ['week left', 47],
     ])
   })
 

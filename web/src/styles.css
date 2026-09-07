@@ -6908,7 +6908,7 @@ tr:focus-within .rowacts {
  * affordable, and that question is asked while looking at the Fellows.
  */
 .lib-plan {
-  min-width: 92px;
+  min-width: 112px;
   display: flex;
   flex-direction: column;
   gap: 1px;
