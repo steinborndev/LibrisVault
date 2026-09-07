@@ -313,6 +313,13 @@ export function LibraryScreen({
       else if (shelfPage !== null) setShelfPage(null)
       else if (shelf !== null) closeShelf()
       else if (board !== null) setBoard(null)
+      // The last step out: a wing is somewhere you walked to, so Escape walks back. Without
+      // it the key stopped working the moment the department window closed, leaving you in
+      // a side room with the one key that means "out of here" doing nothing.
+      else if (current !== undefined && current.kind !== 'main') {
+        const main = rooms.find((r) => r.kind === 'main')
+        if (main) pickRoom(main.id)
+      }
     }
   }
 

@@ -841,7 +841,10 @@ left it.
 A page opens as a third level inside the same window: a node on the canvas, a row in
 the table, or one of the recently changed pages in the column. It renders the vault's
 markdown in place. Escape steps back one level at a time - the page to the view it came
-from, the view to the room, the room out of focus mode.
+from, the view to the room, and a wing to the main room (added 2026-09-07): a wing is somewhere
+you walked to, so the key that means "out of here" walks back out of it. Without that last step
+Escape stopped working the moment the department window closed, leaving the reader in a side
+room with nothing more to press.
 
 The headline carries the room navigation itself and stays put in focus mode, so the Full
 and Focus toggle is reachable while a window is open. The scope sentence and the Catalog
