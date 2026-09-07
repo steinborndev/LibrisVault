@@ -243,7 +243,7 @@ describe('planner prompt, schema and answer', () => {
 
   it('builds a strict schema from the allowed kinds and candidate ids', () => {
     const schema = plannerSchema({ kinds: ['research-step'], candidateIds: ['C1', 'C2'] }) as { properties: Record<string, { items?: { properties: Record<string, { enum?: string[] }> } }>; required: string[] }
-    expect(schema.required).toEqual(['proposals', 'handoffs', 'nothing_worth_a_run', 'intent_covered', 'reason'])
+    expect(schema.required).toEqual(['proposals', 'handoffs', 'reading', 'nothing_worth_a_run', 'intent_covered', 'reason'])
     expect(schema.properties['proposals']!.items!.properties['candidate']!.enum).toEqual(['C1', 'C2'])
     expect(schema.properties['proposals']!.items!.properties['kind']!.enum).toEqual(['research-step'])
   })
@@ -303,6 +303,27 @@ describe('planner prompt, schema and answer', () => {
     expect(answer.dropped.join(' ')).toContain('handoff 2 dropped')
   })
 
+  it('takes the publications the planner names, including the ones no run could open', () => {
+    const answer = parsePlannerAnswer({
+      proposals: [],
+      handoffs: [],
+      reading: [
+        { title: 'A paywalled paper', url: 'https://acs.invalid/x', ref: 'doi:10.1/x', domain: 'Materials-Science', why: 'The only per-cell figures.', access: 'paywalled', blocked: 'HTTP 403' },
+        { title: 'An open one', url: 'https://arxiv.invalid/1', ref: '', domain: '', why: '', access: 'open', blocked: '' },
+        { title: 'No link, so no request', url: 'not a url', ref: '', domain: '', why: '', access: 'open', blocked: '' },
+      ],
+      nothing_worth_a_run: false,
+      intent_covered: false,
+      reason: '',
+    })!
+    expect(answer.reading.map((r) => r.title)).toEqual(['A paywalled paper', 'An open one'])
+    expect(answer.reading[0]).toMatchObject({ domain: 'materials-science', access: 'paywalled', blocked: 'HTTP 403' })
+    expect(answer.reading[1]).toMatchObject({ ref: null, why: null, blocked: null })
+    expect(answer.dropped.join(' ')).toContain('reading 3 dropped')
+    // An older answer without the field is still an answer.
+    expect(parsePlannerAnswer({ proposals: [], nothing_worth_a_run: true })!.reading).toEqual([])
+  })
+
   it('states the field limits in both the schema and the prompt, so the model can meet them', () => {
     const schema = plannerSchema({ kinds: ['research-step'], candidateIds: ['C1'], domainKeys: ['astronomy'] }) as {
       properties: Record<string, { maxItems?: number; items?: { properties: Record<string, Record<string, unknown>> } }>
@@ -314,6 +335,9 @@ describe('planner prompt, schema and answer', () => {
     expect(item['pages']).toMatchObject({ maxItems: FIELD_CAPS.pages })
     const prompt = renderPlannerPrompt({ agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
     expect(prompt).toContain(`at most ${FIELD_CAPS.topic} characters`)
+    // The planner writes nothing itself; the reading entries come back as data.
+    expect(prompt).toContain('could NOT get')
+    expect(prompt).toContain('you must not write to any page')
     expect(prompt).not.toContain('NOTE:')
     const again = renderPlannerPrompt({ agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], retryNote: 'its answer did not match the schema' })
     expect(again).toContain('NOTE: its answer did not match the schema')

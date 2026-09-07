@@ -204,6 +204,9 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             commitMutex,
             autoCommit: () => settings.effective(config).gitAutoCommit,
           }),
+          // The planner names publications it cannot fetch itself (read-only, no web); the
+          // service puts them on the reading list, one commit like every other page write.
+          reading: new ReadingListService(config.vaultRoot, store, { commitMutex, autoCommit: () => settings.effective(config).gitAutoCommit }),
           // Candidates (docs/agents/SPEC.md section 6.1) come from the vault, the live graph and
           // the finished ingests; the same graph the routes serve, so nothing is built twice.
           candidateSources: { vaultRoot: config.vaultRoot, graph: () => graph.build(), jobs: () => store.list({ status: 'done', limit: 100 }) },
@@ -355,7 +358,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(recaps !== undefined ? { recaps } : {}),
     ...(library !== undefined ? { library } : {}),
     ...(usage !== undefined ? { usage } : {}),
-    ...(config.agentsEnabled === true ? { reading: new ReadingListService(config.vaultRoot, store) } : {}),
+    ...(config.agentsEnabled === true ? { reading: new ReadingListService(config.vaultRoot, store, { commitMutex, autoCommit: () => settings.effective(config).gitAutoCommit }) } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`

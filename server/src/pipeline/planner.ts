@@ -46,6 +46,9 @@ export const FIELD_CAPS = {
   handoffReason: 1000,
   domain: 64,
   pages: 20,
+  /** Publications the planner may name for the reading list, and how long a link may be. */
+  reading: 10,
+  url: 500,
 } as const
 /** How many existing pages an expand proposal may list (its own pages come on top, D1). */
 export const EXPAND_PAGE_CAP = 4
@@ -163,6 +166,12 @@ export function renderPlannerPrompt(input: PlannerInput): string {
         `Fellow of that domain gets it (or the user is offered to spawn one). Keep the reason under ${FIELD_CAPS.handoffReason} ` +
         "characters. Do not hand off the Fellow's own questions. "
       : '') +
+    'Reading list: while judging the candidates you will see publications named in the source pages and in the ' +
+    'notebook - papers a run read, and papers a run wanted and could NOT get (a paywall, an HTTP error, a PDF that ' +
+    'would not extract). List those that are worth having in the original under `reading`, with the access you can ' +
+    'infer: `open` when the full text is freely available, `paywalled` behind a subscription, `unreachable` when a ' +
+    'run failed to fetch it, and `blocked` for the reason in a few words. The service adds them to the reading list; ' +
+    'you must not write to any page. Leave out anything already on the list or without a usable link.\n\n' +
     'If nothing is worth a run, return no proposals, set nothing_worth_a_run and say why; set intent_covered only when ' +
     `the intent itself is answered as far as the library can take it. Keep \`reason\` under ${FIELD_CAPS.reason} characters.` +
     (input.retryNote !== undefined ? `\n\nNOTE: ${input.retryNote}` : '')
@@ -205,11 +214,29 @@ export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; 
           additionalProperties: false,
         },
       },
+      reading: {
+        type: 'array',
+        maxItems: FIELD_CAPS.reading,
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', maxLength: FIELD_CAPS.topic },
+            url: { type: 'string', maxLength: FIELD_CAPS.url },
+            ref: { type: 'string', maxLength: FIELD_CAPS.domain },
+            domain: domainKeys.length > 0 ? { type: 'string', enum: [...domainKeys] } : { type: 'string', maxLength: FIELD_CAPS.domain },
+            why: { type: 'string', maxLength: FIELD_CAPS.handoffReason },
+            access: { type: 'string', enum: ['open', 'paywalled', 'unreachable'] },
+            blocked: { type: 'string', maxLength: FIELD_CAPS.domain },
+          },
+          required: ['title', 'url', 'ref', 'domain', 'why', 'access', 'blocked'],
+          additionalProperties: false,
+        },
+      },
       nothing_worth_a_run: { type: 'boolean' },
       intent_covered: { type: 'boolean' },
       reason: { type: 'string', maxLength: FIELD_CAPS.reason },
     },
-    required: ['proposals', 'handoffs', 'nothing_worth_a_run', 'intent_covered', 'reason'],
+    required: ['proposals', 'handoffs', 'reading', 'nothing_worth_a_run', 'intent_covered', 'reason'],
     additionalProperties: false,
   }
 }
@@ -240,6 +267,16 @@ const handoffSchema = z.object({
   reason: text(FIELD_CAPS.handoffReason),
 })
 
+const readingSchema = z.object({
+  title: text(FIELD_CAPS.topic).refine((t) => t.length >= 3, 'title too short'),
+  url: text(FIELD_CAPS.url).refine((u) => /^https?:\/\//i.test(u), 'not a url'),
+  ref: text(FIELD_CAPS.domain),
+  domain: text(FIELD_CAPS.domain),
+  why: text(FIELD_CAPS.handoffReason),
+  access: z.enum(['open', 'paywalled', 'unreachable']).optional(),
+  blocked: text(FIELD_CAPS.domain),
+})
+
 /**
  * Strict where it matters: an answer without a proposal list is not an answer at all. The
  * entries themselves are parsed one by one below, so one malformed proposal costs that
@@ -248,6 +285,7 @@ const handoffSchema = z.object({
 const answerSchema = z.object({
   proposals: z.array(z.unknown()),
   handoffs: z.array(z.unknown()).default([]),
+  reading: z.array(z.unknown()).default([]),
   nothing_worth_a_run: z.boolean(),
   intent_covered: z.boolean().default(false),
   reason: text(FIELD_CAPS.reason),
@@ -264,6 +302,16 @@ export interface PlannerAnswer {
   }>
   /** Candidates the planner routed to another domain (A3). */
   readonly handoffs: ReadonlyArray<{ readonly candidate: string; readonly domain: string; readonly reason: string }>
+  /** Publications worth the original, for the reading list (section 10.6); the service writes them. */
+  readonly reading: ReadonlyArray<{
+    readonly title: string
+    readonly url: string
+    readonly ref: string | null
+    readonly domain: string | null
+    readonly why: string | null
+    readonly access: 'open' | 'paywalled' | 'unreachable' | null
+    readonly blocked: string | null
+  }>
   readonly nothingWorthARun: boolean
   readonly intentCovered: boolean
   readonly reason: string
@@ -308,9 +356,27 @@ export function parsePlannerAnswer(raw: unknown): PlannerAnswer | undefined {
     }
     handoffs.push({ candidate: h.data.candidate.trim().toUpperCase(), domain: h.data.domain.toLowerCase(), reason: h.data.reason })
   })
+  const reading: Array<PlannerAnswer['reading'][number]> = []
+  parsed.data.reading.forEach((entry, i) => {
+    const r = readingSchema.safeParse(entry)
+    if (!r.success) {
+      dropped.push(`reading ${i + 1} dropped, ${why(r.error)}`)
+      return
+    }
+    reading.push({
+      title: r.data.title,
+      url: r.data.url,
+      ref: r.data.ref || null,
+      domain: r.data.domain ? r.data.domain.toLowerCase() : null,
+      why: r.data.why || null,
+      access: r.data.access ?? null,
+      blocked: r.data.blocked || null,
+    })
+  })
   return {
     proposals,
     handoffs,
+    reading,
     nothingWorthARun: parsed.data.nothing_worth_a_run,
     intentCovered: parsed.data.intent_covered,
     reason: parsed.data.reason,

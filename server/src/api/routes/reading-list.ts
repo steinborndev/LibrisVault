@@ -12,7 +12,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { IngestQueue } from '../../pipeline/queue.js'
-import type { ReadingListService } from '../../pipeline/reading-list.js'
+import { urlKey, type ReadingListService } from '../../pipeline/reading-list.js'
 
 const ingestSchema = z.object({ url: z.string().trim().url() })
 
@@ -23,13 +23,15 @@ export function registerReadingListRoute(app: FastifyInstance, reading: ReadingL
     const parsed = ingestSchema.safeParse(req.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'a url is required' })
     const url = parsed.data.url
-    // Only what a Fellow wrote down: the route must not become an open fetch proxy.
-    const entry = reading.entries().find((e) => e.url === url)
+    // Only what a Fellow wrote down: the route must not become an open fetch proxy. Matched the
+    // way the list dedupes, so a trailing slash or a tracking parameter is still the same entry.
+    const entry = reading.entries().find((e) => urlKey(e.url) === urlKey(url))
     if (entry === undefined) return reply.code(404).send({ error: 'that url is not on the reading list' })
     if (entry.job !== null && entry.job.status !== 'failed') {
       return reply.code(409).send({ error: `already ingested (${entry.job.status})`, job: entry.job })
     }
-    const { job } = queue.enqueueUrl({ url, source: 'url' })
+    // The entry's own url is what gets fetched, never the caller's spelling of it.
+    const { job } = queue.enqueueUrl({ url: entry.url, source: 'url' })
     return reply.code(202).send({ job })
   })
 }

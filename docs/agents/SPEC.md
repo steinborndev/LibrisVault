@@ -837,6 +837,29 @@ A later step could let the shift ingest a capped number of entries by itself (on
 allow-list of hosts, inside the plan share); even then the service does the downloading,
 not the agent.
 
+**What the list holds** (as built, 2026-09-07). It used to hold only what a run had actually
+read, written only by a research STEP. Both cut out the entries worth the most:
+
+- **Every writing Fellow run** carries the rule now, not the step alone, so a sweep and an
+  expand leave their finds behind too.
+- **A publication a run could NOT get belongs on the list**, with `access` (`open`,
+  `paywalled`, `unreachable`) and `blocked` (the reason in a few words). Those are exactly the
+  ones the user's own access can reach and the agent's cannot.
+- **The planner contributes without writing.** Its run is read-only with no web, so it names
+  publications under `reading` in its structured answer - the ones the source pages mention
+  and the ones an earlier run failed to fetch - and the **service** appends them, as one
+  commit behind the shared mutex like the notebook and the recap page. Urls already on the
+  page are skipped, and the Fellow's name and the cycle date are filled in by the service.
+- **The board hides what it cannot fetch, behind "Show paywalled".** A paywalled row's Ingest
+  would fail the same way the run did, so it offers a link instead, with the note to open it
+  with your own access and drop the file into the vault. `access` from the Fellow decides;
+  without one the host does, and only for hosts that serve full text unconditionally - the
+  rest stay `unknown` and keep their Ingest button, because calling a readable paper
+  paywalled would hide it.
+- Entries carry `by` and `at` instead of one free-text `found` line (the old line is still
+  read and split), and the ingest route matches urls the way the list dedupes them, so a
+  trailing slash or a tracking parameter is still the same entry.
+
 ### 10.7 Working in the room (as built, 2026-09-06)
 
 Focus is the screen's resting state and sits first in the toggle: the room fills the width

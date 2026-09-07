@@ -17,7 +17,7 @@ import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { ChatStore } from '../src/db/chat.js'
 import { Mutex } from '../src/util/mutex.js'
 import { buildServer } from '../src/api/server.js'
-import { ReadingListService, parseReadingList, READING_LIST_PAGE } from '../src/pipeline/reading-list.js'
+import { ReadingListService, parseReadingList, reachOf, urlKey, READING_LIST_PAGE, type ReadingEntry } from '../src/pipeline/reading-list.js'
 import type { Config } from '../src/config.js'
 
 const PAGE = `---
@@ -44,6 +44,15 @@ title: "Reading list"
   url: https://example.invalid/hip41378f#section-2
   found: Cleo, 2026-09-07
 
+- title: Three papers nobody could open
+  url: https://acs.invalid/lithium-sulfur
+  domain: materials-science
+  why: The only per-cell figures behind the disputed record.
+  access: paywalled
+  blocked: HTTP 403
+  by: Jane
+  at: 2026-09-07
+
 - title: No link at all, so not an entry
   ref: doi:10.0000/nothing
 `
@@ -51,7 +60,11 @@ title: "Reading list"
 describe('parsing the page a Fellow writes', () => {
   it('reads the fields, drops what has no url, and folds a repeated url into one entry', () => {
     const entries = parseReadingList(PAGE)
-    expect(entries.map((e) => e.title)).toEqual(['Multi-facility transit campaign for HIP 41378 f', 'Sparse array scaling without a ceiling'])
+    expect(entries.map((e) => e.title)).toEqual([
+      'Multi-facility transit campaign for HIP 41378 f',
+      'Sparse array scaling without a ceiling',
+      'Three papers nobody could open',
+    ])
     expect(entries[0]).toEqual({
       title: 'Multi-facility transit campaign for HIP 41378 f',
       url: 'https://example.invalid/hip41378f',
@@ -59,14 +72,108 @@ describe('parsing the page a Fellow writes', () => {
       domain: 'astronomy',
       why: 'The only campaign that pooled heterogeneous sites for a spectrum.',
       found: 'Ada, 2026-09-06',
+      // The finder is split out of the legacy line, so a filter has something to work with.
+      by: 'Ada',
+      at: '2026-09-06',
+      access: null,
+      blocked: null,
     })
     expect(entries[1]).toMatchObject({ ref: null, why: null, domain: 'astronomy' })
+    // The entry worth the most: nobody could read it, and it says why.
+    expect(entries[2]).toMatchObject({ access: 'paywalled', blocked: 'HTTP 403', by: 'Jane', at: '2026-09-07' })
+  })
+
+  it('says what the reader can expect to reach, from the Fellow or from the host', () => {
+    const entry = (over: Partial<ReadingEntry>): ReadingEntry => ({
+      title: 't',
+      url: 'https://example.invalid/x',
+      ref: null,
+      domain: null,
+      why: null,
+      found: null,
+      by: null,
+      at: null,
+      access: null,
+      blocked: null,
+      ...over,
+    })
+    // The Fellow's own word always wins.
+    expect(reachOf(entry({ access: 'paywalled', url: 'https://arxiv.org/abs/1' }))).toBe('paywalled')
+    // Without one, only hosts that serve full text unconditionally count as open.
+    expect(reachOf(entry({ url: 'https://arxiv.org/abs/2506.20907' }))).toBe('open')
+    expect(reachOf(entry({ url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC1/' }))).toBe('open')
+    // Everything else stays unknown rather than being called paywalled, which would hide it.
+    expect(reachOf(entry({ url: 'https://pubs.acs.org/doi/10.1/x' }))).toBe('unknown')
+    expect(reachOf(entry({ url: 'not a url' }))).toBe('unknown')
   })
 
   it('an empty or shapeless page yields nothing', () => {
     expect(parseReadingList('')).toEqual([])
     expect(parseReadingList('# Reading list\n\nNothing here yet.\n')).toEqual([])
     expect(parseReadingList('- title: no url\n  ref: x\n')).toEqual([])
+  })
+})
+
+describe('entries the service writes for the planner', () => {
+  let vaultRoot: string
+  let db: Db
+  let store: JobStore
+
+  beforeEach(() => {
+    vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-add-'))
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE)
+    db = openDb(MEMORY_DB)
+    store = new JobStore(db, new EventBus())
+  })
+  afterEach(() => {
+    db.close()
+    fs.rmSync(vaultRoot, { recursive: true, force: true })
+  })
+
+  const entry = (over: Partial<ReadingEntry>): ReadingEntry => ({
+    title: 'A paper the planner named',
+    url: 'https://osti.invalid/1981578',
+    ref: null,
+    domain: 'materials-science',
+    why: 'The only primary techno-economic comparison.',
+    found: null,
+    by: 'Jane',
+    at: '2026-09-07',
+    access: 'unreachable',
+    blocked: 'no extractable text',
+    ...over,
+  })
+
+  it('appends what the page does not have, in the shape a Fellow would have written', async () => {
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    const { added } = await reading.add([entry({}), entry({ url: 'https://example.invalid/hip41378f' })])
+    expect(added).toBe(1)
+
+    const page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(page).toContain('- title: A paper the planner named')
+    expect(page).toContain('  access: unreachable')
+    expect(page).toContain('  blocked: no extractable text')
+    expect(page).toContain('  by: Jane')
+    // Read back through the parser, it is one more entry and nothing else moved.
+    const parsed = parseReadingList(page)
+    expect(parsed).toHaveLength(4)
+    expect(parsed.at(-1)).toMatchObject({ title: 'A paper the planner named', access: 'unreachable', by: 'Jane', at: '2026-09-07' })
+  })
+
+  it('never writes the same publication twice, however the url is spelled', async () => {
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    await reading.add([entry({})])
+    const second = await reading.add([entry({ url: 'https://osti.invalid/1981578/?utm_source=x' }), entry({ url: 'not-a-url' })])
+    expect(second.added).toBe(0)
+    expect(parseReadingList(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8'))).toHaveLength(4)
+    expect(urlKey('https://osti.invalid/1981578/?utm_source=x')).toBe(urlKey('https://osti.invalid/1981578'))
+  })
+
+  it('without a mutex it writes nothing: the vault is only ever written behind it', async () => {
+    const reading = new ReadingListService(vaultRoot, store)
+    expect((await reading.add([entry({})])).added).toBe(0)
+    expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toBe(PAGE)
   })
 })
 
@@ -112,8 +219,9 @@ describe('the reading list route', () => {
   })
 
   it('lists the entries, ingests one through the URL path, and refuses anything not on the list', async () => {
-    const listed = (await app.inject({ method: 'GET', url: '/api/v1/reading-list' })).json() as { entries: Array<{ title: string; job: unknown }> }
-    expect(listed.entries).toHaveLength(2)
+    const listed = (await app.inject({ method: 'GET', url: '/api/v1/reading-list' })).json() as { entries: Array<{ title: string; job: unknown; reach: string }> }
+    expect(listed.entries).toHaveLength(3)
+    expect(listed.entries.map((e) => e.reach)).toEqual(['unknown', 'unknown', 'paywalled'])
     expect(listed.entries[0]!.job).toBeNull()
 
     const started = await app.inject({ method: 'POST', url: '/api/v1/reading-list/ingest', payload: { url: 'https://example.invalid/hip41378f' } })

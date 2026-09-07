@@ -29,6 +29,7 @@ import { buildServer } from '../src/api/server.js'
 import type { Config } from '../src/config.js'
 import type { AgentRunResult, RunAgentOptions } from '../src/pipeline/agent-runner.js'
 import type { Candidate } from '../src/pipeline/candidates.js'
+import type { ReadingEntry } from '../src/pipeline/reading-list.js'
 import { MemoryUsageSampleStore } from '../src/db/usage-samples.js'
 import { UsageMonitor } from '../src/pipeline/usage-monitor.js'
 
@@ -72,6 +73,8 @@ interface Harness {
   /** The shift's injected waits (A5 D5): each advances the clock instead of sleeping. */
   sleeps: number[]
   candidates: () => Candidate[]
+  /** Reading list entries the service wrote for the planner. */
+  reading: ReadingEntry[]
   runner: MaintenanceRunner
   service: FellowService
   shift: NightShift
@@ -117,6 +120,7 @@ function makeHarness(withUsage = false): Harness {
   h.researchOk = () => true
   h.gate = () => null
   h.candidates = () => CANDIDATES
+  h.reading = []
   const now = (): Date => h.clock!.now
   const commitMutex = new Mutex()
   const events = new EventBus()
@@ -157,6 +161,13 @@ function makeHarness(withUsage = false): Harness {
     proposals,
     maintenance: runner,
     notebook: new NotebookWriter({ vaultRoot, commitMutex }),
+    // The planner is read-only and has no web: what it names reaches the reading list as data.
+    reading: {
+      add: async (entries) => {
+        h.reading!.push(...entries)
+        return { added: entries.length }
+      },
+    },
     now,
     candidates: () => h.candidates!(),
     gate: (ctx) => h.gate!() ?? (usage ? usage.gate(ctx) : null),
@@ -433,6 +444,24 @@ describe('planning, proposals and the night shift', () => {
     const nothing = h.service.plan(ada.id)
     await h.service.settled(nothing.run!.id)
     expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'covered', sleepReason: 'the library answers the intent as far as it can' })
+  })
+
+  it('a publication the planner names reaches the reading list, the ones it could not open included', async () => {
+    const ada = await spawn({})
+    h.planAnswer = () => ({
+      ...TWO_PROPOSALS,
+      reading: [
+        { title: 'The paper nobody could open', url: 'https://acs.invalid/x', ref: 'doi:10.1/x', domain: 'astronomy', why: 'The only per-cell figures.', access: 'paywalled', blocked: 'HTTP 403' },
+        { title: 'An open preprint', url: 'https://arxiv.invalid/2', ref: '', domain: '', why: '', access: 'open', blocked: '' },
+      ],
+    })
+    const planned = h.service.plan(ada.id)
+    await h.service.settled(planned.run!.id)
+
+    expect(h.reading.map((e) => e.title)).toEqual(['The paper nobody could open', 'An open preprint'])
+    expect(h.reading[0]).toMatchObject({ access: 'paywalled', blocked: 'HTTP 403', by: 'Ada', domain: 'astronomy' })
+    // No domain from the planner means the Fellow's own.
+    expect(h.reading[1]).toMatchObject({ domain: 'astronomy', access: 'open', blocked: null })
   })
 
   it('the gate refuses on the daily budget and the shift records a budget sleep; a timer shift respects the window', async () => {

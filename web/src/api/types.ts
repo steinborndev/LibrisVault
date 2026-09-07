@@ -969,7 +969,16 @@ export interface ReadingItem {
   ref: string | null
   domain: string | null
   why: string | null
+  /** The finder as older entries wrote it, one string; newer ones carry `by` and `at`. */
   found: string | null
+  by: string | null
+  at: string | null
+  /** What the run could do with the document, as the Fellow reported it. */
+  access: 'open' | 'paywalled' | 'unreachable' | null
+  /** Why it could not be read: an HTTP status, "subscription", "no extractable text". */
+  blocked: string | null
+  /** `access` where given, else read off the host; what the paywalled toggle filters on. */
+  reach: 'open' | 'paywalled' | 'unreachable' | 'unknown'
   /** The ingest of this url, when the service has one. */
   job: { id: string; status: string; pages: number } | null
 }

@@ -44,6 +44,7 @@ import type { MaintenanceRunner, MaintenanceRun } from './maintenance.js'
 import { PLAN_TIMEOUT_MS, EXPAND_TIMEOUT_MS } from './maintenance.js'
 import { DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import { notebookPath, renderLogLines, type NotebookWriter } from './notebook.js'
+import type { ReadingEntry as ReadingEntryInput } from './reading-list.js'
 import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
 import { computeCandidates, knowledgePages, type Candidate } from './candidates.js'
@@ -192,6 +193,8 @@ export interface FellowServiceOptions {
   readonly proposals: ProposalStore
   readonly maintenance: MaintenanceRunner
   readonly notebook: NotebookWriter
+  /** The reading list, when the vault has one: the planner's finds are written by the service. */
+  readonly reading?: { add(entries: readonly ReadingEntryInput[]): Promise<{ readonly added: number }> }
   readonly now?: () => Date
   /** Candidate computation; the default reads the vault, the graph and the job store. */
   readonly candidates?: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
@@ -225,6 +228,7 @@ export class FellowService {
   private readonly proposals: ProposalStore
   private readonly maintenance: MaintenanceRunner
   private readonly notebook: NotebookWriter
+  private readonly reading: FellowServiceOptions['reading']
   private readonly now: () => Date
   private readonly candidatesFn: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
   private readonly gate: (ctx: GateContext) => GateBlock | null
@@ -250,6 +254,7 @@ export class FellowService {
     this.proposals = opts.proposals
     this.maintenance = opts.maintenance
     this.notebook = opts.notebook
+    this.reading = opts.reading
     this.now = opts.now ?? ((): Date => new Date())
     this.gate = opts.gate ?? ((): GateBlock | null => null)
     this.estimatePct = opts.estimatePct
@@ -867,6 +872,7 @@ export class FellowService {
       effort,
       maxBudgetUsd: Math.round(BUDGET_USD[kind] * MODEL_FACTOR[agent.model] * 100) / 100,
       recentLog: recent.slice(-5),
+      today: localDate(this.now()),
       ...(deep ? { timeoutMs: DEEP_TIMEOUT_MS } : {}),
       ...(proposalId !== undefined ? { proposalId } : {}),
     }
@@ -952,6 +958,30 @@ export class FellowService {
       return
     }
     for (const d of answer.dropped) this.log('warn', `fellows: ${agent.name}: ${d}`)
+    // The planner reads the vault and no web: a publication it names can only reach the list
+    // as data, written by the service (section 10.6). It names the ones a run could NOT get
+    // too, which are the entries the user's own access is worth using on.
+    if (this.reading && answer.reading.length > 0) {
+      try {
+        const { added } = await this.reading.add(
+          answer.reading.map((r) => ({
+            title: r.title,
+            url: r.url,
+            ref: r.ref,
+            domain: r.domain ?? agent.homeDomain,
+            why: r.why,
+            found: null,
+            by: agent.name,
+            at: cycleDate,
+            access: r.access,
+            blocked: r.blocked,
+          })),
+        )
+        if (added > 0) this.log('info', `fellows: ${agent.name} added ${added} entr${added === 1 ? 'y' : 'ies'} to the reading list`)
+      } catch (err) {
+        this.log('warn', `fellows: reading list not written: ${(err as Error).message}`)
+      }
+    }
     const root = this.vaultRoot
     const built = buildProposals({
       agent,

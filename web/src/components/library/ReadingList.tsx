@@ -8,12 +8,14 @@
  * click, and the service fetches it the ordinary way.
  */
 
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import { queryState } from '../QueryState.tsx'
 import { Icon } from '../Icon.tsx'
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
+import { isReachable, reachLabel, readingView } from '../../lib/readingList.ts'
 
 const host = (url: string): string => {
   try {
@@ -33,9 +35,11 @@ export function ReadingList(): React.ReactElement {
       void qc.invalidateQueries({ queryKey: ['jobs'] })
     },
   })
+  // Off by default: a paywalled row's Ingest would fail the same way the run did.
+  const [showPaywalled, setShowPaywalled] = useState(false)
   const state = queryState(list, 'the reading list')
   const entries = list.data?.entries ?? []
-  const waiting = entries.filter((e) => e.job === null).length
+  const view = readingView(entries, showPaywalled)
 
   return (
     <div className="lib-window-body reading">
@@ -50,12 +54,23 @@ export function ReadingList(): React.ReactElement {
           </div>
         ) : (
           <>
-            <p className="reading-lede">
-              {entries.length} publication(s) the Fellows read, {waiting} of them not ingested. Reading one in full is
-              your call: the service fetches it, checks it and files it like any other source.
-            </p>
+            <div className="reading-head">
+              <p className="reading-lede">
+                {view.shown.length} publication(s) the Fellows found, {view.waiting} of them not ingested. Reading one
+                in full is your call: the service fetches it, checks it and files it like any other source.
+              </p>
+              <button
+                className="chip"
+                aria-pressed={showPaywalled}
+                onClick={() => setShowPaywalled(!showPaywalled)}
+                title="Publications behind a subscription, or ones a run could not fetch. The service cannot get them either; the link and your own access can."
+              >
+                Show paywalled
+                {view.hidden > 0 && !showPaywalled ? ` · ${view.hidden}` : ''}
+              </button>
+            </div>
             <ul className="reading-rows">
-              {entries.map((e) => (
+              {view.shown.map((e) => (
                 <li key={e.url}>
                   <div className="rl-main">
                     <div className="rl-title">
@@ -69,11 +84,23 @@ export function ReadingList(): React.ReactElement {
                     <p className="rl-meta">
                       {host(e.url)}
                       {e.domain !== null ? ` · ${signText(e.domain)}` : ''}
-                      {e.found !== null ? ` · found by ${e.found}` : ''}
+                      {e.by !== null ? ` · found by ${e.by}${e.at !== null ? `, ${e.at}` : ''}` : e.found !== null ? ` · found by ${e.found}` : ''}
+                      {reachLabel(e) !== null ? ` · ${reachLabel(e)}` : ''}
                     </p>
                   </div>
                   <div className="rl-act">
-                    {e.job === null ? (
+                    {e.job === null && !isReachable(e) ? (
+                      <a
+                        className="btn sm"
+                        href={e.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        title="The service cannot fetch this one. Open it with your own access and drop the file into the vault; it goes through the ordinary ingest from there."
+                      >
+                        <Icon name="link" />
+                        Open
+                      </a>
+                    ) : e.job === null ? (
                       <button
                         className="btn sm"
                         disabled={ingest.isPending}

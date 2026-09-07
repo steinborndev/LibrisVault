@@ -7204,7 +7204,11 @@ tr:focus-within .rowacts {
 .shelf-page .page-body code { font-family: var(--mono); font-size: 12.5px; }
 /* ---- The reading list board (section 10.6) ---- */
 .lib-window-body.reading { padding: 14px 18px 22px; }
-.reading-lede { margin: 0 0 12px; max-width: 88ch; color: var(--text-dim); font-size: 13px; }
+.reading-lede { margin: 0; max-width: 88ch; color: var(--text-dim); font-size: 13px; }
+/* The lede and the paywalled toggle share one line: the toggle belongs to the whole list. */
+.reading-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.reading-head .chip { flex: none; cursor: pointer; }
+.reading-head .chip[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .reading-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .reading-rows li {
   display: flex;
