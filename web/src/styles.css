@@ -7110,9 +7110,22 @@ tr:focus-within .rowacts {
   border-bottom: 1px solid var(--border);
 }
 .shelf-filter .input { min-width: 220px; }
-/* The colour that used to be the legend's whole point rides on the chips. */
-.shelf-filter .chip { display: inline-flex; align-items: center; gap: 6px; }
+/*
+ * The colour that used to be the legend's whole point rides on the chips - and a picked chip
+ * has to LOOK picked: `aria-pressed` was set from the start, but nothing was styled off it,
+ * so the filter worked while the band showed no sign of which one was on.
+ */
+.shelf-filter .chip { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .shelf-filter .chip .chip-dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+.shelf-filter .chip:hover { border-color: var(--accent); color: var(--text); }
+.shelf-filter .chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+/* The dot keeps its own colour; the ring says it is the one filtering. */
+.shelf-filter .chip[aria-pressed='true'] .chip-dot { box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3px var(--accent); }
 .shelf-table {
   flex: 1;
   min-height: 0;

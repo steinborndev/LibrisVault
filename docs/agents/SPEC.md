@@ -934,6 +934,12 @@ does. Now:
 - **The column** puts a rule and real space between wings, names its section "In this
   department" (the department is already named in the headline), drops "Recent work", and
   makes each Fellow a button that opens its card.
+- **In the room the column holds two lists**, departments first and Fellows under them. The
+  room list is gone - it repeated the strip in the headline - and so is the second spawn
+  button, which the headline already carries. Renaming a wing stays on its banner, and
+  deleting an empty one moved there too; reordering wings has no home in the UI any more.
+- **A picked filter chip looks picked.** `aria-pressed` was set from the first version but
+  nothing was styled off it, so the band gave no sign of which type was filtering.
 
 **Leaving the tab closes the room's windows** (2026-09-07). The screen stays mounted while
 another tab shows, because it polls the scene, so a board or a department window left open was

@@ -36,7 +36,7 @@ import { domainColor } from '../lib/domains.ts'
 import { navigate } from '../lib/router.ts'
 import { buildActors, floorLine, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
-import { signText, WING_CAPACITY, FAVORITE_SLOTS } from '../lib/library/room.ts'
+import { signText } from '../lib/library/room.ts'
 import { roomToFollow } from '../lib/library/follow.ts'
 
 const CANVAS_W = 1128
@@ -309,7 +309,6 @@ export function LibraryScreen({
     invalidate()
     pickRoom('main')
   } })
-  const reorder = useMutation({ mutationFn: (ids: string[]) => api.reorderWings(ids), onSuccess: invalidate })
   const pauseFellow = useMutation({ mutationFn: (f: SceneFellow) => api.agentAction(f.agentId, f.state === 'paused' ? 'resume' : 'pause'), onSuccess: () => {
     void qc.invalidateQueries({ queryKey: ['library-scene'] })
     void qc.invalidateQueries({ queryKey: ['agents'] })
@@ -402,93 +401,17 @@ export function LibraryScreen({
       )}
       {mode === 'full' && shelf === null && (
         <aside className="gpanel" aria-label="Library controls">
-          <div className="gp-sec">
-            <div className="gp-head">
-              <span className="gp-eyebrow">Fellows</span>
-              <span className="spacer" />
-              <span className="mono-meta">{s ? `${s.fellows.filter((f) => f.run).length} at work` : ''}</span>
-            </div>
-            {s && s.fellows.filter((f) => f.state !== 'retired').length === 0 && <p className="mono-meta">No Fellows yet. The existing runs still show up on the floor.</p>}
-            {(s?.fellows ?? [])
-              .filter((f) => f.state !== 'retired')
-              .map((f) => (
-                <button key={f.agentId} className={`lib-frow${agentParam === f.agentId ? ' sel' : ''}`} onClick={() => openCard(f.agentId)}>
-                  <span className="d" style={{ background: domainColor(f.homeDomain) }} aria-hidden />
-                  <span className="who">
-                    <b>{f.name}</b>
-                    <span className="st">{f.run ? (f.run.kind === 'plan' ? 'planning' : f.run.label ?? f.run.kind) : f.sleepReason ?? f.state}</span>
-                  </span>
-                  <span className="mono-meta">{f.homeDomain.split('-')[0]}</span>
-                </button>
-              ))}
-            {spawnOpen ? (
-              <SpawnForm
-                plan={plan.data}
-                onDone={(id) => {
-                  setSpawnOpen(false)
-                  openCard(id)
-                }}
-                onCancel={() => setSpawnOpen(false)}
-              />
-            ) : (
-              <button className="btn primary sm" style={{ marginTop: 8 }} onClick={() => setSpawnOpen(true)}>
-                Spawn a Fellow
-              </button>
-            )}
-          </div>
-          <div className="gp-sec">
-            <div className="gp-head">
-              <span className="gp-eyebrow">Rooms</span>
-              <span className="spacer" />
-              <span className="mono-meta">scroll or click</span>
-            </div>
-            {rooms.map((r, idx) => (
-              <div key={r.id} className={`lib-wrow${r.id === current?.id ? ' on' : ''}${drag?.target === r.id ? ' target' : ''}`} data-room={r.id}>
-                {renaming?.id === r.id ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault()
-                      renameWing.mutate({ id: r.id, name: renaming.name })
-                      setRenaming(null)
-                    }}
-                  >
-                    <input className="input sm" autoFocus value={renaming.name} onChange={(e) => setRenaming({ id: r.id, name: e.target.value })} onBlur={() => setRenaming(null)} maxLength={40} />
-                  </form>
-                ) : (
-                  <button className="wn" onClick={() => pickRoom(r.id)}>
-                    {r.name}
-                  </button>
-                )}
-                <span className="ws">
-                  {r.kind === 'main' ? `favorites ${r.shelves.length} of ${FAVORITE_SLOTS}` : `${r.shelves.length} of ${WING_CAPACITY}${r.shelves.length >= WING_CAPACITY ? ', full' : ''}`}
-                </span>
-                {r.kind === 'wing' && (
-                  <span className="wacts">
-                    <button className="wact" title="Rename" onClick={() => setRenaming({ id: r.id, name: r.name })}>
-                      ✎
-                    </button>
-                    <button className="wact" title="Move up" disabled={idx <= 1} onClick={() => reorder.mutate(moveInOrder(rooms, r.id, -1))}>
-                      ↑
-                    </button>
-                    <button className="wact" title="Move down" disabled={idx >= rooms.length - 1} onClick={() => reorder.mutate(moveInOrder(rooms, r.id, 1))}>
-                      ↓
-                    </button>
-                    {r.shelves.length === 0 && (
-                      <button className="wact" title="Delete the empty wing" onClick={() => deleteWing.mutate(r.id)}>
-                        ×
-                      </button>
-                    )}
-                  </span>
-                )}
-              </div>
-            ))}
-            <button className="lib-wrow add" onClick={() => createWing.mutate()} disabled={createWing.isPending}>
-              + New wing
-            </button>
-          </div>
+          {/*
+           * The room list used to stand here as well, repeating the strip in the headline; the
+           * strip is the navigation now, and a wing is renamed on its own banner. What is left
+           * is what the room cannot show at a glance: which department stands where, and who
+           * works on what.
+           */}
           <div className="gp-sec grow">
             <div className="gp-head">
               <span className="gp-eyebrow">Departments</span>
+              <span className="spacer" />
+              <span className="mono-meta">drag onto a room</span>
             </div>
             <div className="lib-deps">
               {rooms.map((r) => (
@@ -514,6 +437,37 @@ export function LibraryScreen({
               ))}
               {s && s.unfiled > 0 && <p className="mono-meta">{s.unfiled} unfiled page(s) on the intake cart.</p>}
             </div>
+          </div>
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Fellows</span>
+              <span className="spacer" />
+              <span className="mono-meta">{s ? `${s.fellows.filter((f) => f.run).length} at work` : ''}</span>
+            </div>
+            {s && s.fellows.filter((f) => f.state !== 'retired').length === 0 && <p className="mono-meta">No Fellows yet. The existing runs still show up on the floor.</p>}
+            {(s?.fellows ?? [])
+              .filter((f) => f.state !== 'retired')
+              .map((f) => (
+                <button key={f.agentId} className={`lib-frow${agentParam === f.agentId ? ' sel' : ''}`} onClick={() => openCard(f.agentId)}>
+                  <span className="d" style={{ background: domainColor(f.homeDomain) }} aria-hidden />
+                  <span className="who">
+                    <b>{f.name}</b>
+                    <span className="st">{f.run ? (f.run.kind === 'plan' ? 'planning' : f.run.label ?? f.run.kind) : f.sleepReason ?? f.state}</span>
+                  </span>
+                  <span className="mono-meta">{f.homeDomain.split('-')[0]}</span>
+                </button>
+              ))}
+            {/* Spawning is one button in the headline; the form opens here under the Fellows. */}
+            {spawnOpen && (
+              <SpawnForm
+                plan={plan.data}
+                onDone={(id) => {
+                  setSpawnOpen(false)
+                  openCard(id)
+                }}
+                onCancel={() => setSpawnOpen(false)}
+              />
+            )}
           </div>
         </aside>
       )}
@@ -674,6 +628,13 @@ export function LibraryScreen({
               <button className="btn ghost sm" type="button" onClick={() => setRenaming(null)}>
                 Cancel
               </button>
+              {/* Deleting an empty wing lived in the room list that is gone; the banner is
+                  where the wing itself is, so it belongs here - and only while it is empty. */}
+              {current?.kind === 'wing' && current.shelves.length === 0 && (
+                <button className="btn ghost sm danger" type="button" onClick={() => deleteWing.mutate(renaming.id)}>
+                  Delete this empty wing
+                </button>
+              )}
             </form>
           )}
 
@@ -712,17 +673,6 @@ export function LibraryScreen({
       {mode === 'full' && agentParam !== '' && <FellowCard agentId={agentParam} vaultName={vaultName} onClose={closeCard} />}
     </div>
   )
-}
-
-/** The wing ids in their new order after moving one by `delta` (the main room stays first). */
-function moveInOrder(rooms: readonly SceneRoom[], id: string, delta: number): string[] {
-  const ids = rooms.filter((r) => r.kind === 'wing').map((r) => r.id)
-  const idx = ids.indexOf(id)
-  const to = idx + delta
-  if (idx < 0 || to < 0 || to >= ids.length) return ids
-  ids.splice(idx, 1)
-  ids.splice(to, 0, id)
-  return ids
 }
 
 /** The vault's digest page, read straight from the vault (SPEC.md section 12.4). */
