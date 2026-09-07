@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { PreprocessError } from '../types.js'
 import { isOle, isRtf, isZip } from '../detect.js'
-import { runTool } from '../tools.js'
+import { runConverter } from '../sandbox.js'
 
 /*
  * What pandoc reads out of a container. EPub belongs here and was missing: it is a ZIP like
@@ -59,7 +59,7 @@ export const officePlugin: PreprocessPlugin = {
         )
       }
       const outPath = path.join(ctx.jobDir, 'normalized.md')
-      await runTool('pandoc', [src, '-t', 'gfm', '-o', outPath], { timeoutMs: 120_000 })
+      await runConverter('pandoc', [src, '-t', 'gfm', '-o', outPath], { reads: [src], writes: ctx.jobDir, timeoutMs: 120_000 })
       const text = fs.readFileSync(outPath, 'utf8')
       return { normalizedPath: outPath, normalizedChars: text.trim().length, notes: ['converted via pandoc'] }
     }
@@ -71,7 +71,8 @@ export const officePlugin: PreprocessPlugin = {
       )
     }
     const outPath = path.join(ctx.jobDir, 'normalized.txt')
-    const { stdout } = await runTool('python3', [EXTRACT_SCRIPT, src], { timeoutMs: 120_000 })
+    // The extractor script is this repo's own; it is read-only in the jail like the input.
+    const { stdout } = await runConverter('python3', [EXTRACT_SCRIPT, src], { reads: [src, EXTRACT_SCRIPT], timeoutMs: 120_000 })
     fs.writeFileSync(outPath, stdout, 'utf8')
     return {
       normalizedPath: outPath,

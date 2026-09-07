@@ -8,7 +8,7 @@
 
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { isPng, isJpeg, isWebp, isGif } from '../detect.js'
-import { runTool } from '../tools.js'
+import { runConverter } from '../sandbox.js'
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'heic'])
 
@@ -31,7 +31,8 @@ export const imagePlugin: PreprocessPlugin = {
 
     if (ctx.tools.exiftool) {
       try {
-        const { stdout } = await runTool('exiftool', ['-json', '-n', ctx.probe.filePath], {
+        const { stdout } = await runConverter('exiftool', ['-json', '-n', ctx.probe.filePath], {
+          reads: [ctx.probe.filePath],
           timeoutMs: 30_000,
         })
         const parsed = JSON.parse(stdout) as Array<Record<string, unknown>>

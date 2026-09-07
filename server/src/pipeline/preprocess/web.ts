@@ -19,7 +19,7 @@ import type { JobType } from '../../db/jobs.js'
 import { nowIso } from '../../db/index.js'
 import type { Manifest, PreprocessResult, ToolAvailability } from './types.js'
 import { PreprocessError } from './types.js'
-import { runTool } from './tools.js'
+import { runConverter } from './sandbox.js'
 import { detectTools } from './tools.js'
 import { findUrlHandler } from './url-handlers.js'
 
@@ -285,7 +285,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
 
     if (tools.defuddle) {
       try {
-        const { stdout } = await runTool('defuddle', ['parse', rawPath, '--md'], { timeoutMs: 30_000 })
+        const { stdout } = await runConverter('defuddle', ['parse', rawPath, '--md'], { reads: [rawPath], timeoutMs: 30_000 })
         markdown = stdout.trim()
         notes.push('extracted via defuddle')
       } catch {

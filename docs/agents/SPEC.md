@@ -109,8 +109,10 @@ behind the shared commit mutex; SQLite holds operational state only. (2) Localho
 the SDK sandbox (bubblewrap) plus a `PreToolUse` hook; `canUseTool` is not the enforcement
 point; run `permprobe` after any SDK or permission change. (5) No modification of the
 cloned vault internals; extensions only through the system-prompt extension or a thin
-wrapper skill. (6) Incoming files are never executed. (7) No vault content in anything
-committed to a public repo, including commit messages.
+wrapper skill. (6) Incoming files are never executed, and every converter that reads one runs
+contained - bubblewrap, no network, no `$HOME`, the input file and one output directory
+(`runConverter`, added 2026-09-08; `preprocprobe` proves it, as `permprobe` does for (4)).
+(7) No vault content in anything committed to a public repo, including commit messages.
 
 **Concurrency.** Maintenance runs (research included) are serialized by the maintenance
 `runMutex`; ingest jobs run up to `concurrency` in parallel through their own queue; all

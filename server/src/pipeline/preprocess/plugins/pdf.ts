@@ -14,7 +14,7 @@ import path from 'node:path'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { PreprocessError } from '../types.js'
 import { isPdf } from '../detect.js'
-import { runTool } from '../tools.js'
+import { runConverter } from '../sandbox.js'
 
 /** Below this many chars/page the text layer is assumed missing and OCR kicks in. */
 const OCR_YIELD_THRESHOLD = 100
@@ -50,7 +50,7 @@ export function ocrTimeoutMs(pages: number): number {
 async function pageCount(pdfPath: string, hasPdfinfo: boolean): Promise<number> {
   if (hasPdfinfo) {
     try {
-      const { stdout } = await runTool('pdfinfo', [pdfPath], { timeoutMs: 30_000 })
+      const { stdout } = await runConverter('pdfinfo', [pdfPath], { reads: [pdfPath], timeoutMs: 30_000 })
       const m = stdout.match(/^Pages:\s+(\d+)/m)
       if (m) return Math.max(1, Number(m[1]))
     } catch {
@@ -62,7 +62,11 @@ async function pageCount(pdfPath: string, hasPdfinfo: boolean): Promise<number> 
 
 async function extract(pdfPath: string, outPath: string): Promise<string> {
   // -layout keeps columns/tables readable; -enc UTF-8 avoids latin1 mojibake.
-  await runTool('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, outPath], { timeoutMs: 120_000 })
+  await runConverter('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, outPath], {
+    reads: [pdfPath],
+    writes: path.dirname(outPath),
+    timeoutMs: 120_000,
+  })
   return fs.readFileSync(outPath, 'utf8')
 }
 
@@ -109,7 +113,9 @@ export const pdfPlugin: PreprocessPlugin = {
         const timeoutMs = ocrTimeoutMs(estPages)
         // --force-ocr rasterizes and re-OCRs even pages that carry a thin/garbage text
         // layer, which is exactly the low-yield case that got us here.
-        await runTool('ocrmypdf', ['--force-ocr', '--language', 'deu+eng', src, ocrPdf], {
+        await runConverter('ocrmypdf', ['--force-ocr', '--language', 'deu+eng', src, ocrPdf], {
+          reads: [src],
+          writes: ctx.jobDir,
           timeoutMs,
         })
         text = await extract(ocrPdf, outPath)

@@ -456,7 +456,7 @@ cursor and the per-task `covered`; the planner prompt and the scope score agains
 run kind from the art, and the step size demoted to sizing; the deepen ranking reused from the
 dialog; the card and the spawn form; the recap line.
 
-## Proposal: the preprocessing chain has no sandbox (2026-09-07)
+## Proposal: the preprocessing chain has no sandbox (2026-09-07, built 2026-09-08)
 
 Found while weighing `microsoft/markitdown` (rejected, see below). The agent runs are contained
 at the OS level - bubblewrap, writes confined to the vault, no web outside the research profile,
@@ -502,6 +502,42 @@ The same shape the agent runner already proves works, applied one stage earlier.
 4. **Then, and only then, new converters are cheap.** A sandboxed subprocess is a boundary a
    tool cannot argue with, whatever it is written in. `markitdown` would fit behind it as a CLI
    in its own virtualenv, never as a library import, never given a URL.
+
+### As built (2026-09-08)
+
+All four points, in `server/src/pipeline/preprocess/sandbox.ts`.
+
+`runConverter(bin, args, { reads, writes, timeoutMs, maxBuffer })` replaced the bare `runTool` at
+every converter call site: `pdfinfo`, `pdftotext`, `ocrmypdf`, `pandoc`, the Python office
+extractor, `exiftool`, `defuddle`. The jail is `--unshare-net` plus user, PID, IPC, UTS and cgroup
+namespaces, `--clearenv`, `--die-with-parent`, `--new-session`, a tmpfs `/tmp` that is also `HOME`,
+a read-only `/usr` and `/etc`, the input file, and one writable output directory. No vault, no
+database, no credential file, no loopback.
+
+`yt-dlp` is the documented exception and stays uncontained: it is a fetcher, its job is the
+network, and containing it is a separate piece of work with a different shape.
+
+Three things the build taught, all of them non-obvious:
+
+- **Bind the prefix, not the home.** `defuddle` is an npm global under `.nvm` and `python3` is a
+  pyenv shim; binding `$HOME` to reach them would hand back everything the jail exists to remove.
+  `toolPrefix()` binds the directory holding the tool's `bin/` - and the prefixes of BOTH the
+  invoked path and its realpath, because an npm global is a symlink whose target lives elsewhere
+  and binding only one end leaves the jail unable to find the binary at all.
+- **Hand bubblewrap the resolved path.** A bare name resolves against the JAIL's PATH, where
+  `python3` is the system interpreter without the packages the extractor imports.
+- **The jail's PATH needs those prefixes' `bin/`.** A `#!/usr/bin/env node` shebang otherwise looks
+  its runtime up in the system PATH, which is exactly where an nvm node is not.
+
+`PREPROCESS_SANDBOX=off` restores the old behaviour for a machine that cannot provide bubblewrap;
+by default a missing `bwrap` fails the conversion with that sentence in the error, rather than
+quietly converting uncontained.
+
+`server/src/cli/preprocprobe.ts` runs the real tools against real canaries - the credential file,
+the vault, the service API, the open internet - and checks both directions: that the four are
+unreachable, that nothing written escapes to the host, and that pandoc, pdftotext, defuddle and a
+python3 with its packages still work in there. Last run: 13 checks, all as expected. The unit
+tests read the argument list and prove the policy; only the probe proves it is applied.
 
 ### Why markitdown itself is not worth it
 

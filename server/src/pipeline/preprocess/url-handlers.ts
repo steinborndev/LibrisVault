@@ -10,6 +10,12 @@
  * Handlers never open sockets themselves: HTTP goes through the injected `fetchText`
  * (the pipeline's SSRF-guarded, size-capped fetch), and yt-dlp is the one deliberate
  * exception — an external tool with its own egress, invoked only for YouTube hosts.
+ *
+ * That same exception is why yt-dlp is the one tool NOT run through `runConverter`
+ * (CLAUDE.md hard rule 6 as amended 2026-09-08): the jail's first property is that there
+ * is no network, and a fetcher without a network fetches nothing. Containing it means a
+ * different jail — egress kept, everything else taken away — and that is separate work.
+ * Everything downstream of it, the fetched artifact included, is contained.
  */
 
 import fs from 'node:fs'
