@@ -6902,6 +6902,51 @@ tr:focus-within .rowacts {
 .lib-corner.tr { right: 12px; top: 12px; display: flex; gap: 6px; }
 .lib-corner.bl { left: 12px; bottom: 10px; }
 .lib-corner.br { right: 12px; bottom: 10px; }
+/*
+ * The plan, and how much of each window is LEFT (section 8.3). It sits in the room rather
+ * than on the System screen because it is the number that decides whether tonight's shift is
+ * affordable, and that question is asked while looking at the Fellows.
+ */
+.lib-plan {
+  min-width: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  backdrop-filter: blur(2px);
+}
+.lib-plan.dark {
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+.lp-name {
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+.lp-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lp-w {
+  color: var(--text-faint);
+}
+.lp-n {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.lp-stale {
+  margin-top: 3px;
+  color: var(--warn);
+  cursor: help;
+}
 
 .lib-strip {
   display: inline-flex;

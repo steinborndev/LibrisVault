@@ -27,6 +27,8 @@ export interface PlanSettings {
   readonly reserveWeekPct: number
   readonly planWeekUsd: number
   readonly plan5hUsd: number
+  /** What the user calls their subscription; '' = show what was measured instead. */
+  readonly planName: string
 }
 
 export interface EndpointResult {
@@ -79,6 +81,8 @@ export interface PlanStatus {
   readonly available: boolean
   readonly source: 'sdk' | 'event' | 'endpoint' | null
   readonly reason: string | null
+  /** Why the between-runs source is silent, even while old samples are still being shown. */
+  readonly liveReason: string | null
   readonly subscription: string | null
   readonly sampledAt: string | null
   readonly windows: readonly WindowSample[]
@@ -127,6 +131,9 @@ function parseWindows(limits: unknown): WindowSample[] {
   }
   return out
 }
+
+/** How far the wait between refused endpoint calls doubles: 180 s becomes at most ~48 min. */
+const MAX_BACKOFF_STEPS = 4
 
 /** The SDK's `usage()` response: availability, subscription, windows. */
 export function parseSdkUsage(res: unknown): { available: boolean; subscription: string | null; windows: WindowSample[]; reason: string | null } {
@@ -210,6 +217,10 @@ export class UsageMonitor {
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   private lastFetch = 0
   private lastReason: string | null = null
+  /** The reason logged last, so a refusal that repeats every three minutes is said once. */
+  private saidReason: string | null = null
+  /** Consecutive refusals; the wait between attempts doubles with each one. */
+  private failures = 0
   private readonly resets = new Map<string, string>()
   private subscription: string | null = null
   private pendingFetch: Promise<void> | null = null
@@ -244,30 +255,54 @@ export class UsageMonitor {
     return w
   }
 
+  /**
+   * Records why the live source did or did not answer, and says it in the log the first time
+   * and whenever it changes.
+   *
+   * It used to be recorded and never spoken. The endpoint is the ONLY source between runs -
+   * the SDK samples inside a run - so a refusal here freezes the plan numbers at whatever the
+   * last run saw, and `status()` hid that behind `available`, which stays true for a day after
+   * any sample. A silent refusal that stops the only live source is worth one line.
+   */
+  private note(reason: string | null): void {
+    this.lastReason = reason
+    this.failures = reason === null ? 0 : Math.min(this.failures + 1, MAX_BACKOFF_STEPS)
+    if (reason === this.saidReason) return
+    this.saidReason = reason
+    if (reason === null) this.log('info', 'usage: the plan endpoint answers again')
+    else this.log('warn', `usage: the plan endpoint is not answering - ${reason}`)
+  }
+
   /** Fetches the endpoint when the latest endpoint sample is older than the cache; one flight at a time. */
   async refresh(force = false): Promise<void> {
     if (!this.o.fetchEndpoint) return
     const cacheMs = this.o.cacheMs ?? 180_000
-    if (!force && this.now().getTime() - this.lastFetch < cacheMs) return
+    /*
+     * A refused endpoint is asked back less often, doubling up to half an hour. The one this
+     * runs against answers "Rate limited. Please try again later." - asking it again every
+     * three minutes cannot help and is part of the problem. A success clears the count.
+     */
+    const wait = cacheMs * 2 ** this.failures
+    if (!force && this.now().getTime() - this.lastFetch < wait) return
     if (this.pendingFetch) return this.pendingFetch
     this.pendingFetch = (async (): Promise<void> => {
       this.lastFetch = this.now().getTime()
       try {
         const result = await this.o.fetchEndpoint!()
         if (!result.ok) {
-          this.lastReason = result.reason ?? 'the usage endpoint is unavailable'
+          this.note(result.reason ?? 'the usage endpoint is unavailable')
           return
         }
         const parsed = parseEndpointUsage(result.json)
         if (!parsed.available) {
-          this.lastReason = parsed.reason
+          this.note(parsed.reason)
           return
         }
-        this.lastReason = null
+        this.note(null)
         const ts = this.now().toISOString()
         for (const w of parsed.windows) this.o.store.record({ ts, window: w.window, utilization: w.utilization, resetsAt: w.resetsAt, runId: null, phase: 'tick', source: 'endpoint' })
       } catch (err) {
-        this.lastReason = `the usage endpoint failed: ${(err as Error).message}`
+        this.note(`the usage endpoint failed: ${(err as Error).message}`)
       } finally {
         this.pendingFetch = null
       }
@@ -447,7 +482,14 @@ export class UsageMonitor {
       available: latest.available,
       source: latest.source,
       reason: latest.available ? null : (this.lastReason ?? (this.o.fetchEndpoint ? 'no sample yet' : 'no plan windows on an API key; USD accounting')),
-      subscription: this.subscription,
+      /*
+       * Why the numbers are not refreshing, even while they are still shown. `reason` above
+       * only speaks when NOTHING is available, and a sample counts as available for a day -
+       * so an endpoint that stopped answering left the screen showing hours-old percentages
+       * with nothing to say about it.
+       */
+      liveReason: this.o.fetchEndpoint ? this.lastReason : 'no plan windows on an API key; the numbers come from runs only',
+      subscription: s.planName !== '' ? s.planName : this.subscription,
       sampledAt: latest.sampledAt,
       windows: latest.windows,
       resets: Object.fromEntries(['five_hour', 'seven_day'].flatMap((w) => (this.resetOf(w) ? [[w, this.resetOf(w)!]] : []))),

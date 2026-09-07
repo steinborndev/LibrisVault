@@ -643,6 +643,36 @@ Every activity becomes an actor with identity, pose, props and exit:
 The maintenance mutex is drawn literally: one researcher or caretaker at a time, the
 others wait at the front desk; ingest clerks run in parallel up to `concurrency`.
 
+**Every bubble reads `who (what)`** (as built, 2026-09-07). One shape, so there is one thing
+to learn: Fellows had it and visitors read `researcher · reading`, a second punctuation for the
+same idea. `what` is two or three words - the bubble hangs over the furniture, and every word
+costs a piece of the shelf behind it. The mapping is a table rather than a habit, because a run
+kind that is missing from it appears in the room as its own raw identifier, which is how a
+finished `domain-backfill` came to stand in the library calling itself "domain-backfill":
+
+| Run kind | Figure | Bubble |
+|---|---|---|
+| `research` | researcher, or the Fellow | `researcher (researching)`, `Ada (reading)` |
+| `research-step` | same | `(a short step)` |
+| `research-expand` | same | `(deepening pages)` |
+| `plan` | the Fellow, at a desk | `Ada (planning)` |
+| `save` | reader | `reader (filing a chat)` |
+| `lint` | inspector | `inspector (checking shelves)` |
+| `domain-review` | inspector | `inspector (reviewing wings)` |
+| `lint-fix` | caretaker | `caretaker (fixing findings)` |
+| `repair` | caretaker | `caretaker (mending links)` |
+| `cleanup` | caretaker | `caretaker (clearing dead ends)` |
+| `tag-fix` | caretaker | `caretaker (fixing labels)` |
+| `domain-backfill` | caretaker with cart | `caretaker (sorting new books)` |
+| `hot-cache` | caretaker | `caretaker (renewing the board)` |
+| an ingest job | clerk, or a parcel while queued | `clerk (unpacking)`, `<file> (queued)` |
+| any of them, finished | the same figure, fading | `caretaker (done)`, `(failed)` |
+
+A Fellow that is not running says why in the same shape, and in words rather than in the
+service's own codes - `(nothing to plan)`, `(topic taken)`, `(out of quota)`, `(plan failed)`,
+`(no progress)`. The file name left the clerk's bubble: it is on the parcel and in the footer,
+and it was what made a job's bubble reach across the shelf behind it.
+
 ### 10.4 Rooms, departments, shelves and books
 
 The library is a **sequence of rooms on one shared grid**, and the screen shows **one room
@@ -1174,6 +1204,32 @@ other view is a view of the DEPARTMENT, so arriving there with an article still 
 the wrong place. Every return to the graph re-frames it - the canvas keeps pan and zoom in module
 state, which is right for a view that continues and wrong for one being opened again, so the
 number of returns rides in the fit key.
+
+**The plan in the corner of the room** (2026-09-07). Bottom right of the drawing area, three
+lines: the plan's name and how much of the five-hour and the seven-day window is LEFT, whole
+percent. Left rather than used, because the question asked while looking at the Fellows is what
+is still affordable tonight. `planCorner` derives it, and two cases make that a tested function:
+a window past its `resetsAt` reads a full 100 % rather than the figure from before the rollover,
+and a sample old enough to matter carries its age.
+
+The name comes from the `planName` setting first and the SDK's `subscription_type` second: the
+SDK does not report it on every account, and the usage endpoint that also carries it is rate
+limited here - so the one thing the user knows for certain about their own plan is a setting.
+
+**How the numbers refresh, and when they do not.** Two sources: the SDK samples inside every run
+(before and after), and the OAuth usage endpoint, which `GET /usage/plan` asks at most every
+three minutes. The screen polls once a minute while the Library is the tab in front - not while
+it is mounted behind another, and not faster than the endpoint's own cache - refetches on window
+focus, and re-reads the moment a run settles, which is the one event that certainly moved the
+windows.
+
+Against this vault the endpoint answers "Rate limited. Please try again later.", so between runs
+nothing refreshes at all. That used to be invisible: the reason was recorded and never spoken,
+and `reason` in the payload only speaks when NOTHING is available, while a sample counts as
+available for a day. Three changes make it honest - `liveReason` says why the live source is
+silent even while old numbers are shown, the monitor logs the refusal once and again when it
+changes, and a refused endpoint is asked back on a doubling delay up to about 48 minutes instead
+of every three, because asking a rate limiter more often cannot help.
 
 **The four arrows walk the library** (2026-09-07). Left and right switch the two views of a
 department; up and down step to the next department, in the order the shelves stand in - rooms

@@ -35,8 +35,9 @@ import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
 import { orderedDomains, stepDomain } from '../lib/library/shelfOrder.ts'
 import { navigate } from '../lib/router.ts'
-import { buildActors, floorLine, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
+import { buildActors, floorLine, roleOfRun, ROLE_NAME, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
+import { planCorner } from '../lib/library/planCorner.ts'
 import { signText } from '../lib/library/room.ts'
 import { undecidedCount } from '../lib/recap.ts'
 import { roomToFollow } from '../lib/library/follow.ts'
@@ -79,7 +80,12 @@ export function LibraryScreen({
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, refetchInterval: 5_000 })
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
   // The plan's research share for the now chip and the spawn projection (A5); the endpoint is cached server-side.
-  const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
+  /*
+   * The plan numbers (section 8.3). Polled only while this tab is in front - the screen stays
+   * mounted behind the others, and a minute timer on a hidden screen buys nothing. The
+   * endpoint caches for three minutes anyway, so a faster poll would re-serve the same figure.
+   */
+  const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: active ? 60_000 : false, refetchOnWindowFocus: true, retry: false })
   /**
    * The decisions the newest recap is still waiting for, across every Fellow in it. The recap
    * is the surface where they are made, so the button counts them and opens that board.
@@ -176,7 +182,16 @@ export function LibraryScreen({
     if (!s) return
     const live = new Map<string, { name: string; role: Actor['role']; agentId?: string }>()
     for (const f of s.fellows) if (f.run) live.set(f.run.id, { name: f.name, role: 'fellow', agentId: f.agentId })
-    for (const r of s.runs) live.set(r.id, { name: r.kind === 'research' ? 'researcher' : r.kind, role: 'researcher' })
+    /*
+     * The role the run actually draws, and that role's noun as the name. Every maintenance run
+     * used to be remembered as a RESEARCHER called after its own kind, so a finished backfill
+     * left behind a half-faded researcher whose bubble read "domain-backfill" - a figure that
+     * was never in the room, wearing an identifier no reader has seen before.
+     */
+    for (const r of s.runs) {
+      const role = roleOfRun(r.kind) ?? 'researcher'
+      live.set(r.id, { name: ROLE_NAME[role], role })
+    }
     for (const j of s.jobs) if (j.status !== 'queued') live.set(j.id, { name: j.name, role: 'clerk' })
     const gone: Exit[] = []
     for (const [id, who] of seen.current) {
@@ -186,7 +201,12 @@ export function LibraryScreen({
       gone.push({ id, kind: who.role === 'clerk' ? 'job' : 'run', ok, name: who.name, role: who.role, at: Date.now(), ...(who.agentId ? { agentId: who.agentId } : {}) })
     }
     seen.current = live
-    if (gone.length > 0) setExits((xs) => [...xs, ...gone])
+    if (gone.length > 0) {
+      setExits((xs) => [...xs, ...gone])
+      // A run that just settled is the one event that certainly moved the plan windows; the
+      // poll would otherwise show the old figure for up to a minute (section 8.3).
+      void qc.invalidateQueries({ queryKey: ['usage-plan'] })
+    }
   }, [scene.data, runsQ.data])
 
   const actors = useMemo(() => {
@@ -690,6 +710,28 @@ export function LibraryScreen({
               {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList vaultName={vaultName} />}
             </div>
           )}
+          {(() => {
+            const corner = planCorner(plan.data, Date.now())
+            if (corner === null) return null
+            return (
+              <div className="lib-corner br">
+                <div className={`lib-plan${night ? ' dark' : ''}`}>
+                  <div className="lp-name">{corner.plan ?? 'plan'}</div>
+                  {corner.lines.map((l) => (
+                    <div key={l.window} className="lp-row">
+                      <span className="lp-w">{l.label}</span>
+                      <span className="lp-n">{l.leftPct}%</span>
+                    </div>
+                  ))}
+                  {corner.stale && (
+                    <div className="lp-stale" title={corner.reason ?? 'the plan endpoint has not answered since'}>
+                      {corner.ageMin}m old
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
           <div className="lib-corner bl">
             <span className={`chip${night ? ' dark' : ''}`}>
               <Icon name={night ? 'moon' : 'sun'} /> {hhmm} · {night ? 'night' : 'day'} · {floorLine(actors)}

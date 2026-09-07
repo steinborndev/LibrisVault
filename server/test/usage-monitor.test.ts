@@ -34,7 +34,7 @@ import { Mutex } from '../src/util/mutex.js'
 import { buildServer } from '../src/api/server.js'
 import type { Config } from '../src/config.js'
 
-const SETTINGS = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80 }
+const SETTINGS = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '' }
 const NOW = new Date('2026-09-07T10:00:00.000Z')
 const FIVE_RESET = '2026-09-07T12:00:00.000Z'
 const WEEK_RESET = '2026-09-13T00:00:00.000Z'

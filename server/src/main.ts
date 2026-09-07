@@ -145,14 +145,23 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // refuse, which the monitor reports and falls back from). Fellows only.
   const planSettings = () => {
     const e = settings.effective(config)
-    return { researchShareWeekPct: e.researchShareWeekPct, researchShare5hPct: e.researchShare5hPct, reserve5hPct: e.reserve5hPct, reserveWeekPct: e.reserveWeekPct, planWeekUsd: e.planWeekUsd, plan5hUsd: e.plan5hUsd }
+    return { researchShareWeekPct: e.researchShareWeekPct, researchShare5hPct: e.researchShare5hPct, reserve5hPct: e.reserve5hPct, reserveWeekPct: e.reserveWeekPct, planWeekUsd: e.planWeekUsd, plan5hUsd: e.plan5hUsd, planName: e.planName }
   }
+  // The app logger exists only after buildServer; until then these lines are dropped. Declared
+  // here because the usage monitor below wants it too - a plan endpoint that stops answering is
+  // the kind of silence that should reach the log.
+  const logSink: { sink?: (level: 'info' | 'warn' | 'error', message: string) => void } = {}
+  const fellowsLog = (level: 'info' | 'warn' | 'error', message: string): void => {
+    logSink.sink?.(level, message)
+  }
+
   const usage =
     config.agentsEnabled === true && !config.demoMode
       ? new UsageMonitor({
           store: new SqliteUsageSampleStore(db),
           runs: agentRuns,
           settings: planSettings,
+          log: fellowsLog,
           ...(config.auth?.mode === 'oauth'
             ? {
                 fetchEndpoint: async (): Promise<EndpointResult> => {
@@ -187,10 +196,6 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // Fellows (docs/agents/SPEC.md) live behind AGENTS_ENABLED and never in demo mode. The
   // notebook writer commits behind the shared mutex and honours gitAutoCommit like a user edit.
   // The app logger exists only after buildServer; until then Fellow log lines are dropped.
-  const logSink: { sink?: (level: 'info' | 'warn' | 'error', message: string) => void } = {}
-  const fellowsLog = (level: 'info' | 'warn' | 'error', message: string): void => {
-    logSink.sink?.(level, message)
-  }
   const handoffStore = new SqliteHandoffStore(db)
   // One reading list for the whole service: the routes read it, the Fellows write to it, and
   // it recognizes a publication by its DOI or arXiv id through the queue's dedupe index - which

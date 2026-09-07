@@ -82,6 +82,13 @@ export const SETTINGS_SCHEMA = z
     /** USD-equivalent size of the plan windows for the fallback accounting (section 16). */
     planWeekUsd: z.number().positive().max(100_000).nullable(),
     plan5hUsd: z.number().positive().max(10_000).nullable(),
+    /**
+     * What the subscription is called, for the corner of the Library ("5x max"). The SDK
+     * reports `subscription_type` on some accounts and not on others, and the usage endpoint
+     * that also carries it is rate limited here - so the one thing the user knows for certain
+     * about their own plan is a setting, not a measurement. Empty = show what is measured.
+     */
+    planName: z.string().max(40).nullable(),
   })
   .partial()
   .strict()
@@ -118,10 +125,12 @@ export interface EffectiveSettings {
   /** USD-equivalent window sizes for the fallback accounting (section 16). */
   readonly planWeekUsd: number
   readonly plan5hUsd: number
+  /** The subscription's own name, when the user has told us; '' = go by what is measured. */
+  readonly planName: string
 }
 
 /** The plan-percent defaults (review decision OPEN-12) and the section 16 reference sizes. */
-export const DEFAULT_PLAN = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80 } as const
+export const DEFAULT_PLAN = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '' } as const
 
 /** The night shift defaults (review decision OPEN-11). */
 export const DEFAULT_NIGHT_WINDOW = { start: '01:00', end: '06:00' } as const
@@ -167,6 +176,7 @@ export function effectiveSettings(config: Config, overrides: SettingsOverrides):
     reserveWeekPct: overrides.reserveWeekPct ?? base.reserveWeekPct,
     planWeekUsd: overrides.planWeekUsd ?? base.planWeekUsd,
     plan5hUsd: overrides.plan5hUsd ?? base.plan5hUsd,
+    planName: overrides.planName ?? base.planName,
   }
 }
 

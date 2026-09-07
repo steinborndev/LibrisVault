@@ -951,6 +951,12 @@ export interface PlanStatus {
   available: boolean
   source: 'sdk' | 'event' | 'endpoint' | null
   reason: string | null
+  /**
+   * Why the numbers are not refreshing, while they are still being shown. `reason` speaks only
+   * when nothing is available at all, and a sample counts as available for a day - so a live
+   * source that stopped answering would otherwise leave hours-old percentages unexplained.
+   */
+  liveReason: string | null
   subscription: string | null
   sampledAt: string | null
   windows: PlanWindow[]
@@ -958,7 +964,7 @@ export interface PlanStatus {
   resets: Record<string, string>
   calibration: { perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number }>; ready: boolean }
   consumption: { weekPct: number | null; fiveHourPct: number | null; weekUsd: number; fiveHourUsd: number; weekRuns: number; fiveHourRuns: number }
-  settings: { researchShareWeekPct: number; researchShare5hPct: number; reserve5hPct: number; reserveWeekPct: number; planWeekUsd: number; plan5hUsd: number }
+  settings: { researchShareWeekPct: number; researchShare5hPct: number; reserve5hPct: number; reserveWeekPct: number; planWeekUsd: number; plan5hUsd: number; planName: string }
   shares: { unit: 'points' | 'usd'; week: number; fiveHour: number; weekUsed: number; fiveHourUsed: number; stepsLeftWeek: number | null }
   gate: { code: 'reserve' | 'share'; window: string; reason: string; resetsAt: string | null } | null
 }

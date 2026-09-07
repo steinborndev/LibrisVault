@@ -171,7 +171,8 @@ function shelfPlace(scene: LibraryScene, domain: string | null): { room: string;
   return { room: 'main', tile: ANCHORS.catalog }
 }
 
-const roleOfRun = (kind: string): Role | null => {
+/** Which figure a run kind sends into the room; null = it draws nobody. */
+export const roleOfRun = (kind: string): Role | null => {
   switch (kind) {
     case 'research':
     case 'research-step':
@@ -194,20 +195,44 @@ const roleOfRun = (kind: string): Role | null => {
   }
 }
 
+/**
+ * What a visiting run is doing, in two or three words.
+ *
+ * The bubble hangs in the drawing, over the furniture: every word costs a piece of the shelf
+ * behind it. These used to run to half a sentence ("fixing what the inspection found"), which
+ * is a caption for a report, not for a figure standing in a room.
+ */
 const RUN_CAPTION: Record<string, string> = {
   research: 'researching',
-  'research-step': 'a research step',
+  'research-step': 'a short step',
   'research-expand': 'deepening pages',
-  save: 'saving a conversation',
-  lint: 'inspecting the shelves',
-  'domain-review': 'reviewing departments',
-  'lint-fix': 'fixing what the inspection found',
-  repair: 'repairing the graph',
-  cleanup: 'removing dead references',
-  'tag-fix': 'relabelling',
-  'domain-backfill': 'moving books between departments',
-  'hot-cache': 'renewing the notice board',
+  save: 'filing a chat',
+  lint: 'checking shelves',
+  'domain-review': 'reviewing wings',
+  'lint-fix': 'fixing findings',
+  repair: 'mending links',
+  cleanup: 'clearing dead ends',
+  'tag-fix': 'fixing labels',
+  'domain-backfill': 'sorting new books',
+  'hot-cache': 'renewing the board',
 }
+
+/** The noun on the figure - and the word its bubble opens with. */
+export const ROLE_NAME: Record<Role, string> = {
+  fellow: 'fellow',
+  researcher: 'researcher',
+  reader: 'reader',
+  clerk: 'clerk',
+  inspector: 'inspector',
+  caretaker: 'caretaker',
+}
+
+/**
+ * One shape for every bubble: `who (what)`. Fellows had it and visitors did not - they read
+ * `researcher · reading`, a second punctuation for the same idea. One shape means one thing
+ * to learn, and the parentheses keep the activity subordinate to the name.
+ */
+export const caption = (who: string, what: string): string => `${who} (${what})`
 
 /**
  * What the bubble over a figure says, in one word: it hangs in the drawing, where a
@@ -235,13 +260,13 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
     const family = steadyFamily(input.lines(f.run.channel), input.now)
     const planning = f.run.kind === 'plan'
     const pose: Pose = planning ? 'think' : poseForFamily(family)
-    const caption = `${f.name} (${planning ? 'planning' : POSE_CAPTION[pose]})`
+    const cap = caption(f.name, planning ? 'planning' : POSE_CAPTION[pose])
     if (pose === 'shelf' || pose === 'shelve') {
       const place = shelfPlace(scene, f.homeDomain)
-      return { ...base, caption, pose, room: place.room, i: place.tile.i, j: place.tile.j, book: domainColor(f.homeDomain), tag: 'fellow', runId: f.run.id, channel: f.run.channel }
+      return { ...base, caption: cap, pose, room: place.room, i: place.tile.i, j: place.tile.j, book: domainColor(f.homeDomain), tag: 'fellow', runId: f.run.id, channel: f.run.channel }
     }
     const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
-    return { ...base, caption, pose, room: 'main', i: desk.i, j: desk.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
+    return { ...base, caption: cap, pose, room: 'main', i: desk.i, j: desk.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
   }
   const chair = ANCHORS.armchairs[index % ANCHORS.armchairs.length]!
   const overflow = Math.floor(index / ANCHORS.armchairs.length)
@@ -250,42 +275,47 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
     case 'sleeping': {
       // A failed planner is a fault, not a quiet night: it reads as a warning like quota does.
       const warn = f.sleepCode === 'quota' || f.sleepCode === 'budget' || f.sleepCode === 'plan-failed'
+      /*
+       * The codes used to be shown as they are: "covered" and "idle" say nothing about why a
+       * Fellow is sitting down. Each is now the short sentence it stands for - still two or
+       * three words, because the bubble is small, but words a reader can act on.
+       */
       const reason =
         f.sleepCode === 'quota'
-          ? 'quota'
+          ? 'out of quota'
           : f.sleepCode === 'budget'
-            ? 'budget'
+            ? 'out of budget'
             : f.sleepCode === 'plan-failed'
-              ? 'failed'
+              ? 'plan failed'
               : f.sleepCode === 'covered'
-                ? 'covered'
+                ? 'topic taken'
                 : f.sleepCode === 'stalled'
-                  ? 'stalled'
+                  ? 'no progress'
                   : f.sleepCode === 'no-candidates'
-                    ? 'idle'
+                    ? 'nothing to plan'
                     : 'asleep'
-      return { ...base, caption: `${f.name} (${reason})`, pose: 'sleep', room: 'main', i: seat.i, j: seat.j, tag: warn ? 'warn' : 'asleep' }
+      return { ...base, caption: caption(f.name, reason), pose: 'sleep', room: 'main', i: seat.i, j: seat.j, tag: warn ? 'warn' : 'asleep' }
     }
     case 'waiting':
-      return { ...base, caption: `${f.name} (${f.next ? 'ready' : 'waiting'})`, pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
+      return { ...base, caption: caption(f.name, f.next ? 'ready' : 'waiting'), pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
     case 'paused':
-      return { ...base, caption: `${f.name} (paused)`, pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'asleep' }
+      return { ...base, caption: caption(f.name, 'paused'), pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'asleep' }
     case 'blocked': {
       const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
-      return { ...base, caption: `${f.name} (blocked)`, pose: 'wait', room: 'main', i: desk.i, j: desk.j, tag: 'warn' }
+      return { ...base, caption: caption(f.name, 'blocked'), pose: 'wait', room: 'main', i: desk.i, j: desk.j, tag: 'warn' }
     }
     case 'proposed': {
       const q = ANCHORS.frontDeskQueue[index % ANCHORS.frontDeskQueue.length]!
-      return { ...base, caption: `${f.name} (new)`, pose: 'wait', room: 'main', i: q.i, j: q.j, tag: 'fellow' }
+      return { ...base, caption: caption(f.name, 'new'), pose: 'wait', room: 'main', i: q.i, j: q.j, tag: 'fellow' }
     }
     case 'active': {
       // Between two steps of a shift the run is gone for a moment. The Fellow stays at its
       // desk and thinks; sending it to the door and back would be a jump across the room.
       const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
-      return { ...base, caption: `${f.name} (thinking)`, pose: 'think', room: 'main', i: desk.i, j: desk.j, tag: 'fellow' }
+      return { ...base, caption: caption(f.name, 'thinking'), pose: 'think', room: 'main', i: desk.i, j: desk.j, tag: 'fellow' }
     }
     default:
-      return { ...base, caption: `${f.name} (${f.state})`, pose: 'stand', room: 'main', i: ANCHORS.door.i, j: ANCHORS.door.j, tag: 'fellow' }
+      return { ...base, caption: caption(f.name, f.state), pose: 'stand', room: 'main', i: ANCHORS.door.i, j: ANCHORS.door.j, tag: 'fellow' }
   }
 }
 
@@ -299,18 +329,18 @@ function runActor(scene: LibraryScene, r: SceneRun, index: number, input: Adapte
     const pose = poseForFamily(family)
     if (pose === 'shelf' || pose === 'shelve') {
       const place = shelfPlace(scene, null)
-      return { ...base, name: 'visiting researcher', caption: `researcher · ${POSE_CAPTION[pose]}`, pose, room: place.room, i: place.tile.i, j: place.tile.j, book: '#2f62c9' }
+      return { ...base, name: 'visiting researcher', caption: caption('researcher', POSE_CAPTION[pose]), pose, room: place.room, i: place.tile.i, j: place.tile.j, book: '#2f62c9' }
     }
     const desk = ANCHORS.desks[(3 - index + ANCHORS.desks.length) % ANCHORS.desks.length]!
-    return { ...base, name: 'visiting researcher', caption: `researcher · ${POSE_CAPTION[pose]}`, pose, i: desk.i, j: desk.j }
+    return { ...base, name: 'visiting researcher', caption: caption('researcher', POSE_CAPTION[pose]), pose, i: desk.i, j: desk.j }
   }
-  if (role === 'reader') return { ...base, name: 'reader', caption: `reader · ${what}`, pose: 'sit', i: ANCHORS.readingTable.i, j: ANCHORS.readingTable.j }
+  if (role === 'reader') return { ...base, name: 'reader', caption: caption('reader', what), pose: 'sit', i: ANCHORS.readingTable.i, j: ANCHORS.readingTable.j }
   if (role === 'inspector') {
     const place = shelfPlace(scene, null)
-    return { ...base, name: 'inspector', caption: `inspector · ${what}`, pose: 'clipboard', room: place.room, i: place.tile.i + 0.9, j: place.tile.j + 0.2 }
+    return { ...base, name: 'inspector', caption: caption('inspector', what), pose: 'clipboard', room: place.room, i: place.tile.i + 0.9, j: place.tile.j + 0.2 }
   }
-  if (r.kind === 'hot-cache') return { ...base, name: 'caretaker', caption: `caretaker · ${what}`, pose: 'stand', i: ANCHORS.noticeBoard.i, j: ANCHORS.noticeBoard.j }
-  return { ...base, name: 'caretaker', caption: `caretaker · ${what}`, pose: 'cart', i: ANCHORS.intake.i - 0.6, j: ANCHORS.intake.j + 0.5 }
+  if (r.kind === 'hot-cache') return { ...base, name: 'caretaker', caption: caption('caretaker', what), pose: 'stand', i: ANCHORS.noticeBoard.i, j: ANCHORS.noticeBoard.j }
+  return { ...base, name: 'caretaker', caption: caption('caretaker', what), pose: 'cart', i: ANCHORS.intake.i - 0.6, j: ANCHORS.intake.j + 0.5 }
 }
 
 function jobActor(scene: LibraryScene, job: SceneJob, index: number, queued: number, input: AdapterInput): Actor | null {
@@ -318,30 +348,29 @@ function jobActor(scene: LibraryScene, job: SceneJob, index: number, queued: num
   if (job.status === 'queued') {
     if (queued >= ANCHORS.frontDeskQueue.length) return null
     const q = ANCHORS.frontDeskQueue[queued]!
-    return { ...base, id: `parcel:${job.id}`, name: 'parcel', caption: `${job.name} · queued`, pose: 'wait', i: q.i, j: q.j }
+    return { ...base, id: `parcel:${job.id}`, name: 'parcel', caption: caption(job.name, 'queued'), pose: 'wait', i: q.i, j: q.j }
   }
-  if (job.status === 'preprocessing') return { ...base, caption: `clerk · unpacking ${job.name}`, pose: 'carry', i: ANCHORS.frontDesk.i + 0.6, j: ANCHORS.frontDesk.j + 0.6 + index * 0.5 }
+  if (job.status === 'preprocessing') return { ...base, caption: caption('clerk', 'unpacking'), pose: 'carry', i: ANCHORS.frontDesk.i + 0.6, j: ANCHORS.frontDesk.j + 0.6 + index * 0.5 }
   const family = steadyFamily(input.lines(job.id), input.now)
   if (family === 'write') {
     const desk = ANCHORS.desks[(2 - index + ANCHORS.desks.length) % ANCHORS.desks.length]!
-    return { ...base, caption: `clerk · writing pages for ${job.name}`, pose: 'desk', i: desk.i, j: desk.j }
+    return { ...base, caption: caption('clerk', 'writing pages'), pose: 'desk', i: desk.i, j: desk.j }
   }
   if (family === 'commit') {
     const place = shelfPlace(scene, null)
-    return { ...base, caption: `clerk · shelving ${job.name}`, pose: 'shelve', room: place.room, i: place.tile.i, j: place.tile.j, book: '#b8892c' }
+    return { ...base, caption: caption('clerk', 'shelving'), pose: 'shelve', room: place.room, i: place.tile.i, j: place.tile.j, book: '#b8892c' }
   }
-  return { ...base, caption: `clerk · reading ${job.name}`, pose: 'shelf', i: ANCHORS.intake.i + 0.4, j: ANCHORS.intake.j + 0.9 + index * 0.5, book: '#b8892c' }
+  return { ...base, caption: caption('clerk', 'reading'), pose: 'shelf', i: ANCHORS.intake.i + 0.4, j: ANCHORS.intake.j + 0.9 + index * 0.5, book: '#b8892c' }
 }
 
 function exitActor(scene: LibraryScene, e: Exit): Actor | null {
-  if (e.at + EXIT_MS < Date.now() && false) return null
   const base = { id: `exit:${e.kind}:${e.id}`, exiting: true, color: e.role === 'fellow' ? fellowColor(e.agentId ?? e.id) : VISITOR, tag: e.ok ? ('visitor' as const) : ('warn' as const), room: 'main' }
   if (!e.ok) {
     const desk = ANCHORS.desks[0]!
-    return { ...base, role: e.role, name: e.name, caption: `${e.name} · failed, book left on the desk`, pose: 'wait', i: desk.i, j: desk.j }
+    return { ...base, role: e.role, name: e.name, caption: caption(e.name, 'failed'), pose: 'wait', i: desk.i, j: desk.j }
   }
   const place = shelfPlace(scene, null)
-  return { ...base, role: e.role, name: e.name, caption: `${e.name} · done, shelving`, pose: 'shelve', room: place.room, i: place.tile.i + 0.5, j: place.tile.j, book: '#2f62c9' }
+  return { ...base, role: e.role, name: e.name, caption: caption(e.name, 'done'), pose: 'shelve', room: place.room, i: place.tile.i + 0.5, j: place.tile.j, book: '#2f62c9' }
 }
 
 /** Every figure on the floor right now, every room included. */

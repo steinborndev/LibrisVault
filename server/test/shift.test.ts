@@ -31,6 +31,7 @@ import type { AgentRunResult, RunAgentOptions } from '../src/pipeline/agent-runn
 import type { Candidate } from '../src/pipeline/candidates.js'
 import type { ReadingEntry } from '../src/pipeline/reading-list.js'
 import { MemoryUsageSampleStore } from '../src/db/usage-samples.js'
+import type { PlanSettings } from '../src/pipeline/usage-monitor.js'
 import { UsageMonitor } from '../src/pipeline/usage-monitor.js'
 
 const INTENT = 'How well can ground-based transit photometry constrain exoplanet atmospheres, and where do the systematics come from?'
@@ -90,7 +91,7 @@ interface Harness {
   usage?: UsageMonitor
   /** What the fake runner reports as the plan windows before and after each run. */
   windows: { before: [number, number]; after: [number, number] }
-  planSettings: { researchShareWeekPct: number; researchShare5hPct: number; reserve5hPct: number; reserveWeekPct: number; planWeekUsd: number; plan5hUsd: number }
+  planSettings: PlanSettings
 }
 
 const sdkUsage = (five: number, week: number): Record<string, unknown> => ({
@@ -115,7 +116,7 @@ function makeHarness(withUsage = false): Harness {
     clock: { now: at(7, 1, 30) },
     sleeps: [],
     windows: { before: [10, 20], after: [12, 21] },
-    planSettings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80 },
+    planSettings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '' },
   }
   h.planAnswer = () => TWO_PROPOSALS
   h.committedPages = () => ['wiki/questions/Research: Q.md', 'wiki/concepts/New Concept.md']
