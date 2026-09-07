@@ -1087,16 +1087,28 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 
 - **Repo.** Private fork of LibrisVault with a `research-agents` branch, rebased on the
   public `main` regularly, everything behind `AGENTS_ENABLED`, merged by PR when ready.
-- **Second instance** beside the live service: `PORT=8421`, `XDG_DATA_HOME` pointing to
-  its own data directory (the DB path derives from it), `VAULT_ROOT` on a separate vault
-  clone (the synthetic demo vault from `scripts/demo-vault.mjs`, about 850 pages, is the
-  default), `WATCH_FOLDER` on an empty directory, `TELEGRAM_BOT_TOKEN` empty (Telegram
-  allows one poller per token), the shared credential file.
+- **Second instance** beside the live service (`scripts/dev-instance.sh`): `PORT=8421`, an
+  explicit `DB_PATH` under its own data directory, `WATCH_FOLDER` on an empty directory,
+  `TELEGRAM_BOT_TOKEN` empty (Telegram allows one poller per token), the shared credential
+  file. `DB_PATH` is explicit and the script refuses the live service's default path,
+  because falling back to it once put two Fellows and their runs in the live database,
+  where nothing reads them.
+- **The vault is the real one since 2026-09-07.** The five end-to-end tests were run against
+  the synthetic demo vault from `scripts/demo-vault.mjs`; they found what they were meant to
+  find, and the vault was archived afterwards (outside the repo - it is vault content, and
+  the repo is public). The live service writes the same vault, and the two hold separate
+  in-process commit mutexes, so they cannot serialise against each other: only one of them
+  writes at a time, which in practice means stopping the live service before a Fellow run
+  or an ingest here.
+- **Before the switch**: a full copy of the vault beside it, and the tag
+  `pre-curious-<date>` on the vault's own history, so the state the Fellows started from is
+  addressable. The vault carries `.vault-meta/auto-commit.disabled`, so the service owns
+  every commit (hard rule 1).
 - **Tests.** Planner, scheduler, quota gate, scope scoring, expand validation and recap
-  assembly get unit tests with mocked runs, as the pipeline does today. Real runs only
-  against the demo vault with `maxBudgetUsd` set. Web: scene adapter and card derive from
-  fixtures (`web/src/lib` pure functions, as `activity.ts` and `researchProgress.ts`).
-- **Screenshots** from the demo vault only.
+  assembly get unit tests with mocked runs, as the pipeline does today. Real runs carry
+  `maxBudgetUsd`. Web: scene adapter and card derive from fixtures (`web/src/lib` pure
+  functions, as `activity.ts` and `researchProgress.ts`).
+- **Screenshots** never carry vault content into the repo.
 
 ---
 
