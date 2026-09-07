@@ -168,6 +168,17 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
     registerUsageRoute(app, ctx.usage, () => (ctx.settings ? ctx.settings.effective(ctx.config).researchModelDefault : 'sonnet-5'), {
       enabled: () => ctx.settings?.effective(ctx.config).fiveHourOverrideEnabled ?? false,
       runInFlight: () => ctx.fellows?.anyRunInFlight() ?? false,
+      /*
+       * A shift round, right away and outside the night window - the same 'manual' trigger the
+       * "run the shift now" button uses. Detached on purpose: the round takes minutes, the
+       * caller gets its answer at once, and the round's own gate stops it when the released
+       * share is used up or the release ends.
+       */
+      workNow: () => {
+        void ctx.shift?.run('manual').catch((err: unknown) => {
+          app.log.warn(`[usage] the round after a 5-hour release failed: ${(err as Error).message}`)
+        })
+      },
     })
   if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue)
 

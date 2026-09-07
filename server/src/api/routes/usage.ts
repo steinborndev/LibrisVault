@@ -25,7 +25,16 @@ export function registerUsageRoute(
   app: FastifyInstance,
   usage: UsageMonitor,
   defaultModel: () => AgentModel,
-  guards: { readonly enabled: () => boolean; readonly runInFlight: () => boolean },
+  guards: {
+    readonly enabled: () => boolean
+    readonly runInFlight: () => boolean
+    /**
+     * Starts a round of work now. A release ends with its five-hour window, and the night
+     * shift runs at 01:00 - so without this a release granted at any other hour expires
+     * unused, which made the whole control decorative.
+     */
+    readonly workNow?: () => void
+  },
 ): void {
   app.get('/api/v1/usage/plan', async (_req, reply) => {
     await usage.refresh()
@@ -43,6 +52,8 @@ export function registerUsageRoute(
     }
     const out = usage.grantFiveHour()
     if (!out.ok) return reply.code(409).send({ error: out.reason, code: 'kind' })
+    // Answer first, then work: a shift round takes minutes and the caller wants its button back.
+    guards.workNow?.()
     return reply.send({ override: out.override })
   })
 

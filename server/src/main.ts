@@ -209,6 +209,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   const fellows =
     config.agentsEnabled === true && !config.demoMode
       ? new FellowService({
+          // A live five-hour release suspends the runs-per-day quota (SPEC section 8.6).
+          quotaSuspended: () => usage?.overrideNow() != null,
           agents: new SqliteAgentStore(db),
           runs: agentRuns,
           proposals: new SqliteProposalStore(db),

@@ -260,6 +260,12 @@ export interface FellowServiceOptions {
   /** Prices a run in plan points once calibrated (section 6.3); null while uncalibrated. */
   readonly estimatePct?: (costUsd: number, model: AgentModel) => { fiveHour: number | null; sevenDay: number | null }
   readonly settings?: () => FellowSettings
+  /**
+   * Whether the runs-per-day quota is suspended right now - a live five-hour release (SPEC
+   * section 8.6). The quota limits the autopilot, not the user, and a release is exactly the
+   * user saying they want the autopilot to use what is there.
+   */
+  readonly quotaSuspended?: () => boolean
   /** The value signal (section 9.6); absent = the card shows no opens. */
   readonly values?: ValueEventStore
   /** Handoffs between Fellows (section 6.6, A3); absent = no routing. */
@@ -296,6 +302,8 @@ export class FellowService {
   private readonly vaultRoot: string | undefined
   /** Where the candidate machinery reads from; the deepen ranking needs the graph too. */
   private readonly sources: CandidateSources | undefined
+  /** True while a five-hour release is live; the runs-per-day quota then does not apply. */
+  private readonly quotaSuspended: () => boolean
   private readonly log: (level: 'info' | 'warn' | 'error', message: string) => void
   /** One run in flight per Fellow: agent id to tracked run id. */
   private readonly inFlight = new Map<string, string>()
@@ -329,6 +337,7 @@ export class FellowService {
         return reg ? reg.domains.filter((d) => d.key !== 'meta').map((d) => ({ key: d.key, description: d.description })) : []
       })
     this.log = opts.log ?? ((): void => {})
+    this.quotaSuspended = opts.quotaSuspended ?? ((): boolean => false)
     const sources = opts.candidateSources
     this.sources = sources
     this.candidatesFn =
@@ -584,7 +593,12 @@ export class FellowService {
     if (this.inFlight.has(agent.id)) {
       return { status: 409, code: 'in-flight', error: `${agent.name} already has a run in flight` }
     }
-    if (kind !== 'plan' && opts.manual !== true) {
+    /*
+     * A live release suspends the quota for as long as it lasts. It is re-read on every start,
+     * so the moment the release ends or is withdrawn the next run is refused again - which is
+     * also what stops a shift round that is still walking its Fellows.
+     */
+    if (kind !== 'plan' && opts.manual !== true && !this.quotaSuspended()) {
       const used = this.runsToday(agent.id)
       if (used >= agent.quotaRunsPerDay) {
         return { status: 409, code: 'quota', error: `${agent.name} used today's quota (${used} of ${agent.quotaRunsPerDay} runs)` }

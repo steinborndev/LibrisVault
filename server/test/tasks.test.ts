@@ -149,3 +149,28 @@ describe('which pages a deepen task builds out', () => {
     expect(rankForDeepening(null, new Set(['biomedicine']), 'anything', 4)).toEqual([])
   })
 })
+
+/**
+ * The runs-per-day quota against a live five-hour release (SPEC section 8.6). The quota limits
+ * the autopilot, not the user, and a release is the user saying the autopilot should use what
+ * is there - so it lifts for as long as the release lasts and not a moment longer.
+ */
+describe('the quota under a release', () => {
+  const agent = { name: 'Ada', quotaRunsPerDay: 1 }
+  const refusal = (used: number, suspended: boolean, manual: boolean): string | null => {
+    // The shape of the check in gateFor, isolated: kind is a step, so the quota applies.
+    if (!manual && !suspended && used >= agent.quotaRunsPerDay) return 'quota'
+    return null
+  }
+
+  it('refuses past the quota, unless the run is manual or a release is live', () => {
+    expect(refusal(1, false, false)).toBe('quota')
+    expect(refusal(1, false, true)).toBeNull()
+    expect(refusal(1, true, false)).toBeNull()
+  })
+
+  it('binds again the moment the release ends', () => {
+    expect(refusal(4, true, false)).toBeNull()
+    expect(refusal(4, false, false)).toBe('quota')
+  })
+})

@@ -133,6 +133,18 @@ describe('the five-hour release', () => {
     })
   })
 
+  it('suspends the runs-per-day quota while it lasts, and hands it back when it ends', () => {
+    // The gate is the Fellow service's, not the monitor's, so this is the predicate it reads.
+    const suspended = (): boolean => monitor.overrideNow() !== null
+    expect(suspended()).toBe(false)
+    monitor.grantFiveHour()
+    expect(suspended()).toBe(true)
+    monitor.revokeFiveHour()
+    // Withdrawn: the very next start is bound by the quota again, which is what stops a round
+    // that is still walking its Fellows.
+    expect(suspended()).toBe(false)
+  })
+
   it('can be withdrawn on the spot', () => {
     monitor.grantFiveHour()
     expect(gate()).toBeNull()

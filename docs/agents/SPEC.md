@@ -540,6 +540,22 @@ disagreeing with the one that actually decides it. And a refusal is drawn as an 
 than a fault - "a run is in flight" is the service working, and in red beside the run feedback
 it read as a failed run.
 
+**A release also lets the work happen** (2026-09-07). Lifting the plan bounds alone changed
+nothing: three Fellow-level bounds still held - the night shift runs only inside its window, the
+runs-per-day quota refuses, and a Fellow with no proposals has nothing to execute. A release
+granted at any hour but one therefore expired unused, which made the control decorative.
+
+- **The runs-per-day quota is suspended while a release is live.** The quota limits the
+  autopilot, not the user, and a release is the user saying the autopilot should use what is
+  there. The real bound stays the released share.
+- **Granting starts a round at once**, the same `manual` trigger the "run the shift now" button
+  uses, detached so the caller gets its answer immediately.
+- **It runs until the share stops it**, not for a fixed number of runs: that is what was
+  released, and the corner shows it climbing while it happens.
+- **Ending is not cancelling.** A run in flight finishes and commits; only further starts are
+  refused, because the gate re-reads the release on every one. An aborted agent run leaves
+  half-written pages - the state one interrupted ingest already cost a recovery commit.
+
 The button sits in the Library's plan corner, next to the age of the measurement - which is now
 always shown, "0m old" included, so the button never moves. A first click turns it into
 `yes, to 90%` / `no`, the same two-step the Fellow card's quota override uses. While a grant is
