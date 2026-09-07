@@ -356,6 +356,18 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
 | `plan` | query | nothing in the vault | 5 minutes, 1 USD | about 0.4 USD |
 | `recap` | query | the recap page (through the service, not the agent) | 3 minutes, 1 USD | about 0.3 USD |
 
+**The hot cache is a cache, in every run** (as built, 2026-09-07). `wiki/hot.md` is loaded at
+the start of every run, and the wiki skill sizes it at about 500 words, rewritten each time.
+The autoresearch skill's filing step only says "update wiki/hot.md with the research summary",
+though, and a Fellow following that literally adds to it on every run: one vault's copy grew
+from 401 to 826 words over eight runs, with no refresh in between, because the refresh run is
+the only one that ever said "rewrite from scratch" and it had never been started. So the
+research prompt states the rule itself (rewrite, keep it under the budget, never append below
+an earlier run), and a run whose post-run validation reports `hot-cache-size` queues one
+refresh behind itself - once a day at most, and never from a refresh. The maintenance card
+dates the refresh from the last `hot-cache` run rather than from the file's mtime, which every
+research run touches, and shows the cache's length beside its budget.
+
 **Step sizes.** `small` = `research-step`; `standard` = `research`; `deep` = `research`
 with `effort` raised and timeout 45 minutes. The Fellow's `step` is the maximum the
 planner may propose; the first run on the intent is `standard`. The tightened caps are

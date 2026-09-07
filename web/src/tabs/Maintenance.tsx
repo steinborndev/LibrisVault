@@ -217,15 +217,34 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
             </button>
           </div>
           <div className="tool-meta">
-            {/* "Anzeige des letzten Refresh-Zeitpunkts" (SPEC.md §6.4) - the file's mtime. */}
-            {stats.data?.hotCacheUpdatedAt ? (
-              <span title={new Date(stats.data.hotCacheUpdatedAt).toLocaleString('en-US')}>
-                Last refresh {timeAgo(stats.data.hotCacheUpdatedAt)}
-              </span>
-            ) : (
-              <span>Never refreshed.</span>
+            {/*
+             * Two different facts, told apart since 2026-09-07: the file's mtime says when the
+             * cache was last WRITTEN, and every research run writes it, so dating the refresh
+             * from the mtime made a cache that had never been refreshed look fresh. The
+             * refresh is dated from the last `hot-cache` run instead.
+             */}
+            {(() => {
+              const refresh = maintStatus.data?.lastRuns.get('hot-cache')
+              return refresh ? (
+                <span title={new Date(refresh.finishedAt).toLocaleString('en-US')}>
+                  Last refresh {timeAgo(refresh.finishedAt)}
+                  {refresh.ok ? '' : ' (failed)'}
+                </span>
+              ) : (
+                <span>Never refreshed.</span>
+              )
+            })()}
+            {stats.data?.hotCacheUpdatedAt && <span> · last written {timeAgo(stats.data.hotCacheUpdatedAt)}</span>}
+            {stats.data?.hotCacheWords != null && (
+              <span> · {stats.data.hotCacheWords} words, budget {stats.data.hotCacheBudget}</span>
             )}
           </div>
+          {stats.data?.hotCacheWords != null && stats.data.hotCacheWords > stats.data.hotCacheLimit && (
+            <div className="toast warn">
+              The cache is {stats.data.hotCacheWords} words against a budget of {stats.data.hotCacheBudget}. It is read at
+              the start of every run, so refreshing it makes each of them cheaper.
+            </div>
+          )}
           {hot.running && <JobLog jobId="maintenance:hot-cache" seed={false} />}
           {hot.error && <div className="toast err">{hot.error}</div>}
           {hot.result && <RunResult result={hot.result} vaultName={vaultName} label="Refreshed" />}

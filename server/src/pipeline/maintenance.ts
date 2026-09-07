@@ -373,6 +373,8 @@ export class MaintenanceRunner {
   private readonly indexMutex = new Mutex()
   /** In-memory registry of async runs, keyed by run id (insertion-ordered for eviction). */
   private readonly runs = new Map<string, MaintenanceRun>()
+  /** The day an oversized hot cache last queued its own refresh (see `refreshOversizedHotCache`). */
+  private autoHotCacheDate: string | null = null
   /**
    * One-shot per-run completion callbacks for out-of-band notifiers (the telegram bot, so a
    * research run it started reports back to the chat). The dashboard polls `getRun` instead and
@@ -612,7 +614,15 @@ export class MaintenanceRunner {
       'Before starting, read skills/autoresearch/references/program.md to load the research ' +
       'constraints and objectives. Then run the research loop: search the web, fetch sources, ' +
       'synthesize, and file structured pages into the wiki. ' +
-      'Afterwards update wiki/index.md, wiki/log.md and wiki/hot.md. ' +
+      'Afterwards update wiki/index.md and wiki/log.md. ' +
+      // The autoresearch skill's filing step says "update wiki/hot.md with the research
+      // summary" - no limit, no rewrite. Followed literally it grows the cache a little on
+      // every run (measured: 401 to 826 words over eight runs), and the cache is read at the
+      // start of every session. The system prompt carries the same rule; a run follows the
+      // instruction in front of it, so it is spelled out here too.
+      `Then REWRITE wiki/hot.md from scratch: it is a cache, not a journal - keep it under ${HOT_CACHE_WORD_BUDGET} ` +
+      'words, carry over only what is still current, drop what this run superseded, and never append ' +
+      "this run's summary below what an earlier one left there. " +
       'Finally report how many pages you created and the key findings. ' +
       'Stay focused on the stated topic rather than broadening the scope.' +
       lens +
@@ -723,6 +733,24 @@ export class MaintenanceRunner {
         'of the latest pass only. Do not carry older passes over; they live in git history.',
       'ingest',
     )
+  }
+
+  /**
+   * The one finding this service answers by itself. Every other validation finding is advisory
+   * and waits for the user, but an oversized hot cache is read into the context of every run
+   * that follows, so leaving it costs tokens on each of them - and the fix is a cheap, bounded
+   * run whose whole job is to rewrite that one file. The refresh is queued behind the run that
+   * found it (the run mutex serializes them), never from a refresh itself, and at most once a
+   * day so a night of runs cannot turn one oversized cache into ten refreshes.
+   */
+  private refreshOversizedHotCache(kind: MaintenanceKind, log: (level: 'info' | 'warn', message: string) => void): void {
+    if (kind === 'hot-cache') return
+    const today = this.now().toISOString().slice(0, 10)
+    if (this.autoHotCacheDate === today) return
+    if ([...this.runs.values()].some((r) => r.kind === 'hot-cache' && r.status === 'running')) return
+    this.autoHotCacheDate = today
+    const queued = this.startHotCache()
+    log('warn', `maintenance: the hot cache is over its budget — queued a refresh (${queued.id})`)
   }
 
   /**
@@ -1278,6 +1306,7 @@ export class MaintenanceRunner {
           if (findings.length > 0) {
             log('warn', `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`)
           }
+          if (findings.some((f) => f.rule === 'hot-cache-size')) this.refreshOversizedHotCache(kind, log)
         } catch (err) {
           log('warn', `post-run validation crashed (ignored): ${(err as Error).message}`)
         }

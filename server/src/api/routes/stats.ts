@@ -17,6 +17,7 @@ import {
   growth,
   readHotCache,
   hotCacheUpdatedAt,
+  hotCacheWords,
   latestLintReport,
   type PageCounts,
   type RecentPage,
@@ -24,6 +25,7 @@ import {
   type GrowthPoint,
 } from '../../pipeline/vault-stats.js'
 import { unversionedWikiPages } from '../../pipeline/git.js'
+import { HOT_CACHE_WORD_BUDGET, HOT_CACHE_WORD_LIMIT } from '../../pipeline/validator.js'
 import { budgetStatus, budgetUnit, startOfToday } from '../../pipeline/budget.js'
 
 const CACHE_TTL_MS = 5_000
@@ -36,6 +38,10 @@ interface VaultDerived {
   readonly growth: GrowthPoint[]
   readonly hotCache: string | null
   readonly hotCacheUpdatedAt: string | null
+  /** Its length, the budget it is written to, and the size the check warns at (validator.ts). */
+  readonly hotCacheWords: number | null
+  readonly hotCacheBudget: number
+  readonly hotCacheLimit: number
   readonly lintReport: { path: string; date: string | null } | null
   readonly unversioned: UnversionedSummary
 }
@@ -78,6 +84,9 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
       growth: growthPoints,
       hotCache: readHotCache(config.vaultRoot),
       hotCacheUpdatedAt: hotCacheUpdatedAt(config.vaultRoot),
+      hotCacheWords: hotCacheWords(config.vaultRoot),
+      hotCacheBudget: HOT_CACHE_WORD_BUDGET,
+      hotCacheLimit: HOT_CACHE_WORD_LIMIT,
       lintReport: latestLintReport(config.vaultRoot),
       unversioned: {
         untracked: unversionedPages.untracked.length,
@@ -121,6 +130,9 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
       growth: derived.growth,
       hotCache: derived.hotCache,
       hotCacheUpdatedAt: derived.hotCacheUpdatedAt,
+      hotCacheWords: derived.hotCacheWords,
+      hotCacheBudget: derived.hotCacheBudget,
+      hotCacheLimit: derived.hotCacheLimit,
       /** Newest lint report page in the vault — the Maintenance tab's persistent link. */
       lintReport: derived.lintReport,
       /** Wiki pages on disk with no committed copy - F4's blind spot, made visible. */

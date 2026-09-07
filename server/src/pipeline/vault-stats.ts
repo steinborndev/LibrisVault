@@ -213,10 +213,20 @@ export function readHotCache(vaultRoot: string): string | null {
 }
 
 /**
- * When `wiki/hot.md` was last written, as an ISO string — the "Anzeige des letzten
- * Refresh-Zeitpunkts" the Wartung tab shows next to its refresh button (SPEC.md §6.4).
- * The file's mtime is the honest source: the hot cache is refreshed by agent runs writing it,
- * so nothing else would know when that last happened.
+ * How long `wiki/hot.md` is, in words, or null when there is none. The cache is loaded at the
+ * start of every run, so its size is a running cost; the budget it is measured against lives
+ * in validator.ts, and the Wartung card shows both.
+ */
+export function hotCacheWords(vaultRoot: string): number | null {
+  const text = readHotCache(vaultRoot)
+  if (text === null) return null
+  return text.split(/\s+/).filter(Boolean).length
+}
+
+/**
+ * When `wiki/hot.md` was last WRITTEN, as an ISO string. Not the same as when it was last
+ * refreshed: every research run writes the file too, which is why the Wartung card dates the
+ * refresh from the last `hot-cache` run and keeps this as "last written".
  */
 export function hotCacheUpdatedAt(vaultRoot: string): string | null {
   try {

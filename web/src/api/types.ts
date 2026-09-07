@@ -130,8 +130,12 @@ export interface Stats {
   commits: Commit[]
   growth: GrowthPoint[]
   hotCache: string | null
-  /** mtime of wiki/hot.md - the Wartung tab's "letzter Refresh". null if never written. */
+  /** mtime of wiki/hot.md: when it was last WRITTEN, by any run. null if never written. */
   hotCacheUpdatedAt: string | null
+  /** How long the cache is, the budget it is written to, and the size the check warns at. */
+  hotCacheWords: number | null
+  hotCacheBudget: number
+  hotCacheLimit: number
   /** Newest lint report page in the vault - the Maintenance tab's persistent link. */
   lintReport: { path: string; date: string | null } | null
   /** Wiki pages on disk with no committed copy - finding F4's blind spot, made visible. */
