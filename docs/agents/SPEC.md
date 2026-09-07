@@ -1148,6 +1148,17 @@ points into one dialog, and it is called **Deepen**.
 Not here: a Fellow whose standing work is deepening a set. That belongs with several tasks per
 Fellow, as one task kind among others.
 
+**The spawn form says what its two open fields are for** (2026-09-07). Reached from the Deepen
+dialog it is the first form a user meets, and neither field explained itself. `Intent` carries a
+footnote saying it is required and what it decides - what the planner proposes against, what a
+topic-less run falls back on, what the drift score measures - and that narrow beats broad. The
+name is only a handle, and it starts filled: `suggestFellowName` picks a common English first
+name on the domain's own letter (Ada works astronomy, Bruno biomedicine), so a roster of a dozen
+reads at a glance. It is a reading aid and nothing depends on it. Several Fellows may share a
+domain and several domains a letter, so the list holds eight names per letter, skips every name
+already taken (retired Fellows included - the endpoint refuses a duplicate slug whatever their
+state), and numbers the letter once they run out. A name the user has typed is never replaced.
+
 **A third entry point, from the shelf window** (2026-09-07): opening a shelf already chose the
 domain, so both of its views carry "Deepen this domain" in their filter band. The band became a
 three-part grid to hold it - filters, then the page count centred in what is left, then the

@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import type { PlanStatus, SpawnBody } from '../../api/types.ts'
 import { weeklyProjection } from '../../lib/plan.ts'
+import { suggestFellowName } from '../../lib/fellowNames.ts'
+import { Tip } from '../Tip.tsx'
 
 const MODELS: Array<{ key: string; label: string; factor: number }> = [
   { key: 'sonnet-5', label: 'Sonnet 5', factor: 1 },
@@ -20,7 +22,18 @@ const STEP_COST: Record<string, number> = { small: 2, standard: 6, deep: 6 }
 export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Partial<SpawnBody>; plan?: PlanStatus | undefined; onDone: (agentId: string) => void; onCancel: () => void }): React.ReactElement {
   const qc = useQueryClient()
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents })
   const [form, setForm] = useState<SpawnBody>({ name: '', intent: '', homeDomain: '', model: 'sonnet-5', step: 'standard', autonomy: 'veto', quotaRunsPerDay: 1, runFirstStep: true, ...prefill })
+  /*
+   * The name field starts filled, on the domain's own letter (Ada works astronomy). Retired
+   * Fellows count as taken: the spawn endpoint refuses a duplicate slug whatever their state.
+   * A name the USER typed is never overwritten - only a suggestion is replaced by the next
+   * one when the domain changes.
+   */
+  const takenNames = (agents.data?.fellows ?? []).map((f) => f.agent.name)
+  const suggested = suggestFellowName(form.homeDomain, takenNames)
+  const [typedName, setTypedName] = useState(prefill?.name !== undefined && prefill.name !== '')
+  const name = typedName ? form.name : suggested
   const spawn = useMutation({
     mutationFn: (body: SpawnBody) => api.spawnAgent(body),
     onSuccess: (res) => {
@@ -39,19 +52,35 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
       className="lib-spawn"
       onSubmit={(e) => {
         e.preventDefault()
-        if (form.name.trim() === '' || form.intent.trim() === '' || form.homeDomain === '') return
-        spawn.mutate({ ...form, name: form.name.trim(), intent: form.intent.trim() })
+        if (name.trim() === '' || form.intent.trim() === '' || form.homeDomain === '') return
+        spawn.mutate({ ...form, name: name.trim(), intent: form.intent.trim() })
       }}
     >
       <div className="gp-head">
         <span className="gp-eyebrow">Spawn a Fellow</span>
       </div>
       <label>
-        Name
-        <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ada" maxLength={40} required />
+        <span className="sp-lbl">
+          Name
+          <Tip text="Only a handle: what the recap, the notebook page and the figure in the room call this Fellow. The suggestion shares its first letter with the home domain, so a roster reads at a glance - change it to anything you like. Two Fellows cannot share a name." />
+        </span>
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => {
+            setTypedName(true)
+            setForm({ ...form, name: e.target.value })
+          }}
+          placeholder={suggested === '' ? 'Ada' : suggested}
+          maxLength={40}
+          required
+        />
       </label>
       <label>
-        Intent
+        <span className="sp-lbl">
+          Intent
+          <Tip text="Required, and the most consequential field on this form. One sentence naming the standing question this Fellow pursues: it is what the planner proposes work against every night, what a run falls back on when you start one without a topic, and what the drift score measures each result against. Narrow beats broad - a wide intent invites the Fellow to wander and makes the drift score meaningless." />
+        </span>
         <textarea className="input" rows={3} value={form.intent} onChange={(e) => setForm({ ...form, intent: e.target.value })} placeholder="The research question this Fellow keeps pursuing" required />
       </label>
       <label>

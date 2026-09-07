@@ -7098,6 +7098,8 @@ tr:focus-within .rowacts {
 
 .lib-spawn { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
 .lib-spawn label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text-dim); }
+/* A label that carries a footnote: the marker sits ON the baseline of the word, not under it. */
+.sp-lbl { display: inline-flex; align-items: center; gap: 5px; }
 .lib-spawn .input, .lib-spawn .select { width: 100%; }
 .lib-spawn textarea.input { height: auto; padding: 6px 10px; resize: vertical; }
 .lib-spawn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
