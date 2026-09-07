@@ -37,6 +37,7 @@ import { navigate } from '../lib/router.ts'
 import { buildActors, floorLine, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
 import { signText } from '../lib/library/room.ts'
+import { undecidedCount } from '../lib/recap.ts'
 import { roomToFollow } from '../lib/library/follow.ts'
 
 const CANVAS_W = 1128
@@ -78,6 +79,15 @@ export function LibraryScreen({
   const runsQ = useQuery({ queryKey: ['maintenance-runs'], queryFn: api.maintenanceRuns, staleTime: 5_000 })
   // The plan's research share for the now chip and the spawn projection (A5); the endpoint is cached server-side.
   const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
+  /**
+   * The decisions the newest recap is still waiting for, across every Fellow in it. The recap
+   * is the surface where they are made, so the button counts them and opens that board.
+   */
+  const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, staleTime: 30_000 })
+  const openDecisions = useMemo(() => {
+    const latest = recaps.data?.recaps[0]
+    return latest === undefined || latest.quiet ? 0 : undecidedCount(latest.model)
+  }, [recaps.data])
   // Focus is the resting state; a department and a Fellow card both live in the column, so a
   // deep link into either opens in full, the same as a click on the shelf or the figure does.
   const [mode, setMode] = useState<Mode>(shelfParam !== '' || agentParam !== '' ? 'full' : 'focus')
@@ -545,15 +555,26 @@ export function LibraryScreen({
             )}
             {/* Spawning belongs to the room, where the Fellows are. */}
             {shelf === null && board === null && (
-              <button
-                className="btn primary sm"
-                onClick={() => {
-                  setMode('full')
-                  setSpawnOpen(true)
-                }}
-              >
-                Spawn a Fellow
-              </button>
+              <>
+                <button
+                  className="btn primary sm"
+                  onClick={() => {
+                    setMode('full')
+                    setSpawnOpen(true)
+                  }}
+                >
+                  Spawn a Fellow
+                </button>
+                {/* What the Fellows are waiting on you for, counted across all of them. */}
+                <button
+                  className={`btn sm lib-decisions${openDecisions > 0 ? ' due' : ''}`}
+                  onClick={() => setBoard('recap')}
+                  title={openDecisions > 0 ? `${openDecisions} proposal(s) waiting for a decision` : 'Nothing is waiting for a decision'}
+                >
+                  Decisions
+                  <span className="n">{openDecisions}</span>
+                </button>
+              </>
             )}
           </div>
         </div>

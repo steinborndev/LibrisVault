@@ -934,10 +934,15 @@ does. Now:
 - **The column** puts a rule and real space between wings, names its section "In this
   department" (the department is already named in the headline), drops "Recent work", and
   makes each Fellow a button that opens its card.
-- **In the room the column holds two lists**, departments first and Fellows under them. The
+- **In the room the column holds two lists**, departments first and Fellows under them. Each
+  wing's heading keeps real space above it: the groups sit in their own wrappers, so a
+  `:first-child` reset had been flattening the gap in front of every heading but the first. The
   room list is gone - it repeated the strip in the headline - and so is the second spawn
   button, which the headline already carries. Renaming a wing stays on its banner, and
   deleting an empty one moved there too; reordering wings has no home in the UI any more.
+- **The headline carries a `Decisions` count** beside the spawn button: the proposals the
+  newest recap is still waiting on, summed over every Fellow in it, quiet at zero and in the
+  warning colour above it. A click opens the daily recap board, which is where they are made.
 - **A picked filter chip looks picked.** `aria-pressed` was set from the first version but
   nothing was styled off it, so the band gave no sign of which type was filtering.
 
