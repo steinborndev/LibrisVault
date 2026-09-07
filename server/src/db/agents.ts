@@ -35,10 +35,13 @@ export const AGENT_STATES = ['proposed', 'active', 'waiting', 'sleeping', 'pause
 export type AgentState = (typeof AGENT_STATES)[number]
 /**
  * Why a Fellow sleeps (docs/tasks/TASKS-A1.md D6). The night shift reads it to decide
- * whether to plan the Fellow again: `idle`, `quota`, `budget` and `no-candidates` are
- * planned every night; `covered` and `stalled` only on a wake trigger.
+ * whether to plan the Fellow again: `idle`, `quota`, `budget`, `no-candidates` and
+ * `plan-failed` are planned every night; `covered` and `stalled` only on a wake trigger.
+ * `plan` means the plan window refused the run, `plan-failed` that the planner answered
+ * twice in a shape the service could not use - a fault, not a quiet night, so the screen
+ * marks it.
  */
-export const AGENT_SLEEP_CODES = ['idle', 'quota', 'budget', 'plan', 'no-candidates', 'covered', 'stalled'] as const
+export const AGENT_SLEEP_CODES = ['idle', 'quota', 'budget', 'plan', 'plan-failed', 'no-candidates', 'covered', 'stalled'] as const
 export type AgentSleepCode = (typeof AGENT_SLEEP_CODES)[number]
 
 export interface AgentRecord {

@@ -20,6 +20,7 @@ import { computeCandidates, parseOpenQuestions, type Candidate } from '../src/pi
 import {
   buildProposals,
   estimateCostUsd,
+  FIELD_CAPS,
   isDrift,
   kindsForStep,
   parsePlannerAnswer,
@@ -257,6 +258,65 @@ describe('planner prompt, schema and answer', () => {
     expect(parsePlannerAnswer({ proposals: [], nothing_worth_a_run: true, intent_covered: false, reason: 'all answered' })).toMatchObject({ nothingWorthARun: true, reason: 'all answered' })
     expect(parsePlannerAnswer('nope')).toBeUndefined()
     expect(parsePlannerAnswer({ proposals: [{ candidate: 'C1', kind: 'lint', topic: 'x' }] })).toBeUndefined()
+  })
+
+  it('cuts a field over its cap instead of throwing the plan away', () => {
+    // What actually happened once: one topic of 592 characters, and the whole night's plan -
+    // three proposals and eight handoffs - was discarded as "not the shape the schema asked for".
+    const long = `Determine ${'x'.repeat(FIELD_CAPS.topic)} in detail`
+    const answer = parsePlannerAnswer({
+      proposals: [{ candidate: 'C1', kind: 'research-step', topic: long, rationale: 'r'.repeat(FIELD_CAPS.rationale + 500), lens: 'broad', pages: [] }],
+      handoffs: [{ candidate: 'C2', domain: 'climate-science', reason: 'e'.repeat(FIELD_CAPS.handoffReason + 100) }],
+      nothing_worth_a_run: false,
+      intent_covered: false,
+      reason: 'w'.repeat(FIELD_CAPS.reason + 100),
+    })!
+    expect(answer.proposals).toHaveLength(1)
+    expect(answer.proposals[0]!.topic).toHaveLength(FIELD_CAPS.topic)
+    expect(answer.proposals[0]!.rationale).toHaveLength(FIELD_CAPS.rationale)
+    expect(answer.handoffs[0]!.reason).toHaveLength(FIELD_CAPS.handoffReason)
+    expect(answer.reason).toHaveLength(FIELD_CAPS.reason)
+    expect(answer.dropped).toEqual([])
+  })
+
+  it('drops the one entry it cannot use and keeps the rest of the plan', () => {
+    const answer = parsePlannerAnswer({
+      proposals: [
+        { candidate: 'C1', kind: 'research-step', topic: 'A topic that is fine', rationale: 'r' },
+        { candidate: 'C2', kind: 'lint', topic: 'Not a research kind', rationale: 'r' },
+        { candidate: 'C3', kind: 'research-step', topic: 'no', rationale: 'too short a topic' },
+        { candidate: 'C4', kind: 'research-step', topic: 'Another good one', rationale: 'r' },
+      ],
+      handoffs: [
+        { candidate: 'C5', domain: 'astronomy', reason: 'other domain' },
+        { candidate: 'C6', domain: '', reason: 'no domain at all' },
+      ],
+      nothing_worth_a_run: false,
+      intent_covered: false,
+      reason: 'mixed',
+    })!
+    expect(answer.proposals.map((p) => p.candidate)).toEqual(['C1', 'C4'])
+    expect(answer.handoffs.map((h) => h.candidate)).toEqual(['C5'])
+    expect(answer.dropped).toHaveLength(3)
+    expect(answer.dropped.join(' ')).toContain('proposal 2 dropped')
+    expect(answer.dropped.join(' ')).toContain('topic too short')
+    expect(answer.dropped.join(' ')).toContain('handoff 2 dropped')
+  })
+
+  it('states the field limits in both the schema and the prompt, so the model can meet them', () => {
+    const schema = plannerSchema({ kinds: ['research-step'], candidateIds: ['C1'], domainKeys: ['astronomy'] }) as {
+      properties: Record<string, { maxItems?: number; items?: { properties: Record<string, Record<string, unknown>> } }>
+    }
+    const item = schema.properties['proposals']!.items!.properties
+    expect(schema.properties['proposals']!.maxItems).toBe(3)
+    expect(item['topic']).toMatchObject({ maxLength: FIELD_CAPS.topic, minLength: 3 })
+    expect(item['rationale']).toMatchObject({ maxLength: FIELD_CAPS.rationale })
+    expect(item['pages']).toMatchObject({ maxItems: FIELD_CAPS.pages })
+    const prompt = renderPlannerPrompt({ agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    expect(prompt).toContain(`at most ${FIELD_CAPS.topic} characters`)
+    expect(prompt).not.toContain('NOTE:')
+    const again = renderPlannerPrompt({ agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], retryNote: 'its answer did not match the schema' })
+    expect(again).toContain('NOTE: its answer did not match the schema')
   })
 
   it('turns an answer into ranked proposals with provenance, cost and score, dropping what it must', () => {

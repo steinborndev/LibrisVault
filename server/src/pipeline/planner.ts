@@ -31,6 +31,22 @@ export const DRIFT_THRESHOLD = 0.2
 
 /** How many proposals a planning run may leave. */
 export const MAX_PROPOSALS = 3
+
+/**
+ * How long each field of the answer may be. One place, because all three layers have to
+ * agree: the JSON schema binds the model, the prompt says it in words, and the parser
+ * trims to it. They did not agree once - the schema said nothing about length while the
+ * parser rejected a topic over 500 characters - and a single long topic threw away a whole
+ * night's plan, proposals, handoffs and all.
+ */
+export const FIELD_CAPS = {
+  topic: 500,
+  rationale: 2000,
+  reason: 2000,
+  handoffReason: 1000,
+  domain: 64,
+  pages: 20,
+} as const
 /** How many existing pages an expand proposal may list (its own pages come on top, D1). */
 export const EXPAND_PAGE_CAP = 4
 
@@ -98,6 +114,8 @@ export interface PlannerInput {
   readonly kinds: readonly ProposalKind[]
   /** The domain registry, for routing (A3); empty when the vault has none. */
   readonly domains?: readonly DomainHint[]
+  /** Set on the second attempt of a cycle: what went wrong with the first answer. */
+  readonly retryNote?: string
 }
 
 const KIND_HELP: Readonly<Record<ProposalKind, string>> = {
@@ -134,16 +152,20 @@ export function renderPlannerPrompt(input: PlannerInput): string {
     '\nRead the candidates\' source pages with your read tools when you need to judge them; you have no web access and ' +
     'must not write anything. Then answer in the required structured format: at most ' +
     `${MAX_PROPOSALS} proposals, best first, each with the candidate id, the kind, a precise topic sentence a ` +
-    'research run can act on, one paragraph of rationale against the intent, and for research-expand the vault-relative ' +
-    'paths of the existing pages to deepen in `pages` (leave `pages` empty for the other kinds). Merge candidates that ' +
+    `research run can act on (at most ${FIELD_CAPS.topic} characters - one sentence, not a paragraph), one paragraph of ` +
+    `rationale against the intent (at most ${FIELD_CAPS.rationale} characters), and for research-expand the vault-relative ` +
+    `paths of at most ${FIELD_CAPS.pages} existing pages to deepen in \`pages\` (leave \`pages\` empty for the other kinds). ` +
+    'Merge candidates that ' +
     'are the same question. Skip candidates the wiki already answers or that fall outside the intent. ' +
     (input.domains !== undefined && input.domains.length > 0
       ? 'A candidate that is a real question but belongs to ANOTHER domain of the library is a handoff, not a proposal: ' +
         'list it under `handoffs` with its candidate id, the registry key of that domain and a short reason, so the ' +
-        "Fellow of that domain gets it (or the user is offered to spawn one). Do not hand off the Fellow's own questions. "
+        `Fellow of that domain gets it (or the user is offered to spawn one). Keep the reason under ${FIELD_CAPS.handoffReason} ` +
+        "characters. Do not hand off the Fellow's own questions. "
       : '') +
     'If nothing is worth a run, return no proposals, set nothing_worth_a_run and say why; set intent_covered only when ' +
-    'the intent itself is answered as far as the library can take it.'
+    `the intent itself is answered as far as the library can take it. Keep \`reason\` under ${FIELD_CAPS.reason} characters.` +
+    (input.retryNote !== undefined ? `\n\nNOTE: ${input.retryNote}` : '')
   )
 }
 
@@ -155,15 +177,16 @@ export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; 
     properties: {
       proposals: {
         type: 'array',
+        maxItems: MAX_PROPOSALS,
         items: {
           type: 'object',
           properties: {
             candidate: { type: 'string', enum: [...input.candidateIds] },
             kind: { type: 'string', enum: [...input.kinds] },
-            topic: { type: 'string' },
-            rationale: { type: 'string' },
+            topic: { type: 'string', minLength: 3, maxLength: FIELD_CAPS.topic },
+            rationale: { type: 'string', maxLength: FIELD_CAPS.rationale },
             lens: { type: 'string', enum: RESEARCH_PROFILES.map((p) => p.key) },
-            pages: { type: 'array', items: { type: 'string' } },
+            pages: { type: 'array', items: { type: 'string' }, maxItems: FIELD_CAPS.pages },
           },
           required: ['candidate', 'kind', 'topic', 'rationale', 'lens', 'pages'],
           additionalProperties: false,
@@ -175,8 +198,8 @@ export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; 
           type: 'object',
           properties: {
             candidate: { type: 'string', enum: [...input.candidateIds] },
-            domain: domainKeys.length > 0 ? { type: 'string', enum: [...domainKeys] } : { type: 'string' },
-            reason: { type: 'string' },
+            domain: domainKeys.length > 0 ? { type: 'string', enum: [...domainKeys] } : { type: 'string', maxLength: FIELD_CAPS.domain },
+            reason: { type: 'string', maxLength: FIELD_CAPS.handoffReason },
           },
           required: ['candidate', 'domain', 'reason'],
           additionalProperties: false,
@@ -184,37 +207,50 @@ export function plannerSchema(input: { readonly kinds: readonly ProposalKind[]; 
       },
       nothing_worth_a_run: { type: 'boolean' },
       intent_covered: { type: 'boolean' },
-      reason: { type: 'string' },
+      reason: { type: 'string', maxLength: FIELD_CAPS.reason },
     },
     required: ['proposals', 'handoffs', 'nothing_worth_a_run', 'intent_covered', 'reason'],
     additionalProperties: false,
   }
 }
 
-/** Strict where it matters: an answer without a proposal list is not an answer at all. */
+/** A text field: trimmed and cut to its cap rather than refused for being one character long. */
+const text = (cap: number, fallback = ''): z.ZodType<string, string | undefined> =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (v ?? fallback).trim().slice(0, cap))
+
+const proposalSchema = z.object({
+  candidate: z.string(),
+  kind: z.enum(['research', 'research-step', 'research-expand']),
+  // Length is trimmed, not refused; a topic of two characters is still no topic.
+  topic: text(FIELD_CAPS.topic).refine((t) => t.length >= 3, 'topic too short'),
+  rationale: text(FIELD_CAPS.rationale),
+  lens: z.string().optional(),
+  pages: z
+    .array(z.string().trim().min(1))
+    .default([])
+    .transform((p) => p.slice(0, FIELD_CAPS.pages)),
+})
+
+const handoffSchema = z.object({
+  candidate: z.string(),
+  domain: text(FIELD_CAPS.domain).refine((d) => d.length >= 1, 'no domain'),
+  reason: text(FIELD_CAPS.handoffReason),
+})
+
+/**
+ * Strict where it matters: an answer without a proposal list is not an answer at all. The
+ * entries themselves are parsed one by one below, so one malformed proposal costs that
+ * proposal and not the plan around it.
+ */
 const answerSchema = z.object({
-  proposals: z.array(
-    z.object({
-      candidate: z.string(),
-      kind: z.enum(['research', 'research-step', 'research-expand']),
-      topic: z.string().trim().min(3).max(500),
-      rationale: z.string().trim().max(2000).default(''),
-      lens: z.string().optional(),
-      pages: z.array(z.string().trim().min(1)).max(20).default([]),
-    }),
-  ),
-  handoffs: z
-    .array(
-      z.object({
-        candidate: z.string(),
-        domain: z.string().trim().min(1).max(64),
-        reason: z.string().trim().max(1000).default(''),
-      }),
-    )
-    .default([]),
+  proposals: z.array(z.unknown()),
+  handoffs: z.array(z.unknown()).default([]),
   nothing_worth_a_run: z.boolean(),
   intent_covered: z.boolean().default(false),
-  reason: z.string().trim().max(2000).default(''),
+  reason: text(FIELD_CAPS.reason),
 })
 
 export interface PlannerAnswer {
@@ -231,25 +267,54 @@ export interface PlannerAnswer {
   readonly nothingWorthARun: boolean
   readonly intentCovered: boolean
   readonly reason: string
+  /** Entries thrown away on the way in, one line each, for the run log. */
+  readonly dropped: readonly string[]
 }
 
-/** Parses the structured answer; undefined when it is not the shape the schema asked for. */
+const why = (error: z.ZodError): string => error.issues.map((i) => `${i.path.join('.') || 'entry'}: ${i.message}`).join('; ')
+
+/**
+ * Parses the structured answer; undefined only when the answer is not an answer - no object,
+ * no proposal list, no verdict. Everything smaller is survivable: a field over its cap is
+ * cut, and a proposal or handoff that still does not parse is dropped on its own so the rest
+ * of the plan stands.
+ */
 export function parsePlannerAnswer(raw: unknown): PlannerAnswer | undefined {
   const parsed = answerSchema.safeParse(raw)
   if (!parsed.success) return undefined
+  const dropped: string[] = []
+  const proposals: Array<PlannerAnswer['proposals'][number]> = []
+  parsed.data.proposals.forEach((entry, i) => {
+    const p = proposalSchema.safeParse(entry)
+    if (!p.success) {
+      dropped.push(`proposal ${i + 1} dropped, ${why(p.error)}`)
+      return
+    }
+    proposals.push({
+      candidate: p.data.candidate,
+      kind: p.data.kind,
+      topic: p.data.topic,
+      rationale: p.data.rationale,
+      pages: p.data.pages,
+      ...(p.data.lens !== undefined ? { lens: p.data.lens } : {}),
+    })
+  })
+  const handoffs: Array<PlannerAnswer['handoffs'][number]> = []
+  parsed.data.handoffs.forEach((entry, i) => {
+    const h = handoffSchema.safeParse(entry)
+    if (!h.success) {
+      dropped.push(`handoff ${i + 1} dropped, ${why(h.error)}`)
+      return
+    }
+    handoffs.push({ candidate: h.data.candidate.trim().toUpperCase(), domain: h.data.domain.toLowerCase(), reason: h.data.reason })
+  })
   return {
-    proposals: parsed.data.proposals.map((p) => ({
-      candidate: p.candidate,
-      kind: p.kind,
-      topic: p.topic,
-      rationale: p.rationale,
-      pages: p.pages,
-      ...(p.lens !== undefined ? { lens: p.lens } : {}),
-    })),
-    handoffs: parsed.data.handoffs.map((h) => ({ candidate: h.candidate.trim().toUpperCase(), domain: h.domain.trim().toLowerCase(), reason: h.reason })),
+    proposals,
+    handoffs,
     nothingWorthARun: parsed.data.nothing_worth_a_run,
     intentCovered: parsed.data.intent_covered,
     reason: parsed.data.reason,
+    dropped,
   }
 }
 

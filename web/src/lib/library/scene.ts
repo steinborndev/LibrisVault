@@ -248,8 +248,22 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
   const seat: Tile = { i: chair.i + overflow * 0.6, j: chair.j + overflow * 0.4 }
   switch (f.state) {
     case 'sleeping': {
-      const warn = f.sleepCode === 'quota' || f.sleepCode === 'budget'
-      const reason = f.sleepCode === 'quota' ? 'quota' : f.sleepCode === 'budget' ? 'budget' : f.sleepCode === 'covered' ? 'covered' : f.sleepCode === 'stalled' ? 'stalled' : f.sleepCode === 'no-candidates' ? 'idle' : 'asleep'
+      // A failed planner is a fault, not a quiet night: it reads as a warning like quota does.
+      const warn = f.sleepCode === 'quota' || f.sleepCode === 'budget' || f.sleepCode === 'plan-failed'
+      const reason =
+        f.sleepCode === 'quota'
+          ? 'quota'
+          : f.sleepCode === 'budget'
+            ? 'budget'
+            : f.sleepCode === 'plan-failed'
+              ? 'failed'
+              : f.sleepCode === 'covered'
+                ? 'covered'
+                : f.sleepCode === 'stalled'
+                  ? 'stalled'
+                  : f.sleepCode === 'no-candidates'
+                    ? 'idle'
+                    : 'asleep'
       return { ...base, caption: `${f.name} (${reason})`, pose: 'sleep', room: 'main', i: seat.i, j: seat.j, tag: warn ? 'warn' : 'asleep' }
     }
     case 'waiting':

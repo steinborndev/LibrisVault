@@ -403,7 +403,7 @@ describe('planning, proposals and the night shift', () => {
     expect(h.service.get(dee.id)!.state).toBe('waiting')
   })
 
-  it('no candidates means no planner cost; a failed or malformed planning run leaves an idle sleep with the reason', async () => {
+  it('no candidates means no planner cost; a planning run that keeps failing retries once, then sleeps as a fault', async () => {
     h.candidates = () => []
     const ada = await spawn({})
     const skipped = h.service.plan(ada.id)
@@ -411,17 +411,23 @@ describe('planning, proposals and the night shift', () => {
     expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'no-candidates' })
     expect(h.calls).toHaveLength(0)
 
+    // Both attempts fail: one retry, then the Fellow sleeps marked as a fault, not as idle.
     h.candidates = () => CANDIDATES
     h.planAnswer = () => 'FAIL'
     const failed = h.service.plan(ada.id)
     await h.service.settled(failed.run!.id)
-    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'idle', sleepReason: expect.stringContaining('planner exploded') })
-
-    h.planAnswer = () => ({ nonsense: true })
-    const malformed = h.service.plan(ada.id)
-    await h.service.settled(malformed.run!.id)
-    expect(h.service.get(ada.id)!.sleepReason).toContain('did not match the schema')
+    expect(h.calls.filter((c) => c.profile === 'query')).toHaveLength(2)
+    expect(h.calls.filter((c) => c.profile === 'query').at(-1)!.prompt).toContain('NOTE: Your previous answer in this cycle could not be used')
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'sleeping', sleepCode: 'plan-failed', sleepReason: expect.stringContaining('planner exploded') })
     expect(notebook(ada)).toContain('Nothing planned: the planning run failed')
+
+    // The retry succeeds: the plan of the second attempt is the one that counts.
+    let attempt = 0
+    h.planAnswer = () => (++attempt === 1 ? { nonsense: true } : TWO_PROPOSALS)
+    const recovered = h.service.plan(ada.id)
+    await h.service.settled(recovered.run!.id)
+    expect(h.service.get(ada.id)).toMatchObject({ state: 'waiting' })
+    expect(h.service.pendingProposals(ada.id).length).toBeGreaterThan(0)
 
     h.planAnswer = () => NOTHING
     const nothing = h.service.plan(ada.id)

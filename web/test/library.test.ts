@@ -157,6 +157,7 @@ describe('scene adapter', () => {
         fellow({ agentId: 'a5', name: 'Ed', state: 'blocked' }),
         fellow({ agentId: 'a6', name: 'Fay', state: 'retired' }),
         fellow({ agentId: 'a7', name: 'Gus', state: 'proposed' }),
+        fellow({ agentId: 'a8', name: 'Hal', state: 'sleeping', sleepCode: 'plan-failed' }),
       ],
     })
     const actors = buildActors(input(s, { 'maintenance:research-step': '→ Grep({})' }))
@@ -168,6 +169,8 @@ describe('scene adapter', () => {
     expect(byName['Ed']).toMatchObject({ pose: 'wait', tag: 'warn' })
     expect(byName['Fay']).toBeUndefined()
     expect(byName['Gus']).toMatchObject({ pose: 'wait', caption: 'Gus (new)' })
+    // A planner that could not be used is a fault, not a quiet night.
+    expect(byName['Hal']).toMatchObject({ pose: 'sleep', tag: 'warn', caption: 'Hal (failed)' })
     // Active but between two steps: the desk it just left, not the door across the room.
     const between = buildActors(input(scene({ fellows: [fellow({ agentId: 'a1', name: 'Ada', state: 'active', run: null })] })))
     expect(between[0]).toMatchObject({ pose: 'think', room: 'main', caption: 'Ada (thinking)', i: ANCHORS.desks[0]!.i, j: ANCHORS.desks[0]!.j })

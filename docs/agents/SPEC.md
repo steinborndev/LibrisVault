@@ -283,6 +283,20 @@ planner chooses the smallest run kind that fits each candidate** (`research-step
 single question, `research-expand` for deepening listed pages, `research` for a sweep),
 never above the Fellow's `step`.
 
+**The three layers state the same limits** (topic 500 characters, rationale and reason 2000,
+handoff reason 1000, at most 20 pages and 3 proposals): the JSON schema that binds the model,
+the prompt in words, and the parser. They did not agree once - the schema said nothing about
+length while the parser refused a topic over its cap - and one long topic threw away a whole
+night's plan, three proposals and eight handoffs with it.
+
+**What the service does with an answer it cannot use**: a field over its cap is cut to the
+cap, a single proposal or handoff that still does not parse is dropped on its own with a line
+in the run log, and only an answer that is no answer at all (no object, no proposal list, no
+verdict) counts as failed. Such a failure is **retried once inside the same cycle**, with the
+reason appended to the prompt, because waiting for the next night shift costs the Fellow a
+day. If the retry fails too, the Fellow sleeps with `plan-failed`, which the night shift plans
+again like `idle` but the library draws as a warning rather than a resting figure.
+
 ### 6.3 Proposal schema
 
 `kind` (`research`, `research-step`, `research-expand`), `topic`, `lens`, `rationale`

@@ -68,6 +68,8 @@ export const BUDGET_USD: Readonly<Record<RunKind, number>> = { research: 12, 're
 /** A `deep` step is a full run with a longer leash (section 7). */
 export const DEEP_TIMEOUT_MS = 45 * 60_000
 const STEP_TIMEOUT_MS = 15 * 60_000
+/** Planning attempts per cycle: one retry when the answer comes back unusable, then the night is over. */
+export const PLAN_ATTEMPTS = 2
 
 export type StepKind = 'research' | 'research-step' | 'research-expand'
 export type RunKind = StepKind | 'plan'
@@ -567,7 +569,7 @@ export class FellowService {
    * Starts a planning run (section 6.2) unless there is nothing to plan from, in which case
    * the Fellow sleeps with `no-candidates` and no planner cost is spent.
    */
-  plan(id: string, opts: { readonly cycleDate?: string } = {}): PlanOutcome {
+  plan(id: string, opts: { readonly cycleDate?: string; readonly attempt?: number; readonly retryNote?: string } = {}): PlanOutcome {
     const agent = this.agents.get(id)
     if (!agent) return { refusal: { status: 404, code: 'unknown', error: 'no such Fellow' } }
     const refusal = this.gateFor(agent, 'plan')
@@ -589,6 +591,7 @@ export class FellowService {
       .list({ agentId: agent.id, status: ['vetoed'], limit: 10 })
       .map((p) => p.topic)
     const domains = this.handoffs ? this.registry() : []
+    const attempt = opts.attempt ?? 1
     const prompt = renderPlannerPrompt({
       agent,
       candidates,
@@ -597,10 +600,11 @@ export class FellowService {
       runsLeftToday: Math.max(0, agent.quotaRunsPerDay - this.runsToday(agent.id)),
       kinds,
       domains,
+      ...(opts.retryNote !== undefined ? { retryNote: opts.retryNote } : {}),
     })
     const schema = plannerSchema({ kinds, candidateIds: candidates.map((c) => c.id), domainKeys: domains.map((d) => d.key) })
     const run = this.maintenance.startPlan(prompt, this.context(agent, 'plan'), schema)
-    this.track(agent.id, run, (settled) => this.onPlanSettled(agent.id, settled, candidates, kinds, cycleDate))
+    this.track(agent.id, run, (settled) => this.onPlanSettled(agent.id, settled, candidates, kinds, cycleDate, attempt))
     this.agents.update(agent.id, { state: 'active', sleepReason: null, sleepCode: null }, now.toISOString())
     this.log('info', `fellows: planning run for ${agent.name} started with ${candidates.length} candidate(s)`)
     return { run }
@@ -808,7 +812,9 @@ export class FellowService {
         const p = handler(settled)
           .catch((err: unknown) => this.log('warn', `fellows: settle handling failed: ${(err as Error).message}`))
           .then(() => {
-            this.inFlight.delete(agentId)
+            // Only clear our own slot: a retry started from inside the handler already put
+            // its run there, and deleting that would let a third run start beside it.
+            if (this.inFlight.get(agentId) === run.id) this.inFlight.delete(agentId)
             resolve(settled)
           })
         this.enqueue(p)
@@ -882,6 +888,7 @@ export class FellowService {
     candidates: readonly Candidate[],
     kinds: readonly ProposalKind[],
     cycleDate: string,
+    attempt = 1,
   ): Promise<void> {
     const now = this.now().toISOString()
     const agent = this.agents.get(agentId)
@@ -890,11 +897,37 @@ export class FellowService {
     if (!answer) {
       const why = settled.status === 'done' ? 'its answer did not match the schema' : (settled.error ?? 'it failed')
       this.log('warn', `fellows: planning run for ${agent.name} failed: ${why}`)
-      this.agents.update(agentId, { state: 'sleeping', sleepReason: `the planning run failed (${why}); the planner tries again in the next night shift`, sleepCode: 'idle' }, now)
+      // One immediate retry, with the reason in the prompt. Waiting a whole night for the
+      // next shift costs the Fellow a day over something a second attempt usually fixes.
+      if (attempt < PLAN_ATTEMPTS) {
+        // This Fellow counts as in flight until the handler returns, and the retry takes that
+        // same slot, so hand it over rather than letting the gate refuse our own retry.
+        this.inFlight.delete(agentId)
+        const retry = this.plan(agentId, {
+          cycleDate,
+          attempt: attempt + 1,
+          retryNote:
+            'Your previous answer in this cycle could not be used: ' +
+            `${why}. Answer again in exactly the required structure, keeping every field inside its stated limit.`,
+        })
+        if (retry.run) {
+          this.log('info', `fellows: planning run for ${agent.name} retried once`)
+          // Awaited, so the shift sees the outcome of the retry and not an empty first attempt.
+          await this.settled(retry.run.id)
+          return
+        }
+        this.log('warn', `fellows: planning retry for ${agent.name} did not start: ${retry.refusal?.error ?? retry.skipped ?? 'unknown'}`)
+      }
+      this.agents.update(
+        agentId,
+        { state: 'sleeping', sleepReason: `the planning run failed (${why}); the planner tries again in the next night shift`, sleepCode: 'plan-failed' },
+        now,
+      )
       const fresh = this.agents.get(agentId)
       if (fresh) await this.writeNotebook(fresh)
       return
     }
+    for (const d of answer.dropped) this.log('warn', `fellows: ${agent.name}: ${d}`)
     const root = this.vaultRoot
     const built = buildProposals({
       agent,
