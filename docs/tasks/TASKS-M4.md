@@ -46,7 +46,7 @@ Settings UI (§6.4 "Einstellungen") is **M5** — leave it out here (the Wartung
 
 ## 5. Acceptance (DoD)
 
-- [x] Ask a question in the Chat tab → synthesized answer with **clickable citation chips** (obsidian:// + copy fallback), context preserved across follow-ups. **Verified live** (Risotto query, 5/5 citations resolved; read-only guarantee held).
+- [x] Ask a question in the Chat tab → synthesized answer with **clickable citation chips** (obsidian:// + copy fallback), context preserved across follow-ups. **Verified live** (a recipe query, 5/5 citations resolved; read-only guarantee held).
 - [x] Trigger **Lint** → a **structured** report (summary + orphans / dead links / … with per-finding page links). Backend + parser + UI built; parser unit-tested, route tested with a mocked agent. **Real end-to-end lint run left for the operator** (write agent run — like the ingest DoD).
 - [x] **Autoresearch** and **Hot-Cache refresh** are triggerable from the UI with a live log. (Real runs operator-gated.)
 - [x] `npm test` passes — **195 tests** (query-runner + maintenance runner mocked; citations, profiles, ChatStore, lint-report parser, and all routes covered).
@@ -64,7 +64,7 @@ Settings UI (§6.4 "Einstellungen") is **M5** — leave it out here (the Wartung
 
 ### Chat DoD verified live (2026-07-17)
 
-- Real read-only query ("Was weißt du über Risotto?") → answer in **26 s**, **all 5 `[[…]]` citations resolved to real vault pages** (`wiki/concepts/Risotto.md`, `wiki/sources/Pumpkin Risotto Recipe (chefkoch.de).md`, …), session created + persisted (user+assistant messages), `sdk_session_id` stored for resume. authMode oauth, usage $0.43 (267k cache-heavy input tokens).
+- Real read-only query (a German question about a recipe concept) → answer in **26 s**, **all 5 `[[…]]` citations resolved to real vault pages** (the recipe's concept page, its source page, …), session created + persisted (user+assistant messages), `sdk_session_id` stored for resume. authMode oauth, usage $0.43 (267k cache-heavy input tokens).
 - **Read-only guarantee confirmed:** the vault working tree carried no query-authored change. The query ran at 22:40; the only dirty vault files (`.raw/.manifest.json` mtime 21:47, `.obsidian/*`) predate it by ~1 h — the sandbox `allowWrite: []` blocked any vault write, as designed.
 
 ### Autonomous maintenance verification (2026-07-17)

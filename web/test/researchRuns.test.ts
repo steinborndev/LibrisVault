@@ -433,7 +433,7 @@ describe('listedRuns', () => {
 describe('synthesisPage', () => {
   const entry = (over: Partial<ResearchRunEntry> = {}): ResearchRunEntry => ({
     id: 'e',
-    topic: 'quantum computing',
+    topic: 'kelp farming',
     profileKey: 'sota',
     status: 'done',
     startedAt: null,
@@ -448,33 +448,33 @@ describe('synthesisPage', () => {
 
   it('takes the questions page the run actually committed', () => {
     const e = entry({
-      topic: 'expected impact of climate change on property prices in europe',
+      topic: 'expected effect of kelp farming on coastal fisheries in norway',
       profileKey: 'broad',
       pages: [
-        'wiki/concepts/Climate Gentrification.md',
-        'wiki/questions/Research: climate change impact on European property prices.md',
+        'wiki/concepts/Coastal Nutrient Cycling.md',
+        'wiki/questions/Research: kelp farming effects on Norwegian coastal fisheries.md',
         'wiki/sources/Some Source.md',
       ],
     })
-    // The deterministic title would have been "Research: expected impact of climate change
+    // The deterministic title would have been "Research: expected effect of kelp farming
     // …", which matches no page here - and used to leave the detail with no article.
     expect(synthesisPage(e, PROFILES, [])).toBe(
-      'wiki/questions/Research: climate change impact on European property prices.md',
+      'wiki/questions/Research: kelp farming effects on Norwegian coastal fisheries.md',
     )
   })
 
   it('falls back to the page that answers to the deterministic name', () => {
     // Observed: the synthesis page is missing from the commit's page list while the page
     // itself sits in the vault.
-    const e = entry({ pages: ['wiki/concepts/Surface Code.md'] })
+    const e = entry({ pages: ['wiki/concepts/Kelp Yield Model.md'] })
     const nodes = [
       node({
-        path: 'wiki/questions/Research: quantum computing - State of the Art.md',
-        title: 'Research: quantum computing - State of the Art',
+        path: 'wiki/questions/Research: kelp farming - State of the Art.md',
+        title: 'Research: kelp farming - State of the Art',
       }),
     ]
     expect(synthesisPage(e, PROFILES, nodes)).toBe(
-      'wiki/questions/Research: quantum computing - State of the Art.md',
+      'wiki/questions/Research: kelp farming - State of the Art.md',
     )
   })
 

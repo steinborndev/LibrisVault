@@ -307,9 +307,8 @@ Result (21 cases, top-k 5):
 
 - [x] Provision Stage 1 on the live vault: 859 chunks, ~1s (F-R5).
 - [x] The headline acceptance question (answer mid-page, title mismatch) — **PASSED** (F-R7). A
-      buried causal claim (one vaccine's milder cold-chain requirement traced to its ionizable
-      lipid's lower LNP water permeability) whose source page title names none of the query
-      terms: the retrieval path answered correctly with the exact quantitative values and cited
+      buried causal claim (a storage property of one product traced to a measured parameter of
+      one of its components) whose source page title names none of the query terms: the retrieval path answered correctly with the exact quantitative values and cited
       both the source and the synthesis page (5 chips). The A/B against legacy is honest, not a
       clean win — see F-R7.
 - [x] Post-ingest freshness — **PASSED live** (F-R8). A throwaway text-note ingest reached
@@ -368,17 +367,17 @@ Result (21 cases, top-k 5):
   title-mismatched page), which token counting cannot capture. Do NOT cite F-R6 as "retrieval is
   cheaper" without the §7 quality result and a multi-run measurement.
 - **F-R7 (2026-07-23) — §7 acceptance PASSED; the real value is reliability, not a per-answer
-  win.** Test question: a buried mid-page causal claim (milder cold-chain storage of one mRNA
-  vaccine <- its ionizable lipid's lower LNP water permeability) whose source page title contains
-  none of {the two vaccine brand names, "cold-chain", "storage", "vaccine"}. Method: same live
+  win.** Test question: a buried mid-page causal claim (a storage property of one product traced to
+  a measured parameter of one of its components) whose source page title contains none of the
+  query terms (neither the two product names nor the property words). Method: same live
   service, index present vs the bm25 `index.json` renamed aside (flips `isRetrieveProvisioned`
   per run -> legacy prompt), restored after.
-  - Retrieval path (1 run): fully correct — exact coefficients (7.98 vs 1.58 x10^-4 cm/s), the
-    packing-geometry mechanism, the caveat that it is a simulation-proposed cause, and the
+  - Retrieval path (1 run): fully correct — the exact quantitative values, the
+    proposed mechanism, the caveat that it is a simulation-proposed cause, and the
     escape/storage trade-off; cited the source paper AND the synthesis concept page (5 chips).
   - Legacy path (2 runs, NON-DETERMINISTIC): run 1 was a total false negative — the agent read
-    hot.md + index and concluded "this vault does not contain mRNA/LNP content" (it richly does:
-    a whole mRNA-delivery cluster), 0 citations, gave up. Run 2 succeeded well (found the source,
+    hot.md + index and concluded that the vault does not cover the topic at all (it richly does:
+    a whole cluster of pages), 0 citations, gave up. Run 2 succeeded well (found the source,
     8 citations).
   - Honest reading: the literal acceptance criterion (retrieval answers correctly with the right
     citation) is met. The A/B is NOT "legacy always fails" — it is that legacy is high-variance,

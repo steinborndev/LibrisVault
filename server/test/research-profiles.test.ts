@@ -31,9 +31,9 @@ describe('research profiles (Achse A)', () => {
     const broad = getResearchProfile('broad')
     const sota = getResearchProfile('sota')
     const patents = getResearchProfile('patents')
-    expect(researchTargetTitle(broad, 'ionizable lipids')).toBe('Research: ionizable lipids')
-    expect(researchTargetTitle(sota, 'ionizable lipids')).toBe('Research: ionizable lipids — State of the Art')
-    expect(researchTargetTitle(patents, 'ionizable lipids')).toBe('Research: ionizable lipids — Patent Landscape')
+    expect(researchTargetTitle(broad, 'tidal turbines')).toBe('Research: tidal turbines')
+    expect(researchTargetTitle(sota, 'tidal turbines')).toBe('Research: tidal turbines — State of the Art')
+    expect(researchTargetTitle(patents, 'tidal turbines')).toBe('Research: tidal turbines — Patent Landscape')
     // No two lenses share a synthesis title for the same topic.
     const titles = RESEARCH_PROFILES.map((p) => researchTargetTitle(p, 'x'))
     expect(new Set(titles).size).toBe(titles.length)
@@ -68,21 +68,21 @@ describe('research profiles (Achse A)', () => {
   describe('synthesis mandate', () => {
     it('is rendered for EVERY lens, the default one included', () => {
       for (const p of RESEARCH_PROFILES) {
-        const mandate = renderSynthesisMandate(p, 'ionizable lipids')
+        const mandate = renderSynthesisMandate(p, 'tidal turbines')
         expect(mandate).not.toBe('')
         expect(mandate).toContain('wiki/questions/')
-        expect(mandate).toContain(researchTargetTitle(p, 'ionizable lipids'))
+        expect(mandate).toContain(researchTargetTitle(p, 'tidal turbines'))
       }
     })
 
     it('pins the exact title and forbids choosing another', () => {
-      const mandate = renderSynthesisMandate(getResearchProfile('broad'), 'ionizable lipids')
-      expect(mandate).toContain('"Research: ionizable lipids"')
+      const mandate = renderSynthesisMandate(getResearchProfile('broad'), 'tidal turbines')
+      expect(mandate).toContain('"Research: tidal turbines"')
       expect(mandate).toMatch(/EXACTLY this title, do not choose another/)
     })
 
     it('offers folding into an existing synthesis as the ONLY alternative, not as an opt-out', () => {
-      const mandate = renderSynthesisMandate(getResearchProfile('sota'), 'quantum computing')
+      const mandate = renderSynthesisMandate(getResearchProfile('sota'), 'kelp farming')
       expect(mandate).toMatch(/one alternative is to fold the findings into an existing synthesis/i)
       expect(mandate).toMatch(/Doing NEITHER is a failed run/)
     })
@@ -90,8 +90,8 @@ describe('research profiles (Achse A)', () => {
 
   describe('isSynthesisPath', () => {
     it('accepts a research synthesis, whatever the lens suffix', () => {
-      expect(isSynthesisPath('wiki/questions/Research: ionizable lipids.md')).toBe(true)
-      expect(isSynthesisPath('wiki/questions/Research: quantum computing — State of the Art.md')).toBe(true)
+      expect(isSynthesisPath('wiki/questions/Research: tidal turbines.md')).toBe(true)
+      expect(isSynthesisPath('wiki/questions/Research: kelp farming — State of the Art.md')).toBe(true)
     })
 
     it('rejects an ordinary question page and pages outside wiki/questions', () => {

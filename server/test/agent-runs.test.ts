@@ -247,9 +247,9 @@ describe('MaintenanceRunner run history', () => {
     const runner = makeRunner(store, true, {
       committed: true,
       hash: 'def67890',
-      committedPages: ['wiki/concepts/Protein Corona.md', 'wiki/sources/Some Paper.md', 'wiki/index.md'],
+      committedPages: ['wiki/concepts/Blade Coating.md', 'wiki/sources/Some Paper.md', 'wiki/index.md'],
     })
-    const run = runner.startResearch('apolipoproteins and lipid nanoparticles', 'broad')
+    const run = runner.startResearch('coatings and turbine blades', 'broad')
     await waitSettled(runner, run.id)
 
     const settled = runner.getRun(run.id)!
@@ -257,7 +257,7 @@ describe('MaintenanceRunner run history', () => {
     expect(settled.result!.ok).toBe(true)
     expect(settled.result!.warning).toMatch(/no synthesis page/)
     // The pages it did write are real work and stay reported as such.
-    expect(settled.result!.pages).toContain('wiki/concepts/Protein Corona.md')
+    expect(settled.result!.pages).toContain('wiki/concepts/Blade Coating.md')
     expect(store.list()[0]!.ok).toBe(true)
   })
 
@@ -279,9 +279,9 @@ describe('MaintenanceRunner run history', () => {
     const runner = makeRunner(store, true, {
       committed: true,
       hash: 'abc12345',
-      committedPages: ['wiki/questions/Research: Recent Insights into Lipid Nanoparticles.md'],
+      committedPages: ['wiki/questions/Research: Recent Insights into Turbine Blades.md'],
     })
-    const run = runner.startResearch('lipid nanoparticles', 'broad')
+    const run = runner.startResearch('turbine blades', 'broad')
     await waitSettled(runner, run.id)
 
     expect(runner.getRun(run.id)!.result!.warning).toBeUndefined()
@@ -301,11 +301,11 @@ describe('MaintenanceRunner run history', () => {
       commit: async () => ({ committed: false, committedPages: [], note: 'nothing to commit' }),
       runStore: new MemoryAgentRunStore(),
     })
-    const run = runner.startResearch('ionizable lipids', 'broad')
+    const run = runner.startResearch('tidal turbines', 'broad')
     await waitSettled(runner, run.id)
 
     expect(prompt).toContain('<synthesis_page>')
-    expect(prompt).toContain('"Research: ionizable lipids"')
+    expect(prompt).toContain('"Research: tidal turbines"')
     // It has to survive the overlap block's "prefer what already exists", so it comes last.
     expect(prompt.indexOf('<synthesis_page>')).toBeGreaterThan(prompt.indexOf('Stay focused on the stated topic'))
   })
