@@ -105,7 +105,6 @@ export function LibraryScreen({
   /** Which of the department's two views shows; the headline switches it. */
   const [shelfPane, setShelfPane] = useState<'graph' | 'catalog'>(paneParam === 'catalog' ? 'catalog' : 'graph')
   /** What the open department holds, for the line between the two controls. */
-  const [shelfCounts, setShelfCounts] = useState<{ pages: number; links: number } | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [tick, setTick] = useState(0)
   const [exits, setExits] = useState<Exit[]>([])
@@ -288,21 +287,24 @@ export function LibraryScreen({
   /**
    * Left and right switch a department's two views. They are two sides of one thing - the same
    * pages as a map and as a list - and reaching for the toggle to compare them costs more than
-   * the comparison. Only while a department is open and not while a page is being read, and
-   * never while the caret sits in a field, where the arrows move the text.
+   * the comparison. They work while a page is being read too, and switching then closes it:
+   * the other view is a view of the department, not of the page, so arriving there with the
+   * article still over it would be the wrong place. Never while the caret sits in a field,
+   * where the arrows move the text.
    */
   useEffect(() => {
-    if (!active || shelf === null || shelfPage !== null) return
+    if (!active || shelf === null) return
     const onArrow = (e: KeyboardEvent): void => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
       const el = e.target
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)) return
       e.preventDefault()
+      setShelfPage(null)
       setShelfPane((p) => (p === 'graph' ? 'catalog' : 'graph'))
     }
     window.addEventListener('keydown', onArrow)
     return () => window.removeEventListener('keydown', onArrow)
-  }, [active, shelf, shelfPage])
+  }, [active, shelf])
 
   // Wings and moves.
   const invalidate = (): void => {
@@ -524,12 +526,9 @@ export function LibraryScreen({
               <span className="lib-open">
                 <span className="chip-dot" style={{ background: domainColor(shelf) }} aria-hidden />
                 {shelfPage === null ? (
-                  <>
-                    <b>{signText(shelf)}</b>
-                    <span className="box-sub">
-                      {shelfCounts !== null ? `${shelfCounts.pages} page(s) · ${shelfCounts.links} link(s) inside the department` : ''}
-                    </span>
-                  </>
+                  /* The name alone: pages and links sit one row down, beside the filters that
+                     change them, where a number that moves belongs. */
+                  <b>{signText(shelf)}</b>
                 ) : (
                   <>
                     {/* The path walks back, so a page needs no button of its own to leave by. */}
@@ -547,7 +546,9 @@ export function LibraryScreen({
           </div>
           <div className="lib-head-right">
             {shelf !== null && shelfPage === null && (
-              <div className="seg sm" role="tablist" aria-label="View">
+              /* Same width and same right edge as "Deepen this domain" in the band below:
+                 the two controls of a department stand in one column. */
+              <div className="seg sm shelf-view" role="tablist" aria-label="View">
                 <button role="tab" aria-selected={shelfPane === 'graph'} onClick={() => setShelfPane('graph')}>
                   Graph
                 </button>
@@ -619,7 +620,6 @@ export function LibraryScreen({
               layoutKey={mode}
               page={shelfPage}
               onPage={setShelfPage}
-              onCounts={setShelfCounts}
             />
           )}
 

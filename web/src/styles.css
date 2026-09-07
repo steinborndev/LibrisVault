@@ -7154,8 +7154,26 @@ tr:focus-within .rowacts {
   align-items: center;
   gap: 6px 12px;
   flex: none;
-  padding: 8px 14px;
+  /* The same 10px the headline uses, so the band's right edge lines up with the headline's. */
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+}
+/*
+ * A department has two controls, one above the other: the view toggle in the headline and the
+ * Deepen button in the band. Same width and same right edge reads as one column rather than as
+ * two buttons that happen to be near each other.
+ */
+.lib-headline .seg.shelf-view,
+.sf-actions .btn.sf-deepen {
+  width: 156px;
+}
+.lib-headline .seg.shelf-view button {
+  flex: 1;
+  padding-inline: 0;
+  text-align: center;
+}
+.sf-actions .btn.sf-deepen {
+  justify-content: center;
 }
 .sf-filters {
   display: flex;

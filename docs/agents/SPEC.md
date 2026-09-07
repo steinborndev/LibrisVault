@@ -1165,6 +1165,16 @@ three-part grid to hold it - filters, then the page count centred in what is lef
 actions - because as one wrapping flex row the button dropped to a second line and left-aligned
 itself under the chips.
 
+The window's two rows were then settled (2026-09-07). The headline carries the department's NAME
+and nothing else; `page(s)` and `link(s)` moved down beside the filters that change them, in both
+views, where a number that moves belongs. The view toggle takes the width of the Deepen button
+below it and shares its right edge, so a department's two controls read as one column. And the
+left/right arrows now switch the views from inside a page as well, closing it on the way: the
+other view is a view of the DEPARTMENT, so arriving there with an article still over it would be
+the wrong place. Every return to the graph re-frames it - the canvas keeps pan and zoom in module
+state, which is right for a view that continues and wrong for one being opened again, so the
+number of returns rides in the fit key.
+
 Two things around it were fixed in the same pass:
 
 - **The Catalog shows every match.** It paged in fifties and grew as the reader neared the

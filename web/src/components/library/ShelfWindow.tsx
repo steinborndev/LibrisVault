@@ -70,7 +70,6 @@ export function ShelfWindow({
   page,
   layoutKey = '',
   onPage,
-  onCounts,
 }: {
   domain: string
   vaultName: string
@@ -81,8 +80,6 @@ export function ShelfWindow({
   /** The page being read inside the window, or null for the view itself. */
   page?: string | null
   onPage: (path: string | null) => void
-  /** Reports the department's size, for the line in the headline. */
-  onCounts?: (counts: { pages: number; links: number }) => void
 }): React.ReactElement {
   const [query, setQuery] = useState('')
   const [type, setType] = useState<string | null>(null)
@@ -95,6 +92,16 @@ export function ShelfWindow({
   const [openedAt] = useState(() => Date.now())
   /** Bumped by the Fit button in the band; the canvas fits whenever its key changes. */
   const [fitNonce, setFitNonce] = useState(0)
+  /*
+   * Every return to the graph re-frames it. The canvas keeps pan and zoom in module state, so
+   * a zoomed graph left for the catalog and come back to opened exactly as zoomed - which is
+   * right for the same view continuing, and wrong for a view being opened again. Counting the
+   * returns puts it in the fit key.
+   */
+  const [graphVisits, setGraphVisits] = useState(0)
+  useEffect(() => {
+    if (pane === 'graph') setGraphVisits((n) => n + 1)
+  }, [pane])
   /** Deepening this department: the shelf you opened already picked the domain. */
   const [deepening, setDeepening] = useState(false)
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
@@ -115,9 +122,6 @@ export function ShelfWindow({
   /** The subgraph the graph draws: the department, narrowed to one page type when the legend picks one. */
   const drawn = useMemo(() => (type === null ? sub : narrow(sub, type)), [sub, type])
 
-  useEffect(() => {
-    onCounts?.({ pages: sub.nodes.length, links: sub.edges.length })
-  }, [sub.nodes.length, sub.edges.length, onCounts])
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -159,7 +163,7 @@ export function ShelfWindow({
             </button>
           </div>
           <span className="box-sub sf-count">
-            {rows.length} of {sub.nodes.length} page(s)
+            {rows.length} of {sub.nodes.length} page(s) · {sub.edges.length} link(s)
           </span>
           <div className="sf-actions">
             {pane === 'graph' && (
@@ -168,7 +172,7 @@ export function ShelfWindow({
               </button>
             )}
             {/* Opening a shelf already chose the domain, so the dialog needs no domain step. */}
-            <button className="btn sm" onClick={() => setDeepening(true)} title={`Have the Fellow of ${domain} append to its thinnest, most linked pages`}>
+            <button className="btn sm sf-deepen" onClick={() => setDeepening(true)} title={`Have the Fellow of ${domain} append to its thinnest, most linked pages`}>
               Deepen this domain
             </button>
           </div>
@@ -185,7 +189,7 @@ export function ShelfWindow({
               focusIndex={null}
               matches={new Set()}
               lens="type"
-              fitKey={`shelf-${domain}-${drawn.nodes.length}-${type ?? 'all'}-${openedAt}-${layoutKey}-${fitNonce}`}
+              fitKey={`shelf-${domain}-${drawn.nodes.length}-${type ?? 'all'}-${openedAt}-${layoutKey}-${fitNonce}-v${graphVisits}`}
               openOnClick
               fitOnMount
               onSelect={(node) => onPage(node.path)}
