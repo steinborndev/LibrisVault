@@ -278,3 +278,27 @@ is the scope score computed per task, which would make it sharp again; and what 
 task that is answered - does it retire while the others go on. This is the difference between a
 Fellow that wanders and one that keeps a beat, and it decides how much of the autoresearch is
 steerable at all.
+
+**Can the inspector show a lint run's progress?** Measured on a live run (2026-09-07): a lint
+run does NOT walk the vault domain by domain. The skill's ten checks are the order - orphans,
+dead links, stale claims, missing pages, cross-references, frontmatter, empty sections, index
+entries, addresses, semantic tiling - and each check sweeps the whole vault at once, mostly
+through Bash globs over `wiki/concepts/*.md wiki/entities/*.md wiki/sources/*.md` together. In
+90 seconds of log, 72 lines carried 6 concrete page paths; the rest were patterns over
+everything. So walking the shelves in order would draw a sequence the run does not have.
+
+Two honest options instead, both small:
+
+- **Stand where the run is reading.** The adapter already reads the log lines and
+  `shelfPlace(scene, domain)` already takes a domain; the missing step is mapping the page path
+  in a `Read`/`Edit` line to its domain through the graph. That works for EVERY run, not just
+  lint - a Fellow at the shelf of the department it is actually reading, rather than at its
+  home shelf. It needs the same steadying the pose got (the dominant domain inside a window),
+  or the figure hops between wings on every line.
+- **Say which check is running.** Lint's real progress is its check list, so the inspector's
+  bubble could carry it (`inspector (dead links)`) the way research carries its phase bar. The
+  line is in the log already; it is a matter of recognising the ten headings.
+
+The first is the more valuable one and the more work, because it touches every figure; the
+second is nearly free and only helps lint and lint-fix.
+
