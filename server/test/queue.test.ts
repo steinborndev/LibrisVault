@@ -144,6 +144,11 @@ describe('system-prompt extension', () => {
     await q.onIdle()
     expect(extra).toContain('<page_hygiene>')
     expect(extra).toContain('<entity_notability>')
+    // An ingest is a writing run like any other, and it reaches the reading list: one deleted
+    // the entry that had asked for the very document it was filing, which is how a request
+    // and the Fellow behind it disappear (section 10.6).
+    expect(extra).toContain('wiki/meta/reading-list.md is append-only')
+    expect(extra).toContain('NEVER remove or rewrite one')
   })
 })
 

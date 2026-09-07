@@ -79,6 +79,11 @@ flags violations to the operator):
   line for this pass, the key recent facts, recent changes, active threads. Never append a
   new pass below the previous ones, and keep related: to the pages of this pass. Older
   passes are preserved in git history and belong nowhere in this file.
+- wiki/meta/reading-list.md is append-only, in every kind of run. Add an entry when you find
+  a publication worth having in the original; NEVER remove or rewrite one, not even after its
+  document has been ingested. The service marks an entry as filed once the publication is in
+  the vault, and the Fellow that asked for it is told from that mark - delete the entry and
+  that request is simply gone.
 </page_hygiene>
 `.trim()
 

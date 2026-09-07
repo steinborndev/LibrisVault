@@ -874,6 +874,11 @@ the vault, and the Fellow that asked for it never learned it had arrived.
   `filedAt` written into them - the link the row shows and the record that the Fellow has been
   told, so the note goes out once. The Fellow that asked gets one line in its notebook: the
   title, the page, and its own reason for wanting it.
+- **The page is append-only for EVERY run, and the hygiene checklist now says so.** An ingest
+  started from the list deleted the very entry that had asked for the document it was filing:
+  reasonable-looking housekeeping that throws away the request, its reason, and the mark the
+  Fellow would have been told from. Entries are never removed or rewritten; the service marks
+  them filed.
 - **An expand run may write it too.** The reading list joins the Fellow's own pages in an
   expand's page set, next to the notebook and the synthesis pages - IN the set rather than
   exempt from the check, so the append-only rule still holds it. Left out, the first real
