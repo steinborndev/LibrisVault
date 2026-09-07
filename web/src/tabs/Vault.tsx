@@ -79,7 +79,7 @@ const GRAPH_SHORTCUTS = [
   { keys: ['drag'], what: 'pan the canvas' },
 ]
 
-export function Vault({ path }: { path: string }): React.ReactElement {
+export function Vault({ path, active = true }: { path: string; active?: boolean }): React.ReactElement {
   const graphQ = useQuery({ queryKey: ['graph'], queryFn: api.graph, staleTime: 30_000 })
 
   const [pathname, search] = path.split('?') as [string, string | undefined]
@@ -111,7 +111,7 @@ export function Vault({ path }: { path: string }): React.ReactElement {
   }
 
   if (page !== null) return <PageView graph={graphQ.data} path={page} />
-  return <GraphView graph={graphQ.data} focusPath={focus} openGaps={openGaps} hideLabels={hideLabels} domainParam={domainParam} />
+  return <GraphView graph={graphQ.data} focusPath={focus} openGaps={openGaps} hideLabels={hideLabels} domainParam={domainParam} active={active} />
 }
 
 // ---------------------------------------------------------------------------- graph view
@@ -353,6 +353,7 @@ function GraphView({
   openGaps,
   hideLabels = false,
   domainParam = null,
+  active = true,
 }: {
   graph: VaultGraph
   focusPath: string | null
@@ -361,6 +362,8 @@ function GraphView({
   hideLabels?: boolean
   /** `?domain=<key>` - a shelf click in the Library selects that domain once (TASKS-A4 D10). */
   domainParam?: string | null
+  /** Whether this screen is the one on show; false while another tab has the viewport. */
+  active?: boolean
 }): React.ReactElement {
   // `input` is what the field shows; `query` is what the graph reacts to. Without the delay
   // every keystroke re-filtered the subgraph, re-ran Louvain and refit the camera - typing a
@@ -383,6 +386,20 @@ function GraphView({
   useEffect(() => {
     if (domainParam !== null && domainParam !== '') setSelectedDomains(new Set([domainParam]))
   }, [domainParam])
+
+  /*
+   * Coming back to this screen re-fits the camera.
+   *
+   * The canvas keeps pan and zoom in module state, SHARED with the Library's shelf window -
+   * that is what makes a department open where you left it. The cost is that a look inside
+   * the Library moves this screen's camera too, and nothing here changed, so the old fitKey
+   * still held: you returned to a graph framed for a different, smaller set of nodes, which
+   * shows as empty space beside it. Counting activations puts it back in frame.
+   */
+  const [visits, setVisits] = useState(0)
+  useEffect(() => {
+    if (active) setVisits((n) => n + 1)
+  }, [active])
   // The color lens. Domain is the default - the meta-categories are the axis the user
   // actually thinks in; type + the metric lenses (authority/orphans/stubs/recency) live in
   // the lens dropdown.
@@ -1006,7 +1023,7 @@ function GraphView({
           // Fullscreen rides along: entering or leaving changes the canvas width by ~40%,
           // and re-fitting through the fitKey also clears `userMoved` - so a graph the user
           // had panned is re-framed too, instead of staying parked off-screen.
-          fitKey={`${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}`}
+          fitKey={`${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}`}
           barExtra={
             <>
               <span className="scopeline">

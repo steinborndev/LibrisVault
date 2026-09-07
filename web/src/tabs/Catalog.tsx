@@ -56,7 +56,6 @@ const SORTS: Array<{ key: SortKey; label: string; desc: string }> = [
   { key: 'domain', label: 'Domain', desc: 'grouped by domain, unfiled pages last' },
 ]
 
-const PAGE_SIZE = 50
 
 function isOrphan(n: GraphNode): boolean {
   return n.in === 0 && n.out === 0 && (n.kind ?? 'knowledge') === 'knowledge'
@@ -89,7 +88,6 @@ export function Catalog({
   const [deepening, setDeepening] = useState(false)
   const [subset, setSubset] = useState<Subset>('all')
   const [sort, setSort] = useState<SortKey>('changed')
-  const [limit, setLimit] = useState(PAGE_SIZE)
   const [domFilter, setDomFilter] = useState('')
   /** Hover previews an option's meaning; leaving falls back to the one in force. */
   const [subsetHover, setSubsetHover] = useState<Subset | null>(null)
@@ -113,7 +111,6 @@ export function Catalog({
     setQuery('')
     setType(null)
     setSubset('all')
-    setLimit(PAGE_SIZE)
     navigate('/library', { replace: true })
     // The list is longer than the panel: a filter set from another screen must be visible
     // as a filter, not just as a shorter table.
@@ -178,26 +175,13 @@ export function Catalog({
     return list
   }, [knowledge, query, type, domain, subset, sort])
 
-  const shown = filtered.slice(0, limit)
-  const more = filtered.length > limit
-
-  // Load the next page when the end of the list comes into view. Sorting by domain made the
-  // page cap read as a bug: the first 50 rows are all one domain, so the list looked like it
-  // only held that domain - the rest was one "Show more" away, which is not where a reader
-  // looks. The button stays for keyboards and for anyone who wants it explicitly.
-  const sentinel = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = sentinel.current
-    if (el === null || !more) return
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) setLimit((l) => l + PAGE_SIZE)
-      },
-      { rootMargin: '200px' },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [more, shown.length])
+  /*
+   * Every match, in one list. It was paged in 50s and grew as you reached the bottom, which
+   * meant the scrollbar shrank each time you got near the end - the one part of a window a
+   * reader uses to judge how much is left, contradicting itself on every scroll. A few
+   * thousand rows of plain markup cost less than that confusion.
+   */
+  const shown = filtered
 
   const state = queryState(graph, 'the page index')
   // Deliberately NOT an early return any more: the panel and the table box stay on screen
@@ -224,7 +208,6 @@ export function Catalog({
     setSubset('all')
     setSort('changed')
     setDomFilter('')
-    setLimit(PAGE_SIZE)
   }
 
   return (
@@ -259,7 +242,6 @@ export function Catalog({
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value)
-                setLimit(PAGE_SIZE)
               }}
             />
           </div>
@@ -310,7 +292,6 @@ export function Catalog({
                 aria-checked={subset === x.key}
                 onClick={() => {
                   setSubset(x.key)
-                  setLimit(PAGE_SIZE)
                 }}
                 onMouseEnter={() => setSubsetHover(x.key)}
                 onMouseLeave={() => setSubsetHover(null)}
@@ -406,14 +387,11 @@ export function Catalog({
         ) : (
           <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} />
         )}
-        {/* Watched by the observer above; 200px of root margin means the next page is in
-            place before the reader reaches the bottom. */}
-        <div ref={sentinel} className="lib-sentinel" aria-hidden />
         </div>
         <div className="box-foot" hidden={state !== null}>
           <span>
-            Showing {shown.length} of {filtered.length} pages
-            {filtered.length !== knowledge.length ? ` (${knowledge.length} in this subset)` : ''}
+            {filtered.length} page{filtered.length === 1 ? '' : 's'}
+            {filtered.length !== knowledge.length ? ` of ${knowledge.length} in this subset` : ''}
           </span>
           <span className="spacer" />
           {/* Only with a domain filter on: a deepening run is bounded by a domain, and this
@@ -421,11 +399,6 @@ export function Catalog({
           {domain !== null && domain !== 'none' && (
             <button className="btn" onClick={() => setDeepening(true)} title={`Have the Fellow of ${domain} append to its thinnest, most linked pages`}>
               Deepen this domain
-            </button>
-          )}
-          {more && (
-            <button className="btn" onClick={() => setLimit((l) => l + PAGE_SIZE)}>
-              Show more
             </button>
           )}
         </div>

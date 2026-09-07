@@ -7137,14 +7137,50 @@ tr:focus-within .rowacts {
 }
 .lib-crumb:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .lib-sep { color: var(--text-faint); }
+/*
+ * Filters, count, actions - in that order and in those places, whatever the width. The count
+ * sits between the chips it describes and the buttons that act on them, and the buttons stay
+ * on the right: as one wrapping flex row they dropped to a second line and left-aligned
+ * themselves under the chips.
+ */
 .shelf-filter {
+  display: grid;
+  /* Filters and actions take what they need; the count is centred in what is LEFT between
+     them, which is where the eye looks for it. Equal side columns instead wrapped the chips
+     while half the band stood empty next to the buttons. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 12px;
+  flex: none;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sf-filters {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px 8px;
-  flex: none;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.sf-count {
+  justify-self: center;
+  white-space: nowrap;
+}
+.sf-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+}
+/* Narrow: the three parts stack rather than squeezing the chips to nothing. */
+@media (max-width: 900px) {
+  .shelf-filter {
+    grid-template-columns: 1fr;
+  }
+  .sf-count,
+  .sf-actions {
+    justify-self: start;
+  }
 }
 .shelf-filter .input { min-width: 220px; }
 /*

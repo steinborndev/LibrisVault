@@ -1148,6 +1148,24 @@ points into one dialog, and it is called **Deepen**.
 Not here: a Fellow whose standing work is deepening a set. That belongs with several tasks per
 Fellow, as one task kind among others.
 
+**A third entry point, from the shelf window** (2026-09-07): opening a shelf already chose the
+domain, so both of its views carry "Deepen this domain" in their filter band. The band became a
+three-part grid to hold it - filters, then the page count centred in what is left, then the
+actions - because as one wrapping flex row the button dropped to a second line and left-aligned
+itself under the chips.
+
+Two things around it were fixed in the same pass:
+
+- **The Catalog shows every match.** It paged in fifties and grew as the reader neared the
+  bottom, so the scrollbar shrank each time - the one control a reader uses to judge how much is
+  left, contradicting itself on every scroll. A thousand rows of plain markup cost less.
+- **Leaving the Library for the Graph keeps the department and re-frames it.** The tab carries
+  the open shelf as `?domain=`, and the graph counts activations in its `fitKey`. The canvas
+  keeps pan and zoom in module state SHARED with the shelf window - that is what makes a
+  department open where you left it - so a look inside the Library moved this screen's camera
+  while nothing here changed, and the reader came back to a graph framed for a smaller set of
+  nodes, with empty space beside it.
+
 ---
 
 ## 15. Milestones

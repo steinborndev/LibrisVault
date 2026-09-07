@@ -181,6 +181,13 @@ export function App(): React.ReactElement {
 
   const openPage = pageFromPath(path.split('?')[0]!)
   const query = new URLSearchParams(path.split('?')[1] ?? '')
+  /*
+   * Leaving the Library for the Graph keeps the department you were looking at. A shelf is a
+   * domain, and the graph reads `?domain=` as its filter, so the tab carries the shelf across
+   * rather than dropping you into the whole vault and making you find it again.
+   */
+  const openShelf = screen === 'library' ? (query.get('shelf') ?? '') : ''
+  const routeFor = (tab: TabItem): string => (tab.id === 'vault' && openShelf !== '' ? `/graph?domain=${encodeURIComponent(openShelf)}` : tab.route)
 
   // The recap lives under Home (`/recap`, `/recap/<date>`); Home stays mounted behind it.
   const pathname = path.split('?')[0]!
@@ -261,7 +268,7 @@ export function App(): React.ReactElement {
                 key={tab.id}
                 className="tab"
                 aria-current={screen === tab.id ? 'page' : undefined}
-                onClick={() => navigate(tab.route)}
+                onClick={() => navigate(routeFor(tab))}
               >
                 <Icon name={tab.icon} />
                 {tab.label}
@@ -376,7 +383,7 @@ export function App(): React.ReactElement {
               {vaultPath !== null && (
                 <ErrorBoundary label="Graph">
                   <Suspense fallback={<div className="empty">Loading vault view…</div>}>
-                    <Vault path={vaultPath} />
+                    <Vault path={vaultPath} active={screen === 'vault'} />
                   </Suspense>
                 </ErrorBoundary>
               )}

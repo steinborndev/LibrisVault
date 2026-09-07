@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import type { GraphNode } from '../../api/types.ts'
 import { CatalogTable } from '../../tabs/Catalog.tsx'
+import { DeepenDialog } from './DeepenDialog.tsx'
 import { Markdown } from '../Markdown.tsx'
 import { PageLink } from '../PageLink.tsx'
 import { GraphCanvas, TYPE_VARS } from '../GraphCanvas.tsx'
@@ -94,6 +95,8 @@ export function ShelfWindow({
   const [openedAt] = useState(() => Date.now())
   /** Bumped by the Fit button in the band; the canvas fits whenever its key changes. */
   const [fitNonce, setFitNonce] = useState(0)
+  /** Deepening this department: the shelf you opened already picked the domain. */
+  const [deepening, setDeepening] = useState(false)
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
 
@@ -136,30 +139,42 @@ export function ShelfWindow({
        * point rides on the chips.
        */}
       {page != null ? null : (
+        /*
+         * Three parts, not one wrapping row: the filters take what they need and wrap among
+         * themselves, the count keeps the middle, and the actions stay on the right. As one
+         * flex row the Deepen button fell to a second line and landed on the LEFT, under the
+         * chips, which is the one place it does not belong.
+         */
         <div className="shelf-filter">
-          <input className="input sm" type="search" value={query} placeholder="Filter this department…" aria-label="Filter pages" onChange={(e) => setQuery(e.target.value)} />
-          {kinds.map(([kind, n]) => (
-            <button key={kind} className="chip" aria-pressed={type === kind} title={`Show only ${kind}`} onClick={() => setType(type === kind ? null : kind)}>
-              <i className="chip-dot" style={{ background: `var(${TYPE_VARS[kind] ?? '--type-meta'})` }} aria-hidden />
-              {kind} {n}
+          <div className="sf-filters">
+            <input className="input sm" type="search" value={query} placeholder="Filter this department…" aria-label="Filter pages" onChange={(e) => setQuery(e.target.value)} />
+            {kinds.map(([kind, n]) => (
+              <button key={kind} className="chip" aria-pressed={type === kind} title={`Show only ${kind}`} onClick={() => setType(type === kind ? null : kind)}>
+                <i className="chip-dot" style={{ background: `var(${TYPE_VARS[kind] ?? '--type-meta'})` }} aria-hidden />
+                {kind} {n}
+              </button>
+            ))}
+            <button className="chip" aria-pressed={srcOnly} onClick={() => setSrcOnly(!srcOnly)} title="Only pages written from an ingested document">
+              has a source {withSource}
             </button>
-          ))}
-          <button className="chip" aria-pressed={srcOnly} onClick={() => setSrcOnly(!srcOnly)} title="Only pages written from an ingested document">
-            has a source {withSource}
-          </button>
-          <span className="spacer" />
-          <span className="box-sub">
+          </div>
+          <span className="box-sub sf-count">
             {rows.length} of {sub.nodes.length} page(s)
           </span>
-          {/* Fit belongs to the graph alone, so it sits AFTER the count: the count does not
-              move when the view changes, and the canvas needs no bar of its own. */}
-          {pane === 'graph' && (
-            <button className="btn ghost sm" onClick={() => setFitNonce((n) => n + 1)} title="Fit the view to the department (f)">
-              Fit
+          <div className="sf-actions">
+            {pane === 'graph' && (
+              <button className="btn ghost sm" onClick={() => setFitNonce((n) => n + 1)} title="Fit the view to the department (f)">
+                Fit
+              </button>
+            )}
+            {/* Opening a shelf already chose the domain, so the dialog needs no domain step. */}
+            <button className="btn sm" onClick={() => setDeepening(true)} title={`Have the Fellow of ${domain} append to its thinnest, most linked pages`}>
+              Deepen this domain
             </button>
-          )}
+          </div>
         </div>
       )}
+      {deepening && <DeepenDialog domain={domain} onClose={() => setDeepening(false)} />}
 
       {page != null ? null : pane === 'graph' ? (
         <div className="shelf-graph">
