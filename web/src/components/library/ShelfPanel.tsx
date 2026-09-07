@@ -17,7 +17,6 @@ import { signText } from '../../lib/library/room.ts'
 import { sourceLink } from '../../lib/sources.ts'
 import { STUB_BYTES } from '../../lib/domains.ts'
 import { timeAgo } from '../../lib/format.ts'
-import { runTitle } from '../../lib/runLabels.ts'
 import { Icon } from '../Icon.tsx'
 
 /** Gaps a department owns: page names its own pages link to but nobody has written. */
@@ -32,6 +31,7 @@ export function ShelfPanel({
   departments,
   onPick,
   onOpenPage,
+  onOpenFellow,
 }: {
   domain: string
   rooms: readonly SceneRoom[]
@@ -39,11 +39,12 @@ export function ShelfPanel({
   onPick: (domain: string) => void
   /** A page named here opens in the window, the same way a row or a node does. */
   onOpenPage: (path: string) => void
+  /** A Fellow named here opens its card. */
+  onOpenFellow?: (agentId: string) => void
 }): React.ReactElement {
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 5_000 })
   const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
-  const runs = useQuery({ queryKey: ['maintenance-history', 'all'], queryFn: () => api.maintenanceHistory({ limit: 200 }) })
 
   const pages = useMemo<GraphNode[]>(() => (graph.data?.nodes ?? []).filter((n) => n.domain === domain), [graph.data, domain])
   const paths = useMemo(() => new Set(pages.map((n) => n.path)), [pages])
@@ -71,14 +72,6 @@ export function ShelfPanel({
     return [...counts.values()].sort((a, b) => b.n - a.n).slice(0, 5)
   }, [sources.data, paths])
 
-  /** Runs that wrote into this department, newest first. */
-  const work = useMemo(
-    () =>
-      (runs.data?.runs ?? [])
-        .filter((r) => r.pages.some((p) => paths.has(p)))
-        .slice(0, 4),
-    [runs.data, paths],
-  )
 
   const byRoom = (id: string): SceneDepartment[] => departments.filter((d) => d.room === id).sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
   const unplaced = departments.filter((d) => d.room === null)
@@ -119,7 +112,7 @@ export function ShelfPanel({
 
       <div className="gp-sec">
         <div className="gp-head">
-          <span className="gp-eyebrow">This department</span>
+          <span className="gp-eyebrow">In this department</span>
         </div>
         <div className="shelf-facts">
           <div>
@@ -157,33 +150,22 @@ export function ShelfPanel({
           <p className="mono-meta">No Fellow covers this domain. A request from another one would show up in the recap.</p>
         ) : (
           fellows.map((f) => (
-            <div key={f.agentId} className="shelf-fellow">
+            // A Fellow named here is a Fellow you may want to look at: the row opens its card.
+            <button key={f.agentId} className="shelf-fellow" onClick={() => onOpenFellow?.(f.agentId)} title={`Open ${f.name}`}>
+              <span className="av" aria-hidden>
+                {f.name.slice(0, 1)}
+              </span>
               <span className="nm">{f.name}</span>
               <span className="st">{f.run ? (f.run.kind === 'plan' ? 'planning' : (f.run.label ?? f.run.kind)) : (f.sleepReason ?? f.state)}</span>
-            </div>
+            </button>
           ))
         )}
       </div>
 
       <div className="gp-sec grow">
-        <div className="gp-head">
-          <span className="gp-eyebrow">Recent work</span>
-        </div>
-        {work.length === 0 ? (
-          <p className="mono-meta">Nothing has written here in the stored history.</p>
-        ) : (
-          <ul className="shelf-list">
-            {work.map((r) => (
-              <li key={r.id}>
-                <span className="nm">{r.label ?? runTitle(r.kind, r.ok)}</span>
-                <span className="when">{timeAgo(r.finishedAt)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
         {documents.length > 0 && (
           <>
-            <div className="gp-head" style={{ marginTop: 10 }}>
+            <div className="gp-head">
               <span className="gp-eyebrow">Documents</span>
             </div>
             <ul className="shelf-docs">

@@ -914,6 +914,27 @@ full width put it in front of the very figure standing at it, since that figure 
 on the case, 1.55 tiles out: a Fellow reading at a shelf was drawn behind the shelf. Nothing
 ever stands between a case and the wall, so the narrower claim costs nothing.
 
+**One headline, three zones, one control height** (as built, 2026-09-07). The review that
+produced it found the same job done in different places: the room strip stood taller than the
+toggles beside it, the spawn button had a shape of its own, the type filter was a floating
+legend in the graph and a row on top of the catalog, and two buttons repeated what Escape
+does. Now:
+
+- **Left** is the Focus/Full toggle, in every state, at the same size as everything else in
+  the row. **Middle** says where you are: the room strip in the room, the board's name or the
+  department's name and size in a window, and while a page is read the path, whose department
+  is a link back. **Right** is the one thing this state offers: Spawn a Fellow in the room,
+  the Graph/Catalog toggle in a department, nothing else.
+- **No button repeats a key.** Escape steps back a level as before; the arrow keys switch a
+  department's two views, because they are two sides of one thing and reaching for the toggle
+  to compare them costs more than the comparison. Arrows inside a text field still move text.
+- **The filter band has one place**, directly under the headline, identical in both views, and
+  carries the colour the legend used to carry. `Fit` sits after the count, so the count does
+  not move when the view does. A board's window keeps no head of its own.
+- **The column** puts a rule and real space between wings, names its section "In this
+  department" (the department is already named in the headline), drops "Recent work", and
+  makes each Fellow a button that opens its card.
+
 **Leaving the tab closes the room's windows** (2026-09-07). The screen stays mounted while
 another tab shows, because it polls the scene, so a board or a department window left open was
 still open on the way back and the Library reopened on whatever stood in front of the room.

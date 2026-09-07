@@ -275,6 +275,25 @@ export function LibraryScreen({
     }
   }
 
+  /**
+   * Left and right switch a department's two views. They are two sides of one thing - the same
+   * pages as a map and as a list - and reaching for the toggle to compare them costs more than
+   * the comparison. Only while a department is open and not while a page is being read, and
+   * never while the caret sits in a field, where the arrows move the text.
+   */
+  useEffect(() => {
+    if (!active || shelf === null || shelfPage !== null) return
+    const onArrow = (e: KeyboardEvent): void => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      const el = e.target
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)) return
+      e.preventDefault()
+      setShelfPane((p) => (p === 'graph' ? 'catalog' : 'graph'))
+    }
+    window.addEventListener('keydown', onArrow)
+    return () => window.removeEventListener('keydown', onArrow)
+  }, [active, shelf, shelfPage])
+
   // Wings and moves.
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: ['library-scene'] })
@@ -377,6 +396,7 @@ export function LibraryScreen({
               setShelf(d)
             }}
             onOpenPage={setShelfPage}
+            onOpenFellow={openCard}
           />
         </aside>
       )}
@@ -499,72 +519,89 @@ export function LibraryScreen({
       )}
 
       <div className="box lib-box">
+        {/*
+         * One headline for every state, three zones that never trade places: the mode toggle
+         * on the left, where you are in the middle, the one thing you can do here on the
+         * right. Escape and the arrow keys do the rest, so no button repeats a key.
+         */}
         <div className="graph-controls lib-headline">
-          <div className="seg sm" role="radiogroup" aria-label="Mode">
-            <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
-              Focus
-            </button>
-            <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
-              Full
-            </button>
-          </div>
-          {shelf === null && rooms.length > 0 && current && (
-            <RoomStrip
-              rooms={rooms}
-              current={current.id}
-              activity={activityRooms}
-              night={false}
-              dropTarget={drag?.target ?? null}
-              onPick={pickRoom}
-              {...(createWing.isPending ? {} : { onNewWing: () => createWing.mutate() })}
-            />
-          )}
-          <span className="spacer" />
-          {shelf !== null && (
-            <span className="lib-open">
-              <span className="chip-dot" style={{ background: domainColor(shelf) }} aria-hidden />
-              <b>{signText(shelf)}</b>
-              <span className="box-sub">
-                {shelfPage !== null
-                  ? 'reading a page'
-                  : shelfCounts !== null
-                    ? `${shelfCounts.pages} page(s) · ${shelfCounts.links} link(s) inside the department`
-                    : ''}
-              </span>
-            </span>
-          )}
-          <span className="spacer" />
-          {shelf !== null && shelfPage === null && (
-            <div className="seg sm" role="tablist" aria-label="View">
-              <button role="tab" aria-selected={shelfPane === 'graph'} onClick={() => setShelfPane('graph')}>
-                Graph
+          <div className="lib-head-left">
+            <div className="seg sm" role="radiogroup" aria-label="Mode">
+              <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
+                Focus
               </button>
-              <button role="tab" aria-selected={shelfPane === 'catalog'} onClick={() => setShelfPane('catalog')}>
-                Catalog
+              <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
+                Full
               </button>
             </div>
-          )}
-          {shelf !== null && shelfPage !== null && (
-            <button className="btn ghost sm" onClick={() => setShelfPage(null)}>
-              Back to the {shelfPane} · Esc
-            </button>
-          )}
-          {shelf !== null && (
-            <button className="btn ghost sm" onClick={closeShelf}>
-              {shelfPage === null ? 'Back to the room · Esc' : 'Back to the room'}
-            </button>
-          )}
-          {mode === 'focus' && shelf === null && (
-            <button
-              className="btn primary"
-              onClick={() => {
-                setMode('full')
-                setSpawnOpen(true)
-              }}
-            >
-              Spawn a Fellow
-            </button>
-          )}
+          </div>
+          <div className="lib-head-mid">
+            {shelf === null && board === null && rooms.length > 0 && current && (
+              <RoomStrip
+                rooms={rooms}
+                current={current.id}
+                activity={activityRooms}
+                night={false}
+                dropTarget={drag?.target ?? null}
+                onPick={pickRoom}
+                {...(createWing.isPending ? {} : { onNewWing: () => createWing.mutate() })}
+              />
+            )}
+            {shelf === null && board !== null && (
+              <span className="lib-open">
+                <b>{BOARD_TITLES[board]}</b>
+                <span className="box-sub">{BOARD_SUBS[board]}</span>
+              </span>
+            )}
+            {shelf !== null && (
+              <span className="lib-open">
+                <span className="chip-dot" style={{ background: domainColor(shelf) }} aria-hidden />
+                {shelfPage === null ? (
+                  <>
+                    <b>{signText(shelf)}</b>
+                    <span className="box-sub">
+                      {shelfCounts !== null ? `${shelfCounts.pages} page(s) · ${shelfCounts.links} link(s) inside the department` : ''}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {/* The path walks back, so a page needs no button of its own to leave by. */}
+                    <button className="lib-crumb" onClick={() => setShelfPage(null)} title={`Back to the ${shelfPane} · Esc`}>
+                      {signText(shelf)}
+                    </button>
+                    <span className="lib-sep" aria-hidden>
+                      /
+                    </span>
+                    <span className="box-sub">{shelfPage.split('/').pop()?.replace(/\.md$/, '')}</span>
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+          <div className="lib-head-right">
+            {shelf !== null && shelfPage === null && (
+              <div className="seg sm" role="tablist" aria-label="View">
+                <button role="tab" aria-selected={shelfPane === 'graph'} onClick={() => setShelfPane('graph')}>
+                  Graph
+                </button>
+                <button role="tab" aria-selected={shelfPane === 'catalog'} onClick={() => setShelfPane('catalog')}>
+                  Catalog
+                </button>
+              </div>
+            )}
+            {/* Spawning belongs to the room, where the Fellows are. */}
+            {shelf === null && board === null && (
+              <button
+                className="btn primary sm"
+                onClick={() => {
+                  setMode('full')
+                  setSpawnOpen(true)
+                }}
+              >
+                Spawn a Fellow
+              </button>
+            )}
+          </div>
         </div>
         <div className={`lib-area${night ? ' night' : ''}`} ref={areaRef} tabIndex={0} onKeyDown={onKey}>
           {state ?? (current === undefined ? null : (
@@ -643,14 +680,6 @@ export function LibraryScreen({
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
           {shelf === null && board !== null && (
             <div className="lib-window" role="dialog" aria-label={BOARD_TITLES[board]}>
-              <div className="box-head">
-                <h2 className="box-title">{BOARD_TITLES[board]}</h2>
-                <span className="box-sub">{BOARD_SUBS[board]}</span>
-                <span className="spacer" />
-                <button className="btn ghost sm" onClick={() => setBoard(null)}>
-                  Back to the room · Esc
-                </button>
-              </div>
               {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList vaultName={vaultName} />}
             </div>
           )}

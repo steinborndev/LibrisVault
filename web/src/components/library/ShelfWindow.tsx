@@ -92,6 +92,8 @@ export function ShelfWindow({
    * left it, so every mount gets a fit key of its own.
    */
   const [openedAt] = useState(() => Date.now())
+  /** Bumped by the Fit button in the band; the canvas fits whenever its key changes. */
+  const [fitNonce, setFitNonce] = useState(0)
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
 
@@ -127,6 +129,38 @@ export function ShelfWindow({
     <div className="lib-window shelf-window" role="dialog" aria-label={`${signText(domain)} department`}>
       {page != null && <PagePane path={page} vaultName={vaultName} onOpenPage={onPage} />}
 
+      {/*
+       * One filter band, directly under the headline, the same in both views. It used to be a
+       * legend floating in the graph's bottom left and a row on top of the catalog, so the
+       * control for one job moved when the view changed. The colour that was the legend's
+       * point rides on the chips.
+       */}
+      {page != null ? null : (
+        <div className="shelf-filter">
+          <input className="input sm" type="search" value={query} placeholder="Filter this department…" aria-label="Filter pages" onChange={(e) => setQuery(e.target.value)} />
+          {kinds.map(([kind, n]) => (
+            <button key={kind} className="chip" aria-pressed={type === kind} title={`Show only ${kind}`} onClick={() => setType(type === kind ? null : kind)}>
+              <i className="chip-dot" style={{ background: `var(${TYPE_VARS[kind] ?? '--type-meta'})` }} aria-hidden />
+              {kind} {n}
+            </button>
+          ))}
+          <button className="chip" aria-pressed={srcOnly} onClick={() => setSrcOnly(!srcOnly)} title="Only pages written from an ingested document">
+            has a source {withSource}
+          </button>
+          <span className="spacer" />
+          <span className="box-sub">
+            {rows.length} of {sub.nodes.length} page(s)
+          </span>
+          {/* Fit belongs to the graph alone, so it sits AFTER the count: the count does not
+              move when the view changes, and the canvas needs no bar of its own. */}
+          {pane === 'graph' && (
+            <button className="btn ghost sm" onClick={() => setFitNonce((n) => n + 1)} title="Fit the view to the department (f)">
+              Fit
+            </button>
+          )}
+        </div>
+      )}
+
       {page != null ? null : pane === 'graph' ? (
         <div className="shelf-graph">
           {state ?? (
@@ -136,49 +170,18 @@ export function ShelfWindow({
               focusIndex={null}
               matches={new Set()}
               lens="type"
-              fitKey={`shelf-${domain}-${drawn.nodes.length}-${type ?? 'all'}-${openedAt}-${layoutKey}`}
+              fitKey={`shelf-${domain}-${drawn.nodes.length}-${type ?? 'all'}-${openedAt}-${layoutKey}-${fitNonce}`}
               openOnClick
               fitOnMount
               onSelect={(node) => onPage(node.path)}
               onOpen={(node) => onPage(node.path)}
             />
           )}
-          {/* The legend is the filter: a click narrows both views to that page type. */}
-          <div className="shelf-legend" role="group" aria-label="Page types">
-            {kinds.map(([kind, n]) => (
-              <button key={kind} aria-pressed={type === kind} title={`Show only ${kind}`} onClick={() => setType(type === kind ? null : kind)}>
-                <i style={{ background: `var(${TYPE_VARS[kind] ?? '--type-meta'})` }} />
-                {kind} {n}
-              </button>
-            ))}
-            {type !== null && (
-              <button className="clear" onClick={() => setType(null)}>
-                show all
-              </button>
-            )}
-          </div>
         </div>
       ) : (
-        <>
-          <div className="shelf-filter">
-            <input className="input sm" type="search" value={query} placeholder="Filter this department…" aria-label="Filter pages" onChange={(e) => setQuery(e.target.value)} />
-            {kinds.map(([kind, n]) => (
-              <button key={kind} className="chip" aria-pressed={type === kind} onClick={() => setType(type === kind ? null : kind)}>
-                {kind} {n}
-              </button>
-            ))}
-            <button className="chip" aria-pressed={srcOnly} onClick={() => setSrcOnly(!srcOnly)} title="Only pages written from an ingested document">
-              has a source {withSource}
-            </button>
-            <span className="spacer" />
-            <span className="box-sub">
-              {rows.length} of {sub.nodes.length} page(s)
-            </span>
-          </div>
-          <div className="shelf-table">
-            {state ?? (rows.length === 0 ? <div className="empty">Nothing matches these filters.</div> : <CatalogTable nodes={rows} refs={refs} vaultName={vaultName} hideDomain onOpenPage={onPage} />)}
-          </div>
-        </>
+        <div className="shelf-table">
+          {state ?? (rows.length === 0 ? <div className="empty">Nothing matches these filters.</div> : <CatalogTable nodes={rows} refs={refs} vaultName={vaultName} hideDomain onOpenPage={onPage} />)}
+        </div>
       )}
     </div>
   )
