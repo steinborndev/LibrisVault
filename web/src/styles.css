@@ -7381,3 +7381,128 @@ tr:focus-within .rowacts {
 
 
 
+
+/* ---- Deepen dialog (docs/agents/ideas.md, decision 2026-09-07) ----
+   One dialog behind two entry points: the Fellow card and the Catalog's domain filter. It
+   sits over the screen it was opened from, because the pages it proposes are only meaningful
+   next to the list you were just looking at. */
+.dp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.dp {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: min(86vh, 760px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.dp-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dp-head .gx-title {
+  font-size: 16px;
+  text-wrap: balance;
+}
+.dp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dp-list > li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.dp-list > li + li {
+  border-top: 1px solid var(--border);
+}
+.dp-t {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.dp-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--text-faint);
+}
+.dp-x:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+.dp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.dp-field input,
+.dp-field select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.dp-hits {
+  list-style: none;
+  margin: -6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dp-hits button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  padding: 5px 9px;
+  border-radius: 7px;
+}
+.dp-hits button:hover {
+  background: var(--bg-elev-2);
+}
+.dp-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.dp-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

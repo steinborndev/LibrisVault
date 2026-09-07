@@ -47,6 +47,8 @@ import { notebookPath, renderLogLines, type NotebookWriter } from './notebook.js
 import { READING_LIST_PAGE, type ReadingEntry as ReadingEntryInput } from './reading-list.js'
 import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
+import { EXPAND_MANUAL_MAX_PAGES, expandBudgetUsd, expandTimeoutMs } from './expand.js'
+import { parseFrontmatterMeta } from './graph.js'
 import { computeCandidates, knowledgePages, type Candidate } from './candidates.js'
 import { localDate, addDays, windowAt } from './clock.js'
 import type { VaultGraph } from './graph.js'
@@ -92,7 +94,7 @@ export interface SpawnInput {
   readonly runFirstStep?: boolean
 }
 
-export type RefusalCode = 'unknown' | 'state' | 'in-flight' | 'quota' | 'budget' | 'kind' | 'reserve' | 'share'
+export type RefusalCode = 'unknown' | 'state' | 'in-flight' | 'quota' | 'budget' | 'kind' | 'scope' | 'reserve' | 'share'
 
 export interface Refusal {
   readonly status: 404 | 409
@@ -520,12 +522,48 @@ export class FellowService {
     return this.planReset !== null && Number.isFinite(this.planReset) ? this.planReset : null
   }
 
-  /** The timeout a run of this kind gets for this Fellow (the shift checks the window against it). */
-  timeoutFor(agent: AgentRecord, kind: RunKind): number {
+  /**
+   * The timeout a run of this kind gets for this Fellow (the shift checks the window against
+   * it). A deepening's leash grows with the set it was given: the planner's four fit the base,
+   * a hand-started eight need twice as long.
+   */
+  timeoutFor(agent: AgentRecord, kind: RunKind, pages?: number): number {
     if (kind === 'plan') return PLAN_TIMEOUT_MS
     if (kind === 'research-step') return STEP_TIMEOUT_MS
-    if (kind === 'research-expand') return EXPAND_TIMEOUT_MS
+    if (kind === 'research-expand') return expandTimeoutMs(EXPAND_TIMEOUT_MS, pages ?? 0)
     return agent.step === 'deep' ? DEEP_TIMEOUT_MS : DEFAULT_TIMEOUT_MS
+  }
+
+  /**
+   * Why this Fellow may not deepen these pages, or null.
+   *
+   * Two bounds, both absent until now: a hand-started deepening was capped by nothing, and
+   * nothing stopped a Fellow appending to a domain that is not his. The second is the drift
+   * the scope score exists to catch, made deliberate instead of accidental - the decision of
+   * 2026-09-07 is that a Fellow works its own ground, and a domain with no Fellow leads to a
+   * spawn rather than to a borrowed one. A page carrying NO domain is unfiled, not foreign,
+   * and stays allowed: it is often exactly the thin page worth deepening.
+   */
+  private boundsRefusal(agent: AgentRecord, pageSet: readonly string[]): Refusal | null {
+    if (pageSet.length > EXPAND_MANUAL_MAX_PAGES) {
+      return { status: 409, code: 'kind', error: `a deepening may name at most ${EXPAND_MANUAL_MAX_PAGES} pages (${pageSet.length} given)` }
+    }
+    const root = this.vaultRoot
+    if (root === undefined) return null
+    const own = new Set([agent.homeDomain, ...agent.extraDomains].filter((d): d is string => typeof d === 'string' && d !== ''))
+    for (const page of pageSet) {
+      let markdown: string
+      try {
+        markdown = fs.readFileSync(path.join(root, page), 'utf8')
+      } catch {
+        return { status: 409, code: 'kind', error: `no such page: ${page}` }
+      }
+      const domain = parseFrontmatterMeta(markdown).domain
+      if (domain !== null && domain !== '' && !own.has(domain)) {
+        return { status: 409, code: 'scope', error: `${agent.name} does not work ${domain} (${page})` }
+      }
+    }
+    return null
   }
 
   /**
@@ -552,8 +590,14 @@ export class FellowService {
     if (kind === 'research-expand' && (opts.pageSet === undefined || opts.pageSet.length === 0)) {
       return { refusal: { status: 409, code: 'kind', error: 'an expand run needs a page set' } }
     }
+    // The planner's own sets come pre-bounded (EXPAND_MAX_PAGES, pages of the Fellow's own
+    // candidates); a hand-started one arrives from the request body and is bounded here.
+    if (kind === 'research-expand' && opts.proposalId === undefined) {
+      const refused = this.boundsRefusal(agent, opts.pageSet ?? [])
+      if (refused) return { refusal: refused }
+    }
     const topic = opts.topic?.trim() ? opts.topic.trim() : agent.intent
-    const ctx = this.context(agent, kind, opts.proposalId)
+    const ctx = this.context(agent, kind, opts.proposalId, opts.pageSet?.length ?? 0)
     const lens = opts.lens ?? agent.lens
     /*
      * The Fellow's own pages are always in an expand's set (D1): the run appends open
@@ -923,7 +967,12 @@ export class FellowService {
     })
   }
 
-  private context(agent: AgentRecord, kind: RunKind, proposalId?: string): FellowRunContext {
+  /** A deepening's budget grows with its page count; every other kind has a flat one. */
+  private budgetFor(kind: RunKind, pages: number): number {
+    return kind === 'research-expand' ? expandBudgetUsd(BUDGET_USD[kind], pages) : BUDGET_USD[kind]
+  }
+
+  private context(agent: AgentRecord, kind: RunKind, proposalId?: string, pages = 0): FellowRunContext {
     const recent = renderLogLines(this.runs.list({ agentId: agent.id, limit: 5 }))
     const deep = kind === 'research' && agent.step === 'deep'
     const effortIndex = AGENT_EFFORTS.indexOf(agent.effort)
@@ -937,10 +986,11 @@ export class FellowService {
       scope: agent.scope,
       model: MODEL_IDS[agent.model],
       effort,
-      maxBudgetUsd: Math.round(BUDGET_USD[kind] * MODEL_FACTOR[agent.model] * 100) / 100,
+      maxBudgetUsd: Math.round(this.budgetFor(kind, pages) * MODEL_FACTOR[agent.model] * 100) / 100,
       recentLog: recent.slice(-5),
       today: localDate(this.now()),
       ...(deep ? { timeoutMs: DEEP_TIMEOUT_MS } : {}),
+      ...(kind === 'research-expand' && pages > 0 ? { timeoutMs: this.timeoutFor(agent, kind, pages) } : {}),
       ...(proposalId !== undefined ? { proposalId } : {}),
     }
   }

@@ -14,6 +14,7 @@ import type { ProposalKind, ProposalRecord, Provenance } from '../db/proposals.j
 import { RESEARCH_PROFILES } from './research-profiles.js'
 import { tokenize } from './related-pages.js'
 import type { Candidate } from './candidates.js'
+import { EXPAND_MAX_PAGES } from './expand.js'
 
 /** The kinds the planner may propose, smallest first (A3 added `research-expand`). */
 export const PLANNER_KINDS: readonly ProposalKind[] = ['research-step', 'research-expand', 'research']
@@ -50,8 +51,6 @@ export const FIELD_CAPS = {
   reading: 10,
   url: 500,
 } as const
-/** How many existing pages an expand proposal may list (its own pages come on top, D1). */
-export const EXPAND_PAGE_CAP = 4
 
 export function estimateCostUsd(kind: ProposalKind | 'plan', model: AgentModel): number {
   return Math.round(KIND_COST_USD[kind] * MODEL_FACTOR[model] * 100) / 100
@@ -444,7 +443,7 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
     if (kind === 'research-expand') {
       // D1: the listed pages that exist, capped, plus the Fellow's own pages; none listed = a step.
       const exists = input.pageExists ?? ((): boolean => true)
-      const listed = [...new Set([...p.pages, ...candidate.sourcePages])].filter((pg) => pg.startsWith('wiki/') && exists(pg)).slice(0, EXPAND_PAGE_CAP)
+      const listed = [...new Set([...p.pages, ...candidate.sourcePages])].filter((pg) => pg.startsWith('wiki/') && exists(pg)).slice(0, EXPAND_MAX_PAGES)
       if (listed.length === 0) {
         kind = 'research-step'
         clamped.push(p.topic)

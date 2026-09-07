@@ -395,3 +395,121 @@ describe('agents routes', () => {
     expect((await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}` })).statusCode).toBe(404)
   })
 })
+
+/**
+ * The two bounds a hand-started deepening gets (docs/agents/ideas.md, decision 2026-09-07).
+ * Until this, `POST /agents/:id/step` with a page set was limited by nothing: any number of
+ * pages, any domain. The planner's own sets were bounded on the way in, so the gap only
+ * existed for the entry point the UI is about to grow.
+ */
+describe('bounds of a hand-started deepening', () => {
+  let vaultRoot: string
+  let db: Db
+  let calls: RunAgentOptions[]
+  let service: FellowService
+  let runner: MaintenanceRunner
+  const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, ...args], { encoding: 'utf8' })
+
+  const page = (name: string, domain: string | null): string => {
+    const rel = `wiki/concepts/${name}.md`
+    const fm = domain === null ? '' : `domain: ${domain}\n`
+    fs.writeFileSync(path.join(vaultRoot, rel), `---\ntype: concept\ntitle: "${name}"\n${fm}---\n# ${name}\n\nThin.\n`)
+    return rel
+  }
+
+  beforeEach(() => {
+    vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'deepen-'))
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# index\n')
+    git('init', '-q')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed')
+    db = openDb(MEMORY_DB)
+    calls = []
+    const commitMutex = new Mutex()
+    const runs = new SqliteAgentRunStore(db)
+    runner = new MaintenanceRunner({
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex,
+      runAgent: async (opts) => {
+        calls.push(opts)
+        return okResult('deepened')
+      },
+      commit: async () => ({ committed: true, hash: 'abc12345', committedPages: [] }),
+      runStore: runs,
+    })
+    service = new FellowService({
+      agents: new SqliteAgentStore(db),
+      runs,
+      proposals: new SqliteProposalStore(db),
+      maintenance: runner,
+      notebook: new NotebookWriter({ vaultRoot, commitMutex }),
+      candidateSources: { vaultRoot },
+    })
+  })
+  afterEach(() => {
+    db.close()
+    fs.rmSync(vaultRoot, { recursive: true, force: true })
+  })
+
+  const fellow = async (): Promise<string> => {
+    const { agent } = await service.spawn({ name: 'Ada', intent: 'Transit photometry', homeDomain: 'astronomy', extraDomains: ['computing'], runFirstStep: false })
+    return agent!.id
+  }
+
+  it('refuses more pages than a hand start may name', async () => {
+    const id = await fellow()
+    const many = Array.from({ length: 9 }, (_, i) => page(`P${i}`, 'astronomy'))
+    const { refusal } = service.step(id, { kind: 'research-expand', pageSet: many, override: true })
+    expect(refusal).toMatchObject({ status: 409, code: 'kind' })
+    expect(refusal!.error).toContain('at most 8')
+  })
+
+  it('refuses a domain the Fellow does not work, and names it', async () => {
+    const id = await fellow()
+    const { refusal } = service.step(id, { kind: 'research-expand', pageSet: [page('Sourdough', 'cooking')], override: true })
+    expect(refusal).toMatchObject({ status: 409, code: 'scope' })
+    expect(refusal!.error).toContain('cooking')
+  })
+
+  it('allows the home domain, an extra domain, and an unfiled page', async () => {
+    const id = await fellow()
+    const set = [page('Transit', 'astronomy'), page('Cache', 'computing'), page('Nobody Filed This', null)]
+    const { refusal, run } = service.step(id, { kind: 'research-expand', pageSet: set, override: true })
+    expect(refusal).toBeUndefined()
+    expect(run).toBeDefined()
+  })
+
+  it('refuses a page that is not there rather than sending the run at it', async () => {
+    const id = await fellow()
+    const { refusal } = service.step(id, { kind: 'research-expand', pageSet: ['wiki/concepts/Never Written.md'], override: true })
+    expect(refusal).toMatchObject({ status: 409, code: 'kind' })
+    expect(refusal!.error).toContain('no such page')
+  })
+
+  it('pays and waits for the set it was given, not for a fixed four', async () => {
+    const id = await fellow()
+    // One at a time: a Fellow with a run in flight refuses the next, so the second start
+    // has to wait for the first to settle.
+    const deepen = async (pages: readonly string[]): Promise<void> => {
+      const { refusal, run } = service.step(id, { kind: 'research-expand', pageSet: pages, override: true })
+      expect(refusal).toBeUndefined()
+      for (let i = 0; i < 400 && runner.getRun(run!.id)?.status === 'running'; i++) await new Promise((r) => setTimeout(r, 5))
+      await service.flush()
+    }
+    await deepen(Array.from({ length: 4 }, (_, i) => page(`F${i}`, 'astronomy')))
+    await deepen(Array.from({ length: 8 }, (_, i) => page(`E${i}`, 'astronomy')))
+    // Sonnet's factor is 1, so the numbers are the USD of the decision: 6 for four, 10 for eight.
+    expect(calls.map((c) => c.maxBudgetUsd)).toEqual([6, 10])
+    expect(calls[1]!.timeoutMs).toBe(calls[0]!.timeoutMs! * 2)
+  })
+
+  it('leaves the set of a planner proposal alone - it was bounded on the way in', async () => {
+    const id = await fellow()
+    const set = [page('Foreign', 'cooking')]
+    const { refusal } = service.step(id, { kind: 'research-expand', pageSet: set, proposalId: 'p1', override: true })
+    expect(refusal).toBeUndefined()
+  })
+})

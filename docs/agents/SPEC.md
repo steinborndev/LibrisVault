@@ -1057,6 +1057,12 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 - `GET/POST /wings`; `PATCH /wings/:id` (rename); `DELETE /wings/:id` (only when empty);
   `POST /library/move` with domain, target room and optional slot (drag and drop lands here);
   `PATCH /wings/order` (reorder).
+- `POST /agents/:id/step` takes `kind` and, for `research-expand`, `pageSet`: the hand-started
+  deepening behind the "Deepen" dialog. It is bounded here, not by the caller - at most
+  `EXPAND_MANUAL_MAX_PAGES` pages, every one of them in the Fellow's home or extra domains
+  (an unfiled page is allowed; it is not foreign), and the budget and timeout follow the count
+  rather than the kind. A set that came from a planner proposal is left alone: it was bounded
+  on the way in.
 - `POST /maintenance/rejoin-links` (`?dry=1` counts without writing) joins wikilinks a line
   wrap broke apart, deterministically and with no agent in the loop; it answers with the pages,
   the number joined, the number left as genuinely dead, and the commit.
@@ -1109,6 +1115,38 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
   `maxBudgetUsd`. Web: scene adapter and card derive from fixtures (`web/src/lib` pure
   functions, as `activity.ts` and `researchProgress.ts`).
 - **Screenshots** never carry vault content into the repo.
+
+---
+
+### 10.10 Asking for a deepening (as built, 2026-09-07)
+
+`research-expand` was complete on the server and unnamed in the UI, so the one run kind that
+touches pages the vault already has was the one the user could not ask for. It has two entry
+points into one dialog, and it is called **Deepen**.
+
+- **The Fellow card**, beside "Run next step now", on the Fellow's own home domain; and **the
+  Catalog**, in the bar that carries the hit count, as soon as a domain filter is on. Both open
+  `DeepenDialog`, so there is one thing to keep consistent instead of two.
+- **You pick a domain, the vault picks the pages.** `deepenCandidates` ranks by demand against
+  substance - many backlinks, little text - from `in` and `size`, which every graph node already
+  carries, so the ranking is a pure function in the web and needs no endpoint. Concepts and
+  entities only: a source page records a document someone else wrote, and index hubs and reports
+  are not knowledge. The dialog proposes four and replaces one two ways, an `x` for the next
+  candidate and a search field for a page you already have in mind.
+- **A Fellow works its own ground.** Home domain and extra domains, enforced in `step()`, not
+  only offered in the UI. A domain with no Fellow is not a dead end: the dialog shows the pages
+  it would deepen and opens the spawn form on that domain with `runFirstStep` off, so the new
+  Fellow's first step IS the deepening - it begins by consolidating what is there.
+- **Up to eight pages, with the price attached.** The planner keeps its four; a hand start may
+  go to eight, and `expandBudgetUsd`/`expandTimeoutMs` follow the count: the base covers four,
+  each further page adds 1 USD and a quarter of the leash. Not linear, because a run orients
+  itself in the vault once. Eight pages cost 10 USD, and the dialog says so before it starts.
+- **A direction is optional.** Empty, the pages bound the run and the Fellow's intent steers it,
+  which is what `step()` already did with no topic. The quota behaves as it does for a step: 409
+  with "x of y today", and one question before the override.
+
+Not here: a Fellow whose standing work is deepening a set. That belongs with several tasks per
+Fellow, as one task kind among others.
 
 ---
 

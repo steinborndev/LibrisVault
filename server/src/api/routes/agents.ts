@@ -26,6 +26,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import type { AppContext } from '../server.js'
 import type { FellowService, SpawnInput, StepKind, DecisionInput } from '../../pipeline/fellows.js'
+import { EXPAND_MANUAL_MAX_PAGES } from '../../pipeline/expand.js'
 import type { AgentPatch } from '../../db/agents.js'
 import { AGENT_AUTONOMIES, AGENT_EFFORTS, AGENT_MODELS, AGENT_STEPS, MODEL_FACTOR, MODEL_IDS } from '../../db/agents.js'
 import { readDomainRegistry, isValidDomainKey } from '../../pipeline/domains.js'
@@ -59,7 +60,7 @@ const stepSchema = z.object({
   topic: z.string().trim().min(3).max(500).optional(),
   kind: z.enum(['research', 'research-step', 'research-expand']).optional(),
   /** For an expand step started by hand: the existing pages it may deepen. */
-  pageSet: z.array(z.string().trim().min(1).max(500)).max(8).optional(),
+  pageSet: z.array(z.string().trim().min(1).max(500)).max(EXPAND_MANUAL_MAX_PAGES).optional(),
   /**
    * A deliberate manual start: run even though today's runs-per-day quota is used up
    * (section 8.4). The quota limits the autopilot, not the user; the shares, reserves,

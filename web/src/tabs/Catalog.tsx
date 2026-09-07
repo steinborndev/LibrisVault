@@ -15,6 +15,7 @@ import { openableRow } from '../lib/tableRow.ts'
 import { timeAgo } from '../lib/format.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { domainColor, STUB_BYTES } from '../lib/domains.ts'
+import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
 import { sourceLink } from '../lib/sources.ts'
 import { Icon } from '../components/Icon.tsx'
 import { queryState } from '../components/QueryState.tsx'
@@ -84,6 +85,8 @@ export function Catalog({
   const [query, setQuery] = useState('')
   const [type, setType] = useState<string | null>(null)
   const [domain, setDomain] = useState<string | null | 'none'>(null)
+  /** The deepening dialog for the domain currently filtered (docs/agents/ideas.md, 2026-09-07). */
+  const [deepening, setDeepening] = useState(false)
   const [subset, setSubset] = useState<Subset>('all')
   const [sort, setSort] = useState<SortKey>('changed')
   const [limit, setLimit] = useState(PAGE_SIZE)
@@ -413,6 +416,13 @@ export function Catalog({
             {filtered.length !== knowledge.length ? ` (${knowledge.length} in this subset)` : ''}
           </span>
           <span className="spacer" />
+          {/* Only with a domain filter on: a deepening run is bounded by a domain, and this
+              is where the domain is already the thing you are looking at. */}
+          {domain !== null && domain !== 'none' && (
+            <button className="btn" onClick={() => setDeepening(true)} title={`Have the Fellow of ${domain} append to its thinnest, most linked pages`}>
+              Deepen this domain
+            </button>
+          )}
           {more && (
             <button className="btn" onClick={() => setLimit((l) => l + PAGE_SIZE)}>
               Show more
@@ -420,6 +430,7 @@ export function Catalog({
           )}
         </div>
       </div>
+      {deepening && domain !== null && domain !== 'none' && <DeepenDialog domain={domain} onClose={() => setDeepening(false)} />}
     </div>
   )
 }

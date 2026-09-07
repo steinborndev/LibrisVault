@@ -17,6 +17,7 @@ import { navigate, pageRoute } from '../../lib/router.ts'
 import { obsidianUri } from '../../lib/obsidian.ts'
 import { stepButton } from '../../lib/stepAction.ts'
 import { toolFamily } from '../../lib/library/scene.ts'
+import { DeepenDialog } from './DeepenDialog.tsx'
 
 const STATE_TEXT: Record<string, string> = {
   proposed: 'new, first run pending',
@@ -59,6 +60,8 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
   const [toast, setToast] = useState<string | null>(null)
   /** The daily quota is used up and the card is asking whether to run anyway (section 8.4). */
   const [confirmStep, setConfirmStep] = useState(false)
+  /** The deepening dialog, opened on the Fellow's own home domain. */
+  const [deepening, setDeepening] = useState(false)
   const refresh = (): void => {
     void qc.invalidateQueries({ queryKey: ['agent-card', agentId] })
     void qc.invalidateQueries({ queryKey: ['agents'] })
@@ -191,6 +194,16 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
               <button className="btn sm" disabled={act.isPending || c.agent.state === 'active' || c.agent.state === 'paused' || c.agent.state === 'retired'} onClick={() => act.mutate({ kind: 'plan' })}>
                 Plan again now
               </button>
+              {/* The one run kind that touches pages the vault already has; until now it could
+                  only happen if the planner chose it (docs/agents/ideas.md, 2026-09-07). */}
+              <button
+                className="btn sm"
+                disabled={act.isPending || c.agent.state === 'active' || c.agent.state === 'paused' || c.agent.state === 'retired'}
+                title={`Append to thin pages in ${c.agent.homeDomain} that the vault often points at`}
+                onClick={() => setDeepening(true)}
+              >
+                Deepen pages…
+              </button>
               {c.agent.state === 'paused' || c.agent.state === 'blocked' ? (
                 <button className="btn sm" disabled={act.isPending} onClick={() => act.mutate({ kind: 'resume' })}>
                   Resume
@@ -219,6 +232,7 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
               </button>
             </div>
           </div>
+          {deepening && <DeepenDialog domain={c.agent.homeDomain} agentId={c.agent.id} onClose={() => setDeepening(false)} />}
         </>
       ))}
     </aside>

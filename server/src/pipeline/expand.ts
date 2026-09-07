@@ -10,8 +10,31 @@ import { commitFileStatus, readAtRevision } from './git.js'
 
 /** How many existing pages an expand proposal may list (its own pages come on top). */
 export const EXPAND_MAX_PAGES = 4
+/**
+ * How many a HAND-started deepening may list (docs/agents/ideas.md, decision 2026-09-07).
+ * The planner keeps the smaller cap because it spends the night's budget unattended; a user
+ * who is looking at the dialog and its price may ask for more.
+ */
+export const EXPAND_MANUAL_MAX_PAGES = 8
 /** How many new pages an expand run may file. */
 export const EXPAND_MAX_NEW = 3
+
+/**
+ * What a deepening of this many pages may cost, in USD before the model factor.
+ *
+ * Not linear: a run orients itself in the vault once - reads the registry, the neighbours,
+ * its own notebook - and only the per-page work grows. So the base covers the planner's four
+ * and each further page adds a flat amount, which makes the eighth page cheaper than the
+ * first. `web/src/lib/deepen.ts` mirrors this so the dialog can say the price beforehand.
+ */
+export function expandBudgetUsd(base: number, pages: number): number {
+  return base + Math.max(0, pages - EXPAND_MAX_PAGES) * 1
+}
+
+/** The same shape for time: each page beyond the base set adds a quarter of the base leash. */
+export function expandTimeoutMs(base: number, pages: number): number {
+  return Math.round(base * (1 + 0.25 * Math.max(0, pages - EXPAND_MAX_PAGES)))
+}
 
 export interface ExpandFinding {
   readonly path: string

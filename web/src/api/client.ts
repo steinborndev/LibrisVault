@@ -458,7 +458,7 @@ export const api = {
   spawnAgent: (body: SpawnBody): Promise<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }> =>
     fetch(`${BASE}/agents`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }>),
 
-  stepAgent: (id: string, body: { topic?: string; kind?: string; override?: boolean } = {}): Promise<{ run: MaintenanceRun }> =>
+  stepAgent: (id: string, body: { topic?: string; kind?: string; pageSet?: string[]; override?: boolean } = {}): Promise<{ run: MaintenanceRun }> =>
     fetch(`${BASE}/agents/${encodeURIComponent(id)}/step`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ run: MaintenanceRun }>),
 
   /** Starts a planning run now; the daily quota does not apply to planning (section 8.4). */
