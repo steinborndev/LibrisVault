@@ -140,6 +140,12 @@ export interface RecapModel {
   /** Plan utilization now and the research share (A5); null without the monitor. */
   readonly plan: RecapPlan | null
   /**
+   * Publications from the reading list that reached the vault since the last recap (10.6):
+   * the Fellow asked for them, you or the ingest button got them, and this is where both
+   * sides see the same thing once.
+   */
+  readonly readingFiled: readonly { readonly title: string; readonly page: string; readonly by: string | null }[]
+  /**
    * What happened after this recap was built (as built, 2026-09-07). The recap is a snapshot,
    * and the newest one is also the screen where tonight is decided, so a plan that lands half
    * an hour later would otherwise be invisible. The decision half is refreshed on read (see
@@ -180,6 +186,8 @@ export interface BuildModelInput {
   readonly nameOf?: (agentId: string) => string
   /** The usage monitor's status (A5). */
   readonly plan?: PlanStatus | null
+  /** Reading list entries filed since the last recap (section 10.6). */
+  readonly readingFiled?: readonly { readonly title: string; readonly page: string; readonly by: string | null }[]
 }
 
 /** The deterministic skeleton (section 9.2). Pure: the tests build it from fixtures. */
@@ -278,6 +286,7 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
     since: input.since,
     // Nothing has happened between building it and reading it yet; `freshenRecap` fills this in.
     sinceBuilt: null,
+    readingFiled: input.readingFiled ?? [],
     window: input.window,
     shift: shift
       ? {
@@ -336,6 +345,7 @@ export function withModelDefaults(row: RecapRow<RecapModel>): RecapRow<RecapMode
     summaryCostUsd: m.summaryCostUsd ?? null,
     plan: m.plan ?? null,
     sinceBuilt: m.sinceBuilt ?? null,
+    readingFiled: m.readingFiled ?? [],
   }
   return { ...row, model }
 }
@@ -716,6 +726,8 @@ export interface RecapServiceOptions {
   readonly handoffs?: HandoffStore
   /** The plan status for the header (A5); absent = no plan lines. */
   readonly plan?: () => PlanStatus | null
+  /** The reading list, for the publications that arrived since the last recap (10.6). */
+  readonly reading?: { entries(): ReadonlyArray<{ title: string; filed: string | null; filedAt: string | null; by: string | null }> }
   readonly maintenance: MaintenanceRunner
   readonly jobs: Pick<JobStore, 'usageSince'>
   readonly commitMutex: Mutex
@@ -811,6 +823,18 @@ export class RecapService {
     return this.build({ trigger: 'timer' })
   }
 
+  /** Reading list entries whose publication arrived after the previous recap's window opened. */
+  private filedSince(since: string): Array<{ title: string; page: string; by: string | null }> {
+    try {
+      return (this.o.reading?.entries() ?? [])
+        .filter((e) => e.filed !== null && (e.filedAt === null || e.filedAt >= since.slice(0, 10)))
+        .map((e) => ({ title: e.title, page: e.filed!, by: e.by }))
+        .slice(0, 10)
+    } catch {
+      return []
+    }
+  }
+
   /** The recap status for the dashboard and the routes. */
   status(): { readonly recapTime: string; readonly nextAt: string; readonly building: boolean; readonly latest: RecapRow<RecapModel> | null } {
     const now = this.now()
@@ -878,6 +902,7 @@ export class RecapService {
       unclaimed: this.o.handoffs?.list({ status: ['unclaimed'], limit: 10 }) ?? [],
       nameOf: (id) => this.o.fellows.get(id)?.name ?? 'a Fellow',
       plan: this.o.plan?.() ?? null,
+      readingFiled: this.filedSince(since),
     })
 
     let summaryRun: MaintenanceRun | null = null

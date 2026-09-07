@@ -22,7 +22,7 @@ import type { JobRow } from '../db/jobs.js'
 import type { VaultGraph } from './graph.js'
 import { parseNotebook } from './notebook.js'
 
-export type CandidateKind = 'open-question' | 'gap' | 'stub' | 'ingest' | 'handoff' | 'note'
+export type CandidateKind = 'open-question' | 'gap' | 'stub' | 'ingest' | 'handoff' | 'note' | 'reading'
 
 /** How a recap's free-text answer is filed under the notebook's Notes (docs/tasks/TASKS-A2.md D6). */
 export const RECAP_NOTE_PREFIX = 'Recap note'
@@ -89,6 +89,12 @@ export interface CandidateInput {
   readonly since: string | null
   /** Pending handoffs routed to this Fellow (section 6.6). */
   readonly handoffs?: readonly HandoffCandidate[]
+  /**
+   * Publications this Fellow put on the reading list that have since arrived in the vault
+   * (section 10.6). They are the strongest candidate there is: the Fellow asked for the
+   * document, said why, and now it is here - which is a step to take, not a search to repeat.
+   */
+  readonly readingFiled?: ReadonlyArray<{ readonly title: string; readonly page: string; readonly why: string | null; readonly filedAt: string | null }>
 }
 
 /** The domains a Fellow reads as its own: home plus extras. */
@@ -250,7 +256,20 @@ export function computeCandidates(input: CandidateInput): Candidate[] {
     for (const n of stubs) raw.push({ kind: 'stub', text: n.title, sourcePages: [n.path], weight: 1 })
   }
 
-  // 4. Ingests into the Fellow's domains since its last run.
+  // 4. Publications the Fellow asked for that are now in the vault (section 10.6).
+  for (const r of input.readingFiled ?? []) {
+    if (input.since !== null && r.filedAt !== null && r.filedAt < input.since.slice(0, 10)) continue
+    raw.push({
+      kind: 'reading',
+      text: `"${r.title}" is in the vault now, as ${r.page}${r.why ? ` - you asked for it: ${r.why}` : ''}`,
+      sourcePages: [r.page],
+      // Above every other candidate: the question was already written down, the document is
+      // here, and reading it is cheaper and more certain than another search round.
+      weight: 4.5,
+    })
+  }
+
+  // 5. Ingests into the Fellow's domains since its last run.
   const byPath = new Map<string, { domain: string | null; title: string }>()
   if (graph !== null) for (const n of graph.nodes) byPath.set(n.path, { domain: n.domain, title: n.title })
   let ingests = 0

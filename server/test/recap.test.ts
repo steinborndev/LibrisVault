@@ -576,6 +576,15 @@ describe('the newest recap keeps its decision half current', () => {
     expect(fresh.model.sinceBuilt).toEqual({ runs: 1, proposals: 2 })
   })
 
+  it('names the publications that reached the vault in this window', async () => {
+    await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    const { row } = await h.recaps.build({ trigger: 'manual' })
+    // Nothing was on the list, so the recap says nothing about it.
+    expect(row.model.readingFiled).toEqual([])
+  })
+
   it('an older recap stays the record of its day', async () => {
     await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
     await h.shift.run('timer')

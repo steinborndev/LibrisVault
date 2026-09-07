@@ -259,6 +259,7 @@ export class IngestQueue {
   private readonly runRegistry: RunRegistry
   private readonly validate: Validator | undefined
   private readonly dedupe: DedupeIndex
+
   private readonly discardStaging: (vaultRoot: string, relDir: string) => Promise<boolean>
   private readonly doiDedupe: () => boolean
   private running = false
@@ -550,6 +551,15 @@ export class IngestQueue {
   }
 
   /** Live queue state for the health/overview endpoints (SPEC.md §6.1). */
+  /**
+   * The dedupe index this queue keeps warm. Shared, not rebuilt: it caches the DOIs and arXiv
+   * ids of every source page by mtime, and the reading list asks it whether a publication is
+   * already in the vault - however the document got there.
+   */
+  get dedupeIndex(): DedupeIndex {
+    return this.dedupe
+  }
+
   stats(): {
     readonly inFlight: number
     readonly paused: boolean

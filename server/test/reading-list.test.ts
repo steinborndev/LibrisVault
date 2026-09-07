@@ -17,7 +17,8 @@ import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { ChatStore } from '../src/db/chat.js'
 import { Mutex } from '../src/util/mutex.js'
 import { buildServer } from '../src/api/server.js'
-import { ReadingListService, parseReadingList, reachOf, urlKey, READING_LIST_PAGE, type ReadingEntry } from '../src/pipeline/reading-list.js'
+import { ReadingListService, parseReadingList, reachOf, urlKey, entryRef, READING_LIST_PAGE, type ReadingEntry } from '../src/pipeline/reading-list.js'
+import { refKey } from '../src/pipeline/dedupe.js'
 import type { Config } from '../src/config.js'
 
 const PAGE = `---
@@ -77,6 +78,8 @@ describe('parsing the page a Fellow writes', () => {
       at: '2026-09-06',
       access: null,
       blocked: null,
+      filed: null,
+      filedAt: null,
     })
     expect(entries[1]).toMatchObject({ ref: null, why: null, domain: 'astronomy' })
     // The entry worth the most: nobody could read it, and it says why.
@@ -95,6 +98,8 @@ describe('parsing the page a Fellow writes', () => {
       at: null,
       access: null,
       blocked: null,
+      filed: null,
+      filedAt: null,
       ...over,
     })
     // The Fellow's own word always wins.
@@ -111,6 +116,92 @@ describe('parsing the page a Fellow writes', () => {
     expect(parseReadingList('')).toEqual([])
     expect(parseReadingList('# Reading list\n\nNothing here yet.\n')).toEqual([])
     expect(parseReadingList('- title: no url\n  ref: x\n')).toEqual([])
+  })
+})
+
+describe('recognizing a publication that is already in the vault', () => {
+  let vaultRoot: string
+  let db: Db
+  let store: JobStore
+
+  beforeEach(() => {
+    vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-ref-'))
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+    db = openDb(MEMORY_DB)
+    store = new JobStore(db, new EventBus())
+  })
+  afterEach(() => {
+    db.close()
+    fs.rmSync(vaultRoot, { recursive: true, force: true })
+  })
+
+  const PAGE_WITH_REFS = `---
+type: meta
+title: "Reading list"
+---
+# Reading list
+
+## Entries
+
+- title: A preprint the user fetched by hand
+  url: https://arxiv.org/abs/2506.20907
+  ref: arXiv:2506.20907
+  domain: astronomy
+  why: The only campaign that pooled heterogeneous sites.
+  by: Ada
+  at: 2026-09-06
+
+- title: A paper with a DOI
+  url: https://acs.invalid/paper
+  ref: doi:10.1021/example
+  domain: materials-science
+  by: Jane
+  at: 2026-09-07
+`
+
+  it('matches by DOI and arXiv id, which is what a dropped PDF leaves behind', () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
+    // No ingest ever ran for these urls; the source pages carry the identifiers.
+    const pages: Record<string, string> = {
+      'wiki/sources/Transit Campaign.md': 'https://arxiv.org/pdf/2506.20907v2',
+      'wiki/sources/A Paper.md': 'https://doi.org/10.1021/EXAMPLE',
+    }
+    const reading = new ReadingListService(vaultRoot, store, {
+      byRef: (ref) => {
+        for (const [page, url] of Object.entries(pages)) if (refKey(url) === refKey(ref)) return { page }
+        return undefined
+      },
+    })
+    const entries = reading.entries()
+    expect(entries[0]).toMatchObject({ page: 'wiki/sources/Transit Campaign.md', via: 'ref', job: null })
+    // A version suffix, a pdf link instead of abs, and a capitalised DOI are the same document.
+    expect(entries[1]).toMatchObject({ page: 'wiki/sources/A Paper.md', via: 'ref' })
+    expect(entryRef({ ref: 'arXiv:2506.20907', url: '' })).toBe('arxiv:2506.20907')
+    expect(entryRef({ ref: null, url: 'https://arxiv.org/abs/2506.20907' })).toBe('arxiv:2506.20907')
+    expect(entryRef({ ref: null, url: 'https://example.invalid/x' })).toBeUndefined()
+    // A PubMed Central accession is an identity too: often the only readable version.
+    expect(entryRef({ ref: null, url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12214508/' })).toBe('pmc:PMC12214508')
+  })
+
+  it('marks what arrived, once, and reports it for the Fellow that asked', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
+    const reading = new ReadingListService(vaultRoot, store, {
+      commitMutex: new Mutex(),
+      autoCommit: () => false,
+      byRef: (ref) => (refKey(ref) === 'arxiv:2506.20907' ? { page: 'wiki/sources/Transit Campaign.md' } : undefined),
+    })
+    const filed = await reading.reconcile('2026-09-08')
+    expect(filed).toHaveLength(1)
+    expect(filed[0]).toMatchObject({ page: 'wiki/sources/Transit Campaign.md' })
+    expect(filed[0]!.entry).toMatchObject({ title: 'A preprint the user fetched by hand', by: 'Ada' })
+
+    const page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(page).toContain('  filed: wiki/sources/Transit Campaign.md')
+    expect(page).toContain('  filedAt: 2026-09-08')
+    // The mark is also the record that the Fellow has been told: a second pass reports nothing.
+    expect(await reading.reconcile('2026-09-09')).toHaveLength(0)
+    // And the entry that is not in the vault is untouched.
+    expect(parseReadingList(page)[1]).toMatchObject({ filed: null, filedAt: null })
   })
 })
 
@@ -142,6 +233,8 @@ describe('entries the service writes for the planner', () => {
     at: '2026-09-07',
     access: 'unreachable',
     blocked: 'no extractable text',
+    filed: null,
+    filedAt: null,
     ...over,
   })
 

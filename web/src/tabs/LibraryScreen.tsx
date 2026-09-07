@@ -605,7 +605,7 @@ export function LibraryScreen({ vaultName, agentParam, roomParam, spawnParam = '
                   Back to the room · Esc
                 </button>
               </div>
-              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList />}
+              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList vaultName={vaultName} />}
             </div>
           )}
           <div className="lib-corner bl">

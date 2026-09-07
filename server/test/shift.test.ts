@@ -75,6 +75,8 @@ interface Harness {
   candidates: () => Candidate[]
   /** Reading list entries the service wrote for the planner. */
   reading: ReadingEntry[]
+  /** What the reconcile pass reports as newly arrived in the vault. */
+  readingFiled: Array<{ entry: ReadingEntry; page: string }>
   runner: MaintenanceRunner
   service: FellowService
   shift: NightShift
@@ -121,6 +123,7 @@ function makeHarness(withUsage = false): Harness {
   h.gate = () => null
   h.candidates = () => CANDIDATES
   h.reading = []
+  h.readingFiled = []
   const now = (): Date => h.clock!.now
   const commitMutex = new Mutex()
   const events = new EventBus()
@@ -167,6 +170,8 @@ function makeHarness(withUsage = false): Harness {
         h.reading!.push(...entries)
         return { added: entries.length }
       },
+      reconcile: async () => h.readingFiled!,
+      entries: () => h.reading!.map((e) => ({ ...e, page: e.filed })),
     },
     now,
     candidates: () => h.candidates!(),
@@ -462,6 +467,36 @@ describe('planning, proposals and the night shift', () => {
     expect(h.reading[0]).toMatchObject({ access: 'paywalled', blocked: 'HTTP 403', by: 'Ada', domain: 'astronomy' })
     // No domain from the planner means the Fellow's own.
     expect(h.reading[1]).toMatchObject({ domain: 'astronomy', access: 'open', blocked: null })
+  })
+
+  it('a publication that arrived closes its entry: the Fellow is told and the planner sees it', async () => {
+    const ada = await spawn({})
+    h.readingFiled = [
+      {
+        entry: {
+          title: 'The preprint Ada asked for',
+          url: 'https://arxiv.invalid/1',
+          ref: 'arXiv:2506.20907',
+          domain: 'astronomy',
+          why: 'The only per-facility scatter.',
+          found: null,
+          by: 'Ada',
+          at: '2026-09-06',
+          access: 'paywalled',
+          blocked: 'HTTP 403',
+          filed: 'wiki/sources/The Preprint.md',
+          filedAt: '2026-09-08',
+        },
+        page: 'wiki/sources/The Preprint.md',
+      },
+    ]
+    expect(await h.service.noteFiledReading('2026-09-08')).toBe(1)
+
+    // The Fellow reads it in its own notebook, in its own words.
+    const md = fs.readFileSync(path.join(h.vaultRoot, 'wiki/meta/agents/ada.md'), 'utf8')
+    expect(md).toContain('The publication you asked for is in the vault: "The preprint Ada asked for" as wiki/sources/The Preprint.md')
+    expect(md).toContain('you wanted it because: The only per-facility scatter.')
+    expect(ada.name).toBe('Ada')
   })
 
   it('the gate refuses on the daily budget and the shift records a budget sleep; a timer shift respects the window', async () => {

@@ -24,11 +24,15 @@ export interface ReadingView {
 }
 
 export function readingView(entries: readonly ReadingItem[], showPaywalled: boolean): ReadingView {
-  const shown = showPaywalled ? entries : entries.filter((e) => isReachable(e) || e.job !== null)
+  // Hidden means "neither reachable nor done". A publication already in the vault stays on the
+  // list whatever its access was: it is the answer to "did that paper ever arrive".
+  const shown = showPaywalled ? entries : entries.filter((e) => isReachable(e) || e.job !== null || e.page !== null)
   return {
     shown,
     hidden: entries.length - shown.length,
-    waiting: shown.filter((e) => e.job === null).length,
+    // Not ingested means not in the vault at all - an entry matched by its identifier is done,
+    // even though no ingest ever ran for its url.
+    waiting: shown.filter((e) => e.job === null && e.page === null).length,
     total: entries.length,
   }
 }

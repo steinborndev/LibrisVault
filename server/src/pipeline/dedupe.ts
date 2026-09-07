@@ -88,6 +88,45 @@ export function extractDoi(text: string): string | undefined {
   return best
 }
 
+/**
+ * An arXiv identifier, as an id and inside an abs/pdf link: `2506.20907`, `arXiv:2506.20907v2`,
+ * `https://arxiv.org/abs/2506.20907`, and the old scheme (`astro-ph/0601001`). Papers on the
+ * reading list are named this way far more often than by DOI, and a preprint's id is as stable
+ * an identity as a DOI is - which is what the list needs to tell "already in the vault" from
+ * "not fetched yet" whatever route the document took in.
+ */
+const ARXIV = /(?:arxiv\.org\/(?:abs|pdf)\/|arxiv[:\s]\s*)((?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?)/gi
+
+/** Every arXiv id in a string, normalized to `arxiv:<id>` without the version suffix. */
+export function arxivIn(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(ARXIV)) out.push(`arxiv:${m[1]!.toLowerCase().replace(/v\d+$/, '')}`)
+  return [...new Set(out)]
+}
+
+/**
+ * PubMed Central accessions (`PMC12214508`). The open-access mirror of a paper is often the
+ * only version a run can read, and it is what a Fellow then writes down - so it has to count
+ * as an identity like a DOI does, or the entry never matches the page it became.
+ */
+const PMC = /\bPMC\d{5,9}\b/gi
+
+export function pmcIn(text: string): string[] {
+  return [...new Set([...text.matchAll(PMC)].map((m) => `pmc:${m[0]!.toUpperCase()}`))]
+}
+
+/**
+ * One stable identity for a publication: its DOI where it has one, else its arXiv id. Both
+ * normalized, so `https://doi.org/10.1/x`, `doi:10.1/X` and `10.1/x` are one key, and so are
+ * an abs link, a pdf link and a bare id.
+ */
+export function refKey(text: string | null | undefined): string | undefined {
+  if (text === null || text === undefined || text.trim() === '') return undefined
+  const doi = doisIn(text)[0]
+  if (doi !== undefined) return `doi:${doi}`
+  return arxivIn(text)[0] ?? pmcIn(text)[0]
+}
+
 /** The frontmatter block of a markdown page, or null when the page has none. */
 function frontmatterOf(markdown: string): string | null {
   if (!markdown.startsWith('---')) return null
@@ -108,6 +147,24 @@ export function pageDois(markdown: string): string[] {
     const m = /^(url|doi|source_url)\s*:\s*(.*)$/i.exec(line)
     if (m === null) continue
     out.push(...doisIn(m[2]!))
+  }
+  return [...new Set(out)]
+}
+
+/**
+ * What a source page identifies ITSELF by: the DOIs and arXiv ids in its `url`, `doi` and
+ * `source_url` frontmatter keys. Same rule as {@link pageDois} - the body is not scanned,
+ * because a review cites dozens of other papers' identifiers.
+ */
+export function pageRefs(markdown: string): string[] {
+  const fm = frontmatterOf(markdown)
+  if (fm === null) return []
+  const out: string[] = []
+  for (const line of fm.split('\n')) {
+    const m = /^(url|doi|source_url|arxiv)\s*:\s*(.*)$/i.exec(line)
+    if (m === null) continue
+    for (const d of doisIn(m[2]!)) out.push(`doi:${d}`)
+    out.push(...arxivIn(m[2]!), ...pmcIn(m[2]!))
   }
   return [...new Set(out)]
 }
@@ -137,6 +194,8 @@ interface RawEntry {
 interface PageEntry {
   readonly stamp: string
   readonly dois: readonly string[]
+  /** DOIs and arXiv ids together: the identity the reading list matches on. */
+  readonly refs: readonly string[]
   readonly mtimeMs: number
 }
 
@@ -165,6 +224,21 @@ export class DedupeIndex {
   }
 
   /** The source page (and the job behind it) that declares this DOI, if any. */
+  /**
+   * The source page that already stands for this publication, by DOI or arXiv id - whatever
+   * route the document took into the vault. The reading list asks this: an entry whose paper
+   * arrived as a dropped PDF has no url in the job log to match on, but it has an identity.
+   */
+  byRef(ref: string): { readonly ref: string; readonly page: string } | undefined {
+    const wanted = refKey(ref)
+    if (wanted === undefined) return undefined
+    this.refreshPages()
+    for (const [page, entry] of this.pages) {
+      if (entry.refs.includes(wanted)) return { ref: wanted, page }
+    }
+    return undefined
+  }
+
   byDoi(doi: string): DoiMatch | undefined {
     const wanted = normalizeDoi(doi)
     this.refreshPages()
@@ -252,6 +326,7 @@ export class DedupeIndex {
       const stamp = `${st.mtimeMs}:${st.size}`
       if (this.pages.get(rel)?.stamp === stamp) continue
       let dois: string[]
+      let refs: string[]
       try {
         // Frontmatter sits at the top; 8 KB covers any page's header without reading a
         // long article for a field that is never past its first lines.
@@ -259,14 +334,17 @@ export class DedupeIndex {
         try {
           const buf = Buffer.alloc(8192)
           const n = fs.readSync(fd, buf, 0, buf.length, 0)
-          dois = pageDois(buf.subarray(0, n).toString('utf8'))
+          const head = buf.subarray(0, n).toString('utf8')
+          dois = pageDois(head)
+          refs = pageRefs(head)
         } finally {
           fs.closeSync(fd)
         }
       } catch {
         dois = []
+        refs = []
       }
-      this.pages.set(rel, { stamp, dois, mtimeMs: st.mtimeMs })
+      this.pages.set(rel, { stamp, dois, refs, mtimeMs: st.mtimeMs })
     }
   }
 }

@@ -860,6 +860,26 @@ read, written only by a research STEP. Both cut out the entries worth the most:
   read and split), and the ingest route matches urls the way the list dedupes them, so a
   trailing slash or a tracking parameter is still the same entry.
 
+**Closing the loop** (as built, 2026-09-07). A url is not an identity. The most useful way to
+get a paywalled paper is for the user to fetch it and drop the PDF in, and that ingest has no
+url the list could ever match - so the entry kept offering "Ingest" for a document already in
+the vault, and the Fellow that asked for it never learned it had arrived.
+
+- **Identity is the DOI or the arXiv id**, taken from the entry's `ref` or out of its url. The
+  queue's dedupe index (one instance, shared) now reads arXiv ids beside DOIs off the `url`,
+  `doi` and `source_url` frontmatter of every source page, and answers `byRef`. An entry is
+  matched three ways, in order of certainty: it says `filed` itself, its identifier is on a
+  source page, or an ingest ran for its url. The row links that page.
+- **The night shift reconciles first.** Entries whose publication has arrived get `filed` and
+  `filedAt` written into them - the link the row shows and the record that the Fellow has been
+  told, so the note goes out once. The Fellow that asked gets one line in its notebook: the
+  title, the page, and its own reason for wanting it.
+- **The planner sees it as a candidate**, of kind `reading` and above every other weight: the
+  question is already written down, the document is here, and reading it beats another search
+  round. The proposal it becomes points at the source page.
+- **The recap names them once**, so both sides see the same thing: what came in from the
+  reading list in this window, with who asked for it.
+
 ### 10.7 Working in the room (as built, 2026-09-06)
 
 Focus is the screen's resting state and sits first in the toggle: the room fills the width

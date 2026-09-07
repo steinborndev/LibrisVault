@@ -169,8 +169,17 @@ describe('computeCandidates', () => {
         job({ id: 'j3', finished_at: '2026-09-05T10:05:00.000Z', original_name: 'old.pdf' }),
       ],
       since: '2026-09-06T00:00:00.000Z',
+      // A publication the Fellow asked for that has since arrived: the strongest candidate
+      // there is, because the question is already written down and the document is here.
+      readingFiled: [
+        { title: 'The preprint it asked for', page: 'wiki/sources/Preprint.md', why: 'The only per-facility scatter.', filedAt: '2026-09-07' },
+        { title: 'One from before the last run', page: 'wiki/sources/Old.md', why: null, filedAt: '2026-09-01' },
+      ],
     })
     const byKind = (k: Candidate['kind']): string[] => candidates.filter((c) => c.kind === k).map((c) => c.text)
+    expect(byKind('reading')).toEqual([
+      '"The preprint it asked for" is in the vault now, as wiki/sources/Preprint.md - you asked for it: The only per-facility scatter.',
+    ])
     expect(byKind('open-question')).toEqual([
       'Which surveys publish raw light curves?',
       'Is limb darkening degenerate with the transit depth?',
@@ -180,9 +189,11 @@ describe('computeCandidates', () => {
     expect(candidates.find((c) => c.kind === 'gap')?.sourcePages).toEqual(['wiki/concepts/Transit Photometry.md'])
     expect(byKind('stub')).toEqual(['Tiny Star'])
     expect(byKind('ingest')).toEqual(['faint-hosts.pdf'])
-    // Ids are dense and weights descend: notebook questions first, stubs last.
+    // Ids are dense and weights descend: an arrived publication first, then notebook
+    // questions, stubs last.
     expect(candidates.map((c) => c.id)).toEqual(candidates.map((_, i) => `C${i + 1}`))
-    expect(candidates[0]!.kind).toBe('open-question')
+    expect(candidates[0]!.kind).toBe('reading')
+    expect(candidates[1]!.kind).toBe('open-question')
     expect(candidates[candidates.length - 1]!.kind).toBe('stub')
   })
 

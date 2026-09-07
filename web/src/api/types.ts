@@ -710,6 +710,8 @@ export interface RecapModel {
    * on every request, so they are current; this counts what only a rebuild would pick up.
    */
   sinceBuilt: { runs: number; proposals: number } | null
+  /** Publications from the reading list that reached the vault in this window. */
+  readingFiled: Array<{ title: string; page: string; by: string | null }>
   window: { start: string; end: string }
   shift: { trigger: string; startedAt: string; finishedAt: string | null; executed: number; planned: number; skipped: Array<{ agentName: string; reason: string }>; costUsd: number } | null
   totals: { runs: number; failed: number; costUsd: number; pages: number }
@@ -979,6 +981,12 @@ export interface ReadingItem {
   blocked: string | null
   /** `access` where given, else read off the host; what the paywalled toggle filters on. */
   reach: 'open' | 'paywalled' | 'unreachable' | 'unknown'
+  /** The source page this publication became, whatever route it took into the vault. */
+  page: string | null
+  /** How it was recognized: the ingest that ran for its url, or its DOI / arXiv id. */
+  via: 'job' | 'ref' | null
+  filed: string | null
+  filedAt: string | null
   /** The ingest of this url, when the service has one. */
   job: { id: string; status: string; pages: number } | null
 }

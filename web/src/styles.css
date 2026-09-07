@@ -7207,6 +7207,8 @@ tr:focus-within .rowacts {
 .reading-lede { margin: 0; max-width: 88ch; color: var(--text-dim); font-size: 13px; }
 /* The lede and the paywalled toggle share one line: the toggle belongs to the whole list. */
 .reading-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+/* Where the publication ended up, once it is in the vault by any route. */
+.rl-filed { margin: 4px 0 0; font-size: 12px; color: var(--text-dim); }
 .reading-head .chip { flex: none; cursor: pointer; }
 .reading-head .chip[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .reading-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }

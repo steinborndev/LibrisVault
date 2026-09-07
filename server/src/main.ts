@@ -192,6 +192,14 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     logSink.sink?.(level, message)
   }
   const handoffStore = new SqliteHandoffStore(db)
+  // One reading list for the whole service: the routes read it, the Fellows write to it, and
+  // it recognizes a publication by its DOI or arXiv id through the queue's dedupe index - which
+  // is how a PDF the user fetched by hand closes the entry that asked for it.
+  const readingList = new ReadingListService(config.vaultRoot, store, {
+    commitMutex,
+    autoCommit: () => settings.effective(config).gitAutoCommit,
+    byRef: (ref) => queue.dedupeIndex.byRef(ref),
+  })
   const fellows =
     config.agentsEnabled === true && !config.demoMode
       ? new FellowService({
@@ -206,7 +214,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           }),
           // The planner names publications it cannot fetch itself (read-only, no web); the
           // service puts them on the reading list, one commit like every other page write.
-          reading: new ReadingListService(config.vaultRoot, store, { commitMutex, autoCommit: () => settings.effective(config).gitAutoCommit }),
+          reading: readingList,
           // Candidates (docs/agents/SPEC.md section 6.1) come from the vault, the live graph and
           // the finished ingests; the same graph the routes serve, so nothing is built twice.
           candidateSources: { vaultRoot: config.vaultRoot, graph: () => graph.build(), jobs: () => store.list({ status: 'done', limit: 100 }) },
@@ -271,6 +279,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           ...(usage !== undefined ? { plan: () => usage.status({ estCostUsd: 2, model: settings.effective(config).researchModelDefault }) } : {}),
           maintenance,
           jobs: store,
+          reading: readingList,
           commitMutex,
           autoCommit: () => settings.effective(config).gitAutoCommit,
           settings: () => {
@@ -358,7 +367,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(recaps !== undefined ? { recaps } : {}),
     ...(library !== undefined ? { library } : {}),
     ...(usage !== undefined ? { usage } : {}),
-    ...(config.agentsEnabled === true ? { reading: new ReadingListService(config.vaultRoot, store, { commitMutex, autoCommit: () => settings.effective(config).gitAutoCommit }) } : {}),
+    ...(config.agentsEnabled === true ? { reading: readingList } : {}),
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`

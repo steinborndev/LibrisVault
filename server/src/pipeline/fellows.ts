@@ -194,7 +194,12 @@ export interface FellowServiceOptions {
   readonly maintenance: MaintenanceRunner
   readonly notebook: NotebookWriter
   /** The reading list, when the vault has one: the planner's finds are written by the service. */
-  readonly reading?: { add(entries: readonly ReadingEntryInput[]): Promise<{ readonly added: number }> }
+  readonly reading?: {
+    add(entries: readonly ReadingEntryInput[]): Promise<{ readonly added: number }>
+    /** Marks entries whose publication arrived in the vault and reports them (section 10.6). */
+    reconcile(today: string): Promise<ReadonlyArray<{ readonly entry: ReadingEntryInput; readonly page: string }>>
+    entries(): ReadonlyArray<ReadingEntryInput & { readonly page: string | null }>
+  }
   readonly now?: () => Date
   /** Candidate computation; the default reads the vault, the graph and the job store. */
   readonly candidates?: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
@@ -285,7 +290,16 @@ export class FellowService {
         }
         const graph = safely<VaultGraph | null>(sources.graph, null)
         const jobs = safely<JobRow[]>(sources.jobs, [])
-        return computeCandidates({ agent, runs, vaultRoot: sources.vaultRoot, graph, jobs, since, handoffs: this.handoffCandidates(agent.id) })
+        return computeCandidates({
+          agent,
+          runs,
+          vaultRoot: sources.vaultRoot,
+          graph,
+          jobs,
+          since,
+          handoffs: this.handoffCandidates(agent.id),
+          readingFiled: this.filedReadingOf(agent),
+        })
       })
   }
 
@@ -800,6 +814,50 @@ export class FellowService {
     return { candidates: this.candidatesFn(agent, runs, since), since }
   }
 
+  /** What this Fellow asked for on the reading list and has since arrived in the vault. */
+  private filedReadingOf(agent: AgentRecord): Array<{ title: string; page: string; why: string | null; filedAt: string | null }> {
+    if (!this.reading) return []
+    try {
+      return this.reading
+        .entries()
+        .filter((e) => e.filed !== null && (e.by === null || e.by.toLowerCase() === agent.name.toLowerCase()))
+        .map((e) => ({ title: e.title, page: e.filed!, why: e.why, filedAt: e.filedAt }))
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * The loop the reading list closes (section 10.6): a publication a Fellow asked for has
+   * arrived in the vault - by the ingest button, or as a PDF the user fetched and dropped in,
+   * which no url could have matched. The entry is marked, and the Fellow that asked gets one
+   * line in its notebook, so the next planning run works from it instead of searching again.
+   */
+  async noteFiledReading(cycleDate: string): Promise<number> {
+    if (!this.reading) return 0
+    let filed: ReadonlyArray<{ entry: ReadingEntryInput; page: string }>
+    try {
+      filed = await this.reading.reconcile(cycleDate)
+    } catch (err) {
+      this.log('warn', `fellows: reading list not reconciled: ${(err as Error).message}`)
+      return 0
+    }
+    if (filed.length === 0) return 0
+    const byAgent = new Map<string, string[]>()
+    for (const f of filed) {
+      const agent = this.agents.list().find((a) => a.name.toLowerCase() === (f.entry.by ?? '').toLowerCase())
+      this.log('info', `fellows: "${f.entry.title}" from the reading list is in the vault as ${f.page}`)
+      if (!agent) continue
+      const line = `The publication you asked for is in the vault: "${f.entry.title}" as ${f.page}${f.entry.why ? ` - you wanted it because: ${f.entry.why}` : ''}`
+      byAgent.set(agent.id, [...(byAgent.get(agent.id) ?? []), line])
+    }
+    for (const [agentId, notes] of byAgent) {
+      const agent = this.agents.get(agentId)
+      if (agent) await this.writeNotebook(agent, { appendNotes: notes })
+    }
+    return filed.length
+  }
+
   /**
    * Whether a Fellow that sleeps on `covered` or `stalled` has a wake trigger (section 5.3):
    * in A1, an ingest into its domains newer than the sleep. Returns the triggers' texts.
@@ -975,6 +1033,8 @@ export class FellowService {
             at: cycleDate,
             access: r.access,
             blocked: r.blocked,
+            filed: null,
+            filedAt: null,
           })),
         )
         if (added > 0) this.log('info', `fellows: ${agent.name} added ${added} entr${added === 1 ? 'y' : 'ies'} to the reading list`)

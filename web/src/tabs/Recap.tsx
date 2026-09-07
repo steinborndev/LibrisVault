@@ -167,6 +167,18 @@ export function RecapBody({
           {m.sleeping.length > 0 && <p className="qs-detail">{m.sleeping.map((s) => `${s.name}: ${s.reason}`).join(' · ')}</p>}
         </div>
       )}
+      {(m.readingFiled ?? []).length > 0 && (
+        <p className="recap-line">
+          From the reading list, now in the vault:{' '}
+          {(m.readingFiled ?? []).map((r, i) => (
+            <span key={r.page}>
+              {i > 0 ? ' · ' : ''}
+              {r.title} (<PageLink vaultName={vaultName} path={r.page} />
+              {r.by !== null ? `, ${r.by} asked for it` : ''})
+            </span>
+          ))}
+        </p>
+      )}
       {m.summaryNote && <div className="toast warn">{m.summaryNote}</div>}
       {m.shift && m.shift.skipped.length > 0 && (
         <p className="recap-line">Skipped: {m.shift.skipped.map((s) => `${s.agentName} (${s.reason})`).join(' · ')}</p>

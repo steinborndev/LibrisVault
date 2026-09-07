@@ -16,6 +16,7 @@ import { Icon } from '../Icon.tsx'
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
 import { isReachable, reachLabel, readingView } from '../../lib/readingList.ts'
+import { PageLink } from '../PageLink.tsx'
 
 const host = (url: string): string => {
   try {
@@ -25,7 +26,7 @@ const host = (url: string): string => {
   }
 }
 
-export function ReadingList(): React.ReactElement {
+export function ReadingList({ vaultName }: { vaultName: string }): React.ReactElement {
   const qc = useQueryClient()
   const list = useQuery({ queryKey: ['reading-list'], queryFn: api.readingList, refetchInterval: 20_000 })
   const ingest = useMutation({
@@ -87,9 +88,21 @@ export function ReadingList(): React.ReactElement {
                       {e.by !== null ? ` · found by ${e.by}${e.at !== null ? `, ${e.at}` : ''}` : e.found !== null ? ` · found by ${e.found}` : ''}
                       {reachLabel(e) !== null ? ` · ${reachLabel(e)}` : ''}
                     </p>
+                    {e.page !== null && (
+                      <p className="rl-filed">
+                        In the vault as <PageLink vaultName={vaultName} path={e.page} />
+                        {e.via === 'ref' && e.job === null ? ' · matched by its identifier' : ''}
+                      </p>
+                    )}
                   </div>
                   <div className="rl-act">
-                    {e.job === null && !isReachable(e) ? (
+                    {e.page !== null && e.job === null ? (
+                      // Recognized by its DOI or arXiv id: the document is in the vault even
+                      // though no ingest ever ran for this url - the user fetched it by hand.
+                      <span className="chip ok" title={`in the vault as ${e.page}`}>
+                        in the vault
+                      </span>
+                    ) : e.job === null && !isReachable(e) ? (
                       <a
                         className="btn sm"
                         href={e.url}
@@ -110,11 +123,11 @@ export function ReadingList(): React.ReactElement {
                         <Icon name="upload" />
                         Ingest
                       </button>
-                    ) : e.job.status === 'done' ? (
+                    ) : e.job?.status === 'done' ? (
                       <span className="chip ok" title={`${e.job.pages} page(s) written`}>
                         ingested · {e.job.pages} page(s)
                       </span>
-                    ) : e.job.status === 'failed' ? (
+                    ) : e.job?.status === 'failed' ? (
                       <button className="btn ghost sm" disabled={ingest.isPending} onClick={() => ingest.mutate(e.url)}>
                         retry
                       </button>

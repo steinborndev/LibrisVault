@@ -20,6 +20,10 @@ const item = (over: Partial<ReadingItem>): ReadingItem => ({
   access: null,
   blocked: null,
   reach: 'unknown',
+  page: null,
+  via: null,
+  filed: null,
+  filedAt: null,
   job: null,
   ...over,
 })
@@ -48,6 +52,21 @@ describe('the reading list view', () => {
     const off = readingView(ingested, false)
     expect(off.shown.map((e) => e.title)).toEqual(['open', 'unknown host', 'paywalled but filed'])
     expect(off.waiting).toBe(2)
+    // A row matched by its identifier counts as done too, though no ingest ran for its url.
+    expect(readingView([item({ page: 'wiki/sources/X.md' })], false).waiting).toBe(0)
+  })
+
+  it('an entry recognized in the vault stays visible even when nobody could fetch it', () => {
+    // The case the whole identity match exists for: the user got the paywalled paper by hand
+    // and dropped the PDF in, so no ingest ran for its url but its page carries its DOI.
+    const byHand = item({ title: 'fetched by hand', reach: 'paywalled', page: 'wiki/sources/X.md', via: 'ref' })
+    const off = readingView([byHand, item({ title: 'still out of reach', reach: 'paywalled' })], false)
+    expect(off.shown.map((e) => e.title)).toEqual(['fetched by hand'])
+    expect(off.hidden).toBe(1)
+    // It is not reachable BY THE SERVICE, which is what the toggle is about; the row shows
+    // where it landed regardless.
+    expect(isReachable(byHand)).toBe(false)
+    expect(byHand.page).toBe('wiki/sources/X.md')
   })
 
   it('an unknown host is still worth one attempt; a named blocker is spelled out', () => {

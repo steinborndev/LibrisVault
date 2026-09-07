@@ -207,6 +207,16 @@ export class NightShift {
     this.shifts.put(record(null))
     this.log('info', `shift: ${trigger} shift for cycle ${cycleDate} started`)
 
+    // Before anything is planned: publications the Fellows asked for that have arrived in the
+    // vault since the last shift, however they got there. Each becomes a note in the notebook
+    // of the Fellow that asked, and a candidate its planner can act on (section 10.6).
+    try {
+      const filed = await this.fellows.noteFiledReading(cycleDate)
+      if (filed > 0) this.log('info', `shift: ${filed} reading list entr${filed === 1 ? 'y is' : 'ies are'} in the vault`)
+    } catch (err) {
+      this.log('warn', `shift: reading list not reconciled: ${(err as Error).message}`)
+    }
+
     const roomFor = (agent: AgentRecord, kind: 'research' | 'research-step' | 'research-expand' | 'plan'): boolean =>
       deadline === null || this.now().getTime() + this.fellows.timeoutFor(agent, kind) <= deadline
 
