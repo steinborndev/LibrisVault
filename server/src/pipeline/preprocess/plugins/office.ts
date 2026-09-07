@@ -1,5 +1,5 @@
 /**
- * Office document normalization (SPEC.md §5). Word/ODT go through `pandoc` to Markdown;
+ * Office document normalization (SPEC.md §5). Word/ODT/EPub/RTF go through `pandoc` to Markdown;
  * PowerPoint and Excel go through a small Python extractor (`python-pptx` / `openpyxl`)
  * because pandoc does not read those formats. The relevant tool is REQUIRED for its
  * format — a document we cannot convert is a failed job, not a raw-bytes passthrough.
@@ -10,12 +10,27 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { PreprocessError } from '../types.js'
-import { isOle, isZip } from '../detect.js'
+import { isOle, isRtf, isZip } from '../detect.js'
 import { runTool } from '../tools.js'
 
-const PANDOC_EXTS = new Set(['docx', 'doc', 'odt'])
+/*
+ * What pandoc reads out of a container. EPub belongs here and was missing: it is a ZIP like
+ * OOXML and ODF, `pandoc --list-input-formats` has read it all along, and the only reason it
+ * did not arrive was that this set did not name it.
+ */
+const PANDOC_EXTS = new Set(['docx', 'doc', 'odt', 'epub'])
 const PY_EXTS = new Set(['pptx', 'ppt', 'xlsx', 'xls', 'ods', 'odp'])
 const OFFICE_EXTS = new Set([...PANDOC_EXTS, ...PY_EXTS])
+/**
+ * Rich Text: pandoc reads it, but it is not a container, so it cannot be gated on ZIP or OLE
+ * magic. It has a magic of its own, which keeps the same discipline - extension AND magic, so
+ * a text file renamed `.rtf` still falls through to the passthrough rather than reaching
+ * pandoc. Until now it went to that passthrough always, and an ingested document handed the
+ * agent `{\rtf1\ansi...}` control codes instead of prose. It STAYS in the text plugin's
+ * list as the fallback: this plugin runs first, so a real one is converted here and a
+ * misnamed one is still read as the text it is.
+ */
+const RTF_EXT = 'rtf'
 
 /** Absolute path to the bundled Python extractor shipped in this repo's scripts/. */
 const EXTRACT_SCRIPT = path.resolve(
@@ -30,13 +45,14 @@ export const officePlugin: PreprocessPlugin = {
   // A bare .zip is NOT office (archive plugin handles it); a text file renamed to .docx
   // fails the magic check and falls through to the text plugin instead of crashing pandoc.
   // (The previous `|| probe.ext.length > 0` disjunct made the magic check dead code.)
-  matches: (probe: Probe): boolean => OFFICE_EXTS.has(probe.ext) && (isZip(probe.head) || isOle(probe.head)),
+  matches: (probe: Probe): boolean =>
+    (OFFICE_EXTS.has(probe.ext) && (isZip(probe.head) || isOle(probe.head))) || (probe.ext === RTF_EXT && isRtf(probe.head)),
 
   async normalize(ctx: NormalizeContext): Promise<NormalizeResult> {
     const src = ctx.probe.filePath
     const ext = ctx.probe.ext
 
-    if (PANDOC_EXTS.has(ext)) {
+    if (PANDOC_EXTS.has(ext) || ext === RTF_EXT) {
       if (!ctx.tools.pandoc) {
         throw new PreprocessError(
           'pandoc is not installed — run scripts/install-preprocessing-tools.sh',

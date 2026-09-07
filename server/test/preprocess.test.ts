@@ -121,6 +121,25 @@ describe('preprocess chain', () => {
   it('routes a docx (zip magic + extension) to office, failing without pandoc', async () => {
     await expect(preprocess(stage('j9', 'letter.docx', ZIP_MAGIC))).rejects.toThrow(/pandoc/)
   })
+
+  /*
+   * EPub is a ZIP like the other containers and pandoc has always read it; only this set did
+   * not name it. RTF is not a container, so it is gated on its own magic - which keeps the
+   * rule "extension AND magic" and lets a misnamed file fall through to the passthrough.
+   */
+  it('routes an epub to office, like the other zip containers', async () => {
+    await expect(preprocess(stage('j10', 'book.epub', ZIP_MAGIC))).rejects.toThrow(/pandoc/)
+  })
+
+  it('converts an rtf instead of handing an agent its control codes', async () => {
+    const rtf = Buffer.from('{\\rtf1\\ansi\\deff0 hello}')
+    await expect(preprocess(stage('j11', 'letter.rtf', rtf))).rejects.toThrow(/pandoc/)
+  })
+
+  it('leaves a file that only claims to be rtf to the text passthrough', async () => {
+    const r = await preprocess(stage('j12', 'notes.rtf', Buffer.from('just prose, no magic')))
+    expect(r.manifest.type).toBe('text')
+  })
 })
 
 describe('OCR ceilings and timeout', () => {

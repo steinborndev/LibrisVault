@@ -6,7 +6,15 @@
 
 import type { PreprocessPlugin, Probe, NormalizeResult } from '../types.js'
 
-/** Extensions treated as ingestible text with no normalization step. */
+/**
+ * Extensions treated as ingestible text with no normalization step.
+ *
+ * `rtf` stays here as the FALLBACK (2026-09-07). The office plugin runs first and converts a
+ * real Rich Text file through pandoc - passing it through meant handing an agent
+ * `{\rtf1\ansi...}` control codes. A file that only CLAIMS to be RTF fails that plugin's
+ * magic check and lands here, which is what this list is for. Dropping it from this list made
+ * such a file `other` instead, which is worse than reading it as the text it is.
+ */
 const TEXT_EXTS = new Set([
   'md',
   'markdown',

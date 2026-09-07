@@ -455,3 +455,62 @@ What this needs, in order: the task list on the agent record with the migration;
 cursor and the per-task `covered`; the planner prompt and the scope score against one task; the
 run kind from the art, and the step size demoted to sizing; the deepen ranking reused from the
 dialog; the card and the spawn form; the recap line.
+
+## Proposal: the preprocessing chain has no sandbox (2026-09-07)
+
+Found while weighing `microsoft/markitdown` (rejected, see below). The agent runs are contained
+at the OS level - bubblewrap, writes confined to the vault, no web outside the research profile,
+a `PreToolUse` hook, and `permprobe` to prove it still holds. **The preprocessing chain that runs
+before them is contained by nothing.**
+
+Every ingest hands an attacker-chosen file to a parser running as the service:
+
+| Tool | Reads | Written in |
+|---|---|---|
+| `pdftotext`, `pdfinfo`, `ocrmypdf` | the PDF | C / C++ |
+| `pandoc` | docx, odt, epub, rtf | Haskell |
+| `python3 scripts/extract-office.py` | pptx, xlsx, ods | Python + C extensions |
+| `exiftool` | any image | Perl |
+| `tesseract` | any image | C++ |
+| `defuddle` | fetched HTML | JS |
+| `yt-dlp` (+ `deno`) | a YouTube page | Python + JS |
+
+`runTool` gives each a timeout and an output cap. That is a liveness guard, not a boundary: a
+parser bug does not time out, it executes. And the process it executes in can read
+`~/.config/vault-service/env` (0600, same user - the mode stops other users, not this process),
+the SQLite database, the whole vault, and the unauthenticated API on 127.0.0.1.
+
+The asymmetry is the point: a document reaches the parsers BEFORE any agent sees it, so the
+weakest link runs first. Hard rule 4 protects the agent stage; nothing protects this one.
+
+### What to build
+
+The same shape the agent runner already proves works, applied one stage earlier.
+
+1. **A sandboxed `runTool`.** One helper that runs a converter under bubblewrap: no network, a
+   read-only bind of the single input file, a writable bind of one output directory, `--die-with-parent`,
+   a new PID and IPC namespace, and no access to `$HOME`. Everything else stays - the timeout,
+   the output cap, the argument array (never a shell string).
+2. **A probe that proves it**, `preprocprobe`, beside `permprobe`: a crafted input that tries to
+   read the credential file and to reach 127.0.0.1, run through the real chain. Expect both
+   blocked. Re-run it after any change to the tool wiring, for the same reason permprobe exists -
+   unit tests cannot see whether the containment is actually applied.
+3. **Fail closed where it matters, open where it does not.** Without bubblewrap the agent runner
+   refuses to start (`failIfUnavailable`). Preprocessing should refuse the same way, but a
+   setting may allow the old behaviour for a machine that cannot provide it - stated in the log,
+   not silently.
+4. **Then, and only then, new converters are cheap.** A sandboxed subprocess is a boundary a
+   tool cannot argue with, whatever it is written in. `markitdown` would fit behind it as a CLI
+   in its own virtualenv, never as a library import, never given a URL.
+
+### Why markitdown itself is not worth it
+
+- It is a converter, not a fetcher past a block. Its own README: "Like `open()` or
+  `requests.get()`, it will access resources the process can access." The two blocked entries on
+  this vault's reading list are both `subscription`; nothing here helps with those.
+- Its coverage over the existing chain is `.msg` and audio. EPub and RTF were a set entry away
+  (done, 2026-09-07) - `pandoc --list-input-formats` had them all along. ZIP is refused by hard
+  rule 6 on purpose. Azure Document Intelligence would send vault documents to a third party.
+- As a LIBRARY it would move untrusted-document parsing INTO the service process, together with
+  its dependency tree - the opposite direction from everything above. As a sandboxed CLI it is
+  fine, and then it is also unnecessary.

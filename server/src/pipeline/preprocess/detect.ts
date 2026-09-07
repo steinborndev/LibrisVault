@@ -75,6 +75,8 @@ export const isZip = (head: Buffer): boolean =>
   startsWith(head, [0x50, 0x4b, 0x03, 0x04]) ||
   startsWith(head, [0x50, 0x4b, 0x05, 0x06]) || // empty archive
   startsWith(head, [0x50, 0x4b, 0x07, 0x08])
+/** `{\rtf` - Rich Text is a text format with a magic of its own, so it can be gated like one. */
+export const isRtf = (head: Buffer): boolean => startsWith(head, [0x7b, 0x5c, 0x72, 0x74, 0x66])
 export const isOle = (head: Buffer): boolean =>
   startsWith(head, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) // legacy .doc/.xls/.ppt
 export const isPng = (head: Buffer): boolean => startsWith(head, [0x89, 0x50, 0x4e, 0x47])
