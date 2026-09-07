@@ -1,5 +1,6 @@
 /**
- * Stepping from one department to the next (docs/agents/SPEC.md section 10.9).
+ * Walking a ring: from one department to the next, and from one room to the next
+ * (docs/agents/SPEC.md section 10.9).
  *
  * Left and right switch a department's two views; up and down switch the department itself.
  * The order is the one the eye already has: the rooms in their order, and inside each room
@@ -44,17 +45,19 @@ export function orderedDomains(rooms: readonly RoomLike[], departments: readonly
 }
 
 /**
- * The department `step` places along from `current`, wrapping at both ends.
+ * The id `step` places along from `current` in `order`, wrapping at both ends.
  *
- * Wrapping rather than stopping: the list is a ring of shelves in a room, and holding the key
- * down to walk past the last one and stop dead reads as a broken key. Returns null when there
- * is nowhere to go - no departments at all, or only the one you are in.
+ * Used for the shelves (up and down inside a department) and for the rooms (the wheel and the
+ * arrows in the room, which pass through the last room back to the first). Wrapping rather
+ * than stopping in both: a library is walked in a circle, and a key held down that stops dead
+ * at the end reads as a broken key rather than as an edge. Returns null when there is nowhere
+ * to go - nothing in the list, or only the thing you are already on.
  */
-export function stepDomain(order: readonly string[], current: string | null, step: number): string | null {
+export function stepInOrder(order: readonly string[], current: string | null, step: number): string | null {
   if (order.length === 0) return null
   const at = current === null ? -1 : order.indexOf(current)
-  // Opening a department that has since left the list (renamed, moved, deleted) still steps:
-  // from nowhere, forward is the first shelf and backward is the last.
+  // Something that has since left the list (renamed, moved, deleted) still steps: from
+  // nowhere, forward is the first and backward is the last.
   if (at < 0) return step >= 0 ? order[0]! : order[order.length - 1]!
   if (order.length === 1) return null
   const next = (at + (step % order.length) + order.length) % order.length

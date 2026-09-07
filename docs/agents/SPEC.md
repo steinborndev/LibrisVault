@@ -743,6 +743,10 @@ repo. Controls live on the canvas as on the graph screen. The screen follows DES
 
 ### 10.8 Rooms, navigation, growth
 
+- **The rooms are a ring.** The wheel and the arrows pass from the last room back to the first
+  and the other way round, the way the passage in the back wall already walked them and the way
+  the sign over it reads. They used to clamp, which made the last room a wall you could scroll
+  against with nothing happening (`stepInOrder`, shared with the shelves).
 - **One room per view.** The mouse wheel, the arrow keys, a **room strip** on the canvas
   (pills with the room names, shelf counts and an activity dot) and the Rooms list in the
   control column all page between rooms; the next room slides in. Main room first, then the
@@ -789,7 +793,8 @@ covering the room canvas exactly, inside the same box, so nothing on the screen 
 `wiki/hot.md`, the recap window is the same feed Home opens on.
 
 Above the lintel hangs a small banner with the name of the room the passage leads to (as built,
-2026-09-07). A wing hangs its OWN name on the long wall; the doorway says where the door goes,
+2026-09-07), centred in the wall between the lintel and the cornice so a band of green shows
+above and below it - hung against the frame it read as part of the frame. A wing hangs its OWN name on the long wall; the doorway says where the door goes,
 which is the question actually asked while standing in front of it. It is smaller than the wall
 banner because it names a destination rather than the room you are in, and it reads from the
 same room order the strip does, so renaming a wing or dragging one along the strip changes it

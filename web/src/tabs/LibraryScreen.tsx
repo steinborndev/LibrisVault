@@ -33,7 +33,7 @@ import type { BoardId } from '../components/library/RoomSvg.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
-import { orderedDomains, stepDomain } from '../lib/library/shelfOrder.ts'
+import { orderedDomains, stepInOrder } from '../lib/library/shelfOrder.ts'
 import { navigate } from '../lib/router.ts'
 import { buildActors, floorLine, roleOfRun, ROLE_NAME, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
@@ -267,13 +267,17 @@ export function LibraryScreen({
     navigate(rest === '' ? '/library' : `/library?${rest}`, { replace: true })
   }
 
-  // Paging: wheel and arrow keys inside the canvas.
+  /*
+   * Paging: wheel and arrow keys inside the canvas. It wraps - scrolling past the last room
+   * arrives back at the main one - because the rooms are a ring, which is how the passage in
+   * the back wall already walks them and what the sign over it promises. Clamping instead made
+   * the last room a wall you could scroll against with nothing happening.
+   */
   const page = useCallback(
     (delta: number): void => {
       if (!current) return
-      const idx = rooms.findIndex((r) => r.id === current.id)
-      const next = rooms[Math.max(0, Math.min(rooms.length - 1, idx + delta))]
-      if (next && next.id !== current.id) pickRoom(next.id)
+      const next = stepInOrder(rooms.map((r) => r.id), current.id, delta)
+      if (next !== null && next !== current.id) pickRoom(next)
     },
     [rooms, current, pickRoom],
   )
@@ -346,7 +350,7 @@ export function LibraryScreen({
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
       const el = e.target
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)) return
-      const next = stepDomain(shelfOrder, shelf, e.key === 'ArrowDown' ? 1 : -1)
+      const next = stepInOrder(shelfOrder, shelf, e.key === 'ArrowDown' ? 1 : -1)
       if (next === null) return
       e.preventDefault()
       setShelfPage(null)

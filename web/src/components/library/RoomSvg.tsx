@@ -351,8 +351,17 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
    * rename or a drag in the strip changes it with the next scene.
    */
   if (props.nextRoomName !== undefined && props.nextRoomName !== '') {
-    const sBottom = Math.min(doorZ + 13, wallH - 34)
-    const sTop = sBottom + 26
+    /*
+     * Centred in the wall between the lintel and the cornice, so a band of green shows above
+     * AND below it. Hung against the door frame it read as part of the frame; the gap is what
+     * makes it a sign on a wall.
+     */
+    const lintelTop = doorZ + 9
+    const corniceZ = wallH - 4
+    const sHeight = 24
+    const gap = Math.max(6, (corniceZ - lintelTop - sHeight) / 2)
+    const sBottom = lintelTop + gap
+    const sTop = sBottom + sHeight
     const backFace = (a: number, b: number, z0: number, z1: number): string => pts([P(a, 0, z0), P(b, 0, z0), P(b, 0, z1), P(a, 0, z1)])
     const [sx, sy] = P((DOOR.from + DOOR.to) / 2, 0, (sTop + sBottom) / 2 - 5)
     add((DOOR.from + DOOR.to) / 2 - 0.44, 'passage-sign', (
