@@ -1175,6 +1175,15 @@ the wrong place. Every return to the graph re-frames it - the canvas keeps pan a
 state, which is right for a view that continues and wrong for one being opened again, so the
 number of returns rides in the fit key.
 
+**The four arrows walk the library** (2026-09-07). Left and right switch the two views of a
+department; up and down step to the next department, in the order the shelves stand in - rooms
+in their order, slots inside a room, the same walk the column lists and the back wall shows, so
+the arrow moves to the shelf BESIDE this one rather than to an alphabetical neighbour nobody can
+see (`orderedDomains`, `stepDomain`). It wraps at both ends: a ring of shelves has no dead end,
+and holding a key to stop dead at the last one reads as a broken key. Both directions close an
+open page first - you are leaving what the page belongs to - and neither fires while the caret
+sits in a field, where the arrows move the text.
+
 Two things around it were fixed in the same pass:
 
 - **The Catalog shows every match.** It paged in fifties and grew as the reader neared the

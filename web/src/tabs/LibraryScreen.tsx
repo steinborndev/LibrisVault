@@ -33,6 +33,7 @@ import type { BoardId } from '../components/library/RoomSvg.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
+import { orderedDomains, stepDomain } from '../lib/library/shelfOrder.ts'
 import { navigate } from '../lib/router.ts'
 import { buildActors, floorLine, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
@@ -200,6 +201,13 @@ export function LibraryScreen({
   }, [scene.data, exits, tick])
 
   const rooms: readonly SceneRoom[] = scene.data?.rooms ?? []
+  const departments = scene.data?.departments ?? []
+  /**
+   * The shelves in the order they stand in - what up and down walk along. Keyed on the scene
+   * itself: `rooms` and `departments` are fresh arrays on every render, so memoising on them
+   * would resubscribe the key listener each time.
+   */
+  const shelfOrder = useMemo(() => orderedDomains(scene.data?.rooms ?? [], scene.data?.departments ?? []), [scene.data])
   const current = rooms.find((r) => r.id === room) ?? rooms[0]
   const activityRooms = useMemo(() => new Set(actors.filter((a) => !a.exiting && a.pose !== 'sleep' && a.pose !== 'sit').map((a) => a.room)), [actors])
   const night = scene.data?.night ?? false
@@ -306,6 +314,28 @@ export function LibraryScreen({
     return () => window.removeEventListener('keydown', onArrow)
   }, [active, shelf])
 
+  /**
+   * Up and down walk to the next department, in the order the shelves stand in - the same
+   * order the column lists and the back wall shows, so the arrow moves to the shelf beside
+   * this one rather than to an alphabetical neighbour nobody can see. It wraps at both ends,
+   * and it closes an open page: you are leaving the department the page belongs to.
+   */
+  useEffect(() => {
+    if (!active || shelf === null) return
+    const onArrow = (e: KeyboardEvent): void => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      const el = e.target
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)) return
+      const next = stepDomain(shelfOrder, shelf, e.key === 'ArrowDown' ? 1 : -1)
+      if (next === null) return
+      e.preventDefault()
+      setShelfPage(null)
+      setShelf(next)
+    }
+    window.addEventListener('keydown', onArrow)
+    return () => window.removeEventListener('keydown', onArrow)
+  }, [active, shelf, shelfOrder])
+
   // Wings and moves.
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: ['library-scene'] })
@@ -391,7 +421,6 @@ export function LibraryScreen({
   const state = queryState(scene, 'the library')
   const clock = new Date()
   const hhmm = `${String(clock.getHours()).padStart(2, '0')}:${String(clock.getMinutes()).padStart(2, '0')}`
-  const departments = scene.data?.departments ?? []
   const byRoom = (id: string): typeof departments => departments.filter((d) => d.room === id).sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
   const s: LibraryScene | undefined = scene.data
 
