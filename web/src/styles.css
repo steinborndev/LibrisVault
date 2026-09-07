@@ -6871,11 +6871,11 @@ tr:focus-within .rowacts {
   font-size: 13px;
   padding: 0 12px;
 }
-.lib-board, .lib-passage, .lib-banner { transition: filter 0.12s; }
+.lib-board, .lib-passage, .lib-banner, .lib-passage-sign { transition: filter 0.12s; }
 .lib-banner:hover { filter: brightness(1.07); }
 /* A desk lamp: dark by day, lit through the night shift (the glow rides in the SVG). */
 .lib-lamp { transition: opacity 0.3s; }
-.lib-board:hover, .lib-passage:hover { filter: brightness(1.07); }
+.lib-board:hover, .lib-passage:hover, .lib-passage-sign:hover { filter: brightness(1.07); }
 
 
 /*
@@ -6925,10 +6925,16 @@ tr:focus-within .rowacts {
   background: color-mix(in srgb, var(--bg) 78%, transparent);
 }
 .lp-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
   color: var(--text);
   font-weight: 600;
   letter-spacing: 0.02em;
-  margin-bottom: 2px;
+  padding-bottom: 3px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--border);
 }
 .lp-row {
   display: flex;
@@ -6944,15 +6950,10 @@ tr:focus-within .rowacts {
   white-space: nowrap;
 }
 /*
- * Two separate signals, because they answer two questions. The fullest window is the one that
- * stops the next run - emphasis, not alarm; 53 % used is not a warning. The COLOUR is the
- * level, and only a window that is genuinely running out earns it.
+ * Only the level is drawn. The fullest window was picked out too, until it turned out to be
+ * the week nearly every time - the week is far the larger budget, so being the fullest of the
+ * two says nothing about what stops the next run.
  */
-.lp-row.tight .lp-w,
-.lp-row.tight .lp-n {
-  color: var(--text);
-  font-weight: 600;
-}
 .lp-row.low .lp-w,
 .lp-row.low .lp-n {
   color: var(--warn);

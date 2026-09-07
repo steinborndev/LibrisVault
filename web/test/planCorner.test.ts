@@ -38,7 +38,7 @@ describe('what the corner says', () => {
     const c = planCorner(plan(), NOW)!
     expect(c.unit).toBe('used')
     expect(c.lines.map((l) => [l.label, l.usedPct])).toEqual([
-      ['5 h', 24],
+      ['5h', 24],
       ['week', 53],
     ])
   })
@@ -55,7 +55,7 @@ describe('what the corner says', () => {
       NOW,
     )!
     // Five hours, then the plain week, then the per-model ones - and each named, not skipped.
-    expect(c.lines.map((l) => l.label)).toEqual(['5 h', 'week', 'week · fable'])
+    expect(c.lines.map((l) => l.label)).toEqual(['5h', 'week', 'week · fable'])
     expect(c.lines.map((l) => l.usedPct)).toEqual([27, 54, 81])
   })
 

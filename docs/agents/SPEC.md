@@ -788,6 +788,13 @@ covering the room canvas exactly, inside the same box, so nothing on the screen 
 `Esc` or the button in its head brings the room back. The hot cache window renders
 `wiki/hot.md`, the recap window is the same feed Home opens on.
 
+Above the lintel hangs a small banner with the name of the room the passage leads to (as built,
+2026-09-07). A wing hangs its OWN name on the long wall; the doorway says where the door goes,
+which is the question actually asked while standing in front of it. It is smaller than the wall
+banner because it names a destination rather than the room you are in, and it reads from the
+same room order the strip does, so renaming a wing or dragging one along the strip changes it
+with the next scene.
+
 The passage in the back wall has a wooden frame (two posts and a lintel) and is the way
 on: clicking it shows the next room, wrapping from the last wing back to the main room.
 Every wing has the same frame around its own passage.
@@ -1219,10 +1226,11 @@ regularly the tightest of the lot: skipping the keys it did not recognise hid ex
 that binds first. Anything `seven_day_x` reads as "week · x", anything else is its key without
 the underscores, and the rows sort five hours, week, then the per-model ones.
 
-Two signals, kept apart. The FULLEST window is emphasised - it is the one that stops the next
-run, and finding it should not mean comparing three numbers. The COLOUR is the level, and only a
-window genuinely running out earns it (warn at 75 % used, error at 90 %): 53 % used is not a
-warning, and a card that shouts at a healthy plan teaches the reader to ignore it.
+Only the level is drawn: warn at 75 % used, error at 90 %. The fullest window was picked out
+too, until it turned out to be the week nearly every time - the week is far the larger budget,
+so being the fuller of the two says nothing about what stops the next run. `used` is
+right-aligned over the column of figures and a rule separates it from them, so the head names
+what the numbers are without repeating the word on every row.
 
 The name comes from the `planName` setting first and the SDK's `subscription_type` second: the
 SDK does not report it on every account, and the usage endpoint that also carries it is rate

@@ -651,6 +651,7 @@ export function LibraryScreen({
               onActorClick={onActorClick}
               onBoardClick={current.kind === 'main' ? setBoard : undefined}
               onPassageClick={rooms.length > 1 ? nextRoom : undefined}
+              {...(rooms.length > 1 ? { nextRoomName: rooms[(rooms.findIndex((r) => r.id === current.id) + 1) % rooms.length]?.name } : {})}
               passageTitle={
                 rooms.length > 1
                   ? `to ${rooms[(rooms.findIndex((r) => r.id === current.id) + 1) % rooms.length]?.name ?? 'the next room'}`
@@ -718,15 +719,14 @@ export function LibraryScreen({
                 <div className={`lib-plan${night ? ' dark' : ''}`}>
                   {/* "left" once, in the head: with a per-model window or three it would be
                       four repetitions of the same word in a card this size. */}
+                  {/* The unit sits over the column it describes, right-aligned with the
+                      figures, and a rule separates the head from the readings. */}
                   <div className="lp-name">
-                    {corner.plan ?? 'plan'} <span className="lp-unit">{corner.unit}</span>
+                    <span>{corner.plan ?? 'plan'}</span>
+                    <span className="lp-unit">{corner.unit}</span>
                   </div>
                   {corner.lines.map((l) => (
-                    <div
-                      key={l.window}
-                      className={`lp-row${l.tightest && corner.lines.length > 1 ? ' tight' : ''}${l.usedPct >= 90 ? ' spent' : l.usedPct >= 75 ? ' low' : ''}`}
-                      title={l.tightest ? 'the window that stops the next run' : undefined}
-                    >
+                    <div key={l.window} className={`lp-row${l.usedPct >= 90 ? ' spent' : l.usedPct >= 75 ? ' low' : ''}`}>
                       <span className="lp-w">{l.label}</span>
                       <span className="lp-n">{l.usedPct}%</span>
                     </div>

@@ -268,6 +268,8 @@ export interface RoomSvgProps {
   readonly onActorClick?: (actor: Actor, e: React.MouseEvent) => void
   /** A board on the short wall was clicked; the screen opens it as a window. */
   readonly onBoardClick?: ((board: BoardId) => void) | undefined
+  /** The name over the passage: which room it leads to. Absent = no sign, one room only. */
+  readonly nextRoomName?: string | undefined
   /** The passage in the back wall was clicked; the screen shows the next room. */
   readonly onPassageClick?: (() => void) | undefined
   readonly passageTitle?: string | undefined
@@ -340,6 +342,40 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       <polygon points={pts([P(DOOR.from - 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ + 9), P(DOOR.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
     </g>
   ))
+  /*
+   * The name of the room the passage leads to, on a small banner above its lintel.
+   *
+   * A wing hangs its own name on the long wall; the doorway says where the door goes, which is
+   * the question actually asked while standing in front of it. Smaller than the wall banner -
+   * it names a destination, not the room you are in - and it follows the room order, so a
+   * rename or a drag in the strip changes it with the next scene.
+   */
+  if (props.nextRoomName !== undefined && props.nextRoomName !== '') {
+    const sBottom = Math.min(doorZ + 13, wallH - 34)
+    const sTop = sBottom + 26
+    const backFace = (a: number, b: number, z0: number, z1: number): string => pts([P(a, 0, z0), P(b, 0, z0), P(b, 0, z1), P(a, 0, z1)])
+    const [sx, sy] = P((DOOR.from + DOOR.to) / 2, 0, (sTop + sBottom) / 2 - 5)
+    add((DOOR.from + DOOR.to) / 2 - 0.44, 'passage-sign', (
+      <g className="lib-passage-sign" onClick={props.onPassageClick} style={{ cursor: props.onPassageClick ? 'pointer' : 'default' }}>
+        <title>{props.passageTitle ?? 'the next room'}</title>
+        <polygon points={backFace(DOOR.from + 0.08, DOOR.to + 0.08, sBottom - 4, sBottom)} fill={night ? '#0b1610' : '#22382e'} opacity={0.35} />
+        <polygon points={backFace(DOOR.from, DOOR.to, sBottom, sTop)} fill={night ? '#1f3329' : '#37564a'} stroke={night ? '#132119' : '#283f36'} strokeWidth={0.8} />
+        <polygon points={backFace(DOOR.from - 0.12, DOOR.to + 0.12, sTop - 5, sTop)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.7} />
+        <text
+          transform={`matrix(1 0.5 0 1 ${sx.toFixed(1)} ${sy.toFixed(1)})`}
+          textAnchor="middle"
+          fontFamily={FONT}
+          fontSize={15}
+          fontWeight={600}
+          letterSpacing="0.03em"
+          fill={night ? '#c9d6c8' : '#f2ede0'}
+        >
+          {props.nextRoomName}
+        </text>
+      </g>
+    ))
+  }
+
   // The right post sorts after the wall tile beside it, which would otherwise paint over it.
   add(DOOR.to + 0.6, 'doorpost-r', (
     <polygon

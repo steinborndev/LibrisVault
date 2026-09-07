@@ -31,7 +31,11 @@ export interface PlanLine {
   readonly usedPct: number
   /** True when this window has rolled over since the sample: the number is a fresh 0. */
   readonly reset: boolean
-  /** The window with the most used - the one that stops the next run. */
+  /**
+   * The window with the most used. Not drawn any more: the week is almost always the fullest,
+   * because it is far the larger budget, so a mark on it carried no information. Kept because
+   * the reading is still true and a caller may want it.
+   */
   readonly tightest: boolean
 }
 
@@ -50,7 +54,7 @@ export interface PlanCorner {
 }
 
 /** The two windows everyone has; the rest are named from their key. */
-const LABEL: Record<string, string> = { five_hour: '5 h', seven_day: 'week' }
+const LABEL: Record<string, string> = { five_hour: '5h', seven_day: 'week' }
 
 /**
  * What to call a window that is not one of the two above.
