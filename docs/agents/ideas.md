@@ -343,3 +343,58 @@ progress (`progress: 2/5 sources fetched`), which the research skill's rounds an
 skill's ten checks would make natural. That is the only source of a REAL fraction, but it
 depends on the model obeying, so it would layer on top of the estimate rather than replace it.
 
+## Decision: deepening is something you can ask for (2026-09-07)
+
+Answers to the first of the four questions parked after the end-to-end tests. `research-expand`
+is complete on the server - `POST /agents/:id/step` already takes `kind` and `pageSet`, the page
+set is validated append-only and a violation reverts - and invisible in the UI, so the one run
+kind that touches existing pages is the one the user cannot ask for. It gets two entry points.
+
+**It is called "Deepen".** Not "expand", which in a UI reads as "more pages" while the run does
+the opposite, and not the internal kind name.
+
+**Two ways in, one dialog.** From the Fellow card, next to "Run next step now", with the
+Fellow's home domain already chosen. From the Catalog, in the header of a domain-filtered list,
+where the domain is already the unit of the view. Both open the same dialog, so there is one
+thing to keep consistent rather than two.
+
+**You pick a domain, the service picks the pages.** Ranked by demand against substance: many
+incoming links, little text - the pages the vault points at and that do not pay off. `in` and
+`size` are already on every graph node, so the ranking is a pure function in the web and needs
+no server work. Recency and isolation are other real kinds of gap and deliberately not this one.
+The dialog shows the proposal and lets you replace a row two ways: an `x` takes the next
+candidate off the ranking, and a search field takes a page you already have in mind.
+
+**Bounded by the Fellow's own ground.** Only pages in the Fellow's home domain or its
+extraDomains; a Fellow is not offered for a domain that is not his. The alternative - quietly
+adding the domain to the Fellow - would let one grow past its subject without anyone deciding
+that, which is the drift the scope score exists to catch.
+
+**A domain with no Fellow is a beginning, not a dead end.** The action stays live and leads into
+the spawn form, prefilled with the domain and the four pages, and the new Fellow's first step IS
+that deepening rather than the usual first research run. It reuses the prefilled spawn built for
+unclaimed handoffs. A Fellow that starts by consolidating what is there before adding to it is
+also the better first run.
+
+**Up to eight pages, with the price attached.** The planner keeps its cap of four; a hand start
+may go to eight, and budget and timeout follow: 6 USD and the current timeout cover four, each
+further page adds 1 USD and 25 % time. Not linear, because a run orients itself in the vault
+once - the eighth page is cheaper than the first. Eight pages therefore cost 10 USD, and the
+dialog says so before it starts.
+
+**A direction is optional.** One free-text field, "what to look for". Empty means the pages bound
+the run and the Fellow's intent steers it, which is what `step()` already does when no topic is
+given (`opts.topic ?? agent.intent`) - so the field costs nothing on the server. Filled, it is
+the run's topic.
+
+**The quota behaves as it does for a step.** 409 with "x of y today", and the dialog asks once
+before overriding - the mechanism built for "Run next step now". One rule, one explanation.
+
+Deliberately NOT decided here: a Fellow whose standing work is deepening a set. That is the
+second parked question (several standing tasks per Fellow), where it belongs as one task kind
+among several rather than as a special case bolted to the spawn form.
+
+What this needs, in order: the ranking as a pure function with tests; a page-set cap and a
+domain guard on the step route, since a hand-started expand is capped and bounded by nothing
+today; budget and timeout as functions of the page count instead of flat per kind; the shared
+dialog; the two entry points; the spawn prefill.
