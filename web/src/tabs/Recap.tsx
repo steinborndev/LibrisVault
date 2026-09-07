@@ -297,10 +297,17 @@ export function FellowSection({
           <div key={r.runId} className="recap-ran">
             <div className="recap-ran-line">
               <b>{r.kind}</b> · {r.topic}
+              {/* Its facts are here, its prose is not: the "what it found" lines are written
+                  during a build, and this run landed after one. */}
+              {r.addedAfterBuild === true && (
+                <span className="recap-later" title="This ran after the recap was built. Rebuilding adds its summary line.">
+                  after the build
+                </span>
+              )}
             </div>
             <div className="recap-ran-meta">
               {r.ok
-                ? `${r.pagesCreated.length} page(s) created, ${r.pagesUpdated.length} updated · ${usd(r.costUsd)}${r.commit ? ` · commit ${r.commit.slice(0, 8)}` : ''}`
+                ? `${r.addedAfterBuild === true ? `${r.pagesUpdated.length} page(s)` : `${r.pagesCreated.length} page(s) created, ${r.pagesUpdated.length} updated`} · ${usd(r.costUsd)}${r.commit ? ` · commit ${r.commit.slice(0, 8)}` : ''}`
                 : `failed: ${r.error ?? 'unknown'}`}
             </div>
             {r.pagesCreated.length > 0 && (

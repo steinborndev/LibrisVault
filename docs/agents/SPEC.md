@@ -597,6 +597,31 @@ add - runs the snapshot does not know about and their summary lines - is counted
 `sinceBuilt` and said in one line above the recap, next to the button that costs the agent
 run.
 
+**A recap picks up what happened after it was built** (as built, 2026-09-07). It is a snapshot
+taken once a day, and only its decision half was re-read on the way out - so anything after the
+build was invisible: work started by hand, and a night-shift run too if the shift ran late. The
+line was never "manual versus scheduled", it was "before versus after the build".
+
+Two faults, one of them silent. `freshenRecap` walked the Fellows the SNAPSHOT knew, so a Fellow
+spawned after the build was absent entirely - its runs were not listed and not even counted in
+"what a rebuild would add", which read 0 while five runs had happened. And the runs of a Fellow
+it did know were counted but never shown.
+
+Now, on read: the runs since the build are appended with what the run store holds and marked
+`addedAfterBuild`, a Fellow the snapshot never saw gets its own entry numbered after the others
+(the number is in its proposal codes, so it is assigned before they are built), and the header
+follows the body - totals, the quiet flag and the service-wide consumption are all re-read,
+because "Nothing ran tonight" over five listed runs and a consumption of zero beside fifteen
+dollars is a page arguing with itself.
+
+The facts of a run are free - they are in the store - and only the prose costs a run of its own:
+the "what it found" lines are written by an agent during a build. So a rebuild stays the way to
+get them, and an appended run says so rather than pretending to be summarised. No git on this
+path either: the created/updated split costs a `git show` per commit and the path runs on every
+request, so an appended run shows its pages unsplit - the same fallback the build itself takes
+when it has no status. The stored row is never touched; a recap remains the record of what it
+recorded.
+
 ### 9.3 Channels
 
 - Dashboard: Home's flow box and a "Recap" view (`/recap`, `/recap/<date>`) with the

@@ -55,6 +55,12 @@ export interface RecapRun {
   readonly proposalId: string | null
   /** Plan points the run consumed per window, when measured (A5). */
   readonly planPct: Readonly<Record<string, number>> | null
+  /**
+   * True for a run that landed AFTER this recap was built and was added on read (2026-09-07).
+   * Its facts are free - they are in the run store - but the prose is not: the "what it found"
+   * lines are written by an agent during a build, so these runs carry none until a rebuild.
+   */
+  readonly addedAfterBuild?: boolean
 }
 
 export interface RecapProposal {
@@ -362,15 +368,31 @@ export function withModelDefaults(row: RecapRow<RecapModel>): RecapRow<RecapMode
  * rewrite, just the store. Codes are re-issued from the live list, and answers resolve against
  * the same refreshed model, so a code always names what the reader sees.
  */
+/**
+ * The decision half of a recap, re-read on the way out - and, since 2026-09-07, the runs that
+ * landed after it was built.
+ *
+ * A recap is a snapshot taken once a day, so anything after the build was invisible until the
+ * next one: not only work started by hand, but a night-shift run too, if the shift ran late.
+ * Worse, this only ever looked at the Fellows the SNAPSHOT knew, so a Fellow spawned after the
+ * build was absent from the recap entirely - its runs were not listed and not even counted in
+ * "what a rebuild would add", which read 0 while four runs had happened.
+ *
+ * The facts of a run are free; only the prose costs a run of its own. So the runs are appended
+ * with what the store knows and marked `addedAfterBuild`, and a rebuild stays the way to get
+ * the "what it found" lines.
+ */
 export function freshenRecap(
   row: RecapRow<RecapModel>,
-  live: (agentId: string) => { readonly agent: { readonly state: string; readonly sleepCode: string | null; readonly sleepReason: string | null; readonly skipUntil: string | null } | undefined; readonly proposals: readonly ProposalRecord[]; readonly runsSince: number },
+  live: (agentId: string) => { readonly agent: { readonly state: string; readonly sleepCode: string | null; readonly sleepReason: string | null; readonly skipUntil: string | null } | undefined; readonly proposals: readonly ProposalRecord[]; readonly runsAfter: readonly RecapRun[] },
+  /** Fellows the snapshot does not know - spawned after it was built. */
+  newcomers: readonly RecapFellow[] = [],
 ): RecapRow<RecapModel> {
   let newRuns = 0
   let newProposals = 0
   const fellows = row.model.fellows.map((f): RecapFellow => {
     const now = live(f.agentId)
-    newRuns += now.runsSince
+    newRuns += now.runsAfter.length
     const proposals = now.proposals
       .slice()
       .sort((a, b) => (a.status === 'approved' ? 0 : 1) - (b.status === 'approved' ? 0 : 1) || a.rank - b.rank)
@@ -388,15 +410,42 @@ export function freshenRecap(
         rank: p.rank,
       }))
     newProposals += now.proposals.filter((p) => p.createdAt > row.generatedAt).length
+    // Appended, not merged: a run the snapshot already lists keeps the created/updated split
+    // the build worked out from git, which the read path has no cheap way to redo.
+    const known = new Set(f.runs.map((r) => r.runId))
+    const added = now.runsAfter.filter((r) => !known.has(r.runId))
     return {
       ...f,
+      runs: [...f.runs, ...added],
       proposals,
       ...(now.agent
         ? { state: now.agent.state, sleepCode: now.agent.sleepCode, sleepReason: now.agent.sleepReason, skipUntil: now.agent.skipUntil }
         : {}),
     }
   })
-  return { ...row, model: { ...row.model, fellows, sinceBuilt: { runs: newRuns, proposals: newProposals } } }
+  // A Fellow born after the build gets its own entry; the caller numbered it, because the
+  // number is also in its proposal codes.
+  const fresh = [...newcomers]
+  for (const f of fresh) {
+    newRuns += f.runs.length
+    newProposals += f.proposals.filter((p) => p.status === 'proposed').length
+  }
+  const all = [...fellows, ...fresh]
+  /*
+   * The totals and the quiet flag are statements about what the recap SHOWS, so they follow
+   * what was appended. Left alone, the page said "Nothing ran tonight" over five runs it was
+   * now listing, and a consumption of zero over about fifteen dollars of work - the header
+   * contradicting the body underneath it.
+   */
+  const runs = all.flatMap((f) => f.runs)
+  const totals = {
+    runs: runs.length,
+    failed: runs.filter((r) => !r.ok).length,
+    costUsd: Math.round(runs.reduce((a, r) => a + (r.costUsd ?? 0), 0) * 100) / 100,
+    pages: runs.reduce((a, r) => a + r.pagesCreated.length + r.pagesUpdated.length, 0),
+  }
+  const quiet = row.model.quiet && newRuns === 0 && newProposals === 0
+  return { ...row, model: { ...row.model, fellows: all, quiet, totals, sinceBuilt: { runs: newRuns, proposals: newProposals } } }
 }
 
 /* --------------------------------- the summary run --------------------------------- */
@@ -785,15 +834,103 @@ export class RecapService {
    * run finishing after the build must not leave them showing yesterday's answer.
    */
   private freshen(row: RecapRow<RecapModel>): RecapRow<RecapModel> {
-    return freshenRecap(row, (agentId) => {
-      const agent = this.o.fellows.get(agentId)
-      const runsSince = this.o.runs.list({ agentId, limit: 50 }).filter((r) => r.startedAt > row.generatedAt).length
-      return {
-        agent: agent ? { state: agent.state, sleepCode: agent.sleepCode, sleepReason: agent.sleepReason, skipUntil: agent.skipUntil } : undefined,
-        proposals: this.o.fellows.pendingProposals(agentId),
-        runsSince,
-      }
-    })
+    const known = new Set(row.model.fellows.map((f) => f.agentId))
+    const newcomers = this.o.fellows
+      .list()
+      .filter((s) => s.agent.state !== 'retired' && !known.has(s.agent.id))
+      // The index is the number in every proposal code, so it has to be the final one here -
+      // renumbering afterwards would leave the codes pointing at a position nobody has.
+      .map((s, i): RecapFellow => this.fellowAfterBuild(s.agent, row.generatedAt, row.model.fellows.length + i + 1))
+    const fresh = freshenRecap(
+      row,
+      (agentId) => {
+        const agent = this.o.fellows.get(agentId)
+        return {
+          agent: agent ? { state: agent.state, sleepCode: agent.sleepCode, sleepReason: agent.sleepReason, skipUntil: agent.skipUntil } : undefined,
+          proposals: this.o.fellows.pendingProposals(agentId),
+          runsAfter: this.runsAfter(agentId, row.generatedAt),
+        }
+      },
+      newcomers,
+    )
+    /*
+     * Consumption is service-wide and was measured when the recap was built, so it read zero
+     * over a body listing five runs and fifteen dollars. It is one query, so it is re-read too.
+     */
+    const now = this.now()
+    const usage = {
+      today: this.usageSince(startOfToday(now).toISOString()),
+      week: this.usageSince(new Date(now.getTime() - 7 * 24 * 3600_000).toISOString()),
+    }
+    return { ...fresh, model: { ...fresh.model, usage } }
+  }
+
+  private usageSince(sinceIso: string): { readonly costUsd: number; readonly runs: number } {
+    const u = this.o.jobs.usageSince(sinceIso)
+    return { costUsd: Math.round(u.costUsd * 100) / 100, runs: u.ingests }
+  }
+
+  /**
+   * A Fellow's runs since an instant, as recap rows.
+   *
+   * No git here: the read path runs on every request, and the created/updated split costs a
+   * `git show` per commit. An unsplit list is what `buildRecapModel` already falls back to when
+   * it has no status, so the shape is one the renderer knows.
+   */
+  private runsAfter(agentId: string, after: string): RecapRun[] {
+    return this.o.runs
+      .list({ agentId, limit: 50 })
+      .filter((r) => isResearchKind(r.kind) && r.startedAt > after)
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+      .map((r) => ({
+        runId: r.id,
+        kind: r.kind,
+        topic: r.label ?? r.kind,
+        ok: r.ok,
+        error: r.error,
+        pagesCreated: [],
+        pagesUpdated: knowledgePages(r.pages),
+        commit: r.commitHash,
+        costUsd: r.costUsd,
+        startedAt: r.startedAt,
+        proposalId: r.proposalId ?? null,
+        planPct: r.planPctDelta ?? null,
+        addedAfterBuild: true,
+      }))
+  }
+
+  /** An entry for a Fellow the snapshot never saw, with everything but the agent-written prose. */
+  private fellowAfterBuild(agent: AgentRecord, after: string, index: number): RecapFellow {
+    return {
+      index,
+      agentId: agent.id,
+      name: agent.name,
+      homeDomain: agent.homeDomain,
+      model: agent.model,
+      autonomy: agent.autonomy,
+      state: agent.state,
+      sleepCode: agent.sleepCode,
+      sleepReason: agent.sleepReason,
+      skipUntil: agent.skipUntil,
+      notebookPath: agent.notebookPath,
+      runs: this.runsAfter(agent.id, after),
+      found: [],
+      openQuestions: [],
+      proposals: this.o.fellows.pendingProposals(agent.id).map((p, i) => ({
+        code: codeFor(index, i + 1),
+        proposalId: p.id,
+        kind: p.kind,
+        topic: p.topic,
+        rationale: p.rationale,
+        provenance: p.provenance,
+        estCostUsd: p.estCostUsd,
+        scopeScore: p.scopeScore,
+        drift: isDrift(p.scopeScore),
+        status: p.status,
+        rank: p.rank,
+      })),
+      value: { pageOpens: 0, recapLinks: 0 },
+    }
   }
 
   get isBuilding(): boolean {

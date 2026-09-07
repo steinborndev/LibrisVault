@@ -668,6 +668,11 @@ export interface RecapRun {
   error: string | null
   pagesCreated: string[]
   pagesUpdated: string[]
+  /**
+   * True for a run that landed after this recap was built and was added on read. Its facts are
+   * here; the "what it found" prose is written during a build, so it has none until a rebuild.
+   */
+  addedAfterBuild?: boolean
   commit: string | null
   costUsd: number | null
   startedAt: string

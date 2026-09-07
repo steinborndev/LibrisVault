@@ -575,8 +575,62 @@ describe('the newest recap keeps its decision half current', () => {
     expect(fresh.model.fellows[0]!.proposals.map((p) => p.code)).toEqual(['1a', '1b'])
     // The stored row is untouched: history stays as it was recorded.
     expect(h.recapStore.get(row.cycleDate)!.model.fellows[0]!.proposals).toHaveLength(built)
-    // And the reader is told what only a rebuild would pick up.
-    expect(fresh.model.sinceBuilt).toEqual({ runs: 1, proposals: 2 })
+    /*
+     * And the reader is told what only a rebuild would pick up. A PLANNING run is not that:
+     * the recap's story only ever holds research kinds, so a rebuild would add no line for it -
+     * what it produced is the two proposals, counted beside it.
+     */
+    expect(fresh.model.sinceBuilt).toEqual({ runs: 0, proposals: 2 })
+  })
+
+  it('adds the runs that landed after the build, with their facts and without the prose', async () => {
+    const { agent } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    const ada = agent!
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    const { row } = await h.recaps.build({ trigger: 'manual' })
+    const before = row.model.fellows[0]!.runs.length
+
+    // A run started by hand, an hour after the recap was built.
+    h.clock.now = at(8, 7, 60)
+    const step = h.service.step(ada.id, { topic: 'a question asked by hand', override: true })
+    await h.service.settled(step.run!.id)
+
+    const fresh = h.recaps.get(row.cycleDate)!
+    const runs = fresh.model.fellows[0]!.runs
+    expect(runs.length).toBe(before + 1)
+    expect(runs.at(-1)).toMatchObject({ topic: 'a question asked by hand', addedAfterBuild: true })
+    expect(fresh.model.sinceBuilt).toMatchObject({ runs: 1 })
+    // The header follows the body: totals count what the page now lists.
+    expect(fresh.model.totals.runs).toBe(runs.length)
+    expect(fresh.model.totals.costUsd).toBeGreaterThan(0)
+    // The stored row is untouched: a recap is a record of what it recorded.
+    expect(h.recapStore.get(row.cycleDate)!.model.fellows[0]!.runs).toHaveLength(before)
+  })
+
+  it('shows a Fellow spawned after the build, which was invisible before', async () => {
+    await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    const { row } = await h.recaps.build({ trigger: 'manual' })
+    expect(row.model.fellows).toHaveLength(1)
+
+    // A second Fellow, spawned after the build, runs its first step.
+    h.clock.now = at(8, 7, 30)
+    const { agent } = await h.service.spawn({ name: 'Noor', intent: 'Heat transport in ice shelves', homeDomain: 'climate-science', runFirstStep: false })
+    const step = h.service.step(agent!.id, { topic: 'its first question', override: true })
+    await h.service.settled(step.run!.id)
+
+    const fresh = h.recaps.get(row.cycleDate)!
+    expect(fresh.model.fellows.map((f) => f.name)).toEqual(['Ada', 'Noor'])
+    const noor = fresh.model.fellows[1]!
+    // Numbered after the ones that were there, and its codes carry that number.
+    expect(noor.index).toBe(2)
+    expect(noor.runs.map((r) => r.topic)).toEqual(['its first question'])
+    expect(noor.found).toEqual([])
+    expect(fresh.model.sinceBuilt).toMatchObject({ runs: 1 })
+    // A day that looked quiet at build time is not quiet any more, so the page stops saying so.
+    expect(fresh.model.quiet).toBe(false)
   })
 
   it('names the publications that reached the vault in this window', async () => {

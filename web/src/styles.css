@@ -7026,6 +7026,19 @@ tr:focus-within .rowacts {
   margin-left: 0;
 }
 /* An answer, not a fault: "not while a run is in flight" is the service working. */
+/* A run the recap picked up on read: its facts are here, its summary line is not. */
+.recap-later {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-faint);
+  cursor: help;
+}
+
 .lp-note {
   color: var(--text-dim);
   max-width: 190px;
