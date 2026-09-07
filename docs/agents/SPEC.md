@@ -1212,9 +1212,21 @@ is still affordable tonight. `planCorner` derives it, and two cases make that a 
 a window past its `resetsAt` reads a full 100 % rather than the figure from before the rollover,
 and a sample old enough to matter carries its age.
 
+**Every window the plan reports gets a row**, not the two the card knew by name. A plan also
+carries per-model weekly limits (`seven_day_opus`, `seven_day_fable`), and one of those is
+regularly the tightest of the lot: skipping the keys it did not recognise hid exactly the limit
+that binds first. Anything `seven_day_x` reads as "week · x", anything else is its key without
+the underscores, and the rows sort five hours, week, then the per-model ones.
+
+Two signals, kept apart. The window with the LEAST left is emphasised - it is the one that stops
+the next run, and finding it should not mean comparing three numbers. The COLOUR is the level,
+and only a genuinely thin window earns it (warn at 25 %, error at 10 %): 47 % left is not a
+warning, and a card that shouts at a healthy plan teaches the reader to ignore it.
+
 The name comes from the `planName` setting first and the SDK's `subscription_type` second: the
 SDK does not report it on every account, and the usage endpoint that also carries it is rate
 limited here - so the one thing the user knows for certain about their own plan is a setting.
+It is editable under System, Service & config, beside the other runtime settings.
 
 **How the numbers refresh, and when they do not.** Two sources: the SDK samples inside every run
 (before and after), and the OAuth usage endpoint, which `GET /usage/plan` asks at most every

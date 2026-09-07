@@ -163,6 +163,13 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
         )}
 
         {row(
+          'planName',
+          'Plan name',
+          'What your subscription is called ("5x max"), shown in the Library\'s corner beside what is left of each window. Not part of the credential: the SDK reports it on some accounts and not on others. Empty = show whatever was measured.',
+          <input type="text" maxLength={40} placeholder="measured" value={draft.planName} onChange={(e) => setDraft({ ...draft, planName: e.target.value })} />,
+        )}
+
+        {row(
           'gitAutoCommit',
           'Git auto-commit',
           'Commit automatically after every ingest. Off: pages land on disk without a commit.',

@@ -6935,8 +6935,31 @@ tr:focus-within .rowacts {
   justify-content: space-between;
   gap: 10px;
 }
+.lp-unit {
+  color: var(--text-faint);
+  font-weight: 400;
+}
 .lp-w {
   color: var(--text-faint);
+  white-space: nowrap;
+}
+/*
+ * Two separate signals, because they answer two questions. The window with the least left is
+ * the one that stops the next run - emphasis, not alarm; 47 % left is not a warning. The
+ * COLOUR is the level, and only a genuinely thin window earns it.
+ */
+.lp-row.tight .lp-w,
+.lp-row.tight .lp-n {
+  color: var(--text);
+  font-weight: 600;
+}
+.lp-row.low .lp-w,
+.lp-row.low .lp-n {
+  color: var(--warn);
+}
+.lp-row.spent .lp-w,
+.lp-row.spent .lp-n {
+  color: var(--err);
 }
 .lp-n {
   color: var(--text);

@@ -31,6 +31,8 @@ export interface PlanLine {
   readonly leftPct: number
   /** True when this window has rolled over since the sample: the number is a fresh 100. */
   readonly reset: boolean
+  /** The window with the least left - the one that stops the next run. */
+  readonly tightest: boolean
 }
 
 export interface PlanCorner {
@@ -45,12 +47,26 @@ export interface PlanCorner {
   readonly reason: string | null
 }
 
-/*
- * The row says "left" because the number is what remains, and the reader has a usage figure
- * in the other window: 76 beside a 27 reads as a contradiction until the row names which of
- * the two it is. Two words are cheaper than the doubt.
+/** The two windows everyone has; the rest are named from their key. */
+const LABEL: Record<string, string> = { five_hour: '5 h', seven_day: 'week' }
+
+/**
+ * What to call a window that is not one of the two above.
+ *
+ * The plan carries per-model weekly limits as well - `seven_day_opus`, `seven_day_fable` -
+ * and one of those is often the tightest of the lot. The card used to skip every key it did
+ * not know by name, which hid exactly the limit that binds first. Anything `seven_day_x`
+ * reads as "week · x"; anything else is its key with the underscores taken out.
  */
-const LABEL: Record<string, string> = { five_hour: '5 h left', seven_day: 'week left' }
+export function windowLabel(key: string): string {
+  if (LABEL[key] !== undefined) return LABEL[key]!
+  const model = key.startsWith('seven_day_') ? key.slice('seven_day_'.length) : null
+  if (model !== null) return `week · ${model.replace(/_/g, ' ')}`
+  return key.replace(/_/g, ' ')
+}
+
+/** Five hours first, then the plain week, then the per-model weeks in their own order. */
+const RANK: Record<string, number> = { five_hour: 0, seven_day: 1 }
 
 /** The corner's content for this plan status, as of `now`. */
 export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorner | null {
@@ -58,20 +74,24 @@ export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorne
   const sampled = plan.sampledAt === null ? null : Date.parse(plan.sampledAt)
   const ageMin = sampled === null || Number.isNaN(sampled) ? null : Math.max(0, Math.floor((now - sampled) / 60_000))
 
-  const lines: PlanLine[] = []
+  const lines: Array<Omit<PlanLine, 'tightest'>> = []
   for (const w of plan.windows) {
-    if (LABEL[w.window] === undefined) continue
     const resetsAt = plan.resets[w.window] ?? w.resetsAt
     const parsed = resetsAt === null || resetsAt === undefined ? NaN : Date.parse(resetsAt)
     const reset = !Number.isNaN(parsed) && parsed <= now
     const left = reset ? 100 : 100 - w.utilization
-    lines.push({ window: w.window, label: LABEL[w.window]!, leftPct: Math.max(0, Math.min(100, Math.round(left))), reset })
+    lines.push({ window: w.window, label: windowLabel(w.window), leftPct: Math.max(0, Math.min(100, Math.round(left))), reset })
   }
   if (lines.length === 0) return null
+  lines.sort((a, b) => (RANK[a.window] ?? 2) - (RANK[b.window] ?? 2) || a.window.localeCompare(b.window))
+  // The window with the least left is the one that stops the next run, whichever it is. It
+  // carries a mark so the binding limit is visible without reading three numbers and
+  // comparing them - which is the whole reason the per-model windows are shown at all.
+  const tightest = lines.reduce((a, b) => (b.leftPct < a.leftPct ? b : a))
 
   return {
     plan: plan.subscription !== null && plan.subscription !== '' ? plan.subscription : null,
-    lines,
+    lines: lines.map((l) => ({ ...l, tightest: l.window === tightest.window })),
     ageMin,
     // A window that has reset carries no stale figure, so an old sample behind a full window
     // is not worth flagging - only one whose number is still being shown.

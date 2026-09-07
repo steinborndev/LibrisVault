@@ -561,6 +561,12 @@ export interface EffectiveSettings {
   doiDedupe: boolean
   /** null = no budget. Unit depends on authMode: ingests/day (oauth) or USD/day (api-key). */
   dailyBudget: number | null
+  /**
+   * What the subscription is called, for the Library's corner. It does NOT come with the
+   * credential: the SDK reports `subscription_type` on some accounts and not on others, and
+   * the usage endpoint that also carries it is often rate limited. '' = show what is measured.
+   */
+  planName: string
 }
 
 /**

@@ -37,9 +37,44 @@ describe('what the corner says', () => {
   it('reports what is LEFT, not what was used, as whole percents', () => {
     const c = planCorner(plan(), NOW)!
     expect(c.lines.map((l) => [l.label, l.leftPct])).toEqual([
-      ['5 h left', 76],
-      ['week left', 47],
+      ['5 h', 76],
+      ['week', 47],
     ])
+  })
+
+  it('shows every window the plan reports, including the per-model weeks', () => {
+    const c = planCorner(
+      plan({
+        windows: [
+          { window: 'seven_day_fable', utilization: 81, resetsAt: ahead(3600_000) },
+          { window: 'five_hour', utilization: 27, resetsAt: ahead(3600_000) },
+          { window: 'seven_day', utilization: 54, resetsAt: ahead(3600_000) },
+        ],
+      }),
+      NOW,
+    )!
+    // Five hours, then the plain week, then the per-model ones - and each named, not skipped.
+    expect(c.lines.map((l) => l.label)).toEqual(['5 h', 'week', 'week · fable'])
+    expect(c.lines.map((l) => l.leftPct)).toEqual([73, 46, 19])
+  })
+
+  it('marks the window with the least left, which is the one that stops the next run', () => {
+    const c = planCorner(
+      plan({
+        windows: [
+          { window: 'five_hour', utilization: 27, resetsAt: ahead(3600_000) },
+          { window: 'seven_day', utilization: 54, resetsAt: ahead(3600_000) },
+          { window: 'seven_day_fable', utilization: 81, resetsAt: ahead(3600_000) },
+        ],
+      }),
+      NOW,
+    )!
+    expect(c.lines.filter((l) => l.tightest).map((l) => l.label)).toEqual(['week · fable'])
+  })
+
+  it('names a window nobody has a label for rather than dropping it', () => {
+    const c = planCorner(plan({ windows: [{ window: 'seven_day_oauth_apps', utilization: 5, resetsAt: null }] }), NOW)!
+    expect(c.lines.map((l) => l.label)).toEqual(['week · oauth apps'])
   })
 
   it('takes the plan name the user set over the one the SDK guessed', () => {
@@ -76,7 +111,5 @@ describe('what the corner says', () => {
     expect(planCorner(undefined, NOW)).toBeNull()
     expect(planCorner(plan({ available: false }), NOW)).toBeNull()
     expect(planCorner(plan({ windows: [] }), NOW)).toBeNull()
-    // A window nobody has a label for is not a line; if that is all there is, there is no card.
-    expect(planCorner(plan({ windows: [{ window: 'seven_day_opus', utilization: 5, resetsAt: null }] }), NOW)).toBeNull()
   })
 })

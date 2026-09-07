@@ -716,9 +716,17 @@ export function LibraryScreen({
             return (
               <div className="lib-corner br">
                 <div className={`lib-plan${night ? ' dark' : ''}`}>
-                  <div className="lp-name">{corner.plan ?? 'plan'}</div>
+                  {/* "left" once, in the head: with a per-model window or three it would be
+                      four repetitions of the same word in a card this size. */}
+                  <div className="lp-name">
+                    {corner.plan ?? 'plan'} <span className="lp-unit">left</span>
+                  </div>
                   {corner.lines.map((l) => (
-                    <div key={l.window} className="lp-row">
+                    <div
+                      key={l.window}
+                      className={`lp-row${l.tightest && corner.lines.length > 1 ? ' tight' : ''}${l.leftPct <= 10 ? ' spent' : l.leftPct <= 25 ? ' low' : ''}`}
+                      title={l.tightest ? 'the window that stops the next run' : undefined}
+                    >
                       <span className="lp-w">{l.label}</span>
                       <span className="lp-n">{l.leftPct}%</span>
                     </div>
