@@ -249,3 +249,32 @@ Follow-ups noted during A1, not yet decided:
 - No windows on any wall. The notice board sits centred on the short wall. In the main
   room each favorite pair is centred in its wall section (2.1 tiles of space on both sides
   of a 5.8-tile pair in a 10-tile section). Design rounds closed; next is milestone A0.
+
+## Open after the end-to-end tests (2026-09-07)
+
+Two questions to take up once the five tests against the demo vault are through, before the
+service is pointed at the real vault.
+
+**Is `research-expand` reachable at all?** The kind exists end to end - the planner may propose
+it, the gate prices it, the page set is validated and a violation reverts the commit - but the
+UI never names it. The scene adapter knows the word ("deepening pages") and that is all: the
+Fellow card starts a step, the spawn form has no kind, and nothing offers "deepen these pages".
+Today an expand can only appear if the PLANNER chooses it for a candidate, which makes the one
+run kind that touches existing pages the one the user cannot ask for. Questions: does the card
+get a "deepen" action with a page picker; can a Fellow be spawned whose work is deepening a
+named set rather than answering a question; and should the page set come from a domain, a tag
+or a hand-picked list.
+
+**Should a Fellow carry several standing tasks?** It has one `intent` today, one sentence that
+every planning run is judged against, plus optional free-text `scope`. The scope score is
+computed against intent plus scope as one bag of words, so a broad intent both invites drift
+and makes the drift score meaningless. A worked example of what a user actually wants: a
+biomedicine Fellow that (1) finds newly approved biologics, (2) identifies new high-impact
+studies in the field, and (3) deepens what the vault already holds on endosomal escape and LNP
+formulation - three tasks of three different KINDS (a watch, a survey, an expand), each with
+its own natural run kind and cadence. Questions: does `intent` become a list of tasks with a
+kind and a weight each; does the planner then propose per task and round-robin between them;
+is the scope score computed per task, which would make it sharp again; and what happens to a
+task that is answered - does it retire while the others go on. This is the difference between a
+Fellow that wanders and one that keeps a beat, and it decides how much of the autoresearch is
+steerable at all.
