@@ -525,6 +525,20 @@ recap), never by the Fellow's own model. The page is written by the service thro
 ordinary page write path (one commit), never by an agent. Quiet day: one line to dashboard
 and Telegram ("nothing ran, N Fellows sleeping, reasons"), no vault page.
 
+**Two shelf lives in one recap** (as built, 2026-09-07). What ran last night is history and
+stays exactly as recorded. The proposals, the Fellow's state and its remaining quota are a
+decision the reader has yet to make, and they go stale the moment a planning run finishes or
+an answer lands: a plan once arrived 28 minutes after the build, and "proposals for tonight"
+stayed empty until the next morning. So **the decision half of the NEWEST recap is re-read on
+every request** - from the store, with no agent run and no page rewrite - and its codes are
+re-issued from the live list, with answers resolving against that same refreshed model so a
+code always names what the reader sees. An answer returns the recap read back the same way, so
+an approved proposal shows as approved. Older recaps are the record of their day and are never
+refreshed. The stored row is never rewritten by any of this; what only a full rebuild would
+add - runs the snapshot does not know about and their summary lines - is counted in
+`sinceBuilt` and said in one line above the recap, next to the button that costs the agent
+run.
+
 ### 9.3 Channels
 
 - Dashboard: Home's flow box and a "Recap" view (`/recap`, `/recap/<date>`) with the

@@ -310,7 +310,7 @@ export function RecapFeed({ vaultName }: { vaultName: string }): React.ReactElem
         <button
           className="btn ghost sm"
           disabled={build.isPending || status?.building === true}
-          title="Build today's recap now (rebuilds it when today's exists)"
+          title="Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it."
           onClick={() => build.mutate(rows.some((r) => r.cycleDate === today))}
         >
           {status?.building === true ? 'Building…' : 'Build now'}

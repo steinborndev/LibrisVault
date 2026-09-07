@@ -540,6 +540,74 @@ describe('recap service end to end', () => {
   })
 })
 
+describe('the newest recap keeps its decision half current', () => {
+  let h: Harness
+  beforeEach(() => {
+    h = makeHarness()
+  })
+  afterEach(() => {
+    h.db.close()
+    fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+  })
+
+  it('shows a plan that landed after the build, and says what a rebuild would add', async () => {
+    const { agent } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    const ada = agent!
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    const { row } = await h.recaps.build({ trigger: 'manual' })
+    const built = row.model.fellows[0]!.proposals.length
+    expect(built).toBeGreaterThan(0)
+
+    // What happened once: the recap is built, and a planning run lands half an hour later.
+    h.clock.now = at(8, 7, 30)
+    const planned = h.service.plan(ada.id, { cycleDate: '2026-09-08' })
+    await h.service.settled(planned.run!.id)
+
+    const fresh = h.recaps.get(row.cycleDate)!
+    expect(fresh.model.fellows[0]!.proposals.map((p) => p.proposalId)).toEqual(
+      h.service.pendingProposals(ada.id).map((p) => p.id),
+    )
+    // Codes are re-issued from the live list, so a code always names what the reader sees.
+    expect(fresh.model.fellows[0]!.proposals.map((p) => p.code)).toEqual(['1a', '1b'])
+    // The stored row is untouched: history stays as it was recorded.
+    expect(h.recapStore.get(row.cycleDate)!.model.fellows[0]!.proposals).toHaveLength(built)
+    // And the reader is told what only a rebuild would pick up.
+    expect(fresh.model.sinceBuilt).toEqual({ runs: 1, proposals: 2 })
+  })
+
+  it('an older recap stays the record of its day', async () => {
+    await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    const older = await h.recaps.build({ trigger: 'manual' })
+    h.clock.now = at(9, 7, 0)
+    const newer = await h.recaps.build({ trigger: 'manual' })
+    expect(newer.row.cycleDate).not.toBe(older.row.cycleDate)
+
+    const stored = h.recapStore.get(older.row.cycleDate)!
+    const read = h.recaps.get(older.row.cycleDate)!
+    expect(read.model.fellows[0]!.proposals).toEqual(stored.model.fellows[0]!.proposals)
+    expect(read.model.sinceBuilt).toBeNull()
+  })
+
+  it('an answer comes back with the proposal in the state it just gave it', async () => {
+    const { agent } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    const { row } = await h.recaps.build({ trigger: 'manual' })
+    const first = row.model.fellows[0]!.proposals[0]!
+    expect(first.status).toBe('proposed')
+
+    const answered = await h.recaps.answer(row.cycleDate, [{ action: 'pick', fellow: 1, letter: first.code.slice(1) }], 'dashboard')
+    expect(answered!.results[0]!.ok).toBe(true)
+    // The snapshot would still say "proposed"; the recap that comes back does not.
+    const shown = answered!.recap.model.fellows[0]!.proposals.find((p) => p.proposalId === first.proposalId)
+    expect(shown?.status ?? 'gone').not.toBe('proposed')
+    expect(agent).toBeDefined()
+  })
+})
+
 describe('recap and value routes', () => {
   let h: Harness
   let app: FastifyInstance

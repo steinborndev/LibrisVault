@@ -6556,6 +6556,16 @@ tr:focus-within .rowacts {
   color: var(--text-faint);
 }
 .recap-line { padding: 10px 14px; }
+/* What a rebuild would add: a note, not an alarm - the decisions above are already current. */
+.recap-line.recap-since {
+  margin: 0 14px 8px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  max-width: 96ch;
+}
 
 /* ---- Home's recap feed (2026-09-06): the newest recap open, the week beside it ----
    The flow box holds two views of one height. This one brings its own fact strip (the day

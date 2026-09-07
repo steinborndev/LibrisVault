@@ -84,7 +84,12 @@ export function Recap({ date }: { date: string }): React.ReactElement {
             ))}
           </span>
         )}
-        <button className="btn ghost sm" disabled={build.isPending || status?.building === true} onClick={() => build.mutate(current !== undefined && current.cycleDate === new Date().toISOString().slice(0, 10))} title="Build today's recap now (rebuilds it when today's exists)">
+        <button
+          className="btn ghost sm"
+          disabled={build.isPending || status?.building === true}
+          onClick={() => build.mutate(current !== undefined && current.cycleDate === new Date().toISOString().slice(0, 10))}
+          title="Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it."
+        >
           Build now
         </button>
         <button className="btn ghost sm" onClick={() => navigate('/')}>
@@ -139,9 +144,23 @@ export function RecapBody({
   // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
   const stored = row.model
   const m = { ...stored, unclaimed: stored.unclaimed ?? [], dedupe: stored.dedupe ?? { merged: [], overlaps: [] }, sleeping: stored.sleeping ?? [], fellows: stored.fellows ?? [] }
+  const since = m.sinceBuilt ?? null
   return (
     <div className="recap">
       {facts && <RecapFacts row={row} />}
+      {/*
+       * The proposals and Fellow states below are re-read on every request, so they are current
+       * whatever happened since this recap was built. What a rebuild would ADD is the night's
+       * story: runs it does not know about, and the summary lines an agent writes for them.
+       */}
+      {since !== null && since.runs > 0 && (
+        <p className="recap-line recap-since">
+          {since.runs} run{since.runs === 1 ? '' : 's'} finished after this recap was built
+          {since.proposals > 0 ? `, and ${since.proposals} of the proposals below are newer than it` : ''}. The
+          decisions above are current; rebuilding adds those runs and their summary lines, which costs a short agent
+          run and rewrites the recap page.
+        </p>
+      )}
       {m.quiet && (
         <div className="empty">
           <p className="qs-line">Nothing ran tonight.</p>

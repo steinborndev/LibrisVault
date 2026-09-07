@@ -139,6 +139,13 @@ export interface RecapModel {
   }
   /** Plan utilization now and the research share (A5); null without the monitor. */
   readonly plan: RecapPlan | null
+  /**
+   * What happened after this recap was built (as built, 2026-09-07). The recap is a snapshot,
+   * and the newest one is also the screen where tonight is decided, so a plan that lands half
+   * an hour later would otherwise be invisible. The decision half is refreshed on read (see
+   * {@link freshenRecap}); this says what a full rebuild would additionally pick up.
+   */
+  readonly sinceBuilt: { readonly runs: number; readonly proposals: number } | null
 }
 
 export interface RecapPlan {
@@ -269,6 +276,8 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
     generatedAt: input.now.toISOString(),
     quiet,
     since: input.since,
+    // Nothing has happened between building it and reading it yet; `freshenRecap` fills this in.
+    sinceBuilt: null,
     window: input.window,
     shift: shift
       ? {
@@ -326,8 +335,58 @@ export function withModelDefaults(row: RecapRow<RecapModel>): RecapRow<RecapMode
     summaryNote: m.summaryNote ?? null,
     summaryCostUsd: m.summaryCostUsd ?? null,
     plan: m.plan ?? null,
+    sinceBuilt: m.sinceBuilt ?? null,
   }
   return { ...row, model }
+}
+
+/**
+ * The recap holds two kinds of fact with very different shelf lives. What ran last night is
+ * history and stays as it was recorded. The proposals, the Fellow's state and its remaining
+ * quota are a decision the user has yet to make, and they go stale the moment a planning run
+ * finishes or the user answers - which is exactly what happened once: a plan landed 28 minutes
+ * after the recap was built, and "proposals for tonight" stayed empty until the next morning.
+ *
+ * So the forward-looking half is re-read on the way out, for the NEWEST recap only (an older
+ * one is a record of that day, not a decision surface). Pure and cheap: no agent run, no page
+ * rewrite, just the store. Codes are re-issued from the live list, and answers resolve against
+ * the same refreshed model, so a code always names what the reader sees.
+ */
+export function freshenRecap(
+  row: RecapRow<RecapModel>,
+  live: (agentId: string) => { readonly agent: { readonly state: string; readonly sleepCode: string | null; readonly sleepReason: string | null; readonly skipUntil: string | null } | undefined; readonly proposals: readonly ProposalRecord[]; readonly runsSince: number },
+): RecapRow<RecapModel> {
+  let newRuns = 0
+  let newProposals = 0
+  const fellows = row.model.fellows.map((f): RecapFellow => {
+    const now = live(f.agentId)
+    newRuns += now.runsSince
+    const proposals = now.proposals
+      .slice()
+      .sort((a, b) => (a.status === 'approved' ? 0 : 1) - (b.status === 'approved' ? 0 : 1) || a.rank - b.rank)
+      .map((p, i): RecapProposal => ({
+        code: codeFor(f.index, i + 1),
+        proposalId: p.id,
+        kind: p.kind,
+        topic: p.topic,
+        rationale: p.rationale,
+        provenance: p.provenance,
+        estCostUsd: p.estCostUsd,
+        scopeScore: p.scopeScore,
+        drift: isDrift(p.scopeScore),
+        status: p.status,
+        rank: p.rank,
+      }))
+    newProposals += now.proposals.filter((p) => p.createdAt > row.generatedAt).length
+    return {
+      ...f,
+      proposals,
+      ...(now.agent
+        ? { state: now.agent.state, sleepCode: now.agent.sleepCode, sleepReason: now.agent.sleepReason, skipUntil: now.agent.skipUntil }
+        : {}),
+    }
+  })
+  return { ...row, model: { ...row.model, fellows, sinceBuilt: { runs: newRuns, proposals: newProposals } } }
 }
 
 /* --------------------------------- the summary run --------------------------------- */
@@ -691,17 +750,38 @@ export class RecapService {
   }
 
   list(limit = 30): RecapRow<RecapModel>[] {
-    return this.o.recaps.list(limit).map(withModelDefaults)
+    const rows = this.o.recaps.list(limit).map(withModelDefaults)
+    // Only the newest is a decision surface; the ones below it are the record of their day.
+    return rows.map((r, i) => (i === 0 ? this.freshen(r) : r))
   }
 
   get(cycleDate: string): RecapRow<RecapModel> | undefined {
     const row = this.o.recaps.get(cycleDate)
-    return row ? withModelDefaults(row) : undefined
+    if (!row) return undefined
+    const fresh = withModelDefaults(row)
+    return this.o.recaps.list(1)[0]?.cycleDate === cycleDate ? this.freshen(fresh) : fresh
   }
 
   latest(): RecapRow<RecapModel> | undefined {
     const row = this.o.recaps.list(1)[0]
-    return row ? withModelDefaults(row) : undefined
+    return row ? this.freshen(withModelDefaults(row)) : undefined
+  }
+
+  /**
+   * The decision half of a recap, re-read from the store on the way out (section 9.2). The
+   * proposals and the Fellow's state are what the reader is asked to decide, and a planning
+   * run finishing after the build must not leave them showing yesterday's answer.
+   */
+  private freshen(row: RecapRow<RecapModel>): RecapRow<RecapModel> {
+    return freshenRecap(row, (agentId) => {
+      const agent = this.o.fellows.get(agentId)
+      const runsSince = this.o.runs.list({ agentId, limit: 50 }).filter((r) => r.startedAt > row.generatedAt).length
+      return {
+        agent: agent ? { state: agent.state, sleepCode: agent.sleepCode, sleepReason: agent.sleepReason, skipUntil: agent.skipUntil } : undefined,
+        proposals: this.o.fellows.pendingProposals(agentId),
+        runsSince,
+      }
+    })
   }
 
   get isBuilding(): boolean {
@@ -903,8 +983,10 @@ export class RecapService {
         results.push({ answer: a, ok: false, message: (err as Error).message })
       }
     }
-    const updated = this.o.recaps.update(cycleDate, { answeredAt: this.now().toISOString() })
-    return { results, recap: updated ? withModelDefaults(updated) : recap }
+    this.o.recaps.update(cycleDate, { answeredAt: this.now().toISOString() })
+    // Read back through `get`, so an approved or vetoed proposal comes back in the state the
+    // answer just gave it instead of the one the snapshot was built with.
+    return { results, recap: this.get(cycleDate) ?? recap }
   }
 
   private async applyOne(a: Exclude<RecapAnswer, { action: 'spawn' }>, fellow: RecapFellow, proposal: RecapProposal | undefined, via: DecisionChannel): Promise<{ ok: boolean; message: string }> {

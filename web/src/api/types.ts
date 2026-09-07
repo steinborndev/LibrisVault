@@ -705,6 +705,11 @@ export interface RecapModel {
   generatedAt: string
   quiet: boolean
   since: string
+  /**
+   * What landed after this recap was built. The proposals and Fellow states above are re-read
+   * on every request, so they are current; this counts what only a rebuild would pick up.
+   */
+  sinceBuilt: { runs: number; proposals: number } | null
   window: { start: string; end: string }
   shift: { trigger: string; startedAt: string; finishedAt: string | null; executed: number; planned: number; skipped: Array<{ agentName: string; reason: string }>; costUsd: number } | null
   totals: { runs: number; failed: number; costUsd: number; pages: number }
