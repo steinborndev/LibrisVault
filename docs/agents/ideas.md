@@ -398,3 +398,60 @@ What this needs, in order: the ranking as a pure function with tests; a page-set
 domain guard on the step route, since a hand-started expand is capped and bounded by nothing
 today; budget and timeout as functions of the page count instead of flat per kind; the shared
 dialog; the two entry points; the spawn prefill.
+
+## Decision: a Fellow keeps a beat, not a subject (2026-09-07)
+
+Answers to the second of the four questions parked after the end-to-end tests. A Fellow has one
+`intent` today, one sentence every planning run is judged against, and the scope score is
+computed against intent plus `scope` as one bag of words. A broad intent therefore does two bad
+things at once: it invites the Fellow to wander, and it makes the measurement of that wandering
+meaningless - the tests showed a drift score of 0.00 for exactly that reason.
+
+**Tasks replace the intent.** A Fellow carries one to three of them. An existing Fellow's intent
+becomes its first task, which is the whole migration.
+
+**A task is a sentence and an ART.** Three: *watch* (look for what is new), *explore* (pursue an
+open question), *deepen* (build out what the vault already holds). The worked example is one of
+each - newly approved biologics, new high-impact studies, endosomal escape and LNP formulation -
+and they are three different kinds of work, not three phrasings of one. The art picks the run
+kind, instead of the planner guessing it from a sentence every night.
+
+**Three at most.** With the default of one run a day, three tasks means each comes up every
+third night, about twice a week. A fourth subject is a second Fellow, not a longer list: a list
+long enough to starve its own tail is worse than the single intent it replaced.
+
+**One task a night, in turn.** The planner sees the whole candidate pool - the notebook's open
+questions, the gaps, the handoffs, the reading list - but only tonight's task as the yardstick.
+That keeps the prompt sharp and makes the scope score mean something, and it keeps the pool
+whole, so a good question belonging to another task is recognised rather than lost.
+
+**Only an explore task can be finished.** Watch and deepen run as long as there is anything new;
+`intent_covered` becomes per-task and applies to explore alone. A standing assignment that
+declares itself complete is a bug, and today's whole-Fellow version is exactly that. When every
+task rests, the Fellow sleeps.
+
+**A deepen task names a theme, not pages.** Its page set is ranked afresh each run, the same
+demand-against-substance ranking the Deepen dialog uses, so what has already been built out
+falls to the back on its own. A fixed set would run dry after two nights.
+
+**The task decides the run, the step size only sizes it.** `kindsForStep` currently forbids
+anything but `research-step` to a `small` Fellow, which would make a deepen task unrunnable on
+it. The step size was never meant as a prohibition: it says how big an explore run may get.
+
+**Drift is still only marked.** The score gets sharper - one task instead of a subject plus
+notes - and the consequence stays what it is: the proposal reaches the recap with the mark, and
+the user decides. Turning a newly sharpened measure straight into a veto would pay for its first
+misreading in lost work, and the score is token overlap, which a well-put question in other
+words can fail.
+
+**Visible where decisions are made.** The Fellow card lists the tasks and their state (up next /
+waiting / resting), and a recap proposal names the task it came from. Not in the bubble over the
+figure: that says what the Fellow is DOING, which is a different question.
+
+Carried over unchanged unless it proves wrong: the Fellow-level `scope` note stays as it is, a
+qualifier on all tasks ("English sources only"), since nothing about it was the problem.
+
+What this needs, in order: the task list on the agent record with the migration; the round-robin
+cursor and the per-task `covered`; the planner prompt and the scope score against one task; the
+run kind from the art, and the step size demoted to sizing; the deepen ranking reused from the
+dialog; the card and the spawn form; the recap line.
