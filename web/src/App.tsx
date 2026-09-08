@@ -12,17 +12,25 @@ import { DemoNotice } from './components/DemoNotice.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Home } from './tabs/Home.tsx'
 import { Chat } from './tabs/Chat.tsx'
-import { System } from './tabs/System.tsx'
-import { Catalog } from './tabs/Catalog.tsx'
-import { LibraryScreen } from './tabs/LibraryScreen.tsx'
 import { Recap } from './tabs/Recap.tsx'
 import { Icon, type IconName } from './components/Icon.tsx'
 import { usePath, navigate, pageFromPath } from './lib/router.ts'
 import { RUN_RUNNING_TITLES, isMaintenanceRun } from './lib/runLabels.ts'
 
-// Code-split: the vault viewer pulls in d3-force + the canvas machinery, which the other
-// screens never need - keep the shell light.
+/*
+ * Code-split. The vault viewer pulls in d3-force and the canvas machinery; System carries the
+ * whole maintenance console; the Library carries its isometric room; the Catalog its table.
+ * None of them is on the first paint - Home is - and none is where the work happens, which is
+ * why Research stays in the main chunk.
+ *
+ * `lazy` defers the MODULE, not the mount: once a screen has been visited its section stays
+ * in the tree and keeps its state, which is the shell's whole contract (see the `hidden`
+ * sections below). The cost is that an unvisited screen does not poll, which is a saving.
+ */
 const Vault = lazy(() => import('./tabs/Vault.tsx').then((m) => ({ default: m.Vault })))
+const System = lazy(() => import('./tabs/System.tsx').then((m) => ({ default: m.System })))
+const Catalog = lazy(() => import('./tabs/Catalog.tsx').then((m) => ({ default: m.Catalog })))
+const LibraryScreen = lazy(() => import('./tabs/LibraryScreen.tsx').then((m) => ({ default: m.LibraryScreen })))
 
 /**
  * Screens of the shell (redesign 2026-08-25, second pass). Five, down from seven: the Inbox
@@ -197,11 +205,19 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (recapOpen) setRecapMounted(true)
   }, [recapOpen])
-  // The Library screen mounts on first visit (it polls the scene while mounted).
-  const [libraryMounted, setLibraryMounted] = useState(screen === 'library')
+  /*
+   * The code-split screens mount on their FIRST visit and stay mounted after it. Both halves
+   * matter: without the gate a lazy screen's module is fetched during the first render and
+   * the split buys nothing, and without the staying-mounted half a screen would lose its
+   * state on every switch, which is the shell's contract (the sections are `hidden`, not
+   * unmounted). The Library also polls the scene while mounted, so not mounting it until it
+   * is wanted is a saving of its own.
+   */
+  const [visited, setVisited] = useState<ReadonlySet<ScreenId>>(() => new Set([screen]))
   useEffect(() => {
-    if (screen === 'library') setLibraryMounted(true)
+    setVisited((seen) => (seen.has(screen) ? seen : new Set([...seen, screen])))
   }, [screen])
+  const libraryMounted = visited.has('library')
 
   // The value signal (docs/agents/SPEC.md section 9.6): a page opened counts for the Fellow
   // that wrote it. Only on an instance with Fellows; the server attributes the page.
@@ -391,35 +407,45 @@ export function App(): React.ReactElement {
           </section>
           <section className="screen flush" hidden={screen !== 'catalog'} aria-label="Catalog">
             <div className="lane wide">
-              <ErrorBoundary label="Catalog">
-                <Catalog
-                  vaultName={vaultName}
-                  domainParam={screen === 'catalog' ? (query.get('domain') ?? '') : ''}
-                />
-              </ErrorBoundary>
+              {visited.has('catalog') && (
+                <ErrorBoundary label="Catalog">
+                  <Suspense fallback={<div className="empty">Loading catalog…</div>}>
+                    <Catalog
+                      vaultName={vaultName}
+                      domainParam={screen === 'catalog' ? (query.get('domain') ?? '') : ''}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
+              )}
             </div>
           </section>
           <section className="screen flush" hidden={screen !== 'library'} aria-label="Library">
             <div className="lane wide">
               {libraryMounted && (
                 <ErrorBoundary label="Library">
+                  <Suspense fallback={<div className="empty">Loading library…</div>}>
                   <LibraryScreen vaultName={vaultName} active={screen === 'library'} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} spawnParam={screen === 'library' ? (query.get('spawn') ?? '') : ''} shelfParam={screen === 'library' ? (query.get('shelf') ?? '') : ''} paneParam={screen === 'library' ? (query.get('pane') ?? '') : ''} pageParam={screen === 'library' ? (query.get('page') ?? '') : ''} boardParam={screen === 'library' ? (query.get('board') ?? '') : ''} />
+                  </Suspense>
                 </ErrorBoundary>
               )}
             </div>
           </section>
           <section className="screen flush" hidden={screen !== 'system'} aria-label="System">
             <div className="lane wide">
-              <ErrorBoundary label="System">
-                {demoMode ? (
-                  <DemoNotice
-                    title="System is switched off here"
-                    text="System hosts operations: the ingest queue, maintenance runs, integrations, and settings."
-                  />
-                ) : (
-                  <System section={screen === 'system' ? (query.get('section') ?? '') : ''} />
-                )}
-              </ErrorBoundary>
+              {visited.has('system') && (
+                <ErrorBoundary label="System">
+                  {demoMode ? (
+                    <DemoNotice
+                      title="System is switched off here"
+                      text="System hosts operations: the ingest queue, maintenance runs, integrations, and settings."
+                    />
+                  ) : (
+                    <Suspense fallback={<div className="empty">Loading system…</div>}>
+                      <System section={screen === 'system' ? (query.get('section') ?? '') : ''} />
+                    </Suspense>
+                  )}
+                </ErrorBoundary>
+              )}
             </div>
           </section>
         </div>
