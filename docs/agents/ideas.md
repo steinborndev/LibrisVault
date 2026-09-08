@@ -338,6 +338,33 @@ The build, in three parts, none of them large:
    take the maximum; a run at 95 % that is still going says 95 % until it settles, because a
    bubble that hits 100 and keeps talking is worse than one that says 90.
 
+### Built (2026-09-08)
+
+All three parts, plus two things the sketch had not settled.
+
+`server/src/pipeline/run-duration.ts` holds the denominator: the median duration of the
+kind's own settled runs, the model preferred but not required (a kind predicts duration far
+better than a model does, so two samples of the right model lose to eight of the kind).
+Failed runs are left out - a run that died in its second minute describes a fault, not the
+work. Below three samples a small table of reference sizes carries it, and a kind that has
+never been measured is ABSENT from that table rather than guessed: such a run then carries no
+percentage at all. The scene sends one `typicalMs` per running run.
+
+`runPercent` in the scene adapter turns it into the figure. Rule three needed no memory in
+the end: the anchor is the FURTHEST tool family the log has shown, not the current one, and
+that only ever climbs - so the number cannot fall back when a writing run reads something
+again, while the pose still follows the figure to the shelf. The commit does not cap the
+number but PINS it near the end, which is what makes an early finish jump forward. Two
+states the sketch had not considered: a kind whose median is under a minute gets no figure
+at all (it would flash once and vanish), and an unknown phase trusts the clock rather than
+taking the reading cap, because maintenance logs are never persisted and a reload would
+otherwise drop a run from 80 % to 50 %.
+
+Measured on this vault the day it shipped: research-step 346 s over ten runs, research 604 s
+over five, plan 81 s over six. Hot-cache still sits on its reference size of 21 s and
+therefore shows nothing, which is the right answer until a third run settles and the median
+takes over.
+
 An optional fourth part, if the estimate is not good enough: ask the run to log its own
 progress (`progress: 2/5 sources fetched`), which the research skill's rounds and the lint
 skill's ten checks would make natural. That is the only source of a REAL fraction, but it

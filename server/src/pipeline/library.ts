@@ -22,6 +22,8 @@ import type { VaultGraph } from './graph.js'
 import type { JobRow } from '../db/jobs.js'
 import type { MaintenanceRun } from './maintenance.js'
 import type { FellowSummary } from './fellows.js'
+import { MODEL_IDS } from '../db/agents.js'
+import { typicalRunMs, SAMPLE_LIMIT, type DurationSample } from './run-duration.js'
 import { readDomainRegistry } from './domains.js'
 import { windowAt, type NightWindow } from './clock.js'
 import { STUB_BYTES } from './candidates.js'
@@ -62,7 +64,7 @@ export interface SceneFellow {
   readonly sleepCode: string | null
   readonly sleepReason: string | null
   readonly skipUntil: string | null
-  readonly run: { readonly id: string; readonly kind: string; readonly channel: string; readonly label: string | null; readonly startedAt: string; readonly waiting: boolean } | null
+  readonly run: { readonly id: string; readonly kind: string; readonly channel: string; readonly label: string | null; readonly startedAt: string; readonly waiting: boolean; readonly typicalMs: number | null } | null
   readonly next: { readonly topic: string; readonly kind: string; readonly estCostUsd: number | null; readonly status: string } | null
   readonly lastActive: string | null
 }
@@ -75,6 +77,11 @@ export interface SceneRun {
   readonly startedAt: string
   /** Queued behind the runner rather than executing: the figure waits instead of working. */
   readonly waiting: boolean
+  /**
+   * How long a run of this kind usually takes (run-duration.ts), or null when nothing says.
+   * The scene draws a coarse progress figure from it and the run's own elapsed time.
+   */
+  readonly typicalMs: number | null
 }
 
 export interface SceneJob {
@@ -107,6 +114,12 @@ export interface LibraryServiceOptions {
   readonly jobs: () => readonly JobRow[]
   readonly runs: () => readonly MaintenanceRun[]
   readonly fellows: () => readonly FellowSummary[]
+  /**
+   * Settled runs of one kind, newest first, for the typical-duration median. Optional:
+   * without it every run falls back to the reference sizes, which is exactly what a fresh
+   * vault does anyway.
+   */
+  readonly runHistory?: (kind: string) => readonly DurationSample[]
   readonly window: () => NightWindow
   readonly concurrency: () => number
   readonly now?: () => Date
@@ -195,10 +208,23 @@ export class LibraryService {
     })
     let unfiled = 0
     if (graph) for (const n of graph.nodes) if (n.kind === 'knowledge' && !isDepartmentDomain(n.domain)) unfiled++
+    /*
+     * One median per kind per snapshot, not per run: two Fellows of the same kind at work
+     * would otherwise read the same history twice on every poll.
+     */
+    const typicalCache = new Map<string, number | null>()
+    const typical = (kind: string, model: string | null): number | null => {
+      const key = `${kind}\u0000${model ?? ''}`
+      const hit = typicalCache.get(key)
+      if (hit !== undefined) return hit
+      const value = typicalRunMs(this.o.runHistory?.(kind) ?? [], kind, model)
+      typicalCache.set(key, value)
+      return value
+    }
     const runs = this.o
       .runs()
       .filter((r) => r.status === 'running')
-      .map((r): SceneRun => ({ id: r.id, kind: r.kind, channel: r.channel, label: r.label ?? null, startedAt: r.startedAt, waiting: r.waiting === true }))
+      .map((r): SceneRun => ({ id: r.id, kind: r.kind, channel: r.channel, label: r.label ?? null, startedAt: r.startedAt, waiting: r.waiting === true, typicalMs: typical(r.kind, r.model ?? null) }))
     const fellows = this.o.fellows().map((s): SceneFellow => ({
       agentId: s.agent.id,
       name: s.agent.name,
@@ -208,7 +234,19 @@ export class LibraryService {
       sleepCode: s.agent.sleepCode,
       sleepReason: s.agent.sleepReason,
       skipUntil: s.agent.skipUntil,
-      run: s.currentRun ? { id: s.currentRun.id, kind: s.currentRun.kind, channel: s.currentRun.channel, label: s.currentRun.label ?? null, startedAt: s.currentRun.startedAt, waiting: s.currentRun.waiting === true } : null,
+      run: s.currentRun
+        ? {
+            id: s.currentRun.id,
+            kind: s.currentRun.kind,
+            channel: s.currentRun.channel,
+            label: s.currentRun.label ?? null,
+            startedAt: s.currentRun.startedAt,
+            waiting: s.currentRun.waiting === true,
+            // The run's own pin is the SDK id; the Fellow's `model` is the short name of
+            // the closed set, so it has to be mapped before it can match a history row.
+            typicalMs: typical(s.currentRun.kind, s.currentRun.model ?? MODEL_IDS[s.agent.model] ?? null),
+          }
+        : null,
       next: s.next ? { topic: s.next.topic, kind: s.next.kind, estCostUsd: s.next.estCostUsd, status: s.next.status } : null,
       lastActive: s.lastRun?.finishedAt ?? null,
     }))

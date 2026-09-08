@@ -120,6 +120,94 @@ export function steadyFamily(lines: readonly LogLine[], now: number): ToolFamily
   return FAMILIES.filter((f) => counts[f] === top).reduce((a, b) => (first[b] < first[a] ? b : a))
 }
 
+/*
+ * ── The progress figure in the bubble ──────────────────────────────────────────
+ *
+ * `Ada (writing 60%)`. There is no progress signal in an agent run - the SDK reports tool
+ * calls, not a fraction of the work - so the number is an estimate, and three rules are what
+ * make it an honest one.
+ *
+ * ONE, the clock against the kind's own median (server/src/pipeline/run-duration.ts). The
+ * spread inside a kind is about a fifth of its middle, which is good enough for a word over
+ * a figure and useless for a bar; hence steps of ten, never a precise figure.
+ *
+ * TWO, anchored on the phase the run has REACHED, so the clock cannot lie badly. A run still
+ * reading is held under half whatever the clock says, one that has written under 85, and a
+ * commit line pins it near the end. That turns a stopwatch into something that tracks the
+ * work: a run that finishes early jumps forward instead of sitting at 40 while it commits.
+ *
+ * THREE, it never goes backwards and never reaches 100. Backwards is prevented by
+ * construction rather than by remembering: the anchor is the FURTHEST family the log has
+ * shown, which only ever climbs, and the clock only climbs too. 100 is prevented by the cap
+ * plus the step - the highest thing this can ever say is 90, because a bubble that reaches
+ * 100 and keeps talking is worse than one that says 90.
+ */
+
+/** Steps of ten: the figure is coarse on purpose, and the spread does not justify more. */
+export const PROGRESS_STEP = 10
+
+/** The lowest the figure goes. A run 20 seconds into ten minutes has still started. */
+export const PROGRESS_MIN = 10
+
+/** The ceiling before the step. With the step, the most that can ever be shown is 90. */
+export const PROGRESS_MAX = 95
+
+/**
+ * Below this, a kind is over before a number would mean anything, and a figure that flashes
+ * `30%` once and vanishes is noise. Those runs keep their plain caption.
+ */
+export const PROGRESS_MIN_TYPICAL_MS = 60_000
+
+/**
+ * How far the clock may carry the figure in each phase.
+ *
+ * `commit` is not in it because a commit does not cap the figure, it PINS it: the commit is
+ * the last thing a run does, so it stands near the end whatever the clock says, and a run
+ * that finished early jumps forward instead of sitting at 40 while it commits.
+ *
+ * `none` is not "nothing has happened" but "the log does not say" - maintenance run logs
+ * stream and are never persisted, so a reload mid-run starts from an empty buffer. Capping
+ * that state at the reading cap would drop a run from 80 to 50 on a page reload, which is
+ * exactly the backwards step rule three forbids. Unknown therefore trusts the clock.
+ */
+export const PHASE_CAP: Record<Exclude<ToolFamily, 'commit'>, number> = { none: PROGRESS_MAX, read: 50, write: 85 }
+
+const FAMILY_RANK: Record<ToolFamily, number> = { none: 0, read: 1, write: 2, commit: 3 }
+
+/**
+ * The furthest phase the log has EVER shown, over every line rather than a window - the
+ * opposite reading from {@link steadyFamily}, which asks what the figure is doing now and
+ * therefore has to forget. A run reads again after writing; the pose follows it back to the
+ * shelf, the progress figure does not fall back with it.
+ */
+export function furthestFamily(lines: readonly LogLine[]): ToolFamily {
+  let best: ToolFamily = 'none'
+  for (const l of lines) {
+    const f = toolFamily(l.message)
+    if (FAMILY_RANK[f] > FAMILY_RANK[best]) best = f
+  }
+  return best
+}
+
+/** How far along a run in flight is, in steps of ten, or null when nothing honest can be said. */
+export function runPercent(input: {
+  readonly startedAt: string
+  readonly typicalMs: number | null
+  readonly lines: readonly LogLine[]
+  readonly now: number
+}): number | null {
+  const typical = input.typicalMs
+  if (typical === null || !Number.isFinite(typical) || typical < PROGRESS_MIN_TYPICAL_MS) return null
+  const elapsed = input.now - Date.parse(input.startedAt)
+  if (!Number.isFinite(elapsed) || elapsed < 0) return null
+  const family = furthestFamily(input.lines)
+  const raw = family === 'commit' ? PROGRESS_MAX : Math.min((elapsed / typical) * 100, PHASE_CAP[family])
+  return Math.max(Math.floor(Math.min(raw, PROGRESS_MAX) / PROGRESS_STEP) * PROGRESS_STEP, PROGRESS_MIN)
+}
+
+/** `writing` plus the figure, when there is one: `writing 60%`. */
+export const withPercent = (what: string, percent: number | null): string => (percent === null ? what : `${what} ${percent}%`)
+
 /** A settled activity the screen still shows in its exit pose. */
 export interface Exit {
   readonly id: string
@@ -267,10 +355,12 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
       const seat = ANCHORS.armchairs[index % ANCHORS.armchairs.length]!
       return { ...base, caption: caption(f.name, 'waiting'), pose: 'wait', room: 'main', i: seat.i, j: seat.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
     }
-    const family = steadyFamily(input.lines(f.run.channel), input.now)
+    const lines = input.lines(f.run.channel)
+    const family = steadyFamily(lines, input.now)
     const planning = f.run.kind === 'plan'
     const pose: Pose = planning ? 'think' : poseForFamily(family)
-    const cap = caption(f.name, planning ? 'planning' : POSE_CAPTION[pose])
+    const percent = runPercent({ startedAt: f.run.startedAt, typicalMs: f.run.typicalMs, lines, now: input.now })
+    const cap = caption(f.name, withPercent(planning ? 'planning' : POSE_CAPTION[pose], percent))
     if (pose === 'shelf' || pose === 'shelve') {
       const place = shelfPlace(scene, f.homeDomain)
       return { ...base, caption: cap, pose, room: place.room, i: place.tile.i, j: place.tile.j, book: domainColor(f.homeDomain), tag: 'fellow', runId: f.run.id, channel: f.run.channel }
@@ -332,17 +422,20 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
 function runActor(scene: LibraryScene, r: SceneRun, index: number, input: AdapterInput): Actor | null {
   const role = roleOfRun(r.kind)
   if (role === null) return null
-  const family = steadyFamily(input.lines(r.channel), input.now)
+  const lines = input.lines(r.channel)
+  const family = steadyFamily(lines, input.now)
   const base = { id: `run:${r.id}`, role, color: VISITOR, tag: 'visitor' as const, runId: r.id, channel: r.channel, room: 'main' }
-  const what = RUN_CAPTION[r.kind] ?? r.kind
+  const percent = runPercent({ startedAt: r.startedAt, typicalMs: r.typicalMs, lines, now: input.now })
+  const what = withPercent(RUN_CAPTION[r.kind] ?? r.kind, percent)
   if (role === 'researcher') {
     const pose = poseForFamily(family)
+    const doing = withPercent(POSE_CAPTION[pose], percent)
     if (pose === 'shelf' || pose === 'shelve') {
       const place = shelfPlace(scene, null)
-      return { ...base, name: 'visiting researcher', caption: caption('researcher', POSE_CAPTION[pose]), pose, room: place.room, i: place.tile.i, j: place.tile.j, book: '#2f62c9' }
+      return { ...base, name: 'visiting researcher', caption: caption('researcher', doing), pose, room: place.room, i: place.tile.i, j: place.tile.j, book: '#2f62c9' }
     }
     const desk = ANCHORS.desks[(3 - index + ANCHORS.desks.length) % ANCHORS.desks.length]!
-    return { ...base, name: 'visiting researcher', caption: caption('researcher', POSE_CAPTION[pose]), pose, i: desk.i, j: desk.j }
+    return { ...base, name: 'visiting researcher', caption: caption('researcher', doing), pose, i: desk.i, j: desk.j }
   }
   if (role === 'reader') return { ...base, name: 'reader', caption: caption('reader', what), pose: 'sit', i: ANCHORS.readingTable.i, j: ANCHORS.readingTable.j }
   if (role === 'inspector') {

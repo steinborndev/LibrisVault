@@ -13,6 +13,7 @@ import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
+import { SAMPLE_LIMIT } from './pipeline/run-duration.js'
 import { SqliteAgentStore } from './db/agents.js'
 import { SqliteProposalStore } from './db/proposals.js'
 import { SqliteShiftStore } from './db/shifts.js'
@@ -322,6 +323,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           jobs: () => [...store.list({ status: 'queued', limit: 50 }), ...store.list({ status: 'preprocessing', limit: 50 }), ...store.list({ status: 'ingesting', limit: 50 })],
           runs: () => maintenance.listRuns(),
           fellows: () => fellows.list(),
+          runHistory: (kind) => agentRuns.list({ kind, limit: SAMPLE_LIMIT }),
           window: () => {
             const e = settings.effective(config)
             return { start: e.nightWindowStart, end: e.nightWindowEnd }

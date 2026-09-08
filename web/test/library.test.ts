@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { makeProj, boxFaces, depthOf, fitRoom, mix, seeded } from '../src/lib/library/iso.ts'
 import { ROOM, WALL_H, wingSlotPositions, mainSlotPositions, shelfStand, breakSign, signText, ANCHORS, SLOTS } from '../src/lib/library/room.ts'
-import { toolFamily, poseForFamily, steadyFamily, buildActors, floorLine, EXIT_MS, POSE_WINDOW_MS, COMMIT_HOLD_MS, type AdapterInput } from '../src/lib/library/scene.ts'
+import {
+  toolFamily,
+  poseForFamily,
+  steadyFamily,
+  furthestFamily,
+  runPercent,
+  buildActors,
+  floorLine,
+  EXIT_MS,
+  POSE_WINDOW_MS,
+  COMMIT_HOLD_MS,
+  PROGRESS_MIN,
+  PROGRESS_MIN_TYPICAL_MS,
+  type AdapterInput,
+} from '../src/lib/library/scene.ts'
 import type { LibraryScene, SceneFellow } from '../src/api/types.ts'
 
 describe('isometric projection', () => {
@@ -226,5 +240,100 @@ describe('scene adapter', () => {
     expect(ids).not.toContain('exit:run:old')
     expect(actors.find((a) => a.id === 'exit:run:r0')).toMatchObject({ exiting: true, pose: 'shelve', caption: 'researcher (done)' })
     expect(actors.find((a) => a.id === 'exit:job:j9')).toMatchObject({ exiting: true, pose: 'wait', tag: 'warn' })
+  })
+})
+
+/**
+ * The progress figure in the bubble (docs/agents/ideas.md, "A percentage in every bubble").
+ *
+ * Three rules make an estimate honest, and each of them is a test here: the clock is coarse
+ * and floored, the phase the run has REACHED anchors it, and it can neither fall back nor
+ * reach a hundred.
+ */
+describe('the progress figure', () => {
+  const at = (msAgo: number, message: string): { ts: string; message: string } => ({ ts: new Date(NOW - msAgo).toISOString(), message })
+  const started = (msAgo: number): string => new Date(NOW - msAgo).toISOString()
+  const TEN_MIN = 600_000
+  const WRITING = [at(1_000, '→ Write({"file_path":"wiki/x.md"})')]
+  const pct = (msAgo: number, lines = WRITING, typicalMs: number | null = TEN_MIN): number | null =>
+    runPercent({ startedAt: started(msAgo), typicalMs, lines, now: NOW })
+
+  it('reads the furthest phase the log ever showed, where the pose reads the recent one', () => {
+    const lines = [at(9_000, '→ WebFetch({})'), at(6_000, '→ Write({})'), at(1_000, '→ Read({})')]
+    // The figure walks back to the shelf to look something up; the number does not walk back.
+    expect(steadyFamily(lines, NOW)).toBe('read')
+    expect(furthestFamily(lines)).toBe('write')
+    expect(furthestFamily([])).toBe('none')
+    expect(furthestFamily([at(500, '[assistant] thinking about it')])).toBe('none')
+    expect(furthestFamily([...lines, at(500, 'committed abc1234 (2 page(s))')])).toBe('commit')
+  })
+
+  it('is the clock against the kind, floored to ten', () => {
+    expect(pct(360_000)).toBe(60)
+    expect(pct(300_000)).toBe(50)
+    // Floored, never rounded up: 59.8 % is not 60 %.
+    expect(pct(359_000)).toBe(50)
+  })
+
+  it('never says less than ten and never reaches a hundred', () => {
+    expect(pct(1_000)).toBe(PROGRESS_MIN)
+    expect(pct(0)).toBe(PROGRESS_MIN)
+    // Long past its median, and still short of the end: a bubble that says 100 and keeps
+    // talking is worse than one that says 90. (With no phase cap in the way - the writing
+    // cap holds its own runs lower still, which the next test pins.)
+    expect(pct(TEN_MIN * 4, [])).toBe(90)
+  })
+
+  it('holds a reading run under half whatever the clock says', () => {
+    const reading = [at(1_000, '→ WebFetch({"url":"x"})')]
+    expect(pct(120_000, reading)).toBe(20)
+    expect(pct(480_000, reading)).toBe(50)
+    expect(pct(TEN_MIN * 3, reading)).toBe(50)
+  })
+
+  it('holds a writing run under 85, so it cannot run past the work', () => {
+    expect(pct(TEN_MIN * 3)).toBe(80)
+  })
+
+  it('pins a committing run near the end, so a run that finished early jumps forward', () => {
+    const committed = [at(9_000, '→ Write({})'), at(1_000, 'committed abc1234 (6 page(s))')]
+    // Four minutes into a ten-minute median, but the last thing a run does has happened.
+    expect(pct(240_000, committed)).toBe(90)
+  })
+
+  it('trusts the clock when the log says nothing, because a reload empties the buffer', () => {
+    // Maintenance logs stream and are never persisted. Capping the unknown state at the
+    // reading cap would drop a run from 80 % to 50 % on a page reload.
+    expect(pct(480_000, [])).toBe(80)
+  })
+
+  it('says nothing when nothing honest can be said', () => {
+    expect(pct(120_000, WRITING, null)).toBeNull()
+    // A kind that is over before a number would mean anything keeps its plain caption.
+    expect(pct(10_000, WRITING, PROGRESS_MIN_TYPICAL_MS - 1)).toBeNull()
+    // A clock that is not a clock.
+    expect(runPercent({ startedAt: 'not a date', typicalMs: TEN_MIN, lines: WRITING, now: NOW })).toBeNull()
+    expect(pct(-60_000)).toBeNull()
+  })
+
+  it('reaches the bubble of a Fellow and of a visitor, and never of one that is only queued', () => {
+    const s = scene({
+      fellows: [
+        fellow({ agentId: 'a1', name: 'Ada', state: 'active', run: { id: 'r1', kind: 'research', channel: 'ada', label: 'T', startedAt: started(360_000), waiting: false, typicalMs: TEN_MIN } }),
+        fellow({ agentId: 'a2', name: 'Bo', state: 'active', run: { id: 'r2', kind: 'research', channel: 'bo', label: 'T', startedAt: started(360_000), waiting: true, typicalMs: TEN_MIN } }),
+      ],
+      runs: [{ id: 'r3', kind: 'research', channel: 'vis', label: null, startedAt: started(300_000), waiting: false, typicalMs: TEN_MIN }],
+    })
+    const actors = buildActors({
+      scene: s,
+      lines: (ch) => (ch === 'ada' || ch === 'vis' ? WRITING : []),
+      exits: [],
+      now: NOW,
+    })
+    const by = Object.fromEntries(actors.map((a) => [a.id, a]))
+    expect(by['fellow:a1']?.caption).toBe('Ada (writing 60%)')
+    expect(by['run:r3']?.caption).toBe('researcher (writing 50%)')
+    // Queued behind the runner: it has not started, so there is nothing to be 10 % of.
+    expect(by['fellow:a2']?.caption).toBe('Bo (waiting)')
   })
 })

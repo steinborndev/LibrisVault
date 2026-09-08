@@ -16,6 +16,8 @@ import type { VaultGraph, GraphNode } from '../src/pipeline/graph.js'
 import type { JobRow } from '../src/db/jobs.js'
 import type { MaintenanceRun } from '../src/pipeline/maintenance.js'
 import type { FellowSummary } from '../src/pipeline/fellows.js'
+import type { AgentRunRecord } from '../src/db/agent-runs.js'
+import { REFERENCE_MS } from '../src/pipeline/run-duration.js'
 import { JobStore } from '../src/db/jobs.js'
 import { ChatStore } from '../src/db/chat.js'
 import { EventBus } from '../src/pipeline/events.js'
@@ -180,6 +182,51 @@ describe('LibraryService', () => {
     expect(scene.runs.map((r) => r.id)).toEqual(['r1'])
     expect(scene.jobs).toEqual([{ id: 'j1', status: 'queued', name: 'paper.pdf', source: 'upload', batchId: null }])
     expect(scene.fellows[0]).toMatchObject({ agentId: 'a1', name: 'Ada', state: 'active', run: { id: 'r3', channel: 'maintenance:research-step' }, next: { topic: 'Next' } })
+  })
+
+  it('tells every running run how long its kind usually takes, so the scene can draw progress', () => {
+    const ran = (kind: string, seconds: number): AgentRunRecord =>
+      ({ kind, model: 'claude-sonnet-5', ok: true, startedAt: '2026-09-08T10:00:00.000Z', finishedAt: new Date(Date.parse('2026-09-08T10:00:00.000Z') + seconds * 1000).toISOString() }) as AgentRunRecord
+    const history: Record<string, AgentRunRecord[]> = {
+      'research-step': [ran('research-step', 300), ran('research-step', 400), ran('research-step', 500)],
+      research: [],
+      'domain-review': [],
+    }
+    const withHistory = new LibraryService({
+      vaultRoot,
+      store,
+      graph: () => null,
+      jobs: () => [],
+      runs: () => runs,
+      fellows: () => fellows,
+      window: () => WINDOW,
+      concurrency: () => 2,
+      runHistory: (kind) => history[kind] ?? [],
+    })
+    runs = [
+      { id: 'r1', kind: 'research', channel: 'maintenance:research', status: 'running', label: 'Topic', startedAt: 's' },
+      { id: 'r2', kind: 'domain-review', channel: 'maintenance:domain-review', status: 'running', startedAt: 's' },
+      { id: 'r3', kind: 'research-step', channel: 'maintenance:research-step', status: 'running', startedAt: 's', agentId: 'a1' },
+    ]
+    fellows = [
+      {
+        agent: { id: 'a1', name: 'Ada', homeDomain: 'astronomy', model: 'sonnet-5', state: 'active', sleepCode: null, sleepReason: null, skipUntil: null } as FellowSummary['agent'],
+        currentRun: runs[2]!,
+        lastRun: null,
+        runsToday: 1,
+        pendingProposals: 0,
+        next: null,
+      },
+    ]
+    const scene = withHistory.scene()
+    // The Fellow's own kind has three settled runs, so their median carries it - and the
+    // run carries no pin of its own, so the Fellow's short model name had to be mapped to
+    // the SDK id the history rows are written with.
+    expect(scene.fellows[0]!.run?.typicalMs).toBe(400_000)
+    // A kind with no history of its own falls back to the reference size,
+    expect(scene.runs.find((r) => r.id === 'r1')?.typicalMs).toBe(REFERENCE_MS['research'])
+    // and one nobody has ever measured says nothing rather than guessing.
+    expect(scene.runs.find((r) => r.id === 'r2')?.typicalMs).toBeNull()
   })
 
   it('wings: create, rename, reorder, delete only when empty; moves and swaps', () => {

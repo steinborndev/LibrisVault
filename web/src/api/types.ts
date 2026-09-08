@@ -832,7 +832,7 @@ export interface SceneFellow {
   sleepCode: string | null
   sleepReason: string | null
   skipUntil: string | null
-  run: { id: string; kind: string; channel: string; label: string | null; startedAt: string; waiting: boolean } | null
+  run: { id: string; kind: string; channel: string; label: string | null; startedAt: string; waiting: boolean; typicalMs: number | null } | null
   next: { topic: string; kind: string; estCostUsd: number | null; status: string } | null
   lastActive: string | null
 }
@@ -845,6 +845,8 @@ export interface SceneRun {
   startedAt: string
   /** Queued behind the runner rather than executing - one run works at a time. */
   waiting: boolean
+  /** How long a run of this kind usually takes, or null when nothing says (run-duration.ts). */
+  typicalMs: number | null
 }
 
 export interface SceneJob {
