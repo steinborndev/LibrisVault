@@ -346,79 +346,132 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
   its prompt); the service picks the target Fellow (home or extra domain, highest priority,
   never the source) or leaves the request unclaimed; the recap codes requests `u1`, `u2`
   and the dashboard's Recap view carries the prefilled spawn form.
-- **Dedupe.** Before the night shift the scheduler compares all pending topics with the
-  overlap tokenizer and against existing synthesis pages; near-duplicates are merged into
-  one proposal for one Fellow and noted in the recap. As built (A3): undecided topics with
-  an overlap coefficient of at least 0.6 across Fellows lose to the earlier Fellow in shift
-  order (approved ones never lose) and are superseded with a note; a topic within 0.7 of an
-  existing synthesis page title is noted, not dropped.
-- **Dedupe again, before each run** (as built, 2026-09-08, `coveredTonight`). The pass above
-  reads the proposals as they stand when the shift starts and nothing after - but phase 2's
-  planning runs CREATE proposals that phase 3 then executes, a proposal can be approved during
-  the night, and a step can be started by hand from the card. None of those ever met it, so two
-  Fellows could spend a full run each on the same subject an hour apart, the first one's pages
-  already in the vault when the second started. Every start now also checks the topics that
-  have already RUN tonight, same threshold, cross-Fellow only. One difference to the pass
-  before it: there the twin has merely been proposed, here it has run, so an **approved**
-  proposal is *held* rather than superseded - the run is not spent, the user's decision keeps
-  its place, and the reason stands in the shift record and the recap.
-- **The planner is told what the others claimed** (as built, 2026-09-08, stage 1 of the
-  semantic dedupe). Both passes above compare topic STRINGS, so two Fellows asking one question
-  in different words score zero against each other. The planning run already reads for meaning
-  and already runs, so it is given the other Fellows' standing topics and what has run tonight,
-  with the instruction to judge by what a question ASKS rather than by its words - and the
-  counterweight that a narrower follow-up on a subject someone else touched is NOT a duplicate
-  and is often the most valuable thing to propose. An instruction, not a boundary: the lexical
-  passes stay underneath as the mechanical floor. Capped at `ELSEWHERE_CAP`, cross-Fellow only.
-- **Why not the retrieval index** (measured, 2026-09-08). Scoring two topics by the overlap of
-  what they retrieve from the vault's BM25 index was the obvious next step and it does not
-  work: BM25 ranks by shared terms, so it finds topical NEIGHBOURS, and in a library
-  concentrated on one subject that is everything. Four variants - page sets, chunk sets,
-  rank-weighted, IDF-weighted - all placed the weakest true duplicate below the strongest
-  unrelated pair. The harness that showed this is `server/src/cli/dedupe-eval.ts`, and every
-  future mechanism is measured against the same labelled pairs before it gets a threshold. The
-  labelled set lives outside this repo (the pairs are vault topics, hard rule 7).
-- **What the harness says about the shipping threshold.** On the labelled set the lexical
-  metric puts a genuine duplicate at 0.56 and a genuine DISTINCT pair at 0.54 - the shipping
-  cut of 0.6 sits in a gap 0.02 wide, catching neither. That is not a margin, it is a
-  coincidence, and it is the reason the cut is not simply lowered.
-- **Why not an embedder either** (measured, 2026-09-08). With ollama running, cosine between
-  the two topic SENTENCES was measured against the same labelled pairs, raw and with nomic's
-  symmetric task prefix. It catches every duplicate and calls six distinct pairs duplicates
-  too; the one observed duplicate and an observed distinct pair score identically, and above
-  the best distinct pair no duplicate is left - so there is no bar at which it could supersede
-  safely, not even for a graded action. High cosine here is topical adjacency, the same thing
-  that sank the retrieval idea. The embedder stays installed for the vault's reranker, which is
-  what it is actually good for.
-- **What does work: asking a model** (as built, 2026-09-08, `dedupeJudgeEnabled`, default OFF).
-  One read-only run judging every candidate pair at once separates the classes where nothing
-  else did: across three runs of the harness the worst duplicate scored 0.200 and the best
-  distinct pair 0.120, and it caught all six with no false positive. It reads what a question
-  ASKS - the trap pair with heavy shared vocabulary and the opposite question scores 0.03 where
-  the embedder gave it 0.777.
-- **The graded action** (section 6.6, as built). The judge is a model's opinion, so what it may
-  do is bounded by how sure it is and by whether the user has already decided:
-  - at or above `JUDGE_MERGE` (0.5) an UNDECIDED proposal is superseded, as the lexical pass
-    would. Everything the judge scored above 0.5 in measurement was a paraphrase it was certain
-    of.
-  - between `JUDGE_NOTE` (0.16) and that, it is only NOTED: the run happens and the recap says
-    the two topics may be the same question, with the judge's own reason. The one duplicate the
-    judge hedged over - a task contained in another rather than restating it - sat at 0.20 to
-    0.28, and a hedge should cost a line, never a run.
-  - an APPROVED proposal is never superseded, however certain the judge is. It is held for
-    another night, the way the lexical pass holds one.
-  - the recap keeps them apart: a merge and a hedge are different events, and a judgement is
-    labelled as one rather than presented like a token count.
-- **When it runs.** Twice a night, both times over the pairs the memo has not already answered:
-  before phase 1 over what earlier nights left standing, and again after phase 2, because that
-  phase CREATES tonight's proposals and phase 3 executes them. Plus the check before each run,
-  against what has already run tonight. Cross-Fellow only, capped at `JUDGE_PAIR_CAP`. A
-  failure is a warning: the lexical passes stand alone and a shift never depends on the judge.
-- **No lexical pre-filter, deliberately.** Asking the judge only about pairs that already score
-  high on word overlap would halve the cost and discard exactly the cases it exists for - a
-  real paraphrase scores 0.13 against its own twin.
+- **Dedupe, four passes.** Two Fellows must not spend a run each on one question, and a
+  narrower FOLLOW-UP on a subject another Fellow covered must still run - it is often the most
+  valuable thing proposed. Every pass is cross-Fellow only: a Fellow's own list is its own beat.
+
+  1. **Before the night shift**, over the topics earlier nights left standing (A3). Undecided
+     topics with a token-overlap coefficient of at least `DEDUPE_THRESHOLD` (0.6) lose to the
+     earlier Fellow in shift order and are superseded with a note; approved ones never lose. A
+     topic within `OVERLAP_NOTE_THRESHOLD` (0.7) of an existing synthesis page title is noted,
+     not dropped.
+  2. **Before each run**, against what has already RUN tonight (`coveredTonight`, 2026-09-08).
+     Pass 1 reads the proposals as they stand when the shift starts and nothing after - but the
+     planning phase CREATES proposals that the execution phase then runs, a proposal can be
+     approved during the night, and a step can be started by hand. Same threshold. One
+     difference: there the twin had merely been proposed, here it has RUN, so an **approved**
+     proposal is *held* rather than superseded - the run is not spent, the decision keeps its
+     place, and the reason stands in the shift record and the recap.
+  3. **In the planner's own prompt** (2026-09-08). Passes 1 and 2 compare topic STRINGS, so two
+     Fellows asking one question in different words score zero against each other. The planning
+     run already reads for meaning and already runs, so it is given the other Fellows' standing
+     topics and what has run tonight, told to judge by what a question ASKS rather than by its
+     words, and told the counterweight about follow-ups. An instruction, not a boundary; the
+     lexical passes stay underneath as the mechanical floor. Capped at `ELSEWHERE_CAP`.
+  4. **The judge** (`dedupeJudgeEnabled`, default OFF, 2026-09-08). One read-only run scoring
+     every still-standing cross-Fellow pair at once, capped at `JUDGE_PAIR_CAP`. It runs twice a
+     night - before phase 1, and again after the planning phase, because that phase creates
+     tonight's proposals and the first pass cannot see them - plus before each run against what
+     has already run. A per-shift memo means no pair is paid for twice. **No lexical pre-filter:**
+     asking only about pairs that already score high on word overlap would halve the cost and
+     discard exactly the cases the judge exists for, because a paraphrase can score near zero
+     against its own twin. A failure is a warning; the lexical passes stand alone and a shift
+     never depends on the judge.
+
+- **The judge's graded action.** It is a model's opinion, so what it may do is bounded by how
+  sure it is and by whether the user has already decided:
+
+  | verdict | undecided proposal | approved proposal |
+  |---|---|---|
+  | at or above `JUDGE_MERGE` (0.5) | superseded, reason recorded | **held** - the run is not spent, the decision stands |
+  | `JUDGE_NOTE` (0.16) to `JUDGE_MERGE` | noted in the recap, **the run happens** | noted, the run happens |
+  | below `JUDGE_NOTE` | nothing | nothing |
+
+  The recap keeps a merge and a hedge apart and says when a model decided: one topic did not
+  run, the other did and may turn out to have been a duplicate, and neither is the same kind of
+  fact as a token count.
+
 - **Notebooks are private.** Handoffs live in the `handoffs` table, never in another
   Fellow's page.
+
+### 6.7 Dedupe: the measurements the thresholds come from (2026-09-08)
+
+Every number in section 6.6 was measured before it was chosen, and two designs that looked
+obvious were abandoned because of what came back. The harness is `server/src/cli/dedupe-eval.ts`
+(`npm run dedupe-eval`); the labelled set lives OUTSIDE this repo, because the pairs are vault
+topics, and this history is merged into the public LibrisVault (hard rule 7) - once it is, a
+line cannot be taken back.
+
+**Method.** Pairs of topic sentences drawn from this library's own history, each labelled with
+whether ONE run should serve both. Two cohorts are reported apart: *observed* pairs the library
+actually produced, and *paraphrase* pairs written by hand to say one observed topic in other
+words. The distinction is not cosmetic - a hand-written paraphrase flatters any method that
+reads for meaning, so the observed pairs are the ones that decide.
+
+The harness reports the only number a threshold depends on: whether the worst DUPLICATE still
+outscores the best DISTINCT pair. When the classes overlap it says so rather than splitting the
+difference. It also reports the highest-precision cut - the lowest threshold that produces no
+false positive, and how many duplicates it still catches - because a mechanism that cannot
+separate the classes may still be worth something if it has a bar above which it is never
+wrong, and when that bar catches nothing the design is closed.
+
+**Results** over a set of 15 pairs (6 duplicate, 9 distinct):
+
+| mechanism | worst duplicate | best distinct | safe cut catches |
+|---|---|---|---|
+| token overlap (the shipping lexical pass) | 0.130 | 0.540 | 1 of 6 |
+| retrieval-set overlap, page level | 0.167 | 0.200 | - |
+| retrieval-set overlap, rank-weighted | 0.110 | 0.170 | - |
+| retrieval-set overlap, chunk level | 0.000 | 0.286 | - |
+| retrieval-set overlap, IDF-weighted | 0.077 | 0.281 | - |
+| embedding cosine of the topic sentences | 0.650 | 0.835 | **0** |
+| the same with a symmetric task prefix | 0.764 | 0.921 | **0** |
+| max(lexical, embedding) | 0.764 | 0.921 | **0** |
+| **the judge, one read-only run** | **0.200** | **0.120** | **6 of 6** |
+
+Only the last row separates the classes. Three findings decided the design:
+
+- **Every surface measure scores topical adjacency, not identity.** Both the retrieval overlap
+  and the embedding put a pair that must NOT be merged at or above the best true duplicate. In a
+  library concentrated on one subject, two different questions about that subject share their
+  vocabulary, their retrieved pages and their region of embedding space. The pair that broke
+  every variant was two questions about one class of subject matter that have different answers.
+- **The expensive mistake is real, not hypothetical.** The library's own history holds a broad
+  sweep and two narrow follow-ups on it that wrote one page, and two questions of identical
+  shape about different subjects. Every surface measure wanted to merge those; all of them had
+  to run. This is why the action is graded and why an approved proposal is never superseded.
+- **The shipping lexical cut sits in a gap two hundredths wide**, between a genuine duplicate
+  and a genuine distinct pair, catching neither. That is a coincidence, not a margin, and it is
+  why the cut is not simply lowered.
+
+**The judge, over three runs** - it is not deterministic, so one run proves nothing:
+
+| run | worst duplicate | best distinct | separating cut |
+|---|---|---|---|
+| 1 | 0.280 | 0.080 | 0.19 |
+| 2 | 0.220 | 0.120 | 0.17 |
+| 3 | 0.200 | 0.060 | 0.13 |
+
+Across all three the worst duplicate is 0.200 and the best distinct 0.120, so a cut at 0.16
+separates every run with about eight hundredths of margin on either side. The shape is stable:
+paraphrases 0.82 to 0.95, confident; the one observed duplicate - a task CONTAINED in another
+rather than restating it - 0.20 to 0.28, hedged; every distinct pair at or below 0.12. Hedging
+is instructed on purpose, because a judge forced to a verdict destroys the margin a threshold
+needs. `JUDGE_MERGE` sits at 0.5 rather than at the separating cut for the same reason: above
+it the judge was certain every time, and a hedge should cost a line in the recap, never a run.
+
+**What the result does not license.** Fifteen pairs with one observed duplicate is a starting
+point, not a warrant: the clean gap is carried mostly by hand-written paraphrases, which are the
+easy half, and the observed duplicate sits closest to the line. The judge also costs one
+read-only run a night, which is why it is off by default. The set grows as the library runs, and
+any mechanism can be re-measured against it at any time.
+
+**A side effect worth recording.** The embedder was installed for this and is not useful for it,
+but the vault's retrieval pipeline is `bm25 (recall) -> rerank (precision) -> drill` and its
+rerank stage had been a no-op without one. Rewording five real page titles until little
+vocabulary survived, the right page reached the top three 1 time out of 5 before and 3 out of 5
+after - which chat, the query skill and the autoresearch overlap steering all get for free.
+
 
 ---
 

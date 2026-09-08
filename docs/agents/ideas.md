@@ -269,9 +269,9 @@ or a hand-picked list.
 every planning run is judged against, plus optional free-text `scope`. The scope score is
 computed against intent plus scope as one bag of words, so a broad intent both invites drift
 and makes the drift score meaningless. A worked example of what a user actually wants: a
-biomedicine Fellow that (1) finds newly approved biologics, (2) identifies new high-impact
-studies in the field, and (3) deepens what the vault already holds on endosomal escape and LNP
-formulation - three tasks of three different KINDS (a watch, a survey, an expand), each with
+Fellow in one scientific domain that (1) watches for newly approved products in its field,
+(2) identifies new high-impact studies in it, and (3) deepens two mechanisms the vault already
+holds - three tasks of three different KINDS (a watch, a survey, an expand), each with
 its own natural run kind and cadence. Questions: does `intent` become a list of tasks with a
 kind and a weight each; does the planner then propose per task and round-robin between them;
 is the scope score computed per task, which would make it sharp again; and what happens to a
@@ -412,8 +412,9 @@ becomes its first task, which is the whole migration.
 
 **A task is a sentence and an ART.** Three: *watch* (look for what is new), *explore* (pursue an
 open question), *deepen* (build out what the vault already holds). The worked example is one of
-each - newly approved biologics, new high-impact studies, endosomal escape and LNP formulation -
-and they are three different kinds of work, not three phrasings of one. The art picks the run
+each - watching for new approvals in a field, surveying its new high-impact studies, deepening
+two mechanisms the vault already holds - and they are three different kinds of work, not three
+phrasings of one. The art picks the run
 kind, instead of the planner guessing it from a sentence every night.
 
 **Three at most.** With the default of one run a day, three tasks means each comes up every
@@ -469,9 +470,9 @@ work.** Four variants over labelled pairs:
 | chunk overlap | 0.000 | 0.286 | overlaps |
 | IDF-weighted pages | 0.077 | 0.281 | overlaps |
 
-The pair that breaks every one of them is two LNP-formulation questions - a protein-corona
-topic and an ionizable-lipid topic. They are not the same question, and they retrieve the same
-pages, because BM25 ranks by shared terms and finds topical NEIGHBOURS. In a library
+The pair that breaks every one of them is two questions about one class of subject matter,
+each about a different mechanism within it. They are not the same question, and they retrieve
+the same pages, because BM25 ranks by shared terms and finds topical NEIGHBOURS. In a library
 concentrated on one subject, everything is a neighbour.
 
 A second, more direct test: take real synthesis pages, reword their titles so little vocabulary
