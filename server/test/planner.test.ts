@@ -468,6 +468,23 @@ describe('planner prompt, schema and answer', () => {
     expect(again).toContain('NOTE: its answer did not match the schema')
   })
 
+  it('says what "runs left today" is for, because zero is not a reason to stop planning', () => {
+    /*
+     * Measured: three of nine planning runs on this vault returned nothing with the reason
+     * "the Fellow has 0 runs left today, so nothing proposed would execute". The shift
+     * executes standing proposals in phase 1 and plans in phase 2, so a Fellow with a quota
+     * of one reaches every planning run with zero left - and then plans nothing for the
+     * night after.
+     */
+    const has = (n: number): string =>
+      renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: n, kinds: ['research-step'] })
+    expect(has(1)).toContain('The Fellow has 1 run(s) left today.')
+    expect(has(1)).not.toContain('Propose anyway')
+    expect(has(0)).toContain('nothing you propose can run before tomorrow')
+    expect(has(0)).toContain('Propose anyway')
+    expect(has(0)).toContain('stands for two nights')
+  })
+
   it('explains the sweep only when there is one, and names the loop only once it is real', () => {
     const withSweep: Candidate[] = [
       { id: 'C1', kind: 'sweep', text: 'new quick vegetarian recipes', sourcePages: ['wiki/meta/agents/ada.md'], weight: 3.2 },

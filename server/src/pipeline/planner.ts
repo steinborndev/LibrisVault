@@ -238,7 +238,22 @@ export function renderPlannerPrompt(input: PlannerInput): string {
     'Choose the SMALLEST kind that fits each candidate: a single question is a research-step; only a genuinely broad, ' +
     'multi-question theme deserves a full research sweep. ' +
     `Lenses: ${lenses}; "${agent.lens}" is the Fellow's default.\n` +
-    `The Fellow has ${input.runsLeftToday} run(s) left today.\n` +
+    /*
+     * What the number is FOR, not just the number (2026-09-08). Given the bare figure, a
+     * planner reads "0 runs left" as "planning is pointless tonight" and returns nothing -
+     * three of this vault's nine planning runs were spent that way, each on a Fellow that
+     * then had nothing standing for the next night. The premise is wrong, and it is wrong
+     * about the shift's own order: phase 1 executes what earlier nights left standing,
+     * phase 2 plans, so a Fellow with a quota of one always reaches its planning run with
+     * nothing left for today. Tonight's plan is what tomorrow runs.
+     */
+    `The Fellow has ${input.runsLeftToday} run(s) left today${
+      input.runsLeftToday === 0
+        ? ', so nothing you propose can run before tomorrow. Propose anyway: a proposal stands for two nights, ' +
+          'the shift executes standing proposals BEFORE it plans, and the user decides on them in between. A night ' +
+          'with no proposal is a night the Fellow does nothing and the user is asked nothing'
+        : ''
+    }.\n` +
     (input.domains !== undefined && input.domains.length > 0
       ? `\nThe library's domains (registry keys): ${input.domains.map((d) => `${d.key} (${d.description})`).join('; ')}.\n`
       : '') +

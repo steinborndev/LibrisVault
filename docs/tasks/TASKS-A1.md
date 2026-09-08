@@ -145,3 +145,27 @@ Findings from the real runs (section 5):
         met: proposals after the plan, the undecided top one ran in the shift, the quota
         stopped the second.
 - [x] Web: `plan` in the run titles; a plan run counts as maintenance in the activity stream.
+
+## F5 - a Fellow with no runs left today planned nothing at all (2026-09-08)
+
+The planning prompt stated `The Fellow has N run(s) left today.` and nothing about what the
+number was for. Given zero, the planner concluded that proposing work which cannot be
+dispatched tonight would be wasted, and returned `nothing_worth_a_run` with that reason.
+
+The premise is wrong, and it is wrong about the shift's own order. Phase 1 executes what
+earlier nights left standing, phase 2 plans, phase 3 runs a fresh top proposal for auto
+Fellows. A Fellow in veto mode with a quota of one therefore reaches EVERY planning run with
+nothing left for today - it just ran in phase 1. Refusing to plan there leaves the next night
+with nothing standing, so phase 1 does nothing, and the Fellow alternates between running and
+planning instead of doing both.
+
+Measured on this vault: three of nine planning runs were spent this way, all on the same
+Fellow, about 1.40 USD for runs that decided not to decide. Nothing reported it as a fault -
+`nothing_worth_a_run` is a legitimate answer, so it read as a quiet night.
+
+Fixed in the prompt, where the defect was: at zero the line now says that nothing proposed
+can run before tomorrow, that a proposal stands for two nights, that the shift executes
+standing proposals before it plans, and that a night with no proposal is a night the Fellow
+does nothing and the user is asked nothing. Verified against the live vault: the same Fellow,
+the same zero quota, five minutes apart - `nothing_worth_a_run` before the fix, one sharp
+proposal after it.
