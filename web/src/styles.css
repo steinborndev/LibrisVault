@@ -7676,11 +7676,21 @@ tr:focus-within .rowacts {
   border-radius: 2px;
   background: var(--border);
 }
+/* Done keeps the run's colour (2026-09-08): a strip that turned each finished phase grey
+   read as three quiet segments and one lit one, not as progress. Blue up to the current
+   phase is the progress; the current one is told apart by its breath, the same slow one as
+   the dot, and by its label's weight. */
 .stage.done .stage-bar {
-  background: var(--text-faint);
+  background: var(--busy);
 }
 .stage.now .stage-bar {
   background: var(--busy);
+  animation: breathe 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage.now .stage-bar {
+    animation: none;
+  }
 }
 .stage-lbl {
   font-size: 11px;
@@ -7691,7 +7701,7 @@ tr:focus-within .rowacts {
   text-overflow: ellipsis;
 }
 .stage.done .stage-lbl {
-  color: var(--text-dim);
+  color: var(--busy);
 }
 .stage.now .stage-lbl {
   color: var(--busy);
