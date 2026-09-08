@@ -15,7 +15,7 @@ import { queryState } from '../QueryState.tsx'
 import { Icon } from '../Icon.tsx'
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
-import { isReachable, reachLabel, readingView } from '../../lib/readingList.ts'
+import { isReachable, reachLabel, readingView, type ReadingTab } from '../../lib/readingList.ts'
 import { PageLink } from '../PageLink.tsx'
 
 const host = (url: string): string => {
@@ -26,7 +26,7 @@ const host = (url: string): string => {
   }
 }
 
-export function ReadingList({ vaultName }: { vaultName: string }): React.ReactElement {
+export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string; tab?: ReadingTab }): React.ReactElement {
   const qc = useQueryClient()
   const list = useQuery({ queryKey: ['reading-list'], queryFn: api.readingList, refetchInterval: 20_000 })
   const ingest = useMutation({
@@ -36,29 +36,43 @@ export function ReadingList({ vaultName }: { vaultName: string }): React.ReactEl
       void qc.invalidateQueries({ queryKey: ['jobs'] })
     },
   })
+  const archive = useMutation({
+    mutationFn: ({ url, archived }: { url: string; archived: boolean }) => api.archiveReading(url, archived),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['reading-list'] }),
+  })
   // Off by default: a paywalled row's Ingest would fail the same way the run did.
   const [showPaywalled, setShowPaywalled] = useState(false)
   const state = queryState(list, 'the reading list')
   const entries = list.data?.entries ?? []
-  const view = readingView(entries, showPaywalled)
+  const view = readingView(entries, showPaywalled, tab)
 
   return (
     <div className="lib-window-body reading">
       {state ??
-        (entries.length === 0 ? (
+        (view.shown.length === 0 && view.hidden === 0 ? (
           <div className="empty">
-            <h2>Nothing on the list yet</h2>
+            <h2>{tab === 'archived' ? 'Nothing archived' : 'Nothing on the list yet'}</h2>
             <p className="qs-line">
-              A research step writes down every publication it read and thought worth the original. The page is
-              wiki/meta/reading-list.md.
+              {tab === 'archived'
+                ? 'Entries you archive land here. They keep what they asked for and why, and can be put back.'
+                : 'A research step writes down every publication it read and thought worth the original. The page is wiki/meta/reading-list.md.'}
             </p>
           </div>
         ) : (
           <>
             <div className="reading-head">
               <p className="reading-lede">
-                {view.shown.length} publication(s) the Fellows found, {view.waiting} of them not ingested. Reading one
-                in full is your call: the service fetches it, checks it and files it like any other source.
+                {tab === 'archived' ? (
+                  <>
+                    {view.shown.length} archived publication(s). They are out of the current list, not off the page:
+                    each still carries what a Fellow asked for and why.
+                  </>
+                ) : (
+                  <>
+                    {view.shown.length} publication(s) the Fellows found, {view.waiting} of them not ingested. Reading
+                    one in full is your call: the service fetches it, checks it and files it like any other source.
+                  </>
+                )}
               </p>
               <button
                 className="chip"
@@ -134,6 +148,24 @@ export function ReadingList({ vaultName }: { vaultName: string }): React.ReactEl
                     ) : (
                       <span className="chip">{e.job.status}</span>
                     )}
+                    {/*
+                     * A mark, not a removal: the entry keeps the request and the reason a
+                     * Fellow wrote down, and the archived list is where it goes. Reversible,
+                     * because a one-way button beside an Ingest button is a trap.
+                     */}
+                    <button
+                      className="btn ghost sm rl-arch"
+                      disabled={archive.isPending}
+                      aria-label={tab === 'archived' ? `Restore ${e.title}` : `Archive ${e.title}`}
+                      title={
+                        tab === 'archived'
+                          ? 'Put it back on the current list'
+                          : 'Out of the current list and into Archived. The entry is kept, with what it asked for and why.'
+                      }
+                      onClick={() => archive.mutate({ url: e.url, archived: tab !== 'archived' })}
+                    >
+                      <Icon name={tab === 'archived' ? 'retry' : 'archive'} />
+                    </button>
                   </div>
                 </li>
               ))}
@@ -141,6 +173,7 @@ export function ReadingList({ vaultName }: { vaultName: string }): React.ReactEl
           </>
         ))}
       {ingest.error != null && <div className="toast err">{(ingest.error as Error).message}</div>}
+      {archive.error != null && <div className="toast err">{(archive.error as Error).message}</div>}
     </div>
   )
 }

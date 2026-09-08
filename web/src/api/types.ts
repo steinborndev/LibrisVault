@@ -1047,6 +1047,8 @@ export interface ReadingItem {
   via: 'job' | 'ref' | 'url' | 'file' | null
   filed: string | null
   filedAt: string | null
+  /** When the user put it out of sight; null while it is current. A mark, not a removal. */
+  archivedAt: string | null
   /** The ingest of this url, when the service has one. */
   job: { id: string; status: string; pages: number } | null
 }

@@ -30,6 +30,7 @@ import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
 import type { BoardId } from '../components/library/RoomSvg.tsx'
+import type { ReadingTab } from '../lib/readingList.ts'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
@@ -102,6 +103,12 @@ export function LibraryScreen({
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
+  /**
+   * Which of the reading list's two lists is open. It lives here rather than in the board,
+   * because its toggle stands in the headline where the mode toggle otherwise does - one slot,
+   * whatever is relevant to what you have open.
+   */
+  const [readingTab, setReadingTab] = useState<ReadingTab>('current')
   /** A board on the main room's wall, opened as a window over the room. Escape closes it. */
   const [board, setBoard] = useState<BoardId | null>(boardParam === 'hot' || boardParam === 'recap' || boardParam === 'reading' ? boardParam : null)
   /** A department opened over the room: its graph and its catalog, filtered (section 10.5). */
@@ -450,6 +457,16 @@ export function LibraryScreen({
     } else openCard(a.agentId)
   }
 
+  /*
+   * A board is read, not worked in: it opens over the room and fills the frame, and the control
+   * column beside it belongs to a room you cannot see. So the three boards are always a focus
+   * view whatever the toggle says - and the toggle goes with them, because a control that does
+   * nothing is worse than no control. The user's own choice is remembered and comes back when
+   * the board closes.
+   */
+  const boardOpen = board !== null && shelf === null
+  const view: Mode = boardOpen ? 'focus' : mode
+
   const state = queryState(scene, 'the library')
   const clock = new Date()
   const hhmm = `${String(clock.getHours()).padStart(2, '0')}:${String(clock.getMinutes()).padStart(2, '0')}`
@@ -457,8 +474,8 @@ export function LibraryScreen({
   const s: LibraryScene | undefined = scene.data
 
   return (
-    <div className={`workspace lib-workspace${mode === 'focus' ? ' focus' : ''}`}>
-      {mode === 'full' && shelf !== null && (
+    <div className={`workspace lib-workspace${view === 'focus' ? ' focus' : ''}`}>
+      {view === 'full' && shelf !== null && (
         <aside className="gpanel" aria-label={`${signText(shelf)} department`}>
           <ShelfPanel
             domain={shelf}
@@ -473,7 +490,7 @@ export function LibraryScreen({
           />
         </aside>
       )}
-      {mode === 'full' && shelf === null && (
+      {view === 'full' && shelf === null && (
         <aside className="gpanel" aria-label="Library controls">
           {/*
            * The room list used to stand here as well, repeating the strip in the headline; the
@@ -554,14 +571,30 @@ export function LibraryScreen({
          */}
         <div className="graph-controls lib-headline">
           <div className="lib-head-left">
-            <div className="seg sm" role="radiogroup" aria-label="Mode">
-              <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
-                Focus
-              </button>
-              <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
-                Full
-              </button>
-            </div>
+            {/*
+             * One slot, whatever stands in it. The room's toggle when a room is what you are
+             * looking at; the reading list's own two lists when that board is open, because
+             * they are the choice that matters there; nothing for the other two boards.
+             */}
+            {board === 'reading' && shelf === null ? (
+              <div className="seg sm" role="radiogroup" aria-label="Reading list">
+                <button role="radio" aria-checked={readingTab === 'current'} onClick={() => setReadingTab('current')}>
+                  Current
+                </button>
+                <button role="radio" aria-checked={readingTab === 'archived'} onClick={() => setReadingTab('archived')}>
+                  Archived
+                </button>
+              </div>
+            ) : boardOpen ? null : (
+              <div className="seg sm" role="radiogroup" aria-label="Mode">
+                <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
+                  Focus
+                </button>
+                <button role="radio" aria-checked={mode === 'full'} onClick={() => setMode('full')}>
+                  Full
+                </button>
+              </div>
+            )}
           </div>
           <div className="lib-head-mid">
             {shelf === null && board === null && rooms.length > 0 && current && (
@@ -720,7 +753,7 @@ export function LibraryScreen({
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
           {shelf === null && board !== null && (
             <div className="lib-window" role="dialog" aria-label={BOARD_TITLES[board]}>
-              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList vaultName={vaultName} />}
+              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList vaultName={vaultName} tab={readingTab} />}
             </div>
           )}
           {(() => {

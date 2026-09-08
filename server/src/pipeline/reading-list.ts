@@ -55,6 +55,16 @@ export interface ReadingEntry {
   readonly filed: string | null
   /** When it was filed, as a date; what the recap reads to mention it once. */
   readonly filedAt: string | null
+  /**
+   * When the user put it out of sight, as a date; null while it is current.
+   *
+   * A mark, not a deletion - the page is append-only for every writer including the service
+   * (section 10.6), and the entry carries the request and the reason a Fellow wrote it down.
+   * Archiving says "I have dealt with this", which is a different statement from "this is in
+   * the vault" (`filed`) and can be true without it: a publication one decides not to fetch is
+   * exactly the case the list had no answer for.
+   */
+  readonly archivedAt: string | null
 }
 
 export interface ReadingItem extends ReadingEntry {
@@ -72,7 +82,7 @@ export interface ReadingItem extends ReadingEntry {
   readonly via: 'job' | 'ref' | 'url' | 'file' | null
 }
 
-const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat)\s*:\s*(.*)$/i
+const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat|archivedat)\s*:\s*(.*)$/i
 
 /** Hosts that only ever serve the full text: an entry from one of them needs no toggle to be useful. */
 const OPEN_HOSTS = [
@@ -169,6 +179,7 @@ export function parseReadingList(markdown: string): ReadingEntry[] {
         blocked: cur['blocked']?.trim() || null,
         filed: cur['filed']?.trim() || null,
         filedAt: cur['filedat']?.trim() || null,
+        archivedAt: cur['archivedat']?.trim() || null,
       })
     }
     cur = null
@@ -342,6 +353,55 @@ export class ReadingListService {
     return { job, page: fromFile, via: fromFile === null ? null : 'file' }
   }
 
+  /**
+   * Marks one entry archived, or takes the mark off again. Idempotent; false when the url is
+   * not on the list or the entry already stands that way.
+   *
+   * The same shape as `filed`: two lines added to the entry's own block, nothing else on the
+   * page touched, one commit behind the shared mutex. The page stays append-only for content -
+   * the request and the reason a Fellow wrote down are never removed, because archiving says
+   * "I have dealt with this", not "this never mattered".
+   */
+  async setArchived(url: string, archivedAt: string | null): Promise<boolean> {
+    const file = path.join(this.vaultRoot, READING_LIST_PAGE)
+    let markdown: string
+    try {
+      markdown = fs.readFileSync(file, 'utf8')
+    } catch {
+      return false
+    }
+    const wanted = urlKey(url)
+    const entry = parseReadingList(markdown).find((e) => urlKey(e.url) === wanted)
+    if (entry === undefined || entry.archivedAt === archivedAt) return false
+    /*
+     * Inside this entry's own block and nowhere else. An earlier version stripped `archivedAt`
+     * with a page-wide regex, which would have un-archived every other entry on the way to
+     * archiving one.
+     */
+    const lines = markdown.split('\n')
+    const isTitle = (l: string): boolean => /^[ \t]*[-*][ \t]+title[ \t]*:/i.test(l)
+    const start = lines.findIndex((l) => new RegExp(`^[ \t]*[-*][ \t]+title[ \t]*:[ \t]*${escapeRe(entry.title)}[ \t]*$`).test(l))
+    if (start === -1) return false
+    let end = start + 1
+    while (end < lines.length && !isTitle(lines[end]!)) end++
+    const body = lines.slice(start + 1, end).filter((l) => !/^[ \t]*archivedat[ \t]*:/i.test(l))
+    if (archivedAt !== null) body.unshift(`  archivedAt: ${archivedAt}`)
+    const next = [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n')
+    if (next === markdown) return false
+    if (this.write.commitMutex === undefined) {
+      fs.writeFileSync(file, next, 'utf8')
+      return true
+    }
+    const commit = this.write.commit ?? commitPaths
+    await this.write.commitMutex.runExclusive(async () => {
+      fs.writeFileSync(file, next, 'utf8')
+      if (this.write.autoCommit?.() ?? true) {
+        await commit(this.vaultRoot, `reading list: ${archivedAt === null ? 'restored' : 'archived'} one entry`, [READING_LIST_PAGE])
+      }
+    })
+    return true
+  }
+
   /** The first source page an ingest wrote, for the row's link into the vault. */
   private pageOfJob(jobId: string): string | undefined {
     const job = this.jobs.get(jobId)
@@ -368,7 +428,8 @@ export class ReadingListService {
       line('by', e.by) +
       line('at', e.at) +
       line('filed', e.filed) +
-      line('filedAt', e.filedAt)
+      line('filedAt', e.filedAt) +
+      line('archivedAt', e.archivedAt)
     )
   }
 

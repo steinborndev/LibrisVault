@@ -80,6 +80,7 @@ describe('parsing the page a Fellow writes', () => {
       blocked: null,
       filed: null,
       filedAt: null,
+      archivedAt: null,
     })
     expect(entries[1]).toMatchObject({ ref: null, why: null, domain: 'astronomy' })
     // The entry worth the most: nobody could read it, and it says why.
@@ -100,6 +101,7 @@ describe('parsing the page a Fellow writes', () => {
       blocked: null,
       filed: null,
       filedAt: null,
+      archivedAt: null,
       ...over,
     })
     // The Fellow's own word always wins.
@@ -244,6 +246,47 @@ title: "Reading list"
     expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toContain('  filed: wiki/sources/Approved Antibodies.md')
   })
 
+  /*
+   * Archiving is a MARK, not a removal: the page is append-only for every writer including the
+   * service, and an entry carries the request and the reason a Fellow wrote it down. It says
+   * "I have dealt with this", which is a different statement from `filed` and can be true
+   * without it - a publication the user decides not to fetch is what the list had no answer for.
+   */
+  it('marks one entry archived and takes the mark off again, touching nothing else', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    const [first, second] = reading.entries()
+
+    expect(await reading.setArchived(first!.url, '2026-09-08')).toBe(true)
+    let page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(parseReadingList(page)[0]).toMatchObject({ title: first!.title, archivedAt: '2026-09-08' })
+    // The other entry is untouched, and so is everything the archived one already said.
+    expect(parseReadingList(page)[1]).toMatchObject({ title: second!.title, archivedAt: null })
+    expect(page).toContain(first!.why!)
+
+    // Idempotent, and a second entry's mark does not disturb the first's.
+    expect(await reading.setArchived(first!.url, '2026-09-08')).toBe(false)
+    expect(await reading.setArchived(second!.url, '2026-09-09')).toBe(true)
+    page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(parseReadingList(page).map((e) => e.archivedAt)).toEqual(['2026-09-08', '2026-09-09'])
+
+    // And back: a one-way button beside an Ingest button would be a trap.
+    expect(await reading.setArchived(first!.url, null)).toBe(true)
+    page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(parseReadingList(page).map((e) => e.archivedAt)).toEqual([null, '2026-09-09'])
+    expect(await reading.setArchived('https://nowhere.invalid/x', '2026-09-08')).toBe(false)
+  })
+
+  it('matches the entry the way the list dedupes, and survives a reload', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    const [first] = reading.entries()
+    // A tracking parameter is the same entry here as everywhere else on this page.
+    expect(await reading.setArchived(`${first!.url}?utm_source=x`, '2026-09-08')).toBe(true)
+    // Read back through the service, not just off the page.
+    expect(reading.entries()[0]).toMatchObject({ archivedAt: '2026-09-08' })
+  })
+
   it('an identifier still beats a url, because it is the stronger claim', () => {
     fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
     const reading = new ReadingListService(vaultRoot, store, {
@@ -371,6 +414,7 @@ describe('entries the service writes for the planner', () => {
     blocked: 'no extractable text',
     filed: null,
     filedAt: null,
+    archivedAt: null,
     ...over,
   })
 

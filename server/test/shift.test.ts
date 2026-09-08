@@ -726,6 +726,7 @@ describe('planning, proposals and the night shift', () => {
           blocked: 'HTTP 403',
           filed: 'wiki/sources/The Preprint.md',
           filedAt: '2026-09-08',
+          archivedAt: null,
         },
         page: 'wiki/sources/The Preprint.md',
       },

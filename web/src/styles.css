@@ -7588,6 +7588,14 @@ tr:focus-within .rowacts {
 .rl-meta { margin: 3px 0 0; font-size: 11.5px; color: var(--text-faint); }
 .rl-act { flex: none; display: flex; align-items: center; gap: 6px; }
 
+/*
+ * The archive button is the quiet one in the row: it sits beside whatever the row's real
+ * action is (Ingest, Open, a status chip) and must not compete with it, so it is icon-only
+ * and takes its weight from hover rather than from colour.
+ */
+.rl-arch { padding: 4px 6px; color: var(--text-faint); }
+.rl-arch:hover:not(:disabled) { color: var(--text); }
+
 /* The headline carries the room navigation now, in both modes. */
 /*
  * The headline of section 10.7: three zones that never trade places, and one height for

@@ -7,6 +7,11 @@
  * service tried to fetch them, so they sit behind a toggle instead of cluttering the list
  * with rows whose button does not work.
  *
+ * A second axis crosses that one: an entry the user has archived is out of the current view
+ * entirely, whatever its access. Archiving is the answer to "I have dealt with this", which is
+ * a different statement from "this is in the vault" and can be true without it - a publication
+ * one decides not to fetch is exactly what the list had no answer for.
+ *
  * Pure, so the rule and the counting are under test.
  */
 
@@ -21,19 +26,36 @@ export interface ReadingView {
   readonly hidden: number
   readonly waiting: number
   readonly total: number
+  /** Entries carrying an archive mark, across both tabs; what the toggle counts. */
+  readonly archived: number
 }
 
-export function readingView(entries: readonly ReadingItem[], showPaywalled: boolean): ReadingView {
+export type ReadingTab = 'current' | 'archived'
+
+/*
+ * Absent counts as current. The field is newer than the page format, so an entry written before
+ * it existed carries nothing there - and a view that hid every such entry would empty the list
+ * on the one input it is most likely to meet.
+ */
+export const isArchived = (e: ReadingItem): boolean => (e.archivedAt ?? null) !== null
+
+export function readingView(entries: readonly ReadingItem[], showPaywalled: boolean, tab: ReadingTab = 'current'): ReadingView {
+  // The archive is the outer cut: it decides which list you are looking at, and the paywall
+  // toggle then filters within it. An archived entry is never counted as held back by that
+  // toggle - it is not hidden, it is somewhere else.
+  const inTab = entries.filter((e) => (tab === 'archived' ? isArchived(e) : !isArchived(e)))
   // Hidden means "neither reachable nor done". A publication already in the vault stays on the
   // list whatever its access was: it is the answer to "did that paper ever arrive".
-  const shown = showPaywalled ? entries : entries.filter((e) => isReachable(e) || e.job !== null || e.page !== null)
+  const shown = showPaywalled ? inTab : inTab.filter((e) => isReachable(e) || e.job !== null || e.page !== null)
   return {
     shown,
-    hidden: entries.length - shown.length,
+    hidden: inTab.length - shown.length,
     // Not ingested means not in the vault at all - an entry matched by its identifier is done,
     // even though no ingest ever ran for its url.
     waiting: shown.filter((e) => e.job === null && e.page === null).length,
-    total: entries.length,
+    total: inTab.length,
+    /** How many sit in the other tab, for the toggle's own count. */
+    archived: entries.filter(isArchived).length,
   }
 }
 

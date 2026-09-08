@@ -41,6 +41,7 @@ export type IconName =
   | 'shrink'
   | 'globe'
   | 'image'
+  | 'archive'
 
 const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
   expand: (
@@ -166,6 +167,14 @@ const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
     </>
   ),
   back: <path d="M15 4l-8 8 8 8" />,
+  // A lidded box: put away, not thrown away.
+  archive: (
+    <>
+      <path d="M3 7h18v3H3z" />
+      <path d="M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9" />
+      <path d="M10 14h4" />
+    </>
+  ),
   upload: (
     <>
       <path d="M12 16V4M7 9l5-5 5 5" />

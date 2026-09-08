@@ -1182,11 +1182,32 @@ the vault, and the Fellow that asked for it never learned it had arrived.
 - **The recap names them once**, so both sides see the same thing: what came in from the
   reading list in this window, with who asked for it.
 
+**Archiving** (as built, 2026-09-08). The board has two lists, `current` and `archived`, and
+every row carries a small archive button; the archived view offers the same button as a restore,
+because a one-way action beside an Ingest button is a trap. It is a MARK on the entry
+(`archivedAt`), never a removal - the page stays append-only for content, so the request and the
+reason a Fellow wrote it down survive. Archiving says "I have dealt with this", which is a
+different statement from `filed` ("this is in the vault") and can be true without it: a
+publication the user decides not to fetch is exactly the case the list had no answer for. The
+service writes the mark inside that entry's own block, one commit behind the shared mutex like
+every other write; the archive is the outer cut and the paywalled toggle filters inside it. An
+entry with no mark at all is current, because the field is newer than the page format and a view
+that read a missing field as "archived" would empty the list on the input it is most likely to
+meet.
+
 ### 10.7 Working in the room (as built, 2026-09-06)
 
 Focus is the screen's resting state and sits first in the toggle: the room fills the width
 and the control column is out of the way. Opening a department brings the column back (it
-becomes the department's, section 10.5); closing it returns to the room in focus. The
+becomes the department's, section 10.5); closing it returns to the room in focus.
+
+**A board is always a focus view** (as built, 2026-09-08). The three boards - hot cache, daily
+recap, reading list - open over the room and fill the frame, and the control column beside them
+belongs to a room the reader cannot see. So they ignore the toggle, and the toggle goes with
+them rather than standing there doing nothing. The user's own choice is remembered and comes
+back when the board closes. The slot it leaves is not empty for every board: the reading list
+puts its `current` / `archived` toggle there, which is the choice that matters while it is
+open. The
 headline carries the mode toggle, the room strip and, in focus, the spawn button, which
 opens the column with the form.
 

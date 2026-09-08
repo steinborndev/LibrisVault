@@ -1270,6 +1270,7 @@ export class FellowService {
             blocked: r.blocked,
             filed: null,
             filedAt: null,
+            archivedAt: null,
           })),
         )
         if (added > 0) this.log('info', `fellows: ${agent.name} added ${added} entr${added === 1 ? 'y' : 'ies'} to the reading list`)

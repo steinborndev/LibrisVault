@@ -463,6 +463,14 @@ export const api = {
       body: JSON.stringify({ url }),
     }).then(json<{ job: Job }>),
 
+  /** Put one entry out of sight, or bring it back. A mark on the entry, never a removal. */
+  archiveReading: (url: string, archived: boolean): Promise<{ archived: boolean }> =>
+    fetch(`${BASE}/reading-list/archive`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url, archived }),
+    }).then(json<{ archived: boolean }>),
+
   agentCard: (id: string): Promise<FellowCard> => fetch(`${BASE}/agents/${encodeURIComponent(id)}/card`).then(json<FellowCard>),
 
   spawnAgent: (body: SpawnBody): Promise<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }> =>

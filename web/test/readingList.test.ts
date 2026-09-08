@@ -24,6 +24,7 @@ const item = (over: Partial<ReadingItem>): ReadingItem => ({
   via: null,
   filed: null,
   filedAt: null,
+  archivedAt: null,
   job: null,
   ...over,
 })
@@ -67,6 +68,39 @@ describe('the reading list view', () => {
     // where it landed regardless.
     expect(isReachable(byHand)).toBe(false)
     expect(byHand.page).toBe('wiki/sources/X.md')
+  })
+
+  /*
+   * The archive is the outer cut: it decides WHICH list you are looking at, and the paywall
+   * toggle then filters inside it. So an archived entry is never counted as held back by that
+   * toggle - it is not hidden, it is somewhere else.
+   */
+  it('splits the list in two, and the paywall toggle works inside each half', () => {
+    const withArchive: ReadingItem[] = [
+      ...entries,
+      item({ title: 'archived open', reach: 'open', archivedAt: '2026-09-08' }),
+      item({ title: 'archived paywalled', reach: 'paywalled', access: 'paywalled', archivedAt: '2026-09-08' }),
+    ]
+    const current = readingView(withArchive, false, 'current')
+    expect(current.shown.map((e) => e.title)).toEqual(['open', 'unknown host'])
+    expect(current.hidden).toBe(2)
+    // The count of what sits in the other list is the same from either side.
+    expect(current.archived).toBe(2)
+
+    const archived = readingView(withArchive, false, 'archived')
+    expect(archived.shown.map((e) => e.title)).toEqual(['archived open'])
+    expect(archived.hidden).toBe(1)
+    expect(readingView(withArchive, true, 'archived').shown.map((e) => e.title)).toEqual(['archived open', 'archived paywalled'])
+    // `total` is the list you are on, not the page.
+    expect(archived.total).toBe(2)
+  })
+
+  it('treats a missing archive mark as current, because the field is newer than the page', () => {
+    // An entry written before the field existed carries nothing there. A view that read that as
+    // "archived" would empty the current list on the one input it is most likely to meet.
+    const legacy = [{ ...item({ title: 'old' }), archivedAt: undefined } as unknown as ReadingItem]
+    expect(readingView(legacy, false, 'current').shown.map((e) => e.title)).toEqual(['old'])
+    expect(readingView(legacy, false, 'archived').shown).toEqual([])
   })
 
   it('an unknown host is still worth one attempt; a named blocker is spelled out', () => {
