@@ -2087,6 +2087,8 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
   }, [graph])
 
   const nodeIndex = useMemo(() => graph.nodes.findIndex((n) => n.path === path), [graph, path])
+  /** Which of the two link lists the sidebar shows; the toggle above it switches them. */
+  const [side, setSide] = useState<'backlinks' | 'outgoing'>('backlinks')
   const backlinks = useMemo(() => {
     if (nodeIndex < 0) return []
     return graph.edges
@@ -2324,46 +2326,53 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
         </article>
 
         <aside className="page-side">
-          <h3>Backlinks ({backlinks.length})</h3>
-          {backlinks.length === 0 ? (
-            <p className="dim">No page links here.</p>
-          ) : (
-            <ul className="linklist">
-              {backlinks.map((n) => (
-                <li key={n.path}>
-                  <a
-                    href={pageRoute(n.path)}
-                    onClick={(e) => {
-                      e.preventDefault()
-                      navigate(pageRoute(n.path))
-                    }}
-                  >
-                    {n.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
-          <h3>Outgoing ({outgoing.length})</h3>
-          {outgoing.length === 0 ? (
-            <p className="dim">No outgoing links.</p>
-          ) : (
-            <ul className="linklist">
-              {outgoing.map((n) => (
-                <li key={n.path}>
-                  <a
-                    href={pageRoute(n.path)}
-                    onClick={(e) => {
-                      e.preventDefault()
-                      navigate(pageRoute(n.path))
-                    }}
-                  >
-                    {n.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
+          {/*
+            One list at a time, chosen by the same pill toggle the rest of the shell uses.
+            Both lists stacked made the column longer than the article on a well-linked page,
+            which is what set the two scrolling against each other; and which of the two you
+            want is a question you answer once, not a thing to scroll past.
+          */}
+          <div className="seg page-side-seg" role="radiogroup" aria-label="Links">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={side === 'backlinks'}
+              className={side === 'backlinks' ? 'active' : ''}
+              onClick={() => setSide('backlinks')}
+            >
+              Backlinks {backlinks.length}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={side === 'outgoing'}
+              className={side === 'outgoing' ? 'active' : ''}
+              onClick={() => setSide('outgoing')}
+            >
+              Outgoing {outgoing.length}
+            </button>
+          </div>
+          <div className="page-side-body">
+            {(side === 'backlinks' ? backlinks : outgoing).length === 0 ? (
+              <p className="dim">{side === 'backlinks' ? 'No page links here.' : 'No outgoing links.'}</p>
+            ) : (
+              <ul className="linklist">
+                {(side === 'backlinks' ? backlinks : outgoing).map((n) => (
+                  <li key={n.path}>
+                    <a
+                      href={pageRoute(n.path)}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        navigate(pageRoute(n.path))
+                      }}
+                    >
+                      {n.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </aside>
       </div>
       )}

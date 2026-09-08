@@ -389,7 +389,12 @@ export function App(): React.ReactElement {
               fills the viewport and scrolls inside its own panels, so it takes `flush`. An
               article is a document and scrolls normally, so it does not. */}
           <section
-            className={`screen${screen === 'vault' && openPage === null ? ' flush' : ''}`}
+            /*
+             * `flush` for the graph, `reading` for an open page: the reader bounds itself to
+             * the viewport like the Library's drawing area and scrolls inside its own two
+             * columns, so the screen must not scroll underneath it as well.
+             */
+            className={`screen${screen === 'vault' ? (openPage === null ? ' flush' : ' reading') : ''}`}
             hidden={screen !== 'vault'}
             aria-label="Vault"
           >
