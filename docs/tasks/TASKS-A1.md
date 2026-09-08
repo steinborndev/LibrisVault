@@ -169,3 +169,23 @@ standing proposals before it plans, and that a night with no proposal is a night
 does nothing and the user is asked nothing. Verified against the live vault: the same Fellow,
 the same zero quota, five minutes apart - `nothing_worth_a_run` before the fix, one sharp
 proposal after it.
+
+## The explore path, exercised end to end (2026-09-08)
+
+The three task kinds were tested against the live vault in one session. Watch and deepen each
+turned up a fault (see the sweep in `docs/agents/ideas.md`, F3 in TASKS-A3.md, F5 above);
+explore did not.
+
+A planning run on an explore task read sixteen candidates, discarded the ten belonging to the
+Fellow's other standing tasks as out of scope for the night, and proposed one step: fetch the
+one source that was on file as a count without named items, and diff it against the named list
+the vault already held. The step ran for four minutes, wrote no new page, and folded its
+findings into the three pages that already carried the question - marking the standing
+contradiction resolved, deleting the open question that said the reconciliation had not been
+chased, and leaving two sharper ones in its place.
+
+`intent_covered` and the `resting` state stayed unobserved, and correctly so: the planner sets
+`intent_covered` only when the library can take a task no further, and this pass closed one
+question while opening two. A task that generates new questions as it is answered is exactly
+the case where declaring it finished would be wrong. The path remains untested by observation;
+the refusal to take it was the right behaviour to see.
