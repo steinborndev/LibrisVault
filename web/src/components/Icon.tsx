@@ -42,6 +42,10 @@ export type IconName =
   | 'globe'
   | 'image'
   | 'archive'
+  | 'lens-broad'
+  | 'lens-sota'
+  | 'lens-patents'
+  | 'lens-startups'
 
 const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
   expand: (
@@ -167,6 +171,44 @@ const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
     </>
   ),
   back: <path d="M15 4l-8 8 8 8" />,
+  /*
+   * One mark per research lens. They stand where the run count used to in the picker, and
+   * they lead every row of the run list - so the picker doubles as the legend, and a list of
+   * mixed lenses reads as groups without a column of its own. Each is that lens's own
+   * instrument rather than a generic glyph.
+   */
+  // A sweep: the full circle with the hand mid-turn.
+  'lens-broad': (
+    <>
+      <path d="M12 3a9 9 0 1 0 9 9" />
+      <path d="M12 12l6.4-4.6" />
+      <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // The frontier: a line of work rising to the point it has reached.
+  'lens-sota': (
+    <>
+      <path d="M3 17.5l5.2-5.2 3.4 2.6L18 7" />
+      <circle cx="18.6" cy="6.6" r="2.1" />
+    </>
+  ),
+  // A filing with a seal on it.
+  'lens-patents': (
+    <>
+      <path d="M6.5 3h7l4 4v14h-11z" />
+      <path d="M13.5 3v4h4" />
+      <circle cx="12" cy="13.6" r="2.3" />
+      <path d="M10.7 15.6V19l1.3-1 1.3 1v-3.4" />
+    </>
+  ),
+  // Funding: a stack that grows.
+  'lens-startups': (
+    <>
+      <ellipse cx="12" cy="6.5" rx="6.3" ry="2.5" />
+      <path d="M5.7 6.5v5c0 1.4 2.8 2.5 6.3 2.5s6.3-1.1 6.3-2.5v-5" />
+      <path d="M5.7 11.5v5c0 1.4 2.8 2.5 6.3 2.5s6.3-1.1 6.3-2.5v-5" />
+    </>
+  ),
   // A lidded box: put away, not thrown away.
   archive: (
     <>
