@@ -74,8 +74,8 @@ describe('domainCounts', () => {
   it('counts knowledge pages only, never the vault\'s own meta pages', () => {
     const { domains, unfiled } = domainCounts([
       node({ domain: 'x' }),
-      node({ domain: 'y', kind: 'meta' }),
-      node({ domain: null, kind: 'meta' }),
+      node({ domain: 'y', kind: 'structural' }),
+      node({ domain: null, kind: 'structural' }),
     ])
     expect(domains).toEqual([{ domain: 'x', pages: 1 }])
     expect(unfiled).toBe(0)

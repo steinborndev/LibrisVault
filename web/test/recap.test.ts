@@ -6,6 +6,8 @@ const model = (over: Partial<RecapModel> = {}): RecapModel => ({
   cycleDate: '2026-09-07',
   generatedAt: '2026-09-07T05:00:00.000Z',
   quiet: false,
+  sinceBuilt: null,
+  readingFiled: [],
   since: '2026-09-06T05:00:00.000Z',
   window: { start: '01:00', end: '06:00' },
   shift: null,

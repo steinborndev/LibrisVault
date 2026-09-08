@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { fixture } from './fixture.ts'
 import {
   buildResearchRuns,
   listedRuns,
@@ -47,7 +48,9 @@ const node = (over: Partial<GraphNode> = {}): GraphNode => ({
   ...over,
 })
 
-const run = (over: Partial<MaintenanceRun> = {}): MaintenanceRun => ({
+type Over<T> = { readonly [K in keyof T]?: T[K] | undefined }
+const run = (over: Over<MaintenanceRun> = {}): MaintenanceRun =>
+  fixture<MaintenanceRun>({
   id: 'run-1',
   kind: 'research',
   channel: 'maintenance:research',
@@ -62,8 +65,7 @@ const run = (over: Partial<MaintenanceRun> = {}): MaintenanceRun => ({
     pages: ['wiki/questions/Research: Topic.md'],
     usage: { tokensIn: 100, tokensOut: 50, costUsd: 1.5 },
   },
-  ...over,
-})
+  }, over)
 
 const settle = (over: Partial<MaintenanceAreaState> = {}): MaintenanceAreaState => ({
   kind: 'research',
@@ -175,7 +177,8 @@ describe('targetTitle', () => {
   })
 })
 
-const history = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
+const history = (over: Over<AgentRunRecord> = {}): AgentRunRecord =>
+  fixture<AgentRunRecord>({
   id: 'hist-1',
   kind: 'research',
   label: 'Topic',
@@ -188,8 +191,8 @@ const history = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
   error: null,
   startedAt: '2026-08-20T09:40:00.000Z',
   finishedAt: '2026-08-20T10:00:00.000Z',
-  ...over,
-})
+  commitHash: null,
+  }, over)
 
 describe('buildResearchRuns with the persistent run log', () => {
   it('lists a recorded run with the facts only the log keeps', () => {

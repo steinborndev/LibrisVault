@@ -16,7 +16,7 @@ import {
   PROGRESS_MIN_TYPICAL_MS,
   type AdapterInput,
 } from '../src/lib/library/scene.ts'
-import type { LibraryScene, SceneFellow } from '../src/api/types.ts'
+import type { LibraryScene, SceneFellow, SceneRun } from '../src/api/types.ts'
 
 describe('isometric projection', () => {
   it('projects the grid with tiles twice as wide as high and sorts by depth', () => {
@@ -62,6 +62,9 @@ describe('room model', () => {
     expect(signText('climate-science')).toBe('climate science')
   })
 })
+
+type SceneRunFixture = Partial<SceneRun> & Pick<SceneRun, 'id' | 'kind' | 'channel'>
+const run = (over: SceneRunFixture): SceneRun => ({ label: null, startedAt: 's', waiting: false, typicalMs: null, ...over })
 
 const fellow = (over: Partial<SceneFellow>): SceneFellow => ({ agentId: 'a1', name: 'Ada', homeDomain: 'astronomy', model: 'sonnet-5', state: 'sleeping', sleepCode: 'idle', sleepReason: 'nothing planned', skipUntil: null, run: null, next: null, lastActive: null, ...over })
 
@@ -137,10 +140,10 @@ describe('scene adapter', () => {
   it('renders the existing runs with zero Fellows: researcher at the shelf, clerks by job state, inspector, caretaker', () => {
     const s = scene({
       runs: [
-        { id: 'r1', kind: 'research', channel: 'maintenance:research', label: 'Topic', startedAt: 's' },
-        { id: 'r2', kind: 'lint', channel: 'maintenance:lint', label: null, startedAt: 's' },
-        { id: 'r3', kind: 'hot-cache', channel: 'maintenance:hot-cache', label: null, startedAt: 's' },
-        { id: 'r4', kind: 'retrieve-index', channel: 'maintenance:retrieve-index', label: null, startedAt: 's' },
+        run({ id: 'r1', kind: 'research', channel: 'maintenance:research', label: 'Topic' }),
+        run({ id: 'r2', kind: 'lint', channel: 'maintenance:lint', label: null }),
+        run({ id: 'r3', kind: 'hot-cache', channel: 'maintenance:hot-cache', label: null }),
+        run({ id: 'r4', kind: 'retrieve-index', channel: 'maintenance:retrieve-index', label: null }),
       ],
       jobs: [
         { id: 'j1', status: 'queued', name: 'a.pdf', source: 'upload', batchId: null },
@@ -164,8 +167,8 @@ describe('scene adapter', () => {
   it('places Fellows by state and pose: shelf in the home domain\'s room, desk in the main room, armchairs when resting', () => {
     const s = scene({
       fellows: [
-        fellow({ agentId: 'a1', name: 'Ada', state: 'active', run: { id: 'r1', kind: 'research-step', channel: 'maintenance:research-step', label: 'T', startedAt: 's' } }),
-        fellow({ agentId: 'a2', name: 'Bo', state: 'active', run: { id: 'r2', kind: 'plan', channel: 'maintenance:plan', label: 'planning', startedAt: 's' } }),
+        fellow({ agentId: 'a1', name: 'Ada', state: 'active', run: run({ id: 'r1', kind: 'research-step', channel: 'maintenance:research-step', label: 'T' }) }),
+        fellow({ agentId: 'a2', name: 'Bo', state: 'active', run: run({ id: 'r2', kind: 'plan', channel: 'maintenance:plan', label: 'planning' }) }),
         fellow({ agentId: 'a3', name: 'Cy', state: 'sleeping', sleepCode: 'quota' }),
         fellow({ agentId: 'a4', name: 'Di', state: 'waiting', next: { topic: 'X', kind: 'research-step', estCostUsd: 2, status: 'proposed' } }),
         fellow({ agentId: 'a5', name: 'Ed', state: 'blocked' }),
@@ -211,7 +214,7 @@ describe('scene adapter', () => {
       [26_957, '[assistant] All 5 concept pages done.'],
     ]
     const start = NOW - 30_000
-    const s = scene({ fellows: [fellow({ agentId: 'a1', name: 'Ada', homeDomain: 'astronomy', state: 'active', run: { id: 'r1', kind: 'research-step', channel: 'c', label: 'T', startedAt: 's' } })] })
+    const s = scene({ fellows: [fellow({ agentId: 'a1', name: 'Ada', homeDomain: 'astronomy', state: 'active', run: run({ id: 'r1', kind: 'research-step', channel: 'c', label: 'T' }) })] })
     const seen = new Set<string>()
     for (let k = 1; k <= real.length; k++) {
       const lines = real.slice(0, k).map(([ms, message]) => ({ ts: new Date(start + ms).toISOString(), message }))
@@ -225,7 +228,7 @@ describe('scene adapter', () => {
   })
 
   it('shows exits for a few seconds and never beside a live twin', () => {
-    const s = scene({ runs: [{ id: 'r1', kind: 'research', channel: 'c', label: null, startedAt: 's' }] })
+    const s = scene({ runs: [run({ id: 'r1', kind: 'research', channel: 'c', label: null })] })
     const exits: AdapterInput['exits'] = [
       { id: 'r0', kind: 'run', ok: true, name: 'researcher', role: 'researcher', at: 1_000_000 - 1000 },
       { id: 'r1', kind: 'run', ok: true, name: 'researcher', role: 'researcher', at: 1_000_000 - 1000 },

@@ -4,6 +4,7 @@
  * order is worth pinning down rather than eyeballing.
  */
 
+import { fixture } from './fixture.ts'
 import { describe, it, expect } from 'vitest'
 import { deepenCandidates, deepenCostUsd, fellowsForDomain, DEEPEN_DEFAULT_PAGES } from '../src/lib/deepen.ts'
 import type { FellowSummary, GraphNode } from '../src/api/types.ts'
@@ -59,7 +60,8 @@ describe('which pages deserve deepening', () => {
   })
 
   it('treats a node with no size as empty rather than dropping it', () => {
-    const nodes = [node({ path: 'wiki/concepts/Unknown Size.md', in: 4, size: undefined })]
+    // No size at all: `fixture` deletes the key, which is what an absent optional property is.
+    const nodes = [fixture(node({ path: 'wiki/concepts/Unknown Size.md', in: 4 }), { size: undefined })]
     expect(deepenCandidates(nodes, 'astronomy')).toHaveLength(1)
   })
 })

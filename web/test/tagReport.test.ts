@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { computeTagReport, conflictingTag, recommendedKeys, type TagNode } from '../src/lib/tagReport.ts'
 
-const page = (tags: string[], domain: string | null = null, kind = 'knowledge'): TagNode => ({
+const page = (tags: string[], domain: string | null = null, kind: NonNullable<TagNode['kind']> = 'knowledge'): TagNode => ({
   tags,
   domain,
-  kind: kind as TagNode['kind'],
+  kind,
 })
 
 describe('computeTagReport', () => {
@@ -134,7 +134,7 @@ describe('computeTagReport', () => {
       page(['once']),
       page(['twice']),
       page(['twice']),
-      page(['report-only'], null, 'system'),
+      page(['report-only'], null, 'structural'),
     ]
     const r = computeTagReport(nodes)
     expect(r.singletons).toEqual(['once'])

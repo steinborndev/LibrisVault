@@ -54,6 +54,8 @@ const row = (date: string, over: Partial<RecapModel> = {}): RecapRow => ({
     cycleDate: date,
     generatedAt: `${date}T05:00:00.000Z`,
     quiet: false,
+    sinceBuilt: null,
+    readingFiled: [],
     since: `${date}T00:00:00.000Z`,
     window: { start: '01:00', end: '06:00' },
     shift: null,
