@@ -456,6 +456,70 @@ cursor and the per-task `covered`; the planner prompt and the scope score agains
 run kind from the art, and the step size demoted to sizing; the deepen ranking reused from the
 dialog; the card and the spawn form; the recap line.
 
+## Semantic dedupe: what was measured, and what was built (2026-09-08)
+
+The lexical dedupe misses a paraphrase, so the obvious next step was the vault's BM25 index:
+score two topics by how much their retrieval overlaps. **Measured on this vault, it does not
+work.** Four variants over labelled pairs:
+
+| metric over the retrieval sets | worst duplicate | best distinct | verdict |
+|---|---|---|---|
+| page overlap | 0.167 | 0.200 | overlaps |
+| rank-weighted (RRF) | 0.110 | 0.170 | overlaps |
+| chunk overlap | 0.000 | 0.286 | overlaps |
+| IDF-weighted pages | 0.077 | 0.281 | overlaps |
+
+The pair that breaks every one of them is two LNP-formulation questions - a protein-corona
+topic and an ionizable-lipid topic. They are not the same question, and they retrieve the same
+pages, because BM25 ranks by shared terms and finds topical NEIGHBOURS. In a library
+concentrated on one subject, everything is a neighbour.
+
+A second, more direct test: take real synthesis pages, reword their titles so little vocabulary
+survives, and ask whether the page comes back. Before, **1 of 5** landed in the top three. The
+missing piece was not retrieval logic - the vault's pipeline is `bm25 (recall) → rerank
+(precision) → drill`, and the rerank stage was a no-op because ollama was not installed. With
+ollama and `nomic-embed-text` running, the same test gives **3 of 5** (ranks 6, 3, 1, miss, 2
+against 4, 3, 6, miss, 8). Better, and still not a dedupe on its own.
+
+### The most useful finding
+
+The vault's own history contains topics that a semantic measure would call duplicates and that
+must both run. Three topics wrote one synthesis page; they are a broad sweep and two narrow
+follow-ups on it. And two filing-status questions about two different drugs are near-identical
+in phrasing and completely disjoint in substance. **A false positive here kills a run the user
+may have approved.** That is what makes this hard, and it is why nothing ships on an intuition.
+
+### Built
+
+- **Stage 0, the harness** (`server/src/cli/dedupe-eval.ts`, `npm run dedupe-eval`). Labelled
+  pairs in, per-mechanism separation out. It reports the only number that decides a threshold:
+  whether the worst duplicate still outscores the best distinct pair. When they overlap it says
+  NO USABLE THRESHOLD rather than splitting the difference. Two cohorts, reported apart -
+  `observed` pairs the vault actually produced, and `paraphrase` pairs written by hand, because
+  a hand-written paraphrase flatters any method that reads for meaning. The set is vault
+  content and lives outside this repo.
+- **The baseline it produced.** The shipping lexical metric catches **0 of 6** duplicates at its
+  0.6 cut, with no false positives - and puts a genuine duplicate at 0.56 against a genuine
+  distinct pair at 0.54. The threshold sits in a gap 0.02 wide. That is a coincidence, not a
+  margin, and it is why the cut cannot simply be lowered.
+- **Stage 1, the planner is told** (`elsewhere` in the planner prompt, `elsewhereFor` in the
+  Fellow service). The one judge in the loop that reads for meaning is already running every
+  night. It now sees the other Fellows' standing topics and what has already run tonight, and
+  is told to judge by what a question asks rather than by its words - with the counterweight
+  that a narrower follow-up is not a duplicate. An instruction, not a boundary; the lexical
+  passes stay underneath.
+- **Ollama, as a user service.** Installed to `~/.local/ollama`, `systemctl --user` unit bound
+  to loopback. Its value is not mainly the dedupe: it revives the rerank stage for chat,
+  `wiki-query` and autoresearch's overlap steering, which had been running on BM25 alone.
+
+### Not built, and what it would take
+
+Stage 2 - embedding the topic sentences directly and using cosine in the band where the lexical
+metric is uncertain - now has an embedder available. It should be added as a second mechanism in
+the harness FIRST and only given a threshold if it separates the observed cohort. The action
+must stay graded, as it is today: note in the recap, hold an approved proposal, supersede only
+an undecided one.
+
 ## Proposal: the preprocessing chain has no sandbox (2026-09-07, built 2026-09-08)
 
 Found while weighing `microsoft/markitdown` (rejected, see below). The agent runs are contained

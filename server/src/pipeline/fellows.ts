@@ -120,6 +120,12 @@ const STEP_TIMEOUT_MS = 15 * 60_000
 /** Planning attempts per cycle: one retry when the answer comes back unusable, then the night is over. */
 export const PLAN_ATTEMPTS = 2
 
+/**
+ * How many of the other Fellows' topics ride in the planner prompt. Enough to cover a night's
+ * work across a handful of Fellows, small enough that the block stays an aside.
+ */
+export const ELSEWHERE_CAP = 12
+
 export type StepKind = 'research' | 'research-step' | 'research-expand'
 export type RunKind = StepKind | 'plan'
 
@@ -497,6 +503,37 @@ export class FellowService {
   }
 
   /** Steps this Fellow ran since local midnight; a planning run does not count. */
+  /**
+   * What the other Fellows are already on, for the planner's duplicate check (section 6.6).
+   *
+   * Two sources, both cross-Fellow: the topics they have standing (undecided or approved) and
+   * the ones that have already RUN tonight. The service's lexical dedupe catches a duplicate
+   * only when it is also a near-quotation; this is the same question put to the one judge in
+   * the loop that reads for meaning, in a prompt that runs anyway.
+   *
+   * Capped, newest work first: the block is an aside in a long prompt, not the prompt.
+   */
+  private elsewhereFor(agentId: string): Array<{ fellow: string; topic: string; ran: boolean }> {
+    const out: Array<{ fellow: string; topic: string; ran: boolean }> = []
+    const seen = new Set<string>()
+    const add = (fellow: string, topic: string, ran: boolean): void => {
+      const key = topic.trim().toLowerCase()
+      if (key === '' || seen.has(key)) return
+      seen.add(key)
+      out.push({ fellow, topic, ran })
+    }
+    const others = this.agents.list().filter((a) => a.id !== agentId && a.state !== 'retired')
+    // What ran tonight comes first: it is the strongest claim, the pages already exist.
+    for (const other of others) {
+      for (const run of this.runs.list({ agentId: other.id, since: startOfToday(this.now()).toISOString(), limit: 20 })) {
+        if (!isResearchKind(run.kind) || !run.ok || run.label === null) continue
+        add(other.name, run.label, true)
+      }
+    }
+    for (const other of others) for (const p of this.pendingProposals(other.id)) add(other.name, p.topic, false)
+    return out.slice(0, ELSEWHERE_CAP)
+  }
+
   private runsToday(agentId: string): number {
     return this.runs
       .list({ agentId, since: startOfToday(this.now()).toISOString() })
@@ -816,6 +853,7 @@ export class FellowService {
       candidates,
       recentLog: renderLogLines(runs.slice(0, 8)).slice(-8),
       vetoed,
+      elsewhere: this.elsewhereFor(agent.id),
       runsLeftToday: Math.max(0, agent.quotaRunsPerDay - this.runsToday(agent.id)),
       kinds,
       task: tonight.task,

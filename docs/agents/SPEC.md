@@ -362,6 +362,26 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
   before it: there the twin has merely been proposed, here it has run, so an **approved**
   proposal is *held* rather than superseded - the run is not spent, the user's decision keeps
   its place, and the reason stands in the shift record and the recap.
+- **The planner is told what the others claimed** (as built, 2026-09-08, stage 1 of the
+  semantic dedupe). Both passes above compare topic STRINGS, so two Fellows asking one question
+  in different words score zero against each other. The planning run already reads for meaning
+  and already runs, so it is given the other Fellows' standing topics and what has run tonight,
+  with the instruction to judge by what a question ASKS rather than by its words - and the
+  counterweight that a narrower follow-up on a subject someone else touched is NOT a duplicate
+  and is often the most valuable thing to propose. An instruction, not a boundary: the lexical
+  passes stay underneath as the mechanical floor. Capped at `ELSEWHERE_CAP`, cross-Fellow only.
+- **Why not the retrieval index** (measured, 2026-09-08). Scoring two topics by the overlap of
+  what they retrieve from the vault's BM25 index was the obvious next step and it does not
+  work: BM25 ranks by shared terms, so it finds topical NEIGHBOURS, and in a library
+  concentrated on one subject that is everything. Four variants - page sets, chunk sets,
+  rank-weighted, IDF-weighted - all placed the weakest true duplicate below the strongest
+  unrelated pair. The harness that showed this is `server/src/cli/dedupe-eval.ts`, and every
+  future mechanism is measured against the same labelled pairs before it gets a threshold. The
+  labelled set lives outside this repo (the pairs are vault topics, hard rule 7).
+- **What the harness says about the shipping threshold.** On the labelled set the lexical
+  metric puts a genuine duplicate at 0.56 and a genuine DISTINCT pair at 0.54 - the shipping
+  cut of 0.6 sits in a gap 0.02 wide, catching neither. That is not a margin, it is a
+  coincidence, and it is the reason the cut is not simply lowered.
 - **Notebooks are private.** Handoffs live in the `handoffs` table, never in another
   Fellow's page.
 

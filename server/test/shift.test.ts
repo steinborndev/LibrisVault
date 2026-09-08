@@ -464,6 +464,27 @@ describe('planning, proposals and the night shift', () => {
     expect(dropped.every((p) => p.topic !== night.summary.executed[0]!.topic)).toBe(true)
   })
 
+  /*
+   * Stage 1 end to end: the second Fellow to plan tonight is told what the first one claimed.
+   * The mechanical dedupe underneath compares strings and cannot see a paraphrase; this is the
+   * same question put to the only judge in the loop that reads for meaning.
+   */
+  it('the planner is told what the other Fellows already claimed tonight', async () => {
+    await spawn({ name: 'Cy', autonomy: 'auto' })
+    await spawn({ name: 'Di', autonomy: 'auto' })
+    await h.shift.run('timer')
+
+    const planPrompts = h.calls.filter((c) => c.profile === 'query' && c.prompt.includes('Candidates ('))
+    expect(planPrompts.length).toBeGreaterThanOrEqual(2)
+    // The first Fellow to plan had nothing to be told about; the last one did.
+    expect(planPrompts[0]!.prompt).not.toContain('already claimed elsewhere')
+    const last = planPrompts[planPrompts.length - 1]!.prompt
+    expect(last).toContain('already claimed elsewhere')
+    expect(last).toContain('Limb darkening models in transit photometry')
+    // A Fellow is never shown its own work back: that is its own beat, not a duplicate.
+    expect(last).not.toContain('by Di:')
+  })
+
   it('a drift proposal never runs undecided in veto mode, is dropped in auto mode, and runs when approved', async () => {
     h.planAnswer = () => DRIFT_PROPOSAL
     const vi = await spawn({ name: 'Vi' })

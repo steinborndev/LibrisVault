@@ -19,7 +19,8 @@
     "permprobe": "tsx src/cli/permprobe.ts",
     "killprobe": "tsx src/cli/killprobe.ts",
     "smoke": "tsx src/cli/smoke.ts",
-    "retrieval-eval": "tsx src/cli/retrieval-eval.ts"
+    "retrieval-eval": "tsx src/cli/retrieval-eval.ts",
+    "dedupe-eval": "tsx src/cli/dedupe-eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.212",

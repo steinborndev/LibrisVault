@@ -132,6 +132,21 @@ export interface PlannerInput {
   readonly recentLog: readonly string[]
   /** Topics the user vetoed recently; the planner must not propose them again. */
   readonly vetoed: readonly string[]
+  /**
+   * What the OTHER Fellows are already on: their undecided and approved topics, and what has
+   * already run tonight (docs/agents/ideas.md, decision 2026-09-08).
+   *
+   * The service's own dedupe compares topic strings, which only catches a duplicate that is
+   * also a near-quotation: two Fellows can ask the same question in different words and score
+   * zero against each other. Measured on this vault, retrieval over the BM25 index does not
+   * close that gap either - it ranks by shared terms and finds topical NEIGHBOURS, which in a
+   * library concentrated on one subject is everything. The planner is the one judge in the
+   * loop that reads for meaning, and it is already running; this is what it costs to ask it.
+   *
+   * An instruction, not a boundary - the lexical dedupe stays underneath as the mechanical
+   * floor. Empty when there is only one Fellow.
+   */
+  readonly elsewhere?: readonly { readonly fellow: string; readonly topic: string; readonly ran: boolean }[]
   readonly runsLeftToday: number
   readonly kinds: readonly ProposalKind[]
   /** Tonight's task: the one thing the answer is judged against (decision 2026-09-07). */
@@ -180,6 +195,18 @@ export function renderPlannerPrompt(input: PlannerInput): string {
     `Candidates (every proposal must name one of these ids as its origin):\n${candidates}\n\n` +
     (input.recentLog.length > 0 ? `Recent runs, newest last:\n${input.recentLog.map((l) => `- ${l}`).join('\n')}\n\n` : '') +
     (input.vetoed.length > 0 ? `The user vetoed these topics recently; do not propose them again:\n${input.vetoed.map((t) => `- ${t}`).join('\n')}\n\n` : '') +
+    (input.elsewhere !== undefined && input.elsewhere.length > 0
+      ? 'Work already claimed elsewhere in the library. A topic that asks the SAME question as one of these is a ' +
+        'duplicate however differently it is worded, and duplicates are the one thing this library cannot afford: ' +
+        'two Fellows spending a run each on one question. Do not propose one. Judge by what the question ASKS, not ' +
+        'by the words it uses - and be precise about it, because a narrower follow-up on a subject someone else ' +
+        'touched is NOT a duplicate and is often the most valuable thing you can propose. If your candidate is the ' +
+        'same question, drop it; if it genuinely goes further, propose it and say in the rationale what it adds:\n' +
+        input.elsewhere
+          .map((e) => `- ${e.ran ? 'ALREADY RAN tonight' : 'proposed'} by ${e.fellow}: "${e.topic}"`)
+          .join('\n') +
+        '\n\n'
+      : '') +
     (input.deepenPages !== undefined && input.deepenPages.length > 0
       ? `\nThe pages to deepen tonight, chosen for this theme because the library points at them more than they ` +
         `pay off - name these in \`pages\`, all of them or the ones that fit:\n${input.deepenPages.map((p) => `- ${p}`).join('\n')}\n`

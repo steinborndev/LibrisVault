@@ -257,6 +257,44 @@ describe('planner prompt, schema and answer', () => {
     expect(prompt).toContain('no web access')
   })
 
+  /*
+   * Stage 1 of the semantic dedupe (docs/agents/ideas.md, 2026-09-08). The service's own dedupe
+   * compares topic STRINGS, so two Fellows asking one question in different words score zero
+   * against each other; measured on this vault, retrieval over the BM25 index does not close
+   * that gap either. The planner reads for meaning and is already running, so it is told what
+   * the others are on.
+   */
+  it('tells the planner what the other Fellows are on, and which of it already ran', () => {
+    const prompt = renderPlannerPrompt({
+      task: TASK,
+      agent: agentRecord(),
+      candidates,
+      recentLog: [],
+      vetoed: [],
+      elsewhere: [
+        { fellow: 'Bo', topic: 'Limb darkening in transit photometry', ran: true },
+        { fellow: 'Cy', topic: 'Faint host precision', ran: false },
+      ],
+      runsLeftToday: 1,
+      kinds: ['research-step'],
+    })
+    expect(prompt).toContain('ALREADY RAN tonight by Bo: "Limb darkening in transit photometry"')
+    expect(prompt).toContain('proposed by Cy: "Faint host precision"')
+    // Judged by meaning, not by words - that is the whole reason the planner is asked at all.
+    expect(prompt).toContain('however differently it is worded')
+    expect(prompt).toContain('Judge by what the question ASKS, not by the words it uses')
+    // And the counterweight, because the vault's own history is full of legitimate follow-ups
+    // on a subject someone else touched: those must still be proposed.
+    expect(prompt).toContain('narrower follow-up')
+  })
+
+  it('says nothing about elsewhere when the Fellow works alone', () => {
+    const alone = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], elsewhere: [], runsLeftToday: 1, kinds: ['research-step'] })
+    expect(alone).not.toContain('already claimed elsewhere')
+    const unset = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    expect(unset).not.toContain('already claimed elsewhere')
+  })
+
   it('builds a strict schema from the allowed kinds and candidate ids', () => {
     const schema = plannerSchema({ kinds: ['research-step'], candidateIds: ['C1', 'C2'] }) as { properties: Record<string, { items?: { properties: Record<string, { enum?: string[] }> } }>; required: string[] }
     expect(schema.required).toEqual(['proposals', 'handoffs', 'reading', 'nothing_worth_a_run', 'intent_covered', 'reason'])
