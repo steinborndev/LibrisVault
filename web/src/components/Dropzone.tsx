@@ -50,7 +50,7 @@ export function Dropzone(): React.ReactElement {
   }, [toast])
 
   const invalidate = (): void => {
-    qc.invalidateQueries({ queryKey: ['jobs'] })
+    void qc.invalidateQueries({ queryKey: ['jobs'] })
   }
 
   const upload = useMutation({

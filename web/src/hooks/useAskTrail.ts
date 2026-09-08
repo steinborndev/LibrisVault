@@ -14,6 +14,10 @@ export function useAskTrail(input: TrailInput): TrailLine[] {
     const before = prev.current
     prev.current = input
     setTrail((t) => advanceTrail(t, before, input, new Date().toISOString()))
+    // `input` itself is a fresh object on every render - the caller builds it inline - so
+    // depending on it would append a line per render. Its five fields are the identity that
+    // matters, and `advanceTrail` appends nothing when none of them changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input.pending, input.retrieval, input.writing, input.landed, input.error])
   return trail
 }

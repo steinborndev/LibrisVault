@@ -53,7 +53,7 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
       setDraft(res.effective)
       setPendingRestart(res.pendingRestart ?? [])
       // A changed watch folder / concurrency shows up in the Overview's queue + watcher stats.
-      qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
     },
   })
 

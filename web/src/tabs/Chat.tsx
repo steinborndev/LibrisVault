@@ -185,8 +185,8 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
       if (requestIdRef.current !== '') chatStream.clear(requestIdRef.current)
       setActiveId(res.sessionId)
       setView({ kind: 'thread', id: res.sessionId })
-      qc.invalidateQueries({ queryKey: ['sessions'] })
-      qc.invalidateQueries({ queryKey: ['session', res.sessionId] })
+      void qc.invalidateQueries({ queryKey: ['sessions'] })
+      void qc.invalidateQueries({ queryKey: ['session', res.sessionId] })
     },
     onError: (_e, question) => {
       chatStream.clear(streamKey)
@@ -194,7 +194,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
       // Give the typed question back instead of forcing a retype - but never clobber
       // something the user already started writing while the query was in flight.
       setDraft((current) => (current.trim() === '' ? question : current))
-      qc.invalidateQueries({ queryKey: ['sessions'] })
+      void qc.invalidateQueries({ queryKey: ['sessions'] })
     },
   })
 
@@ -744,7 +744,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               activeSessionId={activeId}
               onOpen={openEntry}
               onOpenThread={openThread}
-              onSessionsChanged={() => qc.invalidateQueries({ queryKey: ['sessions'] })}
+              onSessionsChanged={() => void qc.invalidateQueries({ queryKey: ['sessions'] })}
             />
           )}
 

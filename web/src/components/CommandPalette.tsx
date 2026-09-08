@@ -52,7 +52,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   }, [open])
 
   const q = query.trim().toLowerCase()
-  const terms = q === '' ? [] : q.split(/\s+/)
+  // Memoised on `q` so the two hit lists below can depend on it honestly: a fresh array
+  // every render would make them recompute on every keystroke of any other state.
+  const terms = useMemo(() => (q === '' ? [] : q.split(/\s+/)), [q])
 
   const pageHits = useMemo(() => {
     const nodes = graph.data?.nodes ?? []
@@ -75,12 +77,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         return bt - at || b.in - a.in
       })
     return scored.slice(0, PAGE_LIMIT)
-  }, [graph.data, q])
+  }, [graph.data, terms])
 
   const actionHits = useMemo(() => {
     if (terms.length === 0) return NAV_ACTIONS
     return NAV_ACTIONS.filter((a) => terms.every((t) => a.label.toLowerCase().includes(t)))
-  }, [q])
+  }, [terms])
 
   // The research handoff: whatever was typed becomes a clean topic (no instruction prose,
   // so lens title suffixes stay intact).

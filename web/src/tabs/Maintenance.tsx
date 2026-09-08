@@ -1449,6 +1449,8 @@ function GuidedRun({
       const base = r.result.pages.length > 0 ? `${r.result.pages.length} page(s) committed` : 'No changes needed.'
       finish(step.id, 'done', base + costSuffix(r.result.usage.costUsd))
     }
+    // Fires when one of the three auto runs SETTLES; `autoRuns` and `costSuffix` are read
+    // at that moment and their identity changing must not re-report a finished step.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backfill1.result, backfill2.result, hot.result])
 
@@ -1460,6 +1462,7 @@ function GuidedRun({
       lintFixStarted.current = true
       lintFix.start()
     }
+    // The ref is the once-per-run guard; `lintFix` is only started, never observed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lint.result, step])
   useEffect(() => {
@@ -1468,6 +1471,8 @@ function GuidedRun({
       const usd = (lint.result?.usage.costUsd ?? 0) + lintFix.result.usage.costUsd
       finish('lint', 'done', `Report written · ${lintFix.result.pages.length} page(s) auto-fixed.` + costSuffix(usd))
     }
+    // Reports the pair's total once the fix settles; `lint.result` was already final when
+    // the fix started, so its identity is not what should re-fire this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lintFix.result, step])
 

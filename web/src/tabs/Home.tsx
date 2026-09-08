@@ -258,8 +258,8 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
   const clear = useMutation({
     mutationFn: () => api.clearHistory(clearable ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['jobs'] })
-      qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
     },
   })
 

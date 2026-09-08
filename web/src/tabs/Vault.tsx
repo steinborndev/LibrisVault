@@ -1309,8 +1309,8 @@ function PageExplorer({
   useEffect(() => {
     if (repairRun?.status === 'done') {
       // The run edited pages and committed - refresh everything derived from the vault.
-      qc.invalidateQueries({ queryKey: ['graph'] })
-      qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['graph'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
     }
   }, [repairRun?.status, qc])
   const repairTasks = (): RepairTask[] => {
@@ -1961,10 +1961,10 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
     onSuccess: (res) => {
       setEditing(false)
       setSaveFindings(res.validation ?? [])
-      qc.invalidateQueries({ queryKey: ['page-full', path] })
-      qc.invalidateQueries({ queryKey: ['page', path] }) // the citation-preview cache
-      qc.invalidateQueries({ queryKey: ['graph'] }) // links may have changed
-      qc.invalidateQueries({ queryKey: ['stats'] }) // a commit landed
+      void qc.invalidateQueries({ queryKey: ['page-full', path] })
+      void qc.invalidateQueries({ queryKey: ['page', path] }) // the citation-preview cache
+      void qc.invalidateQueries({ queryKey: ['graph'] }) // links may have changed
+      void qc.invalidateQueries({ queryKey: ['stats'] }) // a commit landed
     },
   })
   const saveConflict = save.isError && (save.error as Error).message.startsWith('409')
@@ -1974,8 +1974,8 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
     onSuccess: (res) => {
       // Feed the lint-guidance banner: these backlinks just went dangling.
       staleLinks.add(res.staleLinks, pageQ.data?.title ?? path)
-      qc.invalidateQueries({ queryKey: ['graph'] })
-      qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['graph'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
       navigate('/graph')
     },
   })
@@ -2422,8 +2422,8 @@ function StaleLinksBanner(): React.ReactElement | null {
   useEffect(() => {
     if (run?.status === 'done') {
       // The run edited pages and committed - refresh everything derived from the vault.
-      qc.invalidateQueries({ queryKey: ['graph'] })
-      qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['graph'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
     }
   }, [run?.status, qc])
 

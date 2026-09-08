@@ -190,6 +190,9 @@ export function VaultConstellation({
       worker.terminate()
       workerRef.current = null
     }
+    // Mount-once by design: this owns the worker's whole life, and `draw` is called through
+    // the message handler rather than captured for later. Depending on `draw` would tear the
+    // worker down and rebuild it on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -211,7 +214,6 @@ export function VaultConstellation({
       seed,
       alpha: prev.length === nodes.length * 2 ? 0.35 : 1,
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges])
 
   // Theme switch repaints: the colours are read from CSS variables at draw time.

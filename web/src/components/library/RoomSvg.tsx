@@ -10,6 +10,10 @@ import type { SceneRoom, SceneShelf } from '../../api/types.ts'
 import { domainHue } from '../../lib/domains.ts'
 import { boxFaces, depthOf, fitRoom, hsl, makeProj, mix, pts, seeded, type Proj, type Pt } from '../../lib/library/iso.ts'
 import { CASE_D, CASE_W, DOOR, FAV_I, ROOM, WALL_H, WALL_J, breakSign, signText, wingSlotPositions } from '../../lib/library/room.ts'
+
+/** The case dimensions under the short names the geometry below reads in. */
+const a = CASE_W
+const b = CASE_D
 import type { Actor } from '../../lib/library/scene.ts'
 
 const FONT = '"Instrument Sans", system-ui, sans-serif'
@@ -91,8 +95,6 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
   const h = Math.round(64 * scale) + 10
   const c0 = SHELF[night ? 'night' : 'day']
   const c = spare !== undefined ? { ...c0, top: mix(c0.top, night ? '#0f1524' : '#ffffff', 0.45), left: mix(c0.left, night ? '#0f1524' : '#ffffff', 0.45), right: mix(c0.right, night ? '#0f1524' : '#ffffff', 0.45), band: mix(c0.band, night ? '#0f1524' : '#ffffff', 0.45) } : c0
-  const a = CASE_W
-  const b = CASE_D
   const rowsTop = h - band - 3
   const bandPoly: Pt[] = [P(i0, j0 + b, rowsTop + 1), P(i0 + a, j0 + b, rowsTop + 1), P(i0 + a, j0 + b, h - 1), P(i0, j0 + b, h - 1)]
   const spines = useMemo(() => {
@@ -122,8 +124,18 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
       }
     }
     return out
+    /*
+     * `P` rather than `TW` (2026-09-08): the projection carries the room's offset as well as
+     * its tile width, and `fitRoom` quantises TW to even pixels while ox/oy stay continuous.
+     * A resize that moved the room without changing the tile size therefore left these
+     * polygons on the old offset while everything around them moved. `rowsTop` follows the
+     * band height, which follows TW.
+     *
+     * `shelf` itself stays out: the scene is polled, so its object identity changes every few
+     * seconds while the three fields that decide what is drawn do not.
+     */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shelf?.domain, shelf?.books, shelf?.volumes, night, TW, i0, j0])
+  }, [shelf?.domain, shelf?.books, shelf?.volumes, night, P, rowsTop, i0, j0])
   return (
     <g className={`lib-case${selected ? ' selected' : ''}`}>
       <Box P={P} i0={i0} j0={j0} a={a} b={b} h={h} c={c} />

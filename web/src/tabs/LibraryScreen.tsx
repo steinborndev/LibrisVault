@@ -215,7 +215,7 @@ export function LibraryScreen({
       // poll would otherwise show the old figure for up to a minute (section 8.3).
       void qc.invalidateQueries({ queryKey: ['usage-plan'] })
     }
-  }, [scene.data, runsQ.data])
+  }, [scene.data, runsQ.data, qc])
 
   const actors = useMemo(() => {
     void tick
@@ -228,7 +228,12 @@ export function LibraryScreen({
     })
   }, [scene.data, exits, tick])
 
-  const rooms: readonly SceneRoom[] = scene.data?.rooms ?? []
+  /*
+   * Memoised on the scene, like `shelfOrder` below and for the same reason: the `?? []`
+   * fallback is a fresh array on every render while the scene is still loading, and the
+   * room-paging callback depends on this list.
+   */
+  const rooms: readonly SceneRoom[] = useMemo(() => scene.data?.rooms ?? [], [scene.data])
   const departments = scene.data?.departments ?? []
   /**
    * The shelves in the order they stand in - what up and down walk along. Keyed on the scene

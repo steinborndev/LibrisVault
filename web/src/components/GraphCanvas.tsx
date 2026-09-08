@@ -253,13 +253,23 @@ const persist = {
   settled: { current: true },
 }
 
+/*
+ * The same refs under their working names, at MODULE scope like the object they alias.
+ * Inside the component they read as component-scope consts, and the deps rule then asks for
+ * them in eleven dependency arrays - truthfully, since it cannot see that `persist` outlives
+ * every render. Out here they are what they always were: constants.
+ */
+const positionsRef = persist.positions
+const posByPathRef = persist.posByPath
+const transformRef = persist.transform
+const fittedRef = persist.fitted
+const userMovedRef = persist.userMoved
+const lastMsgRef = persist.lastMsg
+
 export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const positionsRef = persist.positions
-  const posByPathRef = persist.posByPath
   /** Paths recently added to the view → timestamp, for the arrival flash. */
   const flashRef = useRef<Map<string, number>>(new Map())
-  const transformRef = persist.transform
   const [hover, setHover] = useState<number | null>(null)
   const hoverRef = useRef<number | null>(null)
   hoverRef.current = hover
@@ -875,15 +885,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const mini = miniRef.current
     if (mini) drawMinimap(mini, t, vp, pos, dpr)
-  }, [positionsRef, transformRef])
+  }, [])
   const scheduleDraw = useRafDraw(() => {
     draw()
     overlayPass()
   })
   const scheduleDrawRef = useRef<(() => void) | null>(null)
   scheduleDrawRef.current = scheduleDraw
-  const fittedRef = persist.fitted
-  const userMovedRef = persist.userMoved
 
   /** Centers and scales the transform so the whole layout fits with a small margin. */
   const fitToView = useCallback((): void => {
@@ -943,7 +951,6 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // in the right posByPath slots.
     paths: persist.lastMsg.current?.paths ?? [],
   })
-  const lastMsgRef = persist.lastMsg
   const fitPendingRef = useRef(false)
 
   /**
@@ -1338,7 +1345,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     cache.geoms = geoms
     return geoms
-  }, [clusters, nodes.length, positionsRef, transformRef])
+  }, [clusters, nodes.length])
 
   const hitCluster = useCallback(
     (sx: number, sy: number): number => {
@@ -1451,7 +1458,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     zoomTransform(transformRef.current, vp, sx - rect.left, sy - rect.top, next)
     leash(transformRef.current, vp, worldBounds(positionsRef.current))
     userMovedRef.current = true
-  }, [transformRef, userMovedRef, positionsRef])
+  }, [])
 
   /** Button zoom: around the canvas center. */
   const zoomBy = (factor: number): void => {
@@ -1482,7 +1489,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           : localAnchor(transformRef.current, vp, cx, cy, positionsRef.current)
       return { x: a.x + rect.left, y: a.y + rect.top }
     },
-    [clusterGeoms, positionsRef, transformRef],
+    [clusterGeoms],
   )
 
   // Smooth zoom and the way-back pan: the wheel (or the button) writes a target, one rAF
@@ -1523,7 +1530,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       else animRunningRef.current = false
     }
     requestAnimationFrame(step)
-  }, [zoomAt, scheduleDraw, transformRef])
+  }, [zoomAt, scheduleDraw])
 
   /** The way back when nothing is on screen: center the nearest community (or node), animated. */
   const goToNearest = (): void => {
@@ -2242,8 +2249,8 @@ export function placeRegionLabels(
 function traceSmooth(ctx: CanvasRenderingContext2D, pts: Pt[]): void {
   if (pts.length < 3) return
   const mid = (a: Pt, b: Pt): Pt => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
-  let prev = pts[pts.length - 1]!
-  let start = mid(prev, pts[0]!)
+  const prev = pts[pts.length - 1]!
+  const start = mid(prev, pts[0]!)
   ctx.moveTo(start[0], start[1])
   for (let i = 0; i < pts.length; i++) {
     const cur = pts[i]!

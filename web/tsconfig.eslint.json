@@ -1,0 +1,5 @@
+{
+  "//": "Lint-only project: the same options as the build's, over the tests as well. The build's own tsconfig deliberately stops at `src` (see the note in package.json's build script); the linter needs a project for every file it reads, and type-aware rules over the tests are worth having.",
+  "extends": "./tsconfig.json",
+  "include": ["src", "test", "vite.config.ts"]
+}
