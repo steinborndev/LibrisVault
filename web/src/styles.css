@@ -2422,7 +2422,9 @@ details.hot-cache[open] summary {
    composer it shapes, which is where it went. */
 .lensopt {
   display: grid;
-  grid-template-columns: 14px 1fr;
+  /* Three columns: the radio, the name, the lens's mark. As two, the mark became a third
+     grid child and wrapped onto a row of its own under every lens. */
+  grid-template-columns: 14px 1fr auto;
   gap: 9px;
   align-items: center;
   padding: 5px 8px;
@@ -7703,27 +7705,23 @@ tr:focus-within .rowacts {
 }
 .rtable th.c-wrote,
 .rtable td.wrotec {
-  width: 218px;
+  width: 272px;
 }
 .rtable th.c-cost {
-  width: 84px;
+  width: 70px;
 }
 .rtable th.c-when {
-  width: 96px;
+  width: 78px;
 }
-@media (max-width: 1240px) {
-  .rtable th.c-wrote,
-  .rtable td.wrotec {
-    width: 168px;
-  }
-}
+/* Every count, and nothing taken from the topic: the three figure columns gave up the width
+   they never used, and a run that wrote three or four kinds takes a second line rather than an
+   ellipsis. Most rows stay one line; the ones that need two are the ones with the most to say. */
 .rtable td.wrotec {
   font-family: var(--mono);
   font-size: 11.5px;
+  line-height: 1.35;
   color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
   font-variant-numeric: tabular-nums;
 }
 /* The lens mark in a row: faint, and in a lane, so four lenses still line their topics up. */
@@ -7875,7 +7873,7 @@ tr:focus-within .rowacts {
 
 /* The Took column: live for the run in flight, a duration for the rest. */
 .rtable th.c-took {
-  width: 72px;
+  width: 58px;
 }
 .rtable td.tookc {
   font-family: var(--mono);
@@ -7886,6 +7884,197 @@ tr:focus-within .rowacts {
 }
 .rtable td.pending {
   color: var(--text-faint);
+}
+
+/*
+ * The Research tab's own colour rule (2026-09-08): the chrome is ink and paper, and colour
+ * means STATE. The tab used to wear the research violet on its toggle, its console, its
+ * button and its lens, and blue on the rest - emphasis spent on things that are not events.
+ * Scoped to this tab; the Library and the others keep their tokens.
+ */
+.workspace.research .seg button[aria-checked='true'] {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg-elev));
+  box-shadow: none;
+  color: var(--text);
+}
+.workspace.research .console {
+  background: var(--bg-elev);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+.workspace.research .console::before {
+  display: none;
+}
+.workspace.research .console:focus-within {
+  border-color: var(--border-strong);
+}
+.workspace.research .btn-run {
+  background: var(--text);
+  color: var(--bg-elev);
+}
+.workspace.research .pl-val.pl-hi {
+  color: var(--text);
+}
+.workspace.research .lensopt[aria-checked='true'] {
+  background: color-mix(in srgb, var(--text) 8%, var(--bg-elev));
+  border-color: var(--border-strong);
+}
+.workspace.research .lensopt[aria-checked='true'] .radio {
+  border-color: var(--text-dim);
+  background: radial-gradient(circle, var(--text) 0 42%, transparent 45%);
+}
+.workspace.research .detail-bar > svg,
+.workspace.research .lens-tag {
+  color: var(--text-dim);
+}
+.workspace.research .lens-tag {
+  border-color: var(--border);
+  background: none;
+}
+.workspace.research .pagelink-main:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+/* A settled run needs no dot: done is the default state of a row in a history. Failed keeps
+   its red, because that is a state worth a colour; the lane stays so the topics line up. */
+.workspace.research .rtable .hrow-dot:not(.running):not(.failed) {
+  visibility: hidden;
+}
+/* One line: the topic is repeated in full in the article's own heading a few lines down. */
+.workspace.research .detail-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+
+/* The headline in a white box, like every other tab's; one neutral chip on the right. */
+.rhead-box {
+  flex: none;
+  padding: 5px 10px;
+}
+.rhead-cap {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* The plan in the rail: the Library's card without the Library's frame. A box inside the
+   rail's own section is a box inside a box. */
+.gp-sec .lib-plan {
+  border: 0;
+  background: none;
+  padding: 0;
+  min-width: 0;
+}
+
+/* A pill without its kind tag: the band's column label says the kind once. Long names cut. */
+.pagelink.plain {
+  max-width: 100%;
+  padding-left: 10px;
+}
+.pagelink.plain .pagelink-main {
+  min-width: 0;
+}
+.pagelink.plain .pagelink-label {
+  display: inline-block;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* The activity box idle: same shape, nothing lit. */
+.dot.idle {
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+  opacity: 0.6;
+}
+.actlog {
+  min-height: 84px;
+}
+.actlog li.faint {
+  color: var(--text-faint);
+}
+
+/* Gaps, as rows in the list's place. */
+.gaps.grow {
+  flex: 1;
+  min-height: 0;
+}
+/* A column, stated: the box body it sits in lays its children out in a row, which put the
+   three gaps side by side and shrank each title to nothing. */
+.gaplist {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  overflow-y: auto;
+}
+.gaprow {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.gaprow:last-child {
+  border-bottom: 0;
+}
+.gaprow:hover {
+  background: var(--bg-elev-2);
+}
+.gaprow .nm {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gaprow .links {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.gaprow .go {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.gaprow:hover .go {
+  color: var(--text);
+}
+
+/* The article's own link in the detail foot: one line, cut rather than wrapped. */
+.detail-foot .pagelink.plain {
+  max-width: 60%;
+}
+.detail-foot .pagelink.plain .pagelink-label {
+  max-width: 100%;
 }
 
 /* The headline carries the room navigation now, in both modes. */

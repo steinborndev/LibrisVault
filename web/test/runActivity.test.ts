@@ -38,9 +38,15 @@ describe('the run activity box', () => {
     expect(src).not.toContain('cancel(')
   })
 
+  it('is on the screen idle as well, at the same shape, so a run starting moves nothing', () => {
+    expect(src).toContain("live ? 'Running' : 'Idle'")
+    // Idle lights nothing: no stage is done or current, the strip only shows the shape.
+    expect(src).toContain("!live ? 'todo'")
+  })
+
   it('shows one dot, before the title, and no stage headline', () => {
-    expect(src).toContain('className="dot live"')
-    expect(src.indexOf('className="dot live"')).toBeLessThan(src.indexOf('>Running<'))
+    expect(src).toContain("'dot live'")
+    expect(src.indexOf("'dot live'")).toBeLessThan(src.indexOf("'Running'"))
     expect(src).not.toContain('Stage ')
   })
 })

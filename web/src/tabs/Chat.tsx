@@ -45,7 +45,6 @@ import { JobLog } from '../components/JobLog.tsx'
 import { AskSteps } from '../components/AgentSteps.tsx'
 import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
-import { QueueState } from '../components/ActivityRows.tsx'
 import { Icon, type IconName } from '../components/Icon.tsx'
 import { planCorner } from '../lib/library/planCorner.ts'
 import { RunActivity } from '../components/RunActivity.tsx'
@@ -403,9 +402,10 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   const gaps = graphQ.data?.gaps ?? []
 
   return (
-    <div className="workspace">
+    <div className="workspace research">
       <aside className="gpanel" aria-label="Research controls">
-        <div className={`gp-sec${lensDisabled ? ' off' : ''}`} aria-disabled={lensDisabled}>
+        {!lensDisabled && (
+        <div className="gp-sec">
           <div className="gp-head">
             <span className="gp-eyebrow">Lens</span>
             <span className="spacer" />
@@ -438,19 +438,8 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             ))}
             {profiles.length === 0 && <div className="gp-none">Loading lenses…</div>}
           </div>
-          {/* All this still has to say is the one thing the console cannot: that an ask has
-              no lens. It keeps its height in both modes so nothing under it moves. */}
-          <div className="pillhint">
-            {lensDisabled && (
-              <>
-                Not used here.{' '}
-                <button className="linkish" onClick={() => setMode('research')}>
-                  Switch to Web Research
-                </button>
-              </>
-            )}
-          </div>
         </div>
+        )}
 
         {/* The plan, as the Library states it: which windows are how full, what an unmeasured
             run has probably added on top, and how old the reading is. */}
@@ -510,6 +499,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 recorded across {costed.length} run{costed.length === 1 ? '' : 's'}
               </span>
             </div>
+            {mode === 'research' && (
             <button
               className="vzf"
               aria-pressed={view.kind === 'gaps'}
@@ -518,23 +508,10 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               <b>{gaps.length}</b>
               <span>gaps worth a run</span>
             </button>
+            )}
           </div>
         </div>
 
-        {/* A run takes a queue slot, the same as a drop - so Research states the queue in the
-            same place, and the same shape, that Home does. */}
-        <div className="gp-sec gp-foot">
-          <div className="gp-head">
-            <span className="gp-eyebrow">Queue</span>
-          </div>
-          <QueueState
-            paused={stats.data?.queue.paused === true}
-            reason={stats.data?.queue.pauseReason ?? null}
-            concurrency={stats.data?.queue.concurrency}
-            active={stats.data?.queue.active ?? 0}
-            queued={stats.data?.queue.queued ?? 0}
-          />
-        </div>
       </aside>
 
       {/* The screen's own column: the console, a region that swaps, and the backlog pinned
@@ -549,6 +526,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
         {/* The headline (2026-09-08): the mode toggle on the left, what the mode may do on the
             right - the three zones the Library keeps. The toggle used to sit in the console and
             switch only the console; it switches the whole tab now, so it stands above it. */}
+        <div className="box rhead-box">
         <div className="rhead">
           <div className="seg" role="radiogroup" aria-label="Mode">
               <button
@@ -574,25 +552,8 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             {/* What the armed mode is ALLOWED to do. The two modes differ in exactly these
                 two capabilities, and a run that can reach the web and write pages should not
                 announce itself in the same faint grey as a read-only query. */}
-            <span className="caps">
-              {mode === 'research' ? (
-                <>
-                  <span className="cap">
-                    <Icon name="globe" /> Web access
-                  </span>
-                  <span className="cap">
-                    <Icon name="file" /> Writes pages
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="cap">
-                    <Icon name="book" /> Reads the vault
-                  </span>
-                  <span className="cap off">No commit</span>
-                </>
-              )}
-            </span>
+            <span className="rhead-cap">{mode === 'research' ? 'Web access' : 'Read-only'}</span>
+        </div>
         </div>
         <div className={`console${mode === 'ask' ? ' ask' : ''}`}>
           <div className="console-main">
@@ -706,7 +667,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
         </div>
 
         {/* The agent's own section, above the list, while a run is in flight. */}
-        {mode === 'research' && liveRunning && <RunActivity topic={lastTopic !== '' ? lastTopic : (liveEntry?.topic ?? 'a research run')} />}
+        {mode === 'research' && <RunActivity live={liveRunning} topic={lastTopic !== '' ? lastTopic : (liveEntry?.topic ?? '')} />}
 
         {mode === 'research' && research.error !== null && (
           <div className="toast err runbanner">
@@ -769,6 +730,48 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             />
           )}
 
+          {view.kind === 'gaps' && (
+            <section className="box gaps grow">
+              <div className="sub-head">
+                <h3 className="sub-title">Worth a run</h3>
+                <span className="box-sub">pages your vault links to but has never written</span>
+                <span className="spacer" />
+                <span className="count">{gaps.length}</span>
+                {/* Escape does this too, but a key nobody can see is not a control. */}
+                <button className="btn ghost sm" onClick={() => setView({ kind: 'start' })}>
+                  Back to runs
+                </button>
+              </div>
+              <div className="box-body gaplist">
+                {queryState(graphQ, 'the knowledge gaps') ??
+                  (gaps.length === 0 ? (
+                    <div className="empty">No open knowledge gaps - every link resolves to a page.</div>
+                  ) : (
+                    gaps.slice(0, BACKLOG_SIZE).map((g) => (
+                      <button
+                        key={g.title}
+                        className="gaprow"
+                        onClick={() => {
+                          // A gap is a way in, not a place to stay: the composer takes it and
+                          // the list comes back.
+                          setView({ kind: 'start' })
+                          startAbout(g.title)
+                        }}
+                      >
+                        <span className="nm" title={g.title}>
+                          {g.title}
+                        </span>
+                        <span className="links">
+                          {g.refBy.length} page{g.refBy.length === 1 ? '' : 's'} link{g.refBy.length === 1 ? 's' : ''} here
+                        </span>
+                        <span className="go">Research &rarr;</span>
+                      </button>
+                    ))
+                  ))}
+              </div>
+            </section>
+          )}
+
           {view.kind === 'run' && (
             <RunDetail
               entry={entries.find((e) => e.id === view.id)}
@@ -810,54 +813,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
           )}
         </div>
 
-        {/* The backlog is an offer, not a record - so it is a band of cards with a verb on
-            them. It stands in the ledger's place while it is open, not under it. */}
-        {view.kind === 'gaps' && (
-        <section className="box band grow">
-          <div className="sub-head">
-            <h3 className="sub-title">Worth a run</h3>
-            <span className="box-sub">pages your vault links to but has never written</span>
-            <span className="spacer" />
-            <span className="count">{gaps.length}</span>
-            {/* Escape does this too, but a key nobody can see is not a control. */}
-            <button className="btn ghost sm" onClick={() => setView({ kind: 'start' })}>
-              Back to runs
-            </button>
-          </div>
-          <div className="box-body">
-            {queryState(graphQ, 'the knowledge gaps') ??
-              (gaps.length === 0 ? (
-                <div className="empty">No open knowledge gaps - every link resolves to a page.</div>
-              ) : (
-                <div className="offers">
-                  {gaps.slice(0, BACKLOG_SIZE).map((g) => (
-                    <button
-                      key={g.title}
-                      className="offer"
-                      onClick={() => {
-                        // A gap is a way in, not a place to stay: the composer takes it and
-                        // the ledger comes back.
-                        setView({ kind: 'start' })
-                        startAbout(g.title)
-                      }}
-                    >
-                      <span className="of-t" title={g.title}>
-                        {g.title}
-                      </span>
-                      <span className="of-m">
-                        <span className="of-n">
-                          {g.refBy.length} page{g.refBy.length === 1 ? '' : 's'} link
-                          {g.refBy.length === 1 ? 's' : ''} here
-                        </span>
-                        <span className="of-go">Research</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ))}
-          </div>
-        </section>
-        )}
       </div>
     </div>
   )
@@ -1001,8 +956,8 @@ function StartView({
           {sessionState ??
             (sessions.length === 0 ? (
               <div className="empty">
-                Nothing asked yet. Switch the composer to Vault Research and ask - the answer cites the pages
-                it came from, and nothing is written.
+                Nothing asked yet. Ask above - the answer cites the pages it came from, and nothing is
+                written.
               </div>
             ) : (
               <table className="dtable rtable">
@@ -1148,7 +1103,7 @@ function WroteBand({ paths, vaultName, empty }: { paths: readonly string[]; vaul
             <span className="wkey">{g.label}</span>
             <span className="wpills">
               {shown.map((path) => (
-                <PageLink key={path} vaultName={vaultName} path={path} />
+                <PageLink key={path} vaultName={vaultName} path={path} plain />
               ))}
               {(rest > 0 || all) && g.paths.length > PILLS_SHOWN && (
                 <button className="chip more" onClick={() => setOpen({ ...open, [g.kind]: !all })}>
@@ -1270,7 +1225,7 @@ function RunDetailBody({
             ? 'From the run record the service still holds in memory.'
             : 'From the run log - recorded when the run settled, and kept across restarts.'
       }
-      footAction={articlePath !== null ? <PageLink vaultName={vaultName} path={articlePath} /> : null}
+      footAction={articlePath !== null ? <PageLink vaultName={vaultName} path={articlePath} plain /> : null}
     >
       {entry.error !== null && <div className="toast err">{entry.error}</div>}
       {articlePath === null ? (

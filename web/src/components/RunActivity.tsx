@@ -48,9 +48,14 @@ function age(ts: string, newest: string): string {
 /** The `[assistant] ` / `[user] ` role tag the formatter prefixes; the box has no columns for it. */
 const untag = (message: string): string => message.replace(/^\[[a-z]+\]\s*/, '')
 
-export function RunActivity({ topic }: { topic: string }): React.ReactElement {
+/**
+ * Always on the screen in research mode, idle or not. It is the same height in both states,
+ * so a run starting lights it up instead of pushing the list down - the screen does not
+ * rearrange itself at the one moment the reader is watching it.
+ */
+export function RunActivity({ live, topic }: { live: boolean; topic: string }): React.ReactElement {
   const lines = useJobLog('maintenance:research', { seed: false })
-  const p = lines.length > 0 ? deriveResearchProgress(lines) : EMPTY_PROGRESS
+  const p = live && lines.length > 0 ? deriveResearchProgress(lines) : EMPTY_PROGRESS
   const events = lines.filter(isEvent)
   const recent = events.slice(-ACTIVITY_LINES).reverse()
   const newest = recent[0]?.ts ?? ''
@@ -58,17 +63,17 @@ export function RunActivity({ topic }: { topic: string }): React.ReactElement {
   return (
     <section className="box activity" aria-label="The run in flight">
       <div className="sub-head">
-        <span className="dot live" title="a run is in flight" />
-        <h3 className="sub-title">Running</h3>
+        <span className={live ? 'dot live' : 'dot idle'} title={live ? 'a run is in flight' : 'no run in flight'} />
+        <h3 className="sub-title">{live ? 'Running' : 'Idle'}</h3>
         <span className="box-sub act-topic" title={topic}>
-          {topic}
+          {live ? topic : 'No run in flight'}
         </span>
       </div>
       <ul className="actlog">
         {recent.length === 0 ? (
-          <li className="head">
-            <span className="t">now</span>
-            <span>Starting…</span>
+          <li className={live ? 'head' : 'faint'}>
+            <span className="t">{live ? 'now' : ''}</span>
+            <span>{live ? 'Starting…' : 'The last four lines of a run\'s log appear here.'}</span>
           </li>
         ) : (
           recent.map((l, i) => (
@@ -83,7 +88,8 @@ export function RunActivity({ topic }: { topic: string }): React.ReactElement {
           ordinal restated the reading order. The current stage is the only lit one. */}
       <div className="stages" role="list" aria-label="Stages">
         {RESEARCH_STEPS.map((step, i) => {
-          const state = i < p.step ? 'done' : i === p.step ? 'now' : 'todo'
+          // Idle: nothing is done and nothing is current; the strip only shows the shape.
+          const state = !live ? 'todo' : i < p.step ? 'done' : i === p.step ? 'now' : 'todo'
           return (
             <div key={step.id} className={`stage ${state}`} role="listitem" title={step.title} aria-current={state === 'now' ? 'step' : undefined}>
               <span className="stage-bar" aria-hidden />
