@@ -177,6 +177,13 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
         )}
 
         {row(
+          'dedupeJudgeEnabled',
+          'Duplicate judge',
+          'Lets the night shift spend one read-only run asking a model which Fellows\' topics are the same question. Off by default. The word-overlap check keeps working without it and only sees a duplicate that reuses the words; this catches the same question asked differently. It never overturns a topic you approved, and it only merges what it is sure of - a hedge is noted in the recap and the run happens.',
+          <input type="checkbox" checked={draft.dedupeJudgeEnabled} onChange={(e) => setDraft({ ...draft, dedupeJudgeEnabled: e.target.checked })} />,
+        )}
+
+        {row(
           'gitAutoCommit',
           'Git auto-commit',
           'Commit automatically after every ingest. Off: pages land on disk without a commit.',

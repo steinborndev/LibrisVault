@@ -591,11 +591,40 @@ carried mostly by hand-written paraphrases, which are the easy half; real duplic
 the subset case, and that one lands at 0.2 with only 0.08 of air beneath it. The judge also
 costs a read-only run a night and varies by about 0.08 between runs on the pair that matters.
 
-So the shape to build, when it is built: keep the lexical passes as the free floor; ask the
-judge only about pairs neither pass settled, which is a handful a night; and keep the action
-graded exactly as it is now - note in the recap near the bar, hold an approved proposal,
-supersede only an undecided one well above it. And keep adding observed pairs to the set: the
-threshold above is measured on one real duplicate, which is a starting point, not a warrant.
+### Built (2026-09-08), off by default
+
+`dedupeJudgeEnabled`, a System setting. The lexical passes stay as the free floor and run
+unchanged; the judge is a second opinion on top of them, and a failure is a warning rather than
+a stall.
+
+One thing from the plan did not survive contact: **the lexical pre-filter**. Asking the judge
+only about pairs that already score high on word overlap would have halved the cost and thrown
+away exactly the cases it exists for - a real paraphrase scores 0.13 against its own twin. So
+every cross-Fellow pair still standing goes into one call, capped at 120.
+
+The judge runs twice a night, both times skipping pairs the memo has already answered. The
+second pass is there because of the same gap that bit the lexical dedupe this morning: phase 2's
+planning runs CREATE tonight's proposals, and the pass at the start of the night cannot see
+them. Plus the check before each run, against what has already run.
+
+The action is graded by how sure the judge is and by whether the user has decided:
+
+| verdict | undecided proposal | approved proposal |
+|---|---|---|
+| at or above 0.5 | superseded, reason recorded | **held**, the run is not spent, the decision stands |
+| 0.16 to 0.5 | noted in the recap, **the run happens** | noted, the run happens |
+| below 0.16 | nothing | nothing |
+
+The bars come from the measurement, not from taste. Everything above 0.5 was a paraphrase the
+judge was certain of; the one duplicate it hedged over - a task contained in another rather than
+restating it - sat at 0.20 to 0.28. A hedge costs a line in the recap, never a run.
+
+The recap keeps a merge and a hedge apart, and says when a model decided: one topic did not run,
+the other did and may turn out to have been a duplicate, and neither is the same kind of fact as
+a token count.
+
+**Still true:** the threshold rests on one observed duplicate. The set grows with the library,
+and `dedupe-eval` re-measures any mechanism against it at any time.
 
 ## Proposal: the preprocessing chain has no sandbox (2026-09-07, built 2026-09-08)
 

@@ -64,22 +64,24 @@ describe('the duplicate judge', () => {
       ok({ judgements: [{ id: 'p2', confidence: 4, reason: 'two subjects' }, { id: 'p1', confidence: 95, reason: 'same question' }] }),
     )
     // Answered out of order, returned in the caller's order.
-    expect(await judgePairs(PAIRS, opts)).toEqual([0.95, 0.04])
+    expect(await judgePairs(PAIRS, opts)).toEqual([{ score: 0.95, reason: 'same question' }, { score: 0.04, reason: 'two subjects' }])
     vi.restoreAllMocks()
   })
 
   it('returns NaN for a pair the judge did not answer, never a zero', async () => {
     vi.spyOn(runner, 'runAgent').mockResolvedValue(ok({ judgements: [{ id: 'p1', confidence: 90, reason: 'same' }, { id: 'p2', confidence: 0, reason: 'x' }] }))
     const [first] = await judgePairs(PAIRS, opts)
-    expect(first).toBe(0.9)
+    expect(first).toMatchObject({ score: 0.9 })
     vi.restoreAllMocks()
 
     // A short answer cannot pass the schema in production; if one ever does, the missing pair
     // must not read as "confidently not a duplicate".
     vi.spyOn(runner, 'runAgent').mockResolvedValue(ok({ judgements: [{ id: 'p1', confidence: 90, reason: 'same' }] }))
     const scores = await judgePairs(PAIRS, opts)
-    expect(scores[0]).toBe(0.9)
-    expect(Number.isNaN(scores[1]!)).toBe(true)
+    expect(scores[0]).toMatchObject({ score: 0.9 })
+    expect(Number.isNaN(scores[1]!.score)).toBe(true)
+    // No reason either: nothing was said about it, so nothing is quoted.
+    expect(scores[1]!.reason).toBeUndefined()
     vi.restoreAllMocks()
   })
 

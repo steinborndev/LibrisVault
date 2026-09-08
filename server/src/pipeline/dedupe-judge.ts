@@ -109,11 +109,20 @@ export interface JudgeOptions {
   readonly timeoutMs?: number
 }
 
+/** One verdict: the score in [0, 1] and the judge's own short reason for it. */
+export interface JudgeVerdict {
+  readonly score: number
+  readonly reason?: string
+}
+
 /**
  * Scores every pair in [0, 1]. A pair the judge did not answer for comes back as NaN rather
  * than 0: a zero is a score, and a score gets compared to a threshold.
+ *
+ * The reason rides along because a merge decided by a model should be able to say why - the
+ * recap presents it as a judgement, not as a mechanical fact like the token overlap.
  */
-export async function judgePairs(pairs: readonly JudgePair[], opts: JudgeOptions): Promise<number[]> {
+export async function judgePairs(pairs: readonly JudgePair[], opts: JudgeOptions): Promise<JudgeVerdict[]> {
   if (pairs.length === 0) return []
   const result = await runAgent({
     vaultRoot: opts.vaultRoot,
@@ -128,6 +137,6 @@ export async function judgePairs(pairs: readonly JudgePair[], opts: JudgeOptions
   if (!result.ok) throw new Error(result.error ?? 'the judge run failed')
   const parsed = answerSchema.safeParse(result.structuredOutput)
   if (!parsed.success) throw new Error(`the judge answered outside its schema: ${parsed.error.message.slice(0, 200)}`)
-  const byId = new Map(parsed.data.judgements.map((j) => [j.id, j.confidence / 100]))
-  return pairs.map((p) => byId.get(p.id) ?? Number.NaN)
+  const byId = new Map(parsed.data.judgements.map((j) => [j.id, { score: j.confidence / 100, reason: j.reason }]))
+  return pairs.map((p) => byId.get(p.id) ?? { score: Number.NaN })
 }

@@ -68,6 +68,8 @@ interface Harness {
   calls: RunAgentOptions[]
   clock: { now: Date }
   planAnswer: () => unknown
+  judgeScore: (a: string, b: string) => number
+  judgeCalls: Array<Array<[string, string]>>
   committedPages: () => string[]
   researchOk: () => boolean
   gate: () => GateBlock | null
@@ -119,6 +121,9 @@ function makeHarness(withUsage = false): Harness {
     planSettings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false },
   }
   h.planAnswer = () => TWO_PROPOSALS
+  // No opinion unless a test gives one; NaN is "did not answer", never "not a duplicate".
+  h.judgeScore = () => Number.NaN
+  h.judgeCalls = []
   h.committedPages = () => ['wiki/questions/Research: Q.md', 'wiki/concepts/New Concept.md']
   h.researchOk = () => true
   h.gate = () => null
@@ -188,6 +193,12 @@ function makeHarness(withUsage = false): Harness {
     sleep: async (ms) => {
       h.sleeps!.push(ms)
       h.clock!.now = new Date(h.clock!.now.getTime() + ms)
+    },
+    // Never a real run: the judge is a function under test, not an agent to spawn. Silent by
+    // default, so every existing test measures the lexical passes exactly as before.
+    judge: async (pairs) => {
+      h.judgeCalls!.push(pairs.map((p) => [p.a, p.b]))
+      return pairs.map((p) => ({ score: h.judgeScore!(p.a, p.b), reason: 'because' }))
     },
   })
   Object.assign(h, { runner, service, shift, shifts, proposals, agents, commitMutex, events, runs, ...(usage ? { usage } : {}) })
@@ -483,6 +494,88 @@ describe('planning, proposals and the night shift', () => {
     expect(last).toContain('Limb darkening models in transit photometry')
     // A Fellow is never shown its own work back: that is its own beat, not a duplicate.
     expect(last).not.toContain('by Di:')
+  })
+
+  /*
+   * The graded action (section 6.6). The judge is the only measured mechanism that separates a
+   * real duplicate from the narrow follow-ups this vault produces, and it is still a model's
+   * opinion - so what it may do is bounded by how sure it is, and by whether the user has
+   * already decided.
+   */
+  it('merges only what the judge is sure of, and only an undecided proposal', async () => {
+    await spawn({ name: 'Cy', autonomy: 'manual' })
+    const di = await spawn({ name: 'Di', autonomy: 'manual' })
+    // Above JUDGE_MERGE for every cross-Fellow pair: the words say nothing, the judge is certain.
+    h.judgeScore = () => 0.9
+    const night = await h.shift.run('timer')
+
+    const merged = night.summary.merged ?? []
+    expect(merged.length).toBeGreaterThan(0)
+    expect(merged[0]).toMatchObject({ by: 'judge', keptAgentName: 'Cy', droppedAgentName: 'Di', reason: 'because' })
+    // The later Fellow loses its copy; the earlier one keeps its work.
+    expect(h.service.pendingProposals(di.id)).toHaveLength(0)
+    expect(h.service.pendingProposals(h.service.list()[0]!.agent.id).length).toBeGreaterThan(0)
+  })
+
+  it('only NOTES what the judge hedges over: the run still happens', async () => {
+    await spawn({ name: 'Cy', autonomy: 'manual' })
+    const di = await spawn({ name: 'Di', autonomy: 'manual' })
+    // Between the note bar and the merge bar - a hedge costs a line, never a run.
+    h.judgeScore = () => 0.3
+    const night = await h.shift.run('timer')
+
+    const merged = night.summary.merged ?? []
+    expect(merged.length).toBeGreaterThan(0)
+    expect(merged.every((m) => m.noted === true)).toBe(true)
+    // Nothing was superseded: both Fellows keep everything they proposed.
+    expect(h.service.pendingProposals(di.id).length).toBeGreaterThan(0)
+  })
+
+  it('says nothing at all below the note bar', async () => {
+    await spawn({ name: 'Cy', autonomy: 'manual' })
+    await spawn({ name: 'Di', autonomy: 'manual' })
+    h.judgeScore = () => 0.1
+    const night = await h.shift.run('timer')
+    expect((night.summary.merged ?? []).filter((m) => m.by === 'judge')).toEqual([])
+    // It was asked, though: a band gated on word overlap would have skipped exactly the pairs
+    // the judge exists for, because a real paraphrase scores near zero against its own twin.
+    expect(h.judgeCalls.length).toBeGreaterThan(0)
+  })
+
+  it('never overturns the user: an approved topic is held, not merged', async () => {
+    const cy = await spawn({ name: 'Cy', autonomy: 'manual' })
+    const di = await spawn({ name: 'Di', autonomy: 'manual' })
+    h.judgeScore = () => Number.NaN
+    await h.shift.run('timer')
+    // Both Fellows get an approved topic, so both run in the same phase, Cy first.
+    const cyFirst = h.service.pendingProposals(cy.id)[0]!
+    const diFirst = h.service.pendingProposals(di.id)[0]!
+    await h.service.decide(cyFirst.id, { status: 'approved' })
+    await h.service.decide(diFirst.id, { status: 'approved' })
+
+    // Certain that Di's topic is the question Cy's run just answered.
+    h.judgeScore = () => 0.95
+    h.clock.now = at(8, 1, 30)
+    const night = await h.shift.run('timer')
+
+    expect(night.summary.executed.map((e) => e.agentName)).toEqual(['Cy'])
+    // Held, not merged: the user decided this topic and a model's opinion does not undo that.
+    expect(h.service.getProposal(diFirst.id)!.status).toBe('approved')
+    expect(night.summary.skipped.find((x) => x.agentName === 'Di')!.reason).toContain('keeps its place')
+    // Recorded as a judgement rather than as a mechanical fact.
+    expect((night.summary.merged ?? []).some((m) => m.by === 'judge' && m.noted === true)).toBe(true)
+  })
+
+  it('a judge that fails leaves the lexical passes standing', async () => {
+    await spawn({ name: 'Cy', autonomy: 'auto' })
+    await spawn({ name: 'Di', autonomy: 'auto' })
+    h.judgeScore = () => {
+      throw new Error('the judge run failed')
+    }
+    const night = await h.shift.run('timer')
+    // The lexical dedupe from earlier tonight still did its work, and the shift finished.
+    expect(night.summary.executed).toHaveLength(1)
+    expect(night.finishedAt).not.toBeNull()
   })
 
   it('a drift proposal never runs undecided in veto mode, is dropped in auto mode, and runs when approved', async () => {

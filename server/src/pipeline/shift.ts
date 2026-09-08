@@ -41,6 +41,26 @@ export interface NightShiftOptions {
   readonly beforeRound?: () => Promise<void>
   /** Waits; injectable so the tests run dry. */
   readonly sleep?: (ms: number) => Promise<void>
+  /**
+   * Judges whether pairs of topics ask the same question, in one read-only run (section 6.6).
+   * Injected so the tests never spawn one, and absent when the setting is off - in which case
+   * the lexical passes carry on alone, which is what they did before this existed.
+   *
+   * Returns one score in [0, 1] per pair, in order; NaN for a pair it did not answer for.
+   */
+  readonly judge?: (pairs: readonly JudgePair[]) => Promise<readonly JudgeVerdict[]>
+}
+
+/** One question for the judge: are these two topics the same question? */
+export interface JudgePair {
+  readonly id: string
+  readonly a: string
+  readonly b: string
+}
+
+export interface JudgeVerdict {
+  readonly score: number
+  readonly reason?: string
 }
 
 /** How long the shift waits for a 5-hour reset at most (docs/tasks/TASKS-A5.md D5). */
@@ -50,6 +70,33 @@ export const MAX_RESET_WAIT_MS = 4 * 3600_000
 export const DEDUPE_THRESHOLD = 0.6
 /** A pending topic this close to an existing synthesis page is noted (never dropped). */
 export const OVERLAP_NOTE_THRESHOLD = 0.7
+
+/**
+ * The judge's two bars (measured 2026-09-08, see docs/agents/ideas.md).
+ *
+ * Over three runs of the labelled set the worst true duplicate scored 0.200 and the best pair
+ * that must NOT be merged 0.120, so anything at or above `JUDGE_NOTE` is worth saying out
+ * loud. `JUDGE_MERGE` sits far higher on purpose: everything the judge scored above 0.5 was a
+ * paraphrase it was sure about, while the one duplicate it hedged on - a task that is a SUBSET
+ * of another rather than a restatement - landed at 0.20 to 0.28. A hedge should cost a line in
+ * the recap, never a run.
+ *
+ * The asymmetry is the whole design. A missed duplicate costs one run; a wrong merge costs a
+ * run that should have happened, and this vault's own history is full of narrow follow-ups
+ * that every surface measure wanted to merge away.
+ */
+export const JUDGE_MERGE = 0.5
+export const JUDGE_NOTE = 0.16
+
+/** Unordered, normalized: "a vs b" and "b vs a" are one question. */
+const pairKey = (a: string, b: string): string => [a.trim().toLowerCase(), b.trim().toLowerCase()].sort().join(' \u0000 ')
+
+/**
+ * How many pairs one judging call carries. Two Fellows with three proposals each make nine;
+ * the cap only bites at a size this library has never reached, and it keeps one runaway night
+ * from turning a cheap read-only run into a long one.
+ */
+export const JUDGE_PAIR_CAP = 120
 
 export function topicOverlap(a: string, b: string): number {
   const ta = tokenize(a)
@@ -105,6 +152,13 @@ export class NightShift {
   private readonly synthesisTitles: () => readonly string[]
   private readonly beforeRound: () => Promise<void>
   private readonly sleep: (ms: number) => Promise<void>
+  private readonly judge: ((pairs: readonly JudgePair[]) => Promise<readonly JudgeVerdict[]>) | undefined
+  /**
+   * Verdicts already obtained this shift, by unordered topic pair. The pass before the shift
+   * judges every standing pair; the check before each run mostly asks about the same pairs
+   * again, and a second call would buy the same answer twice.
+   */
+  private verdicts = new Map<string, JudgeVerdict>()
   private timer: ReturnType<typeof setInterval> | undefined
   private running: Promise<ShiftRecord> | null = null
 
@@ -118,6 +172,7 @@ export class NightShift {
     this.synthesisTitles = opts.synthesisTitles ?? ((): readonly string[] => [])
     this.beforeRound = opts.beforeRound ?? (async (): Promise<void> => {})
     this.sleep = opts.sleep ?? ((ms): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)))
+    this.judge = opts.judge
   }
 
   /**
@@ -125,7 +180,7 @@ export class NightShift {
    * Fellows in shift order, the later Fellow's near-duplicate is superseded (approved ones
    * never lose); a topic close to an existing synthesis page is noted, not dropped.
    */
-  dedupe(): { merged: ShiftMerge[]; overlaps: ShiftOverlap[] } {
+  async dedupe(): Promise<{ merged: ShiftMerge[]; overlaps: ShiftOverlap[] }> {
     const merged: ShiftMerge[] = []
     const overlaps: ShiftOverlap[] = []
     const fellows = this.fellows.list().map((s) => s.agent).filter((a) => a.state !== 'retired')
@@ -142,6 +197,16 @@ export class NightShift {
         kept.push({ agentId: agent.id, agentName: agent.name, id: p.id, topic: p.topic, status: p.status })
       }
     }
+    /*
+     * What the words could not settle now goes to the judge - every cross-Fellow pair still
+     * standing, not a band of them. A band gated on lexical similarity was the obvious way to
+     * hold the cost down and it is exactly wrong: a real paraphrase scores 0.13 against its own
+     * twin, so the filter would discard the cases the judge exists for.
+     *
+     * One call for all of them, which is what a night's handful costs.
+     */
+    await this.judgeKept(kept, merged)
+
     const titles = this.synthesisTitles()
     for (const k of kept) {
       for (const title of titles) {
@@ -154,6 +219,142 @@ export class NightShift {
     }
     if (merged.length > 0 || overlaps.length > 0) this.log('info', `shift: dedupe merged ${merged.length}, noted ${overlaps.length} overlap(s) with existing pages`)
     return { merged, overlaps }
+  }
+
+  /**
+   * The second opinion on the pairs the token overlap left standing, and the graded action.
+   *
+   * Above `JUDGE_MERGE` the later Fellow's proposal is superseded, as the lexical pass would;
+   * between `JUDGE_NOTE` and that it is only NOTED and still runs. The bars are far apart on
+   * purpose: measured, every score above 0.5 was a paraphrase the judge was sure of, and the
+   * one duplicate it hedged over - a task contained in another rather than restating it - sat
+   * near 0.2. A hedge should cost a line in the recap, never a run.
+   *
+   * Approved proposals are exempt from the merge exactly as they are from the lexical pass:
+   * the user decided that topic, and a model's opinion does not overturn a decision. They can
+   * still be noted.
+   *
+   * Any failure is a warning and nothing else. The judge is a second opinion on top of a pass
+   * that already ran; a shift must never depend on it.
+   */
+  private async judgeKept(
+    kept: ReadonlyArray<{ agentId: string; agentName: string; id: string; topic: string; status: string }>,
+    merged: ShiftMerge[],
+  ): Promise<void> {
+    if (this.judge === undefined || kept.length < 2) return
+    // Pairs already answered this shift cost nothing to skip and a call to ask again.
+    const asked = (a: string, b: string): boolean => this.verdicts.has(pairKey(a, b))
+    const pairs: Array<{ id: string; a: string; b: string; left: (typeof kept)[number]; right: (typeof kept)[number] }> = []
+    for (let i = 0; i < kept.length; i++) {
+      for (let j = i + 1; j < kept.length; j++) {
+        const left = kept[i]!
+        const right = kept[j]!
+        // Cross-Fellow only, like the pass before it: a Fellow's own list is its own beat.
+        if (left.agentId === right.agentId) continue
+        if (asked(left.topic, right.topic)) continue
+        if (pairs.length >= JUDGE_PAIR_CAP) break
+        pairs.push({ id: `p${pairs.length + 1}`, a: left.topic, b: right.topic, left, right })
+      }
+    }
+    if (pairs.length === 0) return
+    let verdicts: readonly JudgeVerdict[]
+    try {
+      verdicts = await this.judge(pairs.map((p) => ({ id: p.id, a: p.a, b: p.b })))
+    } catch (err) {
+      this.log('warn', `shift: the duplicate judge failed, the lexical pass stands: ${(err as Error).message}`)
+      return
+    }
+    let superseded = 0
+    let noted = 0
+    for (const [i, p] of pairs.entries()) {
+      const verdict = verdicts[i]
+      if (verdict !== undefined && Number.isFinite(verdict.score)) this.verdicts.set(pairKey(p.a, p.b), verdict)
+      if (verdict === undefined || !Number.isFinite(verdict.score) || verdict.score < JUDGE_NOTE) continue
+      // The later Fellow in shift order loses, the same rule the lexical pass follows.
+      const later = p.right
+      const kept2 = p.left
+      const score = Math.round(verdict.score * 100) / 100
+      const record: ShiftMerge = {
+        keptAgentName: kept2.agentName,
+        keptTopic: kept2.topic,
+        droppedAgentName: later.agentName,
+        droppedTopic: later.topic,
+        score,
+        by: 'judge',
+        ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+      }
+      if (verdict.score >= JUDGE_MERGE && later.status !== 'approved') {
+        this.fellows.supersedeProposal(later.id, `judged the same question as ${kept2.agentName}'s "${kept2.topic}" (${score})`)
+        merged.push(record)
+        superseded++
+      } else {
+        merged.push({ ...record, noted: true })
+        noted++
+      }
+    }
+    if (superseded > 0 || noted > 0) {
+      this.log('info', `shift: the judge read ${pairs.length} pair(s), superseded ${superseded}, noted ${noted}`)
+    }
+  }
+
+  /**
+   * Every undecided or approved topic standing right now, in shift order - the list the judging
+   * pass works over.
+   *
+   * It is read twice a night, and that is the point. The pass before the shift sees what earlier
+   * nights left standing; phase 2's planning runs then CREATE tonight's proposals, and reading
+   * again afterwards is what puts those in front of the judge before phase 3 executes one and
+   * before the recap asks the user about them. The memo means the second read only pays for the
+   * pairs the first one did not have.
+   */
+  private standing(): Array<{ agentId: string; agentName: string; id: string; topic: string; status: string }> {
+    const out: Array<{ agentId: string; agentName: string; id: string; topic: string; status: string }> = []
+    for (const agent of this.fellows.list().map((s) => s.agent).filter((a) => a.state !== 'retired')) {
+      for (const p of this.fellows.pendingProposals(agent.id)) {
+        out.push({ agentId: agent.id, agentName: agent.name, id: p.id, topic: p.topic, status: p.status })
+      }
+    }
+    return out
+  }
+
+  /**
+   * The judge's opinion on a topic about to run, against what has already run tonight. The
+   * counterpart of {@link coveredTonight}, for the duplicate the words cannot see.
+   *
+   * Most of these pairs were judged before the shift and come out of the memo. The ones that
+   * were not are the reason this exists: a planning run in phase 2 makes proposals that phase 3
+   * executes, and they never met the pass at the start of the night.
+   *
+   * Returns the strongest verdict, or null when there is no judge, no answer, or nothing that
+   * clears the note bar.
+   */
+  private async judgeCovered(
+    topic: string,
+    agentId: string,
+    executed: readonly CoveringRun[],
+  ): Promise<{ run: CoveringRun; verdict: JudgeVerdict } | null> {
+    if (this.judge === undefined) return null
+    const others = executed.filter((e) => e.ok && e.agentId !== agentId)
+    if (others.length === 0) return null
+    const missing = others.filter((e) => !this.verdicts.has(pairKey(e.topic, topic)))
+    if (missing.length > 0) {
+      try {
+        const answers = await this.judge(missing.slice(0, JUDGE_PAIR_CAP).map((e, i) => ({ id: `c${i + 1}`, a: e.topic, b: topic })))
+        missing.forEach((e, i) => {
+          const v = answers[i]
+          if (v !== undefined && Number.isFinite(v.score)) this.verdicts.set(pairKey(e.topic, topic), v)
+        })
+      } catch (err) {
+        this.log('warn', `shift: the duplicate judge failed, the lexical check stands: ${(err as Error).message}`)
+      }
+    }
+    let best: { run: CoveringRun; verdict: JudgeVerdict } | null = null
+    for (const run of others) {
+      const verdict = this.verdicts.get(pairKey(run.topic, topic))
+      if (verdict === undefined || verdict.score < JUDGE_NOTE) continue
+      if (best === null || verdict.score > best.verdict.score) best = { run, verdict }
+    }
+    return best
   }
 
   /** Starts the timer. Idempotent. */
@@ -236,6 +437,8 @@ export class NightShift {
       overlaps: dedupe.overlaps,
     })
     const record = (finishedAt: string | null): ShiftRecord => ({ cycleDate, trigger, startedAt: startedAt.toISOString(), finishedAt, summary: summary() })
+    // A verdict is about tonight's topics; next night's are different ones.
+    this.verdicts = new Map()
     this.shifts.put(record(null))
     this.log('info', `shift: ${trigger} shift for cycle ${cycleDate} started`)
 
@@ -288,11 +491,51 @@ export class NightShift {
         this.fellows.supersedeProposal(proposal.id, `covered by ${done.agentName}'s run "${done.topic}" tonight (overlap ${score})`)
         dedupe = {
           ...dedupe,
-          merged: [...dedupe.merged, { keptAgentName: done.agentName, keptTopic: done.topic, droppedAgentName: agent.name, droppedTopic: proposal.topic, score }],
+          merged: [...dedupe.merged, { keptAgentName: done.agentName, keptTopic: done.topic, droppedAgentName: agent.name, droppedTopic: proposal.topic, score, by: 'lexical' }],
         }
         this.log('info', `shift: ${agent.name}'s "${proposal.topic}" is covered by ${done.agentName}'s run tonight (overlap ${score})`)
         this.shifts.put(record(null))
         return false
+      }
+      /*
+       * And the same question put to the judge, for the duplicate the words cannot see. Graded
+       * exactly as the pass before the shift: merge only well above the bar and only an
+       * undecided proposal, otherwise note it and let the run happen.
+       */
+      const judged = await this.judgeCovered(proposal.topic, agent.id, executed)
+      if (judged !== null) {
+        const score = Math.round(judged.verdict.score * 100) / 100
+        const sure = judged.verdict.score >= JUDGE_MERGE
+        const merge = sure && proposal.status !== 'approved'
+        dedupe = {
+          ...dedupe,
+          merged: [
+            ...dedupe.merged,
+            {
+              keptAgentName: judged.run.agentName,
+              keptTopic: judged.run.topic,
+              droppedAgentName: agent.name,
+              droppedTopic: proposal.topic,
+              score,
+              by: 'judge',
+              ...(merge ? {} : { noted: true }),
+              ...(judged.verdict.reason !== undefined ? { reason: judged.verdict.reason } : {}),
+            },
+          ],
+        }
+        this.shifts.put(record(null))
+        if (merge) {
+          this.fellows.supersedeProposal(proposal.id, `judged the same question as ${judged.run.agentName}'s run "${judged.run.topic}" tonight (${score})`)
+          this.log('info', `shift: ${agent.name}'s "${proposal.topic}" was judged the same question as ${judged.run.agentName}'s run (${score})`)
+          return false
+        }
+        if (sure) {
+          // Approved: the user decided this topic, and a model's opinion does not overturn a
+          // decision. Held for another night, exactly as the lexical pass holds one.
+          skip(agent, `judged the same question as ${judged.run.agentName}'s run tonight (${score}); the approved topic keeps its place`)
+          return false
+        }
+        this.log('info', `shift: ${agent.name}'s "${proposal.topic}" may overlap ${judged.run.agentName}'s run (${score}); running it and noting it`)
       }
       const outcome = this.fellows.execute(proposal.id)
       if (outcome.refusal || !outcome.run) {
@@ -327,7 +570,7 @@ export class NightShift {
 
     // Dedupe first (section 6.6): near-duplicate topics across Fellows run once.
     try {
-      dedupe = this.dedupe()
+      dedupe = await this.dedupe()
     } catch (err) {
       this.log('warn', `shift: dedupe failed: ${(err as Error).message}`)
     }
@@ -393,6 +636,20 @@ export class NightShift {
         note: settled.status === 'done' ? (fresh?.state === 'sleeping' ? (fresh.sleepReason ?? null) : null) : (settled.error ?? 'failed'),
       })
       this.shifts.put(record(null))
+    }
+
+    /*
+     * Phase 2 just created tonight's proposals, and they never met the pass at the start of the
+     * night. Judge them now, before phase 3 spends a run on one and before the recap asks the
+     * user about them. The memo makes this cost only the pairs that are actually new.
+     */
+    try {
+      const before = dedupe.merged.length
+      const merged = [...dedupe.merged]
+      await this.judgeKept(this.standing(), merged)
+      if (merged.length !== before) dedupe = { ...dedupe, merged }
+    } catch (err) {
+      this.log('warn', `shift: the second judging pass failed, the lexical passes stand: ${(err as Error).message}`)
     }
 
     // Phase 3: auto Fellows run their fresh top proposal in the same night (section 6.5).

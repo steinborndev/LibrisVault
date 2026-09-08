@@ -140,7 +140,17 @@ export interface RecapModel {
   readonly unclaimed: readonly RecapUnclaimed[]
   /** The shift's dedupe notes (A3). */
   readonly dedupe: {
-    readonly merged: ReadonlyArray<{ readonly keptAgentName: string; readonly keptTopic: string; readonly droppedAgentName: string; readonly droppedTopic: string }>
+    readonly merged: ReadonlyArray<{
+      readonly keptAgentName: string
+      readonly keptTopic: string
+      readonly droppedAgentName: string
+      readonly droppedTopic: string
+      /** Which pass decided: the token overlap, or the read-only run that reads for meaning. */
+      readonly by?: 'lexical' | 'judge'
+      /** The judge saw a likely duplicate but hedged: the run HAPPENED and this is the note. */
+      readonly noted?: boolean
+      readonly reason?: string
+    }>
     readonly overlaps: ReadonlyArray<{ readonly agentName: string; readonly topic: string; readonly page: string }>
   }
   /** Plan utilization now and the research share (A5); null without the monitor. */
@@ -319,7 +329,15 @@ export function buildRecapModel(input: BuildModelInput): RecapModel {
     summaryCostUsd: null,
     unclaimed,
     dedupe: {
-      merged: (shift?.summary.merged ?? []).map((m) => ({ keptAgentName: m.keptAgentName, keptTopic: m.keptTopic, droppedAgentName: m.droppedAgentName, droppedTopic: m.droppedTopic })),
+      merged: (shift?.summary.merged ?? []).map((m) => ({
+        keptAgentName: m.keptAgentName,
+        keptTopic: m.keptTopic,
+        droppedAgentName: m.droppedAgentName,
+        droppedTopic: m.droppedTopic,
+        ...(m.by !== undefined ? { by: m.by } : {}),
+        ...(m.noted === true ? { noted: true } : {}),
+        ...(m.reason !== undefined ? { reason: m.reason } : {}),
+      })),
       overlaps: (shift?.summary.overlaps ?? []).map((o) => ({ agentName: o.agentName, topic: o.topic, page: o.page })),
     },
     plan: input.plan
@@ -615,8 +633,22 @@ function renderHeader(model: RecapModel, mode: 'page' | 'text'): string {
     lines.push(`${b('Sleeping')}: ${model.sleeping.map((s) => `${s.name}: ${s.reason}`).join('; ')}.`)
   }
   lines.push(`${b('Value this month')}: ${model.value.pageOpens} page open(s), ${model.value.recapLinks} recap link(s) followed.`)
-  if (model.dedupe.merged.length > 0) {
-    lines.push(`${b('Merged')}: ${model.dedupe.merged.map((m) => `${m.droppedAgentName}'s "${m.droppedTopic}" into ${m.keptAgentName}'s "${m.keptTopic}"`).join('; ')}.`)
+  /*
+   * Merged and noted are different events and must not read alike: one topic did not run, the
+   * other did and may turn out to be a duplicate. And a judgement says so - a model's opinion
+   * is not the same kind of fact as a token count.
+   */
+  const dropped = model.dedupe.merged.filter((m) => m.noted !== true)
+  const hedged = model.dedupe.merged.filter((m) => m.noted === true)
+  if (dropped.length > 0) {
+    lines.push(
+      `${b('Merged')}: ${dropped.map((m) => `${m.droppedAgentName}'s "${m.droppedTopic}" into ${m.keptAgentName}'s "${m.keptTopic}"${m.by === 'judge' ? ' (judged)' : ''}`).join('; ')}.`,
+    )
+  }
+  if (hedged.length > 0) {
+    lines.push(
+      `${b('May overlap, ran anyway')}: ${hedged.map((m) => `${m.droppedAgentName}'s "${m.droppedTopic}" and ${m.keptAgentName}'s "${m.keptTopic}"${m.reason ? ` - ${m.reason}` : ''}`).join('; ')}.`,
+    )
   }
   if (model.dedupe.overlaps.length > 0) {
     lines.push(`${b('Overlaps an existing page')}: ${model.dedupe.overlaps.map((o) => `${o.agentName}'s "${o.topic}" (${o.page})`).join('; ')}.`)

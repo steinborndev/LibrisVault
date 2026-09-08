@@ -390,15 +390,33 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
   safely, not even for a graded action. High cosine here is topical adjacency, the same thing
   that sank the retrieval idea. The embedder stays installed for the vault's reranker, which is
   what it is actually good for.
-- **What does work: asking a model** (measured, 2026-09-08, not yet wired to the shift). One
-  read-only run judging every candidate pair at once separates the classes where nothing else
-  did: across three runs the worst duplicate scored 0.200 and the best distinct pair 0.120, so
-  a cut at 0.16 holds with margin on either side, and it catches all six duplicates with no
-  false positive. It reads what a question ASKS - the trap pair with heavy shared vocabulary
-  and the opposite question scores 0.03 where the embedder gave it 0.777. The harness is
-  `dedupe-eval --judge`; the mechanism is `server/src/pipeline/dedupe-judge.ts`. It is measured,
-  not enabled: the margin rests on a single observed duplicate, and the action would stay
-  graded as it is today.
+- **What does work: asking a model** (as built, 2026-09-08, `dedupeJudgeEnabled`, default OFF).
+  One read-only run judging every candidate pair at once separates the classes where nothing
+  else did: across three runs of the harness the worst duplicate scored 0.200 and the best
+  distinct pair 0.120, and it caught all six with no false positive. It reads what a question
+  ASKS - the trap pair with heavy shared vocabulary and the opposite question scores 0.03 where
+  the embedder gave it 0.777.
+- **The graded action** (section 6.6, as built). The judge is a model's opinion, so what it may
+  do is bounded by how sure it is and by whether the user has already decided:
+  - at or above `JUDGE_MERGE` (0.5) an UNDECIDED proposal is superseded, as the lexical pass
+    would. Everything the judge scored above 0.5 in measurement was a paraphrase it was certain
+    of.
+  - between `JUDGE_NOTE` (0.16) and that, it is only NOTED: the run happens and the recap says
+    the two topics may be the same question, with the judge's own reason. The one duplicate the
+    judge hedged over - a task contained in another rather than restating it - sat at 0.20 to
+    0.28, and a hedge should cost a line, never a run.
+  - an APPROVED proposal is never superseded, however certain the judge is. It is held for
+    another night, the way the lexical pass holds one.
+  - the recap keeps them apart: a merge and a hedge are different events, and a judgement is
+    labelled as one rather than presented like a token count.
+- **When it runs.** Twice a night, both times over the pairs the memo has not already answered:
+  before phase 1 over what earlier nights left standing, and again after phase 2, because that
+  phase CREATES tonight's proposals and phase 3 executes them. Plus the check before each run,
+  against what has already run tonight. Cross-Fellow only, capped at `JUDGE_PAIR_CAP`. A
+  failure is a warning: the lexical passes stand alone and a shift never depends on the judge.
+- **No lexical pre-filter, deliberately.** Asking the judge only about pairs that already score
+  high on word overlap would halve the cost and discard exactly the cases it exists for - a
+  real paraphrase scores 0.13 against its own twin.
 - **Notebooks are private.** Handoffs live in the `handoffs` table, never in another
   Fellow's page.
 

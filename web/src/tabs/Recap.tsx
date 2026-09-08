@@ -185,11 +185,22 @@ export function RecapBody({
       )}
       {(m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
         <p className="recap-line">
-          {m.dedupe.merged.map((d, i) => (
-            <span key={`m${i}`}>
-              Merged {d.droppedAgentName}'s "{d.droppedTopic}" into {d.keptAgentName}'s "{d.keptTopic}".{' '}
-            </span>
-          ))}
+          {/* A merge and a hedge are different events: one topic did not run, the other did.
+              And a judgement says it is one - a model's opinion is not a token count. */}
+          {m.dedupe.merged.map((d, i) =>
+            d.noted === true ? (
+              <span key={`m${i}`}>
+                {d.droppedAgentName}'s "{d.droppedTopic}" may be the same question as {d.keptAgentName}'s "{d.keptTopic}"; it ran anyway
+                {d.reason ? ` (${d.reason})` : ''}.{' '}
+              </span>
+            ) : (
+              <span key={`m${i}`}>
+                Merged {d.droppedAgentName}'s "{d.droppedTopic}" into {d.keptAgentName}'s "{d.keptTopic}"
+                {d.by === 'judge' ? ', judged the same question' : ''}
+                {d.by === 'judge' && d.reason ? ` (${d.reason})` : ''}.{' '}
+              </span>
+            ),
+          )}
           {m.dedupe.overlaps.map((o, i) => (
             <span key={`o${i}`}>
               {o.agentName}'s "{o.topic}" overlaps the existing page "{o.page}".{' '}

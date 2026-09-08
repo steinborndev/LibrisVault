@@ -5,7 +5,7 @@
  */
 
 import { pathToFileURL } from 'node:url'
-import { loadConfig, describeConfig, assertBindAllowed, ConfigError, type Config } from './config.js'
+import { loadConfig, describeConfig, assertBindAllowed, ConfigError, type Config, requireAuth } from './config.js'
 import { openDb, defaultDbPath } from './db/index.js'
 import { JobStore } from './db/jobs.js'
 import { ChatStore } from './db/chat.js'
@@ -27,6 +27,7 @@ import { UsageMonitor, type EndpointResult } from './pipeline/usage-monitor.js'
 import { indexWikiPages } from './pipeline/citations.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
 import { NightShift } from './pipeline/shift.js'
+import { judgePairs } from './pipeline/dedupe-judge.js'
 import { RecapService, type RecapModel } from './pipeline/recap.js'
 import { NotebookWriter } from './pipeline/notebook.js'
 import { TelegramDropStore } from './db/telegram-drops.js'
@@ -271,6 +272,15 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             [...indexWikiPages(config.vaultRoot)]
               .filter(([, rel]) => rel.startsWith('wiki/questions/'))
               .map(([, rel]) => rel.slice('wiki/questions/'.length).replace(/\.md$/, '')),
+          /*
+           * The duplicate judge (section 6.6), off unless the setting says otherwise: it costs
+           * a read-only run a night, and the two lexical passes work without it. Read per call,
+           * so turning it off takes effect on the next shift rather than the next restart.
+           */
+          judge: async (pairs) => {
+            if (!settings.effective(config).dedupeJudgeEnabled) return pairs.map(() => ({ score: Number.NaN }))
+            return judgePairs([...pairs], { vaultRoot: config.vaultRoot, auth: requireAuth(config) })
+          },
           log: fellowsLog,
         })
       : undefined

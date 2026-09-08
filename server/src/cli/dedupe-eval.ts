@@ -203,10 +203,11 @@ const MECHANISMS: readonly Mechanism[] = [
     optIn: true,
     scoreAll: async (pairs) => {
       const config = loadConfig()
-      return judgePairs(
+      const verdicts = await judgePairs(
         pairs.map((p) => ({ id: p.id, a: p.a, b: p.b })),
         { vaultRoot: config.vaultRoot, auth: requireAuth(config) },
       )
+      return verdicts.map((v) => v.score)
     },
   },
   {

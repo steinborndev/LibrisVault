@@ -47,6 +47,19 @@ export interface ShiftMerge {
   readonly droppedAgentName: string
   readonly droppedTopic: string
   readonly score: number
+  /**
+   * Which measure decided. `lexical` is the token-overlap pass; `judge` is the read-only run
+   * that reads what a question asks. Recorded because they fail differently and the recap
+   * should not present a model's judgement as a mechanical fact.
+   */
+  readonly by?: 'lexical' | 'judge'
+  /**
+   * Set when the judge saw a likely duplicate but not surely enough to merge it: the run
+   * happened, and this is the note. A hedge costs a line, never a run.
+   */
+  readonly noted?: boolean
+  /** The judge's own words, a dozen at most. Absent for the lexical pass, which has no reason. */
+  readonly reason?: string
 }
 
 /** A pending topic that overlaps an existing synthesis page (noted, not dropped). */

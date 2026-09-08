@@ -575,6 +575,8 @@ export interface EffectiveSettings {
   planName: string
   /** Whether the 5-hour release may be granted at all (SPEC section 8.6). */
   fiveHourOverrideEnabled: boolean
+  /** Whether the night shift asks a model to judge duplicate topics (section 6.6). */
+  dedupeJudgeEnabled: boolean
 }
 
 /**
@@ -743,7 +745,7 @@ export interface RecapModel {
   summaryCostUsd: number | null
   unclaimed: RecapUnclaimed[]
   dedupe: {
-    merged: Array<{ keptAgentName: string; keptTopic: string; droppedAgentName: string; droppedTopic: string }>
+    merged: Array<{ keptAgentName: string; keptTopic: string; droppedAgentName: string; droppedTopic: string; by?: 'lexical' | 'judge'; noted?: boolean; reason?: string }>
     overlaps: Array<{ agentName: string; topic: string; page: string }>
   }
 }
