@@ -73,8 +73,10 @@ export function groupPages(paths: readonly string[]): PageGroup[] {
  * The one-line summary for a list row: `5 concepts · 3 entities`. Singular where it is one,
  * because "1 questions" is both wrong and a character wider than the column has to be.
  */
+export function countParts(paths: readonly string[]): string[] {
+  return groupPages(paths).map((g) => `${g.paths.length} ${(g.paths.length === 1 ? LABEL[g.kind].one : LABEL[g.kind].many).toLowerCase()}`)
+}
+
 export function countLine(paths: readonly string[]): string {
-  return groupPages(paths)
-    .map((g) => `${g.paths.length} ${(g.paths.length === 1 ? LABEL[g.kind].one : LABEL[g.kind].many).toLowerCase()}`)
-    .join(' · ')
+  return countParts(paths).join(' · ')
 }

@@ -8077,6 +8077,89 @@ tr:focus-within .rowacts {
   max-width: 100%;
 }
 
+/*
+ * One typographic scale for the Research tab (2026-09-08), the Library's. The tab had grown
+ * three idioms for a label - sans 10.5/600 like a table head, mono 9.5 like the console's
+ * keys, 11/700 for a box title - and four sizes of mono for its data. Labels are one thing
+ * now and mono is for data only, at one size.
+ */
+.workspace.research .wkey,
+.workspace.research .pl-key {
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.workspace.research .wkey {
+  width: 92px;
+  padding-top: 5px;
+}
+.workspace.research .lib-plan,
+.workspace.research .actlog li,
+.workspace.research .rtable td.wrotec,
+.workspace.research .rtable td.tookc,
+.workspace.research .pl-val.pl-page {
+  font-size: 11.5px;
+}
+.workspace.research .stage-lbl {
+  font-size: 11.5px;
+}
+/* The topic uses the width its column has. A 420px cap on the name belongs to Home's narrow
+   activity rows and cut this list's topics at half a column. */
+.workspace.research .rtable .hrow-name .nm {
+  max-width: none;
+  font-weight: 600;
+}
+/* A count and its unit are one word. */
+.wgrp {
+  white-space: nowrap;
+}
+.workspace.research .rtable td.wrotec {
+  line-height: 1.45;
+}
+/* Idle, the log's placeholder is a sentence, not an entry: no time column in front of it. */
+.actlog li.faint .t {
+  display: none;
+}
+
+/*
+ * One control family. Inside a box every action is `.btn.sm`: 24px, the small radius, the
+ * same border. The back control in a detail bar was a 26px pill beside a 24px square button
+ * in the same row; it takes the button's shape now. The headline keeps the Library's: a
+ * 28px pill toggle and a pill chip, nothing square.
+ */
+.workspace.research .backlink {
+  height: 24px;
+  padding: 0 9px 0 7px;
+  border-radius: var(--radius-sm);
+  border-color: var(--border-strong);
+  background: var(--bg-elev-2);
+  color: var(--text);
+  font-size: 12px;
+}
+.workspace.research .backlink:hover {
+  border-color: var(--text-faint);
+}
+.workspace.research .btn-run {
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+}
+.rhead .seg button {
+  height: 26px;
+}
+.rhead .rhead-cap {
+  height: 26px;
+}
+/* The box titles: the one label that was heavier than the rest, at a weight the face does not
+   carry. Same weight and tracking as every other label. */
+.workspace.research .sub-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
 /* The headline carries the room navigation now, in both modes. */
 /*
  * The headline of section 10.7: three zones that never trade places, and one height for

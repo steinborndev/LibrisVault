@@ -50,7 +50,7 @@ import { planCorner } from '../lib/library/planCorner.ts'
 import { RunActivity } from '../components/RunActivity.tsx'
 import { useJobLog } from '../hooks/useJobLog.ts'
 import { deriveResearchProgress, EMPTY_PROGRESS } from '../lib/researchProgress.ts'
-import { groupPages, countLine } from '../lib/wrotePages.ts'
+import { groupPages, countLine, countParts } from '../lib/wrotePages.ts'
 import { queryState, merge } from '../components/QueryState.tsx'
 import { navigate } from '../lib/router.ts'
 import { openableRow } from '../lib/tableRow.ts'
@@ -408,8 +408,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
         <div className="gp-sec">
           <div className="gp-head">
             <span className="gp-eyebrow">Lens</span>
-            <span className="spacer" />
-            <span className="gp-state">{lensDisabled ? 'not used' : (selectedProfile?.label ?? '…')}</span>
           </div>
           <div className="lenslist" role="radiogroup" aria-label="Research lens">
             {profiles.map((p) => (
@@ -926,9 +924,18 @@ function StartView({
                           running total is not the final one, and a dash says "not known yet"
                           where a 0 would lie. */}
                       <td className="wrotec" title={countLine(e.status === 'running' ? livePaths : e.pages)}>
-                        {e.status === 'running'
-                          ? (livePaths.length > 0 ? countLine(livePaths) : 'nothing yet')
-                          : (e.pages.length > 0 ? countLine(e.pages) : '-')}
+                        {(() => {
+                          const paths = e.status === 'running' ? livePaths : e.pages
+                          if (paths.length === 0) return e.status === 'running' ? 'nothing yet' : '-'
+                          // Each count is one word: "1 question" never breaks between the figure
+                          // and its unit. A line may break only at a separator.
+                          return countParts(paths).map((part, i, all) => (
+                            <span key={part}>
+                              <span className="wgrp">{part}</span>
+                              {i < all.length - 1 ? ' · ' : ''}
+                            </span>
+                          ))
+                        })()}
                       </td>
                       <td className={`tookc${e.status === 'running' ? ' pending' : ''}`}>{took(e, now)}</td>
                       <td className={`num dimc${e.status === 'running' ? ' pending' : ''}`}>
