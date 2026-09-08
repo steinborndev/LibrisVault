@@ -33,21 +33,42 @@ export default tseslint.config(
       /*
        * The two classic rules are errors: `rules-of-hooks` is correctness, and
        * `exhaustive-deps` is the reason this config exists - ten suppressions for it were
-       * found in the 2026-09-08 review, written against a rule that had never run.
-       *
-       * The React Compiler rules that ship with plugin v7 (set-state-in-effect, refs,
-       * immutability, purity, preserve-manual-memoization) are WARNINGS. This codebase does
-       * not use the compiler, and they report 71 places - a lint that is red on arrival is a
-       * lint nobody runs, which is how the workspace ended up with none. As warnings they
-       * are visible and can be worked down file by file.
+       * found in the 2026-09-08 review, written against a rule that had never run. Both pass.
        */
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'error',
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/refs': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/purity': 'warn',
-      'react-hooks/preserve-manual-memoization': 'warn',
+      /*
+       * The React Compiler rules that ship with plugin v7 are OFF, and this is the reasoning
+       * rather than a shrug.
+       *
+       * They reported 71 places. Every one of them was read on 2026-09-08 - ten
+       * `set-state-in-effect` sites in full, all four `purity` sites, and a sample of the
+       * canvas's `refs` and `immutability` ones - and none is a defect in this application:
+       *
+       *   set-state-in-effect (31)  mount gates, one-shot seeds when server data arrives,
+       *                             consuming a URL parameter, reacting to a settled run.
+       *                             Synchronising React with something outside it, which is
+       *                             what an effect is for.
+       *   refs (23)                 the `xRef.current = x` latest-value idiom.
+       *   immutability (12)         the canvas's position buffer, whose whole design is a
+       *                             mutable typed array that outlives the renders.
+       *   purity (4)                `Date.now()` for a clock label, in memos that are keyed
+       *                             to re-run on a tick anyway.
+       *
+       * What they describe is what the React Compiler would need in order to optimise these
+       * components, and this project does not use it. Satisfying them means restructuring a
+       * working canvas renderer and a dozen effects for no behaviour anyone would see. Left
+       * as warnings they would be 71 permanent ones, which teaches people to ignore the
+       * linter - the state this workspace was already in.
+       *
+       * If the React Compiler is ever adopted here, these are the first rules to turn back
+       * on, and the list above is the map of what it will cost.
+       */
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/purity': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       /*
        * The rules the type information is here for. Enabled after the 2026-09-08 review found
