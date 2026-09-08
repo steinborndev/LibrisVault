@@ -39,13 +39,26 @@ its position memory per page path, so a node appears where it will stay instead 
 layout churning on every addition - which is the difference between a growth animation and a
 seizure.
 
-## The one thing missing
+## The MP4
 
-There is no encoder on this machine, so `video.cjs` produces WebM (Playwright records it) and
-carries its own setup as a few seconds of lead-in - Playwright records the whole session and
-nothing here can cut it. With `ffmpeg` installed, the PNG sequence from step 2 is the clean
-source:
+`frames.cjs` is the source to encode from: it writes exactly 1080x1080 and has no lead-in,
+where `video.cjs` records the whole browser session and therefore carries its own setup as a
+few seconds at the front.
 
 ```
-ffmpeg -framerate 30 -i /tmp/png/f%05d.png -c:v libx264 -pix_fmt yuv420p -crf 18 timelapse.mp4
+ffmpeg -framerate 30 -i /tmp/png/f%05d.png \
+  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart timelapse.mp4
 ```
+
+`yuv420p` and `+faststart` are not decoration: without the first, some players refuse the
+file; without the second, the whole thing has to download before it plays, which on a social
+timeline means it does not play.
+
+There is no system ffmpeg on this machine and installing one needs a password. Two ways
+round it, in order of preference:
+
+- `sudo apt install ffmpeg` - the ordinary answer, if someone is at the keyboard.
+- `npm i --no-save ffmpeg-static` in a scratch directory, which fetches a full static build.
+  Playwright ships an `ffmpeg` of its own under `~/.cache/ms-playwright/ffmpeg-*/`, but it is
+  a stripped build with only `libvpx` and `png` and no mp4 muxer - it can make the WebM that
+  `video.cjs` already makes, and nothing else.
