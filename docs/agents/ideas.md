@@ -553,11 +553,49 @@ which is worth more than the dedupe was going to be. And a set of 15 pairs with 
 duplicate cannot settle the question - it can only refuse a threshold, which is what it did.
 The set grows as the library runs; a mechanism can be re-measured against it any time.
 
-**Where a real answer would come from.** Nothing measured so far reads the question, only its
-surface. The one judge in the loop that reads for meaning is a language model, which is what
-stage 1 uses. Either that (free, already running, an instruction rather than a boundary) or a
-dedicated judge call over the few candidate pairs a night produces. That is the next thing to
-measure - against this same set, before it ships.
+### The LLM judge, measured (2026-09-08)
+
+`npm run dedupe-eval -- --judge`: one read-only run over every pair at once, which is also how
+it would run in the shift. It is the only mechanism of the five that separates the classes.
+
+| mechanism | worst duplicate | best distinct | safe cut catches |
+|---|---|---|---|
+| lexical (shipping) | 0.130 | 0.540 | 1 of 6 |
+| embedding, raw | 0.650 | 0.835 | 0 |
+| embedding, `clustering:` | 0.764 | 0.921 | 0 |
+| max(lexical, embedding) | 0.764 | 0.921 | 0 |
+| **llm judge** | **0.200-0.280** | **0.060-0.120** | **6 of 6** |
+
+Three runs, because a judge is not deterministic and a threshold that survives one run proves
+nothing:
+
+| run | worst duplicate | best distinct | separating cut |
+|---|---|---|---|
+| 1 | 0.280 | 0.080 | 0.19 |
+| 2 | 0.220 | 0.120 | 0.17 |
+| 3 | 0.200 | 0.060 | 0.13 |
+
+Across all three the worst duplicate is 0.200 and the best distinct 0.120, so **a cut at 0.16
+separates every run**, with 0.08 of margin on either side.
+
+The shape is stable and it is the shape the instructions asked for. The five paraphrases score
+0.82 to 0.95 - confident. The one observed duplicate, where one task is a subset of the other
+rather than a restatement, scores 0.20 to 0.28 - hedged, which is right. All nine distinct pairs
+stay at or below 0.12, the follow-ups among them.
+
+The sharpest single number: `par-near-miss`, the trap with heavy shared vocabulary and the
+opposite question, scores **0.03**. The embedder gave it **0.777**, above four true duplicates.
+
+**What the result does not license.** Fifteen pairs, one observed duplicate. The clean gap is
+carried mostly by hand-written paraphrases, which are the easy half; real duplicates look like
+the subset case, and that one lands at 0.2 with only 0.08 of air beneath it. The judge also
+costs a read-only run a night and varies by about 0.08 between runs on the pair that matters.
+
+So the shape to build, when it is built: keep the lexical passes as the free floor; ask the
+judge only about pairs neither pass settled, which is a handful a night; and keep the action
+graded exactly as it is now - note in the recap near the bar, hold an approved proposal,
+supersede only an undecided one well above it. And keep adding observed pairs to the set: the
+threshold above is measured on one real duplicate, which is a starting point, not a warrant.
 
 ## Proposal: the preprocessing chain has no sandbox (2026-09-07, built 2026-09-08)
 

@@ -390,6 +390,15 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
   safely, not even for a graded action. High cosine here is topical adjacency, the same thing
   that sank the retrieval idea. The embedder stays installed for the vault's reranker, which is
   what it is actually good for.
+- **What does work: asking a model** (measured, 2026-09-08, not yet wired to the shift). One
+  read-only run judging every candidate pair at once separates the classes where nothing else
+  did: across three runs the worst duplicate scored 0.200 and the best distinct pair 0.120, so
+  a cut at 0.16 holds with margin on either side, and it catches all six duplicates with no
+  false positive. It reads what a question ASKS - the trap pair with heavy shared vocabulary
+  and the opposite question scores 0.03 where the embedder gave it 0.777. The harness is
+  `dedupe-eval --judge`; the mechanism is `server/src/pipeline/dedupe-judge.ts`. It is measured,
+  not enabled: the margin rests on a single observed duplicate, and the action would stay
+  graded as it is today.
 - **Notebooks are private.** Handoffs live in the `handoffs` table, never in another
   Fellow's page.
 

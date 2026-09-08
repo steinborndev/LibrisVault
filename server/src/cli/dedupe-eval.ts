@@ -33,6 +33,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { topicOverlap, DEDUPE_THRESHOLD } from '../pipeline/shift.js'
 import { similarity, embedderAvailable, EMBED_MODEL } from '../pipeline/embed.js'
+import { judgePairs } from '../pipeline/dedupe-judge.js'
+import { loadConfig, requireAuth } from '../config.js'
 
 interface EvalPair {
   readonly id: string
@@ -55,7 +57,15 @@ interface EvalPair {
 /** A way of scoring how alike two topics are. Add one per candidate design, never replace. */
 interface Mechanism {
   readonly label: string
-  readonly score: (a: string, b: string) => Promise<number> | number
+  readonly score?: (a: string, b: string) => Promise<number> | number
+  /**
+   * For a mechanism that weighs the whole set in one go. A language-model judge is asked once
+   * about every pair, which is also how it would run: a night produces a handful of candidate
+   * pairs, and one call over all of them costs what one call costs.
+   */
+  readonly scoreAll?: (pairs: readonly EvalPair[]) => Promise<readonly number[]>
+  /** Costs money and spawns an agent, so it only runs when asked for. */
+  readonly optIn?: boolean
 }
 
 interface Scored {
@@ -63,14 +73,16 @@ interface Scored {
   readonly score: number
 }
 
-function parseArgs(argv: readonly string[]): { data: string; verbose: boolean } {
+function parseArgs(argv: readonly string[]): { data: string; verbose: boolean; judge: boolean } {
   let data = ''
   let verbose = false
+  let judge = false
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--data') data = argv[++i] ?? ''
     else if (argv[i] === '--verbose') verbose = true
+    else if (argv[i] === '--judge') judge = true
   }
-  return { data, verbose }
+  return { data, verbose, judge }
 }
 
 export function loadPairs(raw: string): EvalPair[] {
@@ -181,6 +193,22 @@ const MECHANISMS: readonly Mechanism[] = [
    * where the words disagree. A duplicate has to be caught by ONE of them, so the pair is
    * scored by whichever sees it - and the distinct pairs have to stay below BOTH.
    */
+  /*
+   * The only mechanism that reads the question rather than its surface. One call over every
+   * pair, which is also how it would run: a night produces a handful of candidates. Opt-in,
+   * because unlike the others it spawns an agent and costs money.
+   */
+  {
+    label: 'llm judge (one read-only run)',
+    optIn: true,
+    scoreAll: async (pairs) => {
+      const config = loadConfig()
+      return judgePairs(
+        pairs.map((p) => ({ id: p.id, a: p.a, b: p.b })),
+        { vaultRoot: config.vaultRoot, auth: requireAuth(config) },
+      )
+    },
+  },
   {
     label: 'max(lexical, embedding clustering)',
     score: async (a, b) => {
@@ -191,8 +219,13 @@ const MECHANISMS: readonly Mechanism[] = [
 ]
 
 async function scoreAll(m: Mechanism, pairs: readonly EvalPair[]): Promise<Scored[]> {
+  if (m.scoreAll !== undefined) {
+    const scores = await m.scoreAll(pairs)
+    return pairs.map((pair, i) => ({ pair, score: scores[i] ?? Number.NaN }))
+  }
   const out: Scored[] = []
-  for (const pair of pairs) out.push({ pair, score: await m.score(pair.a, pair.b) })
+  const score = m.score ?? ((): number => Number.NaN)
+  for (const pair of pairs) out.push({ pair, score: await score(pair.a, pair.b) })
   return out
 }
 
@@ -236,7 +269,7 @@ function report(m: Mechanism, scored: readonly Scored[], verbose: boolean): void
 }
 
 async function main(): Promise<void> {
-  const { data, verbose } = parseArgs(process.argv.slice(2))
+  const { data, verbose, judge } = parseArgs(process.argv.slice(2))
   if (data === '') {
     console.error('usage: dedupe-eval --data <pairs.jsonl> [--verbose]')
     console.error('The dataset lives OUTSIDE this repo: the pairs are vault topics (hard rule 7).')
@@ -250,7 +283,13 @@ async function main(): Promise<void> {
     process.exit(2)
   }
   console.log(`embedder: ${(await embedderAvailable()) ? `${EMBED_MODEL} answering on loopback` : 'unreachable - the embedding rows will say so'}`)
-  for (const m of MECHANISMS) report(m, await scoreAll(m, pairs), verbose)
+  for (const m of MECHANISMS) {
+    if (m.optIn === true && !judge) {
+      console.log(`\n=== ${m.label} ===\n  skipped: costs an agent run. Pass --judge to measure it.`)
+      continue
+    }
+    report(m, await scoreAll(m, pairs), verbose)
+  }
   console.log('\nA mechanism with no usable threshold is not a dedupe, however good it looks on average.')
 }
 
