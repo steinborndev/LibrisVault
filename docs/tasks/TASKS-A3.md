@@ -68,6 +68,23 @@ Findings from the real runs (section 4):
   carried the notebook and the synthesis pages (D1), the API's `pageSet` did not, and the
   run's mandatory open-question append to the notebook counted as an edit outside the set.
   `step()` now adds the own pages on every path.
+- **F3 - the validator was conditional on the SERVICE being the committer (2026-09-08).**
+  The first expand run against the production vault edited five pages, obeyed the
+  append-only rule exactly (the only lines it removed were `updated:` in the frontmatter),
+  and was recorded with **no commit and no pages** - because the vault's own skill committed
+  the work first, so the service's commit found a clean tree. Three consequences, all from
+  that one fact: the run looked like a run that cost money and changed nothing; it counted
+  toward the "two runs in a row changed nothing" stall rule; and `validateExpandCommit` was
+  skipped entirely, because its guard is `commitHash !== null`. The one mechanism that holds
+  the only page-editing run kind to its page set did not run, and nothing said so.
+  Fixed by reading the run's work where it actually is: whatever moved HEAD between the
+  start of the run and the end of the service's own commit attempt. `commitFileStatus`,
+  `gitCommitReader` and `restoreCommitPaths` take an optional `from` revision so a run whose
+  work landed in several commits is validated and reverted as one range. Only while the run
+  is the sole writer, read inside the commit mutex before the run deregisters: with an
+  ingest committing in parallel the range would claim its commits, and then the old reading
+  stands, which under-reports rather than over-reports.
+
 - **F2 - the `related:` footer is frontmatter in all but position.** The vault's pages end
   with a `related: [[a]] | [[b]]` line the skill rewrites as links are added; the real run
   moved it below its update section and the validator called that a rewritten body line.

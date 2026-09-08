@@ -94,7 +94,7 @@ describe('an expand run against a git vault', () => {
   let vaultRoot: string
   let db: Db
   let calls: RunAgentOptions[]
-  let behaviour: 'append' | 'rewrite' | 'outside'
+  let behaviour: 'append' | 'rewrite' | 'outside' | 'self-commit' | 'self-commit-outside'
   let runner: MaintenanceRunner
   let service: FellowService
   const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' })
@@ -133,6 +133,20 @@ describe('an expand run against a git vault', () => {
           write('wiki/sources/Fresh Source.md', PAGE('# Fresh Source\n\ncited'))
         } else if (behaviour === 'rewrite') {
           write(target, read(target).replace('the original claim', 'the corrected claim'))
+        } else if (behaviour === 'self-commit' || behaviour === 'self-commit-outside') {
+          /*
+           * The vault's own skill commits, so by the time the service commits there is
+           * nothing left. Seen on the first expand run against the production vault
+           * (2026-09-08): the run was recorded with no commit and no pages, and the
+           * validator was skipped because its guard is a commit hash.
+           */
+          write(target, read(target) + '\n## Update 2026-09-07\n\n- a new fact\n')
+          if (behaviour === 'self-commit-outside') write('wiki/concepts/Other.md', read('wiki/concepts/Other.md') + '\nsneaky edit\n')
+          write('wiki/index.md', '# index\n- updated\n')
+          git('add', '-A', '--', 'wiki')
+          git('commit', '-q', '-m', 'research-expand: the run committing its own work')
+          write('.tmp-scratch.txt', 'leftover')
+          return okResult('expanded')
         } else {
           write(target, read(target) + '\n## Update 2026-09-07\n\n- fine\n')
           write('wiki/concepts/Other.md', read('wiki/concepts/Other.md') + '\nsneaky edit\n')
@@ -218,6 +232,39 @@ describe('an expand run against a git vault', () => {
     expect(service.step(id, { kind: 'research-expand', topic: 'x' }).refusal?.error).toContain('needs a page set')
   })
 
+  /*
+   * The run committing its own work (2026-09-08). The service commits what the agent left
+   * dirty; when the agent committed first, the service's commit finds a clean tree. What
+   * the run DID is then whatever moved HEAD, and everything downstream - the page list, the
+   * recap's "changed nothing", and above all the expand validator - has to read it there.
+   */
+  it('records the commit and the pages when the run committed its own work', async () => {
+    behaviour = 'self-commit'
+    const id = await spawnAda()
+    const step = service.step(id, { kind: 'research-expand', topic: 'Deepen transit photometry', pageSet: ['wiki/concepts/Transit Photometry.md'] })
+    const settled = await service.settled(step.run!.id)
+    expect(settled.status).toBe('done')
+    // The service committed nothing of its own, and the run still carries its commit...
+    expect(settled.result?.commit).toBeTruthy()
+    // ...and the page it edited, which is what keeps it out of the "changed nothing" count.
+    expect(settled.result?.pages).toContain('wiki/concepts/Transit Photometry.md')
+    expect(read('wiki/concepts/Transit Photometry.md')).toContain('## Update 2026-09-07')
+  })
+
+  it('reverts a self-committed run that broke its page set, which is the hole this closes', async () => {
+    behaviour = 'self-commit-outside'
+    const id = await spawnAda()
+    const step = service.step(id, { kind: 'research-expand', topic: 'Deepen', pageSet: ['wiki/concepts/Transit Photometry.md'] })
+    const settled = await service.settled(step.run!.id)
+    expect(settled.status).toBe('error')
+    expect(settled.error).toContain('expand run reverted')
+    expect(settled.error).toContain('wiki/concepts/Other.md')
+    expect(read('wiki/concepts/Other.md')).not.toContain('sneaky')
+    expect(read('wiki/concepts/Transit Photometry.md')).not.toContain('## Update')
+    expect(git('status', '--porcelain', '--', 'wiki').trim()).toBe('')
+    expect(service.get(id)).toMatchObject({ state: 'sleeping', sleepCode: 'idle' })
+  })
+
   it('git helpers: file status, content at a revision, restore', async () => {
     write('wiki/concepts/Transit Photometry.md', PAGE('# Transit Photometry\n\nchanged'))
     write('wiki/concepts/Added.md', PAGE('# Added'))
@@ -235,6 +282,10 @@ describe('an expand run against a git vault', () => {
     expect(await readAtRevision(vaultRoot, hash, 'wiki/concepts/Other.md')).toBeNull()
     const reader = gitCommitReader(vaultRoot, hash)
     expect((await reader.status()).size).toBe(3)
+    // The same three, read as a RANGE: what a run that committed twice needs (2026-09-08).
+    const asRange = gitCommitReader(vaultRoot, hash, `${hash}^`)
+    expect([...(await asRange.status()).entries()].sort()).toEqual([...status.entries()].sort())
+    expect(await asRange.before('wiki/concepts/Other.md')).toContain('untouchable')
     const restored = await restoreCommitPaths(vaultRoot, hash, `revert expand ${hash.slice(0, 8)}`)
     expect(restored.reverted).toBe(true)
     expect(read('wiki/concepts/Other.md')).toContain('untouchable')

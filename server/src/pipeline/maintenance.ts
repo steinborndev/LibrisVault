@@ -29,7 +29,7 @@ import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
 import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit } from './expand.js'
 import { deltaBetween, parseSdkUsage, type UsageMonitor } from './usage-monitor.js'
-import { restoreCommitPaths } from './git.js'
+import { restoreCommitPaths, headHash, commitFileStatus } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
 import type { DomainCandidate } from './domain-candidates.js'
 import { indexWikiPages } from './citations.js'
@@ -1232,6 +1232,9 @@ export class MaintenanceRunner {
       // Bracket the run and register as a writer, so pages the agent creates or renames via Bash
       // can still be committed — but only if we turn out to be the sole writer (F4).
       const dirtyBefore = await dirtyPaths(this.vaultRoot)
+      // Where the vault stood before the run. What the run DID is whatever moved HEAD, and
+      // the service is not always the one that moves it - see the fallback below the commit.
+      const headBefore = await headHash(this.vaultRoot)
       const endRun = this.runRegistry.begin(dirtyBefore)
       const written = new Set<string>()
       const res = await this.runAgentFn({
@@ -1271,6 +1274,7 @@ export class MaintenanceRunner {
       // One commit per run, serialized against ingest commits. The sole-writer check and the
       // sweep both happen INSIDE the commit mutex, so no other run can start writing between
       // asking the question and acting on the answer.
+      let soleWriter = false
       const commit = await this.commitMutex.runExclusive(async () => {
         const swept = this.runRegistry.isSoleWriter()
           ? newWikiPaths(dirtyBefore, await dirtyPaths(this.vaultRoot))
@@ -1282,22 +1286,51 @@ export class MaintenanceRunner {
           log('info', 'another run is writing — staging only tool-reported paths (F4 sweep skipped)')
         }
         const pathspec = [...new Set([...written, ...swept, ...BOOKKEEPING_PATHS])]
+        // Read inside the mutex and before `endRun`, which is what "sole writer" means: with
+        // the run deregistered the count is zero and the question no longer has an answer.
+        soleWriter = this.runRegistry.isSoleWriter()
         return this.commit(this.vaultRoot, opts.commitMessage ?? `maintenance: ${kind}`, { pathspec })
       })
       endRun()
-      const pages = commit.committed ? commit.committedPages : []
-      const commitHash = commit.committed ? (commit.hash ?? null) : null
-      log('info', commit.committed ? `committed ${commit.hash?.slice(0, 8)} (${pages.length} page(s))` : 'nothing to commit')
+      /*
+       * Whoever committed it, the run's work is what moved HEAD (2026-09-08).
+       *
+       * The service commits what the agent left dirty. But the vault's own skill sometimes
+       * commits first, and then this commit finds a clean tree and reports nothing - and the
+       * run was recorded with no commit and no pages while five pages had in fact been
+       * edited, the recap read it as a run that changed nothing, and for an expand the
+       * validator that holds the run to its page set was skipped, because its guard is a
+       * commit hash. Measured on the first expand run against this vault.
+       *
+       * Only while we are the sole writer: with an ingest committing in parallel, the range
+       * would claim its commits as this run's. Then the old reading stands, which is
+       * conservative in the right direction - it under-reports rather than over-reports.
+       */
+      const headAfter = commit.committed ? null : await headHash(this.vaultRoot)
+      const agentCommitted = !commit.committed && soleWriter && headAfter !== null && headAfter !== headBefore && headBefore !== null
+      const commitHash = commit.committed ? (commit.hash ?? null) : agentCommitted ? headAfter : null
+      const commitFrom = agentCommitted ? headBefore : undefined
+      const pages = commit.committed
+        ? commit.committedPages
+        : agentCommitted
+          // The same rule `commitVault` applies to its own commits: wiki markdown only, so
+          // the bookkeeping and the service's state files stay out of the run's page list.
+          ? [...(await commitFileStatus(this.vaultRoot, headAfter!, headBefore!)).keys()].filter((p) => p.startsWith('wiki/') && p.endsWith('.md'))
+          : []
+      if (agentCommitted) log('info', `the run committed its own work: ${headAfter!.slice(0, 8)} (${pages.length} page(s))`)
+      else log('info', commit.committed ? `committed ${commit.hash?.slice(0, 8)} (${pages.length} page(s))` : 'nothing to commit')
       this.events.publish({ kind: 'stats' })
 
       // An expand run is bound to its page set (docs/tasks/TASKS-A3.md D2, D3): validate the
       // commit against the parent and undo a violation with a NEW commit, then fail the run.
       if (kind === 'research-expand' && opts.expandPageSet !== undefined && commitHash !== null) {
-        const findings = await validateExpandCommit(gitCommitReader(this.vaultRoot, commitHash), opts.expandPageSet)
+        const findings = await validateExpandCommit(gitCommitReader(this.vaultRoot, commitHash, commitFrom), opts.expandPageSet)
         if (findings.length > 0) {
           const finding = describeFindings(findings)
           log('warn', `maintenance: research-expand broke its rules: ${finding}`)
-          const undone = await this.commitMutex.runExclusive(() => restoreCommitPaths(this.vaultRoot, commitHash, `revert expand ${commitHash.slice(0, 8)}`))
+          const undone = await this.commitMutex.runExclusive(() =>
+            restoreCommitPaths(this.vaultRoot, commitHash, `revert expand ${commitHash.slice(0, 8)}`, commitFrom),
+          )
           log(undone.reverted ? 'warn' : 'error', undone.reverted ? `reverted ${commitHash.slice(0, 8)} with ${undone.hash?.slice(0, 8)}` : `revert failed: ${undone.message ?? 'unknown'}`)
           this.events.publish({ kind: 'stats' })
           return withDelta({

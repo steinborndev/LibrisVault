@@ -440,11 +440,33 @@ export async function discardUntrackedDir(vaultRoot: string, relDir: string): Pr
   return true
 }
 
+/**
+ * The current commit, or null when the vault is not a repository or has no commit yet.
+ *
+ * Read before and after an agent run: the run's work is whatever moved HEAD, whoever
+ * committed it. The service commits what the agent left dirty, but the vault's own skill
+ * sometimes commits first, and then the service's commit finds a clean tree and reports
+ * nothing (see `runOne`).
+ */
+export async function headHash(vaultRoot: string): Promise<string | null> {
+  try {
+    const out = (await git(vaultRoot, ['rev-parse', 'HEAD'])).trim()
+    return out === '' ? null : out
+  } catch {
+    return null
+  }
+}
+
 /** What one commit did to each path: added, modified or deleted (the recap's created/updated split). */
-export async function commitFileStatus(vaultRoot: string, hash: string): Promise<Map<string, 'A' | 'M' | 'D'>> {
+export async function commitFileStatus(vaultRoot: string, hash: string, from?: string): Promise<Map<string, 'A' | 'M' | 'D'>> {
   const out = new Map<string, 'A' | 'M' | 'D'>()
   try {
-    const stdout = await git(vaultRoot, ['show', '--name-status', '--format=', '-M', hash])
+    // With `from`, the run produced a RANGE of commits rather than one: the net effect of
+    // `from..hash` is what it did, and `diff` reports it in the same shape as `show`.
+    const stdout =
+      from === undefined
+        ? await git(vaultRoot, ['show', '--name-status', '--format=', '-M', hash])
+        : await git(vaultRoot, ['diff', '--name-status', '-M', from, hash])
     for (const line of stdout.split('\n')) {
       const m = /^([AMDR])\d*\t(.+?)(?:\t(.+))?$/.exec(line)
       if (!m) continue
@@ -486,10 +508,10 @@ export interface RestoreResult {
  * tree, because right after an agent run the tree holds the run's untracked leftovers; it
  * touches only the commit's own paths. Callers MUST hold the shared commit mutex.
  */
-export async function restoreCommitPaths(vaultRoot: string, hash: string, message: string): Promise<RestoreResult> {
-  const status = await commitFileStatus(vaultRoot, hash)
+export async function restoreCommitPaths(vaultRoot: string, hash: string, message: string, from?: string): Promise<RestoreResult> {
+  const status = await commitFileStatus(vaultRoot, hash, from)
   if (status.size === 0) return { reverted: false, message: `no such commit, or an empty one: ${hash}` }
-  const parent = `${hash}^`
+  const parent = from ?? `${hash}^`
   const added = [...status].filter(([, s]) => s === 'A').map(([p]) => p)
   const restored = [...status].filter(([, s]) => s !== 'A').map(([p]) => p)
   try {

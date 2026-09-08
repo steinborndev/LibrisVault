@@ -83,10 +83,16 @@ export interface CommitReader {
   after(path: string): Promise<string | null>
 }
 
-export function gitCommitReader(vaultRoot: string, hash: string): CommitReader {
+/**
+ * The commit to validate. `from` names the revision the run STARTED at, for a run whose work
+ * landed in several commits (the agent committing its own work, then the service committing
+ * the rest): the net effect of `from..hash` is what the run did, and that is what the rules
+ * are about.
+ */
+export function gitCommitReader(vaultRoot: string, hash: string, from?: string): CommitReader {
   return {
-    status: () => commitFileStatus(vaultRoot, hash),
-    before: (p) => readAtRevision(vaultRoot, `${hash}^`, p),
+    status: () => commitFileStatus(vaultRoot, hash, from),
+    before: (p) => readAtRevision(vaultRoot, from ?? `${hash}^`, p),
     after: (p) => readAtRevision(vaultRoot, hash, p),
   }
 }
