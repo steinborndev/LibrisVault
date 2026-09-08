@@ -12,17 +12,27 @@
  * Fetched web content never becomes a candidate directly: everything here is read from
  * pages the vault already holds, which is the injection boundary the spec relies on
  * (section 13). The list is capped so the planning prompt stays bounded.
+ *
+ * Because all five sources read the vault, a Fellow whose task is to WATCH for what is new
+ * had nothing on its menu that meant "go and look again". After its first run the only
+ * candidates it could ever be offered were the open questions that run had written itself,
+ * and a research run's open questions are mostly about verifying and reaching what it just
+ * found. Measured on this vault (2026-09-08): a Fellow asked to find quick recipes spent six
+ * of eight runs auditing time claims on its own first three sources, and every one of its
+ * proposals named an open question from its own notebook as its origin. Two things below
+ * answer that - the standing sweep (source 6) and the loop brake - and neither of them
+ * fetches anything or widens what the planner may read.
  */
 
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AgentRecord } from '../db/agents.js'
+import type { AgentRecord, AgentTask } from '../db/agents.js'
 import type { AgentRunRecord } from '../db/agent-runs.js'
 import type { JobRow } from '../db/jobs.js'
 import type { VaultGraph } from './graph.js'
 import { parseNotebook } from './notebook.js'
 
-export type CandidateKind = 'open-question' | 'gap' | 'stub' | 'ingest' | 'handoff' | 'note' | 'reading'
+export type CandidateKind = 'open-question' | 'gap' | 'stub' | 'ingest' | 'handoff' | 'note' | 'reading' | 'sweep'
 
 /** How a recap's free-text answer is filed under the notebook's Notes (docs/tasks/TASKS-A2.md D6). */
 export const RECAP_NOTE_PREFIX = 'Recap note'
@@ -76,6 +86,28 @@ const MAX_GAPS = 8
 const MAX_STUBS = 5
 const MAX_INGESTS = 5
 
+/**
+ * The standing sweep's weight: above the Fellow's own open questions, below a recap note (the
+ * user's direct steer) and below a publication that has arrived. Looking for new material is
+ * the default of standing work, not an emergency - the planner still chooses.
+ */
+export const SWEEP_WEIGHT = 3.2
+
+/**
+ * How many runs in a row may come from the Fellow's own open questions before the brake
+ * bites. Three is one full cycle of the largest task list, so a Fellow that alternates
+ * between following up and looking outward never trips it.
+ */
+export const SELF_LOOP_LIMIT = 3
+
+/**
+ * What a self-authored open question is worth once the brake is on: below every other kind,
+ * so a sweep, a gap, a stub or an ingest ranks above it. Not zero and not dropped - a
+ * question can still be the best thing to do, and the planner is the one that judges. This
+ * only stops ten of them from filling the top of the list for a fourth night.
+ */
+export const LOOPED_QUESTION_WEIGHT = 0.5
+
 export interface CandidateInput {
   readonly agent: AgentRecord
   /** The Fellow's settled runs, newest first (their pages name its synthesis pages). */
@@ -90,11 +122,43 @@ export interface CandidateInput {
   /** Pending handoffs routed to this Fellow (section 6.6). */
   readonly handoffs?: readonly HandoffCandidate[]
   /**
+   * Tonight's task, when one is up. A `watch` task gets the standing sweep below; the others
+   * do not, because they already have a candidate source that fits them (an explore task has
+   * its open questions, a deepen task its ranked pages).
+   */
+  readonly task?: AgentTask
+  /**
+   * How many of the Fellow's most recent runs in a row came from an open question it wrote
+   * itself (see {@link ownQuestionStreak}). At or above {@link SELF_LOOP_LIMIT} the brake
+   * comes on.
+   */
+  readonly selfLoop?: number
+  /**
    * Publications this Fellow put on the reading list that have since arrived in the vault
    * (section 10.6). They are the strongest candidate there is: the Fellow asked for the
    * document, said why, and now it is here - which is a step to take, not a search to repeat.
    */
   readonly readingFiled?: ReadonlyArray<{ readonly title: string; readonly page: string; readonly why: string | null; readonly filedAt: string | null }>
+}
+
+/**
+ * How many of the newest runs in a row came from an open question the Fellow wrote itself.
+ *
+ * EVERY open-question candidate is self-authored: `computeCandidates` reads them from the
+ * Fellow's own notebook and its own synthesis pages, and from nowhere else. The first draft
+ * of this counted only the notebook, on the theory that a question on a synthesis page is a
+ * finding rather than the Fellow talking to itself - the live pool disproved it on sight
+ * (2026-09-08): the same audit questions sat on both, written by the same runs on the same
+ * night. Any other kind breaks the streak, because that work came from outside the Fellow's
+ * own last run.
+ */
+export function ownQuestionStreak(executed: readonly { readonly candidate: string }[]): number {
+  let n = 0
+  for (const p of executed) {
+    if (p.candidate !== 'open-question') break
+    n++
+  }
+  return n
 }
 
 /** The domains a Fellow reads as its own: home plus extras. */
@@ -219,7 +283,26 @@ export function computeCandidates(input: CandidateInput): Candidate[] {
   for (const note of notebook === undefined ? [] : parseRecapNotes(notebook).slice(-MAX_NOTES)) {
     raw.push({ kind: 'note', text: note, sourcePages: [agent.notebookPath], weight: 3.5 })
   }
-  raw.push(...questions)
+  /*
+   * 6. The standing sweep: the watch task itself, always on the menu.
+   *
+   * Every other candidate is something the vault already wrote down, so without this a watch
+   * Fellow can only follow up its own findings - the failure mode in this file's header. The
+   * text is the task, and its source page is the notebook, where the task is recorded under
+   * `## Intent`; nothing here is fetched.
+   */
+  if (input.task?.kind === 'watch') {
+    raw.push({ kind: 'sweep', text: input.task.text, sourcePages: [agent.notebookPath], weight: SWEEP_WEIGHT })
+  }
+
+  /*
+   * The loop brake. The questions keep their place in the list but lose their precedence once
+   * the Fellow has followed nothing else for SELF_LOOP_LIMIT runs, so whatever else it has -
+   * a sweep, a gap, a stub, an ingest - is read first. All of them, notebook and synthesis
+   * page alike: both are this Fellow's own writing, see `ownQuestionStreak`.
+   */
+  const looping = (input.selfLoop ?? 0) >= SELF_LOOP_LIMIT
+  raw.push(...(looping ? questions.map((q) => ({ ...q, weight: LOOPED_QUESTION_WEIGHT })) : questions))
 
   // 5. Handoffs from other Fellows (section 6.6): another Fellow's question in this domain.
   for (const h of (input.handoffs ?? []).slice(0, MAX_HANDOFFS)) {

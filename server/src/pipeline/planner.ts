@@ -13,7 +13,7 @@ import { MODEL_FACTOR } from '../db/agents.js'
 import type { ProposalKind, ProposalRecord, Provenance } from '../db/proposals.js'
 import { RESEARCH_PROFILES } from './research-profiles.js'
 import { tokenize } from './related-pages.js'
-import type { Candidate } from './candidates.js'
+import { SELF_LOOP_LIMIT, type Candidate } from './candidates.js'
 import { EXPAND_MAX_PAGES } from './expand.js'
 
 /** The kinds the planner may propose, smallest first (A3 added `research-expand`). */
@@ -159,6 +159,12 @@ export interface PlannerInput {
   readonly domains?: readonly DomainHint[]
   /** Set on the second attempt of a cycle: what went wrong with the first answer. */
   readonly retryNote?: string
+  /**
+   * How many runs in a row followed up an open question the Fellow wrote itself
+   * (candidates.ts `ownQuestionStreak`). At or above `SELF_LOOP_LIMIT` the prompt says so:
+   * the candidate list has already been re-ranked, and this is the reason for it.
+   */
+  readonly selfLoop?: number
 }
 
 const KIND_HELP: Readonly<Record<ProposalKind, string>> = {
@@ -193,6 +199,23 @@ export function renderPlannerPrompt(input: PlannerInput): string {
     `Home domain: ${agent.homeDomain}${agent.extraDomains.length > 0 ? ` (also ${agent.extraDomains.join(', ')})` : ''}\n` +
     `Notebook: ${agent.notebookPath}\n\n` +
     `Candidates (every proposal must name one of these ids as its origin):\n${candidates}\n\n` +
+    /*
+     * The sweep needs a sentence: every other candidate names something the vault already
+     * holds, so a planner shown one without explanation reads it as another follow-up.
+     */
+    (input.candidates.some((c) => c.kind === 'sweep')
+      ? 'The `sweep` candidate is the standing task itself. It means going out to look for material the library does ' +
+        'not have yet, rather than following up something it has already written down, and it never runs out - a ' +
+        'watch task always has it. Propose it when the best thing tonight is more material rather than a closer look ' +
+        'at what is here, and make the topic sentence say what to look for and what to file about each thing found.\n\n'
+      : '') +
+    (input.selfLoop !== undefined && input.selfLoop >= SELF_LOOP_LIMIT
+      ? `The last ${input.selfLoop} runs all followed up a question this Fellow wrote itself. That is how standing ` +
+        'work turns into an audit of its own first sources: each run leaves questions about what it could not verify ' +
+        'or reach, and those questions are then the only thing on the menu. The candidates above are ordered with ' +
+        'that in mind. Prefer one that is not the Fellow\'s own open question tonight, unless one of them is ' +
+        'genuinely worth more than looking outward.\n\n'
+      : '') +
     (input.recentLog.length > 0 ? `Recent runs, newest last:\n${input.recentLog.map((l) => `- ${l}`).join('\n')}\n\n` : '') +
     (input.vetoed.length > 0 ? `The user vetoed these topics recently; do not propose them again:\n${input.vetoed.map((t) => `- ${t}`).join('\n')}\n\n` : '') +
     (input.elsewhere !== undefined && input.elsewhere.length > 0

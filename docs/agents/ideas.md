@@ -426,6 +426,66 @@ domain guard on the step route, since a hand-started expand is capped and bounde
 today; budget and timeout as functions of the page count instead of flat per kind; the shared
 dialog; the two entry points; the spawn prefill.
 
+## Failure mode: a watch task had no way to look outward (2026-09-08)
+
+Diagnosed on a Fellow whose standing task was a watch: eight runs, and six of them audited
+time claims on the three sources its FIRST run had found, instead of bringing back more of
+what the user asked for. Every one of its proposals named an open question from its own
+notebook as its origin.
+
+**The mechanism, three parts.** All five candidate sources read the vault, and the planner
+prompt requires every proposal to name a candidate id. So after run 1 the only thing on a
+watch Fellow's menu was what run 1 wrote down - and what a research run writes down is
+mostly what it could not verify or reach, because the vault's own research program lists
+"note contradictions" and "identify open questions" among its objectives. The audit then
+fed itself: each verification run left more verification questions.
+
+**Second part: the topic sentence decides the page.** A natural experiment inside the same
+Fellow, same lens, same caps. Proposals phrased as "check each for the time discrepancy"
+produced source pages with a summary and a nutrition line and no ingredients and no method;
+the one proposal that said "record their actual total time, full ingredient list, and any
+derivable nutrition figures" produced pages with both. The run files what the topic asks
+for and nothing else, so a topic that asks a question about an artifact does not bring back
+the artifact.
+
+**Third part: a step cannot widen.** `renderStepCaps` gives a research step one search round,
+five sources and "prefer extending the existing pages named above over filing new ones". With
+a topic that already names its source, a step has neither the budget nor the instruction to
+find a new publisher. Only the first full sweep had three rounds, and two of the three sites
+it found answered with 403/404, which concentrated everything on the two that did answer.
+
+### Built (2026-09-08)
+
+**The standing sweep.** A watch task is now always on its own menu: `computeCandidates` adds
+one candidate of kind `sweep` whose text is the task and whose source page is the notebook it
+is written in. Nothing is fetched to build it. It outranks the Fellow's own questions and
+sits below a recap note and below a publication that has arrived, because looking for new
+material is the default of standing work, not an emergency. Only a watch task gets one: an
+explore task has its open questions and a deepen task its ranked pages. The planner prompt
+explains the kind when one is present, and asks for a topic sentence that says what to look
+for AND what to file about each thing found - the second half being the lesson of the natural
+experiment above.
+
+**The loop brake.** `ownQuestionStreak` counts how many of the newest executed proposals in a
+row came from an open question. At three, every open-question candidate drops below every
+other kind and the prompt says why. They stay in the list: a question can still be the best
+thing to do, and the planner is the judge. One run from anywhere else resets it.
+
+The first draft counted and braked only the NOTEBOOK's questions, on the theory that a
+question on a synthesis page is a finding rather than the Fellow talking to itself. The live
+candidate pool disproved that within a minute of shipping: the same audit questions sat on
+both, written by the same runs on the same night, and ten of them stayed at the top of the
+list. Every open-question candidate is self-authored by construction - `computeCandidates`
+reads them from the Fellow's own notebook and its own synthesis pages and from nowhere else -
+so the brake now covers all of them.
+
+**What was NOT built, and belongs to the user rather than the code.** The `scope` field
+already reaches both the planner and the run prompt, and it is where "what artifact do I
+want" belongs. The diagnosed Fellow had none. A scope note naming the artifact ("every recipe
+gets its own page with the complete ingredient list and method; a time check without the
+recipe is not a result") would have prevented the second part on its own, and no amount of
+candidate engineering substitutes for it.
+
 ## Decision: a Fellow keeps a beat, not a subject (2026-09-07)
 
 Answers to the second of the four questions parked after the end-to-end tests. A Fellow has one

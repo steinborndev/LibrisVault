@@ -53,7 +53,7 @@ import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
 import { EXPAND_MANUAL_MAX_PAGES, expandBudgetUsd, expandTimeoutMs } from './expand.js'
 import { parseFrontmatterMeta } from './graph.js'
-import { computeCandidates, fellowDomains, knowledgePages, type Candidate } from './candidates.js'
+import { computeCandidates, fellowDomains, knowledgePages, ownQuestionStreak, SELF_LOOP_LIMIT, type Candidate } from './candidates.js'
 import { rankForDeepening } from './deepen-rank.js'
 import { EXPAND_MAX_PAGES } from './expand.js'
 import { localDate, addDays, windowAt } from './clock.js'
@@ -259,7 +259,7 @@ export interface FellowServiceOptions {
   }
   readonly now?: () => Date
   /** Candidate computation; the default reads the vault, the graph and the job store. */
-  readonly candidates?: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
+  readonly candidates?: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null, task?: AgentTask) => Candidate[]
   readonly candidateSources?: CandidateSources
   /** Service-wide block on starting a run of this cost and model (daily budget, rate-limit pause, plan gate); null = clear. */
   readonly gate?: (ctx: GateContext) => GateBlock | null
@@ -298,7 +298,7 @@ export class FellowService {
   private readonly notebook: NotebookWriter
   private readonly reading: FellowServiceOptions['reading']
   private readonly now: () => Date
-  private readonly candidatesFn: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null) => Candidate[]
+  private readonly candidatesFn: (agent: AgentRecord, runs: readonly AgentRunRecord[], since: string | null, task?: AgentTask) => Candidate[]
   private readonly gate: (ctx: GateContext) => GateBlock | null
   private readonly estimatePct: ((costUsd: number, model: AgentModel) => { fiveHour: number | null; sevenDay: number | null }) | undefined
   private readonly settings: () => FellowSettings
@@ -348,7 +348,7 @@ export class FellowService {
     this.sources = sources
     this.candidatesFn =
       opts.candidates ??
-      ((agent, runs, since): Candidate[] => {
+      ((agent, runs, since, task): Candidate[] => {
         if (!sources) return []
         const safely = <T>(read: (() => T) | undefined, fallback: T): T => {
           try {
@@ -368,6 +368,8 @@ export class FellowService {
           since,
           handoffs: this.handoffCandidates(agent.id),
           readingFiled: this.filedReadingOf(agent),
+          ...(task !== undefined ? { task } : {}),
+          selfLoop: this.selfLoopOf(agent),
         })
       })
   }
@@ -858,6 +860,7 @@ export class FellowService {
       kinds,
       task: tonight.task,
       taskIndex: tonight.index,
+      selfLoop: this.selfLoopOf(agent),
       ...(deepenPages.length > 0 ? { deepenPages } : {}),
       domains,
       ...(opts.retryNote !== undefined ? { retryNote: opts.retryNote } : {}),
@@ -1030,7 +1033,23 @@ export class FellowService {
     if (!agent) return undefined
     const runs = this.runs.list({ agentId, limit: 200 })
     const since = runs.find((r) => isResearchKind(r.kind))?.startedAt ?? agent.createdAt
-    return { candidates: this.candidatesFn(agent, runs, since), since }
+    // The same task the planner would be given, so the view shows the same list - the standing
+    // sweep only exists for a watch task, and which task is up depends on the cursor.
+    const tonight = taskForTonight(agent.tasks, agent.taskCursor)
+    return { candidates: this.candidatesFn(agent, runs, since, tonight?.task), since }
+  }
+
+  /**
+   * How many runs in a row followed up a question this Fellow wrote itself: the executed
+   * proposals, newest first, read through `ownQuestionStreak`. Only executed ones count - a
+   * proposal the user vetoed or let expire never became a run, so it never narrowed anything.
+   */
+  private selfLoopOf(agent: AgentRecord): number {
+    const executed = this.proposals
+      .list({ agentId: agent.id, status: ['executed'], limit: SELF_LOOP_LIMIT + 2 })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((p) => ({ candidate: p.provenance.candidate }))
+    return ownQuestionStreak(executed)
   }
 
   /** What this Fellow asked for on the reading list and has since arrived in the vault. */

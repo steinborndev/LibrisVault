@@ -16,7 +16,7 @@ import type { JobRow } from '../src/db/jobs.js'
 import { MemoryProposalStore, SqliteProposalStore, type ProposalRecord, type ProposalStore } from '../src/db/proposals.js'
 import { MemoryShiftStore, SqliteShiftStore, EMPTY_SUMMARY, type ShiftStore } from '../src/db/shifts.js'
 import { GraphBuilder } from '../src/pipeline/graph.js'
-import { computeCandidates, parseOpenQuestions, type Candidate } from '../src/pipeline/candidates.js'
+import { computeCandidates, parseOpenQuestions, ownQuestionStreak, SELF_LOOP_LIMIT, LOOPED_QUESTION_WEIGHT, type Candidate } from '../src/pipeline/candidates.js'
 import {
   buildProposals,
   estimateCostUsd,
@@ -221,6 +221,77 @@ describe('computeCandidates', () => {
     const candidates = computeCandidates({ agent: agentRecord(), runs: [], vaultRoot, graph: null, jobs: [], since: null })
     expect(candidates.map((c) => c.kind)).toEqual(['open-question', 'open-question'])
   })
+
+  /*
+   * The standing sweep and the loop brake (2026-09-08). Both exist because every other
+   * candidate source reads the vault, so a watch Fellow could only ever be offered what its
+   * own last run wrote down.
+   */
+  const WATCH = { id: 't1', text: 'new quick vegetarian recipes', kind: 'watch' as const, state: 'active' as const }
+
+  it('gives a watch task the standing sweep, above its own questions, and no other task one', () => {
+    const base = { agent: agentRecord(), runs: [], vaultRoot, graph: null, jobs: [], since: null }
+    const watching = computeCandidates({ ...base, task: WATCH })
+    const sweep = watching.find((c) => c.kind === 'sweep')
+    expect(sweep?.text).toBe('new quick vegetarian recipes')
+    // From the notebook, where the task is written down: nothing here is fetched.
+    expect(sweep?.sourcePages).toEqual(['wiki/meta/agents/ada.md'])
+    // Ahead of the Fellow's own open questions, so looking outward is the first thing read.
+    expect(watching[0]!.kind).toBe('sweep')
+    // An explore task has its open questions and a deepen task its ranked pages; neither
+    // needs a standing candidate, and giving them one would be a second task in the list.
+    expect(computeCandidates({ ...base, task: { ...WATCH, kind: 'explore' } }).some((c) => c.kind === 'sweep')).toBe(false)
+    expect(computeCandidates({ ...base, task: { ...WATCH, kind: 'deepen' } }).some((c) => c.kind === 'sweep')).toBe(false)
+    expect(computeCandidates(base).some((c) => c.kind === 'sweep')).toBe(false)
+  })
+
+  it('demotes the Fellow\'s own questions once it has followed nothing else for three runs', () => {
+    const base = { agent: agentRecord(), runs: [], vaultRoot, graph: null, jobs: [], since: null, task: WATCH }
+    const free = computeCandidates({ ...base, selfLoop: SELF_LOOP_LIMIT - 1 })
+    expect(free.map((c) => c.kind)).toEqual(['sweep', 'open-question', 'open-question'])
+    const braked = computeCandidates({ ...base, selfLoop: SELF_LOOP_LIMIT })
+    // Still there - a question can still be the best thing to do, and the planner judges -
+    // but read after everything that is not the Fellow talking to itself.
+    expect(braked.map((c) => c.kind)).toEqual(['sweep', 'open-question', 'open-question'])
+    expect(braked.filter((c) => c.kind === 'open-question').every((c) => c.weight === LOOPED_QUESTION_WEIGHT)).toBe(true)
+    expect(braked[0]!.weight).toBeGreaterThan(braked[1]!.weight)
+  })
+
+  it('brakes the questions on its synthesis pages too, not only the notebook ones', () => {
+    /*
+     * Measured on the live vault (2026-09-08): the same audit questions sat on the notebook
+     * AND on the synthesis page, written by the same runs. A brake that spared the synthesis
+     * page left ten of them at the top of the list, which is the loop it was built to stop.
+     */
+    const candidates = computeCandidates({
+      agent: agentRecord(),
+      runs: [runRecord({ pages: ['wiki/questions/Research: Faint hosts.md'] })],
+      vaultRoot,
+      graph: null,
+      jobs: [],
+      since: null,
+      task: WATCH,
+      selfLoop: SELF_LOOP_LIMIT,
+    })
+    const questions = candidates.filter((c) => c.kind === 'open-question')
+    expect(questions.some((c) => c.sourcePages.includes('wiki/questions/Research: Faint hosts.md'))).toBe(true)
+    expect(questions.every((c) => c.weight === LOOPED_QUESTION_WEIGHT)).toBe(true)
+    expect(candidates[0]!.kind).toBe('sweep')
+  })
+})
+
+describe('ownQuestionStreak', () => {
+  const q = { candidate: 'open-question' }
+
+  it('counts the newest runs that followed the Fellow\'s own questions, and stops at the first that did not', () => {
+    expect(ownQuestionStreak([])).toBe(0)
+    expect(ownQuestionStreak([q, q, q])).toBe(3)
+    // The streak is about the NEWEST runs: one look outward breaks it, however many
+    // follow-ups came before.
+    expect(ownQuestionStreak([{ candidate: 'sweep' }, q, q])).toBe(0)
+    expect(ownQuestionStreak([q, { candidate: 'gap' }, q])).toBe(1)
+    expect(ownQuestionStreak([q, { candidate: 'ingest' }])).toBe(1)
+  })
 })
 
 describe('scope score and drift', () => {
@@ -395,6 +466,27 @@ describe('planner prompt, schema and answer', () => {
     expect(prompt).not.toContain('NOTE:')
     const again = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], retryNote: 'its answer did not match the schema' })
     expect(again).toContain('NOTE: its answer did not match the schema')
+  })
+
+  it('explains the sweep only when there is one, and names the loop only once it is real', () => {
+    const withSweep: Candidate[] = [
+      { id: 'C1', kind: 'sweep', text: 'new quick vegetarian recipes', sourcePages: ['wiki/meta/agents/ada.md'], weight: 3.2 },
+      ...candidates,
+    ]
+    const plain = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    expect(plain).not.toContain('`sweep` candidate')
+    const swept = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    expect(swept).toContain('The `sweep` candidate is the standing task itself')
+    expect(swept).toContain('material the library does not have yet')
+
+    // The loop sentence is a statement of fact about this Fellow, so it appears only when
+    // the streak is real - a planner told about a loop it is not in would avoid its own
+    // best candidate for nothing.
+    const below = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], selfLoop: SELF_LOOP_LIMIT - 1 })
+    expect(below).not.toContain('followed up a question this Fellow wrote itself')
+    const looping = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], selfLoop: 4 })
+    expect(looping).toContain('The last 4 runs all followed up a question this Fellow wrote itself')
+    expect(looping).toContain('an audit of its own first sources')
   })
 
   it('turns an answer into ranked proposals with provenance, cost and score, dropping what it must', () => {
