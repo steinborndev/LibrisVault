@@ -43,6 +43,8 @@ export interface PageGroup {
   readonly kind: PageKind
   /** `Concepts 5`, or `Concept 1` - the count is part of the label, not a chip of its own. */
   readonly label: string
+  /** The category alone - `Concepts` - for a band whose count is stated elsewhere. */
+  readonly name: string
   readonly paths: readonly string[]
 }
 
@@ -64,7 +66,7 @@ export function groupPages(paths: readonly string[]): PageGroup[] {
     const list = by.get(kind)
     if (list === undefined || list.length === 0) continue
     const l = LABEL[kind]
-    out.push({ kind, label: `${list.length === 1 ? l.one : l.many} ${list.length}`, paths: list })
+    out.push({ kind, label: `${list.length === 1 ? l.one : l.many} ${list.length}`, name: l.many, paths: list })
   }
   return out
 }

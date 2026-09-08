@@ -23,6 +23,8 @@ describe('the pages a run wrote', () => {
     const groups = groupPages(['wiki/sources/S.md', 'wiki/concepts/A.md', 'wiki/questions/Q.md', 'wiki/concepts/B.md'])
     expect(groups.map((g) => g.kind)).toEqual(['concept', 'source', 'question'])
     expect(groups.map((g) => g.label)).toEqual(['Concepts 2', 'Source 1', 'Question 1'])
+    // The band in the opened run states the category alone; the list already counted.
+    expect(groups.map((g) => g.name)).toEqual(['Concepts', 'Sources', 'Questions'])
     expect(groups[0]!.paths).toEqual(['wiki/concepts/A.md', 'wiki/concepts/B.md'])
   })
 

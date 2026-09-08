@@ -86,8 +86,10 @@ describe('the Research screen can always be left', () => {
   })
 
   it('keeps the back control out of the band that scrolls', () => {
-    // A back button inside the scrolling band is gone from the first screenful onward, which
-    // is the same as not having one. In the shell the bar is a SIBLING above that band.
+    // A back button that scrolls away with the article is gone from the second screenful
+    // onward, which is the same as not having one. The shell is one scrolling box now
+    // (2026-09-08), and the bar is the element in it that STICKS - it comes first in source
+    // and is pinned in style, so the way back is there whatever is scrolled under it.
     const shell = chat.slice(chat.indexOf('function DetailShell('))
     const bar = shell.indexOf('className={`detail-bar')
     const content = shell.indexOf('className="detail-content"')

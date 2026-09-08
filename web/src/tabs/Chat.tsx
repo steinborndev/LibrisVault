@@ -50,14 +50,14 @@ import { planCorner } from '../lib/library/planCorner.ts'
 import { RunActivity } from '../components/RunActivity.tsx'
 import { useJobLog } from '../hooks/useJobLog.ts'
 import { deriveResearchProgress, EMPTY_PROGRESS } from '../lib/researchProgress.ts'
-import { groupPages, countLine, countParts } from '../lib/wrotePages.ts'
+import { groupPages, countLine } from '../lib/wrotePages.ts'
 import { queryState, merge } from '../components/QueryState.tsx'
 import { navigate } from '../lib/router.ts'
 import { openableRow } from '../lib/tableRow.ts'
 import { chatStream } from '../lib/chatStream.ts'
-import { duration, timeAgo, tokens } from '../lib/format.ts'
+import { timeAgo, tokens } from '../lib/format.ts'
 import { Cost, ESTIMATE_LABEL, isEstimate } from '../components/Cost.tsx'
-import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry } from '../lib/researchRuns.ts'
+import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry, RESEARCH_PREFIX } from '../lib/researchRuns.ts'
 import { frontmatter } from '../lib/frontmatter.ts'
 
 type ComposerMode = 'research' | 'ask'
@@ -776,7 +776,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               profiles={profiles}
               nodes={graphQ.data?.nodes ?? []}
               vaultName={vaultName}
-              authMode={authMode}
               onBack={() => setView({ kind: 'start' })}
               onRerun={(topic, key) => {
                 setProfileKey(key ?? 'broad')
@@ -923,18 +922,13 @@ function StartView({
                           record, and the clock ticks. Cost stays a dash until it settles - a
                           running total is not the final one, and a dash says "not known yet"
                           where a 0 would lie. */}
-                      <td className="wrotec" title={countLine(e.status === 'running' ? livePaths : e.pages)}>
+                      {/* One figure, live for the run in flight: the kinds are stated in the
+                          opened run, where there is room for them. */}
+                      <td className={`wrotec${e.status === 'running' ? ' pending' : ''}`} title={countLine(e.status === 'running' ? livePaths : e.pages)}>
                         {(() => {
-                          const paths = e.status === 'running' ? livePaths : e.pages
-                          if (paths.length === 0) return e.status === 'running' ? 'nothing yet' : '-'
-                          // Each count is one word: "1 question" never breaks between the figure
-                          // and its unit. A line may break only at a separator.
-                          return countParts(paths).map((part, i, all) => (
-                            <span key={part}>
-                              <span className="wgrp">{part}</span>
-                              {i < all.length - 1 ? ' · ' : ''}
-                            </span>
-                          ))
+                          const n = e.status === 'running' ? livePaths.length : e.pages.length
+                          if (n === 0) return e.status === 'running' ? 'nothing yet' : '-'
+                          return `${n} page${n === 1 ? '' : 's'}`
                         })()}
                       </td>
                       <td className={`tookc${e.status === 'running' ? ' pending' : ''}`}>{took(e, now)}</td>
@@ -1025,6 +1019,7 @@ function DetailShell({
   chipsKey,
   chips,
   band,
+  heading,
   contentRef,
   children,
   provenance,
@@ -1038,47 +1033,66 @@ function DetailShell({
   tag?: React.ReactNode
   state: React.ReactNode
   action: React.ReactNode
-  facts: React.ReactNode
+  /** The facts strip. A run has none any more - its figures are in the list it came from. */
+  facts?: React.ReactNode
   chipsKey: string
   chips: React.ReactNode
   /** Replaces the flat chip band outright. A run's pages are grouped by kind; a
       conversation's citations are a flat list and keep the band. */
   band?: React.ReactNode
+  /**
+   * A heading at the top of the scrolling box, in place of the bar's title. A run's title used
+   * to appear three times - in the bar, as a fact, and as the page's own first line - and this
+   * is the one place it stands now.
+   */
+  heading?: React.ReactNode
+  /** The scrolling element, for a caller that keeps its content scrolled to the end. */
   contentRef?: React.RefObject<HTMLDivElement | null>
   children: React.ReactNode
   provenance: React.ReactNode
   footAction: React.ReactNode
 }): React.ReactElement {
+  /*
+   * One box that scrolls (2026-09-08). It used to be a fixed head - bar, facts, chips - over a
+   * band that scrolled on its own, which spent a third of the height on figures the list
+   * above had already shown. Everything is in one scrolling element now; only the bar sticks,
+   * because the way back should not scroll away with the article.
+   */
   return (
     <section className="box detail">
-      <div className={`detail-bar ${kind}`}>
-        <button className="backlink" onClick={onBack}>
-          <Icon name="back" />
-          {backLabel}
-        </button>
-        <Icon name={icon} />
-        <h3 className="detail-title" title={title}>
-          {title}
-        </h3>
-        {tag}
-        {state}
-        <span className="spacer" />
-        {action}
-      </div>
-      <Facts size="lead">{facts}</Facts>
-      {band ?? (
-        <div className="chipband">
-          <span className="bandkey">{chipsKey}</span>
-          {chips}
+      <div className="detail-scroll" ref={contentRef}>
+        <div className={`detail-bar ${kind}`}>
+          <button className="backlink" onClick={onBack}>
+            <Icon name="back" />
+            {backLabel}
+          </button>
+          {heading === undefined && (
+            <>
+              <Icon name={icon} />
+              <h3 className="detail-title" title={title}>
+                {title}
+              </h3>
+            </>
+          )}
+          {tag}
+          {state}
+          <span className="spacer" />
+          {action}
         </div>
-      )}
-      <div className="detail-content" ref={contentRef}>
-        {children}
-      </div>
-      <div className="detail-foot">
-        <span className="prov">{provenance}</span>
-        <span className="spacer" />
-        {footAction}
+        {heading}
+        {facts !== undefined && <Facts size="lead">{facts}</Facts>}
+        {band ?? (
+          <div className="chipband">
+            <span className="bandkey">{chipsKey}</span>
+            {chips}
+          </div>
+        )}
+        <div className="detail-content">{children}</div>
+        <div className="detail-foot">
+          <span className="prov">{provenance}</span>
+          <span className="spacer" />
+          {footAction}
+        </div>
       </div>
     </section>
   )
@@ -1107,7 +1121,7 @@ function WroteBand({ paths, vaultName, empty }: { paths: readonly string[]; vaul
         const rest = g.paths.length - shown.length
         return (
           <div key={g.kind} className="wrow">
-            <span className="wkey">{g.label}</span>
+            <span className="wkey">{g.name}</span>
             <span className="wpills">
               {shown.map((path) => (
                 <PageLink key={path} vaultName={vaultName} path={path} plain />
@@ -1131,7 +1145,6 @@ function RunDetail({
   profiles,
   nodes,
   vaultName,
-  authMode,
   onBack,
   onRerun,
 }: {
@@ -1140,7 +1153,6 @@ function RunDetail({
   /** The graph's pages, to resolve the synthesis page by the name it calls itself. */
   nodes: readonly GraphNode[]
   vaultName: string
-  authMode: AuthMode
   onBack: () => void
   onRerun: (topic: string, profileKey: string | null) => void
 }): React.ReactElement {
@@ -1153,7 +1165,6 @@ function RunDetail({
       profiles={profiles}
       nodes={nodes}
       vaultName={vaultName}
-      authMode={authMode}
       onBack={onBack}
       onRerun={onRerun}
     />
@@ -1170,7 +1181,6 @@ function RunDetailBody({
   profiles,
   nodes,
   vaultName,
-  authMode,
   onBack,
   onRerun,
 }: {
@@ -1179,7 +1189,6 @@ function RunDetailBody({
   profiles: ResearchProfile[]
   nodes: readonly GraphNode[]
   vaultName: string
-  authMode: AuthMode
   onBack: () => void
   onRerun: (topic: string, profileKey: string | null) => void
 }): React.ReactElement {
@@ -1189,10 +1198,15 @@ function RunDetailBody({
     queryFn: () => api.pageFull(articlePath as string),
     enabled: articlePath !== null,
   })
-  const body = article.data ? frontmatter(article.data.markdown).body : ''
+  const raw = article.data ? frontmatter(article.data.markdown).body : ''
+  // The page's own first line is its title, which the heading above it already states: the
+  // third copy of the same words on one screen, and the one that scrolled.
+  const body = raw.replace(/^\s*#\s[^\n]*\n+/, '')
   // What the run FILED, which is not always what the deterministic title predicted - the
-  // agent names the page itself. State the real one; the prediction belongs in the composer.
+  // agent names the page itself. The heading shows the real one, without the prefix every
+  // synthesis page carries: the lens mark beside it says what kind of page this is.
   const filedTitle = articlePath !== null ? (articlePath.split('/').pop() ?? '').replace(/\.md$/, '') : null
+  const heading = (filedTitle ?? entry.topic).replace(new RegExp(`^${RESEARCH_PREFIX}`), '')
   return (
     <DetailShell
       kind="web"
@@ -1200,27 +1214,21 @@ function RunDetailBody({
       backLabel="All runs"
       onBack={onBack}
       title={entry.topic}
-      tag={profile !== undefined ? <span className="lens-tag">{profile.label}</span> : undefined}
+      heading={
+        <div className="art-head">
+          <span className="art-lens" title={profile?.label ?? 'lens'}>
+            <Icon name={lensIcon(entry.profileKey)} />
+          </span>
+          <h2 className="art-title" title={heading}>
+            {heading}
+          </h2>
+        </div>
+      }
       state={<span className={`badge ${entry.status === 'failed' ? 'failed' : 'ok'}`}>{entry.status}</span>}
       action={
         <button className="btn sm" onClick={() => onRerun(entry.topic, entry.profileKey)}>
           Run again
         </button>
-      }
-      facts={
-        <>
-          <Fact
-            k="Filed as"
-            v={<span className="mono-meta">{filedTitle ?? targetTitle(entry.topic, profile)}</span>}
-          />
-          <Fact k="When" v={timeAgo(entry.finishedAt)} />
-          <Fact k="Took" v={duration(entry.startedAt, entry.finishedAt)} />
-          <Fact
-            k="Cost"
-            v={entry.costUsd !== null ? <Cost value={entry.costUsd} authMode={authMode} /> : 'not kept'}
-          />
-          <Fact k="Pages written" v={entry.pages.length} />
-        </>
       }
       chipsKey="Wrote"
       chips={null}
@@ -1232,7 +1240,14 @@ function RunDetailBody({
             ? 'From the run record the service still holds in memory.'
             : 'From the run log - recorded when the run settled, and kept across restarts.'
       }
-      footAction={articlePath !== null ? <PageLink vaultName={vaultName} path={articlePath} plain /> : null}
+      footAction={
+        articlePath !== null ? (
+          <button className="btn sm" onClick={() => navigate(`/graph?focus=${encodeURIComponent(articlePath)}`)}>
+            <Icon name="graph" />
+            View in graph
+          </button>
+        ) : null
+      }
     >
       {entry.error !== null && <div className="toast err">{entry.error}</div>}
       {articlePath === null ? (

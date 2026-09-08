@@ -7705,13 +7705,13 @@ tr:focus-within .rowacts {
 }
 .rtable th.c-wrote,
 .rtable td.wrotec {
-  width: 272px;
+  width: 92px;
 }
 .rtable th.c-cost {
-  width: 70px;
+  width: 84px;
 }
 .rtable th.c-when {
-  width: 78px;
+  width: 96px;
 }
 /* Every count, and nothing taken from the topic: the three figure columns gave up the width
    they never used, and a run that wrote three or four kinds takes a second line rather than an
@@ -7719,9 +7719,8 @@ tr:focus-within .rowacts {
 .rtable td.wrotec {
   font-family: var(--mono);
   font-size: 11.5px;
-  line-height: 1.35;
   color: var(--text-faint);
-  white-space: normal;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 /* The lens mark in a row: faint, and in a lane, so four lenses still line their topics up. */
@@ -7873,7 +7872,7 @@ tr:focus-within .rowacts {
 
 /* The Took column: live for the run in flight, a duration for the rest. */
 .rtable th.c-took {
-  width: 58px;
+  width: 76px;
 }
 .rtable td.tookc {
   font-family: var(--mono);
@@ -8158,6 +8157,62 @@ tr:focus-within .rowacts {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
+}
+
+/*
+ * The opened run is one scrolling box (2026-09-08). The bar sticks to the top of it; the
+ * heading, the pages it wrote, the article and the foot scroll as one.
+ */
+.detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+}
+.detail-scroll > .detail-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.detail-scroll > .detail-content {
+  flex: none;
+  min-height: 0;
+  overflow: visible;
+}
+.detail-scroll > .detail-foot {
+  margin-top: auto;
+}
+/* The title, once: large as the article's own heading was, the lens mark before it, and room
+   for two lines so a long question is never cut. */
+.art-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 18px 6px;
+}
+.art-lens {
+  flex: none;
+  display: inline-flex;
+  margin-top: 4px;
+  color: var(--text-dim);
+}
+.art-lens svg {
+  width: 18px;
+  height: 18px;
+}
+.art-title {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* The headline carries the room navigation now, in both modes. */
