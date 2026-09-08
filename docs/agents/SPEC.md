@@ -119,6 +119,15 @@ contained - bubblewrap, no network, no `$HOME`, the input file and one output di
 commits share one `commitMutex`. Consequence: **at most one Fellow works at a time**, and
 Fellows are executed sequentially inside the night shift.
 
+The mutex is FIFO, so a second run waits rather than being refused - and a run RECORD is
+created the moment the run is requested, before the mutex admits it. That record used to say
+`running` from birth, which made every screen draw a queued Fellow as a working one: two
+Fellows at their shelves meant one Fellow and one queue. A run now carries `waiting` (as built,
+2026-09-08), true until the mutex admits it, false again once it settles. `status` is unchanged
+and still answers "has it settled", which is what every poll asks; `waiting` answers "is it
+actually working", which nothing could ask before. The Library seats a waiting Fellow instead
+of posing it at a shelf, and its card says what it is queued behind.
+
 **Existing research mechanics that Fellows reuse unchanged.** `startResearch(topic,
 profileKey)`: lens profiles are a closed set (`broad`, `sota`, `patents`, `startups`), the
 service pins the synthesis title per lens, overlap steering injects the pages the vault
@@ -343,6 +352,16 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
   an overlap coefficient of at least 0.6 across Fellows lose to the earlier Fellow in shift
   order (approved ones never lose) and are superseded with a note; a topic within 0.7 of an
   existing synthesis page title is noted, not dropped.
+- **Dedupe again, before each run** (as built, 2026-09-08, `coveredTonight`). The pass above
+  reads the proposals as they stand when the shift starts and nothing after - but phase 2's
+  planning runs CREATE proposals that phase 3 then executes, a proposal can be approved during
+  the night, and a step can be started by hand from the card. None of those ever met it, so two
+  Fellows could spend a full run each on the same subject an hour apart, the first one's pages
+  already in the vault when the second started. Every start now also checks the topics that
+  have already RUN tonight, same threshold, cross-Fellow only. One difference to the pass
+  before it: there the twin has merely been proposed, here it has run, so an **approved**
+  proposal is *held* rather than superseded - the run is not spent, the user's decision keeps
+  its place, and the reason stands in the shift record and the recap.
 - **Notebooks are private.** Handoffs live in the `handoffs` table, never in another
   Fellow's page.
 

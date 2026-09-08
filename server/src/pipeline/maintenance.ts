@@ -270,6 +270,17 @@ export interface MaintenanceRun {
   readonly channel: string
   readonly status: MaintenanceRunStatus
   /**
+   * True while the run is queued behind {@link runMutex} rather than executing.
+   *
+   * `status` answers "has it settled", which is what every poll and every "is it still going"
+   * check needs, and a queued run has NOT settled - so it stays `running` and those checks stay
+   * right. This answers the other question, "is it actually working", which nothing could ask
+   * before: one runner executes one run at a time, but a record is created the moment a run is
+   * requested, so the screens drew every waiting Fellow as a working one. Two Fellows at their
+   * shelves meant one Fellow and one queue.
+   */
+  readonly waiting?: boolean
+  /**
    * What this run is ABOUT, for surfaces outside the screen that started it (Home's
    * in-flight list, the sidebar badge, the inbox). Only kinds whose subject is not implied
    * by the kind itself set it: a research run's topic, a cleanup's page list. Without it
@@ -1058,6 +1069,8 @@ export class MaintenanceRunner {
       kind,
       channel: maintenanceChannel(kind),
       status: 'running',
+      // Until the mutex admits it. `run()` clears this the moment it actually starts.
+      waiting: true,
       ...(opts.label !== undefined ? { label: opts.label } : {}),
       ...(opts.profileKey !== undefined ? { profileKey: opts.profileKey } : {}),
       ...(opts.agentId !== undefined ? { agentId: opts.agentId } : {}),
@@ -1115,7 +1128,9 @@ export class MaintenanceRunner {
   private settle(id: string, status: MaintenanceRunStatus, patch: { result?: MaintenanceResult; error?: string }): void {
     const prev = this.runs.get(id)
     if (!prev) return
-    const settled: MaintenanceRun = { ...prev, status, finishedAt: this.now().toISOString(), ...patch }
+    // A run that never reached the mutex (it failed before, or was rejected) is not waiting
+    // any more either; nothing settled is.
+    const settled: MaintenanceRun = { ...prev, status, waiting: false, finishedAt: this.now().toISOString(), ...patch }
     this.runs.set(id, settled)
     // Persist the per-kind outcome (SPEC.md §12.7 Stufe b). A store failure must never
     // corrupt the settle itself — the in-memory record above stays the runtime truth.
@@ -1194,6 +1209,9 @@ export class MaintenanceRunner {
     runId = '',
   ): Promise<MaintenanceResult> {
     return this.runMutex.runExclusive(async () => {
+      // Admitted: from here the run is the one holding the runner, not one of the queue.
+      const queued = runId === '' ? undefined : this.runs.get(runId)
+      if (queued !== undefined) this.runs.set(runId, { ...queued, waiting: false })
       const channel = maintenanceChannel(kind)
       // Stamped inside the mutex, i.e. when this run actually starts writing - the artifact
       // check below asks "did THIS run produce it", not "does some old one exist".

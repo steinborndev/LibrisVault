@@ -62,7 +62,7 @@ export interface SceneFellow {
   readonly sleepCode: string | null
   readonly sleepReason: string | null
   readonly skipUntil: string | null
-  readonly run: { readonly id: string; readonly kind: string; readonly channel: string; readonly label: string | null; readonly startedAt: string } | null
+  readonly run: { readonly id: string; readonly kind: string; readonly channel: string; readonly label: string | null; readonly startedAt: string; readonly waiting: boolean } | null
   readonly next: { readonly topic: string; readonly kind: string; readonly estCostUsd: number | null; readonly status: string } | null
   readonly lastActive: string | null
 }
@@ -73,6 +73,8 @@ export interface SceneRun {
   readonly channel: string
   readonly label: string | null
   readonly startedAt: string
+  /** Queued behind the runner rather than executing: the figure waits instead of working. */
+  readonly waiting: boolean
 }
 
 export interface SceneJob {
@@ -196,7 +198,7 @@ export class LibraryService {
     const runs = this.o
       .runs()
       .filter((r) => r.status === 'running')
-      .map((r): SceneRun => ({ id: r.id, kind: r.kind, channel: r.channel, label: r.label ?? null, startedAt: r.startedAt }))
+      .map((r): SceneRun => ({ id: r.id, kind: r.kind, channel: r.channel, label: r.label ?? null, startedAt: r.startedAt, waiting: r.waiting === true }))
     const fellows = this.o.fellows().map((s): SceneFellow => ({
       agentId: s.agent.id,
       name: s.agent.name,
@@ -206,7 +208,7 @@ export class LibraryService {
       sleepCode: s.agent.sleepCode,
       sleepReason: s.agent.sleepReason,
       skipUntil: s.agent.skipUntil,
-      run: s.currentRun ? { id: s.currentRun.id, kind: s.currentRun.kind, channel: s.currentRun.channel, label: s.currentRun.label ?? null, startedAt: s.currentRun.startedAt } : null,
+      run: s.currentRun ? { id: s.currentRun.id, kind: s.currentRun.kind, channel: s.currentRun.channel, label: s.currentRun.label ?? null, startedAt: s.currentRun.startedAt, waiting: s.currentRun.waiting === true } : null,
       next: s.next ? { topic: s.next.topic, kind: s.next.kind, estCostUsd: s.next.estCostUsd, status: s.next.status } : null,
       lastActive: s.lastRun?.finishedAt ?? null,
     }))

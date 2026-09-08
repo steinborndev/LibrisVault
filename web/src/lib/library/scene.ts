@@ -257,6 +257,16 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
   const color = fellowColor(f.agentId)
   const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId }
   if (f.run) {
+    /*
+     * A run exists from the moment it is requested, but one runner executes one run at a
+     * time - so a Fellow whose run is still queued was drawn reading and writing at its
+     * shelf while another Fellow held the runner. It waits, and now it looks like it: the
+     * chair, not the shelf, and no pose read off a log that has no lines yet.
+     */
+    if (f.run.waiting) {
+      const seat = ANCHORS.armchairs[index % ANCHORS.armchairs.length]!
+      return { ...base, caption: caption(f.name, 'waiting'), pose: 'wait', room: 'main', i: seat.i, j: seat.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
+    }
     const family = steadyFamily(input.lines(f.run.channel), input.now)
     const planning = f.run.kind === 'plan'
     const pose: Pose = planning ? 'think' : poseForFamily(family)

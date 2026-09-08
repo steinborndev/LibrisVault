@@ -469,7 +469,19 @@ describe('recap service end to end', () => {
     // The next night runs what was answered.
     h.clock.now = at(9, 1, 30)
     const night3 = await h.shift.run('timer')
-    expect(night3.summary.executed.map((e) => e.proposalId).sort()).toEqual([adaR.proposals[1]!.proposalId, boR.proposals[1]!.proposalId].sort())
+    /*
+     * Both answers stand, but only one run is spent on them: the harness gives every Fellow
+     * the same planner answer, so Ada's 1b and Bo's 2b are the SAME topic, and the second
+     * dedupe (`coveredTonight`) sees the first one finish before the second starts.
+     *
+     * Bo's is the one the user picked, so it is HELD rather than superseded - still approved,
+     * still first in line, with the reason on the record. That is the whole point of the
+     * distinction: an already-covered topic costs no run tonight, and a decision the user made
+     * is not thrown away to achieve it.
+     */
+    expect(night3.summary.executed.map((e) => e.proposalId)).toEqual([adaR.proposals[1]!.proposalId])
+    expect(h.service.getProposal(boR.proposals[1]!.proposalId)!.status).toBe('approved')
+    expect(night3.summary.skipped.find((s) => s.agentName === 'Bo')!.reason).toContain('keeps its place')
   })
 
   it('skip, pause, resume, note, model, step and topic answers; the Telegram text path', async () => {

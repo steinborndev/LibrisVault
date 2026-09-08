@@ -91,6 +91,49 @@ describe('MaintenanceRunner state persistence', () => {
       stateStore: store,
     })
 
+  /*
+   * One runner executes one run at a time, but a run RECORD exists from the moment the run is
+   * requested - and it was created saying `running`, so every screen drew a Fellow queued
+   * behind another as one hard at work. Two Fellows at their shelves meant one Fellow and one
+   * queue. `status` still says `running` throughout, because it answers "has it settled" and a
+   * queued run has not; `waiting` answers the other question.
+   */
+  it('a run queued behind another says so, and stops saying so when it starts', async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started = 0
+    const runner = new MaintenanceRunner({
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex: new Mutex(),
+      runAgent: async () => {
+        started++
+        await held
+        return okResult('done')
+      },
+      commit: async () => ({ committed: true, hash: 'abc12345', committedPages: [] }),
+    })
+
+    const first = runner.startHotCache()
+    const second = runner.startLint()
+    // Both records exist at once; only one of them is working.
+    await new Promise((r) => setTimeout(r, 20))
+    expect(started).toBe(1)
+    expect(runner.getRun(first.id)).toMatchObject({ status: 'running', waiting: false })
+    expect(runner.getRun(second.id)).toMatchObject({ status: 'running', waiting: true })
+
+    release()
+    await waitSettled(runner, first.id)
+    await waitSettled(runner, second.id)
+    // Both ran, and nothing settled is left waiting.
+    expect(started).toBe(2)
+    expect(runner.getRun(first.id)?.waiting).toBe(false)
+    expect(runner.getRun(second.id)?.waiting).toBe(false)
+  })
+
   it('records a successful settle with its committed page count', async () => {
     const store = new MemoryMaintenanceStateStore()
     const runner = makeRunner(store, true)

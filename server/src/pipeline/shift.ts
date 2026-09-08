@@ -60,6 +60,38 @@ export function topicOverlap(a: string, b: string): number {
   return Math.round((shared / Math.min(ta.size, tb.size)) * 100) / 100
 }
 
+/** A run that already happened tonight, as {@link coveredTonight} needs to see it. */
+export interface CoveringRun {
+  readonly agentId: string
+  readonly agentName: string
+  readonly topic: string
+  readonly ok: boolean
+}
+
+/**
+ * Whether a topic about to run has already been covered by another Fellow's run TONIGHT.
+ *
+ * The pass before the shift (section 6.6) reads the proposals as they stand when it starts and
+ * nothing after: a proposal approved during the night, one a planning run adds in phase 2 for
+ * phase 3 to execute, a step started by hand from the card. None of them meet it, so a Fellow
+ * could spend a full run on a subject another Fellow finished an hour earlier with the pages
+ * already in the vault.
+ *
+ * Cross-Fellow only, like the pass before it: a Fellow's own list is its own beat, and that
+ * rule is already settled. `hold` is what is new here - the twin has not merely been PROPOSED,
+ * it has RUN, and an approved proposal is the user's own decision. So an approved topic is held
+ * for another night rather than superseded: the run is not spent, the decision still stands.
+ */
+export function coveredTonight(
+  proposal: { readonly topic: string; readonly status: string },
+  agentId: string,
+  executed: readonly CoveringRun[],
+): { readonly run: CoveringRun; readonly score: number; readonly hold: boolean } | null {
+  const run = executed.find((e) => e.ok && e.agentId !== agentId && topicOverlap(e.topic, proposal.topic) >= DEDUPE_THRESHOLD)
+  if (run === undefined) return null
+  return { run, score: topicOverlap(run.topic, proposal.topic), hold: proposal.status === 'approved' }
+}
+
 /** Safety bound on execution rounds per shift (round-robin, section 8.5). */
 const MAX_ROUNDS = 12
 
@@ -243,6 +275,23 @@ export class NightShift {
       }
       if (!roomFor(agent, proposal.kind)) {
         skip(agent, `the window has no room left for a ${proposal.kind}`)
+        return false
+      }
+      // Dedupe again, against what has already RUN tonight (see `coveredTonight`).
+      const covered = coveredTonight(proposal, agent.id, executed)
+      if (covered !== null) {
+        const { run: done, score, hold } = covered
+        if (hold) {
+          skip(agent, `"${done.topic}" ran tonight and covers this (overlap ${score}); the approved topic keeps its place`)
+          return false
+        }
+        this.fellows.supersedeProposal(proposal.id, `covered by ${done.agentName}'s run "${done.topic}" tonight (overlap ${score})`)
+        dedupe = {
+          ...dedupe,
+          merged: [...dedupe.merged, { keptAgentName: done.agentName, keptTopic: done.topic, droppedAgentName: agent.name, droppedTopic: proposal.topic, score }],
+        }
+        this.log('info', `shift: ${agent.name}'s "${proposal.topic}" is covered by ${done.agentName}'s run tonight (overlap ${score})`)
+        this.shifts.put(record(null))
         return false
       }
       const outcome = this.fellows.execute(proposal.id)

@@ -534,6 +534,12 @@ export interface MaintenanceRun {
   /** SSE channel carrying the live log, e.g. `maintenance:lint`. */
   channel: string
   status: MaintenanceRunStatus
+  /**
+   * Queued behind the single runner rather than executing. `status` still says `running`
+   * because it has not settled, which is what every poll asks; this says whether it is
+   * actually working.
+   */
+  waiting?: boolean
   /** What the run is about, when the kind alone does not say it (a research topic). */
   label?: string
   /** Research runs: the lens key the run was started under. */
@@ -815,7 +821,7 @@ export interface SceneFellow {
   sleepCode: string | null
   sleepReason: string | null
   skipUntil: string | null
-  run: { id: string; kind: string; channel: string; label: string | null; startedAt: string } | null
+  run: { id: string; kind: string; channel: string; label: string | null; startedAt: string; waiting: boolean } | null
   next: { topic: string; kind: string; estCostUsd: number | null; status: string } | null
   lastActive: string | null
 }
@@ -826,6 +832,8 @@ export interface SceneRun {
   channel: string
   label: string | null
   startedAt: string
+  /** Queued behind the runner rather than executing - one run works at a time. */
+  waiting: boolean
 }
 
 export interface SceneJob {

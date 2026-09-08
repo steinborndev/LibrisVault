@@ -18,7 +18,7 @@ import { SqliteProposalStore, type ProposalRecord } from '../src/db/proposals.js
 import { SqliteShiftStore } from '../src/db/shifts.js'
 import { NotebookWriter } from '../src/pipeline/notebook.js'
 import { taskForTonight, FellowService, type GateBlock } from '../src/pipeline/fellows.js'
-import { NightShift } from '../src/pipeline/shift.js'
+import { NightShift, topicOverlap, coveredTonight } from '../src/pipeline/shift.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { EventBus } from '../src/pipeline/events.js'
 import { Mutex } from '../src/util/mutex.js'
@@ -242,6 +242,41 @@ describe('plan points through the whole path (A5)', () => {
   })
 })
 
+describe('coveredTonight: the second dedupe, against what already ran', () => {
+  const ran = (over: Partial<{ agentId: string; agentName: string; topic: string; ok: boolean }> = {}) => ({
+    agentId: 'A',
+    agentName: 'Cy',
+    topic: 'Limb darkening models in transit photometry of exoplanet atmospheres',
+    ok: true,
+    ...over,
+  })
+  const near = 'Limb darkening models in the transit photometry of exoplanet atmospheres'
+
+  it('supersedes an undecided topic another Fellow already ran tonight', () => {
+    const hit = coveredTonight({ topic: near, status: 'proposed' }, 'B', [ran()])
+    expect(hit).not.toBeNull()
+    expect(hit!.hold).toBe(false)
+    expect(hit!.run.agentName).toBe('Cy')
+    expect(hit!.score).toBeGreaterThanOrEqual(topicOverlap(ran().topic, near))
+  })
+
+  it('HOLDS an approved one instead: the run is not spent, the decision still stands', () => {
+    const hit = coveredTonight({ topic: near, status: 'approved' }, 'B', [ran()])
+    expect(hit).not.toBeNull()
+    expect(hit!.hold).toBe(true)
+  })
+
+  it('leaves a Fellow its own beat, and ignores a run that failed or a topic that differs', () => {
+    // Same Fellow: the pre-shift rule already decided that its own list is its own business.
+    expect(coveredTonight({ topic: near, status: 'proposed' }, 'A', [ran()])).toBeNull()
+    // A failed run covered nothing.
+    expect(coveredTonight({ topic: near, status: 'proposed' }, 'B', [ran({ ok: false })])).toBeNull()
+    // A different subject is a different subject.
+    expect(coveredTonight({ topic: 'Sourdough starter hydration ratios', status: 'proposed' }, 'B', [ran()])).toBeNull()
+    expect(coveredTonight({ topic: near, status: 'proposed' }, 'B', [])).toBeNull()
+  })
+})
+
 describe('planning, proposals and the night shift', () => {
   let h: Harness
   beforeEach(() => {
@@ -408,6 +443,25 @@ describe('planning, proposals and the night shift', () => {
     const night3 = await h.shift.run('timer')
     expect(night3.summary.executed).toEqual([])
     expect(pending(bo.id).every((p) => p.status === 'proposed')).toBe(true)
+  })
+
+  /*
+   * The gap the pre-shift dedupe cannot see. It reads the proposals as they stand at 01:00;
+   * phase 2's planning runs then CREATE proposals, and phase 3 executes them - so two auto
+   * Fellows that plan the same topic tonight both spend a run on it, an hour apart, with the
+   * first one's pages already in the vault when the second starts.
+   */
+  it('a topic another Fellow already ran tonight does not run twice', async () => {
+    await spawn({ name: 'Cy', autonomy: 'auto' })
+    const di = await spawn({ name: 'Di', autonomy: 'auto' })
+    const night = await h.shift.run('timer')
+
+    // One run, not two, over the same topic - and the second Fellow's copy says who covered it.
+    expect(night.summary.executed).toHaveLength(1)
+    expect(night.summary.executed[0]).toMatchObject({ agentName: 'Cy' })
+    expect(night.summary.merged).toMatchObject([{ keptAgentName: 'Cy', droppedAgentName: 'Di' }])
+    const dropped = h.service.pendingProposals(di.id)
+    expect(dropped.every((p) => p.topic !== night.summary.executed[0]!.topic)).toBe(true)
   })
 
   it('a drift proposal never runs undecided in veto mode, is dropped in auto mode, and runs when approved', async () => {

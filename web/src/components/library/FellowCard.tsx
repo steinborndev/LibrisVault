@@ -145,7 +145,15 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
             {c.currentRun && c.currentRun.status === 'running' && (
               <section className="gx-sec">
                 <h3>Now</h3>
-                <LiveRun channel={c.currentRun.channel} label={c.currentRun.label ?? null} kind={c.currentRun.kind} />
+                {/* A queued run has no log to stream yet: say what it is waiting for instead
+                    of an empty live panel that reads as a run producing nothing. */}
+                {c.currentRun.waiting === true ? (
+                  <p className="dim">
+                    Waiting for the runner{c.currentRun.label ? `: "${c.currentRun.label}"` : ''} · one run works at a time
+                  </p>
+                ) : (
+                  <LiveRun channel={c.currentRun.channel} label={c.currentRun.label ?? null} kind={c.currentRun.kind} />
+                )}
               </section>
             )}
             <section className="gx-sec">
