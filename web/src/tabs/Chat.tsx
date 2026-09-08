@@ -261,7 +261,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     // `scrollHeight: 0`. Writing that back pinned the field to `height: 0px`, where it stayed
     // until the first keystroke, because `draft` never changed in between. Reloading straight
     // onto /research measured a laid-out element and looked fine, which is why it read as "too
-    // small until you reload". With no inline height the `rows={1}` height stands, which is
+    // small until you reload". With no inline height the `rows={2}` height stands, which is
     // exactly the height this would have computed anyway.
     if (ta.offsetParent === null) return
     ta.style.height = 'auto'
@@ -570,7 +570,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                   ? 'Name a topic - the run reads the web and files one synthesis page…'
                   : 'Ask the vault… (Enter to send, Shift+Enter for a new line)'
               }
-              rows={1}
+              rows={2}
             />
             <button className="btn-run" disabled={draft.trim() === '' || busy} onClick={send}>
               {sendLabel}
@@ -604,13 +604,13 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                   </span>
                   <span className="pl-fact">
                     <span className="pl-key">Budget</span>
-                    <span className="pl-val">
+                    <span className="pl-val pl-fig">
                       up to <b>{selectedProfile.fetchEstimate}</b> fetches
                     </span>
                   </span>
                   <span className="pl-fact">
                     <span className="pl-key">Commits</span>
-                    <span className="pl-val">
+                    <span className="pl-val pl-fig">
                       <b>1</b>
                     </span>
                   </span>
@@ -635,13 +635,13 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 </span>
                 <span className="pl-fact">
                   <span className="pl-key">Fetches</span>
-                  <span className="pl-val">
+                  <span className="pl-val pl-fig">
                     <b>0</b>
                   </span>
                 </span>
                 <span className="pl-fact">
                   <span className="pl-key">Commits</span>
-                  <span className="pl-val">
+                  <span className="pl-val pl-fig">
                     <b>0</b>
                   </span>
                 </span>
@@ -1242,10 +1242,19 @@ function RunDetailBody({
       }
       footAction={
         articlePath !== null ? (
-          <button className="btn sm" onClick={() => navigate(`/graph?focus=${encodeURIComponent(articlePath)}`)}>
-            <Icon name="graph" />
-            View in graph
-          </button>
+          <>
+            {/* Both land on the page. The graph is asked to drop every filter first, so the
+                page is seen among everything rather than inside the last visit's narrowing;
+                the catalog lists everything and scrolls to the row. */}
+            <button className="btn sm" onClick={() => navigate(`/graph?focus=${encodeURIComponent(articlePath)}&all=1`)}>
+              <Icon name="graph" />
+              View in graph
+            </button>
+            <button className="btn sm" onClick={() => navigate(`/catalog?focus=${encodeURIComponent(articlePath)}`)}>
+              <Icon name="book" />
+              View in catalog
+            </button>
+          </>
         ) : null
       }
     >

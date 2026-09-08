@@ -8215,6 +8215,70 @@ tr:focus-within .rowacts {
   overflow: hidden;
 }
 
+/*
+ * The composer's two lines of facts (2026-09-08): a line of room, and the list's own type
+ * rule. They were squeezed into 58px at three sizes - 12, 11.5, and 11.5 mono in a box - and
+ * read as three different things. Now the keys are the eyebrows every section head wears,
+ * names and sentences are the sans at 12.5, and figures and the filename are the mono at 12
+ * - which is how the run list below sets a topic against its pages, time and cost. The
+ * filename loses its box: a fill was the one thing on the line that looked like a control.
+ */
+.workspace.research .planline {
+  height: auto;
+  gap: 9px;
+  padding: 11px 13px 14px 16px;
+}
+.workspace.research .pl-row {
+  flex: none;
+  line-height: 18px;
+}
+.workspace.research .pl-fact,
+.workspace.research .pl-val,
+.workspace.research .pl-blurb {
+  font-size: 12.5px;
+}
+.workspace.research .pl-val.pl-page,
+.workspace.research .pl-val.pl-fig {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.workspace.research .pl-val.pl-page {
+  background: none;
+  border-color: transparent;
+  padding: 2px 0;
+}
+.workspace.research .pl-val.pl-fig b {
+  font-weight: 500;
+}
+.workspace.research .console-main {
+  padding-top: 13px;
+}
+
+/*
+ * Walking the list with the arrows marks a row the way the Library marks a department in its
+ * list: the soft fill, the accent on the name. The browser's focus ring drew a hard line
+ * across the row instead, which read as a border between two rows rather than as a mark on
+ * one.
+ */
+.workspace.research .rtable tbody tr:focus-visible {
+  outline: none;
+}
+.workspace.research .rtable tbody tr:focus-visible td {
+  background: var(--accent-soft);
+}
+.workspace.research .rtable tbody tr:focus-visible .nm {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* The catalog marks the row a run's "View in catalog" landed on the same way. */
+.dtable tbody tr[aria-selected='true'] td {
+  background: var(--accent-soft);
+}
+.dtable tbody tr[aria-selected='true'] .lt-name {
+  color: var(--accent);
+}
+
 /* The headline carries the room navigation now, in both modes. */
 /*
  * The headline of section 10.7: three zones that never trade places, and one height for

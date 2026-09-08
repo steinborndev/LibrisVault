@@ -94,6 +94,10 @@ export function Vault({ path, active = true }: { path: string; active?: boolean 
   // `?labels=off`: screenshot mode - the canvas draws structure and colors but no text, so
   // a capture of a real vault can be shared without leaking page titles.
   const hideLabels = params.get('labels') === 'off'
+  // `?all=1`: arrive from a run's "View in graph" with every filter cleared and the whole
+  // graph drawn, so the page is seen in the context of everything rather than of whatever
+  // the last visit had narrowed the view to.
+  const clearFilters = params.get('all') === '1'
 
   const state = queryState(graphQ, 'the graph')
   if (state !== null) return state
@@ -111,7 +115,7 @@ export function Vault({ path, active = true }: { path: string; active?: boolean 
   }
 
   if (page !== null) return <PageView graph={graphQ.data} path={page} />
-  return <GraphView graph={graphQ.data} focusPath={focus} openGaps={openGaps} hideLabels={hideLabels} domainParam={domainParam} active={active} />
+  return <GraphView graph={graphQ.data} focusPath={focus} openGaps={openGaps} hideLabels={hideLabels} domainParam={domainParam} clearFilters={clearFilters} active={active} />
 }
 
 // ---------------------------------------------------------------------------- graph view
@@ -353,6 +357,7 @@ function GraphView({
   openGaps,
   hideLabels = false,
   domainParam = null,
+  clearFilters = false,
   active = true,
 }: {
   graph: VaultGraph
@@ -362,6 +367,8 @@ function GraphView({
   hideLabels?: boolean
   /** `?domain=<key>` - a shelf click in the Library selects that domain once (TASKS-A4 D10). */
   domainParam?: string | null
+  /** A one-shot command like `?gaps=1`: drop every filter, show the whole graph. */
+  clearFilters?: boolean
   /** Whether this screen is the one on show; false while another tab has the viewport. */
   active?: boolean
 }): React.ReactElement {
@@ -457,6 +464,21 @@ function GraphView({
    * a second click from Home would pass the identical path string, this effect would not
    * re-run, and the toggle would stay wherever the user last left it.
    */
+  /*
+   * `?all=1` is consumed the same way: the filters a visit left behind are dropped, the depth
+   * goes to the whole graph, and the param is taken off the URL so a second click can fire it
+   * again. Drawing preferences - lens, clusters, system pages - are not filters and stay.
+   */
+  useEffect(() => {
+    if (!clearFilters) return
+    setSelectedDomains(new Set())
+    setSelectedTypes(new Set())
+    setClusterStack([])
+    setInput('')
+    setLocalDepth(0)
+    navigate(focusPath === null ? '/graph' : `/graph?focus=${encodeURIComponent(focusPath)}`, { replace: true })
+  }, [clearFilters, focusPath])
+
   useEffect(() => {
     if (!openGaps) return
     setShowGaps(true)
