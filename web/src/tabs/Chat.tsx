@@ -42,12 +42,15 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { CitationChip } from '../components/CitationChip.tsx'
 import { JobLog } from '../components/JobLog.tsx'
-import { AskSteps, ResearchSteps } from '../components/AgentSteps.tsx'
+import { AskSteps } from '../components/AgentSteps.tsx'
 import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { QueueState } from '../components/ActivityRows.tsx'
 import { Icon, type IconName } from '../components/Icon.tsx'
 import { planCorner } from '../lib/library/planCorner.ts'
+import { RunActivity } from '../components/RunActivity.tsx'
+import { useJobLog } from '../hooks/useJobLog.ts'
+import { deriveResearchProgress, EMPTY_PROGRESS } from '../lib/researchProgress.ts'
 import { groupPages, countLine } from '../lib/wrotePages.ts'
 import { queryState, merge } from '../components/QueryState.tsx'
 import { navigate } from '../lib/router.ts'
@@ -73,6 +76,31 @@ type ComposerMode = 'research' | 'ask'
  * back, and Escape leaves it like every other opened thing.
  */
 type View = { kind: 'start' } | { kind: 'run'; id: string } | { kind: 'thread'; id: string | null } | { kind: 'gaps' }
+
+/**
+ * `m:ss` for the Took column. The run in flight counts from its start to now; a settled run
+ * from its start to its end; a run whose start was never recorded (pre-v12 history) shows a
+ * dash rather than a made-up zero.
+ */
+function took(e: ResearchRunEntry, now: number): string {
+  if (e.startedAt === null) return '-'
+  const end = e.status === 'running' ? now : e.finishedAt !== null ? Date.parse(e.finishedAt) : null
+  if (end === null) return '-'
+  const total = Math.max(0, Math.floor((end - Date.parse(e.startedAt)) / 1000))
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/** The current time, re-read once a second while `active` - so a live duration can tick. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [active])
+  return now
+}
 
 /** How many gaps the research backlog offers at once. */
 const BACKLOG_SIZE = 40
@@ -198,10 +226,15 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   const topicRef = useRef('')
   const profileKeyRef = useRef('broad')
   const [lastTopic, setLastTopic] = useState('')
-  const [runProfileKey, setRunProfileKey] = useState('broad')
-  const [runStartedAt, setRunStartedAt] = useState<string | null>(null)
   const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current))
-  const runProfile = profiles.find((p) => p.key === runProfileKey)
+  const liveRunning = research.running || liveEntry !== undefined
+  /*
+   * The run's own log, read once here and handed to both the activity box and the list. The
+   * list's Wrote cell counts the pages the run has written so far off the same lines, so the
+   * two can never disagree about what the run has done.
+   */
+  const researchLines = useJobLog('maintenance:research', { seed: false })
+  const progress = liveRunning && researchLines.length > 0 ? deriveResearchProgress(researchLines) : EMPTY_PROGRESS
 
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** The thread is its own scroll container, so following it means scrolling THIS. */
@@ -267,8 +300,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     topicRef.current = text
     profileKeyRef.current = profileKey
     setLastTopic(text)
-    setRunProfileKey(profileKey)
-    setRunStartedAt(new Date().toISOString())
     setDraft('')
     setView({ kind: 'start' })
     // Per result: closing one outcome must never hide the next one.
@@ -297,6 +328,19 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
         setView({ kind: 'start' })
       } else if (e.key === 'Escape') {
         setView((v) => (v.kind === 'start' ? v : { kind: 'start' }))
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        /*
+         * Up and down walk the rows of whichever list is open. The rows are already the
+         * focusable, Enter-openable things (lib/tableRow.ts), so this only moves focus between
+         * them - no cursor state of its own, and Enter keeps meaning what it already meant. It
+         * wraps at both ends, like the Library's shelves.
+         */
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.rmain .rtable tr[tabindex="0"]'))
+        if (rows.length === 0) return
+        e.preventDefault()
+        const at = rows.indexOf(document.activeElement as HTMLElement)
+        const next = at === -1 ? (e.key === 'ArrowDown' ? 0 : rows.length - 1) : (at + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length
+        rows[next]!.focus()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -502,9 +546,11 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             on the same ground as the run table below them, and the tab had no visible place
             to start. The card is inset, lifted a step, and carries a rail in the mode's own
             colour - so which mode is armed is legible from the shape, not just the label. */}
-        <div className={`console${mode === 'ask' ? ' ask' : ''}`}>
-          <div className="console-head">
-            <div className="seg" role="radiogroup" aria-label="Mode">
+        {/* The headline (2026-09-08): the mode toggle on the left, what the mode may do on the
+            right - the three zones the Library keeps. The toggle used to sit in the console and
+            switch only the console; it switches the whole tab now, so it stands above it. */}
+        <div className="rhead">
+          <div className="seg" role="radiogroup" aria-label="Mode">
               <button
                 role="radio"
                 aria-checked={mode === 'research'}
@@ -522,7 +568,9 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 Vault Research
               </button>
             </div>
-            <span className="spacer" />
+            <span className="rhead-mid">
+              {mode === 'research' ? 'Reads the web, writes pages, one commit.' : 'Reads the vault only, cites every page, writes nothing.'}
+            </span>
             {/* What the armed mode is ALLOWED to do. The two modes differ in exactly these
                 two capabilities, and a run that can reach the web and write pages should not
                 announce itself in the same faint grey as a read-only query. */}
@@ -545,7 +593,8 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 </>
               )}
             </span>
-          </div>
+        </div>
+        <div className={`console${mode === 'ask' ? ' ask' : ''}`}>
           <div className="console-main">
             <textarea
               ref={composerRef}
@@ -643,13 +692,10 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
           {/* The rail is the console's FOOTER, not a sibling: it describes the run this
               console starts. Always here, in both modes - dimmed while nothing runs, lit as
               it happens, so a run starting never moves the screen. */}
-          {mode === 'research' ? (
-            <ResearchSteps
-              running={research.running || liveEntry !== undefined}
-              startedAt={runStartedAt ?? liveEntry?.startedAt ?? null}
-              profile={runProfile ?? selectedProfile}
-            />
-          ) : (
+          {/* The research strip moved into the activity box below (2026-09-08): it belongs
+              to the run in flight, not to the console that starts one. The ask strip stays -
+              a query has no box of its own. */}
+          {mode === 'ask' && (
             <AskSteps
               pending={ask.isPending}
               streamed={streamed}
@@ -658,6 +704,9 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             />
           )}
         </div>
+
+        {/* The agent's own section, above the list, while a run is in flight. */}
+        {mode === 'research' && liveRunning && <RunActivity topic={lastTopic !== '' ? lastTopic : (liveEntry?.topic ?? 'a research run')} />}
 
         {mode === 'research' && research.error !== null && (
           <div className="toast err runbanner">
@@ -706,6 +755,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             <StartView
               mode={mode}
               entries={entries}
+              livePaths={progress.pagePaths}
               totalRuns={entries.length}
               profiles={profiles}
               sessions={sessions}
@@ -824,6 +874,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
 function StartView({
   mode,
   entries,
+  livePaths,
   totalRuns,
   profiles,
   sessions,
@@ -842,6 +893,8 @@ function StartView({
    */
   mode: ComposerMode
   entries: ResearchRunEntry[]
+  /** The pages the run in flight has written so far, counted off its log. */
+  livePaths: readonly string[]
   /** Runs before the lens filter, so the count can say "6 of 13" rather than lying. */
   totalRuns: number
   profiles: ResearchProfile[]
@@ -857,6 +910,8 @@ function StartView({
 }): React.ReactElement {
   const lensLabel = (key: string | null): string =>
     key === null ? '-' : (profiles.find((p) => p.key === key)?.label ?? key)
+  const liveRow = entries.find((e) => e.status === 'running')
+  const now = useNow(liveRow !== undefined)
   return (
     <>
       {mode === 'research' && (
@@ -884,6 +939,7 @@ function StartView({
                   <tr>
                     <th>Topic</th>
                     <th className="c-wrote">Wrote</th>
+                    <th className="c-took">Took</th>
                     <th className="num c-cost">Cost</th>
                     <th className="c-when">When</th>
                   </tr>
@@ -910,10 +966,17 @@ function StartView({
                       {/* What it wrote, by kind. The width is declared for the run that wrote
                           all four, so a figure that moves while a run works cannot push the
                           columns beside it sideways. */}
-                      <td className="wrotec" title={countLine(e.pages)}>
-                        {e.pages.length > 0 ? countLine(e.pages) : e.status === 'running' ? 'nothing yet' : '-'}
+                      {/* Live while it runs: the pages come off the log, not the settle
+                          record, and the clock ticks. Cost stays a dash until it settles - a
+                          running total is not the final one, and a dash says "not known yet"
+                          where a 0 would lie. */}
+                      <td className="wrotec" title={countLine(e.status === 'running' ? livePaths : e.pages)}>
+                        {e.status === 'running'
+                          ? (livePaths.length > 0 ? countLine(livePaths) : 'nothing yet')
+                          : (e.pages.length > 0 ? countLine(e.pages) : '-')}
                       </td>
-                      <td className="num dimc">
+                      <td className={`tookc${e.status === 'running' ? ' pending' : ''}`}>{took(e, now)}</td>
+                      <td className={`num dimc${e.status === 'running' ? ' pending' : ''}`}>
                         {e.costUsd !== null ? <Cost value={e.costUsd} authMode={authMode} /> : '-'}
                       </td>
                       <td className="faintc">{e.status === 'running' ? 'running' : timeAgo(e.finishedAt)}</td>

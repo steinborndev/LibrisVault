@@ -47,7 +47,7 @@ const RESEARCH_SHORT: Record<string, string> = {
 }
 
 /** mm:ss since `startedAt`, ticking once a second while the run is live. */
-function useElapsed(startedAt: string | null): string {
+export function useElapsed(startedAt: string | null): string {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (startedAt === null) return

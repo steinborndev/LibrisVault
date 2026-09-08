@@ -51,6 +51,16 @@ describe('the Research screen answers the keys the Library taught', () => {
     expect(guard).toBeLessThan(firstKey)
   })
 
+  it('walks the list with up and down by moving focus, not by keeping a cursor', () => {
+    expect(handler).toContain("e.key === 'ArrowUp'")
+    expect(handler).toContain("e.key === 'ArrowDown'")
+    // The rows are already the focusable, Enter-openable things; the key only moves between
+    // them, so Enter keeps meaning what lib/tableRow.ts already made it mean.
+    expect(handler).toContain('tr[tabindex="0"]')
+    expect(handler).toContain('.focus()')
+    expect(handler).not.toContain('setCursor')
+  })
+
   it('unbinds the listener when the screen goes away', () => {
     const effect = chat.slice(chat.indexOf("const onKey = (e: KeyboardEvent)"))
     expect(effect).toContain("removeEventListener('keydown', onKey)")

@@ -7732,6 +7732,162 @@ tr:focus-within .rowacts {
   flex: none;
 }
 
+/*
+ * The Research tab's headline (2026-09-08): the mode toggle on the left, what the mode may
+ * do on the right, in the same three zones the Library's headline keeps. The toggle used to
+ * sit in the console's head and switch only the console; it switches the whole tab now, so
+ * it stands above the console rather than inside it.
+ */
+.rhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-h);
+  padding: 0 2px;
+  flex: none;
+}
+.rhead .rhead-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.rhead .seg {
+  height: 28px;
+}
+
+/*
+ * The agent's own box while a run is in flight: the topic, the last few log lines, and the
+ * five stages. It appears when a run starts and goes when it settles; the list under it is a
+ * list the whole time.
+ */
+.activity {
+  flex: none;
+}
+.activity .sub-head {
+  gap: 8px;
+}
+.act-topic {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actlog {
+  margin: 0;
+  padding: 10px 14px 8px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.actlog li {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.actlog li .t {
+  flex: none;
+  width: 54px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.actlog li span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actlog li.head {
+  color: var(--text);
+}
+/* Five segments, each labelled under its own length. Done is quiet, now is the run's colour,
+   todo is the border. */
+.stages {
+  display: flex;
+  gap: 3px;
+  padding: 2px 14px 12px;
+}
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.stage-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.stage.done .stage-bar {
+  background: var(--text-faint);
+}
+.stage.now .stage-bar {
+  background: var(--busy);
+}
+.stage-lbl {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stage.done .stage-lbl {
+  color: var(--text-dim);
+}
+.stage.now .stage-lbl {
+  color: var(--busy);
+  font-weight: 600;
+}
+
+/* The dot of a run in flight: the same slow breath in the activity box and in the run's row.
+   Slow on purpose - a fast blink reads as an alarm, and a run in progress is not one. */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.dot.live,
+.rtable .hrow-dot.running {
+  background: var(--busy);
+  animation: breathe 2.6s ease-in-out infinite;
+}
+.dot.live {
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  flex: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.live,
+  .rtable .hrow-dot.running {
+    animation: none;
+  }
+}
+
+/* The Took column: live for the run in flight, a duration for the rest. */
+.rtable th.c-took {
+  width: 72px;
+}
+.rtable td.tookc {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rtable td.pending {
+  color: var(--text-faint);
+}
+
 /* The headline carries the room navigation now, in both modes. */
 /*
  * The headline of section 10.7: three zones that never trade places, and one height for

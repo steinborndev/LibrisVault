@@ -53,6 +53,12 @@ export interface ResearchProgress {
   readonly sources: number
   /** Distinct wiki pages written or edited. */
   readonly pages: number
+  /**
+   * The same pages by path, in first-seen order. The count says how many; the paths say which
+   * KINDS, which is what the run list shows while the run works - "3 concepts · 1 source" is a
+   * different fact from "4". Counted from the same Write calls, never estimated.
+   */
+  readonly pagePaths: readonly string[]
   /** Tool calls issued, i.e. how much work the agent has actually done. */
   readonly turns: number
   /** One sentence for "what it is doing right now", or null before the first tool call. */
@@ -66,6 +72,7 @@ export const EMPTY_PROGRESS: ResearchProgress = {
   searches: 0,
   sources: 0,
   pages: 0,
+  pagePaths: [],
   turns: 0,
   now: null,
   committed: false,
@@ -175,5 +182,5 @@ export function deriveResearchProgress(lines: readonly JobLogLine[]): ResearchPr
     }
   }
 
-  return { step, searches, sources: sources.size, pages: pages.size, turns, now, committed }
+  return { step, searches, sources: sources.size, pages: pages.size, pagePaths: [...pages], turns, now, committed }
 }
