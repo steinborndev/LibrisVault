@@ -14,8 +14,16 @@ type Listener = () => void
 /** Hard cap per session so a runaway run cannot grow a tab's memory without bound. */
 const MAX_CHARS = 100_000
 
+/** What retrieval did for the answer in flight, as the server reported it. */
+export interface Retrieval {
+  readonly count: number
+  readonly strategy: string | null
+}
+
 class ChatStream {
   private readonly text = new Map<string, string>()
+  /** One per session, set before the first delta; cleared with the text. */
+  private readonly retrievals = new Map<string, Retrieval>()
   private readonly listeners = new Map<string, Set<Listener>>()
 
   append(sessionId: string, delta: string): void {
@@ -25,15 +33,26 @@ class ChatStream {
     this.notify(sessionId)
   }
 
+  markRetrieval(sessionId: string, retrieval: Retrieval): void {
+    this.retrievals.set(sessionId, retrieval)
+    this.notify(sessionId)
+  }
+
   /** Called when the real answer arrives (or the ask fails) - the preview has served its purpose. */
   clear(sessionId: string): void {
-    if (!this.text.has(sessionId)) return
+    if (!this.text.has(sessionId) && !this.retrievals.has(sessionId)) return
     this.text.delete(sessionId)
+    this.retrievals.delete(sessionId)
     this.notify(sessionId)
   }
 
   snapshot(sessionId: string): string {
     return this.text.get(sessionId) ?? ''
+  }
+
+  /** The same object until it changes, as `useSyncExternalStore` requires of a snapshot. */
+  retrieval(sessionId: string): Retrieval | null {
+    return this.retrievals.get(sessionId) ?? null
   }
 
   subscribe(sessionId: string, listener: Listener): () => void {

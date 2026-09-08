@@ -107,8 +107,15 @@ export function registerQueryRoute(app: FastifyInstance, ctx: AppContext): void 
         // Operational visibility for the service-side read path (SPEC.md §12.6): which retrieval
         // tier actually engaged (`bm25-only` vs `bm25+rerank:…`) and how many pages it pointed
         // the agent at. Logged, never returned — it says nothing the caller needs.
-        onRetrieval: ({ count, strategy }) =>
-          app.log.info(`[query] retrieval: ${count} page(s), strategy=${strategy ?? 'none'}`),
+        onRetrieval: ({ count, strategy }) => {
+          app.log.info(`[query] retrieval: ${count} page(s), strategy=${strategy ?? 'none'}`)
+          // The same fact for the client's activity box: the one marker of the phase before
+          // any answer text exists. Advisory like the deltas - the answer of record is below.
+          events.publish({
+            kind: 'chat',
+            chat: { sessionId: session.id, ...(requestId !== undefined ? { requestId } : {}), delta: '', retrieval: { count, strategy } },
+          })
+        },
         ...(session.sdk_session_id ? { resumeSessionId: session.sdk_session_id } : {}),
       })
     } finally {

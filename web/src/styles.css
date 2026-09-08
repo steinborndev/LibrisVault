@@ -5555,154 +5555,6 @@ tr:focus-within .rowacts {
   cursor: default;
 }
 
-/* ── The step rail: the console's footer ───────────────────────────────────────
-   ONE line on a FIXED grid of `--steps` equal columns - the longer of the two step lists,
-   so a five-phase run fills every column and a three-phase ask fills the first three and
-   aligns to them. Sharing the width between three marks instead put "Answer" nowhere near
-   the run's second step (2026-08-27).
-
-   The connector belongs to the step it leaves, which is what keeps each step inside exactly
-   one column. The note rides beside its label rather than under it; stacking the two cost
-   43px of a screen that has to hold a readable detail below it.
-
-   The idle caption is gone - it said what the marks beside it already said. The live line
-   keeps a fixed slot to the right, so a starting run fills it without moving a mark. ── */
-.rail {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 13px 9px 16px;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-}
-.rail-row {
-  display: grid;
-  grid-template-columns: repeat(var(--steps, 5), minmax(0, 1fr));
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-}
-.rail-step {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-.rail-link {
-  flex: 1 1 0;
-  min-width: 8px;
-  height: 2px;
-  margin: 0 9px 0 2px;
-  border-radius: 2px;
-  background: var(--border);
-}
-.rail-mark {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  background: var(--bg-elev-2);
-  color: var(--text-faint);
-  font-family: var(--mono);
-  font-size: 10px;
-}
-.rail-mark svg {
-  width: 11px;
-  height: 11px;
-}
-.rail-nm {
-  font-size: 11.5px;
-  line-height: 20px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rail-note {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 20px;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-.rail-step.done .rail-mark {
-  border-color: var(--ok);
-  background: var(--ok-bg);
-  color: var(--ok);
-}
-.rail-step.done .rail-nm {
-  color: var(--text-dim);
-}
-.rail-step.done .rail-link {
-  background: var(--ok);
-}
-.rail-step.now .rail-mark {
-  border-color: var(--research);
-  background: color-mix(in srgb, var(--research) 22%, transparent);
-  color: var(--research);
-}
-.rail.ask .rail-step.now .rail-mark {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.rail-step.now .rail-nm,
-.rail-step.now .rail-note {
-  color: var(--research);
-  font-weight: 600;
-}
-.rail.ask .rail-step.now .rail-nm,
-.rail.ask .rail-step.now .rail-note {
-  color: var(--accent);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .rail.live .rail-step.now .rail-mark {
-    animation: rail-pulse 1.8s ease-in-out infinite;
-  }
-}
-@keyframes rail-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 4%, transparent);
-  }
-}
-/* The live slot. Fixed width in both states: the run's status arrives without shifting the
-   marks it describes. */
-.rail-live {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: none;
-  width: 176px;
-  min-width: 0;
-}
-.rail-now {
-  min-width: 0;
-  font-size: 11px;
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rail.live .rail-now {
-  color: var(--text-dim);
-}
-.rail-el {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
 /* ── One detail, two kinds ─────────────────────────────────────────────────────
    A run and a conversation are the same object from the reader's side - something you
    asked, and the record of what came back - so they get ONE shell (2026-08-27). Five bands
@@ -7757,9 +7609,9 @@ tr:focus-within .rowacts {
 }
 
 /*
- * The agent's own box while a run is in flight: the topic, the last few log lines, and the
- * five stages. It appears when a run starts and goes when it settles; the list under it is a
- * list the whole time.
+ * The agent's own box, in both modes: what it works on, the last few lines of how, and the
+ * stages - five for a run, three for a question. Idle it keeps its shape; the list under it
+ * is a list the whole time.
  */
 .activity {
   flex: none;
@@ -8270,13 +8122,6 @@ tr:focus-within .rowacts {
 .workspace.research .rtable tbody tr:focus-visible .nm {
   color: var(--accent);
   font-weight: 600;
-}
-/* The catalog marks the row a run's "View in catalog" landed on the same way. */
-.dtable tbody tr[aria-selected='true'] td {
-  background: var(--accent-soft);
-}
-.dtable tbody tr[aria-selected='true'] .lt-name {
-  color: var(--accent);
 }
 
 /* The headline carries the room navigation now, in both modes. */

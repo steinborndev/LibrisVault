@@ -42,17 +42,17 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { CitationChip } from '../components/CitationChip.tsx'
 import { JobLog } from '../components/JobLog.tsx'
-import { AskSteps } from '../components/AgentSteps.tsx'
 import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { Icon, type IconName } from '../components/Icon.tsx'
 import { planCorner } from '../lib/library/planCorner.ts'
-import { RunActivity } from '../components/RunActivity.tsx'
+import { RunActivity, AskActivity } from '../components/RunActivity.tsx'
+import { useAskTrail } from '../hooks/useAskTrail.ts'
 import { useJobLog } from '../hooks/useJobLog.ts'
 import { deriveResearchProgress, EMPTY_PROGRESS } from '../lib/researchProgress.ts'
 import { groupPages, countLine } from '../lib/wrotePages.ts'
 import { queryState, merge } from '../components/QueryState.tsx'
-import { navigate } from '../lib/router.ts'
+import { navigate, pageRoute } from '../lib/router.ts'
 import { openableRow } from '../lib/tableRow.ts'
 import { chatStream } from '../lib/chatStream.ts'
 import { timeAgo, tokens } from '../lib/format.ts'
@@ -170,6 +170,12 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     () => chatStream.snapshot(streamKey),
   )
 
+  // What retrieval did for the answer in flight - the server says so once, before the text.
+  const retrieval = useSyncExternalStore(
+    (cb) => chatStream.subscribe(streamKey, cb),
+    () => chatStream.retrieval(streamKey),
+  )
+
   const ask = useMutation({
     mutationFn: (question: string) => api.query(question, activeId ?? undefined, requestIdRef.current || undefined),
     onSuccess: (res) => {
@@ -190,6 +196,21 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
       setDraft((current) => (current.trim() === '' ? question : current))
       qc.invalidateQueries({ queryKey: ['sessions'] })
     },
+  })
+
+  /*
+   * The activity box's lines for the question: the moments this tab observed, each with its
+   * time. `ask.data` resets when the next question goes out, which is what starts the trail
+   * over; the question itself outlives the answer in `ask.variables`, so the box can still
+   * name it.
+   */
+  const askQuestion = typeof ask.variables === 'string' ? ask.variables : ''
+  const askTrail = useAskTrail({
+    pending: ask.isPending,
+    retrieval,
+    writing: streamed !== '',
+    landed: ask.isSuccess ? ask.data.citations.length : null,
+    error: ask.isError ? (ask.error as Error).message : null,
   })
 
   // Research lenses ("Achse A"): the closed profile list the control column offers.
@@ -648,24 +669,23 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               </div>
             </div>
           )}
-          {/* The rail is the console's FOOTER, not a sibling: it describes the run this
-              console starts. Always here, in both modes - dimmed while nothing runs, lit as
-              it happens, so a run starting never moves the screen. */}
-          {/* The research strip moved into the activity box below (2026-09-08): it belongs
-              to the run in flight, not to the console that starts one. The ask strip stays -
-              a query has no box of its own. */}
-          {mode === 'ask' && (
-            <AskSteps
-              pending={ask.isPending}
-              streamed={streamed}
-              citations={lastCitations}
-              answered={messages.some((m) => m.role === 'assistant')}
-            />
-          )}
+          {/* The step strips that used to be the console's footer moved into the activity
+              box below (2026-09-08): they belong to the work in flight, not to the console
+              that starts it. */}
         </div>
 
-        {/* The agent's own section, above the list, while a run is in flight. */}
+        {/* The agent's own section, above the list: the run in flight, or the question. */}
         {mode === 'research' && <RunActivity live={liveRunning} topic={lastTopic !== '' ? lastTopic : (liveEntry?.topic ?? '')} />}
+        {mode === 'ask' && (
+          <AskActivity
+            question={askQuestion}
+            lines={askTrail}
+            pending={ask.isPending}
+            streamed={streamed}
+            citations={lastCitations}
+            answered={messages.some((m) => m.role === 'assistant')}
+          />
+        )}
 
         {mode === 'research' && research.error !== null && (
           <div className="toast err runbanner">
@@ -1245,14 +1265,14 @@ function RunDetailBody({
           <>
             {/* Both land on the page. The graph is asked to drop every filter first, so the
                 page is seen among everything rather than inside the last visit's narrowing;
-                the catalog lists everything and scrolls to the row. */}
+                the reader opens the page itself, the way a catalog row does. */}
             <button className="btn sm" onClick={() => navigate(`/graph?focus=${encodeURIComponent(articlePath)}&all=1`)}>
               <Icon name="graph" />
               View in graph
             </button>
-            <button className="btn sm" onClick={() => navigate(`/catalog?focus=${encodeURIComponent(articlePath)}`)}>
-              <Icon name="book" />
-              View in catalog
+            <button className="btn sm" onClick={() => navigate(pageRoute(articlePath))}>
+              <Icon name="file" />
+              Open page
             </button>
           </>
         ) : null

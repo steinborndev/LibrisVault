@@ -758,6 +758,28 @@ describe('POST /api/v1/query + sessions', () => {
     expect(detail.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
   })
 
+  it('publishes what retrieval did as a chat event, before any answer text', async () => {
+    const seen: Array<{ delta: string; retrieval?: { count: number; strategy: string | null } }> = []
+    const unsubscribe = events.subscribe((e) => {
+      if (e.kind === 'chat') seen.push({ delta: e.chat.delta, ...(e.chat.retrieval ? { retrieval: e.chat.retrieval } : {}) })
+    })
+    queryImpl = async (input) => {
+      input.onRetrieval?.({ count: 5, strategy: 'bm25-only' })
+      return okResult('answer')
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/v1/query`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ question: 'anything', requestId: 'req-1' }),
+      })
+      expect(res.status).toBe(200)
+    } finally {
+      unsubscribe()
+    }
+    expect(seen).toEqual([{ delta: '', retrieval: { count: 5, strategy: 'bm25-only' } }])
+  })
+
   it('continues an existing session and resumes the SDK session', async () => {
     let resumed: string | undefined
     queryImpl = async (input) => {

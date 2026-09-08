@@ -73,10 +73,13 @@ export function useEvents(): { connected: boolean } {
     // flicker at worst.
     const onChat = (ev: MessageEvent): void => {
       const { chat } = JSON.parse(ev.data) as Extract<BusEvent, { kind: 'chat' }>
-      chatStream.append(chat.sessionId, chat.delta)
       // First-question streaming: the client subscribed under its request id, because the
       // session id only exists once the HTTP reply lands. Buffer under both keys.
-      if (chat.requestId !== undefined) chatStream.append(chat.requestId, chat.delta)
+      const keys = chat.requestId !== undefined ? [chat.sessionId, chat.requestId] : [chat.sessionId]
+      for (const key of keys) {
+        if (chat.retrieval !== undefined) chatStream.markRetrieval(key, chat.retrieval)
+        chatStream.append(key, chat.delta)
+      }
     }
 
     const onStats = (): void => {

@@ -643,7 +643,16 @@ export type BusEvent =
   | { kind: 'stats' }
   | { kind: 'vault' }
   /** A coalesced chunk of the answer being written, for the chat's live preview. */
-  | { kind: 'chat'; chat: { sessionId: string; requestId?: string; delta: string } }
+  | {
+      kind: 'chat'
+      chat: {
+        sessionId: string
+        requestId?: string
+        delta: string
+        /** Sent once, before the first delta: what retrieval did. The delta beside it is empty. */
+        retrieval?: { count: number; strategy: string | null }
+      }
+    }
 
 // ---- Fellows and recaps (docs/agents/SPEC.md sections 5, 6 and 9; behind AGENTS_ENABLED) ----
 

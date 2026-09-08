@@ -395,7 +395,6 @@ export function App(): React.ReactElement {
                 <Catalog
                   vaultName={vaultName}
                   domainParam={screen === 'catalog' ? (query.get('domain') ?? '') : ''}
-                  focusParam={screen === 'catalog' ? (query.get('focus') ?? '') : ''}
                 />
               </ErrorBoundary>
             </div>

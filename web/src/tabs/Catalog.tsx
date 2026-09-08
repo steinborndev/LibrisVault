@@ -67,7 +67,6 @@ function isStub(n: GraphNode): boolean {
 export function Catalog({
   vaultName,
   domainParam = '',
-  focusParam = '',
 }: {
   vaultName: string
   /**
@@ -75,11 +74,6 @@ export function Catalog({
    * state - see the effect below, which consumes it the way the graph consumes `?gaps=1`.
    */
   domainParam?: string
-  /**
-   * `?focus=<path>` from a run's "View in catalog": every filter is dropped so the page is in
-   * the list, and its row is marked and scrolled to. A one-shot command like `domainParam`.
-   */
-  focusParam?: string
 }): React.ReactElement {
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   // Provenance rides its OWN query, not the graph payload: the canvas, Home and the Library
@@ -88,7 +82,6 @@ export function Catalog({
   const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
 
   const [query, setQuery] = useState('')
-  const [focused, setFocused] = useState<string | null>(null)
   const [type, setType] = useState<string | null>(null)
   const [domain, setDomain] = useState<string | null | 'none'>(null)
   /** The deepening dialog for the domain currently filtered (docs/agents/ideas.md, 2026-09-07). */
@@ -112,16 +105,6 @@ export function Catalog({
    * dropping it, clicking the SAME domain again would pass an identical path string, this
    * effect would not re-run, and the click would do nothing.
    */
-  useEffect(() => {
-    if (focusParam === '') return
-    setQuery('')
-    setType(null)
-    setDomain(null)
-    setSubset('all')
-    setFocused(focusParam)
-    navigate('/catalog', { replace: true })
-  }, [focusParam])
-
   useEffect(() => {
     if (domainParam === '') return
     setDomain(domainParam)
@@ -402,7 +385,7 @@ export function Catalog({
             <div className="empty">Nothing matches the current filters.</div>
           </div>
         ) : (
-          <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} focused={focused} />
+          <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} />
         )}
         </div>
         <div className="box-foot" hidden={state !== null}>
@@ -467,7 +450,6 @@ export function CatalogTable({
   vaultName,
   hideDomain = false,
   onOpenPage,
-  focused = null,
 }: {
   nodes: readonly GraphNode[]
   refs: Record<string, SourceRef> | undefined
@@ -476,8 +458,6 @@ export function CatalogTable({
   hideDomain?: boolean
   /** Where a row click goes. Default: the vault viewer. The Library reads the page in place. */
   onOpenPage?: (path: string) => void
-  /** The row a run's "View in catalog" landed on: marked like the Library marks a department. */
-  focused?: string | null
 }): React.ReactElement {
   const shown = nodes
   const sources = { data: { pages: refs } }
@@ -496,12 +476,7 @@ export function CatalogTable({
         </thead>
         <tbody>
           {shown.map((n) => (
-            <tr
-              key={n.path}
-              aria-selected={n.path === focused ? true : undefined}
-              ref={n.path === focused ? (el) => el?.scrollIntoView({ block: 'center' }) : undefined}
-              {...openableRow(() => (onOpenPage ? onOpenPage(n.path) : navigate(pageRoute(n.path))), `Open ${n.title}`)}
-            >
+            <tr key={n.path} {...openableRow(() => (onOpenPage ? onOpenPage(n.path) : navigate(pageRoute(n.path))), `Open ${n.title}`)}>
               <td className="lt-title" title={n.title}>
                 {/* The flex row is a span inside the cell: a `td` set to `display: flex`
                     leaves the table layout, and its baseline then drifts against the
