@@ -116,6 +116,20 @@ export function isLoopbackHost(host: string): boolean {
  * mode with a token is active. Called at server startup, never silently weakened.
  */
 export function assertBindAllowed(server: ServerConfig): void {
+  /*
+   * Token mode without a token is refused whatever the bind (2026-09-08 review). It used to
+   * be reachable on loopback: the config only sets `authToken` when the variable is filled,
+   * the middleware then compares against `''`, and the hash of an empty string equals the
+   * hash of an empty string - so `Authorization: Bearer ` opened everything, while the
+   * startup line reported `httpAuth: token`. The bind guard below already caught the
+   * dangerous half; what was left was a service that looked protected and was not.
+   */
+  if (server.authMode === 'token' && (server.authToken?.length ?? 0) === 0) {
+    throw new ConfigError(
+      'HTTP_AUTH_MODE=token needs HTTP_AUTH_TOKEN: an empty token authenticates an empty ' +
+        'bearer header, which is no auth at all. Set the token, or leave HTTP_AUTH_MODE unset.',
+    )
+  }
   if (isLoopbackHost(server.host)) return
   if (server.authMode === 'token' && (server.authToken?.length ?? 0) > 0) return
   throw new ConfigError(
