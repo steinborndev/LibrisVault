@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { loadPairs, separation, atThreshold } from '../src/cli/dedupe-eval.js'
+import { loadPairs, separation, atThreshold, precisionCut } from '../src/cli/dedupe-eval.js'
 
 const pair = (id: string, same: boolean, cohort = 'observed'): { id: string; a: string; b: string; same: boolean; cohort: string } => ({
   id,
@@ -72,6 +72,30 @@ describe('the dedupe harness', () => {
     expect(at.wrong).toEqual(['n1'])
     // A cut nothing reaches catches nothing and breaks nothing.
     expect(atThreshold(scored, 1.1)).toMatchObject({ caught: 0, missed: 2, wrong: [] })
+  })
+
+  /*
+   * The question a graded action asks, and the one that decided stage 2. A mechanism can fail
+   * to separate the classes and still be worth something if it has a bar above which it is
+   * never wrong. Measured, the embedder has no such bar at all: its highest-scoring pair is a
+   * pair that must NOT be merged.
+   */
+  it('finds the highest-precision cut, and says when there is nothing above it', () => {
+    const usable = [
+      { pair: pair('d1', true), score: 0.9 },
+      { pair: pair('d2', true), score: 0.3 },
+      { pair: pair('n1', false), score: 0.5 },
+    ]
+    // Just above the best distinct pair, and one duplicate still stands over it.
+    expect(precisionCut(usable)).toMatchObject({ cut: 0.51, caught: 1 })
+
+    // The embedder's shape: a distinct pair scores at the very top, so a safe cut catches none.
+    const worthless = [
+      { pair: pair('d1', true), score: 0.835 },
+      { pair: pair('n1', false), score: 0.835 },
+      { pair: pair('d2', true), score: 0.65 },
+    ]
+    expect(precisionCut(worthless).caught).toBe(0)
   })
 
   it('scores an empty class as zero rather than dividing by nothing', () => {

@@ -382,6 +382,14 @@ run. Decisions record the channel (`dashboard`, `telegram`, `auto`).
   metric puts a genuine duplicate at 0.56 and a genuine DISTINCT pair at 0.54 - the shipping
   cut of 0.6 sits in a gap 0.02 wide, catching neither. That is not a margin, it is a
   coincidence, and it is the reason the cut is not simply lowered.
+- **Why not an embedder either** (measured, 2026-09-08). With ollama running, cosine between
+  the two topic SENTENCES was measured against the same labelled pairs, raw and with nomic's
+  symmetric task prefix. It catches every duplicate and calls six distinct pairs duplicates
+  too; the one observed duplicate and an observed distinct pair score identically, and above
+  the best distinct pair no duplicate is left - so there is no bar at which it could supersede
+  safely, not even for a graded action. High cosine here is topical adjacency, the same thing
+  that sank the retrieval idea. The embedder stays installed for the vault's reranker, which is
+  what it is actually good for.
 - **Notebooks are private.** Handoffs live in the `handoffs` table, never in another
   Fellow's page.
 

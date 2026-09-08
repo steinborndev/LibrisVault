@@ -512,13 +512,52 @@ may have approved.** That is what makes this hard, and it is why nothing ships o
   to loopback. Its value is not mainly the dedupe: it revives the rerank stage for chat,
   `wiki-query` and autoresearch's overlap steering, which had been running on BM25 alone.
 
-### Not built, and what it would take
+### Stage 2, measured and NOT shipped (2026-09-08)
 
-Stage 2 - embedding the topic sentences directly and using cosine in the band where the lexical
-metric is uncertain - now has an embedder available. It should be added as a second mechanism in
-the harness FIRST and only given a threshold if it separates the observed cohort. The action
-must stay graded, as it is today: note in the recap, hold an approved proposal, supersede only
-an undecided one.
+The embedder went into the harness as three mechanisms - raw cosine between the two topic
+sentences, the same with nomic's symmetric `clustering:` prefix, and `max(lexical, embedding)`.
+All three catch every duplicate in the set. All three are unusable.
+
+| mechanism | worst duplicate | best distinct | safe cut catches |
+|---|---|---|---|
+| lexical (shipping) | 0.130 | 0.540 | 1 of 6, at 0.55 |
+| embedding, raw | 0.650 | 0.835 | **0** |
+| embedding, `clustering:` prefix | 0.764 | 0.921 | **0** |
+| max(lexical, embedding) | 0.764 | 0.921 | **0** |
+
+At a 0.6 cut the embedder catches 6 of 6 duplicates and misidentifies 6 distinct pairs as
+duplicates. The ranked list says why:
+
+```
+0.835  distinct   two named recipe sets from two different sites
+0.835  DUPLICATE  the same task on the same page, one a subset of the other
+0.777  distinct   the trap: heavy shared vocabulary, opposite question
+0.732  DUPLICATE  ... the five paraphrases follow
+0.650  DUPLICATE
+0.648  distinct   two filing-status questions about two different drugs
+```
+
+The one observed duplicate and an observed distinct pair tie **exactly**, to three decimals.
+Above the best distinct pair there is no duplicate left at all, so there is no bar at which the
+embedder can supersede safely - it buys nothing, not even a graded action. Its high scores are
+topical adjacency, the same thing that sank the retrieval-set idea, only measured on the
+sentences instead of on their hits.
+
+The result inverts the intuition: the lexical metric, which is blind to paraphrase, is the only
+one of the four with a region where it is never wrong. That region is one duplicate wide with a
+0.01 margin on 15 pairs, which is noise rather than evidence - so the shipping cut stays where
+it is.
+
+**What this does NOT say.** Embeddings are not useless here: they revive the vault's reranker,
+which is worth more than the dedupe was going to be. And a set of 15 pairs with one observed
+duplicate cannot settle the question - it can only refuse a threshold, which is what it did.
+The set grows as the library runs; a mechanism can be re-measured against it any time.
+
+**Where a real answer would come from.** Nothing measured so far reads the question, only its
+surface. The one judge in the loop that reads for meaning is a language model, which is what
+stage 1 uses. Either that (free, already running, an instruction rather than a boundary) or a
+dedicated judge call over the few candidate pairs a night produces. That is the next thing to
+measure - against this same set, before it ships.
 
 ## Proposal: the preprocessing chain has no sandbox (2026-09-07, built 2026-09-08)
 

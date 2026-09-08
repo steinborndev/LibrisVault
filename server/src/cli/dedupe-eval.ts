@@ -32,6 +32,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { topicOverlap, DEDUPE_THRESHOLD } from '../pipeline/shift.js'
+import { similarity, embedderAvailable, EMBED_MODEL } from '../pipeline/embed.js'
 
 interface EvalPair {
   readonly id: string
@@ -117,6 +118,22 @@ export function separation(scored: readonly Scored[]): {
   return { worstSame, bestDiff, threshold }
 }
 
+/**
+ * The highest-precision cut: the lowest threshold that produces NO false positive, and how many
+ * duplicates it still catches.
+ *
+ * This is the question a graded action actually asks. A mechanism that cannot separate the two
+ * classes may still be worth something if there is a bar above which it is never wrong - that
+ * bar can supersede, and everything under it can merely be noted in the recap. When the count
+ * it catches is zero, there is nothing to grade and the mechanism buys nothing at all.
+ */
+export function precisionCut(scored: readonly Scored[]): { readonly cut: number; readonly caught: number } {
+  const diff = scored.filter((s) => !s.pair.same).map((s) => s.score)
+  // Just above the best distinct pair, so no cut can be reached by one of them.
+  const cut = diff.length > 0 ? Math.ceil((Math.max(...diff) + 0.005) * 100) / 100 : 0
+  return { cut, caught: scored.filter((s) => s.pair.same && s.score >= cut).length }
+}
+
 /** What a given cut would actually do to this set: caught, missed, and the costly mistakes. */
 export function atThreshold(
   scored: readonly Scored[],
@@ -134,6 +151,12 @@ export function atThreshold(
   return { caught, missed, wrong }
 }
 
+/** A mechanism that needs the embedder yields null when there is none: not measured, not zero. */
+const embedded = (label: string, prefix: string): Mechanism => ({
+  label,
+  score: async (a, b) => (await similarity(a, b, { prefix })) ?? Number.NaN,
+})
+
 const MECHANISMS: readonly Mechanism[] = [
   /*
    * What ships today: the overlap coefficient of significant tokens. It is here as the baseline
@@ -141,6 +164,30 @@ const MECHANISMS: readonly Mechanism[] = [
    * reuses no words scores zero against its own twin.
    */
   { label: 'lexical (shipping)', score: topicOverlap },
+  /*
+   * Stage 2 under measurement: cosine between the two TOPIC SENTENCES, not between what they
+   * retrieve. Raw text, the way the vault's own reranker embeds, so what is measured here is
+   * the embedder as this machine actually runs it.
+   */
+  embedded(`embedding: ${EMBED_MODEL}, raw`, ''),
+  /*
+   * The same with nomic's symmetric task prefix. Its card asks for one, and `clustering:` is
+   * the one meant for comparing two texts of the same kind - which is exactly this question,
+   * where the retrieval prefixes (`search_query:` / `search_document:`) are not.
+   */
+  embedded(`embedding: ${EMBED_MODEL}, clustering prefix`, 'clustering: '),
+  /*
+   * The combination that would actually ship: the lexical floor, with the embedder consulted
+   * where the words disagree. A duplicate has to be caught by ONE of them, so the pair is
+   * scored by whichever sees it - and the distinct pairs have to stay below BOTH.
+   */
+  {
+    label: 'max(lexical, embedding clustering)',
+    score: async (a, b) => {
+      const sem = await similarity(a, b, { prefix: 'clustering: ' })
+      return sem === null ? Number.NaN : Math.max(topicOverlap(a, b), sem)
+    },
+  },
 ]
 
 async function scoreAll(m: Mechanism, pairs: readonly EvalPair[]): Promise<Scored[]> {
@@ -150,8 +197,12 @@ async function scoreAll(m: Mechanism, pairs: readonly EvalPair[]): Promise<Score
 }
 
 function report(m: Mechanism, scored: readonly Scored[], verbose: boolean): void {
-  const sep = separation(scored)
   console.log(`\n=== ${m.label} ===`)
+  if (scored.some((s) => Number.isNaN(s.score))) {
+    console.log('  NOT MEASURED: the embedder did not answer. Start ollama, or read this as absent rather than as zero.')
+    return
+  }
+  const sep = separation(scored)
   if (verbose) {
     for (const s of [...scored].sort((x, y) => y.score - x.score)) {
       const mark = s.pair.same ? 'DUPLICATE' : 'distinct '
@@ -168,6 +219,12 @@ function report(m: Mechanism, scored: readonly Scored[], verbose: boolean): void
   }
   const at = atThreshold(scored, DEDUPE_THRESHOLD)
   console.log(`  at the shipping threshold (${DEDUPE_THRESHOLD}): ${at.caught} caught, ${at.missed} missed, ${at.wrong.length} false positive(s)${at.wrong.length > 0 ? ` [${at.wrong.join(', ')}]` : ''}`)
+  const pc = precisionCut(scored)
+  console.log(
+    pc.caught > 0
+      ? `  a cut at ${pc.cut} never fires wrongly and still catches ${pc.caught} of ${scored.filter((s) => s.pair.same).length} duplicate(s): usable for the graded action.`
+      : `  no cut fires safely and catches anything: above the best distinct pair (${pc.cut}) there is no duplicate left. Buys nothing.`,
+  )
   // Per cohort, because a method can separate the paraphrases perfectly and still be useless
   // on the pairs the library actually produces.
   for (const cohort of [...new Set(scored.map((s) => s.pair.cohort))].sort()) {
@@ -192,6 +249,7 @@ async function main(): Promise<void> {
     console.error('A set with only one class measures nothing. Label both.')
     process.exit(2)
   }
+  console.log(`embedder: ${(await embedderAvailable()) ? `${EMBED_MODEL} answering on loopback` : 'unreachable - the embedding rows will say so'}`)
   for (const m of MECHANISMS) report(m, await scoreAll(m, pairs), verbose)
   console.log('\nA mechanism with no usable threshold is not a dedupe, however good it looks on average.')
 }
