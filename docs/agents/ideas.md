@@ -479,6 +479,38 @@ list. Every open-question candidate is self-authored by construction - `computeC
 reads them from the Fellow's own notebook and its own synthesis pages and from nowhere else -
 so the brake now covers all of them.
 
+### Validated on live runs (2026-09-08)
+
+The diagnosed Fellow was given the scope note, its notebook's audit questions were struck
+through as retired, and the same was done to the audit questions its synthesis pages carried
+(the pages also held four bullets that were not questions at all but a record of what each
+pass did under which caps; those moved to a `## Method notes` heading rather than being
+retired, since they are true). Its candidate pool fell from 16 entries to 7.
+
+The planning run that followed proposed three things, and **none of them came from an open
+question**: one from the standing sweep, two from stubs that were only reachable because the
+brake had demoted the questions below them. All three named the artifact in their topic
+sentence - "file each as its own source page with the full ingredient list and method" -
+which is the scope note reaching the planner.
+
+The first research run hit a publisher that is unreachable from this environment and filed
+NOTHING: no pages, and the block documented as a gap callout on the publisher's entity page.
+That is the shape the failure mode was missing. A verdict about material the run does not
+have is not a page.
+
+The second run, the sweep itself, read four publishers with no prior presence in the vault
+and filed eight recipe pages, every one of them with its ingredients and its method in the
+publisher's own quantities. It also closed a question eight earlier runs had left open, and
+found that the fast dishes which stay healthy are separated from the ones that do not by
+TECHNIQUE rather than by ingredient category. Vault-wide, recipe source pages carrying an
+actual recipe went from 4 of 11 to 29 of 35.
+
+**What did not change, and will not.** Both runs left new open questions behind, and two of
+the three are access probes again ("is that block permanent", "would another mirror work").
+That is not a regression: a research run reporting what it could not reach is doing its job.
+The brake is what keeps the accumulation from becoming the menu, and the sweep outranks them
+whatever they say.
+
 **What was NOT built, and belongs to the user rather than the code.** The `scope` field
 already reaches both the planner and the run prompt, and it is where "what artifact do I
 want" belongs. The diagnosed Fellow had none. A scope note naming the artifact ("every recipe
