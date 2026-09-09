@@ -1350,7 +1350,8 @@ export class FellowService {
     kinds: readonly ProposalKind[],
     cycleDate: string,
     attempt = 1,
-    task?: AgentTask,
+    /** The standing task this plan was for: what its proposals replace, and nothing else. */
+    task: AgentTask,
   ): Promise<void> {
     const now = this.now().toISOString()
     const agent = this.agents.get(agentId)
@@ -1434,8 +1435,14 @@ export class FellowService {
     for (const r of built.rejected) this.log('warn', `fellows: ${agent.name}: proposal dropped, ${r}`)
     for (const t of built.clamped) this.log('info', `fellows: ${agent.name}: "${t}" clamped to a step, no listed page exists`)
     this.routeHandoffs(agent, answer, candidates, cycleDate, now)
-    // A new plan replaces what was still undecided; approved proposals survive (section 6.5).
-    this.proposals.supersede(agentId)
+    /*
+     * A new plan replaces what was still undecided FOR THIS TASK; approved proposals survive
+     * (section 6.5). Scoped to the task because a Fellow can plan several in one night: a
+     * whole-Fellow supersede let each run of a sweep wipe the one before it, so a night of
+     * three planning runs ended with one task's worth of work. It also stops a rotation from
+     * discarding a task's standing proposal because a different task came up.
+     */
+    this.proposals.supersede(agentId, task.text)
     let kept = 0
     for (const p of built.proposals) {
       if (agent.autonomy === 'auto' && isDrift(p.scopeScore)) {

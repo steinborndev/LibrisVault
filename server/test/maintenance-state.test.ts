@@ -119,8 +119,12 @@ describe('MaintenanceRunner state persistence', () => {
 
     const first = runner.startHotCache()
     const second = runner.startLint()
-    // Both records exist at once; only one of them is working.
-    await new Promise((r) => setTimeout(r, 20))
+    /*
+     * Both records exist at once; only one of them is working. Waited for rather than slept
+     * on: a fixed 20 ms was long enough on an idle machine and not on a loaded one, which
+     * made this fail once in a full-suite run and never on its own.
+     */
+    for (let i = 0; i < 200 && started === 0; i++) await new Promise((r) => setTimeout(r, 5))
     expect(started).toBe(1)
     expect(runner.getRun(first.id)).toMatchObject({ status: 'running', waiting: false })
     expect(runner.getRun(second.id)).toMatchObject({ status: 'running', waiting: true })

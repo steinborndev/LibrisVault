@@ -15,6 +15,7 @@ import {
   scheduleFrom,
   shelfOrder,
   shelvesFrom,
+  taskCount,
   tasksTonight,
   toMinutes,
   windowMinutes,
@@ -219,6 +220,25 @@ describe('scheduleFrom', () => {
     const a = agent({ id: 'z', name: 'Z', nightly: 'sweep', quotaRunsPerDay: 0, tasks: [task('watch', 'a')] })
     expect(carriedTonight(a)).toBe(0)
     expect(fellowMinutes(a, durations)).toBe(1)
+  })
+
+  it('counts what runs, not what is merely on the list', () => {
+    /*
+     * The number a schedule shows is taken at face value, so it has to be the one that
+     * happens. Three tasks against a quota of one is a night that does one and defers two.
+     */
+    const shelves = (quota: number): ReturnType<typeof shelvesFrom> => [
+      {
+        key: 'bio',
+        pages: 0,
+        questions: 0,
+        gaps: 0,
+        fellows: [summary(agent({ id: 's', name: 'S', nightly: 'sweep', quotaRunsPerDay: quota, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] }))],
+      },
+    ]
+    expect(taskCount(scheduleFrom(shelves(1), 1500, durations))).toBe('1 of 3 tasks run')
+    expect(taskCount(scheduleFrom(shelves(3), 1500, durations))).toBe('3 tasks')
+    expect(taskCount([])).toBe('0 tasks')
   })
 
   it('marks a task whose Fellow asks first, since it does not start on its own', () => {

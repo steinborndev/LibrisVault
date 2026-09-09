@@ -207,6 +207,19 @@ export function scheduleFrom(
   return out
 }
 
+/**
+ * How many tasks a set of blocks actually gets through, in words.
+ *
+ * The count has to lead with what RUNS. Every task on the list gets a planning run, so a plain
+ * "3 tasks" against a quota of two says the night does three when it does two and defers one,
+ * and the number a schedule shows is the one a reader takes at face value.
+ */
+export function taskCount(blocks: readonly Block[]): string {
+  const runs = blocks.filter((b) => b.runs).length
+  const word = (n: number): string => `${n} task${n === 1 ? '' : 's'}`
+  return runs === blocks.length ? word(runs) : `${runs} of ${word(blocks.length)} run`
+}
+
 /** `HH:MM` from a time the shift settings state as `HH:MM`, in minutes from midnight. */
 export function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':')

@@ -338,4 +338,27 @@ Two things the wiring turned up, both now fixed:
    is the strongest argument for defaulting `quotaRunsPerDay` to the task count at spawn,
    which is not done: the field is the user's, and a silent bump is the same class of mistake.
 
+### 4.2.1 What the sweep broke, found by reading the window's own numbers
+
+Two more, both surfaced by a Fellow configured with three tasks and a quota of two:
+
+3. **A sweep wiped its own plan.** `onPlanSettled` called `proposals.supersede(agentId)`,
+   which moves EVERY undecided proposal of the Fellow to `superseded`. That is right for a
+   night and wrong inside one: `planNight` plans task after task, so each run wiped the fresh
+   proposals of the run before it and a night of three planning runs ended with one task's
+   worth of work. Three planning runs were paid for, one task's plan survived. `supersede`
+   now takes the task and narrows to the proposals that task asked for (`provenance.task`,
+   which every proposal the current planner writes carries). It also stops a rotation from
+   discarding a task's standing proposal because a different task came up, which is the same
+   rule read at the other end.
+4. **The counts said what was on the list, not what happens.** "3 tasks" and "3 of 3" counted
+   planned tasks, and a reader takes a schedule's number at face value. Every count now leads
+   with what runs: `taskCount` reads "2 of 3 tasks run" when the quota holds one back, the
+   per-Fellow badge is the carried count and turns amber, and the note under the queue says
+   what becomes of the rest (a proposal that stands for two nights, approvable to jump ahead).
+
+The quota is editable in the dossier now, and a new Fellow gets one run a day per standing
+task. What is still true and deliberate: raising a Fellow's task count later does NOT raise
+its quota. The window says so where it matters rather than moving a number the user set.
+
 Retiring `FellowCard` is now unblocked; A6 merge prep is the next milestone gate.

@@ -631,6 +631,20 @@ describe('proposal and shift stores', () => {
     expect(store.get('p2')?.status).toBe('superseded')
     expect(store.get('p4')?.status).toBe('proposed')
     expect(store.update('missing', { rank: 2 })).toBeUndefined()
+
+    /*
+     * Scoped to one task: a Fellow plans several in a night, so a plan replaces the plan for
+     * the same standing work and nothing else. Without this each run of a sweep wiped the one
+     * before it.
+     */
+    store.create(proposal({ id: 'q1', provenance: { candidate: 'gap', text: 'X', sourcePages: [], task: 'watch the field' } }))
+    store.create(proposal({ id: 'q2', provenance: { candidate: 'gap', text: 'X', sourcePages: [], task: 'answer the question' } }))
+    store.create(proposal({ id: 'q3', provenance: { candidate: 'gap', text: 'X', sourcePages: [] } }))
+    expect(store.supersede('a1', 'watch the field')).toBe(1)
+    expect(store.get('q1')?.status).toBe('superseded')
+    expect(store.get('q2')?.status).toBe('proposed')
+    // A row from before the task was recorded is not "the same task"; it ages out instead.
+    expect(store.get('q3')?.status).toBe('proposed')
   }
 
   it('SqliteProposalStore orders, filters, updates, supersedes and expires', () => {

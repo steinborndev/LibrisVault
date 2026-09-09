@@ -28,6 +28,7 @@ import {
   carriedTonight,
   fellowMinutes,
   scheduleFrom,
+  taskCount,
   shelfOrder,
   shelvesFrom,
   tasksTonight,
@@ -421,7 +422,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
         <>
           <NightLine
             facts={[
-              `${blocks.length} task${blocks.length === 1 ? '' : 's'} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
+              `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
               `${hhmm(win.from)} to ${hhmm(win.to)} (active hours)`,
               `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
             ]}
@@ -448,7 +449,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
         <>
           <NightLine
             facts={[
-              `${mine.length} task${mine.length === 1 ? '' : 's'}`,
+              taskCount(mine),
               mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} to ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
               `${shelf.fellows.length} Fellow${shelf.fellows.length === 1 ? '' : 's'}`,
             ]}
@@ -541,8 +542,9 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                 <p className="cc-note">
                   <b>{planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out.</b>{' '}
                   Planning is free of the daily quota and the run it produces is not, so a Fellow that works more tasks a
-                  night than its <i>runs a day</i> allows leaves the rest standing as proposals. Raise the quota in the
-                  Fellow{planOnly.length === 1 ? "'s" : 's’'} settings, or let them come round over several nights.
+                  night than its <i>runs a day</i> allows plans them all and runs the top ones. What is left over stands as
+                  a proposal for two nights: approve it to move it ahead of the others, or raise the quota in the Fellow
+                  {planOnly.length === 1 ? "'s" : 's’'} settings so every planned task also runs.
                 </p>
               )}
               {overflow.length > 0 ? (
@@ -605,16 +607,16 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                         ) : (
                           <>
                             <span
-                              className="sev ok"
+                              className={`sev ${carried < tonight.length ? 'due' : 'ok'}`}
                               title={
                                 carried < tonight.length
-                                  ? `${tonight.length} planned, ${carried} carried out: the quota is ${f.agent.quotaRunsPerDay} run(s) a day`
+                                  ? `all ${tonight.length} are planned; ${carried} of them also run, because the quota is ${f.agent.quotaRunsPerDay} run(s) a day. The rest stand as proposals.`
                                   : f.agent.nightly === 'sweep'
                                     ? 'every standing task, each in its own run'
                                     : `one task a night: each of ${f.agent.tasks.length} comes round every ${f.agent.tasks.length} nights`
                               }
                             >
-                              {tonight.length} of {f.agent.tasks.length}
+                              {carried} of {f.agent.tasks.length}
                             </span>
                             <span className="mono-meta">{minutes} min</span>
                           </>

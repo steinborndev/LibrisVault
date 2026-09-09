@@ -427,6 +427,24 @@ describe('planning, proposals and the night shift', () => {
     expect(h.service.get(ada.id)!.taskCursor).toBe(0)
   })
 
+  it('keeps every swept task\'s proposals, not only the last run\'s', async () => {
+    /*
+     * Each planning run supersedes what is still undecided, which is right for a NIGHT and
+     * wrong inside one: a sweep plans task after task, so a whole-Fellow supersede lets the
+     * last run wipe every earlier task's fresh proposals and the sweep plans three times to
+     * end with one task's worth of work.
+     */
+    const ada = await spawn({
+      tasks: [
+        { text: 'new ground-based transit surveys and their first results', kind: 'watch' },
+        { text: 'How far can photometry constrain atmospheric retrievals?', kind: 'explore' },
+      ],
+    })
+    await h.shift.run('timer')
+    const tasks = pending(ada.id).map((p) => p.provenance.task)
+    expect(new Set(tasks).size).toBe(2)
+  })
+
   it('a sweeping Fellow with one task plans once, like a rotating one', async () => {
     await spawn({ tasks: [{ text: 'the only task', kind: 'watch' }] })
     await h.shift.run('timer')

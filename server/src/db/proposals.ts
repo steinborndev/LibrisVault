@@ -82,8 +82,15 @@ export interface ProposalStore {
   get(id: string): ProposalRecord | undefined
   list(query?: ProposalQuery): ProposalRecord[]
   update(id: string, patch: ProposalPatch): ProposalRecord | undefined
-  /** Moves every still-undecided proposal of the Fellow to `superseded`; returns how many. */
-  supersede(agentId: string): number
+  /**
+   * Moves still-undecided proposals of the Fellow to `superseded`; returns how many.
+   *
+   * `task` narrows it to the proposals that task asked for. A plan replaces the plan for the
+   * SAME standing work, which is per task now that a Fellow can plan several in one night: a
+   * whole-Fellow sweep let each run of a night's sweep wipe the one before it, and a night of
+   * three planning runs ended with one task's worth of work.
+   */
+  supersede(agentId: string, task?: string): number
   /** Expires every pending proposal of the Fellow whose cycle date is before `beforeCycle`. */
   expire(agentId: string, beforeCycle: string): number
 }
@@ -124,10 +131,10 @@ export class MemoryProposalStore implements ProposalStore {
     this.rows.set(id, next)
     return next
   }
-  supersede(agentId: string): number {
+  supersede(agentId: string, task?: string): number {
     let n = 0
     for (const r of this.rows.values()) {
-      if (r.agentId === agentId && r.status === 'proposed') {
+      if (r.agentId === agentId && r.status === 'proposed' && (task === undefined || r.provenance.task === task)) {
         this.rows.set(r.id, { ...r, status: 'superseded' })
         n++
       }
@@ -284,10 +291,15 @@ export class SqliteProposalStore implements ProposalStore {
     return next
   }
 
-  supersede(agentId: string): number {
-    return this.db
-      .prepare(`UPDATE agent_proposals SET status = 'superseded' WHERE agent_id = ? AND user_id = ? AND status = 'proposed'`)
-      .run(agentId, this.userId).changes
+  supersede(agentId: string, task?: string): number {
+    // The task lives inside the provenance JSON; `json_extract` keeps it there rather than
+    // adding a column that would have to be kept in step with it.
+    const sql = `UPDATE agent_proposals SET status = 'superseded' WHERE agent_id = ? AND user_id = ? AND status = 'proposed'${
+      task === undefined ? '' : ` AND json_extract(provenance, '$.task') = ?`
+    }`
+    const args: unknown[] = [agentId, this.userId]
+    if (task !== undefined) args.push(task)
+    return this.db.prepare(sql).run(...args).changes
   }
 
   expire(agentId: string, beforeCycle: string): number {
