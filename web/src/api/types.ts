@@ -577,6 +577,9 @@ export interface EffectiveSettings {
   fiveHourOverrideEnabled: boolean
   /** Whether the night shift asks a model to judge duplicate topics (section 6.6). */
   dedupeJudgeEnabled: boolean
+  /** The hours the night shift may work in, `HH:MM`, crossing midnight (SPEC section 8.5). */
+  nightWindowStart: string
+  nightWindowEnd: string
 }
 
 /**
@@ -963,6 +966,8 @@ export interface AgentsResponse {
   fellows: FellowSummary[]
   models: Array<{ key: string; id: string; factor: number }>
   costs: Record<string, number>
+  /** How long each run kind usually takes, in ms; null until the service has seen enough. */
+  durations: Record<string, number | null>
   shift: { window: { start: string; end: string }; inWindow: boolean; cycleDate: string | null; nextStartsAt: string; running: boolean } | null
 }
 

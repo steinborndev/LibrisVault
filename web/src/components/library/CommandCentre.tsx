@@ -5,195 +5,189 @@
  * the shelf's name in the middle of the row above, what is there in the row below. The
  * rotation therefore lives in `LibraryScreen` and arrives as props - the headline belongs to
  * the screen, the body to the window - and while the window is open the room's own controls
- * stand down: no mode toggle, no room strip, and the arrow keys reach the window rather than
+ * stand down: no mode toggle, no room strip, and the arrows reach the window rather than
  * paging the room behind it.
  *
- * REPRESENTATIVE MOCKUP. The components are real and this is what the window will look like;
- * the data comes from `lib/command/fixture.ts`, because three of the things it draws do not
- * exist in the service yet (A7 section 3.3: the full sweep, an art per Fellow, an order for
- * the domains). Reachable from "Manage Fellows" or `/library?cc=1`.
+ * Every number here is real: the shelves come from the domain registry and the graph, the
+ * Fellows and their proposals from the agents API, the night's hours from the settings, and
+ * the length of a task from what the service measured its own runs to take. The arithmetic
+ * that turns those into a night lives in `lib/command/model.ts`, under test.
+ *
+ * Three controls are drawn but not wired, because the service has no field behind them yet
+ * (A7 section 3.3): whether a Fellow works all its tasks in a night, the art it is limited to,
+ * and the order of the shelves. They say so where they stand rather than pretending.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../../api/client.ts'
+import type { FellowCard, FellowRecord, FellowSummary, ProposalRecord, RecapFellow, TaskKind } from '../../api/types.ts'
 import {
-  ART_TEXT,
-  AUTONOMY_TEXT,
-  DOMAINS,
-  DRIFT_THRESHOLD,
-  SHAPES,
-  UNSTAFFED,
-  fellowsIn,
-  staffedIn,
-  taskMinutes,
-  taskUsd,
-  tonightTasks,
-  type CcDomain,
-  type CcFellow,
-  type CcOption,
-  type CcShape,
-} from '../../lib/command/fixture.ts'
+  artOf,
+  minutesFor,
+  scheduleFrom,
+  shelfOrder,
+  shelvesFrom,
+  tasksTonight,
+  windowMinutes,
+  type Block,
+  type Shelf,
+} from '../../lib/command/model.ts'
 import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
-import type { TaskKind } from '../../api/types.ts'
+import { queryState } from '../QueryState.tsx'
+import { usd } from '../../lib/format.ts'
 
 export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
 type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
 
-/**
- * One scale for both bars: 18:00 to 06:00 the next morning. Active Hours sets a stretch of it
- * and the queue draws the night's work on the same axis, so the two read against each other
- * rather than each in its own frame.
- */
+/** The night, drawn 18:00 to 06:00: one scale for the hours and for the work inside them. */
 const SCALE_FROM = 18 * 60
 const SCALE_TO = 30 * 60
 const SCALE_SPAN = SCALE_TO - SCALE_FROM
-/** Where a minute of the night sits on that scale, in percent. */
 const pctAt = (m: number): number => ((m - SCALE_FROM) / SCALE_SPAN) * 100
-/** Every full hour of the scale - both axes carry the same labels, in the same shape. */
 const SCALE_HOURS = Array.from({ length: SCALE_SPAN / 60 + 1 }, (_, i) => SCALE_FROM + i * 60)
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 const hhmm = (m: number): string => `${pad2(Math.floor((m % 1440) / 60))}:${pad2(Math.round(m) % 60)}`
 const dur = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} h ${pad2(Math.round(m % 60))}` : `${Math.round(m)} min`)
+const clock = (m: number): string => `${pad2(Math.floor((m % 1440) / 60))}:${pad2(Math.round(m) % 60)}`
 
-interface Block {
-  readonly domain: CcDomain
-  readonly fellow: CcFellow
-  readonly kind: TaskKind
-  readonly text: string
-  readonly minutes: number
-  readonly from: number
-  readonly to: number
-  /** A task whose Fellow asks before every run does not start on its own. */
-  readonly waits: boolean
+/** What each art is, in the words the app already uses (lib/library/tasks.ts, planner.ts). */
+const ART_TEXT: Record<TaskKind, string> = {
+  watch: 'Searches the web for what is new in a subject. Never finished.',
+  explore: 'Searches the web to answer one question. The only art that can be put to rest.',
+  deepen: 'Extends the pages the vault already has on a theme, at most four a night.',
 }
 
+/** What each autonomy mode means, from `fellows.ts` `runnable()`. */
+const AUTONOMY: Record<string, { label: string; short: string; long: string }> = {
+  manual: {
+    label: 'Ask me every time',
+    short: 'asks first',
+    long: 'Nothing runs unless you approve it. A night with no approval is a night with no result.',
+  },
+  veto: {
+    label: 'Run unless I stop it',
+    short: 'runs unless stopped',
+    long:
+      'Tonight it plans; tomorrow night the top proposal runs, unless you veto it during the day. A proposal that ' +
+      'drifts too far from the intent still waits for you.',
+  },
+  auto: {
+    label: 'Run the same night',
+    short: 'runs the same night',
+    long: 'Plans and carries out its top proposal in one night. Drifting proposals are dropped rather than shown to you.',
+  },
+}
+const autonomyOf = (k: string): { label: string; short: string; long: string } => AUTONOMY[k] ?? AUTONOMY['veto']!
+
+/** Below this overlap the service calls a proposal drift and will not run it unasked. */
+const DRIFT_THRESHOLD = 0.2
+
 export interface CommandCentreProps {
-  /** Which stop of the rotation; one past the staffed shelves is the unstaffed screen. */
   readonly stop: number
   readonly setStop: (n: number) => void
-  readonly order: readonly string[]
-  readonly setOrder: (o: readonly string[]) => void
   readonly view: CcView
   readonly setView: (v: CcView) => void
   readonly onClose: () => void
+  /** Reported upward so the headline can name the shelf you are on. */
+  readonly onShelves: (keys: readonly string[]) => void
 }
 
-/** The shared axis: one label at every full hour, the same shape above both bars. */
-function Axis(): React.ReactElement {
-  return (
-    <div className="cc-axis">
-      {/* The ends are the frame itself; a label there hangs off the edge and reads as loose. */}
-      {SCALE_HOURS.slice(1, -1).map((m) => (
-        <span key={m} className="cc-hour" style={{ left: `${pctAt(m)}%` }}>{hhmm(m)}</span>
-      ))}
-    </div>
-  )
-}
-
-/**
- * The night in four facts, centred and in fixed slots. They change every night and with every
- * setting, and a line that re-centres itself as they do is a line you have to find again each
- * time - so each fact keeps its width whatever it says.
- *
- * The overview states the whole night; a shelf states its own slice of it, which is why the
- * second fact drops "across N shelves" there: everything on that screen is one shelf.
- */
-function NightLine({ facts }: { facts: readonly string[] }): React.ReactElement {
-  return (
-    <div className="cc-line2">
-      <span className="cc-side" />
-      <span className="cc-facts">
-        <b>Tonight</b>
-        {facts.map((f) => <span key={f} className="s">{f}</span>)}
-      </span>
-      <span className="cc-side end" />
-    </div>
-  )
-}
-
-export function CommandCentre({ stop, setStop, order, setOrder, view, setView, onClose }: CommandCentreProps): React.ReactElement {
+export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves }: CommandCentreProps): React.ReactElement {
   const [fellowId, setFellowId] = useState<string | null>(null)
   const [pane, setPane] = useState<Pane>('notebook')
   const [decIndex, setDecIndex] = useState(0)
   const [optIndex, setOptIndex] = useState(0)
-  const [shapeIndex, setShapeIndex] = useState(0)
-  const [gearOpen, setGearOpen] = useState(false)
   const [row, setRow] = useState(0)
-  const [winFrom, setWinFrom] = useState(25 * 60)
-  const [winTo, setWinTo] = useState(30 * 60)
-  const [decided, setDecided] = useState<Record<string, 'approved' | 'vetoed'>>({})
-  const trackRef = useRef<HTMLDivElement>(null)
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null)
 
-  const staffed = useMemo(() => staffedIn(order), [order])
-  const roster = useMemo(() => fellowsIn(order), [order])
-  const domain = staffed[Math.min(stop, staffed.length - 1)]!
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, refetchInterval: 20_000 })
+  const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph, staleTime: 60_000 })
+  const registry = useQuery({ queryKey: ['domains'], queryFn: api.domains, staleTime: 300_000 })
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, staleTime: 60_000 })
+  const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, staleTime: 60_000 })
+  const card = useQuery({
+    queryKey: ['agent-card', fellowId],
+    queryFn: () => api.agentCard(fellowId!),
+    enabled: fellowId !== null,
+    refetchInterval: 15_000,
+  })
+
+  const shelves = useMemo(
+    () =>
+      shelvesFrom({
+        domains: (registry.data?.domains ?? []).map((d) => d.key),
+        nodes: graph.data?.nodes ?? [],
+        gaps: graph.data?.gaps ?? [],
+        fellows: agents.data?.fellows ?? [],
+      }),
+    [registry.data, graph.data, agents.data],
+  )
+  const staffed = useMemo(() => shelfOrder(shelves), [shelves])
+  const empty = useMemo(() => shelves.filter((s) => s.fellows.length === 0), [shelves])
+  const roster = useMemo(() => staffed.flatMap((s) => s.fellows.map((f) => ({ shelf: s, fellow: f }))), [staffed])
+  const shelf = staffed[Math.min(stop, Math.max(0, staffed.length - 1))]
+
+  // The headline needs the names; it does not need to know how they were derived.
+  useEffect(() => onShelves(staffed.map((s) => s.key)), [staffed, onShelves])
+
+  const set = settings.data?.effective
+  const win = useMemo(
+    () => windowMinutes(set?.nightWindowStart ?? '01:00', set?.nightWindowEnd ?? '06:00'),
+    [set?.nightWindowStart, set?.nightWindowEnd],
+  )
+  const live = drag ?? win
+  const span = live.to - live.from
+  // A fresh `{}` every render would re-lay the schedule on every render with it.
+  const durations = useMemo(() => agents.data?.durations ?? {}, [agents.data])
+  const blocks = useMemo(() => scheduleFrom(staffed, live.from, durations), [staffed, live.from, durations])
+  const overflow = blocks.filter((b) => b.to > live.to)
+  const mine = shelf ? blocks.filter((b) => b.shelf === shelf.key) : []
 
   const deciders = useMemo(
-    () => DOMAINS.flatMap((d) => d.fellows.filter((f) => f.options.some((o) => decided[o.id] === undefined)).map((f) => ({ d, f }))),
-    [decided],
+    () => roster.filter((r) => r.fellow.pendingProposals > 0),
+    [roster],
   )
-  const fellow = fellowId === null ? undefined : roster.find((r) => r.fellow.id === fellowId)?.fellow
 
-  /*
-   * The night, whole. Every Fellow shares one window and runs are serialized on the run mutex,
-   * so a schedule drawn per domain would show four domains each fitting comfortably into a
-   * night that cannot hold their sum (A7 D9).
-   */
-  const blocks = useMemo(() => {
-    const out: Block[] = []
-    let cur = winFrom
-    for (const d of staffed) {
-      for (const f of d.fellows) {
-        for (const t of tonightTasks(f)) {
-          const minutes = taskMinutes(t.kind)
-          out.push({ domain: d, fellow: f, kind: t.kind, text: t.text, minutes, from: cur, to: cur + minutes, waits: f.autonomy === 'manual' })
-          cur += minutes
-        }
-      }
-    }
-    return out
-  }, [staffed, winFrom])
+  const qc = useQueryClient()
+  const saveWindow = useMutation({
+    mutationFn: (w: { from: number; to: number }) =>
+      api.saveSettings({ nightWindowStart: clock(w.from), nightWindowEnd: clock(w.to) }),
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+  const decide = useMutation({
+    mutationFn: (v: { id: string; status: 'approved' | 'vetoed' }) => api.decideProposal(v.id, { status: v.status }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['agents'] })
+      void qc.invalidateQueries({ queryKey: ['agent-card'] })
+    },
+  })
+  const act = useMutation({
+    mutationFn: async (v: { id: string; what: 'step' | 'plan' | 'pause' | 'resume' }): Promise<void> => {
+      if (v.what === 'step') await api.stepAgent(v.id)
+      else if (v.what === 'plan') await api.planAgent(v.id)
+      else await api.agentAction(v.id, v.what)
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['agents'] }),
+  })
 
-  const span = winTo - winFrom
-  const booked = blocks.reduce((n, b) => n + b.minutes, 0)
-  const overflow = blocks.filter((b) => b.to > winTo)
-  /** This shelf's stretch of the queue: contiguous, because the night is worked shelf by shelf. */
-  const mine = blocks.filter((b) => b.domain.key === domain.key)
-
-  /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
-  const bands = useMemo(() => {
-    const out: Array<{ domain: CcDomain; from: number; to: number; parts: Block[] }> = []
-    for (const b of blocks) {
-      const last = out[out.length - 1]
-      if (last && last.domain === b.domain) {
-        last.to = b.to
-        last.parts.push(b)
-      } else out.push({ domain: b.domain, from: b.from, to: b.to, parts: [b] })
-    }
-    return out
-  }, [blocks])
-
-  /** Opening a Fellow puts the rotation on its shelf, so the headline never lies about where you are. */
   const openFellow = (id: string): void => {
-    const at = roster.findIndex((r) => r.fellow.id === id)
+    const at = roster.findIndex((r) => r.fellow.agent.id === id)
     if (at < 0) return
     setFellowId(id)
     setPane('notebook')
-    setStop(staffed.indexOf(roster[at]!.domain))
+    setStop(staffed.indexOf(roster[at]!.shelf))
     setView('dossier')
   }
-
-  /** Left and right in a dossier walk the whole roster, across shelves; the headline follows. */
   const stepFellow = (delta: number): void => {
     if (roster.length === 0) return
-    const at = roster.findIndex((r) => r.fellow.id === fellowId)
+    const at = roster.findIndex((r) => r.fellow.agent.id === fellowId)
     const next = roster[((at < 0 ? 0 : at) + delta + roster.length) % roster.length]!
-    setFellowId(next.fellow.id)
-    setStop(staffed.indexOf(next.domain))
+    setFellowId(next.fellow.agent.id)
+    setStop(staffed.indexOf(next.shelf))
   }
-
   const back = (): void => {
-    setGearOpen(false)
     if (view === 'shelves') onClose()
     else if (view === 'tonight') setView('shelves')
     else setView('tonight')
@@ -223,7 +217,6 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
       }
       if (view === 'decisions') {
         if (deciders.length === 0) return
-        const cur = deciders[Math.min(decIndex, deciders.length - 1)]!.f
         if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
           e.preventDefault()
           setDecIndex((i) => (i + 1) % deciders.length)
@@ -232,25 +225,10 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
           e.preventDefault()
           setDecIndex((i) => (i - 1 + deciders.length) % deciders.length)
           setOptIndex(0)
-        } else if (e.key === 'j') setOptIndex((i) => Math.min(cur.options.length - 1, i + 1))
-        else if (e.key === 'k') setOptIndex((i) => Math.max(0, i - 1))
-        else if (e.key === 'a' || e.key === 'v') {
-          const opt = cur.options[optIndex]
-          if (opt) setDecided((d) => ({ ...d, [opt.id]: e.key === 'a' ? 'approved' : 'vetoed' }))
         }
         return
       }
-      if (view === 'spawn') {
-        if (e.key === 'ArrowRight') setShapeIndex((i) => (i + 1) % SHAPES.length)
-        else if (e.key === 'ArrowLeft') setShapeIndex((i) => (i - 1 + SHAPES.length) % SHAPES.length)
-        else if (e.key === 'c') setGearOpen((g) => !g)
-        return
-      }
-      /*
-       * The rotation is a ring with the shelves view on it: right from the overview lands on
-       * the first shelf, right from the last one comes back to the overview. Left runs it the
-       * other way. So the arrows never stop working, whichever end you are at.
-       */
+      if (view === 'spawn') return
       if (e.key === 'ArrowRight') {
         e.preventDefault()
         if (view === 'shelves') {
@@ -267,7 +245,7 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault()
         if (view === 'shelves') {
-          setStop(staffed.length - 1)
+          setStop(Math.max(0, staffed.length - 1))
           setRow(0)
           setView('tonight')
         } else if (stop <= 0) {
@@ -279,93 +257,101 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
         }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setRow(Math.min((view === 'shelves' ? staffed.length + UNSTAFFED.length : domain.fellows.length + 1) - 1, row + 1))
+        setRow((r) => Math.min((view === 'shelves' ? staffed.length + empty.length : (shelf?.fellows.length ?? 0) + 1) - 1, r + 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setRow(Math.max(0, row - 1))
+        setRow((r) => Math.max(0, r - 1))
       } else if (e.key === 'Enter') {
         if (view === 'shelves') {
-          // The overview is one list in two sections: past the staffed ones, Enter staffs.
           if (row < staffed.length) {
             setStop(row)
             setRow(0)
             setView('tonight')
-          } else {
-            setShapeIndex(0)
-            setGearOpen(false)
-            setView('spawn')
-          }
-        } else if (row >= domain.fellows.length) {
-          setShapeIndex(0)
-          setGearOpen(false)
-          setView('spawn')
-        } else {
-          const f = domain.fellows[row]
-          if (f) openFellow(f.id)
+          } else setView('spawn')
+        } else if (row >= (shelf?.fellows.length ?? 0)) setView('spawn')
+        else {
+          const f = shelf?.fellows[row]
+          if (f) openFellow(f.agent.id)
         }
-            } else if (e.key === 'n') {
-        setShapeIndex(0)
-        setGearOpen(false)
-        setView('spawn')
-      }
+      } else if (e.key === 'n') setView('spawn')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  /*
-   * Moving a shelf in the queue. It used to be a drag on the band itself, which is a target a
-   * few pixels wide for a seven-minute task and recomputed its answer on every mouse move -
-   * fiddly to hit and unreliable when it was hit. The legend chips are the same information at
-   * a size a hand can use, so the order is set there instead.
-   */
-  const moveShelf = (key: string, delta: number): void => {
-    const keys = staffed.map((d) => d.key)
-    const from = keys.indexOf(key)
-    const to = from + delta
-    if (from < 0 || to < 0 || to >= keys.length) return
-    const next = [...keys]
-    next.splice(to, 0, next.splice(from, 1)[0]!)
-    /*
-     * `stop` is a slot in this list, so permuting it under a fixed slot would silently change
-     * which shelf you are looking at. Hold the shelf and let its index follow.
-     */
-    const staying = domain.key
-    setOrder(next)
-    setStop(Math.max(0, next.indexOf(staying)))
-  }
-
   const dragEdge = (edge: 'from' | 'to') => (e: React.MouseEvent): void => {
     e.preventDefault()
-    e.stopPropagation()
     const track = (e.currentTarget as HTMLElement).closest('.cc-track')
+    let next = { ...live }
     const move = (ev: MouseEvent): void => {
       const rect = track?.getBoundingClientRect()
       if (!rect) return
-      const m = SCALE_FROM + Math.round((((ev.clientX - rect.left) / rect.width) * (SCALE_TO - SCALE_FROM)) / 15) * 15
-      if (edge === 'from') setWinFrom(Math.max(SCALE_FROM, Math.min(m, winTo - 60)))
-      else setWinTo(Math.min(SCALE_TO, Math.max(m, winFrom + 60)))
+      const m = SCALE_FROM + Math.round((((ev.clientX - rect.left) / rect.width) * SCALE_SPAN) / 15) * 15
+      next =
+        edge === 'from'
+          ? { from: Math.max(SCALE_FROM, Math.min(m, next.to - 60)), to: next.to }
+          : { from: next.from, to: Math.min(SCALE_TO, Math.max(m, next.from + 60)) }
+      setDrag(next)
     }
     const up = (): void => {
       document.removeEventListener('mousemove', move)
       document.removeEventListener('mouseup', up)
+      setDrag(null)
+      saveWindow.mutate(next)
     }
     document.addEventListener('mousemove', move)
     document.addEventListener('mouseup', up)
   }
 
+  const state =
+    queryState(agents, 'the Fellows') ??
+    queryState(graph, 'the vault graph') ??
+    queryState(registry, 'the domain registry') ??
+    queryState(settings, 'the settings')
+  if (state) return <div className="lib-window cc"><div className="lib-window-body cc-body">{state}</div></div>
+
+  const fellow = roster.find((r) => r.fellow.agent.id === fellowId)?.fellow
+  const recapOf = (id: string): RecapFellow | undefined =>
+    recaps.data?.recaps[0]?.model.fellows.find((x) => x.agentId === id)
+
   return (
     <div className="lib-window cc" role="dialog" aria-label="Fellow command centre">
-      {view === 'tonight' && (
+      {view === 'shelves' && (
         <>
-          <NightLine facts={[
-            `${mine.length} task${mine.length === 1 ? '' : 's'}`,
-            mine.length === 0
-              ? 'nothing scheduled'
-              : `${hhmm(mine[0]!.from)} – ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
-            `${domain.fellows.length} Fellow${domain.fellows.length === 1 ? '' : 's'}`,
-          ]} />
+          <NightLine
+            facts={[
+              `${blocks.length} task${blocks.length === 1 ? '' : 's'} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
+              `${hhmm(win.from)} – ${hhmm(win.to)} (active hours)`,
+              `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
+            ]}
+          />
+          <Shelves
+            staffed={staffed}
+            empty={empty}
+            row={row}
+            blocks={blocks}
+            onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
+            onSpawn={() => setView('spawn')}
+            onDecisions={(key) => {
+              const first = deciders.findIndex((x) => x.shelf.key === key)
+              if (first < 0) return
+              setDecIndex(first)
+              setOptIndex(0)
+              setView('decisions')
+            }}
+          />
+        </>
+      )}
 
+      {view === 'tonight' && shelf && (
+        <>
+          <NightLine
+            facts={[
+              `${mine.length} task${mine.length === 1 ? '' : 's'}`,
+              mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} – ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
+              `${shelf.fellows.length} Fellow${shelf.fellows.length === 1 ? '' : 's'}`,
+            ]}
+          />
           <div className="lib-window-body cc-body">
             <section className="cc-block">
               <h3 className="cc-sec">Active Hours</h3>
@@ -375,17 +361,16 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
               </p>
               <Axis />
               <div className="cc-track set">
-                {SCALE_HOURS.slice(1, -1).map((m) => (
-                  <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />
-                ))}
-                <div className="cc-window" style={{ left: `${pctAt(winFrom)}%`, width: `${(span / SCALE_SPAN) * 100}%` }}>
+                {SCALE_HOURS.slice(1, -1).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />)}
+                <div className="cc-window" style={{ left: `${pctAt(live.from)}%`, width: `${(span / SCALE_SPAN) * 100}%` }}>
                   <span className="h l" onMouseDown={dragEdge('from')} />
                   <span className="h r" onMouseDown={dragEdge('to')} />
                 </div>
               </div>
               <div className="cc-under">
-                <b>{hhmm(winFrom)} – {hhmm(winTo)}</b>
+                <b>{hhmm(live.from)} – {hhmm(live.to)}</b>
                 <span>{dur(span)}</span>
+                {saveWindow.isPending && <span className="mono-meta">saving…</span>}
               </div>
             </section>
 
@@ -396,26 +381,23 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
                 <span className="c">one run at a time, planning included</span>
               </h3>
               <Axis />
-              <div className="cc-track" ref={trackRef}>
-                {SCALE_HOURS.slice(1, -1).map((m) => (
-                  <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />
-                ))}
-                {/* The hours the shift may work in, behind the work itself. */}
-                <div className="cc-active" style={{ left: `${pctAt(winFrom)}%`, width: `${(span / SCALE_SPAN) * 100}%` }} />
-                {bands.map((g) => (
+              <div className="cc-track">
+                {SCALE_HOURS.slice(1, -1).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />)}
+                <div className="cc-active" style={{ left: `${pctAt(live.from)}%`, width: `${(span / SCALE_SPAN) * 100}%` }} />
+                {bandsOf(blocks).map((g) => (
                   <div
-                    key={`${g.domain.key}-${g.from}`}
-                    className={`cc-band ${g.domain.key === domain.key ? 'here' : ''}`}
-                    style={{ left: `${pctAt(g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / SCALE_SPAN) * 100)}%`, ['--dc' as string]: domainColor(g.domain.key) }}
-                    title={`${g.domain.key} — ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
+                    key={`${g.shelf}-${g.from}`}
+                    className={`cc-band ${g.shelf === shelf.key ? 'here' : ''}`}
+                    style={{ left: `${pctAt(g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / SCALE_SPAN) * 100)}%`, ['--dc' as string]: domainColor(g.shelf) }}
+                    title={`${g.shelf} — ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
                   >
                     <span className="cc-parts">
                       {g.parts.map((b, i) => (
                         <span
-                          key={`${b.fellow.id}-${b.text}`}
+                          key={`${b.fellowId}-${b.text}`}
                           className="cc-part"
                           style={{ width: `${(b.minutes / (g.to - g.from)) * 100}%`, borderLeft: i > 0 ? '1px solid rgba(255,255,255,.55)' : undefined }}
-                          title={`${b.fellow.name} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`}
+                          title={`${b.fellowName} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`}
                         />
                       ))}
                     </span>
@@ -423,20 +405,22 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
                 ))}
               </div>
               <div className="cc-order">
-                {staffed.map((d, i) => (
-                  <span key={d.key} className={`cc-chip ${d.key === domain.key ? 'here' : ''}`}>
-                    <button disabled={i === 0} onClick={() => moveShelf(d.key, -1)} title="Earlier in the night" aria-label={`Move ${d.key} earlier`}>‹</button>
+                {staffed.map((d) => (
+                  <span key={d.key} className={`cc-chip ${d.key === shelf.key ? 'here' : ''}`}>
                     <i style={{ background: domainColor(d.key) }} aria-hidden />
                     {d.key}
-                    <button disabled={i === staffed.length - 1} onClick={() => moveShelf(d.key, 1)} title="Later in the night" aria-label={`Move ${d.key} later`}>›</button>
                   </span>
                 ))}
               </div>
+              <p className="cc-note dim">
+                The order is the one the shift walks its Fellows in: priority first, then age. Setting it per shelf is not
+                built yet (TASKS-A7 3.3).
+              </p>
               {overflow.length > 0 ? (
                 <p className="cc-note warn">
                   <b>{overflow.length} task{overflow.length === 1 ? ' does' : 's do'} not fit tonight.</b> The night is one
-                  queue for every Fellow, not one per shelf: {dur(booked)} of work against a {dur(span)} window. Widen the
-                  hours, put a Fellow on <b>one task a night</b>, or leave it — what does not fit stands for tomorrow.
+                  queue for every Fellow, not one per shelf: {dur(blocks.reduce((n, b) => n + b.minutes, 0))} of work against
+                  a {dur(span)} window. Widen the hours, or leave it — what does not fit stands for tomorrow.
                 </p>
               ) : blocks.some((b) => b.waits) ? (
                 <p className="cc-note">
@@ -451,47 +435,56 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
             </section>
 
             <section className="cc-block">
-              <h3 className="cc-sec">
-                Fellows of this shelf <span className="c">{domain.fellows.length}</span>
-              </h3>
+              <h3 className="cc-sec">Fellows of this shelf <span className="c">{shelf.fellows.length}</span></h3>
               <div className="cc-rows">
-                {domain.fellows.map((f, i) => {
-                  const mine = tonightTasks(f)
-                  const minutes = mine.reduce((n, t) => n + taskMinutes(t.kind), 0)
-                  const quiet = f.tasks.length > 0 && f.tasks.every((t) => t.resting === true)
+                {shelf.fellows.map((f, i) => {
+                  const tonight = tasksTonight(f.agent)
+                  const minutes = tonight.reduce((n, t) => n + minutesFor(t.kind, durations), 0)
+                  const rested = f.agent.tasks.length > 0 && f.agent.tasks.every((t) => t.state !== 'active')
                   return (
-                    <div key={f.id} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => { setRow(i); openFellow(f.id) }}>
+                    <div key={f.agent.id} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => { setRow(i); openFellow(f.agent.id) }}>
                       <span className="cc-id">
                         <span className="cc-idline">
-                          <b>{f.name}</b>
-                          <span className={`sev ${f.state === 'working' ? 'rec' : f.state === 'paused' ? 'mut' : 'ok'}`}>{f.state}</span>
+                          <b>{f.agent.name}</b>
+                          <span className={`sev ${f.currentRun ? 'rec' : f.agent.state === 'paused' ? 'mut' : 'ok'}`}>
+                            {f.currentRun ? 'working' : rested ? 'quiet' : f.agent.state}
+                          </span>
                         </span>
-                        <span className="cc-t">{quiet ? `all ${f.tasks.length} questions answered — nothing standing` : f.intent}</span>
+                        <span className="cc-t">{rested ? `all ${f.agent.tasks.length} questions answered — nothing standing` : f.agent.intent}</span>
                       </span>
                       <span className="cc-right">
-                        {mine.length === 0 ? (
+                        {f.pendingProposals > 0 && (
                           <button
-                            className="cc-link quiet"
-                            onClick={(e) => { e.stopPropagation(); setFellowId(f.id); setPane('settings'); setView('dossier') }}
+                            className="sev due cc-pill"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const at = deciders.findIndex((x) => x.fellow.agent.id === f.agent.id)
+                              if (at < 0) return
+                              setDecIndex(at)
+                              setOptIndex(0)
+                              setView('decisions')
+                            }}
                           >
+                            {f.pendingProposals} decision{f.pendingProposals === 1 ? '' : 's'}
+                          </button>
+                        )}
+                        {tonight.length === 0 ? (
+                          <button className="cc-link quiet" onClick={(e) => { e.stopPropagation(); setFellowId(f.agent.id); setPane('settings'); setView('dossier') }}>
                             Assign a new task ›
                           </button>
                         ) : (
                           <>
-                            <span className="sev ok" title={f.mode === 'sweep' ? 'every standing task, tonight' : `one task a night — each comes round every ${f.tasks.length} nights`}>
-                              {f.mode === 'sweep' ? `all ${mine.length} tonight` : `1 of ${f.tasks.length}, rotating`}
+                            <span className="sev ok" title={`one task a night — each of ${f.agent.tasks.length} comes round every ${f.agent.tasks.length} nights`}>
+                              1 of {f.agent.tasks.length}
                             </span>
-                            <span className="mono-meta">{Math.round(minutes)} min</span>
+                            <span className="mono-meta">{minutes} min</span>
                           </>
                         )}
                       </span>
                     </div>
                   )
                 })}
-                <div
-                  className={`cc-row new ${row === domain.fellows.length ? 'sel' : ''}`}
-                  onClick={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
-                >
+                <div className={`cc-row new ${row === shelf.fellows.length ? 'sel' : ''}`} onClick={() => setView('spawn')}>
                   <span className="cc-id">
                     <span className="cc-idline"><b>New Fellow</b></span>
                     <span className="cc-t">take one of four examples and change anything about it</span>
@@ -504,86 +497,117 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
         </>
       )}
 
-      {view === 'shelves' && (
-        <Shelves
-          staffed={staffed}
-          row={row}
-          tasks={blocks.length}
-          shelvesWithWork={new Set(blocks.map((b) => b.domain.key)).size}
-          hours={`${hhmm(winFrom)} – ${hhmm(winTo)}`}
-          onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
-          onStaff={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
-          onDecisions={(key) => {
-            const first = deciders.findIndex((x) => x.d.key === key)
-            if (first < 0) return
-            setDecIndex(first)
-            setOptIndex(0)
-            setView('decisions')
-          }}
+      {view === 'dossier' && fellow && (
+        <Dossier
+          fellow={fellow}
+          card={card.data}
+          recap={recapOf(fellow.agent.id)}
+          pane={pane}
+          durations={durations}
+          setPane={setPane}
+          onBack={back}
+          onStep={stepFellow}
+          onAct={(what) => act.mutate({ id: fellow.agent.id, what })}
+          busy={act.isPending}
         />
       )}
-      {view === 'dossier' && fellow && <Dossier fellow={fellow} pane={pane} setPane={setPane} onBack={back} onStep={stepFellow} />}
+
       {view === 'decisions' && (
         <Decisions
           list={deciders}
           at={Math.min(decIndex, Math.max(0, deciders.length - 1))}
           opt={optIndex}
-          decided={decided}
           span={span}
           onPick={(i) => { setDecIndex(i); setOptIndex(0) }}
           onOpt={setOptIndex}
-          onDecide={(id, how) => setDecided((d) => ({ ...d, [id]: how }))}
+          onDecide={(id, status) => decide.mutate({ id, status })}
+          busy={decide.isPending}
           onBack={back}
         />
       )}
-      {view === 'spawn' && (
-        <Spawn shelf={domain.key} shape={SHAPES[shapeIndex]!} index={shapeIndex} gear={gearOpen} onShape={setShapeIndex} onGear={() => setGearOpen((g) => !g)} onBack={back} />
-      )}
+
+      {view === 'spawn' && <Spawn shelf={shelf?.key ?? ''} onBack={back} />}
+    </div>
+  )
+}
+
+/** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
+function bandsOf(blocks: readonly Block[]): Array<{ shelf: string; from: number; to: number; parts: Block[] }> {
+  const out: Array<{ shelf: string; from: number; to: number; parts: Block[] }> = []
+  for (const b of blocks) {
+    const last = out[out.length - 1]
+    if (last && last.shelf === b.shelf) {
+      last.to = b.to
+      last.parts.push(b)
+    } else out.push({ shelf: b.shelf, from: b.from, to: b.to, parts: [b] })
+  }
+  return out
+}
+
+/** The shared axis: one label at every full hour, the same shape above both bars. */
+function Axis(): React.ReactElement {
+  return (
+    <div className="cc-axis">
+      {/* The ends are the frame itself; a label there hangs off the edge and reads as loose. */}
+      {SCALE_HOURS.slice(1, -1).map((m) => (
+        <span key={m} className="cc-hour" style={{ left: `${pctAt(m)}%` }}>{hhmm(m)}</span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The night in four facts, centred and in fixed slots. They change every night and with every
+ * setting, and a line that re-centres itself as they do is a line you have to find again each
+ * time - so each fact keeps its width whatever it says.
+ */
+function NightLine({ facts }: { facts: readonly string[] }): React.ReactElement {
+  return (
+    <div className="cc-line2">
+      <span className="cc-side" />
+      <span className="cc-facts">
+        <b>Tonight</b>
+        {facts.map((f) => <span key={f} className="s">{f}</span>)}
+      </span>
+      <span className="cc-side end" />
     </div>
   )
 }
 
 function Shelves({
   staffed,
+  empty,
   row,
-  tasks,
-  shelvesWithWork,
-  hours,
+  blocks,
   onOpen,
-  onStaff,
+  onSpawn,
   onDecisions,
 }: {
-  staffed: readonly CcDomain[]
+  staffed: readonly Shelf[]
+  empty: readonly Shelf[]
   row: number
-  /** The whole night's figures: the overview is where they belong, not on one shelf. */
-  tasks: number
-  shelvesWithWork: number
-  hours: string
+  blocks: readonly Block[]
   onOpen: (index: number) => void
-  onStaff: (key: string) => void
+  onSpawn: () => void
   onDecisions: (key: string) => void
 }): React.ReactElement {
-  const empty = [...UNSTAFFED].sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2))
-  const top = empty[0]
-  const fellows = staffed.reduce((n, d) => n + d.fellows.length, 0)
+  const sorted = [...empty].sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2))
+  const top = sorted[0]
   return (
-    <>
-      <NightLine facts={[
-        `${tasks} task${tasks === 1 ? '' : 's'} across ${shelvesWithWork} shel${shelvesWithWork === 1 ? 'f' : 'ves'}`,
-        `${hours} (active hours)`,
-        `${fellows} Fellow${fellows === 1 ? '' : 's'}`,
-      ]} />
-      <div className="lib-window-body cc-body">
-        <section className="cc-block">
-          <h3 className="cc-sec">
-            Staffed <span className="c">{staffed.length}</span>
-            <span className="grow" />
-            <span className="c">the order they are worked in — set it in the queue</span>
-          </h3>
+    <div className="lib-window-body cc-body">
+      <section className="cc-block">
+        <h3 className="cc-sec">
+          Staffed <span className="c">{staffed.length}</span>
+          <span className="grow" />
+          <span className="c">the order the night works them in</span>
+        </h3>
+        {staffed.length === 0 ? (
+          <p className="empty">No Fellow anywhere yet. Any shelf below can have the first one.</p>
+        ) : (
           <div className="cc-rows">
             {staffed.map((d, i) => {
-              const nightly = d.fellows.reduce((n, f) => n + tonightTasks(f).reduce((m, t) => m + taskMinutes(t.kind), 0), 0)
-              const open = d.fellows.reduce((n, f) => n + f.options.length, 0)
+              const nightly = blocks.filter((b) => b.shelf === d.key).reduce((n, b) => n + b.minutes, 0)
+              const open = d.fellows.reduce((n, f) => n + f.pendingProposals, 0)
               return (
                 <div key={d.key} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => onOpen(i)}>
                   <span className="cc-id">
@@ -592,107 +616,117 @@ function Shelves({
                       <b>{d.key}</b>
                     </span>
                     <span className="cc-t">
-                      {d.fellows.map((f) => f.name).join(', ')} · {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'}
+                      {d.fellows.map((f) => f.agent.name).join(', ')} · {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'}
                     </span>
                   </span>
                   <span className="cc-right">
                     {open > 0 && (
-                      <button
-                        className="sev due cc-pill"
-                        title={`Go to ${d.fellows[0]?.name ?? 'the first Fellow'}’s decisions`}
-                        onClick={(e) => { e.stopPropagation(); onDecisions(d.key) }}
-                      >
+                      <button className="sev due cc-pill" onClick={(e) => { e.stopPropagation(); onDecisions(d.key) }}>
                         {open} decision{open === 1 ? '' : 's'}
                       </button>
                     )}
-                    <span className="mono-meta">{nightly > 0 ? `${Math.round(nightly)} min tonight` : 'nothing tonight'}</span>
+                    <span className="mono-meta">{nightly > 0 ? `${nightly} min tonight` : 'nothing tonight'}</span>
                   </span>
                 </div>
               )
             })}
           </div>
-        </section>
+        )}
+      </section>
 
-        <section className="cc-block">
-          <h3 className="cc-sec">
-            Nobody on them <span className="c">{empty.length}</span>
-            <span className="grow" />
-            <span className="c">sorted by what is waiting there, not by size</span>
-          </h3>
-          <p className="cc-note">
-            A shelf earns a Fellow when it holds questions nobody is answering.
-            {top && <> <b>{top.key}</b> has the most: {top.questions} open questions and {top.gaps} pages linked but never written.</>}
-          </p>
-          <div className="cc-rows">
-            {empty.map((d, i) => (
-              <div key={d.key} className={`cc-row ${row === staffed.length + i ? 'sel' : ''}`} onClick={() => onStaff(d.key)}>
-                <span className="cc-id">
-                  <span className="cc-idline">
-                    <span className="chip-dot" style={{ background: domainColor(d.key), opacity: 0.45 }} aria-hidden />
-                    <b>{d.key}</b>
-                  </span>
-                  <span className="cc-t">
-                    {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'} · {d.gaps} linked but never written
-                    {d.handoffs.length > 0 && (
-                      <> · <b className="cc-handoff">{d.handoffs.length} question{d.handoffs.length === 1 ? '' : 's'} handed here with nobody to take {d.handoffs.length === 1 ? 'it' : 'them'}</b></>
-                    )}
-                  </span>
+      <section className="cc-block">
+        <h3 className="cc-sec">
+          Nobody on them <span className="c">{sorted.length}</span>
+          <span className="grow" />
+          <span className="c">sorted by what is waiting there, not by size</span>
+        </h3>
+        <p className="cc-note">
+          A shelf earns a Fellow when it holds questions nobody is answering.
+          {top && top.questions + top.gaps > 0 && (
+            <> <b>{top.key}</b> has the most: {top.questions} open question{top.questions === 1 ? '' : 's'} and {top.gaps} page{top.gaps === 1 ? '' : 's'} linked but never written.</>
+          )}
+        </p>
+        <div className="cc-rows">
+          {sorted.map((d, i) => (
+            <div key={d.key} className={`cc-row ${row === staffed.length + i ? 'sel' : ''}`} onClick={onSpawn}>
+              <span className="cc-id">
+                <span className="cc-idline">
+                  <span className="chip-dot" style={{ background: domainColor(d.key), opacity: 0.45 }} aria-hidden />
+                  <b>{d.key}</b>
                 </span>
-                <span className="cc-right">
-                  <span className="cc-bar" title="how much is waiting here"><i style={{ width: `${Math.min(100, (d.questions + d.gaps * 2) * 6)}%` }} /></span>
-                  <button className="btn sm" onClick={(e) => { e.stopPropagation(); onStaff(d.key) }}>Staff it ›</button>
+                <span className="cc-t">
+                  {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'} · {d.gaps} linked but never written
                 </span>
-              </div>
-            ))}
-          </div>
-          <p className="cc-note dim">
-            A shelf without a Fellow is not idle — ingests still file pages there. It only means nobody plans work for it
-            at night.
-          </p>
-        </section>
-      </div>
-    </>
+              </span>
+              <span className="cc-right">
+                <span className="cc-bar" title="how much is waiting here"><i style={{ width: `${Math.min(100, (d.questions + d.gaps * 2) * 6)}%` }} /></span>
+                <button className="btn sm" onClick={(e) => { e.stopPropagation(); onSpawn() }}>Staff it ›</button>
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="cc-note dim">
+          A shelf without a Fellow is not idle — ingests still file pages there. It only means nobody plans work for it at
+          night.
+        </p>
+      </section>
+    </div>
   )
 }
 
 function Dossier({
-  fellow: f,
+  fellow,
+  card,
+  recap,
   pane,
+  durations,
   setPane,
   onBack,
   onStep,
+  onAct,
+  busy,
 }: {
-  fellow: CcFellow
+  fellow: FellowSummary
+  card: FellowCard | undefined
+  recap: RecapFellow | undefined
   pane: Pane
+  durations: Readonly<Record<string, number | null>>
   setPane: (p: Pane) => void
   onBack: () => void
   onStep: (delta: number) => void
+  onAct: (what: 'step' | 'plan' | 'pause' | 'resume') => void
+  busy: boolean
 }): React.ReactElement {
-  const active = f.tasks.filter((t) => t.resting !== true)
-  const resting = f.tasks.filter((t) => t.resting === true)
-  const upNext = tonightTasks(f)[0]
+  const a: FellowRecord = fellow.agent
+  const active = a.tasks.filter((t) => t.state === 'active')
+  const resting = a.tasks.filter((t) => t.state !== 'active')
+  const upNext = tasksTonight(a)[0]
+  const art = artOf(a.tasks)
+  const runs = card?.runs ?? []
+  const pages = card?.pages ?? []
   const panes: Array<[Pane, string]> = [
     ['notebook', 'Notebook'],
     ['recap', 'Recap'],
-    ['ledger', `Ledger ${f.ledger.length}`],
-    ['pages', `Pages ${f.pages.length}`],
+    ['ledger', `Ledger ${runs.length}`],
+    ['pages', `Pages ${pages.length}`],
     ['settings', 'Settings'],
   ]
-  const nightly = tonightTasks(f).reduce((n, t) => n + taskMinutes(t.kind), 0)
-  const nightlyUsd = tonightTasks(f).reduce((n, t) => n + taskUsd(t.kind, f.model), 0)
+  const nightly = tasksTonight(a).reduce((n, t) => n + minutesFor(t.kind, durations), 0)
 
   return (
     <>
       <div className="cc-line2">
         <button className="cc-back" onClick={onBack} title="Back to tonight · Esc">‹</button>
         <span className="cc-lead">
-          <b>{f.name}</b>
-          {(['watch', 'explore', 'deepen'] as TaskKind[]).map((a) => {
-            const n = f.tasks.filter((t) => t.kind === a).length
-            return n === 0 ? null : <span key={a} className={`cc-art a-${a}`} title={ART_TEXT[a]}>{a}{n > 1 ? ` ×${n}` : ''}</span>
+          <b>{a.name}</b>
+          {(['watch', 'explore', 'deepen'] as TaskKind[]).map((k) => {
+            const n = a.tasks.filter((t) => t.kind === k).length
+            return n === 0 ? null : <span key={k} className={`cc-art a-${k}`} title={ART_TEXT[k]}>{k}{n > 1 ? ` ×${n}` : ''}</span>
           })}
-          <span className={`sev ${f.state === 'working' ? 'rec' : f.state === 'paused' ? 'mut' : 'ok'}`}>{f.state}</span>
-          <span className="cc-sub">{AUTONOMY_TEXT[f.autonomy].short}</span>
+          <span className={`sev ${fellow.currentRun ? 'rec' : a.state === 'paused' ? 'mut' : 'ok'}`}>
+            {fellow.currentRun ? 'working' : a.state}
+          </span>
+          <span className="cc-sub">{autonomyOf(a.autonomy).short}</span>
         </span>
         <span className="grow" />
         <span className="cc-step">
@@ -700,8 +734,12 @@ function Dossier({
           <span>Fellow</span>
           <button onClick={() => onStep(1)} title="Next Fellow · →">›</button>
         </span>
-        <button className="btn sm">Plan now</button>
-        <button className="btn primary sm">Run a task now</button>
+        <button className="btn sm" disabled={busy} onClick={() => onAct('plan')}>Plan now</button>
+        {a.state === 'paused' ? (
+          <button className="btn primary sm" disabled={busy} onClick={() => onAct('resume')}>Resume</button>
+        ) : (
+          <button className="btn primary sm" disabled={busy} onClick={() => onAct('step')}>Run a task now</button>
+        )}
       </div>
 
       <div className="cc-fixed">
@@ -712,7 +750,7 @@ function Dossier({
               <span className={`cc-art a-${upNext.kind}`}>{upNext.kind}</span>
               <span className="cc-upnext-t">{upNext.text}</span>
               <span className="grow" />
-              <span className="mono-meta">{Math.round(nightly)} min tonight · ${nightlyUsd.toFixed(2)}</span>
+              <span className="mono-meta">{nightly} min tonight · {card ? `${card.quota.usedToday} of ${card.quota.runsPerDay} runs used` : ''}</span>
             </>
           ) : (
             <>
@@ -730,155 +768,129 @@ function Dossier({
           </span>
           <span className="grow" />
           <span className="mono-meta">
-            {pane === 'notebook'
-              ? `wiki/meta/agents/${f.id}.md`
-              : pane === 'recap'
-                ? 'one Fellow’s slice · the wall board keeps the whole'
-                : pane === 'ledger'
-                  ? 'a row opens the page it filed'
-                  : pane === 'settings'
-                    ? 'changes apply to the next night'
-                    : ''}
+            {pane === 'notebook' ? a.notebookPath
+              : pane === 'recap' ? 'one Fellow’s slice · the wall board keeps the whole'
+                : pane === 'ledger' ? 'a row opens the page it filed'
+                  : pane === 'settings' ? 'changes apply to the next night' : ''}
           </span>
         </div>
 
         <div className="cc-area">
-          {pane === 'notebook' &&
-            (f.notebook.length === 0 ? (
-              <p className="empty">Nothing written yet.</p>
-            ) : (
-              <div className="cc-prose">
-                {f.notebook.map((n) => (
-                  <p key={n.head}><b>{n.head}.</b> {n.body}</p>
-                ))}
-              </div>
-            ))}
+          {pane === 'notebook' && <Notebook path={a.notebookPath} />}
 
           {pane === 'recap' && (
             <div className="cc-prose">
-              {f.recap.ran ? (
-                <p className="mono-meta">{f.recap.date} · {f.recap.pages} pages · {f.recap.cost} · ran inside the window</p>
+              {recap === undefined ? (
+                <p className="empty">No recap covers this Fellow yet.</p>
               ) : (
-                <p className="cc-note warn">{f.recap.date} · did not run: {f.recap.reason}</p>
-              )}
-              {f.recap.found.length > 0 && (
                 <>
-                  <h5>What it found</h5>
-                  {f.recap.found.map((x) => <p key={x}>{x}</p>)}
+                  {recap.runs.length > 0 ? (
+                    <p className="mono-meta">{recap.runs.length} run(s) in the last recap</p>
+                  ) : (
+                    <p className="cc-note warn">Did not run: {recap.sleepReason ?? 'nothing worth a run'}</p>
+                  )}
+                  {recap.found.length > 0 && (
+                    <>
+                      <h5>What it found</h5>
+                      {recap.found.map((x) => <p key={x}>{x}</p>)}
+                    </>
+                  )}
+                  {recap.openQuestions.length > 0 && (
+                    <>
+                      <h5>Questions it raised</h5>
+                      <ul className="cc-list">{recap.openQuestions.map((q) => <li key={q}>{q}</li>)}</ul>
+                    </>
+                  )}
+                  <h5>Did you use it</h5>
+                  <p className="mono-meta">{recap.value.pageOpens} page open(s) · {recap.value.recapLinks} link(s) followed</p>
+                  <p className="cc-note dim">
+                    {a.name}’s slice of the last recap. The wall board in the Library keeps the whole night.
+                  </p>
                 </>
               )}
-              {f.recap.questions.length > 0 && (
-                <>
-                  <h5>Questions it raised</h5>
-                  <ul className="cc-list">{f.recap.questions.map((q) => <li key={q}>{q}</li>)}</ul>
-                </>
-              )}
-              {f.recap.proposals.length > 0 && (
-                <>
-                  <h5>What it proposed</h5>
-                  <ul className="cc-list">
-                    {f.recap.proposals.map((p) => (
-                      <li key={p.topic}>
-                        <span className={`sev ${p.status === 'approved' ? 'ok' : p.status === 'vetoed' ? 'mut' : 'due'}`}>{p.status}</span> {p.topic}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              <h5>Did you use it</h5>
-              <p className="mono-meta">{f.recap.opens} page open(s) this month</p>
-              <p className="cc-note dim">
-                {f.name}’s slice of last night. The wall board in the Library keeps the whole night, every Fellow together.
-              </p>
             </div>
           )}
 
           {pane === 'ledger' &&
-            (f.ledger.length === 0 ? (
+            (runs.length === 0 ? (
               <p className="empty">No runs yet.</p>
             ) : (
               <table className="cc-ledger">
-                <thead>
-                  <tr><th>When</th><th>Task</th><th>Out</th><th>Cost</th></tr>
-                </thead>
+                <thead><tr><th>When</th><th>Task</th><th>Out</th><th>Cost</th></tr></thead>
                 <tbody>
-                  {f.ledger.map((r) => (
-                    <tr
-                      key={r.when}
-                      className={r.page === undefined ? '' : 'open'}
-                      title={r.page === undefined ? 'A planning run files no page' : `Open ${r.page.split('/').pop()?.replace(/\.md$/, '')}`}
-                      onClick={() => { if (r.page !== undefined) navigate(pageRoute(r.page)) }}
-                    >
-                      <td className="n">{r.when}</td>
-                      <td className="t">{r.topic} <span className="sev mut">{r.kind}</span></td>
-                      <td className="n">{r.out}</td>
-                      <td className="n">{r.cost}</td>
-                    </tr>
-                  ))}
+                  {runs.map((r) => {
+                    const page = r.pages.find((p) => p.startsWith('wiki/questions/')) ?? r.pages[0]
+                    return (
+                      <tr
+                        key={r.id}
+                        className={page === undefined ? '' : 'open'}
+                        title={page === undefined ? 'This run filed no page' : `Open ${page.split('/').pop()?.replace(/\.md$/, '')}`}
+                        onClick={() => { if (page !== undefined) navigate(pageRoute(page)) }}
+                      >
+                        <td className="n">{r.finishedAt.slice(5, 16).replace('T', ' ')}</td>
+                        <td className="t">{r.label ?? r.kind} <span className="sev mut">{r.kind}</span></td>
+                        <td className="n">{r.pages.length} page{r.pages.length === 1 ? '' : 's'}</td>
+                        <td className="n">{usd(r.costUsd ?? 0)}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             ))}
 
           {pane === 'pages' &&
-            (f.pages.length === 0 ? (
+            (pages.length === 0 ? (
               <p className="empty">No pages yet.</p>
             ) : (
-              <ul className="cc-pages">{f.pages.map((p) => <li key={p}><span className="p">{p}</span></li>)}</ul>
+              <ul className="cc-pages">
+                {pages.map((p) => (
+                  <li key={p} onClick={() => navigate(pageRoute(p))}>
+                    <span className="p">{p.split('/').pop()?.replace(/\.md$/, '')}</span>
+                  </li>
+                ))}
+              </ul>
             ))}
 
           {pane === 'settings' && (
             <div className="cc-settings">
               <section className="wide">
-                <h5>
-                  Standing work
-                  <span className="lead">— {f.art === 'custom' ? 'any mix, up to 3' : `${f.art} tasks only, up to ${f.cap}`}</span>
-                </h5>
+                <h5>Standing work <span className="lead">— {art === 'custom' ? 'a mix of arts' : `${art} only`}, up to 3</span></h5>
                 <div className="cc-card">
                   <ul className="cc-tasks">
                     {active.map((t, i) => (
-                      <li key={t.text} className={i === 0 ? 'on' : ''}>
+                      <li key={t.id} className={i === 0 ? 'on' : ''}>
                         <span className={`cc-art a-${t.kind}`}>{t.kind}</span>
                         <span className="t">{t.text}</span>
                         <span className="mono-meta">{i === 0 ? 'up next' : 'waiting'}</span>
                       </li>
                     ))}
                     {resting.map((t) => (
-                      <li key={t.text} className="rest">
+                      <li key={t.id} className="rest">
                         <span className={`cc-art a-${t.kind}`}>{t.kind}</span>
                         <span className="t">{t.text}</span>
                         <span className="mono-meta">at rest</span>
                       </li>
                     ))}
                   </ul>
-                  {active.length < f.cap && (
-                    <button className={`btn sm ${active.length === 0 ? 'primary' : ''}`}>
-                      + {active.length === 0 ? 'Give it a new' : 'Add another'} {f.art === 'custom' ? 'task' : `${f.art} task`}
-                    </button>
-                  )}
                   <p className="cc-note dim">
-                    {f.art === 'custom' ? (
+                    {art === 'custom' ? (
                       <><b>watch</b> {ART_TEXT.watch} <b>explore</b> {ART_TEXT.explore} <b>deepen</b> {ART_TEXT.deepen}</>
                     ) : (
-                      <><b>{f.art}</b> {ART_TEXT[f.art]}</>
-                    )}
+                      <><b>{art}</b> {ART_TEXT[art]}</>
+                    )}{' '}
+                    Editing the list is not built into this window yet (TASKS-A7 3.3).
                   </p>
                 </div>
               </section>
               <section>
                 <h5>How much of the night</h5>
                 <div className="cc-card">
-                  <span className="seg">
-                    <button className={f.mode === 'sweep' ? 'active' : ''}>All {active.length}, every night</button>
-                    <button className={f.mode === 'rotate' ? 'active' : ''}>One a night</button>
-                  </span>
                   <p className="cc-note">
-                    A <b>task</b> is one piece of research: read the sources, write or extend a page, update the notebook.
-                    Each carries its own planning run, measured at 1.4 min.
+                    <b>One task a night</b>, taken in turn: each of {active.length} comes round every {active.length} night
+                    {active.length === 1 ? '' : 's'}. Working every task each night is the change TASKS-A7 3.3 calls for and
+                    is not built.
                   </p>
-                  <p className="cc-note dim">
-                    {Math.round(nightly)} min a night, about ${nightlyUsd.toFixed(2)} · a week costs ${(nightlyUsd * 7).toFixed(0)},
-                    roughly {((nightlyUsd * 7) / 8).toFixed(1)} points of the plan.
-                  </p>
+                  <p className="cc-note dim">{nightly} min tonight · {card ? `${card.quota.runsPerDay} run(s) a day allowed` : ''}</p>
                 </div>
               </section>
               <section>
@@ -886,13 +898,13 @@ function Dossier({
                 <div className="cc-card">
                   <span className="seg">
                     {(['manual', 'veto', 'auto'] as const).map((k) => (
-                      <button key={k} className={f.autonomy === k ? 'active' : ''}>{AUTONOMY_TEXT[k].label}</button>
+                      <button key={k} className={a.autonomy === k ? 'active' : ''}>{autonomyOf(k).label}</button>
                     ))}
                   </span>
-                  <p className="cc-note">{AUTONOMY_TEXT[f.autonomy].long}</p>
+                  <p className="cc-note">{autonomyOf(a.autonomy).long}</p>
                   <p className="cc-note dim">
-                    A proposal stands for two nights and then expires — approved ones too. Approving moves one ahead of
-                    the others; it is not what permits it to run.
+                    A proposal stands for two nights and then expires — approved ones too. Approving moves one ahead of the
+                    others; it is not what permits it to run.
                   </p>
                 </div>
               </section>
@@ -900,8 +912,9 @@ function Dossier({
                 <h5>Model, effort, share</h5>
                 <div className="cc-card">
                   <span className="mono-meta">
-                    {f.model.toLowerCase()} · {f.effort.toLowerCase()} effort · {f.depth.toLowerCase()} depth · {f.lens} lens ·{' '}
-                    {f.weekPct}% of the week · this week {f.week.runs} run(s), ${f.week.usd.toFixed(2)}, {f.week.points} points
+                    {a.model} · {a.effort} effort · {a.step} depth · {a.lens} lens
+                    {a.quotaWeekPct !== null ? ` · ${a.quotaWeekPct}% of the week` : ''}
+                    {card ? ` · this week ${card.spend.runsWeek} run(s), ${usd(card.spend.weekUsd)}` : ''}
                   </span>
                 </div>
               </section>
@@ -913,101 +926,115 @@ function Dossier({
   )
 }
 
+/** The notebook is a vault page; the window shows what the page says, not a copy of it. */
+function Notebook({ path }: { path: string }): React.ReactElement {
+  const page = useQuery({ queryKey: ['page', path], queryFn: () => api.page(path), staleTime: 30_000 })
+  const state = queryState(page, 'the notebook')
+  if (state) return <>{state}</>
+  return <pre className="cc-notebook">{page.data?.markdown ?? ''}</pre>
+}
+
 function Decisions({
   list,
   at,
   opt,
-  decided,
   span,
   onPick,
   onOpt,
   onDecide,
+  busy,
   onBack,
 }: {
-  list: ReadonlyArray<{ d: CcDomain; f: CcFellow }>
+  list: ReadonlyArray<{ shelf: Shelf; fellow: FellowSummary }>
   at: number
   opt: number
-  decided: Record<string, 'approved' | 'vetoed'>
   span: number
   onPick: (i: number) => void
   onOpt: (i: number) => void
-  onDecide: (id: string, how: 'approved' | 'vetoed') => void
+  onDecide: (id: string, status: 'approved' | 'vetoed') => void
+  busy: boolean
   onBack: () => void
 }): React.ReactElement {
-  if (list.length === 0) {
+  const here = list[at]
+  const card = useQuery({
+    queryKey: ['agent-card', here?.fellow.agent.id],
+    queryFn: () => api.agentCard(here!.fellow.agent.id),
+    enabled: here !== undefined,
+  })
+  if (!here) {
     return (
       <>
         <div className="cc-line2">
-          <button className="cc-back" onClick={onBack} title="Back to tonight · Esc">‹</button>
+          <button className="cc-back" onClick={onBack} title="Back · Esc">‹</button>
           <span className="cc-lead"><b>Decisions</b></span>
         </div>
-        <div className="lib-window-body cc-body">
-          <p className="empty">Nothing is waiting for a decision.</p>
-        </div>
+        <div className="lib-window-body cc-body"><p className="empty">Nothing is waiting for a decision.</p></div>
       </>
     )
   }
-  const { d, f } = list[at]!
-  const open = f.options.filter((o) => decided[o.id] === undefined)
+  const a = here.fellow.agent
+  const open = (card.data?.proposals ?? []).filter((p) => p.status === 'proposed' || p.status === 'approved')
+  const artFor = (p: ProposalRecord): TaskKind =>
+    a.tasks.find((t) => t.text === p.provenance.task)?.kind ?? 'explore'
   const groups = (['watch', 'explore', 'deepen'] as TaskKind[])
-    .map((a) => ({ art: a, items: f.options.map((o, i) => ({ o, i })).filter((x) => x.o.art === a) }))
+    .map((art) => ({ art, items: open.map((p, i) => ({ p, i })).filter((x) => artFor(x.p) === art) }))
     .filter((g) => g.items.length > 0)
 
   return (
     <>
       <div className="cc-line2">
-        <button className="cc-back" onClick={onBack} title="Back to tonight · Esc">‹</button>
+        <button className="cc-back" onClick={onBack} title="Back · Esc">‹</button>
         <span className="cc-lead">
-          <b>{f.name}</b>
-          <span className="cc-sub">{d.key} · {AUTONOMY_TEXT[f.autonomy].label.toLowerCase()} · {open.length} of {f.options.length} undecided</span>
+          <b>{a.name}</b>
+          <span className="cc-sub">{here.shelf.key} · {autonomyOf(a.autonomy).label.toLowerCase()} · {open.length} undecided</span>
         </span>
         <span className="grow" />
       </div>
       <div className="cc-dec-wrap">
         <div className="cc-rail">
           <h6>Up for review</h6>
-          {list.map(({ d: dd, f: ff }, i) => (
-            <div key={ff.id} className={`cc-rail-i ${i === at ? 'on' : ''}`} onClick={() => onPick(i)}>
-              <span className="nm">{ff.name}<i>{dd.key}</i></span>
-              <span className="cnt">{ff.options.filter((o) => decided[o.id] === undefined).length}</span>
+          {list.map(({ shelf, fellow }, i) => (
+            <div key={fellow.agent.id} className={`cc-rail-i ${i === at ? 'on' : ''}`} onClick={() => onPick(i)}>
+              <span className="nm">{fellow.agent.name}<i>{shelf.key}</i></span>
+              <span className="cnt">{fellow.pendingProposals}</span>
             </div>
           ))}
         </div>
         <div className="cc-dec-main">
           <div className="cc-fits">
-            {f.autonomy === 'manual' ? (
-              <><b>Nothing here runs until you approve it.</b> {f.name} asks every time.</>
+            {a.autonomy === 'manual' ? (
+              <><b>Nothing here runs until you approve it.</b> {a.name} asks every time.</>
             ) : (
-              <><b>The top option of each task runs tomorrow night on its own.</b> Veto is how you stop it; approving only moves one ahead of the others.</>
+              <><b>The top option runs tomorrow night on its own.</b> Veto is how you stop it; approving only moves one ahead of the others.</>
             )}
             <span className="grow" />
             <span className="mono-meta">a proposal stands for two nights, then it expires</span>
           </div>
-
-          {groups.map((g) => (
-            <div key={g.art} className="cc-group">
-              <h4>
-                <span className={`cc-art a-${g.art}`}>{g.art}</span>
-                <span className="c">{g.items.length} option{g.items.length > 1 ? 's' : ''} for the same task</span>
-                <span className="grow" />
-                <span className="mono-meta">{ART_TEXT[g.art]}</span>
-              </h4>
-              {g.items.map(({ o, i }) => (
-                <Option
-                  key={o.id}
-                  option={o}
-                  rank={i + 1}
-                  current={i === opt && decided[o.id] === undefined}
-                  verdict={decided[o.id]}
-                  first={i === 0}
-                  autonomy={f.autonomy}
-                  span={span}
-                  onSelect={() => onOpt(i)}
-                  onDecide={(how) => onDecide(o.id, how)}
-                />
-              ))}
-            </div>
-          ))}
+          {queryState(card, 'the proposals') ??
+            groups.map((g) => (
+              <div key={g.art} className="cc-group">
+                <h4>
+                  <span className={`cc-art a-${g.art}`}>{g.art}</span>
+                  <span className="c">{g.items.length} option{g.items.length > 1 ? 's' : ''} for the same task</span>
+                  <span className="grow" />
+                  <span className="mono-meta">{ART_TEXT[g.art]}</span>
+                </h4>
+                {g.items.map(({ p, i }) => (
+                  <Option
+                    key={p.id}
+                    proposal={p}
+                    rank={i + 1}
+                    current={i === opt}
+                    first={i === 0}
+                    autonomy={a.autonomy}
+                    span={span}
+                    busy={busy}
+                    onSelect={() => onOpt(i)}
+                    onDecide={(status) => onDecide(p.id, status)}
+                  />
+                ))}
+              </div>
+            ))}
         </div>
       </div>
     </>
@@ -1015,223 +1042,124 @@ function Decisions({
 }
 
 function Option({
-  option: o,
+  proposal: p,
   rank,
   current,
-  verdict,
   first,
   autonomy,
   span,
+  busy,
   onSelect,
   onDecide,
 }: {
-  option: CcOption
+  proposal: ProposalRecord
   rank: number
   current: boolean
-  verdict: 'approved' | 'vetoed' | undefined
   first: boolean
-  autonomy: CcFellow['autonomy']
+  autonomy: string
   span: number
+  busy: boolean
   onSelect: () => void
-  onDecide: (how: 'approved' | 'vetoed') => void
+  onDecide: (status: 'approved' | 'vetoed') => void
 }): React.ReactElement {
-  const drift = o.scope < DRIFT_THRESHOLD
-  const runsByDefault = first && autonomy !== 'manual' && !drift
+  const drift = p.scopeScore < DRIFT_THRESHOLD
+  const approved = p.status === 'approved'
+  const runsByDefault = first && autonomy !== 'manual' && !drift && !approved
+  const minutes = Math.round((p.estCostUsd ?? 2.5) * 3)
   return (
-    <div className={`cc-opt ${current ? 'cur' : ''} ${verdict === 'approved' ? 'ok' : ''} ${verdict === 'vetoed' ? 'gone' : ''}`} onClick={onSelect}>
+    <div className={`cc-opt ${current ? 'cur' : ''} ${approved ? 'ok' : ''}`} onClick={onSelect}>
       <div className="cc-opt-head">
         <span className="cc-rank">{rank}</span>
         <div>
-          <div className="cc-opt-t">{o.topic}</div>
+          <div className="cc-opt-t">{p.topic}</div>
           <div className="cc-opt-meta">
-            <span className="sev mut">{o.kind}</span>
-            <span className="sev mut">{o.pageSet ? `extends ${o.pageSet.length} pages` : o.lens}</span>
-            <span className="mono-meta">up to {o.minutes} min · about ${o.costUsd.toFixed(2)} · {Math.round((o.minutes / span) * 100)}% of tonight</span>
+            <span className="sev mut">{p.kind}</span>
+            <span className="sev mut">{p.pageSet.length > 0 ? `extends ${p.pageSet.length} pages` : p.lens}</span>
+            <span className="mono-meta">
+              about {usd(p.estCostUsd ?? 0)}
+              {p.estPlanPct !== null ? ` · ${p.estPlanPct} points` : ''}
+              {span > 0 ? ` · ${Math.round((minutes / span) * 100)}% of tonight` : ''}
+            </span>
             <span className="cc-scope" title="token overlap with what you asked this Fellow to follow">
               <span className="mono-meta">fit</span>
-              <span className="cc-bar"><i style={{ width: `${Math.round(o.scope * 100)}%` }} /></span>
-              <span className="mono-meta">{Math.round(o.scope * 100)}%</span>
+              <span className="cc-bar"><i style={{ width: `${Math.round(p.scopeScore * 100)}%` }} /></span>
+              <span className="mono-meta">{Math.round(p.scopeScore * 100)}%</span>
             </span>
           </div>
         </div>
         <span>
-          {verdict === 'approved' ? <span className="sev ok">approved — runs first</span>
-            : verdict === 'vetoed' ? <span className="sev mut">vetoed</span>
-              : drift ? <span className="sev due" title="scope below the drift threshold of 0.2">drift · will not run</span>
-                : runsByDefault ? <span className="sev ok">runs unless vetoed</span>
-                  : <span className="sev mut">alternative</span>}
+          {approved ? <span className="sev ok">approved — runs first</span>
+            : drift ? <span className="sev due" title="scope below the drift threshold of 0.2">drift · will not run</span>
+              : runsByDefault ? <span className="sev ok">runs unless vetoed</span>
+                : <span className="sev mut">alternative</span>}
         </span>
       </div>
-      <div className="cc-why"><p>{o.rationale}</p></div>
-      {o.pageSet && (
+      <div className="cc-why"><p>{p.rationale}</p></div>
+      {p.pageSet.length > 0 && (
         <div className="cc-prov">
           <span className="lbl">will extend</span>
-          {o.pageSet.map((p) => <a key={p}>{p}</a>)}
+          {p.pageSet.map((x) => <a key={x} onClick={(e) => { e.stopPropagation(); navigate(pageRoute(x)) }}>{x.split('/').pop()?.replace(/\.md$/, '')}</a>)}
           <span className="lbl">no new pages</span>
         </div>
       )}
       <div className="cc-prov">
         <span className="lbl">came from</span>
-        <span className="sev mut">{o.from.candidate}</span>
-        <span>{o.from.text}</span>
-        <span className="lbl">read on</span>
-        <a>{o.from.page}</a>
+        <span className="sev mut">{p.provenance.candidate}</span>
+        <span>{p.provenance.text}</span>
+        {p.provenance.sourcePages[0] !== undefined && (
+          <>
+            <span className="lbl">read on</span>
+            <a onClick={(e) => { e.stopPropagation(); navigate(pageRoute(p.provenance.sourcePages[0]!)) }}>
+              {p.provenance.sourcePages[0].split('/').pop()?.replace(/\.md$/, '')}
+            </a>
+          </>
+        )}
       </div>
-      {verdict === undefined && (
-        <div className="cc-opt-foot">
-          <span className="grow" />
-          <button className="btn sm">Edit topic</button>
-          {runsByDefault ? (
-            <>
-              <button className="btn sm" onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>Approve anyway</button>
-              <button className="btn primary sm" onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
-            </>
-          ) : (
-            <>
-              <button className="btn sm" onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
-              <button className="btn primary sm" onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>
+      <div className="cc-opt-foot">
+        <span className="grow" />
+        {runsByDefault ? (
+          <>
+            <button className="btn sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>Approve anyway</button>
+            <button className="btn primary sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
+          </>
+        ) : (
+          <>
+            <button className="btn sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
+            {!approved && (
+              <button className="btn primary sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>
                 Approve{drift ? ' — it drifts' : ' — run this one'}
               </button>
-            </>
-          )}
-        </div>
-      )}
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
 
-function Spawn({
-  shelf,
-  shape,
-  index,
-  gear,
-  onShape,
-  onGear,
-  onBack,
-}: {
-  shelf: string
-  shape: CcShape
-  index: number
-  gear: boolean
-  onShape: (i: number) => void
-  onGear: () => void
-  onBack: () => void
-}): React.ReactElement {
-  const [tasks, setTasks] = useState<Array<{ kind: TaskKind; text: string }>>([{ kind: shape.art === 'custom' ? 'watch' : shape.art, text: '' }])
-  // A different shape means a different art, so the draft starts over rather than keeping a
-  // task the new shape would not allow.
-  useEffect(() => setTasks([{ kind: shape.art === 'custom' ? 'watch' : shape.art, text: '' }]), [shape.art])
-  const arts: TaskKind[] = shape.art === 'custom' ? ['watch', 'explore', 'deepen'] : [shape.art]
-
+/**
+ * Spawning still runs through the form the Library already had. The four worked examples of
+ * the design need an art per Fellow to enforce, which the service does not have (A7 3.3.2),
+ * so this points at what exists rather than drawing a chooser that cannot keep its promise.
+ */
+function Spawn({ shelf, onBack }: { shelf: string; onBack: () => void }): React.ReactElement {
   return (
     <>
       <div className="cc-line2">
-        <button className="cc-back" onClick={onBack} title="Back to tonight · Esc">‹</button>
-        <span className="cc-lead">
-          <b>A new Fellow for {shelf}</b>
-          <span className="cc-sub">four shapes — the first three hold one art each, the fourth any mix</span>
-        </span>
-        <span className="grow" />
+        <button className="cc-back" onClick={onBack} title="Back · Esc">‹</button>
+        <span className="cc-lead"><b>A new Fellow{shelf ? ` for ${shelf}` : ''}</b></span>
       </div>
       <div className="lib-window-body cc-body">
         <section className="cc-block">
-          <div className="cc-shapes">
-            {SHAPES.map((s, i) => (
-              <div key={s.key} className={`cc-shape ${i === index ? 'sel' : ''}`} onClick={() => onShape(i)}>
-                <b>{s.name} <span className={`cc-art a-${s.art}`}>{s.art === 'custom' ? 'mixed' : s.art}</span></b>
-                <p className="want">“{s.want}”</p>
-                <p className="what">{s.what}</p>
-                <div className="specs">
-                  <span>up to {s.cap} tasks, {s.art === 'custom' ? 'any of the three arts' : `all of them ${s.art}`}</span>
-                  <span>{Math.round(taskMinutes(s.art === 'custom' ? 'watch' : s.art))} min a task · ${taskUsd(s.art === 'custom' ? 'watch' : s.art, s.model).toFixed(2)}</span>
-                  <span>{s.model.toLowerCase()}{s.model !== 'Sonnet' ? ` (×${s.model === 'Opus' ? '2.5' : '5'} the plan)` : ''} · {s.lens} · {s.weekPct}% of the week</span>
-                  <span>{AUTONOMY_TEXT[s.autonomy].short}</span>
-                </div>
-                <button className={`cc-gear ${i === index && gear ? 'open' : ''}`} onClick={(e) => { e.stopPropagation(); onShape(i); onGear() }} title="Customize">⚙</button>
-              </div>
-            ))}
-          </div>
-
-          {gear && (
-            <div className="cc-custom">
-              <h4>{shape.name}, adjusted</h4>
-              <p className="lead">
-                What the example set, and what you can change. The arts of the tasks live below, in the task list; this is
-                what belongs to the <b>Fellow</b> rather than to any one task.
-              </p>
-              <div className="cc-grid2">
-                <div className="f">
-                  <label>Lens</label>
-                  <span className="seg">{['broad', 'sota', 'patents', 'startups'].map((l) => <button key={l} className={l === shape.lens ? 'active' : ''}>{l}</button>)}</span>
-                </div>
-                <div className="f">
-                  <label>Model</label>
-                  <span className="seg">{['Sonnet', 'Opus', 'Fable'].map((m) => <button key={m} className={m === shape.model ? 'active' : ''}>{m}</button>)}</span>
-                  <p className="why">Opus costs 2.5× a Sonnet task against the weekly plan.</p>
-                </div>
-                <div className="f">
-                  <label>Effort</label>
-                  <span className="seg">{['Low', 'Medium', 'High'].map((x) => <button key={x} className={x === shape.effort ? 'active' : ''}>{x}</button>)}</span>
-                </div>
-                <div className="f">
-                  <label>Step depth</label>
-                  <span className="seg">{['Standard', 'Deep'].map((x) => <button key={x} className={x === shape.depth ? 'active' : ''}>{x}</button>)}</span>
-                  <p className="why">Deep follows its own leads one level further, on a 45-minute leash instead of 15.</p>
-                </div>
-                <div className="f">
-                  <label>Who decides</label>
-                  <span className="seg">{(['manual', 'veto', 'auto'] as const).map((k) => <button key={k} className={k === shape.autonomy ? 'active' : ''}>{AUTONOMY_TEXT[k].label}</button>)}</span>
-                  <p className="why">{AUTONOMY_TEXT[shape.autonomy].long}</p>
-                </div>
-                <div className="f">
-                  <label>Share of the week</label>
-                  <span className="mono-meta big">{shape.weekPct}%</span>
-                  <p className="why">A ceiling, not a target. Reached, it sleeps until the window resets.</p>
-                </div>
-              </div>
-            </div>
-          )}
+          <p className="cc-note">
+            The four shapes of the design — observer, researcher, librarian and custom — need one thing the service does
+            not have yet: an art per Fellow, so a shape can hold you to it (TASKS-A7 3.3.2). Until that lands, spawning
+            goes through the Library’s own form.
+          </p>
+          <button className="btn primary" onClick={() => { onBack(); navigate(`/library?spawn=1${shelf ? `&shelf=${encodeURIComponent(shelf)}` : ''}`) }}>
+            Open the spawn form
+          </button>
         </section>
-
-        <section className="cc-block">
-          <h3 className="cc-sec">
-            Standing work
-            <span className="grow" />
-            <span className="c">{shape.art === 'custom' ? 'any mix' : `${shape.art} tasks only`}, up to {shape.cap}</span>
-          </h3>
-          {tasks.map((t, i) => (
-            <div key={i} className="cc-taskrow">
-              <span className="seg vert">
-                {arts.map((a) => (
-                  <button key={a} className={a === t.kind ? 'active' : ''} title={ART_TEXT[a]} onClick={() => setTasks((ts) => ts.map((x, j) => (j === i ? { ...x, kind: a } : x)))}>{a}</button>
-                ))}
-              </span>
-              <textarea
-                rows={2}
-                value={t.text}
-                placeholder={t.kind === 'watch' ? 'a subject to follow' : t.kind === 'explore' ? 'a question to answer' : 'a theme to build out'}
-                onChange={(e) => setTasks((ts) => ts.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))}
-              />
-              {tasks.length > 1 && <button className="btn ghost sm" onClick={() => setTasks((ts) => ts.filter((_, j) => j !== i))}>✕</button>}
-            </div>
-          ))}
-          {tasks.length < shape.cap && (
-            <button className="btn sm" onClick={() => setTasks((ts) => [...ts, { kind: arts[0]!, text: '' }])}>
-              + Add another {shape.art === 'custom' ? 'task' : `${shape.art} task`}
-            </button>
-          )}
-        </section>
-
-        <section className="cc-block">
-          <h3 className="cc-sec">Name</h3>
-          <input className="input" defaultValue="Nadia" style={{ maxWidth: 220 }} />
-        </section>
-
-        <div className="cc-acts">
-          <span className="grow" />
-          <button className="btn" onClick={onBack}>Cancel</button>
-          <button className="btn primary" onClick={onBack}>Spawn the fellow</button>
-        </div>
       </div>
     </>
   )

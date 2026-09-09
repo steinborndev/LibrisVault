@@ -33,6 +33,7 @@ import { AGENT_AUTONOMIES, AGENT_EFFORTS, AGENT_MODELS, AGENT_STEPS, MODEL_FACTO
 import { readDomainRegistry, isValidDomainKey } from '../../pipeline/domains.js'
 import { isResearchProfileKey } from '../../pipeline/research-profiles.js'
 import { KIND_COST_USD } from '../../pipeline/planner.js'
+import { typicalRunMs } from '../../pipeline/run-duration.js'
 
 /** zod leaves optional keys as `undefined`; the service types are exact-optional, so drop them. */
 const compact = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
@@ -114,6 +115,17 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
       fellows: fellows.list(),
       models: AGENT_MODELS.map((m) => ({ key: m, id: MODEL_IDS[m], factor: MODEL_FACTOR[m] })),
       costs: KIND_COST_USD,
+      /*
+       * How long each kind of run usually takes, in ms, so a schedule can be drawn BEFORE
+       * anything starts. `typicalMs` on a run already answers this for one in flight; the
+       * command centre needs it for work that has not begun (docs/tasks/TASKS-A7.md 3.3.4).
+       */
+      durations: Object.fromEntries(
+        (['research', 'research-expand', 'research-step', 'plan'] as const).map((k) => [
+          k,
+          typicalRunMs(ctx.agentRuns?.list({ limit: 200 }) ?? [], k, null),
+        ]),
+      ),
       shift: ctx.shift?.status() ?? null,
     })
   })

@@ -279,8 +279,31 @@ what it says.
 A later second gesture falls out of this for free: dragging a Fellow **inside** a band sets
 its priority - same field, no new concept.
 
-## 4. Not built yet
+## 4. Built (2026-09-09)
 
-- The command centre itself; the mockups are in the scratchpad, not in the repo.
-- Retiring `FellowCard`: everything it does has a home in the new window, but the old card
-  stays until the new one is real.
+The command centre runs on the service's own data. `lib/command/model.ts` holds the arithmetic
+under test - which shelves exist and what is unanswered on them, which Fellow works tonight,
+how long the queue is - and the component only lays it out. The shelves come from the domain
+registry and the graph, the Fellows and their proposals from the agents API, the night's hours
+from the settings (and dragging them writes the setting back), and a task's length from
+`typicalRunMs` over the service's own history, newly exposed on `GET /api/v1/agents` as
+`durations` so a schedule can be drawn before anything starts.
+
+Measured against the live vault on the day it was wired: 21 shelves, 2 staffed, a 300-minute
+window holding 17 minutes of work - which is the diagnosis this whole milestone started from,
+now stated by the window itself rather than by a query someone had to think to run.
+
+## 4.1 Drawn but not wired
+
+Three controls say what they are rather than pretending, because the field behind them does
+not exist:
+
+- **Whether a Fellow works all its tasks in a night.** The dossier states the truth - one task
+  a night, each of N coming round every N nights - and names the change as unbuilt (3.3.1).
+- **The art a Fellow is limited to.** `artOf` derives it from the tasks, so the window can
+  group and label by art; enforcing it at spawn needs the field (3.3.2), so spawning still goes
+  through the Library's own form.
+- **The order of the shelves.** Shown as it will happen (priority, then age) and marked as not
+  settable per shelf; the decision on how it should be stored is 3.5.
+
+Retiring `FellowCard` waits on those three: everything else it does has a home here.

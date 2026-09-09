@@ -8621,6 +8621,12 @@ tr:focus-within .rowacts {
 .cc-bar-row { display: flex; align-items: center; gap: 10px; padding: 12px 18px 10px; flex: none; flex-wrap: wrap; }
 /* Prose gets a measure; a 66ch column is the difference between a page and a wall of text. */
 .cc-prose { max-width: 72ch; }
+/* The notebook is a vault page shown as it is written; the window is a reader, not an editor. */
+.cc-notebook {
+  margin: 0; max-width: 84ch; white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; color: var(--text-dim);
+}
+.cc-pages li { cursor: pointer; }
 .cc-ledger tr.open { cursor: pointer; }
 .cc-ledger tr.open:hover td { background: var(--accent-soft); }
 /* The reading area takes the window's whole remaining height and scrolls on its own - the

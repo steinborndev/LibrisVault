@@ -27,7 +27,6 @@ import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
 import { CommandCentre, type CcView } from '../components/library/CommandCentre.tsx'
-import { staffedIn } from '../lib/command/fixture.ts'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
@@ -114,10 +113,10 @@ export function LibraryScreen({
    */
   const [ccOpen, setCcOpen] = useState(ccParam !== '')
   const [ccStop, setCcStop] = useState(0)
-  const [ccOrder, setCcOrder] = useState<readonly string[]>([])
   const [ccView, setCcView] = useState<CcView>('shelves')
-  const ccStaffed = useMemo(() => staffedIn(ccOrder), [ccOrder])
-  const ccShelf = ccView === 'shelves' ? null : (ccStaffed[ccStop]?.key ?? null)
+  /* Reported up by the window: the headline names the shelf, the window knows which they are. */
+  const [ccShelves, setCcShelves] = useState<readonly string[]>([])
+  const ccShelf = ccView === 'shelves' ? null : (ccShelves[ccStop] ?? null)
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
@@ -647,11 +646,11 @@ export function LibraryScreen({
                     title="Overview — every shelf"
                     onClick={() => setCcView('shelves')}
                   />
-                  {ccStaffed.map((d, i) => (
+                  {ccShelves.map((key, i) => (
                     <i
-                      key={d.key}
+                      key={key}
                       className={ccView !== 'shelves' && i === ccStop ? 'on' : ''}
-                      title={d.key}
+                      title={key}
                       onClick={() => { setCcStop(i); setCcView('tonight') }}
                     />
                   ))}
@@ -774,11 +773,10 @@ export function LibraryScreen({
             <CommandCentre
               stop={ccStop}
               setStop={setCcStop}
-              order={ccOrder}
-              setOrder={setCcOrder}
               view={ccView}
               setView={setCcView}
               onClose={() => setCcOpen(false)}
+              onShelves={setCcShelves}
             />
           )}
 
