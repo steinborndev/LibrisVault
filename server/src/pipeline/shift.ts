@@ -360,8 +360,33 @@ export class NightShift {
   /** Starts the timer. Idempotent. */
   start(): void {
     if (this.timer) return
+    this.reconcileInterrupted()
     this.timer = setInterval(() => void this.tick(), this.tickMs)
     this.timer.unref?.()
+  }
+
+  /**
+   * Closes what a dead process left open, before the first tick can look at it.
+   *
+   * A round writes its row when it starts and rewrites it when it settles. A machine that goes
+   * down in between leaves a row with no `finishedAt`, which reads forever as a round still in
+   * progress - and the Fellows it had already started read forever as running. Both are
+   * memory facts persisted halfway; neither can be true after a restart, because the round
+   * that owned them is gone.
+   */
+  reconcileInterrupted(): void {
+    this.fellows.reconcileInterrupted()
+    const open = this.shifts.list(7).filter((r) => r.finishedAt === null)
+    for (const record of open) {
+      this.shifts.put({
+        ...record,
+        finishedAt: this.now().toISOString(),
+        // Marked in the row itself: the alternative is a round that reads as having run and
+        // found nothing, which is a very different claim than one that was cut off.
+        summary: { ...record.summary, interrupted: true },
+      })
+      this.log('warn', `shift: closed the round of ${record.cycleDate}, which a restart interrupted`)
+    }
   }
 
   stop(): void {

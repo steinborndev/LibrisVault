@@ -77,6 +77,12 @@ export interface ShiftSummary {
   readonly costUsd: number
   readonly merged?: readonly ShiftMerge[]
   readonly overlaps?: readonly ShiftOverlap[]
+  /**
+   * Set when a restart closed this round rather than the round closing itself. Without it an
+   * interrupted round is indistinguishable from one that ran and found nothing to do, which
+   * is a very different claim about the night.
+   */
+  readonly interrupted?: true
 }
 
 export interface ShiftRecord {
@@ -130,6 +136,7 @@ function toRecord(row: Row): ShiftRecord {
       costUsd: typeof parsed.costUsd === 'number' ? parsed.costUsd : 0,
       ...(Array.isArray(parsed.merged) ? { merged: parsed.merged } : {}),
       ...(Array.isArray(parsed.overlaps) ? { overlaps: parsed.overlaps } : {}),
+      ...(parsed.interrupted === true ? { interrupted: true as const } : {}),
     }
   } catch {
     /* a corrupt summary must not hide the shift */

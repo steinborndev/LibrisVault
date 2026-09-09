@@ -1382,15 +1382,57 @@ export class FellowService {
     }
   }
 
+  /**
+   * Frees Fellows left `active` by a process that died mid-run (called once at startup).
+   *
+   * `active` means "a run is in flight right now", and that fact lives in two places: the row
+   * in SQLite, and the settle subscription in {@link track}, which is memory. A process that
+   * goes away between the two - a crash, a machine shutting down at one in the morning - keeps
+   * the row and loses the subscription, so nothing ever writes the state back.
+   *
+   * The cost of leaving it is not a runaway but the opposite: the shift skips an `active`
+   * Fellow in BOTH phases ("a run is already in flight", and again when planning), so a flag
+   * nobody can see quietly takes it out of service for good. This is the same gap the queue
+   * closes for interrupted jobs; the Fellows had no equivalent.
+   *
+   * Safe to call at any time: a run that really is in flight is in `inFlight`, and is skipped.
+   */
+  reconcileInterrupted(): string[] {
+    const now = this.now().toISOString()
+    const freed: string[] = []
+    for (const agent of this.agents.list()) {
+      if (agent.state !== 'active' || this.inFlight.has(agent.id)) continue
+      this.agents.update(
+        agent.id,
+        {
+          state: 'sleeping',
+          sleepReason: 'a run was interrupted by a restart; the planner runs in the next night shift',
+          sleepCode: 'idle',
+        },
+        now,
+      )
+      freed.push(agent.name)
+    }
+    if (freed.length > 0) {
+      this.log('info', `fellows: freed after a restart interrupted a run: ${freed.join(', ')}`)
+    }
+    return freed
+  }
+
   async pause(id: string): Promise<AgentRecord | undefined> {
     return this.setState(id, { state: 'paused', sleepReason: 'paused by you', sleepCode: null })
   }
 
-  /** Resumes a paused Fellow; also clears `blocked` (the user has seen the failure). */
+  /**
+   * Resumes a paused Fellow; also clears `blocked` (the user has seen the failure) and
+   * `active` (a run that no longer exists, if reconciliation somehow did not catch it - the
+   * user should not have to go through `pause` to get out of a state the service left behind).
+   */
   async resume(id: string): Promise<AgentRecord | undefined> {
     const agent = this.agents.get(id)
     if (!agent) return undefined
-    if (agent.state !== 'paused' && agent.state !== 'blocked') return agent
+    const stuck = agent.state === 'active' && !this.inFlight.has(agent.id)
+    if (agent.state !== 'paused' && agent.state !== 'blocked' && !stuck) return agent
     const pending = this.pendingProposals(id).length > 0
     return this.setState(
       id,

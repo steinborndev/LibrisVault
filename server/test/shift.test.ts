@@ -306,6 +306,66 @@ describe('planning, proposals and the night shift', () => {
   const notebook = (agent: AgentRecord): string => fs.readFileSync(path.join(h.vaultRoot, agent.notebookPath), 'utf8')
   const pending = (id: string): ProposalRecord[] => h.service.pendingProposals(id)
 
+  /*
+   * What a machine going down mid-round leaves behind (2026-09-09, from a real one at 01:00).
+   *
+   * `active` and an open shift row are memory facts written to disk halfway: the row says a
+   * run is in flight, and the thing that would have written the end of it - the settle
+   * subscription - died with the process. Nothing used to put them right, and the cost was
+   * silent, because the shift skips an `active` Fellow in BOTH phases. A Fellow could be
+   * taken out of service for good by one interrupted night.
+   */
+  describe('after a restart interrupted a round', () => {
+    it('frees a Fellow left active and closes the open round, before the first tick', async () => {
+      const ada = await spawn()
+      h.agents.update(ada.id, { state: 'active', sleepReason: null, sleepCode: null }, h.clock.now.toISOString())
+      h.shifts.put({
+        cycleDate: '2026-09-09',
+        trigger: 'timer',
+        startedAt: h.clock.now.toISOString(),
+        finishedAt: null,
+        summary: { executed: [], planned: [], skipped: [], costUsd: 0 },
+      })
+
+      h.shift.reconcileInterrupted()
+
+      const freed = h.agents.get(ada.id)!
+      expect(freed.state).toBe('sleeping')
+      expect(freed.sleepReason).toContain('interrupted by a restart')
+      const round = h.shifts.get('2026-09-09')!
+      expect(round.finishedAt).not.toBeNull()
+      // Marked, not merely closed: an empty summary alone would read as a round that ran and
+      // found nothing to do.
+      expect(round.summary.interrupted).toBe(true)
+    })
+
+    it('leaves a settled round and a sleeping Fellow alone', async () => {
+      const ada = await spawn()
+      h.shifts.put({
+        cycleDate: '2026-09-08',
+        trigger: 'timer',
+        startedAt: h.clock.now.toISOString(),
+        finishedAt: h.clock.now.toISOString(),
+        summary: { executed: [], planned: [], skipped: [], costUsd: 0 },
+      })
+      const before = h.agents.get(ada.id)!
+
+      h.shift.reconcileInterrupted()
+
+      expect(h.agents.get(ada.id)!.updatedAt).toBe(before.updatedAt)
+      expect(h.shifts.get('2026-09-08')!.summary.interrupted).toBeUndefined()
+    })
+
+    it('resume gets a stuck Fellow out too, without the detour through pause', async () => {
+      // The reconciliation runs at startup; this is the escape hatch for a state the user is
+      // looking at right now. `resume` used to answer only to `paused` and `blocked`.
+      const ada = await spawn()
+      h.agents.update(ada.id, { state: 'active', sleepReason: null, sleepCode: null }, h.clock.now.toISOString())
+      const back = await h.service.resume(ada.id)
+      expect(back?.state).toBe('sleeping')
+    })
+  })
+
   /**
    * The task rotation (docs/agents/ideas.md, decision 2026-09-07). The unit tests pin the
    * arithmetic; this pins the thing that actually matters - that a different task reaches the
