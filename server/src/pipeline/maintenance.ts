@@ -307,6 +307,25 @@ const RUN_HISTORY_CAP = 25
 /** A research step is a bounded run; half the default timeout is plenty for one round. */
 const STEP_TIMEOUT_MS = 15 * 60_000
 /** A planning run reads and ranks; five minutes is the spec's bound (section 6.2). */
+/**
+ * What the hot cache may and may not carry, from the source repo's own wording for
+ * `wiki/hot.md`: "short, sanitized, and useful for the next session ... It must not contain
+ * secrets, raw transcripts, tool instructions, or claims that lack the same qualification
+ * found in canonical pages."
+ *
+ * The qualification clause is the one that matters most for a Fellow. Its pages are careful
+ * about the difference between what a source shows and what it merely suggests; a 500-word
+ * summary is exactly where that care gets compressed out, and the cache is then read into the
+ * start of every session as if it were settled.
+ *
+ * Not in the vault clone here (v1.9.2, tag `pre-curious-2026-09-07`) - it comes from a later
+ * version of the upstream repo, so it rides in the prompt rather than being read from a skill.
+ */
+const HOT_CACHE_CONTENT_RULES =
+  'It is written for the NEXT session: recent facts, changed pages, active threads and open ' +
+  'questions. Never secrets, raw transcript text, or tool instructions. Never state a claim ' +
+  'with more confidence than the page it came from - if the page hedges, the cache hedges.'
+
 export const PLAN_TIMEOUT_MS = 5 * 60_000
 /** An expand run deepens a few pages; twenty minutes covers a short web round plus the edits. */
 export const EXPAND_TIMEOUT_MS = 20 * 60_000
@@ -634,6 +653,7 @@ export class MaintenanceRunner {
       `Then REWRITE wiki/hot.md from scratch: it is a cache, not a journal - keep it under ${HOT_CACHE_WORD_BUDGET} ` +
       'words, carry over only what is still current, drop what this run superseded, and never append ' +
       "this run's summary below what an earlier one left there. " +
+      `${HOT_CACHE_CONTENT_RULES} ` +
       'Finally report how many pages you created and the key findings. ' +
       'Stay focused on the stated topic rather than broadening the scope.' +
       lens +
@@ -741,7 +761,8 @@ export class MaintenanceRunner {
       'Rewrite wiki/hot.md from scratch. It is a cache, not a journal: keep it under ' +
         `${HOT_CACHE_WORD_BUDGET} words and follow the wiki skill's hot-cache template (Last ` +
         'Updated, Key Recent Facts, Recent Changes, Active Threads). Set related: to the pages ' +
-        'of the latest pass only. Do not carry older passes over; they live in git history.',
+        'of the latest pass only. Do not carry older passes over; they live in git history. ' +
+        HOT_CACHE_CONTENT_RULES,
       'ingest',
     )
   }

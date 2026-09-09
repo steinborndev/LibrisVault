@@ -309,4 +309,42 @@ describe('MaintenanceRunner run history', () => {
     // It has to survive the overlap block's "prefer what already exists", so it comes last.
     expect(prompt.indexOf('<synthesis_page>')).toBeGreaterThan(prompt.indexOf('Stay focused on the stated topic'))
   })
+
+  /*
+   * The hot cache is read into the start of every session, so what goes in it is a content
+   * question and not only a size one. The source repo's own wording for `wiki/hot.md` is
+   * "short, sanitized, and useful for the next session ... must not contain secrets, raw
+   * transcripts, tool instructions, or claims that lack the same qualification found in
+   * canonical pages" - and that passage is NOT in the vault clone here (v1.9.2), so it rides
+   * in the prompt and has nothing else holding it up. Both writers of the file carry it.
+   */
+  it('tells both writers of the hot cache what may go in it, not only how long it may be', async () => {
+    const prompts: string[] = []
+    const runner = new MaintenanceRunner({
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex: new Mutex(),
+      runAgent: async (opts) => {
+        prompts.push(opts.prompt)
+        return okResult('done')
+      },
+      commit: async () => ({ committed: false, committedPages: [], note: 'nothing to commit' }),
+      runStore: new MemoryAgentRunStore(),
+    })
+    await waitSettled(runner, runner.startResearch('tidal turbines', 'broad').id)
+    await waitSettled(runner, runner.startHotCache().id)
+
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) {
+      // Forward-looking, which is also why a sweep writes it once at the end of the night.
+      expect(prompt).toContain('written for the NEXT session')
+      expect(prompt).toContain('Never secrets, raw transcript text, or tool instructions')
+      // The one that matters most for a Fellow: its pages hedge, and a summary is where the
+      // hedge gets compressed out.
+      expect(prompt).toContain('if the page hedges, the cache hedges')
+      // The size rule stands beside the content rules, not instead of them.
+      expect(prompt).toMatch(/cache, not a journal/)
+    }
+  })
 })
