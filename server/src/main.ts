@@ -62,6 +62,13 @@ export interface RunningService {
   stop(): Promise<void>
 }
 
+/**
+ * How long shutdown waits for the HTTP server before giving up on it. Long enough for a real
+ * upload or an in-flight request to finish, short enough that a systemd `restart` never sits
+ * in its own stop timeout.
+ */
+const HTTP_CLOSE_GRACE_MS = 5_000
+
 export async function startService(config: Config = loadConfig()): Promise<RunningService> {
   // Fail fast, before opening anything, if the bind policy is violated (hard rule 2).
   assertBindAllowed(config.server)
@@ -448,7 +455,21 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     await vaultWatcher.close()
     retrieveScheduler.close()
     queue.stop()
-    await app.close()
+    /*
+     * `app.close()` resolves only once every connection has ended, and a route that holds a
+     * connection open forever therefore holds the shutdown open forever - which is exactly
+     * what the SSE stream did until it learned to end itself in a `preClose` hook. That fix
+     * is the mechanism; this is the net under it, so the next open-ended route costs a
+     * warning line instead of a service that has to be killed. `db.close()` still runs, and
+     * whatever is left goes with the process.
+     */
+    const closed = await Promise.race([
+      app.close().then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), HTTP_CLOSE_GRACE_MS).unref()),
+    ])
+    if (!closed) {
+      app.log.warn(`http server did not close within ${HTTP_CLOSE_GRACE_MS} ms - shutting down anyway`)
+    }
     db.close()
   }
 

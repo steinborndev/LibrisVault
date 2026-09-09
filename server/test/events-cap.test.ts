@@ -130,4 +130,30 @@ describe('event stream cap per client', () => {
       for (const ac of controllers) ac.abort()
     }
   })
+
+  /*
+   * The stream is a hijacked response: a connection that by design never completes. Fastify's
+   * `close()` resolves only once every connection has ended, so an open dashboard tab used to
+   * hold the whole shutdown open - the service logged "received SIGTERM, shutting down" and
+   * then sat there until it was killed. The route ends its own streams from a `preClose` hook,
+   * which is the one hook that runs before the server starts waiting.
+   *
+   * Note what let this through before: every test above closes its streams in a `finally`, so
+   * the suite only ever asked `close()` to do the easy thing.
+   */
+  it('ends open streams on shutdown instead of waiting on them forever', async () => {
+    const ac = new AbortController()
+    const res = await fetch(`${baseUrl}/api/v1/events`, { signal: ac.signal })
+    expect(res.status).toBe(200)
+    // Start reading so the socket is genuinely live, not just accepted.
+    void res.body?.getReader().read()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const closed = await Promise.race([
+      app.close().then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 3000)),
+    ])
+    expect(closed).toBe(true)
+    ac.abort()
+  })
 })
