@@ -6,10 +6,13 @@
  * arithmetic behind them is where a plausible-looking wrong number would hide. So it lives
  * here, pure and under test, and the component only lays it out.
  *
- * Three things the service does not have yet are DERIVED here rather than invented (A7 3.3):
- * a Fellow's art comes from the arts of its tasks, the night works one task per Fellow because
- * that is what the shift does today, and the order of the shelves is the order the shift walks
- * its Fellows in. When the fields land, these three functions are what changes.
+ * Two of these are cheaper to get wrong than to get right, so they are spelled out here:
+ *
+ * - A task's cost is a PLANNING run plus its own run, because the shift starts both.
+ * - The planning run is not gated by `quotaRunsPerDay`, and the run it produces is. So a
+ *   Fellow that sweeps three tasks on a quota of one plans three and carries out one. Drawing
+ *   three full runs would be the plausible-looking wrong number: the night would read as full
+ *   when most of it is not booked, and two of the three tasks would look done.
  */
 
 import type { AgentTask, FellowRecord, FellowSummary, GraphNode, TaskKind } from '../../api/types.ts'
@@ -17,17 +20,25 @@ import type { AgentTask, FellowRecord, FellowSummary, GraphNode, TaskKind } from
 /** A Fellow holds one art when all its tasks share one, and is custom when they do not. */
 export type FellowArt = TaskKind | 'custom'
 
+/**
+ * The art a task list amounts to. The record carries `art` since A7 stage B and that is what
+ * the service enforces; this stays for a list being edited, before it has a record to read.
+ */
 export function artOf(tasks: readonly AgentTask[]): FellowArt {
   const kinds = new Set(tasks.map((t) => t.kind))
   const only = [...kinds][0]
   return kinds.size === 1 && only !== undefined ? only : 'custom'
 }
 
-/** The tasks a Fellow works tonight. One per night today: `taskForTonight` takes exactly one. */
+/**
+ * The tasks a Fellow works tonight: every standing one when it sweeps, the one whose turn it
+ * is when it rotates (docs/tasks/TASKS-A7.md D8). A paused Fellow works none.
+ */
 export function tasksTonight(agent: FellowRecord): readonly AgentTask[] {
   if (agent.state === 'paused' || agent.state === 'retired') return []
   const active = (agent.tasks ?? []).filter((t) => t.state === 'active')
   if (active.length === 0) return []
+  if (agent.nightly !== 'rotate') return active
   const at = ((agent.taskCursor % active.length) + active.length) % active.length
   return [active[at]!]
 }
@@ -83,20 +94,24 @@ export function shelvesFrom(input: {
 }
 
 /**
- * The shelves the night actually visits, in the order it visits them.
+ * The shelves the night visits, in the order it visits them: the stored order first, then the
+ * ones nobody placed, ranked as the shift ranks their Fellows (priority, then age).
  *
- * The shift walks its Fellows by priority and then by age (`fellows.ts` `all()`), so the order
- * of the shelves is the order their first Fellow comes up. A stored order per shelf does not
- * exist yet (A7 3.3.3); until it does, this reports what will happen rather than a wish.
+ * An unplaced shelf sorting last is not a statement that it comes last - it is what "nothing
+ * was said about it" looks like, and the same rule the service sorts by (`byShelfThenPriority`).
  */
-export function shelfOrder(shelves: readonly Shelf[]): readonly Shelf[] {
-  const rank = (s: Shelf): number => {
-    const best = s.fellows.reduce((n, f) => Math.max(n, f.agent.priority), Number.NEGATIVE_INFINITY)
-    return best
-  }
+export function shelfOrder(shelves: readonly Shelf[], order: readonly string[] = []): readonly Shelf[] {
+  const rank = new Map(order.map((d, i) => [d, i]))
+  const placed = (s: Shelf): number => rank.get(s.key) ?? Number.POSITIVE_INFINITY
+  const best = (s: Shelf): number => s.fellows.reduce((n, f) => Math.max(n, f.agent.priority), Number.NEGATIVE_INFINITY)
   return [...shelves]
     .filter((s) => s.fellows.length > 0)
-    .sort((a, b) => rank(b) - rank(a) || (a.fellows[0]?.agent.createdAt ?? '').localeCompare(b.fellows[0]?.agent.createdAt ?? ''))
+    .sort(
+      (a, b) =>
+        placed(a) - placed(b) ||
+        best(b) - best(a) ||
+        (a.fellows[0]?.agent.createdAt ?? '').localeCompare(b.fellows[0]?.agent.createdAt ?? ''),
+    )
 }
 
 export interface Block {
@@ -111,19 +126,54 @@ export interface Block {
   readonly to: number
   /** A Fellow in `manual` mode starts nothing on its own. */
   readonly waits: boolean
+  /**
+   * False when only the planning run fits tonight: the Fellow's runs-per-day quota is spent
+   * on earlier tasks, so this one is planned tonight and carried out on a later night.
+   */
+  readonly runs: boolean
 }
 
-/** What a run of this kind costs in minutes, from the service's own measurements. */
+/*
+ * Milliseconds first, minutes at the end: rounding each part and adding the results loses
+ * most of a minute on every task, and the schedule is laid out in these numbers.
+ */
+const planMs = (d: Readonly<Record<string, number | null>>): number => d['plan'] ?? 90_000
+const runMs = (kind: TaskKind, d: Readonly<Record<string, number | null>>): number =>
+  (kind === 'deepen' ? d['research-expand'] : d['research-step']) ?? 320_000
+
+/** The planning run every task gets, whether or not the quota leaves room to carry it out. */
+export function planMinutes(durations: Readonly<Record<string, number | null>>): number {
+  return Math.round(planMs(durations) / 60_000)
+}
+
+/** What a task costs the night in full: its planning run and its own run. */
 export function minutesFor(kind: TaskKind, durations: Readonly<Record<string, number | null>>): number {
-  const run = kind === 'deepen' ? durations['research-expand'] : durations['research-step']
-  const plan = durations['plan']
-  return Math.round(((run ?? 320_000) + (plan ?? 90_000)) / 60_000)
+  return Math.round((planMs(durations) + runMs(kind, durations)) / 60_000)
+}
+
+/**
+ * How many of tonight's tasks a Fellow also carries out, as opposed to only planning: its
+ * runs-per-day quota, or fewer if it has fewer tasks standing.
+ */
+export function carriedTonight(agent: FellowRecord): number {
+  return Math.min(tasksTonight(agent).length, Math.max(0, agent.quotaRunsPerDay))
+}
+
+/** What one Fellow costs the night: a planning run each, plus the runs the quota lets through. */
+export function fellowMinutes(agent: FellowRecord, durations: Readonly<Record<string, number | null>>): number {
+  const tasks = tasksTonight(agent)
+  const carried = carriedTonight(agent)
+  return tasks.reduce((n, t, i) => n + (i < carried ? minutesFor(t.kind, durations) : planMinutes(durations)), 0)
 }
 
 /**
  * Tonight's queue: every Fellow of every visited shelf, laid end to end from the window's
  * start. The runs are serialized on the run mutex, so this is one line and not one per shelf
  * (A7 D9) - which is the whole reason the schedule is drawn at all.
+ *
+ * A Fellow's `quotaRunsPerDay` caps how many of its tasks are also CARRIED OUT tonight; the
+ * rest still cost their planning run. `minutesFor` a task past the cap would book time the
+ * shift will not spend.
  */
 export function scheduleFrom(
   shelves: readonly Shelf[],
@@ -134,8 +184,10 @@ export function scheduleFrom(
   let cur = startMinute
   for (const s of shelves) {
     for (const f of s.fellows) {
-      for (const t of tasksTonight(f.agent)) {
-        const minutes = minutesFor(t.kind, durations)
+      const carried = carriedTonight(f.agent)
+      for (const [i, t] of tasksTonight(f.agent).entries()) {
+        const runs = i < carried
+        const minutes = runs ? minutesFor(t.kind, durations) : planMinutes(durations)
         out.push({
           shelf: s.key,
           fellowId: f.agent.id,
@@ -146,6 +198,7 @@ export function scheduleFrom(
           from: cur,
           to: cur + minutes,
           waits: f.agent.autonomy === 'manual',
+          runs,
         })
         cur += minutes
       }

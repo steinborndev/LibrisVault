@@ -293,17 +293,49 @@ Measured against the live vault on the day it was wired: 21 shelves, 2 staffed, 
 window holding 17 minutes of work - which is the diagnosis this whole milestone started from,
 now stated by the window itself rather than by a query someone had to think to run.
 
-## 4.1 Drawn but not wired
+## 4.1 Stage A: drawn but not wired
 
-Three controls say what they are rather than pretending, because the field behind them does
-not exist:
+Three controls said what they were rather than pretending, because the field behind them did
+not exist. All three were wired in stage B; this stays as the record of what was outstanding.
 
-- **Whether a Fellow works all its tasks in a night.** The dossier states the truth - one task
-  a night, each of N coming round every N nights - and names the change as unbuilt (3.3.1).
-- **The art a Fellow is limited to.** `artOf` derives it from the tasks, so the window can
-  group and label by art; enforcing it at spawn needs the field (3.3.2), so spawning still goes
-  through the Library's own form.
-- **The order of the shelves.** Shown as it will happen (priority, then age) and marked as not
-  settable per shelf; the decision on how it should be stored is 3.5.
+- **Whether a Fellow works all its tasks in a night.** The dossier stated the truth - one task
+  a night, each of N coming round every N nights - and named the change as unbuilt (3.3.1).
+- **The art a Fellow is limited to.** `artOf` derived it from the tasks, so the window could
+  group and label by art; enforcing it at spawn needed the field (3.3.2), so spawning still
+  went through the Library's own form.
+- **The order of the shelves.** Shown as it would happen (priority, then age) and marked as
+  not settable per shelf; the decision on how to store it is 3.5.
 
-Retiring `FellowCard` waits on those three: everything else it does has a home here.
+## 4.2 Stage B: the three fields, and what they turned up (2026-09-09)
+
+Migration V23 adds `agents.art`, `agents.nightly` and the `shelf_order` table, and the three
+controls now write:
+
+- **`nightly`** (`sweep` | `rotate`, default `sweep`). `FellowService.planNight` plans every
+  standing task of a sweeping Fellow, each in its own planning run, serialized on the run
+  mutex; the shift's phase 2 loops over its outcomes. `taskCursor` stays where it is for a
+  sweep - there is no turn to take when every task is taken.
+- **`art`** (`watch` | `explore` | `deepen` | `custom`, default `custom`). `artRefusal` is the
+  single check, used by both `spawn` and `update`. The spawn view offers the four shapes and
+  the form fixes the art of every task behind one; the Library's own form still spawns a
+  `custom` Fellow, which is what it always did.
+- **`shelf_order`** with `byShelfThenPriority`: the domain gets the primary key and `priority`
+  keeps its meaning inside a shelf, so the two cannot contradict each other (3.5). The queue's
+  legend chips move a shelf with two arrows; the whole order is written, not the one that
+  moved.
+
+Two things the wiring turned up, both now fixed:
+
+1. **`update` swallowed its own refusal.** An art conflict returned the unchanged record, so
+   `PATCH /agents/:id` answered 200 with the old list and a dashboard would have shown "saved"
+   for an edit that never happened. It now returns an outcome and the route answers 409.
+2. **The daily quota caps a sweep, and the schedule did not show it.** Planning runs skip
+   `quotaRunsPerDay` (`kind !== 'plan'`) and the runs they produce do not. So a Fellow that
+   sweeps three tasks on a quota of one plans three and carries out one - and the window drew
+   three full runs, booking about 21 minutes the shift never spends and showing two tasks as
+   done. `scheduleFrom` now marks a block `runs: false` past the cap and books only its
+   planning run; the band draws it hatched, and the dossier says which number to raise. This
+   is the strongest argument for defaulting `quotaRunsPerDay` to the task count at spawn,
+   which is not done: the field is the user's, and a silent bump is the same class of mistake.
+
+Retiring `FellowCard` is now unblocked; A6 merge prep is the next milestone gate.

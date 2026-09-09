@@ -36,9 +36,13 @@ export function taskState(task: AgentTask, cursor: number, index: number, tasks:
   return 'waiting'
 }
 
-/** Adds an empty task, up to the cap. */
-export function addTask(tasks: readonly TaskDraft[]): TaskDraft[] {
-  return tasks.length >= MAX_TASKS ? [...tasks] : [...tasks, { text: '', kind: 'explore' }]
+/**
+ * Adds an empty task, up to the cap. `kind` is the art the new one takes: a Fellow of a fixed
+ * art may only hold its own, and offering it an explore row it cannot keep would be a form
+ * that invites a refusal.
+ */
+export function addTask(tasks: readonly TaskDraft[], kind: TaskKind = 'explore'): TaskDraft[] {
+  return tasks.length >= MAX_TASKS ? [...tasks] : [...tasks, { text: '', kind }]
 }
 
 /** Removes one; the last one stays, because a Fellow without a task has nothing to do. */

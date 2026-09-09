@@ -643,7 +643,7 @@ export function LibraryScreen({
                       any shelf - hollow, because nothing stands on it. */}
                   <i
                     className={`overview ${ccView === 'shelves' ? 'on' : ''}`}
-                    title="Overview — every shelf"
+                    title="Overview: every shelf"
                     onClick={() => setCcView('shelves')}
                   />
                   {ccShelves.map((key, i) => (

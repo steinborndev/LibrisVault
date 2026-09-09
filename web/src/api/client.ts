@@ -43,6 +43,7 @@ import type {
   FellowCard,
   ProposalRecord,
   SpawnBody,
+  AgentPatchBody,
   PlanStatus,
   ReadingItem,
   PagePreview,
@@ -441,6 +442,14 @@ export const api = {
 
   agents: (): Promise<AgentsResponse> => fetch(`${BASE}/agents`).then(json<AgentsResponse>),
 
+  /** The order the night walks the shelves. One serial queue, so this is a setting, not a view. */
+  saveShelfOrder: (domains: readonly string[]): Promise<{ shelfOrder: string[] }> =>
+    fetch(`${BASE}/agents/shelf-order`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ domains }),
+    }).then(json<{ shelfOrder: string[] }>),
+
   usagePlan: (): Promise<PlanStatus> => fetch(`${BASE}/usage/plan`).then(json<PlanStatus>),
 
   /**
@@ -475,6 +484,14 @@ export const api = {
 
   spawnAgent: (body: SpawnBody): Promise<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }> =>
     fetch(`${BASE}/agents`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ agent: FellowRecord; run: MaintenanceRun | null; refusal: string | null }>),
+
+  /**
+   * Edits one Fellow. The service refuses an edit it cannot make (a task of an art the Fellow
+   * does not hold, say) with a 409 rather than a silently unchanged record, so the caller can
+   * show what was refused.
+   */
+  patchAgent: (id: string, body: AgentPatchBody): Promise<{ agent: FellowRecord }> =>
+    fetch(`${BASE}/agents/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ agent: FellowRecord }>),
 
   stepAgent: (id: string, body: { topic?: string; kind?: string; pageSet?: string[]; override?: boolean } = {}): Promise<{ run: MaintenanceRun }> =>
     fetch(`${BASE}/agents/${encodeURIComponent(id)}/step`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json<{ run: MaintenanceRun }>),

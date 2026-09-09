@@ -13,18 +13,20 @@
  * the length of a task from what the service measured its own runs to take. The arithmetic
  * that turns those into a night lives in `lib/command/model.ts`, under test.
  *
- * Three controls are drawn but not wired, because the service has no field behind them yet
- * (A7 section 3.3): whether a Fellow works all its tasks in a night, the art it is limited to,
- * and the order of the shelves. They say so where they stand rather than pretending.
+ * Everything the window draws is now also something it can change: the shelves reorder into
+ * the order the night walks them, a Fellow's art and how much of the night it takes are fields
+ * on its record, and a new Fellow is spawned from one of four shapes that the service holds it
+ * to. Until A7 stage B those three said "not built" where they stood; the fields landed with
+ * migration V23.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
-import type { FellowCard, FellowRecord, FellowSummary, ProposalRecord, RecapFellow, TaskKind } from '../../api/types.ts'
+import type { AgentPatchBody, FellowCard, FellowRecord, FellowSummary, ProposalRecord, RecapFellow, SpawnBody, TaskKind } from '../../api/types.ts'
 import {
-  artOf,
-  minutesFor,
+  carriedTonight,
+  fellowMinutes,
   scheduleFrom,
   shelfOrder,
   shelvesFrom,
@@ -35,6 +37,7 @@ import {
 } from '../../lib/command/model.ts'
 import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
+import { SpawnForm } from './SpawnForm.tsx'
 import { queryState } from '../QueryState.tsx'
 import { usd } from '../../lib/format.ts'
 
@@ -59,6 +62,45 @@ const ART_TEXT: Record<TaskKind, string> = {
   deepen: 'Extends the pages the vault already has on a theme, at most four a night.',
 }
 
+/**
+ * The four shapes a Fellow is spawned as. A shape is a starting point AND a promise: the
+ * service holds a Fellow to its `art`, so an observer cannot later be given a deepen task
+ * (`artRefusal`). `custom` is the one that promises nothing, which is why it exists.
+ */
+const SHAPES: ReadonlyArray<{
+  readonly art: FellowRecord['art']
+  readonly name: string
+  readonly line: string
+  readonly body: string
+}> = [
+  {
+    art: 'watch',
+    name: 'Observer',
+    line: 'up to three subjects, watched',
+    body: 'Sweeps the web for what is new in each subject and files what it finds. Never finished, so it never falls quiet.',
+  },
+  {
+    art: 'explore',
+    name: 'Researcher',
+    line: 'up to three questions, answered',
+    body: 'Pursues one question at a time until the vault can answer it, then puts that question to rest and takes the next.',
+  },
+  {
+    art: 'deepen',
+    name: 'Librarian',
+    line: 'up to three themes, built out',
+    body: 'Reads no further than the shelf: it extends the pages the vault already has on a theme, at most four a night.',
+  },
+  {
+    art: 'custom',
+    name: 'Custom',
+    line: 'any mix of the three',
+    body: 'One Fellow that watches, asks and extends. Nothing holds it to a single art, so nothing warns you when it drifts across them.',
+  },
+]
+
+const shapeOf = (art: FellowRecord['art']): (typeof SHAPES)[number] => SHAPES.find((x) => x.art === art) ?? SHAPES[3]!
+
 /** What each autonomy mode means, from `fellows.ts` `runnable()`. */
 const AUTONOMY: Record<string, { label: string; short: string; long: string }> = {
   manual: {
@@ -81,6 +123,9 @@ const AUTONOMY: Record<string, { label: string; short: string; long: string }> =
 }
 const autonomyOf = (k: string): { label: string; short: string; long: string } => AUTONOMY[k] ?? AUTONOMY['veto']!
 
+/** One shared empty list: a fresh `[]` each render would re-sort the shelves on every render. */
+const NO_ORDER: readonly string[] = []
+
 /** Below this overlap the service calls a proposal drift and will not run it unasked. */
 const DRIFT_THRESHOLD = 0.2
 
@@ -101,6 +146,8 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
   const [optIndex, setOptIndex] = useState(0)
   const [row, setRow] = useState(0)
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null)
+  /** The order while its write is in flight: the list must not jump back under the click. */
+  const [orderDraft, setOrderDraft] = useState<readonly string[] | null>(null)
 
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, refetchInterval: 20_000 })
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph, staleTime: 60_000 })
@@ -124,7 +171,8 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
       }),
     [registry.data, graph.data, agents.data],
   )
-  const staffed = useMemo(() => shelfOrder(shelves), [shelves])
+  const order = orderDraft ?? agents.data?.shelfOrder ?? NO_ORDER
+  const staffed = useMemo(() => shelfOrder(shelves, order), [shelves, order])
   const empty = useMemo(() => shelves.filter((s) => s.fellows.length === 0), [shelves])
   const roster = useMemo(() => staffed.flatMap((s) => s.fellows.map((f) => ({ shelf: s, fellow: f }))), [staffed])
   const shelf = staffed[Math.min(stop, Math.max(0, staffed.length - 1))]
@@ -143,6 +191,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
   const durations = useMemo(() => agents.data?.durations ?? {}, [agents.data])
   const blocks = useMemo(() => scheduleFrom(staffed, live.from, durations), [staffed, live.from, durations])
   const overflow = blocks.filter((b) => b.to > live.to)
+  const planOnly = blocks.filter((b) => !b.runs)
   const mine = shelf ? blocks.filter((b) => b.shelf === shelf.key) : []
 
   const deciders = useMemo(
@@ -171,13 +220,46 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
     },
     onSettled: () => void qc.invalidateQueries({ queryKey: ['agents'] }),
   })
+  const patch = useMutation({
+    mutationFn: (v: { id: string; body: AgentPatchBody }) => api.patchAgent(v.id, v.body),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['agents'] })
+      void qc.invalidateQueries({ queryKey: ['agent-card'] })
+    },
+  })
+  const reorder = useMutation({
+    mutationFn: (domains: readonly string[]) => api.saveShelfOrder(domains),
+    onSettled: () => {
+      setOrderDraft(null)
+      void qc.invalidateQueries({ queryKey: ['agents'] })
+    },
+  })
+
+  /**
+   * Moves one shelf a place in the night's order. The whole list goes to the service, not the
+   * one that moved: an order stated in full cannot be read two ways, and every shelf the user
+   * has seen ranked is one they have implicitly placed.
+   */
+  const moveShelf = (key: string, delta: number): void => {
+    const keys = staffed.map((s) => s.key)
+    const at = keys.indexOf(key)
+    const to = at + delta
+    if (at < 0 || to < 0 || to >= keys.length) return
+    const next = [...keys]
+    next.splice(to, 0, next.splice(at, 1)[0]!)
+    setOrderDraft(next)
+    reorder.mutate(next)
+    // `stop` is a slot in the list, not a shelf. Hold the shelf you were looking at.
+    const here = shelf?.key
+    if (here !== undefined) setStop(Math.max(0, next.indexOf(here)))
+  }
 
   const openFellow = (id: string): void => {
+    // A Fellow spawned a moment ago is not in the roster yet; the shelf follows when it is.
     const at = roster.findIndex((r) => r.fellow.agent.id === id)
-    if (at < 0) return
+    if (at >= 0) setStop(staffed.indexOf(roster[at]!.shelf))
     setFellowId(id)
     setPane('notebook')
-    setStop(staffed.indexOf(roster[at]!.shelf))
     setView('dossier')
   }
   const stepFellow = (delta: number): void => {
@@ -321,7 +403,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
           <NightLine
             facts={[
               `${blocks.length} task${blocks.length === 1 ? '' : 's'} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
-              `${hhmm(win.from)} – ${hhmm(win.to)} (active hours)`,
+              `${hhmm(win.from)} to ${hhmm(win.to)} (active hours)`,
               `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
             ]}
           />
@@ -348,7 +430,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
           <NightLine
             facts={[
               `${mine.length} task${mine.length === 1 ? '' : 's'}`,
-              mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} – ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
+              mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} to ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
               `${shelf.fellows.length} Fellow${shelf.fellows.length === 1 ? '' : 's'}`,
             ]}
           />
@@ -357,7 +439,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
               <h3 className="cc-sec">Active Hours</h3>
               <p className="cc-note">
                 The stretch of the night the shift may work in. Every Fellow shares it, and the runs go through it one at
-                a time — so this is not a budget per Fellow but the length of one queue. Drag either end.
+                a time, so this is not a budget per Fellow but the length of one queue. Drag either end.
               </p>
               <Axis />
               <div className="cc-track set">
@@ -368,7 +450,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                 </div>
               </div>
               <div className="cc-under">
-                <b>{hhmm(live.from)} – {hhmm(live.to)}</b>
+                <b>{hhmm(live.from)} to {hhmm(live.to)}</b>
                 <span>{dur(span)}</span>
                 {saveWindow.isPending && <span className="mono-meta">saving…</span>}
               </div>
@@ -389,15 +471,19 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                     key={`${g.shelf}-${g.from}`}
                     className={`cc-band ${g.shelf === shelf.key ? 'here' : ''}`}
                     style={{ left: `${pctAt(g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / SCALE_SPAN) * 100)}%`, ['--dc' as string]: domainColor(g.shelf) }}
-                    title={`${g.shelf} — ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
+                    title={`${g.shelf}: ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
                   >
                     <span className="cc-parts">
                       {g.parts.map((b, i) => (
                         <span
                           key={`${b.fellowId}-${b.text}`}
-                          className="cc-part"
+                          className={`cc-part ${b.runs ? '' : 'plan'}`}
                           style={{ width: `${(b.minutes / (g.to - g.from)) * 100}%`, borderLeft: i > 0 ? '1px solid rgba(255,255,255,.55)' : undefined }}
-                          title={`${b.fellowName} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`}
+                          title={
+                            b.runs
+                              ? `${b.fellowName} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`
+                              : `${b.fellowName} · ${b.kind}: ${b.text} · planned only tonight (${dur(b.minutes)}); the daily quota is spent, so it is carried out on a later night`
+                          }
                         />
                       ))}
                     </span>
@@ -405,27 +491,51 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                 ))}
               </div>
               <div className="cc-order">
-                {staffed.map((d) => (
+                {staffed.map((d, i) => (
                   <span key={d.key} className={`cc-chip ${d.key === shelf.key ? 'here' : ''}`}>
                     <i style={{ background: domainColor(d.key) }} aria-hidden />
                     {d.key}
+                    <button
+                      disabled={i === 0 || reorder.isPending}
+                      onClick={() => moveShelf(d.key, -1)}
+                      title={`Move ${d.key} earlier in the night`}
+                      aria-label={`Move ${d.key} earlier`}
+                    >
+                      ‹
+                    </button>
+                    <button
+                      disabled={i === staffed.length - 1 || reorder.isPending}
+                      onClick={() => moveShelf(d.key, 1)}
+                      title={`Move ${d.key} later in the night`}
+                      aria-label={`Move ${d.key} later`}
+                    >
+                      ›
+                    </button>
                   </span>
                 ))}
               </div>
               <p className="cc-note dim">
-                The order is the one the shift walks its Fellows in: priority first, then age. Setting it per shelf is not
-                built yet (TASKS-A7 3.3).
+                The order the shift walks the shelves in, and the arrows change it. Inside a shelf its Fellows keep their
+                own order: priority first, then age. Moving a shelf does not move you off it.
               </p>
+              {planOnly.length > 0 && (
+                <p className="cc-note">
+                  <b>{planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out.</b>{' '}
+                  Planning is free of the daily quota and the run it produces is not, so a Fellow that works more tasks a
+                  night than its <i>runs a day</i> allows leaves the rest standing as proposals. Raise the quota in the
+                  Fellow{planOnly.length === 1 ? "'s" : 's’'} settings, or let them come round over several nights.
+                </p>
+              )}
               {overflow.length > 0 ? (
                 <p className="cc-note warn">
                   <b>{overflow.length} task{overflow.length === 1 ? ' does' : 's do'} not fit tonight.</b> The night is one
                   queue for every Fellow, not one per shelf: {dur(blocks.reduce((n, b) => n + b.minutes, 0))} of work against
-                  a {dur(span)} window. Widen the hours, or leave it — what does not fit stands for tomorrow.
+                  a {dur(span)} window. Widen the hours, or leave it: what does not fit stands for tomorrow.
                 </p>
               ) : blocks.some((b) => b.waits) ? (
                 <p className="cc-note">
                   {blocks.filter((b) => b.waits).length} of tonight’s {blocks.length} tasks belong to a Fellow set to{' '}
-                  <b>ask me every time</b> — those wait for you. The rest run unless you veto them during the day.
+                  <b>ask me every time</b>, and those wait for you. The rest run unless you veto them during the day.
                 </p>
               ) : (
                 <p className="cc-note">
@@ -439,7 +549,8 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
               <div className="cc-rows">
                 {shelf.fellows.map((f, i) => {
                   const tonight = tasksTonight(f.agent)
-                  const minutes = tonight.reduce((n, t) => n + minutesFor(t.kind, durations), 0)
+                  const minutes = fellowMinutes(f.agent, durations)
+                  const carried = carriedTonight(f.agent)
                   const rested = f.agent.tasks.length > 0 && f.agent.tasks.every((t) => t.state !== 'active')
                   return (
                     <div key={f.agent.id} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => { setRow(i); openFellow(f.agent.id) }}>
@@ -450,7 +561,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                             {f.currentRun ? 'working' : rested ? 'quiet' : f.agent.state}
                           </span>
                         </span>
-                        <span className="cc-t">{rested ? `all ${f.agent.tasks.length} questions answered — nothing standing` : f.agent.intent}</span>
+                        <span className="cc-t">{rested ? `all ${f.agent.tasks.length} questions answered, nothing standing` : f.agent.intent}</span>
                       </span>
                       <span className="cc-right">
                         {f.pendingProposals > 0 && (
@@ -474,8 +585,17 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                           </button>
                         ) : (
                           <>
-                            <span className="sev ok" title={`one task a night — each of ${f.agent.tasks.length} comes round every ${f.agent.tasks.length} nights`}>
-                              1 of {f.agent.tasks.length}
+                            <span
+                              className="sev ok"
+                              title={
+                                carried < tonight.length
+                                  ? `${tonight.length} planned, ${carried} carried out: the quota is ${f.agent.quotaRunsPerDay} run(s) a day`
+                                  : f.agent.nightly === 'sweep'
+                                    ? 'every standing task, each in its own run'
+                                    : `one task a night: each of ${f.agent.tasks.length} comes round every ${f.agent.tasks.length} nights`
+                              }
+                            >
+                              {tonight.length} of {f.agent.tasks.length}
                             </span>
                             <span className="mono-meta">{minutes} min</span>
                           </>
@@ -497,6 +617,12 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
         </>
       )}
 
+      {view === 'dossier' && !fellow && (
+        <div className="lib-window-body cc-body">
+          <p className="empty">Opening the Fellow…</p>
+        </div>
+      )}
+
       {view === 'dossier' && fellow && (
         <Dossier
           fellow={fellow}
@@ -508,6 +634,9 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
           onBack={back}
           onStep={stepFellow}
           onAct={(what) => act.mutate({ id: fellow.agent.id, what })}
+          onPatch={(body) => patch.mutate({ id: fellow.agent.id, body })}
+          patching={patch.isPending}
+          refused={patch.error === null ? null : (patch.error as Error).message}
           busy={act.isPending}
         />
       )}
@@ -526,7 +655,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
         />
       )}
 
-      {view === 'spawn' && <Spawn shelf={shelf?.key ?? ''} onBack={back} />}
+      {view === 'spawn' && <Spawn shelf={shelf?.key ?? ''} onBack={back} onDone={openFellow} />}
     </div>
   )
 }
@@ -666,7 +795,7 @@ function Shelves({
           ))}
         </div>
         <p className="cc-note dim">
-          A shelf without a Fellow is not idle — ingests still file pages there. It only means nobody plans work for it at
+          A shelf without a Fellow is not idle: ingests still file pages there. It only means nobody plans work for it at
           night.
         </p>
       </section>
@@ -684,6 +813,9 @@ function Dossier({
   onBack,
   onStep,
   onAct,
+  onPatch,
+  patching,
+  refused,
   busy,
 }: {
   fellow: FellowSummary
@@ -695,13 +827,16 @@ function Dossier({
   onBack: () => void
   onStep: (delta: number) => void
   onAct: (what: 'step' | 'plan' | 'pause' | 'resume') => void
+  onPatch: (body: AgentPatchBody) => void
+  patching: boolean
+  refused: string | null
   busy: boolean
 }): React.ReactElement {
   const a: FellowRecord = fellow.agent
   const active = a.tasks.filter((t) => t.state === 'active')
   const resting = a.tasks.filter((t) => t.state !== 'active')
   const upNext = tasksTonight(a)[0]
-  const art = artOf(a.tasks)
+  const art = a.art
   const runs = card?.runs ?? []
   const pages = card?.pages ?? []
   const panes: Array<[Pane, string]> = [
@@ -711,7 +846,8 @@ function Dossier({
     ['pages', `Pages ${pages.length}`],
     ['settings', 'Settings'],
   ]
-  const nightly = tasksTonight(a).reduce((n, t) => n + minutesFor(t.kind, durations), 0)
+  const nightly = fellowMinutes(a, durations)
+  const carried = carriedTonight(a)
 
   return (
     <>
@@ -755,7 +891,7 @@ function Dossier({
           ) : (
             <>
               <span className="k">nothing standing</span>
-              <span className="cc-upnext-t">every task is answered — give it a new one in Settings</span>
+              <span className="cc-upnext-t">every task is answered; give it a new one in Settings</span>
             </>
           )}
         </div>
@@ -854,7 +990,7 @@ function Dossier({
           {pane === 'settings' && (
             <div className="cc-settings">
               <section className="wide">
-                <h5>Standing work <span className="lead">— {art === 'custom' ? 'a mix of arts' : `${art} only`}, up to 3</span></h5>
+                <h5>Standing work <span className="lead">- {art === 'custom' ? 'any mix of arts' : `${art} tasks only`}, up to 3</span></h5>
                 <div className="cc-card">
                   <ul className="cc-tasks">
                     {active.map((t, i) => (
@@ -878,19 +1014,53 @@ function Dossier({
                     ) : (
                       <><b>{art}</b> {ART_TEXT[art]}</>
                     )}{' '}
-                    Editing the list is not built into this window yet (TASKS-A7 3.3).
+                    Editing the list is not built into this window yet (TASKS-A7 4.2).
                   </p>
                 </div>
               </section>
               <section>
                 <h5>How much of the night</h5>
                 <div className="cc-card">
+                  <span className="seg">
+                    <button
+                      className={a.nightly === 'sweep' ? 'active' : ''}
+                      disabled={patching}
+                      onClick={() => onPatch({ nightly: 'sweep' })}
+                    >
+                      Every task
+                    </button>
+                    <button
+                      className={a.nightly === 'rotate' ? 'active' : ''}
+                      disabled={patching}
+                      onClick={() => onPatch({ nightly: 'rotate' })}
+                    >
+                      One a night
+                    </button>
+                  </span>
                   <p className="cc-note">
-                    <b>One task a night</b>, taken in turn: each of {active.length} comes round every {active.length} night
-                    {active.length === 1 ? '' : 's'}. Working every task each night is the change TASKS-A7 3.3 calls for and
-                    is not built.
+                    {a.nightly === 'sweep' ? (
+                      <>
+                        All {active.length} standing task{active.length === 1 ? '' : 's'} {active.length === 1 ? 'runs' : 'run'} each
+                        night, each planned and carried out on its own. Nothing waits {active.length} nights for its turn.
+                      </>
+                    ) : (
+                      <>
+                        <b>One task a night</b>, taken in turn: each of {active.length} comes round every {active.length} night
+                        {active.length === 1 ? '' : 's'}. The cheaper pace, and the slower one.
+                      </>
+                    )}
                   </p>
-                  <p className="cc-note dim">{nightly} min tonight · {card ? `${card.quota.runsPerDay} run(s) a day allowed` : ''}</p>
+                  <p className="cc-note dim">
+                    {nightly} min tonight · {a.quotaRunsPerDay} run(s) a day allowed
+                    {card ? `, ${card.quota.usedToday} used` : ''}
+                  </p>
+                  {carried < active.length && (
+                    <p className="cc-note warn">
+                      {active.length} task{active.length === 1 ? '' : 's'} planned, {carried} carried out. Planning is free
+                      of the daily quota and the run it produces is not, so raise <i>runs a day</i> to {active.length} if
+                      every task should also run the night it is planned.
+                    </p>
+                  )}
                 </div>
               </section>
               <section>
@@ -898,12 +1068,19 @@ function Dossier({
                 <div className="cc-card">
                   <span className="seg">
                     {(['manual', 'veto', 'auto'] as const).map((k) => (
-                      <button key={k} className={a.autonomy === k ? 'active' : ''}>{autonomyOf(k).label}</button>
+                      <button
+                        key={k}
+                        className={a.autonomy === k ? 'active' : ''}
+                        disabled={patching}
+                        onClick={() => onPatch({ autonomy: k })}
+                      >
+                        {autonomyOf(k).label}
+                      </button>
                     ))}
                   </span>
                   <p className="cc-note">{autonomyOf(a.autonomy).long}</p>
                   <p className="cc-note dim">
-                    A proposal stands for two nights and then expires — approved ones too. Approving moves one ahead of the
+                    A proposal stands for two nights and then expires, approved ones too. Approving moves one ahead of the
                     others; it is not what permits it to run.
                   </p>
                 </div>
@@ -912,12 +1089,17 @@ function Dossier({
                 <h5>Model, effort, share</h5>
                 <div className="cc-card">
                   <span className="mono-meta">
-                    {a.model} · {a.effort} effort · {a.step} depth · {a.lens} lens
+                    {a.model} · {a.effort} effort · {a.step} depth · {a.lens} lens · {shapeOf(a.art).name.toLowerCase()}
                     {a.quotaWeekPct !== null ? ` · ${a.quotaWeekPct}% of the week` : ''}
                     {card ? ` · this week ${card.spend.runsWeek} run(s), ${usd(card.spend.weekUsd)}` : ''}
                   </span>
                 </div>
               </section>
+              {refused !== null && (
+                <section className="wide">
+                  <p className="cc-note warn">{refused}</p>
+                </section>
+              )}
             </div>
           )}
         </div>
@@ -1088,7 +1270,7 @@ function Option({
           </div>
         </div>
         <span>
-          {approved ? <span className="sev ok">approved — runs first</span>
+          {approved ? <span className="sev ok">approved, runs first</span>
             : drift ? <span className="sev due" title="scope below the drift threshold of 0.2">drift · will not run</span>
               : runsByDefault ? <span className="sev ok">runs unless vetoed</span>
                 : <span className="sev mut">alternative</span>}
@@ -1127,7 +1309,7 @@ function Option({
             <button className="btn sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
             {!approved && (
               <button className="btn primary sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>
-                Approve{drift ? ' — it drifts' : ' — run this one'}
+                Approve{drift ? ', it drifts' : ' this one'}
               </button>
             )}
           </>
@@ -1138,28 +1320,70 @@ function Option({
 }
 
 /**
- * Spawning still runs through the form the Library already had. The four worked examples of
- * the design need an art per Fellow to enforce, which the service does not have (A7 3.3.2),
- * so this points at what exists rather than drawing a chooser that cannot keep its promise.
+ * Spawning: pick a shape, then fill in the same form the Library has always used.
+ *
+ * The shape is not a template that dissolves on submit. It sets `art`, and the service holds
+ * the Fellow to it from then on: an observer that is later handed a deepen task is refused
+ * (`artRefusal`). So the choice here is the one thing on this screen that cannot be undone by
+ * editing a field, which is why it is a screen of its own rather than a select in the form.
  */
-function Spawn({ shelf, onBack }: { shelf: string; onBack: () => void }): React.ReactElement {
+function Spawn({ shelf, onBack, onDone }: { shelf: string; onBack: () => void; onDone: (id: string) => void }): React.ReactElement {
+  const [shape, setShape] = useState<FellowRecord['art'] | null>(null)
+  const picked = shape === null ? null : shapeOf(shape)
+
+  if (picked === null) {
+    return (
+      <>
+        <div className="cc-line2">
+          <button className="cc-back" onClick={onBack} title="Back · Esc">‹</button>
+          <span className="cc-lead"><b>A new Fellow{shelf ? ` for ${shelf}` : ''}</b></span>
+          <span className="grow" />
+          <span className="cc-sub">what shape should it have?</span>
+        </div>
+        <div className="lib-window-body cc-body">
+          <div className="cc-shapes">
+            {SHAPES.map((sh) => (
+              <button key={sh.art} className="cc-shape" onClick={() => setShape(sh.art)}>
+                <b>
+                  {sh.name}
+                  <span className={`cc-art a-${sh.art}`}>{sh.art}</span>
+                </b>
+                <p className="want">{sh.line}</p>
+                <p className="what">{sh.body}</p>
+                <span className="specs">
+                  <span>art: {sh.art === 'custom' ? 'any' : `${sh.art} only`}</span>
+                  <span>a night: every standing task</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="cc-note dim">
+            A shape is kept: the service refuses a task of another art afterwards. Only <b>custom</b> takes any mix, and
+            takes no warning with it either.
+          </p>
+        </div>
+      </>
+    )
+  }
+
+  const kind: TaskKind = picked.art === 'custom' ? 'explore' : picked.art
   return (
     <>
       <div className="cc-line2">
-        <button className="cc-back" onClick={onBack} title="Back · Esc">‹</button>
-        <span className="cc-lead"><b>A new Fellow{shelf ? ` for ${shelf}` : ''}</b></span>
+        <button className="cc-back" onClick={() => setShape(null)} title="Back to the shapes">‹</button>
+        <span className="cc-lead">
+          <b>{picked.name}</b>
+          <span className={`cc-art a-${picked.art}`}>{picked.art}</span>
+        </span>
+        <span className="grow" />
+        <span className="cc-sub">{picked.line}</span>
       </div>
       <div className="lib-window-body cc-body">
-        <section className="cc-block">
-          <p className="cc-note">
-            The four shapes of the design — observer, researcher, librarian and custom — need one thing the service does
-            not have yet: an art per Fellow, so a shape can hold you to it (TASKS-A7 3.3.2). Until that lands, spawning
-            goes through the Library’s own form.
-          </p>
-          <button className="btn primary" onClick={() => { onBack(); navigate(`/library?spawn=1${shelf ? `&shelf=${encodeURIComponent(shelf)}` : ''}`) }}>
-            Open the spawn form
-          </button>
-        </section>
+        <SpawnForm
+          prefill={{ homeDomain: shelf, art: picked.art, nightly: 'sweep', tasks: [{ text: '', kind }] } satisfies Partial<SpawnBody>}
+          onDone={onDone}
+          onCancel={() => setShape(null)}
+        />
       </div>
     </>
   )

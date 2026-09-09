@@ -2,6 +2,10 @@
  * Spawning a Fellow from the Library's control column (docs/agents/SPEC.md section 5.1,
  * OPEN-21): name, intent, home domain from the registry, model with its cost factor, step,
  * autonomy, and whether the first full run starts now.
+ *
+ * `prefill.art` is the one field that is not a default but a constraint. The command centre
+ * sends it when a shape was chosen, and the service holds the Fellow to it afterwards, so the
+ * form fixes the art of every task rather than offering a choice that would be refused.
  */
 
 import { useState } from 'react'
@@ -13,6 +17,7 @@ import { suggestFellowName } from '../../lib/fellowNames.ts'
 import { addTask, removeTask, setTask, tasksReady, TASK_HINT, TASK_LABEL, type TaskDraft } from '../../lib/library/tasks.ts'
 import { MAX_TASKS, TASK_KINDS } from '../../api/types.ts'
 import { Tip } from '../Tip.tsx'
+import type { TaskKind } from '../../api/types.ts'
 
 const MODELS: Array<{ key: string; label: string; factor: number }> = [
   { key: 'sonnet-5', label: 'Sonnet 5', factor: 1 },
@@ -20,6 +25,17 @@ const MODELS: Array<{ key: string; label: string; factor: number }> = [
   { key: 'fable-5-1', label: 'Fable 5.1', factor: 5 },
 ]
 const STEP_COST: Record<string, number> = { small: 2, standard: 6, deep: 6 }
+
+/**
+ * The research lenses, from `server/src/pipeline/research-profiles.ts`. A closed set: the
+ * spawn endpoint refuses a key it does not know, so this list is the same list or it is a bug.
+ */
+const LENSES: Array<{ key: string; label: string }> = [
+  { key: 'broad', label: 'Broad sweep' },
+  { key: 'sota', label: 'State of the art' },
+  { key: 'patents', label: 'Recent patents' },
+  { key: 'startups', label: 'Startups & funding' },
+]
 
 export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Partial<SpawnBody>; plan?: PlanStatus | undefined; onDone: (agentId: string) => void; onCancel: () => void }): React.ReactElement {
   const qc = useQueryClient()
@@ -44,6 +60,8 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
     prefill?.tasks && prefill.tasks.length > 0 ? prefill.tasks.map((t) => ({ text: t.text, kind: t.kind })) : [{ text: prefill?.intent ?? '', kind: 'explore' }],
   )
   const name = typedName ? form.name : suggested
+  /** Set when a shape was chosen: every task takes this art and the picker stands down. */
+  const fixedArt: TaskKind | null = form.art !== undefined && form.art !== 'custom' ? form.art : null
   const spawn = useMutation({
     mutationFn: (body: SpawnBody) => api.spawnAgent(body),
     onSuccess: (res) => {
@@ -90,18 +108,22 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
       <div className="sp-tasks">
         <span className="sp-lbl">
           Standing work
-          <Tip text="What this Fellow keeps doing, one to three of them. It takes them in turn, one a night, and the planner is shown only that night's task - which is what makes the drift score mean something. Each task is one sentence and an art: narrow beats broad, because a wide sentence both invites the Fellow to wander and stops the measurement of that wandering from working. A fourth subject wants a second Fellow, not a longer list: at one run a day, three tasks already means each comes round twice a week." />
+          <Tip text="What this Fellow keeps doing, one to three of them. Each is planned and carried out on its own, and the planner is shown only the one task it is planning - which is what makes the drift score mean something. Each task is one sentence and an art: narrow beats broad, because a wide sentence both invites the Fellow to wander and stops the measurement of that wandering from working. A fourth subject wants a second Fellow, not a longer list: three tasks is already most of a night." />
         </span>
         {tasks.map((t, i) => (
           <div className="sp-task" key={i}>
             <div className="sp-task-head">
-              <select className="select" value={t.kind} onChange={(e) => setTasks(setTask(tasks, i, { kind: e.target.value as TaskDraft['kind'] }))} aria-label={`Art of task ${i + 1}`}>
-                {TASK_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {TASK_LABEL[k]}
-                  </option>
-                ))}
-              </select>
+              {fixedArt === null ? (
+                <select className="select" value={t.kind} onChange={(e) => setTasks(setTask(tasks, i, { kind: e.target.value as TaskDraft['kind'] }))} aria-label={`Art of task ${i + 1}`}>
+                  {TASK_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {TASK_LABEL[k]}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="sp-fixed">{TASK_LABEL[fixedArt]}</span>
+              )}
               <Tip text={TASK_HINT[t.kind]} />
               <span className="spacer" />
               {tasks.length > 1 && (
@@ -127,7 +149,7 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
           </div>
         ))}
         {tasks.length < MAX_TASKS && (
-          <button type="button" className="btn ghost sm" onClick={() => setTasks(addTask(tasks))}>
+          <button type="button" className="btn ghost sm" onClick={() => setTasks(addTask(tasks, fixedArt ?? 'explore'))}>
             Add a task
           </button>
         )}
@@ -173,6 +195,19 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         </label>
         <label>
           <span className="sp-lbl">
+            Lens
+            <Tip text="Which kind of source a run reaches for first. `Broad sweep` is the default and adds nothing to the prompt; the other three weight the search - the last two years of results, the patent record, or who is building and funding it. It shapes where a run looks, never what it is allowed to write." />
+          </span>
+          <select className="select" value={form.lens ?? 'broad'} onChange={(e) => setForm({ ...form, lens: e.target.value })}>
+            {LENSES.map((l) => (
+              <option key={l.key} value={l.key}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="sp-lbl">
             Autonomy
             <Tip text="Who decides what the Fellow runs. `veto` is the default: the planner proposes at night, you have the morning to say no, and what you leave alone runs. `manual` runs nothing until you approve it, `auto` runs without asking - and a proposal that drifts from its task is never run unapproved, whatever this says." />
           </span>
@@ -185,7 +220,7 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         <label>
           <span className="sp-lbl">
             Steps a day
-            <Tip text="How many runs a day the night shift may spend on this Fellow. It also sets the pace of the task list: at one run a day with three tasks, each task comes round every third night. You can always start a run by hand past this limit - the quota holds back the autopilot, not you." />
+            <Tip text="How many runs a day the night shift may spend on this Fellow. It is the ceiling over its standing work: three tasks worked in one night are three runs, so a quota of one leaves two of them for the following nights. You can always start a run by hand past this limit - the quota holds back the autopilot, not you." />
           </span>
           <input className="input" type="number" min={0} max={24} value={form.quotaRunsPerDay} onChange={(e) => setForm({ ...form, quotaRunsPerDay: Number(e.target.value) })} />
         </label>

@@ -909,6 +909,10 @@ export interface FellowRecord {
   quotaRunsPerDay: number
   quotaWeekPct: number | null
   autonomy: string
+  /** The arts its tasks may be: one of them, or `custom` for any mix (TASKS-A7 D7). */
+  art: 'watch' | 'explore' | 'deepen' | 'custom'
+  /** Every standing task each night, or one in turn (TASKS-A7 D8). */
+  nightly: 'sweep' | 'rotate'
   priority: number
   state: string
   sleepReason: string | null
@@ -968,6 +972,8 @@ export interface AgentsResponse {
   costs: Record<string, number>
   /** How long each run kind usually takes, in ms; null until the service has seen enough. */
   durations: Record<string, number | null>
+  /** The order the night walks the shelves; empty means nobody has set one (TASKS-A7 3.5). */
+  shelfOrder: string[]
   shift: { window: { start: string; end: string }; inWindow: boolean; cycleDate: string | null; nextStartsAt: string; running: boolean } | null
 }
 
@@ -991,13 +997,21 @@ export interface SpawnBody {
   tasks?: Array<{ text: string; kind: TaskKind }>
   scope?: string
   homeDomain: string
+  extraDomains?: string[]
+  lens?: string
   model?: string
   effort?: string
   step?: string
   quotaRunsPerDay?: number
   autonomy?: string
+  /** The arts this Fellow may hold. Omitted, the service reads one off the tasks. */
+  art?: FellowRecord['art']
+  nightly?: FellowRecord['nightly']
   runFirstStep?: boolean
 }
+
+/** What `PATCH /agents/:id` accepts: the spawn fields, each on its own. */
+export type AgentPatchBody = Partial<Omit<SpawnBody, 'runFirstStep'>> & { priority?: number }
 
 // ---- Plan utilization (docs/agents/SPEC.md section 8; behind AGENTS_ENABLED) ----
 
