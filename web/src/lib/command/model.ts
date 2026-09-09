@@ -235,20 +235,13 @@ export function taskCount(blocks: readonly Block[]): string {
  * The marks on a time scale, every `step` minutes, ends excluded.
  *
  * The ends are the frame the bar is drawn in; a mark there sits on the border and a label
- * there hangs off it. `major` is a full hour: the queue is read in half hours but counted in
- * whole ones, so the two need to look different rather than be two lists drawn twice.
+ * there hangs off it. One kind of mark, whatever the step: a ruler whose marks differ from
+ * each other is read as two rulers.
  */
-export interface Tick {
-  readonly at: number
-  readonly major: boolean
-}
-
-export function ticksIn(from: number, to: number, step: number): Tick[] {
-  const out: Tick[] = []
+export function ticksIn(from: number, to: number, step: number): number[] {
+  const out: number[] = []
   if (step <= 0) return out
-  for (let m = Math.ceil(from / step) * step; m < to; m += step) {
-    if (m > from) out.push({ at: m, major: m % 60 === 0 })
-  }
+  for (let m = Math.ceil(from / step) * step; m < to; m += step) if (m > from) out.push(m)
   return out
 }
 

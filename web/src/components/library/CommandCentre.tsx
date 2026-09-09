@@ -50,7 +50,6 @@ import {
   windowMinutes,
   type Block,
   type Shelf,
-  type Tick,
 } from '../../lib/command/model.ts'
 import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
@@ -84,7 +83,7 @@ const pctIn = (s: Scale, m: number): number => ((m - s.from) / (s.to - s.from)) 
  */
 const HOUR = 60
 const HALF_HOUR = 30
-const marks = (s: Scale, step: number): Tick[] => ticksIn(s.from, s.to, step)
+const marks = (s: Scale, step: number): number[] => ticksIn(s.from, s.to, step)
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 const hhmm = (m: number): string => `${pad2(Math.floor((m % 1440) / 60))}:${pad2(Math.round(m) % 60)}`
 const dur = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} h ${pad2(Math.round(m % 60))}` : `${Math.round(m)} min`)
@@ -575,7 +574,7 @@ export function CommandCentre({
               </h3>
               <Axis scale={NIGHT} step={HOUR} />
               <div className="cc-track set">
-                {marks(NIGHT, HOUR).map((t) => <span key={t.at} className="cc-grid" style={{ left: `${pctIn(NIGHT, t.at)}%` }} />)}
+                {marks(NIGHT, HOUR).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(NIGHT, m)}%` }} />)}
                 <div
                   className="cc-window"
                   style={{ left: `${pctIn(NIGHT, live.from)}%`, width: `${(span / (NIGHT.to - NIGHT.from)) * 100}%` }}
@@ -619,9 +618,7 @@ export function CommandCentre({
               <h3 className="cc-sec">The queue</h3>
               <Axis scale={live} step={HALF_HOUR} />
               <div className="cc-track">
-                {marks(live, HALF_HOUR).map((t) => (
-                  <span key={t.at} className={`cc-grid ${t.major ? '' : 'half'}`} style={{ left: `${pctIn(live, t.at)}%` }} />
-                ))}
+                {marks(live, HALF_HOUR).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(live, m)}%` }} />)}
                 {bandsOf(blocks).map((g) => (
                   <div
                     key={`${g.shelf}-${g.from}`}
@@ -849,14 +846,12 @@ function bandsOf(blocks: readonly Block[]): Array<{ shelf: string; from: number;
   return out
 }
 
-/** The shared axis: a label at every mark, the half hours set behind the whole ones. */
+/** The shared axis: one label at every mark, and every mark set the same. */
 function Axis({ scale, step }: { scale: Scale; step: number }): React.ReactElement {
   return (
     <div className="cc-axis">
-      {marks(scale, step).map((t) => (
-        <span key={t.at} className={`cc-hour ${t.major ? '' : 'half'}`} style={{ left: `${pctIn(scale, t.at)}%` }}>
-          {hhmm(t.at)}
-        </span>
+      {marks(scale, step).map((m) => (
+        <span key={m} className="cc-hour" style={{ left: `${pctIn(scale, m)}%` }}>{hhmm(m)}</span>
       ))}
     </div>
   )
