@@ -636,7 +636,13 @@ export class FellowService {
       model: input.model ?? this.settings().defaultModel,
       effort: input.effort ?? 'high',
       step: input.step ?? 'standard',
-      quotaRunsPerDay: input.quotaRunsPerDay ?? 1,
+      /*
+       * One run a day per standing task, because `nightly` defaults to `sweep` and a planning
+       * run is not gated by this while the run it produces is (see `gateFor`). A default of 1
+       * against three tasks would plan three every night and carry out one, which reads as a
+       * Fellow that keeps changing its mind rather than as a quota doing its job.
+       */
+      quotaRunsPerDay: input.quotaRunsPerDay ?? tasks.length,
       quotaWeekPct: null,
       autonomy: input.autonomy ?? 'veto',
       /*

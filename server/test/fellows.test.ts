@@ -399,6 +399,46 @@ describe('agents routes', () => {
     expect((await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}` })).statusCode).toBe(404)
   })
 
+  it('gives a new Fellow one run a day per standing task, and takes a stated number as stated', async () => {
+    /*
+     * `nightly` defaults to `sweep`, and a planning run skips this quota while the run it
+     * produces does not. A default of 1 against three tasks would plan three every night and
+     * carry out one.
+     */
+    const three = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      payload: {
+        name: 'Kepler',
+        intent: 'What is new in transit photometry?',
+        homeDomain: 'astronomy',
+        tasks: [
+          { text: 'What is new in transit photometry?', kind: 'watch' },
+          { text: 'How well do ground-based systematics bound retrievals?', kind: 'explore' },
+          { text: 'Extend what the vault says about transit timing', kind: 'deepen' },
+        ],
+      },
+    })
+    expect(three.statusCode, JSON.stringify(three.json())).toBe(201)
+    expect((three.json() as { agent: AgentRecord }).agent).toMatchObject({ quotaRunsPerDay: 3, nightly: 'sweep' })
+
+    const stated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      payload: {
+        name: 'Halley',
+        intent: 'Which periodic comets are being re-observed this season?',
+        homeDomain: 'astronomy',
+        quotaRunsPerDay: 1,
+        tasks: [
+          { text: 'Which periodic comets are being re-observed this season?', kind: 'watch' },
+          { text: 'What is new in cometary outgassing measurements?', kind: 'watch' },
+        ],
+      },
+    })
+    expect((stated.json() as { agent: AgentRecord }).agent.quotaRunsPerDay).toBe(1)
+  })
+
   it('refuses a task the Fellow\'s art does not hold, instead of quietly keeping the old list', async () => {
     /*
      * The refusal existed before this; what did not was a way to see it. `update` returned the

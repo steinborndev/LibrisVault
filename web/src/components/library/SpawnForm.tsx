@@ -41,7 +41,14 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
   const qc = useQueryClient()
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents })
-  const [form, setForm] = useState<SpawnBody>({ name: '', intent: '', homeDomain: '', model: 'sonnet-5', step: 'standard', autonomy: 'veto', quotaRunsPerDay: 1, runFirstStep: true, ...prefill })
+  const [form, setForm] = useState<SpawnBody>({ name: '', intent: '', homeDomain: '', model: 'sonnet-5', step: 'standard', autonomy: 'veto', runFirstStep: true, ...prefill })
+  /*
+   * The quota follows the task count until the user sets one, the way the name follows the
+   * domain until they type one. A Fellow works every standing task each night and the run
+   * behind each is what this limits, so one a day against three tasks would plan three and
+   * carry out one - the number has to move with the list, or the form quietly caps it.
+   */
+  const [typedQuota, setTypedQuota] = useState(prefill?.quotaRunsPerDay !== undefined)
   /*
    * The name field starts filled, on the domain's own letter (Ada works astronomy). Retired
    * Fellows count as taken: the spawn endpoint refuses a duplicate slug whatever their state.
@@ -60,6 +67,7 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
     prefill?.tasks && prefill.tasks.length > 0 ? prefill.tasks.map((t) => ({ text: t.text, kind: t.kind })) : [{ text: prefill?.intent ?? '', kind: 'explore' }],
   )
   const name = typedName ? form.name : suggested
+  const quota = typedQuota ? (form.quotaRunsPerDay ?? 1) : tasks.length
   /** Set when a shape was chosen: every task takes this art and the picker stands down. */
   const fixedArt: TaskKind | null = form.art !== undefined && form.art !== 'custom' ? form.art : null
   const spawn = useMutation({
@@ -72,9 +80,9 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
   })
   const keys = (domains.data?.domains ?? []).map((d) => d.key).filter((k) => k !== 'meta')
   const model = MODELS.find((m) => m.key === form.model) ?? MODELS[0]!
-  const monthly = Math.round(STEP_COST[form.step ?? 'standard']! * model.factor * 30 * (form.quotaRunsPerDay ?? 1) * 10) / 10
+  const monthly = Math.round(STEP_COST[form.step ?? 'standard']! * model.factor * 30 * quota * 10) / 10
   // The week in the plan's own unit once the model is calibrated (section 5.1, A5).
-  const weekly = weeklyProjection(plan, { stepUsd: STEP_COST[form.step ?? 'standard']! * model.factor, stepsPerDay: form.quotaRunsPerDay ?? 1, model: form.model ?? 'sonnet-5' })
+  const weekly = weeklyProjection(plan, { stepUsd: STEP_COST[form.step ?? 'standard']! * model.factor, stepsPerDay: quota, model: form.model ?? 'sonnet-5' })
   return (
     <form
       className="lib-spawn"
@@ -82,7 +90,7 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         e.preventDefault()
         if (name.trim() === '' || !tasksReady(tasks) || form.homeDomain === '') return
         const clean = tasks.map((t) => ({ text: t.text.trim(), kind: t.kind }))
-        spawn.mutate({ ...form, name: name.trim(), intent: clean[0]!.text, tasks: clean })
+        spawn.mutate({ ...form, name: name.trim(), intent: clean[0]!.text, tasks: clean, quotaRunsPerDay: quota })
       }}
     >
       <div className="gp-head">
@@ -219,10 +227,20 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         </label>
         <label>
           <span className="sp-lbl">
-            Steps a day
-            <Tip text="How many runs a day the night shift may spend on this Fellow. It is the ceiling over its standing work: three tasks worked in one night are three runs, so a quota of one leaves two of them for the following nights. You can always start a run by hand past this limit - the quota holds back the autopilot, not you." />
+            Runs a day
+            <Tip text="How many runs a day the night shift may spend on this Fellow. It is the ceiling over its standing work: three tasks worked in one night are three runs, so a quota of one leaves two of them for the following nights. It follows the number of tasks until you set it yourself. You can always start a run by hand past this limit - the quota holds back the autopilot, not you." />
           </span>
-          <input className="input" type="number" min={0} max={24} value={form.quotaRunsPerDay} onChange={(e) => setForm({ ...form, quotaRunsPerDay: Number(e.target.value) })} />
+          <input
+            className="input"
+            type="number"
+            min={0}
+            max={24}
+            value={quota}
+            onChange={(e) => {
+              setTypedQuota(true)
+              setForm({ ...form, quotaRunsPerDay: Number(e.target.value) })
+            }}
+          />
         </label>
       </div>
       <label className="lib-spawn-check">

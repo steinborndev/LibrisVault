@@ -8240,6 +8240,14 @@ tr:focus-within .rowacts {
 .lib-headline { gap: 10px; align-items: center; }
 .lib-head-left, .lib-head-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .lib-head-mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+/*
+ * While the command centre is open the middle sits in the row's true centre rather than in
+ * what is left over: the right-hand slot swaps "Manage Fellows" for a decisions count, and a
+ * middle centred on the remainder would slide sideways every time it did.
+ */
+.lib-headline.cc .lib-head-left, .lib-headline.cc .lib-head-right { flex: 1 1 0; min-width: 0; }
+.lib-headline.cc .lib-head-right { justify-content: flex-end; }
+.lib-headline.cc .lib-head-mid { flex: none; }
 .lib-headline .seg,
 .lib-headline .btn,
 .lib-headline .lib-strip { height: 28px; }
@@ -8485,19 +8493,22 @@ tr:focus-within .rowacts {
   background: var(--bg-elev); color: var(--text-dim); cursor: pointer; font-size: 13px; line-height: 1;
 }
 .cc-arrow:hover { border-color: var(--accent); color: var(--accent); }
-.cc-name { font-weight: 650; font-size: 15px; letter-spacing: -0.01em; }
+/*
+ * The name's slot, not the name's width. Every shelf's name starts at the same x and the dots
+ * after it never travel, so walking the ring changes the letters and nothing else. 225px is
+ * the longest domain in the registry ("brain computer interface", 24 characters at this size)
+ * with room to spare; a longer one truncates rather than pushing the dots.
+ */
+.cc-name {
+  font-weight: 650; font-size: 15px; letter-spacing: -0.01em;
+  flex: none; width: 225px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (max-width: 900px) { .cc-name { width: 150px; } }
 .cc-of { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono, ui-monospace, monospace); white-space: nowrap; }
 .cc-dots { display: flex; gap: 5px; align-items: center; margin-left: 2px; }
 .cc-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); cursor: pointer; }
 .cc-dots i.on { background: var(--accent); transform: scale(1.25); }
 .cc-dots i.due { background: var(--gold); box-shadow: 0 0 0 2px var(--gold-bg); }
-/* The last stop: shelves with nobody on them. Hollow, because nothing stands there yet. */
-/* The overview's own stop: hollow, because it is the map rather than a place with work on it,
-   and set apart by a hair of space so the shelves read as a run. */
-.cc-dots i.overview {
-  background: transparent; border: 1px solid var(--border-strong); width: 7px; height: 7px; margin-right: 3px;
-}
-.cc-dots i.overview.on { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.25); }
 .cc-keys { font-size: 10.5px; color: var(--text-faint); font-family: ui-monospace, monospace; display: flex; gap: 4px; align-items: center; }
 .cc-dec {
   display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px 0 10px;
@@ -8611,8 +8622,18 @@ tr:focus-within .rowacts {
   font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .cc-link.quiet { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.cc-link:disabled { opacity: 0.5; cursor: default; }
 
-/* One colour per art. They are a property of a task, never of a Fellow (A7 D7). */
+/* The one number the sweep is capped by, next to the toggle it caps. */
+.cc-quota { display: flex; align-items: center; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+.cc-quota .k {
+  font-family: ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-faint);
+}
+.cc-quota .cc-step b { min-width: 18px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text); }
+
+/* One colour per art. A task always has one; a Fellow has one too since A7 stage B, unless
+   it is custom, which is the absence of the promise rather than a fourth art. */
 .cc-art {
   font-family: ui-monospace, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; font-weight: 600; white-space: nowrap;

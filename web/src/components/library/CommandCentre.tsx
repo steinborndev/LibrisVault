@@ -148,6 +148,12 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null)
   /** The order while its write is in flight: the list must not jump back under the click. */
   const [orderDraft, setOrderDraft] = useState<readonly string[] | null>(null)
+  /**
+   * The shelf a spawn was started for. It is NOT `stop`: staffing an empty shelf is started
+   * from a row that has no stop of its own, and reading the current stop there handed the
+   * form the staffed shelf you happened to be standing on.
+   */
+  const [spawnShelf, setSpawnShelf] = useState<string | null>(null)
 
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, refetchInterval: 20_000 })
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph, staleTime: 60_000 })
@@ -173,7 +179,15 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
   )
   const order = orderDraft ?? agents.data?.shelfOrder ?? NO_ORDER
   const staffed = useMemo(() => shelfOrder(shelves, order), [shelves, order])
-  const empty = useMemo(() => shelves.filter((s) => s.fellows.length === 0), [shelves])
+  // Sorted here rather than in `Shelves`: the keyboard walks these rows by index, and two
+  // different orders for one list is how Enter opens a different shelf than the one lit up.
+  const empty = useMemo(
+    () =>
+      shelves
+        .filter((s) => s.fellows.length === 0)
+        .sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2)),
+    [shelves],
+  )
   const roster = useMemo(() => staffed.flatMap((s) => s.fellows.map((f) => ({ shelf: s, fellow: f }))), [staffed])
   const shelf = staffed[Math.min(stop, Math.max(0, staffed.length - 1))]
 
@@ -269,6 +283,11 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
     setFellowId(next.fellow.agent.id)
     setStop(staffed.indexOf(next.shelf))
   }
+  /** Opens the spawn view for one shelf. `null` means "wherever I am", never "no shelf". */
+  const openSpawn = (key: string | null): void => {
+    setSpawnShelf(key ?? shelf?.key ?? null)
+    setView('spawn')
+  }
   const back = (): void => {
     if (view === 'shelves') onClose()
     else if (view === 'tonight') setView('shelves')
@@ -349,13 +368,13 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
             setStop(row)
             setRow(0)
             setView('tonight')
-          } else setView('spawn')
-        } else if (row >= (shelf?.fellows.length ?? 0)) setView('spawn')
+          } else openSpawn(empty[row - staffed.length]?.key ?? null)
+        } else if (row >= (shelf?.fellows.length ?? 0)) openSpawn(null)
         else {
           const f = shelf?.fellows[row]
           if (f) openFellow(f.agent.id)
         }
-      } else if (e.key === 'n') setView('spawn')
+      } else if (e.key === 'n') openSpawn(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -413,7 +432,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
             row={row}
             blocks={blocks}
             onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
-            onSpawn={() => setView('spawn')}
+            onSpawn={openSpawn}
             onDecisions={(key) => {
               const first = deciders.findIndex((x) => x.shelf.key === key)
               if (first < 0) return
@@ -604,7 +623,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                     </div>
                   )
                 })}
-                <div className={`cc-row new ${row === shelf.fellows.length ? 'sel' : ''}`} onClick={() => setView('spawn')}>
+                <div className={`cc-row new ${row === shelf.fellows.length ? 'sel' : ''}`} onClick={() => openSpawn(shelf.key)}>
                   <span className="cc-id">
                     <span className="cc-idline"><b>New Fellow</b></span>
                     <span className="cc-t">take one of four examples and change anything about it</span>
@@ -655,7 +674,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
         />
       )}
 
-      {view === 'spawn' && <Spawn shelf={shelf?.key ?? ''} onBack={back} onDone={openFellow} />}
+      {view === 'spawn' && <Spawn shelf={spawnShelf ?? shelf?.key ?? ''} onBack={back} onDone={openFellow} />}
     </div>
   )
 }
@@ -717,11 +736,11 @@ function Shelves({
   row: number
   blocks: readonly Block[]
   onOpen: (index: number) => void
-  onSpawn: () => void
+  onSpawn: (key: string) => void
   onDecisions: (key: string) => void
 }): React.ReactElement {
-  const sorted = [...empty].sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2))
-  const top = sorted[0]
+  // Already sorted by what is waiting there; see the parent's `empty`.
+  const top = empty[0]
   return (
     <div className="lib-window-body cc-body">
       <section className="cc-block">
@@ -765,7 +784,7 @@ function Shelves({
 
       <section className="cc-block">
         <h3 className="cc-sec">
-          Nobody on them <span className="c">{sorted.length}</span>
+          Nobody on them <span className="c">{empty.length}</span>
           <span className="grow" />
           <span className="c">sorted by what is waiting there, not by size</span>
         </h3>
@@ -776,8 +795,8 @@ function Shelves({
           )}
         </p>
         <div className="cc-rows">
-          {sorted.map((d, i) => (
-            <div key={d.key} className={`cc-row ${row === staffed.length + i ? 'sel' : ''}`} onClick={onSpawn}>
+          {empty.map((d, i) => (
+            <div key={d.key} className={`cc-row ${row === staffed.length + i ? 'sel' : ''}`} onClick={() => onSpawn(d.key)}>
               <span className="cc-id">
                 <span className="cc-idline">
                   <span className="chip-dot" style={{ background: domainColor(d.key), opacity: 0.45 }} aria-hidden />
@@ -789,7 +808,7 @@ function Shelves({
               </span>
               <span className="cc-right">
                 <span className="cc-bar" title="how much is waiting here"><i style={{ width: `${Math.min(100, (d.questions + d.gaps * 2) * 6)}%` }} /></span>
-                <button className="btn sm" onClick={(e) => { e.stopPropagation(); onSpawn() }}>Staff it ›</button>
+                <button className="btn sm" onClick={(e) => { e.stopPropagation(); onSpawn(d.key) }}>Staff it ›</button>
               </span>
             </div>
           ))}
@@ -1050,15 +1069,35 @@ function Dossier({
                       </>
                     )}
                   </p>
-                  <p className="cc-note dim">
-                    {nightly} min tonight · {a.quotaRunsPerDay} run(s) a day allowed
-                    {card ? `, ${card.quota.usedToday} used` : ''}
-                  </p>
+                  <div className="cc-quota">
+                    <span className="k">Runs a day</span>
+                    <span className="cc-step">
+                      <button
+                        disabled={patching || a.quotaRunsPerDay <= 0}
+                        onClick={() => onPatch({ quotaRunsPerDay: a.quotaRunsPerDay - 1 })}
+                        title="One fewer run a night"
+                      >
+                        -
+                      </button>
+                      <b>{a.quotaRunsPerDay}</b>
+                      <button
+                        disabled={patching || a.quotaRunsPerDay >= 24}
+                        onClick={() => onPatch({ quotaRunsPerDay: a.quotaRunsPerDay + 1 })}
+                        title="One more run a night"
+                      >
+                        +
+                      </button>
+                    </span>
+                    <span className="mono-meta">{nightly} min tonight{card ? ` · ${card.quota.usedToday} used today` : ''}</span>
+                  </div>
                   {carried < active.length && (
                     <p className="cc-note warn">
                       {active.length} task{active.length === 1 ? '' : 's'} planned, {carried} carried out. Planning is free
-                      of the daily quota and the run it produces is not, so raise <i>runs a day</i> to {active.length} if
-                      every task should also run the night it is planned.
+                      of the daily quota and the run it produces is not, so {active.length} runs a day is what it takes for
+                      every task to also run the night it is planned.{' '}
+                      <button className="cc-link" disabled={patching} onClick={() => onPatch({ quotaRunsPerDay: active.length })}>
+                        Raise it to {active.length} ›
+                      </button>
                     </p>
                   )}
                 </div>
@@ -1374,6 +1413,9 @@ function Spawn({ shelf, onBack, onDone }: { shelf: string; onBack: () => void; o
         <span className="cc-lead">
           <b>{picked.name}</b>
           <span className={`cc-art a-${picked.art}`}>{picked.art}</span>
+          {/* The headline above names the stop you came from, which is not where this one is
+              going when an empty shelf is being staffed. So the shelf is named here too. */}
+          {shelf !== '' && <span className="cc-sub">for {shelf}</span>}
         </span>
         <span className="grow" />
         <span className="cc-sub">{picked.line}</span>

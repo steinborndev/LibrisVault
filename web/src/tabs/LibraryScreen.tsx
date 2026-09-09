@@ -596,7 +596,7 @@ export function LibraryScreen({
          * on the left, where you are in the middle, the one thing you can do here on the
          * right. Escape and the arrow keys do the rest, so no button repeats a key.
          */}
-        <div className="graph-controls lib-headline">
+        <div className={`graph-controls lib-headline${ccOpen ? ' cc' : ''}`}>
           <div className="lib-head-left">
             {/*
              * One slot, whatever stands in it. The room's toggle when a room is what you are
@@ -630,19 +630,21 @@ export function LibraryScreen({
               /* Just where you are. Escape steps back, the dots jump, and the shelves view is
                  the map - so the name needs no arrows around it. */
               <span className="lib-open cc-rot">
-                {ccShelf === null ? (
-                  <b className="cc-name dim">Fellows</b>
-                ) : (
-                  <>
-                    <span className="chip-dot" style={{ background: domainColor(ccShelf) }} aria-hidden />
-                    <b className="cc-name">{signText(ccShelf)}</b>
-                  </>
-                )}
+                {/* Dot, name, dots: the same three slots at every stop, and the name's slot is
+                    wide enough for the longest domain, so walking the ring moves nothing but
+                    the letters. The overview takes the accent for its dot because it is not a
+                    domain and has no colour of its own. */}
+                <span
+                  className="chip-dot"
+                  style={{ background: ccShelf === null ? 'var(--accent)' : domainColor(ccShelf) }}
+                  aria-hidden
+                />
+                <b className={`cc-name${ccShelf === null ? ' dim' : ''}`}>{ccShelf === null ? 'Fellows' : signText(ccShelf)}</b>
                 <span className="cc-dots">
-                  {/* The overview is a stop on the ring like any shelf, so it has a dot like
-                      any shelf - hollow, because nothing stands on it. */}
+                  {/* The overview is a stop on the ring like any shelf, so it gets the same
+                      dot: a different shape there read as a control rather than a stop. */}
                   <i
-                    className={`overview ${ccView === 'shelves' ? 'on' : ''}`}
+                    className={ccView === 'shelves' ? 'on' : ''}
                     title="Overview: every shelf"
                     onClick={() => setCcView('shelves')}
                   />
