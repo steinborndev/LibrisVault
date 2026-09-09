@@ -8478,8 +8478,12 @@ tr:focus-within .rowacts {
 .cc-dots i.on { background: var(--accent); transform: scale(1.25); }
 .cc-dots i.due { background: var(--gold); box-shadow: 0 0 0 2px var(--gold-bg); }
 /* The last stop: shelves with nobody on them. Hollow, because nothing stands there yet. */
-.cc-dots i.shelf { background: transparent; border: 1px dashed var(--border-strong); width: 7px; height: 7px; }
-.cc-dots i.shelf.on { border-color: var(--accent); border-style: solid; }
+/* The overview's own stop: hollow, because it is the map rather than a place with work on it,
+   and set apart by a hair of space so the shelves read as a run. */
+.cc-dots i.overview {
+  background: transparent; border: 1px solid var(--border-strong); width: 7px; height: 7px; margin-right: 3px;
+}
+.cc-dots i.overview.on { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.25); }
 .cc-keys { font-size: 10.5px; color: var(--text-faint); font-family: ui-monospace, monospace; display: flex; gap: 4px; align-items: center; }
 .cc-dec {
   display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px 0 10px;

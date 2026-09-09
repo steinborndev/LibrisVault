@@ -640,6 +640,13 @@ export function LibraryScreen({
                   </>
                 )}
                 <span className="cc-dots">
+                  {/* The overview is a stop on the ring like any shelf, so it has a dot like
+                      any shelf - hollow, because nothing stands on it. */}
+                  <i
+                    className={`overview ${ccView === 'shelves' ? 'on' : ''}`}
+                    title="Overview — every shelf"
+                    onClick={() => setCcView('shelves')}
+                  />
                   {ccStaffed.map((d, i) => (
                     <i
                       key={d.key}
