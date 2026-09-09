@@ -94,28 +94,17 @@ function Axis(): React.ReactElement {
  * The night in four facts, centred and in fixed slots. They change every night and with every
  * setting, and a line that re-centres itself as they do is a line you have to find again each
  * time - so each fact keeps its width whatever it says.
+ *
+ * The overview states the whole night; a shelf states its own slice of it, which is why the
+ * second fact drops "across N shelves" there: everything on that screen is one shelf.
  */
-function NightLine({
-  tasks,
-  shelves,
-  from,
-  to,
-  fellows,
-}: {
-  tasks: number
-  shelves: number
-  from: number
-  to: number
-  fellows: number
-}): React.ReactElement {
+function NightLine({ facts }: { facts: readonly string[] }): React.ReactElement {
   return (
     <div className="cc-line2">
       <span className="cc-side" />
       <span className="cc-facts">
         <b>Tonight</b>
-        <span className="s">{tasks} task{tasks === 1 ? '' : 's'} across {shelves} shel{shelves === 1 ? 'f' : 'ves'}</span>
-        <span className="s">{hhmm(from)} – {hhmm(to)}</span>
-        <span className="s">{fellows} Fellow{fellows === 1 ? '' : 's'}</span>
+        {facts.map((f) => <span key={f} className="s">{f}</span>)}
       </span>
       <span className="cc-side end" />
     </div>
@@ -168,6 +157,8 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
   const span = winTo - winFrom
   const booked = blocks.reduce((n, b) => n + b.minutes, 0)
   const overflow = blocks.filter((b) => b.to > winTo)
+  /** This shelf's stretch of the queue: contiguous, because the night is worked shelf by shelf. */
+  const mine = blocks.filter((b) => b.domain.key === domain.key)
 
   /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
   const bands = useMemo(() => {
@@ -367,13 +358,13 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
     <div className="lib-window cc" role="dialog" aria-label="Fellow command centre">
       {view === 'tonight' && (
         <>
-          <NightLine
-            tasks={blocks.length}
-            shelves={new Set(blocks.map((b) => b.domain.key)).size}
-            from={winFrom}
-            to={winTo}
-            fellows={domain.fellows.length}
-          />
+          <NightLine facts={[
+            `${mine.length} task${mine.length === 1 ? '' : 's'}`,
+            mine.length === 0
+              ? 'nothing scheduled'
+              : `${hhmm(mine[0]!.from)} – ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
+            `${domain.fellows.length} Fellow${domain.fellows.length === 1 ? '' : 's'}`,
+          ]} />
 
           <div className="lib-window-body cc-body">
             <section className="cc-block">
@@ -517,6 +508,9 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
         <Shelves
           staffed={staffed}
           row={row}
+          tasks={blocks.length}
+          shelvesWithWork={new Set(blocks.map((b) => b.domain.key)).size}
+          hours={`${hhmm(winFrom)} – ${hhmm(winTo)}`}
           onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
           onStaff={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
           onDecisions={(key) => {
@@ -552,12 +546,19 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
 function Shelves({
   staffed,
   row,
+  tasks,
+  shelvesWithWork,
+  hours,
   onOpen,
   onStaff,
   onDecisions,
 }: {
   staffed: readonly CcDomain[]
   row: number
+  /** The whole night's figures: the overview is where they belong, not on one shelf. */
+  tasks: number
+  shelvesWithWork: number
+  hours: string
   onOpen: (index: number) => void
   onStaff: (key: string) => void
   onDecisions: (key: string) => void
@@ -567,16 +568,11 @@ function Shelves({
   const fellows = staffed.reduce((n, d) => n + d.fellows.length, 0)
   return (
     <>
-      <div className="cc-line2">
-        <span className="cc-side" />
-        <span className="cc-facts">
-          <b>Overview</b>
-          <span className="s">{staffed.length} staffed, {empty.length} unstaffed</span>
-          <span className="s">{fellows} Fellow{fellows === 1 ? '' : 's'}</span>
-          <span className="s">{DOMAINS.reduce((n, d) => n + d.pages, 0)} pages</span>
-        </span>
-        <span className="cc-side end" />
-      </div>
+      <NightLine facts={[
+        `${tasks} task${tasks === 1 ? '' : 's'} across ${shelvesWithWork} shel${shelvesWithWork === 1 ? 'f' : 'ves'}`,
+        `${hours} (active hours)`,
+        `${fellows} Fellow${fellows === 1 ? '' : 's'}`,
+      ]} />
       <div className="lib-window-body cc-body">
         <section className="cc-block">
           <h3 className="cc-sec">
