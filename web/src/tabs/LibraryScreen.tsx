@@ -26,7 +26,7 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
-import { CommandCentre, type CcView } from '../components/library/CommandCentre.tsx'
+import { CommandCentre, type CcView, type RosterEntry } from '../components/library/CommandCentre.tsx'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
@@ -118,13 +118,20 @@ export function LibraryScreen({
    * opened from a dossier leaves behind: Escape on the page goes to the last non-page route,
    * and this is what that route was replaced with.
    */
-  const ccFellowId = /^[0-9a-f-]{36}$/.test(ccParam) ? ccParam : ''
-  const [ccView, setCcView] = useState<CcView>(ccFellowId === '' ? 'shelves' : 'dossier')
+  const ccFellowIdParam = /^[0-9a-f-]{36}$/.test(ccParam) ? ccParam : ''
+  const [ccView, setCcView] = useState<CcView>(ccFellowIdParam === '' ? 'shelves' : 'dossier')
   /* Reported up by the window: the headline names the shelf, the window knows which they are. */
   const [ccShelves, setCcShelves] = useState<readonly string[]>([])
-  /** The Fellow whose dossier is open; the headline names it in front of its shelf. */
-  const [ccFellow, setCcFellow] = useState<string | null>(null)
-  const ccShelf = ccView === 'shelves' ? null : (ccShelves[ccStop] ?? null)
+  /** The roster, in the order the dossier's arrows walk it. Reported up for the same reason. */
+  const [ccRoster, setCcRoster] = useState<readonly RosterEntry[]>([])
+  const [ccFellowId, setCcFellowId] = useState<string | null>(ccFellowIdParam === '' ? null : ccFellowIdParam)
+  /*
+   * Only the dossier is a Fellow. `ccFellowId` outlives it - Escape steps back to the shelf
+   * and leaves it set, so that the arrows and a later reopen land where you were - and reading
+   * it in the shelf view would put a Fellow's name over a shelf's page.
+   */
+  const ccFellow = ccView === 'dossier' ? (ccRoster.find((r) => r.id === ccFellowId) ?? null) : null
+  const ccShelf = ccView === 'shelves' ? null : (ccFellow?.domain ?? ccShelves[ccStop] ?? null)
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
@@ -183,8 +190,11 @@ export function LibraryScreen({
   useEffect(() => {
     if (ccParam === '') return
     setCcOpen(true)
-    if (ccFellowId !== '') setCcView('dossier')
-  }, [ccParam, ccFellowId])
+    if (ccFellowIdParam !== '') {
+      setCcFellowId(ccFellowIdParam)
+      setCcView('dossier')
+    }
+  }, [ccParam, ccFellowIdParam])
   useEffect(() => {
     if (shelfParam !== '') setShelf(shelfParam)
   }, [shelfParam])
@@ -657,25 +667,43 @@ export function LibraryScreen({
                   aria-hidden
                 />
                 <b className={`cc-name${ccShelf === null ? ' dim' : ''}`}>
-                  {ccShelf === null ? 'Fellows' : ccFellow === null ? signText(ccShelf) : ccFellow}
+                  {ccShelf === null ? 'Fellows' : ccFellow === null ? signText(ccShelf) : ccFellow.name}
                   {ccShelf !== null && ccFellow !== null && <span className="cc-of">({signText(ccShelf)})</span>}
                 </b>
+                {/*
+                  * One dot per stop of the ring you are ON, and the dossier is a different
+                  * ring: there the arrows walk the Fellows, so three dots for two Fellows was
+                  * the shelves' ring drawn over a view that never visits it.
+                  */}
                 <span className="cc-dots">
-                  {/* The overview is a stop on the ring like any shelf, so it gets the same
-                      dot: a different shape there read as a control rather than a stop. */}
-                  <i
-                    className={ccView === 'shelves' ? 'on' : ''}
-                    title="Overview: every shelf"
-                    onClick={() => setCcView('shelves')}
-                  />
-                  {ccShelves.map((key, i) => (
-                    <i
-                      key={key}
-                      className={ccView !== 'shelves' && i === ccStop ? 'on' : ''}
-                      title={key}
-                      onClick={() => { setCcStop(i); setCcView('tonight') }}
-                    />
-                  ))}
+                  {ccView === 'dossier' ? (
+                    ccRoster.map((r) => (
+                      <i
+                        key={r.id}
+                        className={r.id === ccFellowId ? 'on' : ''}
+                        title={`${r.name} (${signText(r.domain)})`}
+                        onClick={() => setCcFellowId(r.id)}
+                      />
+                    ))
+                  ) : (
+                    <>
+                      {/* The overview is a stop like any shelf, so it gets the same dot: a
+                          different shape there read as a control rather than as a place. */}
+                      <i
+                        className={ccView === 'shelves' ? 'on' : ''}
+                        title="Overview: every shelf"
+                        onClick={() => setCcView('shelves')}
+                      />
+                      {ccShelves.map((key, i) => (
+                        <i
+                          key={key}
+                          className={ccView !== 'shelves' && i === ccStop ? 'on' : ''}
+                          title={key}
+                          onClick={() => { setCcStop(i); setCcView('tonight') }}
+                        />
+                      ))}
+                    </>
+                  )}
                 </span>
               </span>
             )}
@@ -799,8 +827,9 @@ export function LibraryScreen({
               setView={setCcView}
               onClose={() => setCcOpen(false)}
               onShelves={setCcShelves}
-              onFellow={setCcFellow}
-              {...(ccFellowId === '' ? {} : { openFellowId: ccFellowId })}
+              onRoster={setCcRoster}
+              fellowId={ccFellowId}
+              setFellowId={setCcFellowId}
             />
           )}
 

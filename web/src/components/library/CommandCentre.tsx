@@ -188,10 +188,22 @@ export interface CommandCentreProps {
   readonly onClose: () => void
   /** Reported upward so the headline can name the shelf you are on. */
   readonly onShelves: (keys: readonly string[]) => void
-  /** The Fellow whose dossier is open, so the headline can name it as well as its shelf. */
-  readonly onFellow: (name: string | null) => void
-  /** A Fellow id from `?cc=<id>`: the window opens on its dossier, at the recap. */
-  readonly openFellowId?: string
+  /**
+   * The roster in the order the dossier's arrows walk it. The headline draws one dot per stop
+   * of whatever ring you are on, and in the dossier the stops are these Fellows rather than
+   * the shelves - which is what the arrows do there, and the only reading under which the
+   * count is right.
+   */
+  readonly onRoster: (list: readonly RosterEntry[]) => void
+  /** Which Fellow's dossier is open. Held by the screen, because the headline needs it too. */
+  readonly fellowId: string | null
+  readonly setFellowId: (id: string | null) => void
+}
+
+export interface RosterEntry {
+  readonly id: string
+  readonly name: string
+  readonly domain: string
 }
 
 export function CommandCentre({
@@ -201,10 +213,10 @@ export function CommandCentre({
   setView,
   onClose,
   onShelves,
-  onFellow,
-  openFellowId,
+  onRoster,
+  fellowId,
+  setFellowId,
 }: CommandCentreProps): React.ReactElement {
-  const [fellowId, setFellowId] = useState<string | null>(openFellowId ?? null)
   const [pane, setPane] = useState<Pane>('recap')
   const [decIndex, setDecIndex] = useState(0)
   const [optIndex, setOptIndex] = useState(0)
@@ -270,25 +282,27 @@ export function CommandCentre({
   // The headline needs the names; it does not need to know how they were derived.
   useEffect(() => onShelves(staffed.map((s) => s.key)), [staffed, onShelves])
   /*
-   * The dossier is a Fellow, not a shelf, and the headline said only the shelf: two Fellows
-   * on one shelf were indistinguishable from each other up there. Reported rather than
-   * derived, because only this window knows which of them is open.
+   * The roster as the headline needs it: who, and on which shelf. Only this window knows the
+   * order the arrows walk, so it reports it rather than letting the screen guess.
    */
-  const openName = view === 'dossier' ? (roster.find((r) => r.fellow.agent.id === fellowId)?.fellow.agent.name ?? null) : null
-  useEffect(() => onFellow(openName), [openName, onFellow])
+  const entries = useMemo<readonly RosterEntry[]>(
+    () => roster.map((r) => ({ id: r.fellow.agent.id, name: r.fellow.agent.name, domain: r.shelf.key })),
+    [roster],
+  )
+  useEffect(() => onRoster(entries), [entries, onRoster])
   /*
-   * A Fellow named in the URL was opened before the roster had loaded, so the shelf it stands
-   * on follows here rather than at the click. Runs once per id: `stop` is the user's after
+   * A Fellow opened from `?cc=<id>` was named before the roster had loaded, so the shelf it
+   * stands on follows here rather than at the click. Once per id: `stop` is the user's after
    * that, and re-setting it would drag them back every time the roster refetched.
    */
   const placed = useRef<string | null>(null)
   useEffect(() => {
-    if (openFellowId === undefined || placed.current === openFellowId) return
-    const at = roster.findIndex((r) => r.fellow.agent.id === openFellowId)
+    if (fellowId === null || placed.current === fellowId) return
+    const at = roster.findIndex((r) => r.fellow.agent.id === fellowId)
     if (at < 0) return
-    placed.current = openFellowId
+    placed.current = fellowId
     setStop(staffed.indexOf(roster[at]!.shelf))
-  }, [openFellowId, roster, staffed, setStop])
+  }, [fellowId, roster, staffed, setStop])
 
   const set = settings.data?.effective
   const win = useMemo(
