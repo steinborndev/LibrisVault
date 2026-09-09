@@ -189,6 +189,30 @@ export function furthestFamily(lines: readonly LogLine[]): ToolFamily {
   return best
 }
 
+/**
+ * The lines of ONE run out of the channel it shares with every other run of its kind.
+ *
+ * A channel is named `maintenance:<kind>` - per kind, not per run and not per Fellow - and
+ * nothing ever clears it. So the buffer of `maintenance:plan` holds every planning run of the
+ * session, and a Fellow starting one read the lines of the Fellows before it: the pose for the
+ * 30 seconds of `steadyFamily`'s window, and the progress cap for good, since `furthestFamily`
+ * deliberately reads every line rather than a window. On a channel where anything ever
+ * committed that made each later run report its maximum from its first second.
+ *
+ * Cutting at the run's own start is the small half of the fix; the channel should carry the
+ * run id (docs/tasks/TASKS-A7.md 5.1).
+ */
+function since(lines: readonly LogLine[], startedAt: string): readonly LogLine[] {
+  const from = Date.parse(startedAt)
+  if (!Number.isFinite(from)) return lines
+  // Walk back from the newest and stop at the edge: the buffer holds up to 2000 lines.
+  for (let k = lines.length - 1; k >= 0; k--) {
+    const at = Date.parse(lines[k]!.ts)
+    if (Number.isFinite(at) && at < from) return lines.slice(k + 1)
+  }
+  return lines
+}
+
 /** How far along a run in flight is, in steps of ten, or null when nothing honest can be said. */
 export function runPercent(input: {
   readonly startedAt: string
@@ -367,7 +391,7 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
       const seat = ANCHORS.armchairs[index % ANCHORS.armchairs.length]!
       return { ...base, caption: caption(f.name, 'waiting'), pose: 'wait', room: 'main', i: seat.i, j: seat.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
     }
-    const lines = input.lines(f.run.channel)
+    const lines = since(input.lines(f.run.channel), f.run.startedAt)
     const family = steadyFamily(lines, input.now)
     const planning = f.run.kind === 'plan'
     const pose: Pose = planning ? 'think' : poseForFamily(family)
@@ -434,7 +458,7 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
 function runActor(scene: LibraryScene, r: SceneRun, index: number, input: AdapterInput): Actor | null {
   const role = roleOfRun(r.kind)
   if (role === null) return null
-  const lines = input.lines(r.channel)
+  const lines = since(input.lines(r.channel), r.startedAt)
   const family = steadyFamily(lines, input.now)
   const base = { id: `run:${r.id}`, role, color: VISITOR, tag: 'visitor' as const, runId: r.id, channel: r.channel, room: 'main' }
   const percent = runPercent({ startedAt: r.startedAt, typicalMs: r.typicalMs, lines, now: input.now })

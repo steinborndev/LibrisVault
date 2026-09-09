@@ -362,3 +362,88 @@ describe('exitOk', () => {
     expect(exitOk(undefined)).toBe(true)
   })
 })
+
+/**
+ * One run's lines out of a channel shared by every run of its kind.
+ *
+ * `maintenance:<kind>` is per kind, not per run, and nothing clears it. The progress cap reads
+ * every line in the buffer on purpose, so without this a run inherited the furthest phase any
+ * earlier run on that channel had reached - and a channel where anything ever committed made
+ * every later run report its maximum from its first second.
+ */
+describe('a run reads only its own lines', () => {
+  const line = (ts: string, message: string): { ts: string; level: 'info'; message: string } => ({ ts, level: 'info', message })
+  const scene = (over: Partial<LibraryScene> = {}): LibraryScene =>
+    ({
+      generatedAt: '2026-09-10T00:00:00.000Z',
+      night: true,
+      window: { start: '23:00', end: '02:00' },
+      rooms: [{ id: 'main', name: 'Main room', kind: 'main', position: 0, capacity: 8, shelves: [] }],
+      departments: [],
+      unfiled: 0,
+      gaps: 0,
+      fellows: [],
+      runs: [],
+      jobs: [],
+      concurrency: 1,
+      ...over,
+    }) as LibraryScene
+
+  const fellow = (over: Partial<SceneFellow> = {}): SceneFellow =>
+    ({
+      agentId: 'a1',
+      name: 'Ada',
+      homeDomain: 'astronomy',
+      model: 'sonnet-5',
+      state: 'active',
+      sleepCode: null,
+      sleepReason: null,
+      skipUntil: null,
+      next: null,
+      lastActive: null,
+      run: {
+        id: 'r2',
+        kind: 'research-step',
+        channel: 'maintenance:research-step',
+        label: null,
+        startedAt: '2026-09-10T00:10:00.000Z',
+        waiting: false,
+        typicalMs: 300_000,
+      },
+      ...over,
+    }) as SceneFellow
+
+  it('does not inherit an earlier run\'s commit, and so does not start at its maximum', () => {
+    const f = fellow()
+    const actors = buildActors({
+      scene: scene({ fellows: [f] }),
+      // An earlier run on the same channel committed; this one has only just started reading.
+      lines: () => [
+        line('2026-09-10T00:05:00.000Z', 'committed 4 pages'),
+        line('2026-09-10T00:10:05.000Z', '→ Read(wiki/index.md)'),
+      ],
+      exits: [],
+      now: Date.parse('2026-09-10T00:10:30.000Z'),
+    })
+    const caption = actors.find((a) => a.id === 'fellow:a1')!.caption
+    // 30 s of a 300 s run, read phase: 10 %, not the 95 % a stale commit would have claimed.
+    expect(caption).toBe('Ada (reading 10%)')
+  })
+
+  it('still reads every line of its own run, window or not', () => {
+    const f = fellow()
+    const actors = buildActors({
+      scene: scene({ fellows: [f] }),
+      lines: () => [
+        line('2026-09-10T00:09:00.000Z', '→ Write(wiki/concepts/Old.md)'),
+        line('2026-09-10T00:10:01.000Z', '→ Write(wiki/concepts/New.md)'),
+        line('2026-09-10T00:10:02.000Z', '→ Read(wiki/index.md)'),
+      ],
+      exits: [],
+      now: Date.parse('2026-09-10T00:14:00.000Z'),
+    })
+    // The write inside this run still lifts the cap to 85; the one before it is not counted
+    // twice and the one from the earlier run is not counted at all.
+    expect(actors.find((a) => a.id === 'fellow:a1')!.caption).toContain('80%')
+  })
+})

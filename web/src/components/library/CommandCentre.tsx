@@ -377,6 +377,9 @@ export function CommandCentre({
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['agents'] })
       void qc.invalidateQueries({ queryKey: ['agent-card'] })
+      // The recap board shows the same decisions elsewhere; it should not keep showing one
+      // that has been made here.
+      void qc.invalidateQueries({ queryKey: ['recaps'] })
     },
   })
   const act = useMutation({

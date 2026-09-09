@@ -362,3 +362,33 @@ task. What is still true and deliberate: raising a Fellow's task count later doe
 its quota. The window says so where it matters rather than moving a number the user set.
 
 Retiring `FellowCard` is now unblocked; A6 merge prep is the next milestone gate.
+
+## 5. Open item: a log channel per run
+
+`maintenanceChannel(kind)` is `maintenance:<kind>` - one channel for every run of a kind, for
+every Fellow, for the life of the tab. The room reads it for two things and both were wrong
+for it:
+
+- the POSE, from `steadyFamily` over a 30-second window, so a Fellow starting a run wore the
+  previous one's pose for half a minute;
+- the PROGRESS CAP, from `furthestFamily`, which reads every line in the buffer on purpose (a
+  run that reads again after writing should not fall back). On a channel where anything ever
+  committed, `runPercent` short-circuits to its maximum - so the second and every later
+  `research-step` of a session reported 95 % from its first second.
+
+Measured on the night of 2026-09-09: three planning runs for one Fellow and one for another,
+back to back, all four on `maintenance:plan`. Planning runs never commit, so the visible
+symptom there was only the shared pose; the 50 % they all sat at is the read-phase cap doing
+its job on a read-only run, not a stall.
+
+Cutting each run's lines at its own `startedAt` (`since()` in `lib/library/scene.ts`) fixes
+both symptoms and is what was built. The cause is the naming: a channel should carry the run
+id, `maintenance:<kind>:<runId>`. That is a server change plus every SSE subscriber that
+follows a kind today, so it is its own piece of work.
+
+One number was fixed with it: the Library's "Decisions" count read the newest RECAP while the
+command centre decides against the live Fellows and invalidates `agents`. Nothing invalidated
+`recaps`, and with `refetchOnWindowFocus` off there was no schedule to fall back on - so the
+count held its old value until an unrelated mount happened to refetch, and disagreed with the
+per-shelf pill beside it the whole time. It counts `undecidedProposals` from the same payload
+the pill does now: one number, one source.

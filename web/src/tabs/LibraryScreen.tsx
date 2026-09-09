@@ -42,7 +42,6 @@ import { shareLine } from '../lib/plan.ts'
 import { planCorner } from '../lib/library/planCorner.ts'
 import { FiveHourRelease } from '../components/library/FiveHourRelease.tsx'
 import { signText } from '../lib/library/room.ts'
-import { undecidedCount } from '../lib/recap.ts'
 import { roomToFollow } from '../lib/library/follow.ts'
 
 const CANVAS_W = 1128
@@ -95,11 +94,20 @@ export function LibraryScreen({
    * The decisions the newest recap is still waiting for, across every Fellow in it. The recap
    * is the surface where they are made, so the button counts them and opens that board.
    */
-  const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, staleTime: 30_000 })
-  const openDecisions = useMemo(() => {
-    const latest = recaps.data?.recaps[0]
-    return latest === undefined || latest.quiet ? 0 : undecidedCount(latest.model)
-  }, [recaps.data])
+  /*
+   * Counted from the LIVE Fellows, not from the recap.
+   *
+   * The recap is a snapshot built once a night; the decisions are made in the command centre,
+   * which invalidates `agents` and had no reason to invalidate `recaps`. So the count sat at
+   * its old value until some unrelated mount happened to refetch the recap - "many seconds",
+   * with no fixed length, and disagreeing all the while with the per-shelf pill beside it,
+   * which reads the live number. One number, one source.
+   */
+  const agentsQ = useQuery({ queryKey: ['agents'], queryFn: api.agents, refetchInterval: 20_000 })
+  const openDecisions = useMemo(
+    () => (agentsQ.data?.fellows ?? []).reduce((n, f) => n + f.undecidedProposals, 0),
+    [agentsQ.data],
+  )
   // Focus is the resting state; a department and a Fellow card both live in the column, so a
   // deep link into either opens in full, the same as a click on the shelf or the figure does.
   const [mode, setMode] = useState<Mode>(shelfParam !== '' || agentParam !== '' ? 'full' : 'focus')
