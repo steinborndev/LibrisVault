@@ -31,6 +31,7 @@ export interface PlanSettings {
   readonly planName: string
   /** Whether the five-hour release may be granted at all (section 8.6). */
   readonly fiveHourOverrideEnabled: boolean
+  readonly weekOverrideEnabled: boolean
 }
 
 export interface EndpointResult {
@@ -93,6 +94,18 @@ export interface PlanStatus {
     readonly active: boolean
     /** What a grant lifts the bounds to, live or not. */
     readonly pct: number
+    readonly expiresAt: string | null
+  }
+  /**
+   * The week release (section 8.6a), the same shape. Kept as its own field rather than folded
+   * into a map: the two grants are different decisions with different ends, and a reader of
+   * this payload should not have to look up which key is which.
+   */
+  readonly weekOverride: {
+    readonly enabled: boolean
+    readonly active: boolean
+    readonly pct: number
+    /** The end of the night this was granted for, never the week's own reset. */
     readonly expiresAt: string | null
   }
   /** Estimated window percent spent by runs that started after the newest sample. */
@@ -206,6 +219,19 @@ export function parseEndpointUsage(json: unknown): { available: boolean; windows
  * seen so far carry the window and its reset time but no utilization; `eventReset` reads
  * those, so the monitor at least knows when the window turns.
  */
+/**
+ * A `rate_limit_event` as a window sample.
+ *
+ * The event reports utilization as a FRACTION where the SDK's usage windows report a
+ * percentage. Measured on 2026-09-09: two events recorded `seven_day` at 0.83 in the same
+ * second that an SDK sample recorded it at 83. Stored unscaled, that number is the newest
+ * sample for its window until the next run replaces it, and the gate reads it as "the week is
+ * at 0.83%" - so the reserve that stops a night stops nothing, in the one direction that
+ * costs money.
+ *
+ * At exactly 1 the two readings are indistinguishable (1 % or 100 %). It is read as 100 %,
+ * because that direction closes the gate rather than opening it.
+ */
 export function parseRateLimitEvent(info: unknown): WindowSample | null {
   if (info === null || typeof info !== 'object') return null
   const r = info as Record<string, unknown>
@@ -213,7 +239,11 @@ export function parseRateLimitEvent(info: unknown): WindowSample | null {
   const type = str(r['rateLimitType'])
   if (u === null || type === null) return null
   const resets = num(r['resetsAt'])
-  return { window: type, utilization: u, resetsAt: resets !== null ? new Date(resets * 1000).toISOString() : null }
+  return {
+    window: type,
+    utilization: u <= 1 ? Math.round(u * 100 * 100) / 100 : u,
+    resetsAt: resets !== null ? new Date(resets * 1000).toISOString() : null,
+  }
 }
 
 /** The window and reset time of a `rate_limit_event`, utilization or not. */
@@ -544,14 +574,23 @@ export class UsageMonitor {
     const lifted = this.overrideNow()
     const reserve5h = lifted?.pct ?? s.reserve5hPct
     const share5h = lifted?.pct ?? s.researchShare5hPct
+    /*
+     * The week can be released too since 8.6a, and both of its bounds go together for the same
+     * reason the five-hour ones do: a share of 90 still stops at a reserve of 80, and a reserve
+     * of 90 still stops at a share of 10. What keeps this a bounded decision is not the week
+     * surviving the grant any more - it is that the grant ends with the night (`grantWeek`).
+     */
+    const liftedWeek = this.weekOverrideNow()
+    const reserveWeek = liftedWeek?.pct ?? s.reserveWeekPct
+    const shareWeek = liftedWeek?.pct ?? s.researchShareWeekPct
     if (latest.available) {
       const five = latest.windows.find((w) => w.window === 'five_hour')
       if (five && five.utilization > reserve5h) {
         return { code: 'reserve', window: 'five_hour', reason: `the 5-hour window is at ${five.utilization}%, above the ${reserve5h}% reserve`, resetsAt: five.resetsAt }
       }
       const week = latest.windows.find((w) => w.window === 'seven_day')
-      if (week && week.utilization > s.reserveWeekPct) {
-        return { code: 'reserve', window: 'seven_day', reason: `the week is at ${week.utilization}%, above the ${s.reserveWeekPct}% reserve`, resetsAt: week.resetsAt }
+      if (week && week.utilization > reserveWeek) {
+        return { code: 'reserve', window: 'seven_day', reason: `the week is at ${week.utilization}%, above the ${reserveWeek}% reserve`, resetsAt: week.resetsAt }
       }
     }
     const c = this.consumption()
@@ -559,11 +598,11 @@ export class UsageMonitor {
     const weekReset = this.resetOf('seven_day')
     const fiveReset = this.resetOf('five_hour')
     if (c.weekPct !== null && est.sevenDay !== null) {
-      if (c.weekPct + est.sevenDay > s.researchShareWeekPct) {
-        return { code: 'share', window: 'seven_day', reason: `the research share of the week is used up (${c.weekPct} of ${s.researchShareWeekPct} points, this step about ${est.sevenDay})`, resetsAt: weekReset }
+      if (c.weekPct + est.sevenDay > shareWeek) {
+        return { code: 'share', window: 'seven_day', reason: `the research share of the week is used up (${c.weekPct} of ${shareWeek} points, this step about ${est.sevenDay})`, resetsAt: weekReset }
       }
-    } else if (c.weekUsd + ctx.estCostUsd > (s.researchShareWeekPct / 100) * s.planWeekUsd) {
-      const budget = Math.round((s.researchShareWeekPct / 100) * s.planWeekUsd * 100) / 100
+    } else if (c.weekUsd + ctx.estCostUsd > (shareWeek / 100) * s.planWeekUsd) {
+      const budget = Math.round((shareWeek / 100) * s.planWeekUsd * 100) / 100
       return { code: 'share', window: 'seven_day', reason: `the research share of the week is used up (${c.weekUsd.toFixed(2)} of about ${budget} USD, this step about ${ctx.estCostUsd} USD)`, resetsAt: weekReset }
     }
     if (c.fiveHourPct !== null && est.fiveHour !== null) {
@@ -609,6 +648,43 @@ export class UsageMonitor {
     return ended
   }
 
+  /** The live week grant, or null. Expiry is a comparison, never a timer. */
+  weekOverrideNow(): PlanOverride | null {
+    return this.o.overrides?.active('seven_day', this.now().toISOString()) ?? null
+  }
+
+  /**
+   * Releases the week's two bounds for ONE NIGHT (SPEC section 8.6a).
+   *
+   * The week is the bound every other grant survives, which is what made a released afternoon
+   * a bounded decision. Lifting it removes that backstop, so the bound moves rather than
+   * disappearing: `expiresAt` is the end of the night window this is granted for, and never
+   * the week's own reset, which can be seven days out. The decision at the banner is "let
+   * tonight run", and the grant lasts exactly as long as that sentence is true.
+   *
+   * Refuses without an end instant for the same reason the five-hour grant does: an
+   * open-ended release is the one thing this must never become.
+   */
+  grantWeek(nightEndsAt: string | null): { readonly ok: true; readonly override: PlanOverride } | { readonly ok: false; readonly reason: string } {
+    if (!this.o.overrides) return { ok: false, reason: 'no override store is wired' }
+    const now = this.now()
+    const live = this.o.overrides.active('seven_day', now.toISOString())
+    if (live) return { ok: false, reason: `the week is already released until ${live.expiresAt}` }
+    if (nightEndsAt === null) return { ok: false, reason: 'the night window has no end to release until' }
+    const ends = Date.parse(nightEndsAt)
+    if (Number.isNaN(ends) || ends <= now.getTime()) return { ok: false, reason: 'that night has already ended; nothing to release' }
+    const override = this.o.overrides.grant({ window: 'seven_day', pct: OVERRIDE_PCT, grantedAt: now.toISOString(), expiresAt: nightEndsAt })
+    this.log('warn', `usage: the WEEK is released to ${OVERRIDE_PCT}% until ${nightEndsAt} - the reserve that survives every other grant`)
+    return { ok: true, override }
+  }
+
+  /** Ends a live week grant early. */
+  revokeWeek(): PlanOverride | null {
+    const ended = this.o.overrides?.revoke('seven_day', this.now().toISOString()) ?? null
+    if (ended) this.log('info', 'usage: the week release was withdrawn')
+    return ended
+  }
+
   /** Everything the dashboard shows (D7). */
   status(standardStep: { estCostUsd: number; model: AgentModel }): PlanStatus {
     const s = this.o.settings()
@@ -619,11 +695,13 @@ export class UsageMonitor {
      * affordable, disagreeing with the one that actually decides it.
      */
     const lifted = this.overrideNow()
+    const liftedWeek = this.weekOverrideNow()
     const calibration = this.calibration()
     const consumption = this.consumption()
     const est = this.estimatePct(standardStep.estCostUsd, standardStep.model)
     const points = consumption.weekPct !== null && est.sevenDay !== null
-    const weekShare = points ? s.researchShareWeekPct : (s.researchShareWeekPct / 100) * s.planWeekUsd
+    const shareWeekPct = liftedWeek?.pct ?? s.researchShareWeekPct
+    const weekShare = points ? shareWeekPct : (shareWeekPct / 100) * s.planWeekUsd
     const share5h = lifted?.pct ?? s.researchShare5hPct
     const fiveShare = points ? share5h : (share5h / 100) * s.plan5hUsd
     const weekUsed = points ? consumption.weekPct! : consumption.weekUsd
@@ -651,6 +729,12 @@ export class UsageMonitor {
           expiresAt: live?.expiresAt ?? null,
         }
       })(),
+      weekOverride: {
+        enabled: s.weekOverrideEnabled,
+        active: liftedWeek !== null,
+        pct: liftedWeek?.pct ?? OVERRIDE_PCT,
+        expiresAt: liftedWeek?.expiresAt ?? null,
+      },
       subscription: s.planName !== '' ? s.planName : this.subscription,
       sampledAt: latest.sampledAt,
       windows: latest.windows,

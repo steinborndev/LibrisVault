@@ -167,6 +167,13 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   if (ctx.usage !== undefined)
     registerUsageRoute(app, ctx.usage, () => (ctx.settings ? ctx.settings.effective(ctx.config).researchModelDefault : 'sonnet-5'), {
       enabled: () => ctx.settings?.effective(ctx.config).fiveHourOverrideEnabled ?? false,
+      weekEnabled: () => ctx.settings?.effective(ctx.config).weekOverrideEnabled ?? false,
+      /*
+       * The night a week release would be granted for: the window we are inside, or the next
+       * one. The shift owns the window, so it owns the answer - a second reading of the same
+       * two settings here is how the grant and the night it was meant for drift apart.
+       */
+      nightEndsAt: () => ctx.shift?.nightEndsAt() ?? null,
       runInFlight: () => ctx.fellows?.anyRunInFlight() ?? false,
       /*
        * A shift round, right away and outside the night window - the same 'manual' trigger the

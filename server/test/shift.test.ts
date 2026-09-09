@@ -118,7 +118,7 @@ function makeHarness(withUsage = false): Harness {
     clock: { now: at(7, 1, 30) },
     sleeps: [],
     windows: { before: [10, 20], after: [12, 21] },
-    planSettings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false },
+    planSettings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false, weekOverrideEnabled: false },
   }
   h.planAnswer = () => TWO_PROPOSALS
   // No opinion unless a test gives one; NaN is "did not answer", never "not a duplicate".

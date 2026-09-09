@@ -398,6 +398,16 @@ export class NightShift {
     return this.running !== null
   }
 
+  /**
+   * When the night a release would be granted for ends: the window `now` is inside, or the
+   * next one. The shift owns the window, so it answers this rather than the usage route
+   * reading the same two settings a second time.
+   */
+  nightEndsAt(): string {
+    const at = windowAt(this.now(), this.window())
+    return (at.current ?? at.next).end.toISOString()
+  }
+
   status(): ShiftStatus {
     const now = this.now()
     const window = this.window()

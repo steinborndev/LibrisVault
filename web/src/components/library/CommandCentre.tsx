@@ -57,6 +57,7 @@ import {
 import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
 import { SpawnForm } from './SpawnForm.tsx'
+import { WeekRelease } from './WeekRelease.tsx'
 import { queryState } from '../QueryState.tsx'
 import { Markdown } from '../Markdown.tsx'
 import { usd } from '../../lib/format.ts'
@@ -341,6 +342,23 @@ export function CommandCentre({
    */
   const blocked = nightBlock(usage.data)
   const room = nightRoom(usage.data)
+  /*
+   * The one control that hands out budget from this window. It sits at the end of the banner
+   * because that is where the reader already is when the answer matters: the sentence before
+   * it has just said what is holding the night, and the button is the answer to that sentence.
+   */
+  const weekRelease = (
+    <WeekRelease
+      release={{
+        enabled: usage.data?.weekOverride.enabled === true,
+        active: usage.data?.weekOverride.active === true,
+        pct: usage.data?.weekOverride.pct ?? 90,
+        until: usage.data?.weekOverride.expiresAt ?? null,
+      }}
+      weekPct={usage.data?.windows.find((w) => w.window === 'seven_day')?.utilization ?? null}
+      onDone={() => void qc.invalidateQueries({ queryKey: ['usage-plan'] })}
+    />
+  )
 
   const deciders = useMemo(
     // Undecided, not standing: approving one is what takes it off this list.
@@ -611,14 +629,19 @@ export function CommandCentre({
                   {blocked.liftable
                     ? `Release the window under System${blocked.resetsAt === null ? '' : `, or wait until ${when(blocked.resetsAt)}`}.`
                     : blocked.resetsAt === null
-                      ? 'Only time clears this one; a release does not lift the week.'
-                      : `Only time clears this one: ${when(blocked.resetsAt)}.`}
+                      ? 'The week clears on its own.'
+                      : `The week clears on its own at ${when(blocked.resetsAt)}.`}
+                  <span className="grow" />
+                  {weekRelease}
                 </p>
               ) : room !== null ? (
                 <p className="cc-note ok one">
                   <b>Tonight runs.</b> {room.tight.reserve - room.tight.pct} points of room on {boundName(room.tight)}{' '}
                   ({room.tight.pct}% of {room.tight.reserve}%), {room.other.reserve - room.other.pct} on{' '}
                   {boundName(room.other)} ({room.other.pct}% of {room.other.reserve}%).
+                  <span className="grow" />
+                  {/* Only while a grant is live: a released night says so where it was released. */}
+                  {usage.data?.weekOverride.active === true ? weekRelease : null}
                 </p>
               ) : null}
             </section>

@@ -9,6 +9,7 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus => ({
   liveReason: null,
   sinceSample: { runs: 0, fiveHour: null, sevenDay: null },
   override: { enabled: false, active: false, pct: 90, expiresAt: null },
+  weekOverride: { enabled: false, active: false, pct: 90, expiresAt: null },
   subscription: 'max',
   sampledAt: 's',
   windows: [{ window: 'five_hour', utilization: 12, resetsAt: null }],

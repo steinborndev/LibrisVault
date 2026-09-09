@@ -1054,6 +1054,11 @@ export interface PlanStatus {
    * live, what it lifts the bounds to, and when it ends.
    */
   override: { enabled: boolean; active: boolean; pct: number; expiresAt: string | null }
+  /**
+   * The week release (SPEC section 8.6a), the same shape. `expiresAt` is the end of the night
+   * it was granted for, never the week's own reset.
+   */
+  weekOverride: { enabled: boolean; active: boolean; pct: number; expiresAt: string | null }
   subscription: string | null
   sampledAt: string | null
   windows: PlanWindow[]

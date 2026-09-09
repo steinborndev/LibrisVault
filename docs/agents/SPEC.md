@@ -654,7 +654,9 @@ reach either. The controls are therefore all about the blast radius:
   reset instant the grant is refused outright - an open-ended release is the one thing this must
   never become.
 - **The week is untouched.** `reserveWeekPct` and `researchShareWeekPct` survive every grant,
-  which is what makes a released afternoon a bounded decision rather than an open tap.
+  which is what makes a released afternoon a bounded decision rather than an open tap. (Amended
+  by 8.6a: the week has its own release since 2026-09-10, and what bounds THAT one is its
+  expiry rather than the week surviving it.)
 - **Refused while a run is in flight**, so no Fellow can raise the bound it is running under.
 - **A settings switch**, `fiveHourOverrideEnabled`, off by default. Off means the button is gone
   and the endpoint refuses whoever asks: a feature that can only be turned off after the fact is
@@ -689,6 +691,51 @@ The button sits in the Library's plan corner, next to the age of the measurement
 always shown, "0m old" included, so the button never moves. A first click turns it into
 `yes, to 90%` / `no`, the same two-step the Fellow card's quota override uses. While a grant is
 live the button says `90% until 18:20` and withdraws it on click.
+
+### 8.6a Releasing the week for one night (as built, 2026-09-10)
+
+The five-hour release leaves one night unreachable: the bound that stops it is the week, and
+8.6 was built so that the week survives every grant. Measured on the night this was written -
+the week at 83 % against an 80 % reserve, the Fellows' own share at 2 of 10 points - the
+reserve refused the second planning run of a sweep and the night stopped after its first task.
+The reserve was doing its job: it protects the USER's headroom, not the Fellows' slice. What
+was missing was a way to say "I accept less headroom tonight".
+
+`POST /usage/override` with `{"window":"seven_day"}` lifts both week bounds to 90 %; `DELETE`
+with the same body withdraws it. Everything that bounds the five-hour grant bounds this one,
+and one thing more, because this is the bound the others were measured against:
+
+- **It ends with the NIGHT, never with the week.** `expiresAt` is the end of the active-hours
+  window it was granted for (the one `now` is inside, or the next), which the shift answers -
+  `ShiftService.nightEndsAt()` - so the grant and the night it was meant for cannot drift
+  apart. The week's own reset can be seven days out, and a grant that ran to it would be the
+  open tap 8.6 exists to avoid. Without a night to end at, the grant is refused.
+- **Both bounds, for the reason 8.6 gives.** A share of 90 still stops at a reserve of 80, and
+  a reserve of 90 still stops at a share of 10.
+- **A ceiling of 90 %**, refused while a run is in flight, one warning line in the log naming
+  the week, a row in `plan_overrides` (which was already keyed by window, so no migration), and
+  its own settings switch `weekOverrideEnabled`, **off by default** and separate from
+  `fiveHourOverrideEnabled`: releasing an afternoon and releasing the backstop are not one
+  decision.
+- **Granting starts a round**, the same `manual` trigger 8.6 uses, for the same reason: the
+  night shift has usually already run when the banner is read, so a grant would otherwise
+  expire unused.
+
+The control sits at the right end of the night's banner in the Fellow command centre, where
+the reader already is when the answer matters - the sentence before it has just said what is
+holding the night. Two steps (`Release the week for tonight` → `yes, to 90% for tonight` /
+`no`), the same shape as the plan corner's release. While a grant is live the button says what
+was released and until when, and withdraws it on click. Switched off, the button is absent
+rather than disabled.
+
+**A unit bug found while building it** (2026-09-09, fixed): a `rate_limit_event` reports
+`utilization` as a FRACTION where the SDK's usage windows report a percentage. Two events had
+recorded `seven_day` at 0.83 in the same second an SDK sample recorded 83. An event sample is
+the newest for its window until the next run replaces it, so the gate would have read "the week
+is at 0.83 %" and let a night through that the reserve was meant to stop - the failure in the
+direction that spends. `parseRateLimitEvent` scales a value at or below 1; at exactly 1 the two
+readings cannot be told apart and it is read as 100 %, which closes the gate rather than opening
+it.
 
 ---
 

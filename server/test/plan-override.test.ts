@@ -20,7 +20,7 @@ const SETTINGS: PlanSettings = {
   planWeekUsd: 1000,
   plan5hUsd: 80,
   planName: '',
-  fiveHourOverrideEnabled: true,
+  fiveHourOverrideEnabled: true, weekOverrideEnabled: false,
 }
 
 describe('the five-hour release', () => {
@@ -219,5 +219,108 @@ describe('telling a permanent refusal from a moment', () => {
     expect(isPermanentRefusal('Rate limited. Please try again later.')).toBe(false)
     expect(isPermanentRefusal('the usage endpoint answered 503')).toBe(false)
     expect(isPermanentRefusal(null)).toBe(false)
+  })
+})
+
+/**
+ * Releasing the WEEK for one night (SPEC section 8.6a).
+ *
+ * The week was the bound every other grant survived, and that is what made a released
+ * afternoon a bounded decision. So what is tested here is the bound that replaced it: the
+ * grant ends with the night it was asked for, never with the week, and it is refused without
+ * a night to end at.
+ */
+describe('the week release', () => {
+  let db: Db
+  let monitor: UsageMonitor
+  let clock: Date
+  const NIGHT_END = '2026-09-08T00:00:00.000Z'
+  const WEEK_RESET = '2026-09-13T12:00:00.000Z'
+
+  const sample = (window: string, utilization: number, resetsAt: string | null): void => {
+    new SqliteUsageSampleStore(db).record({ ts: clock.toISOString(), window, utilization, resetsAt, runId: null, phase: 'tick', source: 'endpoint' })
+  }
+
+  beforeEach(() => {
+    db = openDb(MEMORY_DB)
+    migrate(db)
+    clock = new Date('2026-09-07T21:00:00.000Z')
+    monitor = new UsageMonitor({
+      store: new SqliteUsageSampleStore(db),
+      overrides: new SqlitePlanOverrideStore(db),
+      runs: new SqliteAgentRunStore(db),
+      settings: () => ({ ...SETTINGS, weekOverrideEnabled: true }),
+      now: () => clock,
+    })
+    sample('five_hour', 10, '2026-09-08T02:00:00.000Z')
+    sample('seven_day', 83, WEEK_RESET)
+  })
+
+  const gate = (): ReturnType<UsageMonitor['gate']> => monitor.gate({ estCostUsd: 2, model: 'sonnet-5', kind: 'research-step' })
+
+  it('opens a night the week reserve had closed', () => {
+    // The case this was built for: 83 % against an 80 % reserve stops even the planning runs.
+    expect(gate()).toMatchObject({ code: 'reserve', window: 'seven_day' })
+    expect(monitor.grantWeek(NIGHT_END)).toMatchObject({ ok: true })
+    expect(gate()).toBeNull()
+  })
+
+  it('ends with the night, not with the week', () => {
+    /*
+     * The whole point of the design. The week's own reset is five days out; a grant that ran
+     * to it would be the open tap the five-hour release was built to avoid.
+     */
+    monitor.grantWeek(NIGHT_END)
+    expect(monitor.weekOverrideNow()?.expiresAt).toBe(NIGHT_END)
+    clock = new Date('2026-09-08T00:00:01.000Z')
+    expect(monitor.weekOverrideNow()).toBeNull()
+    expect(gate()).toMatchObject({ code: 'reserve', window: 'seven_day' })
+  })
+
+  it('refuses without a night to end at, and refuses a night already over', () => {
+    // An open-ended release is the one thing this must never become.
+    expect(monitor.grantWeek(null)).toMatchObject({ ok: false })
+    expect(monitor.grantWeek('2026-09-07T20:00:00.000Z')).toMatchObject({ ok: false })
+    expect(monitor.weekOverrideNow()).toBeNull()
+  })
+
+  it('renews nothing, and can be withdrawn', () => {
+    monitor.grantWeek(NIGHT_END)
+    expect(monitor.grantWeek(NIGHT_END)).toMatchObject({ ok: false })
+    expect(monitor.revokeWeek()).not.toBeNull()
+    expect(monitor.weekOverrideNow()).toBeNull()
+    expect(gate()).toMatchObject({ code: 'reserve', window: 'seven_day' })
+    // Withdrawing twice is not an error; there is simply nothing left to end.
+    expect(monitor.revokeWeek()).toBeNull()
+  })
+
+  it('lifts both week bounds, and leaves the five-hour ones alone', () => {
+    monitor.grantWeek(NIGHT_END)
+    const s = monitor.status({ estCostUsd: 2, model: 'sonnet-5' })
+    expect(s.weekOverride).toMatchObject({ enabled: true, active: true, pct: OVERRIDE_PCT, expiresAt: NIGHT_END })
+    /*
+     * The reported share is the lifted one: the number a reader judges the night by has to be
+     * the number the gate judges it by. Uncalibrated, the shares are stated in USD, so this is
+     * 90 % of the week's 1000 rather than 10 % of it.
+     */
+    expect(s.shares.unit).toBe('usd')
+    expect(s.shares.week).toBe(900)
+    expect(s.override.active).toBe(false)
+    // And the five-hour reserve still stops a night of its own.
+    sample('five_hour', 95, '2026-09-08T02:00:00.000Z')
+    expect(gate()).toMatchObject({ code: 'reserve', window: 'five_hour' })
+  })
+
+  it('is nothing at all while its switch is off', () => {
+    // The switch lives in the route, not here - but the status has to say so, or the button
+    // would offer what the endpoint refuses.
+    const off = new UsageMonitor({
+      store: new SqliteUsageSampleStore(db),
+      overrides: new SqlitePlanOverrideStore(db),
+      runs: new SqliteAgentRunStore(db),
+      settings: () => SETTINGS,
+      now: () => clock,
+    })
+    expect(off.status({ estCostUsd: 2, model: 'sonnet-5' }).weekOverride.enabled).toBe(false)
   })
 })

@@ -4,7 +4,8 @@
  *
  *   GET  /api/v1/usage/plan      availability and source, windows, calibration, shares and reserves, the gate's answer
  *   GET  /api/v1/usage/samples   the newest samples (`?limit=`)
- *   POST /api/v1/usage/override  release the rest of the current 5-hour window (section 8.6)
+ *   POST /api/v1/usage/override  release a window's bounds: the rest of this 5-hour one
+ *                                (section 8.6), or the week for one night (section 8.6a)
  *   DELETE /api/v1/usage/override  withdraw a live release
  *
  * The release is the one endpoint here that hands out budget, so it is bounded rather than
@@ -27,6 +28,14 @@ export function registerUsageRoute(
   defaultModel: () => AgentModel,
   guards: {
     readonly enabled: () => boolean
+    /** Whether the week may be released at all; its own switch, off by default. */
+    readonly weekEnabled: () => boolean
+    /**
+     * The end of the night this would be released for: the window `now` is inside, or the
+     * next one. A week grant ends there rather than at the week's own reset, which can be
+     * seven days out (section 8.6a).
+     */
+    readonly nightEndsAt: () => string | null
     readonly runInFlight: () => boolean
     /**
      * Starts a round of work now. A release ends with its five-hour window, and the night
@@ -42,23 +51,44 @@ export function registerUsageRoute(
     return reply.send(usage.status({ estCostUsd: estimateCostUsd('research-step', model), model }))
   })
 
-  app.post('/api/v1/usage/override', async (_req, reply) => {
-    if (!guards.enabled()) {
-      return reply.code(409).send({ error: 'the 5-hour release is switched off (fiveHourOverrideEnabled)', code: 'disabled' })
+  /**
+   * `window` says which bound is being released, and defaults to the five-hour one so the
+   * endpoint keeps the contract it had. Two windows, two switches, two expiries - but one
+   * route, so there is one place where a grant is guarded, logged and answered.
+   */
+  const windowOf = (body: unknown): 'five_hour' | 'seven_day' | null => {
+    const w = (body as { window?: unknown } | null)?.window
+    if (w === undefined || w === 'five_hour') return 'five_hour'
+    return w === 'seven_day' ? 'seven_day' : null
+  }
+
+  app.post('/api/v1/usage/override', async (req, reply) => {
+    const window = windowOf(req.body)
+    if (window === null) return reply.code(400).send({ error: 'window must be five_hour or seven_day' })
+    const week = window === 'seven_day'
+    if (!(week ? guards.weekEnabled() : guards.enabled())) {
+      return reply.code(409).send({
+        error: week
+          ? 'the week release is switched off (weekOverrideEnabled)'
+          : 'the 5-hour release is switched off (fiveHourOverrideEnabled)',
+        code: 'disabled',
+      })
     }
     // A run in flight must not be able to raise the bound it is running under.
     if (guards.runInFlight()) {
-      return reply.code(409).send({ error: 'a run is in flight; the 5-hour release only happens between runs', code: 'in-flight' })
+      return reply.code(409).send({ error: `a run is in flight; the ${week ? 'week' : '5-hour'} release only happens between runs`, code: 'in-flight' })
     }
-    const out = usage.grantFiveHour()
+    const out = week ? usage.grantWeek(guards.nightEndsAt()) : usage.grantFiveHour()
     if (!out.ok) return reply.code(409).send({ error: out.reason, code: 'kind' })
     // Answer first, then work: a shift round takes minutes and the caller wants its button back.
     guards.workNow?.()
     return reply.send({ override: out.override })
   })
 
-  app.delete('/api/v1/usage/override', async (_req, reply) => {
-    const ended = usage.revokeFiveHour()
+  app.delete('/api/v1/usage/override', async (req, reply) => {
+    const window = windowOf(req.body)
+    if (window === null) return reply.code(400).send({ error: 'window must be five_hour or seven_day' })
+    const ended = window === 'seven_day' ? usage.revokeWeek() : usage.revokeFiveHour()
     return reply.send({ override: ended })
   })
 

@@ -462,6 +462,24 @@ export const api = {
 
   withdrawFiveHour: (): Promise<{ override: unknown }> => fetch(`${BASE}/usage/override`, { method: 'DELETE' }).then(json<{ override: unknown }>),
 
+  /**
+   * Releases the WEEK's two bounds for one night (SPEC section 8.6a). The week is the bound
+   * every other grant survives, so this one ends with the night rather than with the week.
+   */
+  releaseWeek: (): Promise<{ override: { pct: number; expiresAt: string } }> =>
+    fetch(`${BASE}/usage/override`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ window: 'seven_day' }),
+    }).then(json<{ override: { pct: number; expiresAt: string } }>),
+
+  withdrawWeek: (): Promise<{ override: unknown }> =>
+    fetch(`${BASE}/usage/override`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ window: 'seven_day' }),
+    }).then(json<{ override: unknown }>),
+
   readingList: (): Promise<{ entries: ReadingItem[] }> => fetch(`${BASE}/reading-list`).then(json<{ entries: ReadingItem[] }>),
 
   /** Fetch one entry through the ordinary URL ingest; the service does the downloading. */

@@ -96,6 +96,7 @@ export const SETTINGS_SCHEMA = z
      * endpoint refuses, whoever asks.
      */
     fiveHourOverrideEnabled: z.boolean().nullable(),
+    weekOverrideEnabled: z.boolean().nullable(),
     /**
      * Whether the shift may spend a read-only run asking a model which topics are duplicates
      * (section 6.6). Off by default: it costs a run a night, and the two lexical passes keep
@@ -143,12 +144,19 @@ export interface EffectiveSettings {
   readonly planName: string
   /** Whether the five-hour override may be granted at all (section 8.6). */
   readonly fiveHourOverrideEnabled: boolean
+  /**
+   * Whether the week's reserve and share may be released for a night (SPEC section 8.6a). Off
+   * by default, and off means the button is gone and the endpoint refuses whoever asks: the
+   * week is the bound every other grant survives, so turning it off after the fact would not
+   * be a safety switch.
+   */
+  readonly weekOverrideEnabled: boolean
   /** Whether the shift asks a model to judge duplicate topics (section 6.6). */
   readonly dedupeJudgeEnabled: boolean
 }
 
 /** The plan-percent defaults (review decision OPEN-12) and the section 16 reference sizes. */
-export const DEFAULT_PLAN = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false, dedupeJudgeEnabled: false } as const
+export const DEFAULT_PLAN = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false, weekOverrideEnabled: false, dedupeJudgeEnabled: false } as const
 
 /** The night shift defaults (review decision OPEN-11). */
 export const DEFAULT_NIGHT_WINDOW = { start: '01:00', end: '06:00' } as const
@@ -196,6 +204,7 @@ export function effectiveSettings(config: Config, overrides: SettingsOverrides):
     plan5hUsd: overrides.plan5hUsd ?? base.plan5hUsd,
     planName: overrides.planName ?? base.planName,
     fiveHourOverrideEnabled: overrides.fiveHourOverrideEnabled ?? base.fiveHourOverrideEnabled,
+    weekOverrideEnabled: overrides.weekOverrideEnabled ?? base.weekOverrideEnabled,
     dedupeJudgeEnabled: overrides.dedupeJudgeEnabled ?? base.dedupeJudgeEnabled,
   }
 }

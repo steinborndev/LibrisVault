@@ -155,7 +155,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // refuse, which the monitor reports and falls back from). Fellows only.
   const planSettings = () => {
     const e = settings.effective(config)
-    return { researchShareWeekPct: e.researchShareWeekPct, researchShare5hPct: e.researchShare5hPct, reserve5hPct: e.reserve5hPct, reserveWeekPct: e.reserveWeekPct, planWeekUsd: e.planWeekUsd, plan5hUsd: e.plan5hUsd, planName: e.planName, fiveHourOverrideEnabled: e.fiveHourOverrideEnabled }
+    return { researchShareWeekPct: e.researchShareWeekPct, researchShare5hPct: e.researchShare5hPct, reserve5hPct: e.reserve5hPct, reserveWeekPct: e.reserveWeekPct, planWeekUsd: e.planWeekUsd, plan5hUsd: e.plan5hUsd, planName: e.planName, fiveHourOverrideEnabled: e.fiveHourOverrideEnabled, weekOverrideEnabled: e.weekOverrideEnabled }
   }
   // The app logger exists only after buildServer; until then these lines are dropped. Declared
   // here because the usage monitor below wants it too - a plan endpoint that stops answering is

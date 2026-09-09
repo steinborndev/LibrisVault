@@ -34,7 +34,7 @@ import { Mutex } from '../src/util/mutex.js'
 import { buildServer } from '../src/api/server.js'
 import type { Config } from '../src/config.js'
 
-const SETTINGS = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false }
+const SETTINGS = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false, weekOverrideEnabled: false }
 const NOW = new Date('2026-09-07T10:00:00.000Z')
 const FIVE_RESET = '2026-09-07T12:00:00.000Z'
 const WEEK_RESET = '2026-09-13T00:00:00.000Z'
@@ -98,6 +98,21 @@ describe('parsing the three sources', () => {
 
     const resets = Date.UTC(2026, 8, 7, 12) / 1000
     expect(parseRateLimitEvent({ rateLimitType: 'five_hour', utilization: 12, resetsAt: resets, status: 'allowed' })).toEqual({ window: 'five_hour', utilization: 12, resetsAt: FIVE_RESET })
+
+    /*
+     * The event reports a FRACTION where the usage windows report a percentage. Measured on
+     * 2026-09-09: two events put `seven_day` at 0.83 in the same second an SDK sample put it
+     * at 83. Unscaled, that is the newest sample for its window until the next run replaces
+     * it, and the gate reads "the week is at 0.83%" - the reserve stops nothing, in the one
+     * direction that costs money.
+     */
+    expect(parseRateLimitEvent({ rateLimitType: 'seven_day', utilization: 0.83, resetsAt: resets })?.utilization).toBe(83)
+    expect(parseRateLimitEvent({ rateLimitType: 'seven_day', utilization: 0.005, resetsAt: resets })?.utilization).toBe(0.5)
+    // At exactly 1 the two readings cannot be told apart. It is read as 100 %, because that
+    // closes the gate rather than opening it.
+    expect(parseRateLimitEvent({ rateLimitType: 'seven_day', utilization: 1, resetsAt: resets })?.utilization).toBe(100)
+    // Anything above 1 is already a percentage and is left alone.
+    expect(parseRateLimitEvent({ rateLimitType: 'seven_day', utilization: 83, resetsAt: resets })?.utilization).toBe(83)
     expect(parseRateLimitEvent({ rateLimitType: 'five_hour', status: 'allowed' })).toBeNull()
     expect(parseRateLimitEvent(null)).toBeNull()
     // The events seen for real: a window and its reset, no utilization.

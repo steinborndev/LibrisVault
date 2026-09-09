@@ -8639,7 +8639,27 @@ tr:focus-within .rowacts {
    room is left is the thing a reader cannot get from the schedule above it. */
 .cc-note.ok { border-left: 3px solid var(--ok); background: var(--ok-bg); padding: 9px 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 /* One line, and it stays one: a banner that wraps to three pushes the panes below it down. */
-.cc-note.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* One line, and it stays one - with room at its end for the control that answers it. */
+.cc-note.one { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.cc-note.one > b { overflow: hidden; text-overflow: ellipsis; }
+
+/*
+ * The week release, at the end of the banner that explains it. Sized like the plan corner's
+ * own release button, because it is the same decision made in another place.
+ */
+.cc-rel {
+  flex: none; border: 1px solid var(--border); background: var(--bg-elev); cursor: pointer;
+  font: inherit; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-dim);
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+}
+.cc-rel:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.cc-rel:disabled { opacity: 0.55; cursor: default; }
+/* The step that spends: it wears the colour of what it is about to do. */
+.cc-rel.go { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.cc-rel.on { border-color: var(--ok); color: var(--ok); }
+.cc-ask { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.cc-said { font-size: 11px; color: var(--text-dim); white-space: normal; }
+.cc-said.err { color: var(--err); }
 
 .cc-sec {
   margin: 20px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
