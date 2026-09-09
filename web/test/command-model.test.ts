@@ -95,6 +95,26 @@ describe('tasksTonight', () => {
     expect(tasksTonight(a).map((t) => t.text)).toEqual(['b'])
   })
 
+  it('reads the rotation against the whole list, the way the service does', () => {
+    /*
+     * The cursor indexes `tasks`, not the active part of it: the service steps OVER a resting
+     * task rather than removing it. Read against the filtered list, a cursor of 1 here lands
+     * on the third task while the shift would run the second.
+     */
+    const a = agent({
+      id: 'r',
+      name: 'R',
+      taskCursor: 1,
+      tasks: [task('watch', 'a', 'resting'), task('explore', 'b'), task('deepen', 'c')],
+    })
+    expect(tasksTonight(a).map((t) => t.text)).toEqual(['b'])
+  })
+
+  it('steps over a resting task the cursor lands on', () => {
+    const a = agent({ id: 'r', name: 'R', taskCursor: 0, tasks: [task('watch', 'a', 'resting'), task('explore', 'b')] })
+    expect(tasksTonight(a).map((t) => t.text)).toEqual(['b'])
+  })
+
   it('skips resting tasks and wraps the cursor', () => {
     // A cursor past the end of the ACTIVE list must not fall off it.
     const a = agent({ id: 'hedy', name: 'Hedy', taskCursor: 5, tasks: [task('explore', 'a', 'resting'), task('watch', 'b')] })

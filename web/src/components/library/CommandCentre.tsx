@@ -1047,21 +1047,45 @@ function Dossier({
     ['settings', 'Settings'],
   ]
   const nightly = fellowMinutes(a, durations)
+  const tonight = tasksTonight(a)
   const carried = carriedTonight(a)
 
   return (
     <>
       <div className="cc-line2">
         <button className="cc-back" onClick={onBack} title="Back to tonight · Esc">‹</button>
-        <span className="cc-lead">
-          <b>{a.name}</b>
-          {(['watch', 'explore', 'deepen'] as TaskKind[]).map((k) => {
-            const n = a.tasks.filter((t) => t.kind === k).length
-            return n === 0 ? null : <span key={k} className={`cc-art a-${k}`} title={ART_TEXT[k]}>{k}{n > 1 ? ` ×${n}` : ''}</span>
-          })}
+        {/*
+          * The night as a chain rather than as a heap of labels: where the Fellow stands now,
+          * then every step the shift will take for it, planning included. A task the quota
+          * cannot carry out ends at its planning run, and the chain says so by stopping there.
+          * The name is in the headline above; repeating it here said nothing twice.
+          */}
+        <span className="cc-lead cc-flow">
           <span className={`sev ${fellow.currentRun ? 'rec' : a.state === 'paused' ? 'mut' : 'ok'}`}>
             {fellow.currentRun ? 'working' : a.state}
           </span>
+          {tonight.length === 0 ? (
+            <>
+              <i className="cc-arrow-in" aria-hidden>→</i>
+              <span className="cc-step-none">nothing standing</span>
+            </>
+          ) : (
+            tonight.map((t, i) => (
+              <span key={t.id} className="cc-flow-step">
+                <i className="cc-arrow-in" aria-hidden>→</i>
+                <span className="cc-art a-plan" title="A planning run: what to do about this task. It never counts against the daily quota.">
+                  plan
+                </span>
+                <i className="cc-arrow-in" aria-hidden>→</i>
+                <span
+                  className={`cc-art a-${t.kind} ${i < carried ? '' : 'held'}`}
+                  title={i < carried ? `${ART_TEXT[t.kind]} Task: ${t.text}` : `Planned tonight, carried out on a later night: the quota is ${a.quotaRunsPerDay} run(s) a day. Task: ${t.text}`}
+                >
+                  {t.kind}
+                </span>
+              </span>
+            ))
+          )}
           <span className="cc-sub">{autonomyOf(a.autonomy).short}</span>
         </span>
         <span className="grow" />
@@ -1287,13 +1311,19 @@ function Dossier({
                     </span>
                     <span className="mono-meta">{nightly} min tonight{card ? ` · ${card.quota.usedToday} used today` : ''}</span>
                   </div>
-                  {carried < active.length && (
+                  {/*
+                    * Against TONIGHT'S tasks, not against everything standing. A rotating
+                    * Fellow plans one task a night whatever its list holds, so comparing the
+                    * quota with the whole list told a Fellow doing exactly what it was asked
+                    * that it was falling behind.
+                    */}
+                  {carried < tonight.length && (
                     <p className="cc-note warn">
-                      {active.length} task{active.length === 1 ? '' : 's'} planned, {carried} carried out. Planning is free
-                      of the daily quota and the run it produces is not, so {active.length} runs a day is what it takes for
-                      every task to also run the night it is planned.{' '}
-                      <button className="cc-link" disabled={patching} onClick={() => onPatch({ quotaRunsPerDay: active.length })}>
-                        Raise it to {active.length} ›
+                      {tonight.length} task{tonight.length === 1 ? '' : 's'} planned tonight, {carried} carried out.
+                      Planning is free of the daily quota and the run it produces is not, so {tonight.length} run
+                      {tonight.length === 1 ? '' : 's'} a day is what it takes for every task planned to also run.{' '}
+                      <button className="cc-link" disabled={patching} onClick={() => onPatch({ quotaRunsPerDay: tonight.length })}>
+                        Raise it to {tonight.length} ›
                       </button>
                     </p>
                   )}

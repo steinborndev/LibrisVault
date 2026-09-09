@@ -8691,6 +8691,20 @@ tr:focus-within .rowacts {
 .a-explore { color: var(--research); }
 .a-deepen { color: #2f8f6a; }
 .a-custom { color: var(--text-faint); }
+/* The planning run is a step of the night like any other, and the one that is never a result. */
+.a-plan { color: var(--text-faint); border-style: dashed; }
+/* Planned tonight, run on a later night: the chip is there and the work behind it is not. */
+.cc-art.held { opacity: 0.45; border-style: dashed; }
+
+/*
+ * The night as a chain: where the Fellow stands, then each step the shift takes for it. The
+ * arrows are decoration over a real sequence - plan, then the task that plan is for - so they
+ * are hidden from the reader that hears the row rather than sees it.
+ */
+.cc-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.cc-flow-step { display: inline-flex; align-items: center; gap: 6px; }
+.cc-arrow-in { font-style: normal; color: var(--text-faint); font-size: 11px; line-height: 1; }
+.cc-step-none { font-size: 12px; color: var(--text-faint); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .a-watch { color: #6fb6e8; }
   :root:not([data-theme='light']) .a-deepen { color: #5fc79a; }

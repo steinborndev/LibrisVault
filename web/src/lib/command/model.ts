@@ -36,11 +36,22 @@ export function artOf(tasks: readonly AgentTask[]): FellowArt {
  */
 export function tasksTonight(agent: FellowRecord): readonly AgentTask[] {
   if (agent.state === 'paused' || agent.state === 'retired') return []
-  const active = (agent.tasks ?? []).filter((t) => t.state === 'active')
+  const tasks = agent.tasks ?? []
+  const active = tasks.filter((t) => t.state === 'active')
   if (active.length === 0) return []
   if (agent.nightly !== 'rotate') return active
-  const at = ((agent.taskCursor % active.length) + active.length) % active.length
-  return [active[at]!]
+  /*
+   * The cursor indexes the WHOLE list, not the active part of it: the service steps over a
+   * resting task rather than removing it (`taskForTonight`). Reading it against the filtered
+   * list put a different task up here than the one the shift would run, and only when
+   * something was resting - which is exactly when nobody would think to check.
+   */
+  const start = ((agent.taskCursor % tasks.length) + tasks.length) % tasks.length
+  for (let step = 0; step < tasks.length; step++) {
+    const t = tasks[(start + step) % tasks.length]!
+    if (t.state === 'active') return [t]
+  }
+  return []
 }
 
 export interface Shelf {
