@@ -23,7 +23,9 @@ import {
   type TaskInput,
   type AgentAutonomy,
   type AgentEffort,
+  type AgentArt,
   type AgentModel,
+  type AgentNightly,
   type AgentPatch,
   type AgentRecord,
   type AgentSleepCode,
@@ -69,8 +71,27 @@ import {
   renderPlannerPrompt,
   type DomainHint,
 } from './planner.js'
+import { byShelfThenPriority, type ShelfOrderStore } from '../db/shelf-order.js'
 import type { GateContext } from './usage-monitor.js'
 import { DEFAULT_NIGHT_WINDOW, DEFAULT_RESEARCH_MODEL } from '../db/settings.js'
+
+/**
+ * Whether a task list is one this Fellow may hold (docs/tasks/TASKS-A7.md D7).
+ *
+ * `custom` allows any mix; every other art allows only its own. The check exists because a
+ * Fellow's art is a promise about what it will do - an observer that quietly accepted a
+ * deepen task would be an observer in name only, and the name is what the user chose it by.
+ */
+export function artRefusal(art: AgentArt, tasks: readonly AgentTask[]): Refusal | null {
+  if (art === 'custom') return null
+  const wrong = tasks.filter((t) => t.kind !== art)
+  if (wrong.length === 0) return null
+  return {
+    status: 409,
+    code: 'kind',
+    error: `this Fellow holds ${art} tasks only; ${wrong.map((t) => `"${t.text}" is ${t.kind}`).join(', ')}`,
+  }
+}
 
 /**
  * The task list as it goes into the record: trimmed, empty ones dropped, capped at MAX_TASKS,
@@ -144,6 +165,10 @@ export interface SpawnInput {
   readonly step?: AgentStep
   readonly quotaRunsPerDay?: number
   readonly autonomy?: AgentAutonomy
+  /** The arts its tasks may be; inferred from the first task list when absent. */
+  readonly art?: AgentArt
+  /** Every standing task each night (the default), or one in turn. */
+  readonly nightly?: AgentNightly
   readonly priority?: number
   /** Start the first full research run on the intent right away (default true, section 5.1). */
   readonly runFirstStep?: boolean
@@ -165,6 +190,11 @@ export interface StepOutcome {
 export interface SpawnOutcome {
   readonly agent?: AgentRecord
   readonly run?: MaintenanceRun
+  readonly refusal?: Refusal
+}
+
+export interface UpdateOutcome {
+  readonly agent?: AgentRecord
   readonly refusal?: Refusal
 }
 
@@ -274,6 +304,8 @@ export interface FellowServiceOptions {
   readonly quotaSuspended?: () => boolean
   /** The value signal (section 9.6); absent = the card shows no opens. */
   readonly values?: ValueEventStore
+  /** The order the night walks the shelves; absent means nobody has set one (A7 3.5). */
+  readonly shelfOrder?: ShelfOrderStore
   /** Handoffs between Fellows (section 6.6, A3); absent = no routing. */
   readonly handoffs?: HandoffStore
   /** The domain registry for the planner's routing; defaults to the vault's page. */
@@ -303,6 +335,7 @@ export class FellowService {
   private readonly estimatePct: ((costUsd: number, model: AgentModel) => { fiveHour: number | null; sevenDay: number | null }) | undefined
   private readonly settings: () => FellowSettings
   private readonly values: ValueEventStore | undefined
+  private readonly shelfOrder: ShelfOrderStore | undefined
   private readonly handoffs: HandoffStore | undefined
   private readonly registry: () => readonly DomainHint[]
   private readonly vaultRoot: string | undefined
@@ -332,6 +365,7 @@ export class FellowService {
     this.estimatePct = opts.estimatePct
     this.settings = opts.settings ?? ((): FellowSettings => ({ window: DEFAULT_NIGHT_WINDOW, defaultModel: DEFAULT_RESEARCH_MODEL }))
     this.values = opts.values
+    this.shelfOrder = opts.shelfOrder
     this.handoffs = opts.handoffs
     this.vaultRoot = opts.candidateSources?.vaultRoot
     this.registry =
@@ -378,12 +412,26 @@ export class FellowService {
     return this.agents.get(id)
   }
 
-  /** Every Fellow, in the night shift's order: priority first (higher earlier), then age; retired last. */
+  /**
+   * Every Fellow, in the night shift's order: its shelf's rank first, then priority inside the
+   * shelf, then age; retired last (docs/tasks/TASKS-A7.md 3.5). Priority kept its meaning and
+   * gained a scope - the shelf order is the level above it, so the two cannot disagree.
+   */
   list(): FellowSummary[] {
-    return this.agents
-      .list()
-      .sort((a, b) => (a.state === 'retired' ? 1 : 0) - (b.state === 'retired' ? 1 : 0) || b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))
-      .map((agent) => this.summary(agent))
+    const order = this.shelfOrder?.list() ?? []
+    const live = this.agents.list().filter((a) => a.state !== 'retired')
+    const gone = this.agents.list().filter((a) => a.state === 'retired')
+    return [...byShelfThenPriority(live, order), ...byShelfThenPriority(gone, order)].map((agent) => this.summary(agent))
+  }
+
+  /** The order the night walks the shelves, as stored; empty when nobody has set one. */
+  shelves(): string[] {
+    return this.shelfOrder?.list() ?? []
+  }
+
+  /** Sets it. An empty list clears it and the registry's own order takes over again. */
+  setShelves(domains: readonly string[]): void {
+    this.shelfOrder?.put(domains)
   }
 
   /**
@@ -571,6 +619,9 @@ export class FellowService {
     if (tasks.length === 0) {
       return { refusal: { status: 409, code: 'kind', error: 'a Fellow needs at least one task' } }
     }
+    const art: AgentArt = input.art ?? (new Set(tasks.map((t) => t.kind)).size === 1 ? tasks[0]!.kind : 'custom')
+    const artBad = artRefusal(art, tasks)
+    if (artBad) return { refusal: artBad }
     const agent: AgentRecord = {
       id: randomUUID(),
       name: input.name.trim(),
@@ -588,6 +639,13 @@ export class FellowService {
       quotaRunsPerDay: input.quotaRunsPerDay ?? 1,
       quotaWeekPct: null,
       autonomy: input.autonomy ?? 'veto',
+      /*
+       * A spawn with a single kind of task is that kind of Fellow; a mix is custom. Stated
+       * rather than derived from here on: the field is what the tasks may become, and a
+       * Fellow that starts with one watch task should not silently accept a deepen later.
+       */
+      art,
+      nightly: input.nightly ?? 'sweep',
       priority: input.priority ?? 0,
       state: 'proposed',
       sleepReason: null,
@@ -802,7 +860,20 @@ export class FellowService {
    * Starts a planning run (section 6.2) unless there is nothing to plan from, in which case
    * the Fellow sleeps with `no-candidates` and no planner cost is spent.
    */
-  plan(id: string, opts: { readonly cycleDate?: string; readonly attempt?: number; readonly retryNote?: string } = {}): PlanOutcome {
+  plan(
+    id: string,
+    opts: {
+      readonly cycleDate?: string
+      readonly attempt?: number
+      readonly retryNote?: string
+      /**
+       * Plan for THIS task rather than the one whose turn it is. The sweep walks the standing
+       * work itself, so it says which task each run is for; without it the rotation decides,
+       * which is what a hand-started plan and a `rotate` Fellow both want.
+       */
+      readonly task?: AgentTask
+    } = {},
+  ): PlanOutcome {
     const agent = this.agents.get(id)
     if (!agent) return { refusal: { status: 404, code: 'unknown', error: 'no such Fellow' } }
     const refusal = this.gateFor(agent, 'plan')
@@ -823,7 +894,11 @@ export class FellowService {
      * Tonight's task, taken in turn. Every task resting is what puts the Fellow to sleep now -
      * one answered question used to do it for the whole Fellow (decision 2026-09-07).
      */
-    const tonight = taskForTonight(agent.tasks, agent.taskCursor)
+    const chosen = opts.task
+    const tonight =
+      chosen === undefined
+        ? taskForTonight(agent.tasks, agent.taskCursor)
+        : { task: chosen, index: agent.tasks.findIndex((t) => t.id === chosen.id), nextCursor: agent.taskCursor }
     if (tonight === null) {
       const reason = 'every standing task is answered as far as the library can take it'
       this.sleep(agent.id, 'covered', reason)
@@ -868,11 +943,50 @@ export class FellowService {
     const schema = plannerSchema({ kinds, candidateIds: candidates.map((c) => c.id), domainKeys: domains.map((d) => d.key) })
     const run = this.maintenance.startPlan(prompt, this.context(agent, 'plan'), schema)
     this.track(agent.id, run, (settled) => this.onPlanSettled(agent.id, settled, candidates, kinds, cycleDate, attempt, tonight.task))
-    // The cursor moves when the run STARTS, so a failed or retried planning run does not put
-    // the same task up two nights running.
-    this.agents.update(agent.id, { state: 'active', sleepReason: null, sleepCode: null, taskCursor: tonight.nextCursor }, now.toISOString())
+    /*
+     * The cursor moves when the run STARTS, so a failed or retried planning run does not put
+     * the same task up two nights running. A sweep names its own task and leaves the cursor
+     * alone: it is walking the whole list, so there is no turn to keep.
+     */
+    this.agents.update(
+      agent.id,
+      { state: 'active', sleepReason: null, sleepCode: null, ...(chosen === undefined ? { taskCursor: tonight.nextCursor } : {}) },
+      now.toISOString(),
+    )
     this.log('info', `fellows: planning run for ${agent.name} started on task ${tonight.index + 1} (${tonight.task.kind}) with ${candidates.length} candidate(s)`)
     return { run }
+  }
+
+  /**
+   * The Fellow's whole night of planning (docs/tasks/TASKS-A7.md D8).
+   *
+   * A `sweep` Fellow plans EVERY standing task, one run each, awaited in turn - the runs
+   * serialize on the run mutex anyway, and `track` holds one in-flight slot per Fellow, so
+   * starting a second before the first settles would collide with itself. One plan per task
+   * rather than one merged plan is deliberate: `plannerSchema` constrains `kind`, `candidate`
+   * and the deepen page set PER TASK, and a merged run has to widen `kind` to the union
+   * (A7 section 1, "rejected on the way here").
+   *
+   * A `rotate` Fellow plans the one task whose turn it is, which is what the shift did before
+   * any of this - so the two paths differ only in how many times the same call is made.
+   */
+  async planNight(id: string, cycleDate: string): Promise<PlanOutcome[]> {
+    const agent = this.agents.get(id)
+    if (!agent) return [{ refusal: { status: 404, code: 'unknown', error: 'no such Fellow' } }]
+    if (agent.nightly !== 'sweep') return [this.plan(id, { cycleDate })]
+    const active = agent.tasks.filter((t) => t.state === 'active')
+    if (active.length === 0) return [this.plan(id, { cycleDate })]
+    const out: PlanOutcome[] = []
+    for (const task of active) {
+      const outcome = this.plan(id, { cycleDate, task })
+      out.push(outcome)
+      if (outcome.run) await this.settled(outcome.run.id)
+      // A refusal is the gate closing - the budget, the plan share, a rate limit. The tasks
+      // after this one would meet the same wall, so the night stops here rather than
+      // collecting the same refusal three times.
+      if (outcome.refusal) break
+    }
+    return out
   }
 
   /** A user decision on a proposal (section 6.5): approve, veto, undo, edit the topic, reorder. */
@@ -1472,27 +1586,38 @@ export class FellowService {
   /**
    * Edits the record. An intent or scope edit is written through to the notebook (the page
    * would otherwise win it back at the next settle) and wakes a sleeping Fellow (section 5.3).
+   *
+   * A task list arrives from the API as sentences and arts; the ids, the `intent` summary and
+   * the cursor are this method's business, so no caller can leave a Fellow with a cursor
+   * pointing past its own list or an intent that no longer matches its first task.
+   *
+   * An edit that cannot stand comes back as a refusal rather than as the unchanged record: a
+   * silent no-op reports success for a change that did not happen, and the two are
+   * indistinguishable to a caller that only reads the record back.
    */
-  /**
-   * Edits a Fellow. A task list arrives from the API as sentences and arts; the ids, the
-   * `intent` summary and the cursor are this method's business, so no caller can leave a
-   * Fellow with a cursor pointing past its own list or an intent that no longer matches its
-   * first task.
-   */
-  async update(id: string, patch: AgentPatch & { readonly taskInput?: readonly TaskInput[] }): Promise<AgentRecord | undefined> {
+  async update(id: string, patch: AgentPatch & { readonly taskInput?: readonly TaskInput[] }): Promise<UpdateOutcome> {
     const prev = this.agents.get(id)
-    if (!prev) return undefined
+    if (!prev) return { refusal: { status: 404, code: 'unknown', error: 'no such Fellow' } }
     const { taskInput, ...rest } = patch
     let edit: AgentPatch = rest
+    const nextArt = (rest.art ?? prev.art) as AgentArt
+    // Narrowing the art without touching the list has to hold the list it lands on.
+    if (taskInput === undefined && rest.art !== undefined) {
+      const artBad = artRefusal(nextArt, prev.tasks)
+      if (artBad) return { refusal: artBad }
+    }
     if (taskInput !== undefined) {
       const tasks = normalizeTasks(taskInput)
-      if (tasks.length === 0) return prev
+      if (tasks.length === 0) return { refusal: { status: 409, code: 'kind', error: 'a Fellow needs at least one task' } }
       // A task the user kept keeps its state: replacing the list should not wake a task the
       // planner has already answered, and editing its wording should.
       const withState = tasks.map((t) => {
         const before = prev.tasks.find((p) => p.text === t.text && p.kind === t.kind)
         return before ? { ...t, state: before.state } : t
       })
+      // The art the edit lands on: the patch's if it sets one, otherwise the Fellow's own.
+      const artBad = artRefusal(nextArt, withState)
+      if (artBad) return { refusal: artBad }
       edit = { ...edit, tasks: withState, intent: withState[0]!.text, taskCursor: Math.min(prev.taskCursor, withState.length - 1) }
     }
     const patchedIntent = edit.intent
@@ -1502,8 +1627,8 @@ export class FellowService {
         ? { state: 'sleeping', sleepReason: 'intent edited; the planner reconsiders in the next night shift', sleepCode: 'idle' }
         : {}
     const next = this.agents.update(id, { ...edit, ...wake }, this.now().toISOString())
-    if (!next) return undefined
+    if (!next) return { refusal: { status: 404, code: 'unknown', error: 'no such Fellow' } }
     if (intentEdit) await this.writeNotebook(next, { forceIntentScope: true })
-    return next
+    return { agent: next }
   }
 }

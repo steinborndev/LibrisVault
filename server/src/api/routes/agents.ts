@@ -29,7 +29,7 @@ import type { FellowService, SpawnInput, StepKind, DecisionInput } from '../../p
 import { EXPAND_MANUAL_MAX_PAGES } from '../../pipeline/expand.js'
 import type { AgentPatch } from '../../db/agents.js'
 import { MAX_TASKS, TASK_KINDS } from '../../db/agents.js'
-import { AGENT_AUTONOMIES, AGENT_EFFORTS, AGENT_MODELS, AGENT_STEPS, MODEL_FACTOR, MODEL_IDS } from '../../db/agents.js'
+import { AGENT_ARTS, AGENT_AUTONOMIES, AGENT_EFFORTS, AGENT_MODELS, AGENT_NIGHTLY, AGENT_STEPS, MODEL_FACTOR, MODEL_IDS } from '../../db/agents.js'
 import { readDomainRegistry, isValidDomainKey } from '../../pipeline/domains.js'
 import { isResearchProfileKey } from '../../pipeline/research-profiles.js'
 import { KIND_COST_USD } from '../../pipeline/planner.js'
@@ -58,12 +58,16 @@ const spawnSchema = z.object({
   step: z.enum(AGENT_STEPS).optional(),
   quotaRunsPerDay: z.number().int().min(0).max(24).optional(),
   autonomy: z.enum(AGENT_AUTONOMIES).optional(),
+  /** The arts this Fellow's tasks may be; inferred from the first task list when absent. */
+  art: z.enum(AGENT_ARTS).optional(),
+  /** Every standing task each night (the default), or one in turn. */
+  nightly: z.enum(AGENT_NIGHTLY).optional(),
   priority: z.number().int().min(-10).max(10).optional(),
   runFirstStep: z.boolean().optional(),
 })
 
 const patchSchema = spawnSchema
-  .pick({ name: true, intent: true, tasks: true, scope: true, homeDomain: true, extraDomains: true, lens: true, model: true, effort: true, step: true, quotaRunsPerDay: true, autonomy: true, priority: true })
+  .pick({ name: true, intent: true, tasks: true, scope: true, homeDomain: true, extraDomains: true, lens: true, model: true, effort: true, step: true, quotaRunsPerDay: true, autonomy: true, art: true, nightly: true, priority: true })
   .partial()
 
 const stepSchema = z.object({
@@ -127,7 +131,21 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
         ]),
       ),
       shift: ctx.shift?.status() ?? null,
+      /** The order the night walks the shelves; empty means nobody has set one (A7 3.5). */
+      shelfOrder: fellows.shelves(),
     })
+  })
+
+  /**
+   * The order the night walks the shelves. It is one serial queue, so the order is a real
+   * setting rather than a view preference - and it belongs to the DOMAIN, with `priority`
+   * keeping its meaning inside a shelf (A7 3.5).
+   */
+  app.put('/api/v1/agents/shelf-order', async (req, reply) => {
+    const parsed = z.object({ domains: z.array(z.string().trim().min(1).max(64)).max(200) }).safeParse(req.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: issues(parsed.error) })
+    fellows.setShelves(parsed.data.domains)
+    return reply.send({ shelfOrder: fellows.shelves() })
   })
 
   app.post('/api/v1/agents', async (req, reply) => {
@@ -193,12 +211,12 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     // `tasks` goes in as sentences and arts; the service gives them ids and keeps `intent`
     // and the cursor in step with the list.
     const { tasks, ...fields } = body
-    const agent = await fellows.update(id, {
+    const outcome = await fellows.update(id, {
       ...(compact({ ...fields, ...(fields.scope !== undefined ? { scope: fields.scope === '' ? null : fields.scope } : {}) }) as AgentPatch),
       ...(tasks !== undefined ? { taskInput: tasks } : {}),
     })
-    if (!agent) return reply.code(404).send({ error: 'no such Fellow' })
-    return reply.send({ agent })
+    if (outcome.refusal) return reply.code(outcome.refusal.status).send({ error: outcome.refusal.error })
+    return reply.send({ agent: outcome.agent })
   })
 
   app.delete('/api/v1/agents/:id', async (req, reply) => {

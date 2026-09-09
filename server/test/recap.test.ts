@@ -65,6 +65,8 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   quotaRunsPerDay: 1,
   quotaWeekPct: null,
   autonomy: 'veto',
+  art: 'custom',
+  nightly: 'sweep',
   priority: 0,
   state: 'waiting',
   sleepReason: null,

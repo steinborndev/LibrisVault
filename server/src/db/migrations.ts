@@ -585,6 +585,32 @@ CREATE TABLE plan_overrides (
 CREATE INDEX idx_plan_overrides_window ON plan_overrides (user_id, window, expires_at);
 `
 
+/**
+ * A Fellow's art and how much of a night it works, and the order the night walks the shelves
+ * (docs/tasks/TASKS-A7.md 3.3).
+ *
+ * `art` is what a Fellow MAY hold, not what it holds: an existing Fellow keeps `custom`, which
+ * is the truthful answer for a mixed task list and permissive for a pure one. `nightly`
+ * defaults to `sweep` because that is the decision (A7 D8) - a Fellow works every standing
+ * task each night, so every night delivers a result - and a migration that left the two
+ * existing Fellows on the old behaviour would have meant flipping the switch by hand to get
+ * what was designed.
+ *
+ * `shelf_order` is a rank per domain, the night's PRIMARY sort key; `agents.priority` keeps its
+ * meaning inside a shelf (A7 3.5). The two live at different levels and cannot contradict.
+ */
+const V23 = `
+ALTER TABLE agents ADD COLUMN art TEXT NOT NULL DEFAULT 'custom';
+ALTER TABLE agents ADD COLUMN nightly TEXT NOT NULL DEFAULT 'sweep';
+CREATE TABLE shelf_order (
+  user_id TEXT NOT NULL DEFAULT 'local',
+  domain TEXT NOT NULL,
+  rank INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, domain)
+);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -608,4 +634,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 20, up: V20 },
   { version: 21, up: V21 },
   { version: 22, up: V22 },
+  { version: 23, up: V23 },
 ]

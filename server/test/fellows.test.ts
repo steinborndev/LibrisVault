@@ -54,6 +54,8 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   quotaRunsPerDay: 1,
   quotaWeekPct: null,
   autonomy: 'veto',
+  art: 'custom',
+  nightly: 'sweep',
   priority: 0,
   state: 'proposed',
   sleepReason: null,
@@ -395,6 +397,38 @@ describe('agents routes', () => {
     expect((await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/retire` })).statusCode).toBe(200)
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/agents/${agent.id}` })).statusCode).toBe(204)
     expect((await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}` })).statusCode).toBe(404)
+  })
+
+  it('refuses a task the Fellow\'s art does not hold, instead of quietly keeping the old list', async () => {
+    /*
+     * The refusal existed before this; what did not was a way to see it. `update` returned the
+     * unchanged record, so a 200 came back with the old list and the dashboard would have shown
+     * "saved" for an edit that never happened.
+     */
+    const spawned = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      payload: { name: 'Cassini', intent: 'What is new in transit photometry?', homeDomain: 'astronomy', art: 'watch', tasks: [{ text: 'What is new in transit photometry?', kind: 'watch' }] },
+    })
+    const id = (spawned.json() as { agent: AgentRecord }).agent.id
+
+    const wrong = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/agents/${id}`,
+      payload: { tasks: [{ text: 'Extend what the vault says about transit timing', kind: 'deepen' }] },
+    })
+    expect(wrong.statusCode).toBe(409)
+    expect((wrong.json() as { error: string }).error).toContain('watch tasks only')
+
+    // And the other direction: narrowing the art has to hold the list it lands on.
+    const narrow = await app.inject({ method: 'PATCH', url: `/api/v1/agents/${id}`, payload: { art: 'deepen' } })
+    expect(narrow.statusCode).toBe(409)
+
+    // What the art does hold goes through, and so does widening it to custom.
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/agents/${id}`, payload: { nightly: 'rotate' } })).statusCode).toBe(200)
+    const wide = await app.inject({ method: 'PATCH', url: `/api/v1/agents/${id}`, payload: { art: 'custom', tasks: [{ text: 'What is new in transit photometry?', kind: 'watch' }, { text: 'Extend what the vault says about transit timing', kind: 'deepen' }] } })
+    expect(wide.statusCode).toBe(200)
+    expect((wide.json() as { agent: AgentRecord }).agent).toMatchObject({ art: 'custom', nightly: 'rotate' })
   })
 })
 

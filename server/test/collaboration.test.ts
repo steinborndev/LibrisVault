@@ -162,7 +162,7 @@ function makeHarness(): Harness {
 describe('planner: expand page sets and handoffs', () => {
   const agent = (over: Partial<AgentRecord> = {}): AgentRecord => ({
     id: 'a1', name: 'Ada', slug: 'ada', intent: INTENT, scope: null, tasks: [{ id: 't1', text: INTENT, kind: 'explore', state: 'active' }], taskCursor: 0, homeDomain: 'astronomy', extraDomains: [], lens: 'broad', model: 'sonnet-5', effort: 'high', step: 'standard',
-    quotaRunsPerDay: 1, quotaWeekPct: null, autonomy: 'veto', priority: 0, state: 'waiting', sleepReason: null, sleepCode: null, skipUntil: null, notebookPath: 'wiki/meta/agents/ada.md',
+    quotaRunsPerDay: 1, quotaWeekPct: null, autonomy: 'veto', art: 'custom', nightly: 'sweep', priority: 0, state: 'waiting', sleepReason: null, sleepCode: null, skipUntil: null, notebookPath: 'wiki/meta/agents/ada.md',
     createdAt: '2026-09-06T08:00:00.000Z', updatedAt: '2026-09-06T08:00:00.000Z', retiredAt: null, ...over,
   })
 

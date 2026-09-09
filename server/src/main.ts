@@ -19,6 +19,7 @@ import { SqliteProposalStore } from './db/proposals.js'
 import { SqliteShiftStore } from './db/shifts.js'
 import { SqliteRecapStore } from './db/recaps.js'
 import { SqliteValueEventStore } from './db/value-events.js'
+import { SqliteShelfOrderStore } from './db/shelf-order.js'
 import { SqliteHandoffStore } from './db/handoffs.js'
 import { SqliteLibraryStore } from './db/library.js'
 import { LibraryService } from './pipeline/library.js'
@@ -257,6 +258,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             return { window: { start: e.nightWindowStart, end: e.nightWindowEnd }, defaultModel: e.researchModelDefault }
           },
           values: new SqliteValueEventStore(db),
+          shelfOrder: new SqliteShelfOrderStore(db),
           handoffs: handoffStore,
           log: fellowsLog,
         })

@@ -372,7 +372,9 @@ describe('planning, proposals and the night shift', () => {
    * prompt each night, and that one answered task does not stop the Fellow.
    */
   it('takes its tasks in turn: a different one reaches the planner each night, and only that one', async () => {
+    // `rotate` is the one-a-night mode; `sweep` (the default since A7 D8) is tested below.
     const ada = await spawn({
+      nightly: 'rotate',
       tasks: [
         { text: 'new ground-based transit surveys and their first results', kind: 'watch' },
         { text: 'How far can photometry constrain atmospheric retrievals?', kind: 'explore' },
@@ -398,8 +400,42 @@ describe('planning, proposals and the night shift', () => {
     expect(h.service.get(ada.id)!.taskCursor).toBe(0)
   })
 
+  /*
+   * The full sweep (A7 D8). A night that plans one of three tasks leaves the other two a
+   * third of a week apart, which is why "every night delivers a result" needed one planning
+   * run PER task rather than one merged run: the schema constrains kind, candidate and the
+   * deepen page set per task, and merging them would widen `kind` to the union (A7 section 1).
+   */
+  it('a sweeping Fellow plans every standing task in one night, each in its own run', async () => {
+    const ada = await spawn({
+      tasks: [
+        { text: 'new ground-based transit surveys and their first results', kind: 'watch' },
+        { text: 'How far can photometry constrain atmospheric retrievals?', kind: 'explore' },
+      ],
+    })
+    expect(h.service.get(ada.id)!.nightly).toBe('sweep')
+
+    await h.shift.run('timer')
+    const plans = h.calls.filter((c) => c.profile === 'query').map((c) => c.prompt)
+    expect(plans).toHaveLength(2)
+    expect(plans[0]).toContain("Tonight's task (1 of 2): new ground-based transit surveys")
+    expect(plans[1]).toContain("Tonight's task (2 of 2): How far can photometry")
+    // Each run is still told about ONE task, so the schema's per-task constraints hold.
+    expect(plans[0]).toContain('a watch task')
+    expect(plans[1]).toContain('an explore task')
+    // A sweep walks the whole list, so there is no turn to keep and the cursor stays put.
+    expect(h.service.get(ada.id)!.taskCursor).toBe(0)
+  })
+
+  it('a sweeping Fellow with one task plans once, like a rotating one', async () => {
+    await spawn({ tasks: [{ text: 'the only task', kind: 'watch' }] })
+    await h.shift.run('timer')
+    expect(h.calls.filter((c) => c.profile === 'query')).toHaveLength(1)
+  })
+
   it('counts the spawn run as the first task\'s turn, so the first night plans the SECOND task', async () => {
     const ada = await spawn({
+      nightly: 'rotate',
       runFirstStep: true,
       tasks: [
         { text: 'the first task', kind: 'explore' },
@@ -853,7 +889,7 @@ describe('planning, proposals and the night shift', () => {
     await h.service.decide(p1!.id, { status: 'vetoed' })
     h.agents.update(ada.id, { state: 'sleeping', sleepCode: 'covered', sleepReason: 'covered' })
     const updated = await h.service.update(ada.id, { intent: 'A new intent typed in the dashboard' })
-    expect(updated).toMatchObject({ intent: 'A new intent typed in the dashboard', sleepCode: 'idle' })
+    expect(updated.agent).toMatchObject({ intent: 'A new intent typed in the dashboard', sleepCode: 'idle' })
     expect(notebook(ada)).toContain('## Intent\n\nA new intent typed in the dashboard')
     await h.service.retire(ada.id)
     expect(pending(ada.id)).toEqual([])

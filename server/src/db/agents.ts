@@ -30,6 +30,19 @@ export type AgentEffort = (typeof AGENT_EFFORTS)[number]
 export const AGENT_STEPS = ['small', 'standard', 'deep'] as const
 export type AgentStep = (typeof AGENT_STEPS)[number]
 export const AGENT_AUTONOMIES = ['manual', 'veto', 'auto'] as const
+/**
+ * What a Fellow may hold. One art, or `custom` for any mix (docs/tasks/TASKS-A7.md D7): the
+ * art belongs to a TASK, and this is the constraint on which arts its tasks may be.
+ */
+export const AGENT_ARTS = ['watch', 'explore', 'deepen', 'custom'] as const
+export type AgentArt = (typeof AGENT_ARTS)[number]
+/**
+ * How much of a night a Fellow works. `sweep` takes every standing task, so every night
+ * delivers a result for each of them; `rotate` takes one in turn, which means each comes round
+ * every N nights (A7 D8).
+ */
+export const AGENT_NIGHTLY = ['sweep', 'rotate'] as const
+export type AgentNightly = (typeof AGENT_NIGHTLY)[number]
 export type AgentAutonomy = (typeof AGENT_AUTONOMIES)[number]
 export const AGENT_STATES = ['proposed', 'active', 'waiting', 'sleeping', 'paused', 'blocked', 'retired'] as const
 export type AgentState = (typeof AGENT_STATES)[number]
@@ -94,6 +107,10 @@ export interface AgentRecord {
   readonly quotaRunsPerDay: number
   readonly quotaWeekPct: number | null
   readonly autonomy: AgentAutonomy
+  /** The arts its tasks may be; `custom` allows any mix. */
+  readonly art: AgentArt
+  /** Every standing task each night, or one in turn. */
+  readonly nightly: AgentNightly
   readonly priority: number
   readonly state: AgentState
   readonly sleepReason: string | null
@@ -124,6 +141,8 @@ export type AgentPatch = Partial<
     | 'quotaRunsPerDay'
     | 'quotaWeekPct'
     | 'autonomy'
+    | 'art'
+    | 'nightly'
     | 'priority'
     | 'state'
     | 'sleepReason'
@@ -204,6 +223,8 @@ interface Row {
   quota_runs_per_day: number
   quota_week_pct: number | null
   autonomy: string
+  art: string | null
+  nightly: string | null
   priority: number
   state: string
   sleep_reason: string | null
@@ -220,7 +241,7 @@ interface Row {
 const COLUMNS =
   'id, name, slug, intent, scope, home_domain, extra_domains, lens, model, effort, step, quota_runs_per_day, ' +
   'quota_week_pct, autonomy, priority, state, sleep_reason, sleep_code, skip_until, notebook_path, created_at, updated_at, retired_at, ' +
-  'tasks, task_cursor'
+  'tasks, task_cursor, art, nightly'
 
 /** The stored list, or the intent as one explore task when it is missing or corrupt. */
 export function parseTasks(raw: string | null | undefined, intent: string): AgentTask[] {
@@ -279,6 +300,10 @@ function toRecord(row: Row): AgentRecord {
     quotaRunsPerDay: row.quota_runs_per_day,
     quotaWeekPct: row.quota_week_pct,
     autonomy: row.autonomy as AgentAutonomy,
+    // A value the column does not know falls back rather than propagating: `custom` allows
+    // whatever the task list already is, and `sweep` is the decided default (A7 D8).
+    art: AGENT_ARTS.includes(row.art as AgentArt) ? (row.art as AgentArt) : 'custom',
+    nightly: AGENT_NIGHTLY.includes(row.nightly as AgentNightly) ? (row.nightly as AgentNightly) : 'sweep',
     priority: row.priority,
     state: row.state as AgentState,
     sleepReason: row.sleep_reason,
@@ -301,7 +326,7 @@ export class SqliteAgentStore implements AgentStore {
     this.db
       .prepare(
         `INSERT INTO agents (${COLUMNS}, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         r.id,
@@ -329,6 +354,8 @@ export class SqliteAgentStore implements AgentStore {
         r.retiredAt,
         JSON.stringify(r.tasks),
         r.taskCursor,
+        r.art,
+        r.nightly,
         this.userId,
       )
   }
@@ -363,7 +390,7 @@ export class SqliteAgentStore implements AgentStore {
         `UPDATE agents SET name = ?, intent = ?, scope = ?, home_domain = ?, extra_domains = ?, lens = ?, model = ?,
            effort = ?, step = ?, quota_runs_per_day = ?, quota_week_pct = ?, autonomy = ?, priority = ?, state = ?,
            sleep_reason = ?, sleep_code = ?, skip_until = ?, updated_at = ?, retired_at = ?,
-           tasks = ?, task_cursor = ?
+           tasks = ?, task_cursor = ?, art = ?, nightly = ?
          WHERE id = ? AND user_id = ?`,
       )
       .run(
@@ -388,6 +415,8 @@ export class SqliteAgentStore implements AgentStore {
         next.retiredAt,
         JSON.stringify(next.tasks),
         next.taskCursor,
+        next.art,
+        next.nightly,
         id,
         this.userId,
       )

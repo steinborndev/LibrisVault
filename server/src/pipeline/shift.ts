@@ -640,27 +640,34 @@ export class NightShift {
         skip(agent, 'the window has no room left for a planning run')
         continue
       }
-      const outcome = this.fellows.plan(agent.id, { cycleDate })
-      if (outcome.skipped !== undefined) {
-        planned.push({ agentId: agent.id, agentName: agent.name, runId: null, ok: true, proposals: 0, costUsd: null, note: outcome.skipped })
-        continue
+      /*
+       * One planning run per standing task for a `sweep` Fellow, the one whose turn it is for
+       * a `rotate` one. `planNight` awaits each run before starting the next, so the loop here
+       * gets a settled outcome per task and reports each as its own line.
+       */
+      const outcomes = await this.fellows.planNight(agent.id, cycleDate)
+      for (const outcome of outcomes) {
+        if (outcome.skipped !== undefined) {
+          planned.push({ agentId: agent.id, agentName: agent.name, runId: null, ok: true, proposals: 0, costUsd: null, note: outcome.skipped })
+          continue
+        }
+        if (outcome.refusal || !outcome.run) {
+          skip(agent, outcome.refusal?.error ?? 'planning could not start')
+          continue
+        }
+        const settled = await this.fellows.settled(outcome.run.id)
+        const fresh = this.fellows.get(agent.id)
+        planned.push({
+          agentId: agent.id,
+          agentName: agent.name,
+          runId: settled.id,
+          ok: settled.status === 'done',
+          proposals: this.fellows.pendingProposals(agent.id).filter((p) => p.cycleDate === cycleDate).length,
+          costUsd: settled.result?.usage.costUsd ?? null,
+          note: settled.status === 'done' ? (fresh?.state === 'sleeping' ? (fresh.sleepReason ?? null) : null) : (settled.error ?? 'failed'),
+        })
+        this.shifts.put(record(null))
       }
-      if (outcome.refusal || !outcome.run) {
-        skip(agent, outcome.refusal?.error ?? 'planning could not start')
-        continue
-      }
-      const settled = await this.fellows.settled(outcome.run.id)
-      const fresh = this.fellows.get(agent.id)
-      planned.push({
-        agentId: agent.id,
-        agentName: agent.name,
-        runId: settled.id,
-        ok: settled.status === 'done',
-        proposals: this.fellows.pendingProposals(agent.id).filter((p) => p.cycleDate === cycleDate).length,
-        costUsd: settled.result?.usage.costUsd ?? null,
-        note: settled.status === 'done' ? (fresh?.state === 'sleeping' ? (fresh.sleepReason ?? null) : null) : (settled.error ?? 'failed'),
-      })
-      this.shifts.put(record(null))
     }
 
     /*
