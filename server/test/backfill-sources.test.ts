@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest'
 import {
   addressFromReadingList,
   addressInside,
+  isPlaceholder,
   isUsableAddress,
   subjectAddress,
   touchesOnlyUrl,
@@ -102,6 +103,29 @@ describe('addressFromReadingList', () => {
   })
 })
 
+describe('isPlaceholder', () => {
+  it('recognises the words a run writes where the schema wants an empty field', () => {
+    expect(isPlaceholder('unknown')).toBe(true)
+    expect(isPlaceholder('null')).toBe(true)
+    expect(isPlaceholder('N/A')).toBe(true)
+    expect(isPlaceholder(' TBD ')).toBe(true)
+  })
+
+  it('leaves anything with content of its own alone', () => {
+    /*
+     * Emptying one of these would destroy the only surviving record of where the document came
+     * from. A person can still read the address out of the first; a tool that blanks it takes
+     * that away for the sake of a quiet lint report.
+     */
+    expect(isPlaceholder('local file: .raw/j1/x.pdf (example.org/media/123)')).toBe(false)
+    expect(isPlaceholder('handed over on a usb stick by the author')).toBe(false)
+    expect(isPlaceholder('https://example.org/a')).toBe(false)
+    // Already empty, and already correct: there is nothing to write.
+    expect(isPlaceholder('')).toBe(false)
+    expect(isPlaceholder(null)).toBe(false)
+  })
+})
+
 describe('subjectAddress', () => {
   it('takes the address from an ingest commit and only from one', () => {
     expect(subjectAddress('ingest: https://example.org/a')).toBe('https://example.org/a')
@@ -158,5 +182,12 @@ describe('touchesOnlyUrl', () => {
   it('refuses a no-op, so an empty commit is never proposed', () => {
     const a = page('type: source\nurl: "https://example.org/a"')
     expect(touchesOnlyUrl(a, a)).toBe(false)
+  })
+
+  it('passes the emptying of a placeholder', () => {
+    const a = page('type: source\nurl: "unknown"\nconfidence: medium')
+    const after = withAddress(a, '')!
+    expect(after).toContain('url: ""')
+    expect(touchesOnlyUrl(a, after)).toBe(true)
   })
 })

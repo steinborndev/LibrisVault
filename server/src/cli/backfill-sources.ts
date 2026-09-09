@@ -27,6 +27,11 @@
  *   field - the page's own `url:` value contains a `host/path` in brackets. Promoting that to a
  *           real address rearranges what the page already states; it adds nothing.
  *
+ * A page whose field holds a PLACEHOLDER word and that none of the three routes can reach is
+ * emptied instead. `unknown` and `null` are a run's way of writing "no address" into a field
+ * whose way of saying that is to be empty, and the difference is not cosmetic: the validator
+ * reports the word forever, while an empty field is a documented, silent, correct state.
+ *
  * Dry run by default. `--apply` writes through `PUT /api/v1/pages`, which is the one sanctioned
  * path for a non-agent vault mutation (CLAUDE.md hard rule 1): the service holds the commit
  * mutex across check-and-write, so each page becomes one revertable commit that can never
@@ -48,7 +53,11 @@ export interface Repair {
   /** The value sitting in `url:` now, or null when the page has no such key. */
   readonly before: string | null
   readonly after: string
-  readonly via: 'git' | 'list' | 'field'
+  /**
+   * How the value was arrived at. `placeholder` is the one that writes an EMPTY address: the
+   * field held a word standing in for one, and empty is what the schema means by "none".
+   */
+  readonly via: 'git' | 'list' | 'field' | 'placeholder'
 }
 
 /** The frontmatter block of a page, without its `---` fences. */
@@ -85,6 +94,19 @@ export function addressInside(value: string | null): string | undefined {
 
 /** Separates hash from subject in the log format: a byte no commit subject can contain. */
 const SEP = '\x01'
+
+/**
+ * Words a run wrote where the schema wanted an empty field. Deliberately short: only values
+ * that are placeholders and nothing else. A value with any content of its own - a filename, a
+ * sentence, a partial address - is left alone for a person to look at, because emptying it
+ * would destroy the only record of where the document came from.
+ */
+const PLACEHOLDERS = new Set(['unknown', 'null', 'none', 'n/a', 'na', 'tbd', 'todo', '-', '?'])
+
+/** Whether a `url:` value is a word standing in for an address rather than an address. */
+export function isPlaceholder(value: string | null): boolean {
+  return value !== null && PLACEHOLDERS.has(value.trim().toLowerCase())
+}
 
 const git = (cwd: string, args: readonly string[]): string =>
   execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 })
@@ -218,6 +240,7 @@ export function survey(vaultRoot: string): Survey {
     if (fromGit !== undefined) repairs.push({ page, before, after: fromGit, via: 'git' })
     else if (fromList !== undefined) repairs.push({ page, before, after: fromList, via: 'list' })
     else if (fromField !== undefined) repairs.push({ page, before, after: fromField, via: 'field' })
+    else if (isPlaceholder(before)) repairs.push({ page, before, after: '', via: 'placeholder' })
     else nothing++
   }
   return { usable, nothingToRecover: nothing, repairs }
@@ -318,7 +341,7 @@ async function main(): Promise<void> {
     planned.push({ ...r, markdown: after })
     process.stdout.write(`  ${path.basename(r.page)}\n`)
     process.stdout.write(`    - ${r.before === null ? '(no url: key)' : `url: ${r.before}`}\n`)
-    process.stdout.write(`    + url: "${r.after}"   [${r.via}]\n`)
+    process.stdout.write(`    + url: "${r.after}"${r.after === '' ? '   (empty: no address exists)' : ''}   [${r.via}]\n`)
   }
   for (const page of skipped) process.stdout.write(`  SKIPPED (shape not recognised): ${page}\n`)
 
