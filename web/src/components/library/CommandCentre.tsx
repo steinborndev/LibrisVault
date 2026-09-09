@@ -259,8 +259,14 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
   const durations = useMemo(() => agents.data?.durations ?? {}, [agents.data])
   const blocks = useMemo(() => scheduleFrom(staffed, live.from, durations), [staffed, live.from, durations])
   const overflow = blocks.filter((b) => b.to > live.to)
-  const planOnly = blocks.filter((b) => !b.runs)
   const mine = shelf ? blocks.filter((b) => b.shelf === shelf.key) : []
+  /*
+   * This shelf's deferred tasks, not the night's. The note sits on a shelf's own page and is
+   * about its Fellows, so counting every shelf's put a number there that nothing on the page
+   * accounted for. The overflow note below it stays global on purpose and says why: the queue
+   * is one line for everyone, so what pushes your work past the window may not be yours.
+   */
+  const planOnly = mine.filter((b) => !b.runs)
 
   const deciders = useMemo(
     () => roster.filter((r) => r.fellow.pendingProposals > 0),
