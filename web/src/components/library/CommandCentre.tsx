@@ -258,30 +258,60 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
         else if (e.key === 'c') setGearOpen((g) => !g)
         return
       }
-      if (e.key === 'ArrowLeft') {
+      /*
+       * The rotation is a ring with the shelves view on it: right from the overview lands on
+       * the first shelf, right from the last one comes back to the overview. Left runs it the
+       * other way. So the arrows never stop working, whichever end you are at.
+       */
+      if (e.key === 'ArrowRight') {
         e.preventDefault()
-        setStop((stop - 1 + staffed.length) % staffed.length)
-        setRow(0)
-      } else if (e.key === 'ArrowRight') {
+        if (view === 'shelves') {
+          setStop(0)
+          setRow(0)
+          setView('tonight')
+        } else if (stop >= staffed.length - 1) {
+          setRow(0)
+          setView('shelves')
+        } else {
+          setStop(stop + 1)
+          setRow(0)
+        }
+      } else if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        setStop((stop + 1) % staffed.length)
-        setRow(0)
+        if (view === 'shelves') {
+          setStop(staffed.length - 1)
+          setRow(0)
+          setView('tonight')
+        } else if (stop <= 0) {
+          setRow(0)
+          setView('shelves')
+        } else {
+          setStop(stop - 1)
+          setRow(0)
+        }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setRow(Math.min((view === 'shelves' ? staffed.length : domain.fellows.length) - 1, row + 1))
+        setRow(Math.min((view === 'shelves' ? staffed.length + UNSTAFFED.length : domain.fellows.length) - 1, row + 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         setRow(Math.max(0, row - 1))
       } else if (e.key === 'Enter') {
         if (view === 'shelves') {
-          setStop(row)
-          setRow(0)
-          setView('tonight')
+          // The overview is one list in two sections: past the staffed ones, Enter staffs.
+          if (row < staffed.length) {
+            setStop(row)
+            setRow(0)
+            setView('tonight')
+          } else {
+            setShapeIndex(0)
+            setGearOpen(false)
+            setView('spawn')
+          }
         } else {
           const f = domain.fellows[row]
           if (f) openFellow(f.id)
         }
-      } else if (e.key === 'n') {
+            } else if (e.key === 'n') {
         setShapeIndex(0)
         setGearOpen(false)
         setView('spawn')
@@ -581,8 +611,8 @@ function Shelves({
             {top && <> <b>{top.key}</b> has the most: {top.questions} open questions and {top.gaps} pages linked but never written.</>}
           </p>
           <div className="cc-rows">
-            {empty.map((d) => (
-              <div key={d.key} className="cc-row" onClick={() => onStaff(d.key)}>
+            {empty.map((d, i) => (
+              <div key={d.key} className={`cc-row ${row === staffed.length + i ? 'sel' : ''}`} onClick={() => onStaff(d.key)}>
                 <span className="cc-id">
                   <span className="cc-idline">
                     <span className="chip-dot" style={{ background: domainColor(d.key), opacity: 0.45 }} aria-hidden />
