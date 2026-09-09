@@ -37,6 +37,19 @@ Extension milestone in the Curious fork (branch `research-agents`), behind `AGEN
   runs are serialized on the run mutex, so a per-domain schedule would show four domains
   each fitting comfortably into a night that cannot hold their sum.
 
+- **D10 - a Fellow appears at its `homeDomain` only.** `extraDomains` shows in the dossier as
+  an aside. One appearance per Fellow, so the night's arithmetic cannot double-count, and the
+  field keeps the job it already has: `targetFor` reads it when routing a handoff.
+- **D11 - unclaimed handoffs live on the unstaffed-shelves screen.** An unclaimed handoff is a
+  question with no Fellow responsible for it, which is the statement that screen already
+  makes; the spawn button next to it is the answer.
+- **D12 - the reading list stays where it is.** It is cross-domain and belongs to the user
+  rather than to any Fellow - the same reasoning that keeps the recap wall board whole. The
+  command centre links to it at most.
+- **D13 - the representative mockup is real components behind a flag.** Built in the repo,
+  reachable at a URL, fed fixture data. "A mockup must match the final render" is then true by
+  construction rather than by care, and the distance to the implementation is one data source.
+
 ## 1. Open item: skip the planning run for a deepen task
 
 **Not specified, not built. Needs its own design pass and measurement before it is written.**

@@ -429,7 +429,7 @@ export function App(): React.ReactElement {
               {libraryMounted && (
                 <ErrorBoundary label="Library">
                   <Suspense fallback={<div className="empty">Loading library…</div>}>
-                  <LibraryScreen vaultName={vaultName} active={screen === 'library'} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} spawnParam={screen === 'library' ? (query.get('spawn') ?? '') : ''} shelfParam={screen === 'library' ? (query.get('shelf') ?? '') : ''} paneParam={screen === 'library' ? (query.get('pane') ?? '') : ''} pageParam={screen === 'library' ? (query.get('page') ?? '') : ''} boardParam={screen === 'library' ? (query.get('board') ?? '') : ''} />
+                  <LibraryScreen vaultName={vaultName} active={screen === 'library'} agentParam={screen === 'library' ? (query.get('agent') ?? '') : ''} roomParam={screen === 'library' ? (query.get('room') ?? '') : ''} spawnParam={screen === 'library' ? (query.get('spawn') ?? '') : ''} shelfParam={screen === 'library' ? (query.get('shelf') ?? '') : ''} paneParam={screen === 'library' ? (query.get('pane') ?? '') : ''} pageParam={screen === 'library' ? (query.get('page') ?? '') : ''} boardParam={screen === 'library' ? (query.get('board') ?? '') : ''} ccParam={screen === 'library' ? (query.get('cc') ?? '') : ''} />
                   </Suspense>
                 </ErrorBoundary>
               )}

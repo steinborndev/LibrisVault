@@ -26,6 +26,7 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
+import { CommandCentre } from '../components/library/CommandCentre.tsx'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
@@ -62,6 +63,7 @@ export function LibraryScreen({
   roomParam,
   active = true,
   spawnParam = '',
+  ccParam = '',
   shelfParam = '',
   paneParam = '',
   pageParam = '',
@@ -74,6 +76,7 @@ export function LibraryScreen({
   active?: boolean
   spawnParam?: string
   shelfParam?: string
+  ccParam?: string
   paneParam?: string
   pageParam?: string
   boardParam?: string
@@ -102,6 +105,8 @@ export function LibraryScreen({
   const [mode, setMode] = useState<Mode>(shelfParam !== '' || agentParam !== '' ? 'full' : 'focus')
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
+  /* The Fellow command centre (TASKS-A7), opened by `?cc=1` while it runs on fixture data. */
+  const [ccOpen, setCcOpen] = useState(ccParam !== '')
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
@@ -711,8 +716,12 @@ export function LibraryScreen({
             />
           ))}
 
+          {/* The Fellow command centre, over the room like a shelf window (TASKS-A7). Behind
+              `?cc=1` while it runs on fixture data. */}
+          {ccOpen && <CommandCentre onClose={() => setCcOpen(false)} />}
+
           {/* A department's window: its graph and its catalog, over the room (section 10.5). */}
-          {shelf !== null && (
+          {shelf !== null && !ccOpen && (
             <ShelfWindow
               domain={shelf}
               vaultName={vaultName}
