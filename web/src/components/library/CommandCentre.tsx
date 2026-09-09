@@ -20,7 +20,7 @@
  * migration V23.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import type {
@@ -39,6 +39,7 @@ import type {
 import {
   carriedTonight,
   fellowMinutes,
+  isSystemPage,
   minutesFor,
   scheduleFrom,
   taskCount,
@@ -189,10 +190,21 @@ export interface CommandCentreProps {
   readonly onShelves: (keys: readonly string[]) => void
   /** The Fellow whose dossier is open, so the headline can name it as well as its shelf. */
   readonly onFellow: (name: string | null) => void
+  /** A Fellow id from `?cc=<id>`: the window opens on its dossier, at the recap. */
+  readonly openFellowId?: string
 }
 
-export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves, onFellow }: CommandCentreProps): React.ReactElement {
-  const [fellowId, setFellowId] = useState<string | null>(null)
+export function CommandCentre({
+  stop,
+  setStop,
+  view,
+  setView,
+  onClose,
+  onShelves,
+  onFellow,
+  openFellowId,
+}: CommandCentreProps): React.ReactElement {
+  const [fellowId, setFellowId] = useState<string | null>(openFellowId ?? null)
   const [pane, setPane] = useState<Pane>('recap')
   const [decIndex, setDecIndex] = useState(0)
   const [optIndex, setOptIndex] = useState(0)
@@ -264,6 +276,19 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
    */
   const openName = view === 'dossier' ? (roster.find((r) => r.fellow.agent.id === fellowId)?.fellow.agent.name ?? null) : null
   useEffect(() => onFellow(openName), [openName, onFellow])
+  /*
+   * A Fellow named in the URL was opened before the roster had loaded, so the shelf it stands
+   * on follows here rather than at the click. Runs once per id: `stop` is the user's after
+   * that, and re-setting it would drag them back every time the roster refetched.
+   */
+  const placed = useRef<string | null>(null)
+  useEffect(() => {
+    if (openFellowId === undefined || placed.current === openFellowId) return
+    const at = roster.findIndex((r) => r.fellow.agent.id === openFellowId)
+    if (at < 0) return
+    placed.current = openFellowId
+    setStop(staffed.indexOf(roster[at]!.shelf))
+  }, [openFellowId, roster, staffed, setStop])
 
   const set = settings.data?.effective
   const win = useMemo(
@@ -360,6 +385,19 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
     setFellowId(next.fellow.agent.id)
     setStop(staffed.indexOf(next.shelf))
   }
+  /**
+   * Opens a vault page from inside a dossier and leaves a return ticket behind it.
+   *
+   * `originPath()` in the router is the last NON-page route, and Escape on a page goes there.
+   * Replacing the Library's own entry with one that names this Fellow is therefore all it
+   * takes: the same key that leaves a page now lands back on the Fellow you left from, rather
+   * than in the room with the window closed.
+   */
+  const openPage = (page: string): void => {
+    if (fellowId !== null) navigate(`/library?cc=${encodeURIComponent(fellowId)}`, { replace: true })
+    navigate(pageRoute(page))
+  }
+
   /** Opens the spawn view for one shelf. `null` means "wherever I am", never "no shelf". */
   const openSpawn = (key: string | null): void => {
     setSpawnShelf(key ?? shelf?.key ?? null)
@@ -744,6 +782,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
           onBack={back}
           onAct={(what) => act.mutate({ id: fellow.agent.id, what })}
           onPatch={(body) => patch.mutate({ id: fellow.agent.id, body })}
+          onOpenPage={openPage}
           patching={patch.isPending}
           refused={patch.error === null ? null : (patch.error as Error).message}
           busy={act.isPending}
@@ -959,6 +998,7 @@ function Dossier({
   onBack,
   onAct,
   onPatch,
+  onOpenPage,
   patching,
   refused,
   busy,
@@ -972,6 +1012,7 @@ function Dossier({
   onBack: () => void
   onAct: (what: 'step' | 'plan' | 'pause' | 'resume') => void
   onPatch: (body: AgentPatchBody) => void
+  onOpenPage: (page: string) => void
   patching: boolean
   refused: string | null
   busy: boolean
@@ -987,17 +1028,26 @@ function Dossier({
    * What the night produced first, what it did second, and the settings behind it last. The
    * notebook is the Fellow's own page and belongs near the settings that write to it.
    */
+  const [showPlanning, setShowPlanning] = useState(false)
+  const shown = showPlanning ? runs : runs.filter((r) => r.kind !== 'plan')
+  /*
+   * The indexes a run has to touch are not what it made. Hidden by default, because a list of
+   * "created pages" that opens with `hot.md` and `_index.md` answers a question nobody asked.
+   */
+  const [hideSystem, setHideSystem] = useState(true)
+  const shownPages = hideSystem ? pages.filter((p) => !isSystemPage(p)) : pages
+
+  // The counts are of what the tab SHOWS: a label saying 31 over a list of 25 invites the
+  // question the footer already answers.
   const panes: Array<[Pane, string]> = [
     ['recap', 'Recap'],
-    ['ledger', `Activity log ${runs.length}`],
-    ['pages', `Created pages ${pages.length}`],
+    ['ledger', `Activity log ${shown.length}`],
+    ['pages', `Created pages ${shownPages.length}`],
     ['notebook', 'Notebook'],
     ['settings', 'Settings'],
   ]
   const nightly = fellowMinutes(a, durations)
   const carried = carriedTonight(a)
-  const [showPlanning, setShowPlanning] = useState(false)
-  const shown = showPlanning ? runs : runs.filter((r) => r.kind !== 'plan')
 
   return (
     <>
@@ -1059,6 +1109,7 @@ function Dossier({
         </div>
 
         <div className="cc-area">
+          <div className="cc-scroll">
           {pane === 'notebook' && <Notebook path={a.notebookPath} />}
 
           {pane === 'recap' &&
@@ -1125,7 +1176,7 @@ function Dossier({
                         key={r.id}
                         className={page === undefined ? '' : 'open'}
                         title={page === undefined ? 'This run filed no page' : `Open ${page.split('/').pop()?.replace(/\.md$/, '')}`}
-                        onClick={() => { if (page !== undefined) navigate(pageRoute(page)) }}
+                        onClick={() => { if (page !== undefined) onOpenPage(page) }}
                       >
                         <td className="n">{r.finishedAt.slice(5, 16).replace('T', ' ')}</td>
                         <td className="t">{r.label ?? r.kind} <span className="sev mut">{r.kind}</span></td>
@@ -1137,26 +1188,15 @@ function Dossier({
                 </tbody>
               </table>
             ))}
-          {pane === 'ledger' && (
-            /*
-              * Planning runs are most of the rows and none of the result: a Fellow that sweeps
-              * three tasks plans three times a night. Off by default, so the log reads as what
-              * the Fellow did rather than as how often it thought about it.
-              */
-            <label className="cc-toggle">
-              <input type="checkbox" checked={showPlanning} onChange={(e) => setShowPlanning(e.target.checked)} />
-              Show planning
-              <span className="mono-meta">{runs.length - shown.length} hidden</span>
-            </label>
-          )}
-
           {pane === 'pages' &&
-            (pages.length === 0 ? (
-              <p className="empty">No pages yet.</p>
+            (shownPages.length === 0 ? (
+              <p className="empty">
+                {pages.length === 0 ? 'No pages yet.' : 'Only the vault’s own indexes so far; include them to see them.'}
+              </p>
             ) : (
               <ul className="cc-pages">
-                {pages.map((p) => (
-                  <li key={p} onClick={() => navigate(pageRoute(p))}>
+                {shownPages.map((p) => (
+                  <li key={p} onClick={() => onOpenPage(p)}>
                     <span className="p">{p.split('/').pop()?.replace(/\.md$/, '')}</span>
                   </li>
                 ))}
@@ -1295,6 +1335,29 @@ function Dossier({
                 <section className="wide">
                   <p className="cc-note warn">{refused}</p>
                 </section>
+              )}
+            </div>
+          )}
+          </div>
+
+          {/*
+            * The corner of the box, not the end of the table: a switch that changes what the
+            * rows above it are should be where it can be reached without scrolling to find it.
+            */}
+          {(pane === 'ledger' || pane === 'pages') && (
+            <div className="cc-foot">
+              {pane === 'ledger' ? (
+                <label className="cc-toggle">
+                  <input type="checkbox" checked={showPlanning} onChange={(e) => setShowPlanning(e.target.checked)} />
+                  Show planning
+                  <span className="mono-meta">{runs.length - shown.length} hidden</span>
+                </label>
+              ) : (
+                <label className="cc-toggle">
+                  <input type="checkbox" checked={hideSystem} onChange={(e) => setHideSystem(e.target.checked)} />
+                  Exclude system pages
+                  <span className="mono-meta">{pages.length - shownPages.length} hidden</span>
+                </label>
               )}
             </div>
           )}

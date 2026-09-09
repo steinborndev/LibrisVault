@@ -220,6 +220,26 @@ export function taskCount(blocks: readonly Block[]): string {
   return runs === blocks.length ? word(runs) : `${runs} of ${word(blocks.length)} run`
 }
 
+/**
+ * Whether a page is the vault's own machinery rather than something a Fellow set out to make.
+ *
+ * A run touches the indexes it has to touch: `hot.md` and `log.md` are rewritten by every
+ * ingest and every research run, `_index.md` is the folder listing the vault maintains, and a
+ * Fellow's notebook is its own record of the run. None of them are the run's result, and on a
+ * list of what a Fellow created they crowd out what it actually wrote.
+ *
+ * The reading list is NOT one of these: a Fellow adds entries to it on purpose, and they are
+ * as much a result as a page is.
+ */
+const VAULT_INDEXES = new Set(['wiki/hot.md', 'wiki/index.md', 'wiki/log.md', 'wiki/overview.md', 'wiki/getting-started.md'])
+
+export function isSystemPage(path: string): boolean {
+  if (VAULT_INDEXES.has(path)) return true
+  // The Fellows' own notebooks, but not the rest of `wiki/meta/` - the reading list lives there.
+  if (path.startsWith('wiki/meta/agents/')) return true
+  return (path.split('/').pop() ?? '').startsWith('_')
+}
+
 /** `HH:MM` from a time the shift settings state as `HH:MM`, in minutes from midnight. */
 export function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':')

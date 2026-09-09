@@ -113,7 +113,13 @@ export function LibraryScreen({
    */
   const [ccOpen, setCcOpen] = useState(ccParam !== '')
   const [ccStop, setCcStop] = useState(0)
-  const [ccView, setCcView] = useState<CcView>('shelves')
+  /*
+   * `?cc=<id>` names a Fellow and opens on its dossier. That is the return ticket a page
+   * opened from a dossier leaves behind: Escape on the page goes to the last non-page route,
+   * and this is what that route was replaced with.
+   */
+  const ccFellowId = /^[0-9a-f-]{36}$/.test(ccParam) ? ccParam : ''
+  const [ccView, setCcView] = useState<CcView>(ccFellowId === '' ? 'shelves' : 'dossier')
   /* Reported up by the window: the headline names the shelf, the window knows which they are. */
   const [ccShelves, setCcShelves] = useState<readonly string[]>([])
   /** The Fellow whose dossier is open; the headline names it in front of its shelf. */
@@ -170,6 +176,15 @@ export function LibraryScreen({
   useEffect(() => {
     if (spawnParam !== '') setSpawnOpen(true)
   }, [spawnParam])
+  /*
+   * The centre follows the URL too. It has to be an effect and not just initial state: the
+   * screen stays mounted while you are on a page, so coming back from one never remounts it.
+   */
+  useEffect(() => {
+    if (ccParam === '') return
+    setCcOpen(true)
+    if (ccFellowId !== '') setCcView('dossier')
+  }, [ccParam, ccFellowId])
   useEffect(() => {
     if (shelfParam !== '') setShelf(shelfParam)
   }, [shelfParam])
@@ -785,6 +800,7 @@ export function LibraryScreen({
               onClose={() => setCcOpen(false)}
               onShelves={setCcShelves}
               onFellow={setCcFellow}
+              {...(ccFellowId === '' ? {} : { openFellowId: ccFellowId })}
             />
           )}
 

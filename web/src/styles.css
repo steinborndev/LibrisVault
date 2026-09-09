@@ -8736,9 +8736,8 @@ tr:focus-within .rowacts {
 .cc-list.runs .t { flex: 1 1 auto; color: var(--text); }
 .cc-list.runs .mono-meta { flex: none; white-space: nowrap; }
 
-/* Bottom right of the log, because it changes what the rows above it are. */
 .cc-toggle {
-  display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 14px;
+  display: flex; align-items: center; gap: 7px;
   font-size: 12px; color: var(--text-dim); cursor: pointer;
 }
 .cc-toggle input { cursor: pointer; }
@@ -8747,9 +8746,19 @@ tr:focus-within .rowacts {
 .cc-ledger tr.open:hover td { background: var(--accent-soft); }
 /* The reading area takes the window's whole remaining height and scrolls on its own - the
    same rule the catalog reader follows. */
+/*
+ * A frame, not a scroller: the body inside it scrolls and the footer keeps the box's bottom
+ * corner. A switch that changes what the rows above it ARE belongs where it can be reached
+ * without first scrolling to the end of them.
+ */
 .cc-area {
   flex: 1; min-height: 0; margin: 0 18px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--bg-elev-2); overflow: auto; padding: 14px 16px;
+  background: var(--bg-elev-2); overflow: hidden; display: flex; flex-direction: column;
+}
+.cc-scroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; }
+.cc-foot {
+  flex: none; display: flex; justify-content: flex-end; align-items: center;
+  padding: 8px 16px; border-top: 1px solid var(--border); background: var(--bg-elev);
 }
 .cc-area h4 { margin: 0 0 8px; font-size: 13.5px; }
 .cc-area h5 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); font-weight: 600; }

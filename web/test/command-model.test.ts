@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest'
 import {
   artOf,
   carriedTonight,
+  isSystemPage,
   fellowMinutes,
   minutesFor,
   scheduleFrom,
@@ -176,6 +177,27 @@ describe('shelfOrder', () => {
     ])
     // b first for its priority; then c before a, because it is older.
     expect(order.map((s) => s.key)).toEqual(['b', 'c', 'a'])
+  })
+})
+
+describe('isSystemPage', () => {
+  it('names the indexes a run has to touch, and the notebook it writes about itself', () => {
+    expect(isSystemPage('wiki/hot.md')).toBe(true)
+    expect(isSystemPage('wiki/index.md')).toBe(true)
+    expect(isSystemPage('wiki/log.md')).toBe(true)
+    expect(isSystemPage('wiki/sources/_index.md')).toBe(true)
+    expect(isSystemPage('wiki/meta/agents/clara.md')).toBe(true)
+  })
+
+  it('leaves the reading list in, because a Fellow adds to it on purpose', () => {
+    // It lives under `wiki/meta/` with the notebooks, and is the one thing there that is a result.
+    expect(isSystemPage('wiki/meta/reading-list.md')).toBe(false)
+  })
+
+  it('leaves everything a run set out to write', () => {
+    expect(isSystemPage('wiki/concepts/Honey Garlic Tofu.md')).toBe(false)
+    expect(isSystemPage('wiki/questions/Research: something.md')).toBe(false)
+    expect(isSystemPage('wiki/entities/NYT Cooking.md')).toBe(false)
   })
 })
 
