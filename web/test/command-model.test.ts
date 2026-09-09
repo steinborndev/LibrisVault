@@ -13,6 +13,7 @@ import {
   isSystemPage,
   fellowMinutes,
   minutesFor,
+  nightBlock,
   scheduleFrom,
   shelfOrder,
   shelvesFrom,
@@ -198,6 +199,32 @@ describe('shelfOrder', () => {
     ])
     // b first for its priority; then c before a, because it is older.
     expect(order.map((s) => s.key)).toEqual(['b', 'c', 'a'])
+  })
+})
+
+describe('nightBlock', () => {
+  it('reports the gate the service already answered, in the service\'s own words', () => {
+    /*
+     * The case that stopped a sweep after its first task. Read off `gate` rather than
+     * re-derived from the percentages: two implementations of one rule is how a window ends
+     * up disagreeing with the shift about the same night.
+     */
+    const block = nightBlock({
+      gate: { window: 'seven_day', reason: 'the week is at 83%, above the 80% reserve', resetsAt: '2026-09-10T12:00:00.000Z' },
+    })
+    expect(block).toEqual({ reason: 'the week is at 83%, above the 80% reserve', resetsAt: '2026-09-10T12:00:00.000Z', liftable: false })
+  })
+
+  it('marks the five-hour window as the one a release can lift', () => {
+    const block = nightBlock({ gate: { window: 'five_hour', reason: 'the 5-hour window is at 72%, above the 60% reserve', resetsAt: null } })
+    expect(block?.liftable).toBe(true)
+  })
+
+  it('is nothing when the gate is open, and nothing when there is no answer to read', () => {
+    expect(nightBlock({ gate: null })).toBeNull()
+    expect(nightBlock({})).toBeNull()
+    // Not measured is not the same as blocked: saying "held" without an answer is a guess.
+    expect(nightBlock(undefined)).toBeNull()
   })
 })
 

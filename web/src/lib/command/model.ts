@@ -232,6 +232,35 @@ export function taskCount(blocks: readonly Block[]): string {
 }
 
 /**
+ * Why tonight will not run at all, or null when nothing stands in its way.
+ *
+ * The schedule is drawn from tasks and measured durations, and knows nothing about the plan.
+ * But every Fellow run meets the same gate first (`usage-monitor.ts`, SPEC section 8.4):
+ * planning runs included, which is what makes a night stop after its first task rather than
+ * degrade. A window drawing 29 minutes of work while the gate refuses all of it is the most
+ * expensive kind of wrong number, because a reader has no way to see it from here.
+ *
+ * Read off the service's OWN answer (`PlanStatus.gate`) rather than re-derived from the
+ * percentages: two implementations of one rule is how a window ends up disagreeing with the
+ * shift about the same night. All this adds is which window it was, because only the
+ * five-hour one can be lifted by hand (SPEC section 8.6) and the week has to be waited out.
+ */
+export interface NightBlock {
+  readonly reason: string
+  readonly resetsAt: string | null
+  /** True for the five-hour window, which a release lifts; the week is never liftable. */
+  readonly liftable: boolean
+}
+
+export function nightBlock(
+  plan: { gate?: { readonly window: string; readonly reason: string; readonly resetsAt: string | null } | null } | undefined,
+): NightBlock | null {
+  const gate = plan?.gate
+  if (gate === undefined || gate === null) return null
+  return { reason: gate.reason, resetsAt: gate.resetsAt, liftable: gate.window === 'five_hour' }
+}
+
+/**
  * The marks on a time scale, every `step` minutes, ends excluded.
  *
  * The ends are the frame the bar is drawn in; a mark there sits on the border and a label

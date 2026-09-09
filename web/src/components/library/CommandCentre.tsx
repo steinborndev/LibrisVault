@@ -41,6 +41,7 @@ import {
   fellowMinutes,
   isSystemPage,
   minutesFor,
+  nightBlock,
   scheduleFrom,
   taskCount,
   shelfOrder,
@@ -326,6 +327,12 @@ export function CommandCentre({
    * is one line for everyone, so what pushes your work past the window may not be yours.
    */
   const planOnly = mine.filter((b) => !b.runs)
+  /*
+   * Whether the plan's own reserves will refuse the night. The schedule above knows tasks and
+   * durations; this is the gate every run meets first, and without it the window draws work
+   * the service has already decided not to do.
+   */
+  const blocked = nightBlock(usage.data)
 
   const deciders = useMemo(
     // Undecided, not standing: approving one is what takes it off this list.
@@ -557,7 +564,11 @@ export function CommandCentre({
             facts={[
               `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
               `${hhmm(win.from)} to ${hhmm(win.to)}`,
-              blocks.length === 0 ? 'nothing to run' : `${dur(blocks.reduce((n, b) => n + b.minutes, 0))} estimated`,
+              blocked !== null
+                ? 'held by the plan reserve'
+                : blocks.length === 0
+                  ? 'nothing to run'
+                  : `${dur(blocks.reduce((n, b) => n + b.minutes, 0))} estimated`,
               `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
             ]}
           />
@@ -584,6 +595,16 @@ export function CommandCentre({
                   <span className="h r" onMouseDown={dragEdge('to')} />
                 </div>
               </div>
+              {blocked !== null && (
+                <p className="cc-note warn">
+                  <b>Nothing runs tonight: {blocked.reason}.</b> Every Fellow run meets that gate first, planning
+                  included, so a night stops at it rather than running a smaller version of itself.{' '}
+                  {blocked.liftable
+                    ? 'Release the rest of the window under System to lift it, or wait for the reset'
+                    : 'Only time clears this one: the week is the bound a release does not lift'}
+                  {blocked.resetsAt === null ? '.' : `, ${new Date(blocked.resetsAt).toLocaleString()}.`}
+                </p>
+              )}
             </section>
             <Shelves
               staffed={staffed}
@@ -801,6 +822,8 @@ export function CommandCentre({
           onAct={(what) => act.mutate({ id: fellow.agent.id, what })}
           onPatch={(body) => patch.mutate({ id: fellow.agent.id, body })}
           onOpenPage={openPage}
+          held={blocked === null ? null : blocked.reason}
+          nextShift={agents.data?.shift?.nextStartsAt ?? null}
           patching={patch.isPending}
           refused={patch.error === null ? null : (patch.error as Error).message}
           busy={act.isPending}
@@ -1017,6 +1040,8 @@ function Dossier({
   onAct,
   onPatch,
   onOpenPage,
+  held,
+  nextShift,
   patching,
   refused,
   busy,
@@ -1031,6 +1056,10 @@ function Dossier({
   onAct: (what: 'step' | 'plan' | 'pause' | 'resume') => void
   onPatch: (body: AgentPatchBody) => void
   onOpenPage: (page: string) => void
+  /** Why nothing will run tonight, if anything: the state line says so where it applies. */
+  held: string | null
+  /** When the next shift starts, so a waiting Fellow can name what it waits for. */
+  nextShift: string | null
   patching: boolean
   refused: string | null
   busy: boolean
@@ -1079,7 +1108,10 @@ function Dossier({
           * The name is in the headline above; repeating it here said nothing twice.
           */}
         <span className="cc-lead cc-flow">
-          <span className={`sev ${fellow.currentRun ? 'rec' : a.state === 'paused' ? 'mut' : 'ok'}`}>
+          <span
+            className={`sev ${fellow.currentRun ? 'rec' : a.state === 'paused' ? 'mut' : held !== null ? 'due' : 'ok'}`}
+            title={stateReason(a, fellow, held, nextShift)}
+          >
             {fellow.currentRun ? 'working' : a.state}
           </span>
           {tonight.length === 0 ? (
@@ -1104,7 +1136,8 @@ function Dossier({
               </span>
             ))
           )}
-          <span className="cc-sub">{autonomyOf(a.autonomy).short}</span>
+          {/* A state nobody can act on has to say what it is waiting for. */}
+          <span className="cc-sub">{stateReason(a, fellow, held, nextShift)}</span>
         </span>
         <span className="grow" />
         {/* The arrow keys walk the roster; a pair of buttons saying so was the same door twice. */}
@@ -1413,6 +1446,28 @@ function Dossier({
       </div>
     </>
   )
+}
+
+/**
+ * What a Fellow's state is waiting for, in one clause.
+ *
+ * `waiting` is the state with nothing to read: it means a proposal stands and a run has not
+ * taken it, which is true of a Fellow that will run in an hour and of one the plan reserve
+ * has stopped for a day. The sleeping states carry their own reason already; this fills the
+ * gap the others leave.
+ */
+function stateReason(a: FellowRecord, fellow: FellowSummary, held: string | null, nextShift: string | null): string {
+  if (fellow.currentRun) return 'a run is in flight'
+  if (a.state === 'paused') return 'paused by you; resume to let the shift take it again'
+  if (a.state === 'blocked') return 'a run failed; resume it to try again'
+  if (a.sleepReason !== null && a.sleepReason !== '') return a.sleepReason
+  if (held !== null) return `held tonight: ${held}`
+  const when =
+    nextShift === null
+      ? 'the next night shift'
+      : `the shift at ${new Date(nextShift).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  if (a.state === 'waiting') return `${fellow.next === null ? 'nothing to run' : 'a proposal stands'}, waiting for ${when}`
+  return `waiting for ${when}`
 }
 
 /**
