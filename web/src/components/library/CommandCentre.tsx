@@ -335,7 +335,13 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
     if (from < 0 || to < 0 || to >= keys.length) return
     const next = [...keys]
     next.splice(to, 0, next.splice(from, 1)[0]!)
+    /*
+     * `stop` is a slot in this list, so permuting it under a fixed slot would silently change
+     * which shelf you are looking at. Hold the shelf and let its index follow.
+     */
+    const staying = domain.key
     setOrder(next)
+    setStop(Math.max(0, next.indexOf(staying)))
   }
 
   const dragEdge = (edge: 'from' | 'to') => (e: React.MouseEvent): void => {
@@ -513,6 +519,13 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
           row={row}
           onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
           onStaff={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
+          onDecisions={(key) => {
+            const first = deciders.findIndex((x) => x.d.key === key)
+            if (first < 0) return
+            setDecIndex(first)
+            setOptIndex(0)
+            setView('decisions')
+          }}
         />
       )}
       {view === 'dossier' && fellow && <Dossier fellow={fellow} pane={pane} setPane={setPane} onBack={back} onStep={stepFellow} />}
@@ -541,11 +554,13 @@ function Shelves({
   row,
   onOpen,
   onStaff,
+  onDecisions,
 }: {
   staffed: readonly CcDomain[]
   row: number
   onOpen: (index: number) => void
   onStaff: (key: string) => void
+  onDecisions: (key: string) => void
 }): React.ReactElement {
   const empty = [...UNSTAFFED].sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2))
   const top = empty[0]
@@ -585,7 +600,15 @@ function Shelves({
                     </span>
                   </span>
                   <span className="cc-right">
-                    {open > 0 && <span className="sev due">{open} up for review</span>}
+                    {open > 0 && (
+                      <button
+                        className="sev due cc-pill"
+                        title={`Go to ${d.fellows[0]?.name ?? 'the first Fellow'}’s decisions`}
+                        onClick={(e) => { e.stopPropagation(); onDecisions(d.key) }}
+                      >
+                        {open} decision{open === 1 ? '' : 's'}
+                      </button>
+                    )}
                     <span className="mono-meta">{nightly > 0 ? `${Math.round(nightly)} min tonight` : 'nothing tonight'}</span>
                   </span>
                 </div>

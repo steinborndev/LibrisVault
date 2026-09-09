@@ -8532,6 +8532,9 @@ tr:focus-within .rowacts {
 .cc-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 7px; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); }
 /* The queue's order lives here rather than on the bands: a seven-minute task is a few pixels
    wide, which is not a drag target. A chip is. */
+/* A count that is also a door. It keeps the badge's shape so it still reads as a count. */
+.cc-pill { border: 1px solid transparent; cursor: pointer; font: inherit; }
+.cc-pill:hover { border-color: currentColor; }
 .cc-order { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
 .cc-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px;
