@@ -8533,11 +8533,17 @@ tr:focus-within .rowacts {
  * on their own. The hours are the number the panes are read against, so they must not scroll
  * away from them.
  */
-.cc-shelves { padding: 16px 18px 18px; gap: 14px; }
-.cc-hours { flex: none; }
-.cc-hours .cc-sec { margin-top: 0; }
-.cc-hours .cc-under { flex-wrap: wrap; }
-.cc-hours .cc-under .cc-note { margin: 0; }
+/* `overflow-y: auto` here never scrolls - the panes inside do - but with `scrollbar-gutter`
+   it reserves the same strip the scrolling shelf page reserves, so the bar keeps its width
+   as well as its position when you walk from one to the other. */
+.cc-shelves { padding: 20px 18px 18px; gap: 0; overflow-y: auto; scrollbar-gutter: stable; }
+/*
+ * The time bar, on the overview and on a shelf. Both pages open with one, so both use this:
+ * same padding, same heading, same axis, and the bar therefore lands on the same pixel row.
+ * Walking from the overview into a shelf should move the picture, not the furniture.
+ */
+.cc-bars { flex: none; padding: 6px 0 22px; }
+.cc-bars .cc-sec { margin: 0 0 8px; }
 .cc-pane {
   flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
   border-top: 1px solid var(--border); padding: 4px 10px 0 0;
@@ -8575,8 +8581,6 @@ tr:focus-within .rowacts {
 .cc-window .h.l { left: -5px; }
 .cc-window .h.r { right: -5px; }
 .cc-active { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); opacity: 0.55; }
-.cc-under { display: flex; align-items: baseline; gap: 10px; margin-top: 7px; font-size: 12px; color: var(--text-dim); }
-.cc-under b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 /* A domain occupies one band of the night in its own colour; hairlines are its topics. */
 .cc-band { position: absolute; top: 0; bottom: 0; background: var(--dc); opacity: 0.42; border-right: 2px solid var(--bg-elev); overflow: hidden; cursor: grab; }
 .cc-band.here { opacity: 1; }

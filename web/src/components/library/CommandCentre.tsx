@@ -238,7 +238,14 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
    * `empty` is the same list read flat, which is what makes the two agree by construction.
    */
   const wings = useMemo(
-    () => byWing(shelves.filter((s) => s.fellows.length === 0), scene.data?.rooms ?? [], scene.data?.departments ?? []),
+    () =>
+      byWing(
+        // `meta` holds the Fellows' own notebooks and the domain registry, not a subject
+        // anyone researches. Offering to staff it would be offering to research the shelving.
+        shelves.filter((s) => s.fellows.length === 0 && s.key !== 'meta'),
+        scene.data?.rooms ?? [],
+        scene.data?.departments ?? [],
+      ),
     [shelves, scene.data],
   )
   const empty = useMemo(() => wings.flatMap((w) => w.shelves), [wings])
@@ -484,6 +491,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
             facts={[
               `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
               `${hhmm(win.from)} to ${hhmm(win.to)} (active hours)`,
+              blocks.length === 0 ? 'nothing to run' : `${dur(blocks.reduce((n, b) => n + b.minutes, 0))} estimated`,
               `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
             ]}
           />
@@ -493,11 +501,11 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
               * not to a shelf. Kept out of the two panes below and above their scroll, because
               * the number the panes are read against must not scroll away from them.
               */}
-            <section className="cc-hours">
+            <section className="cc-bars">
               <h3 className="cc-sec">
                 Active hours
                 <span className="grow" />
-                <span className="c">shared by every Fellow, drag either end</span>
+                {saveWindow.isPending && <span className="c">saving…</span>}
               </h3>
               <Axis scale={NIGHT} />
               <div className="cc-track set">
@@ -509,14 +517,6 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                   <span className="h l" onMouseDown={dragEdge('from')} />
                   <span className="h r" onMouseDown={dragEdge('to')} />
                 </div>
-              </div>
-              <div className="cc-under">
-                <b>{hhmm(live.from)} to {hhmm(live.to)}</b>
-                <span>{dur(span)}</span>
-                <span className="cc-note dim">
-                  The runs go through it one at a time, so this is the length of one queue and not a budget per Fellow.
-                </span>
-                {saveWindow.isPending && <span className="mono-meta">saving…</span>}
               </div>
             </section>
             <Shelves
@@ -549,12 +549,8 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
             ]}
           />
           <div className="lib-window-body cc-body">
-            <section className="cc-block">
-              <h3 className="cc-sec">
-                The queue
-                <span className="grow" />
-                <span className="c">{hhmm(live.from)} to {hhmm(live.to)}, one run at a time, planning included</span>
-              </h3>
+            <section className="cc-bars">
+              <h3 className="cc-sec">The queue</h3>
               <Axis scale={live} />
               <div className="cc-track">
                 {hoursIn(live).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(live, m)}%` }} />)}
@@ -606,38 +602,6 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                   </span>
                 ))}
               </div>
-              <p className="cc-note dim">
-                The order the shift walks the shelves in, and the arrows change it. Inside a shelf its Fellows keep their
-                own order: priority first, then age. Moving a shelf does not move you off it.
-              </p>
-              {planOnly.length > 0 && (
-                <p className="cc-note">
-                  <b>
-                    {planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out
-                    {' '}({[...new Set(planOnly.map((b) => b.fellowName))].join(', ')}).
-                  </b>{' '}
-                  Planning is free of the daily quota and the run it produces is not, so a Fellow that works more tasks a
-                  night than its <i>runs a day</i> allows plans them all and runs the top ones. What is left over stands as
-                  a proposal for two nights: approve it to move it ahead of the others, or raise the quota in the Fellow
-                  {planOnly.length === 1 ? "'s" : 's’'} settings so every planned task also runs.
-                </p>
-              )}
-              {overflow.length > 0 ? (
-                <p className="cc-note warn">
-                  <b>{overflow.length} task{overflow.length === 1 ? ' does' : 's do'} not fit tonight.</b> The night is one
-                  queue for every Fellow, not one per shelf: {dur(blocks.reduce((n, b) => n + b.minutes, 0))} of work against
-                  a {dur(span)} window. Widen the hours, or leave it: what does not fit stands for tomorrow.
-                </p>
-              ) : blocks.some((b) => b.waits) ? (
-                <p className="cc-note">
-                  {blocks.filter((b) => b.waits).length} of tonight’s {blocks.length} tasks belong to a Fellow set to{' '}
-                  <b>ask me every time</b>, and those wait for you. The rest run unless you veto them during the day.
-                </p>
-              ) : (
-                <p className="cc-note">
-                  Everything here runs on its own. What a Fellow proposes tonight runs tomorrow night unless you veto it.
-                </p>
-              )}
             </section>
 
             <section className="cc-block">
@@ -708,6 +672,46 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
                   <span className="cc-right"><span className="mono-meta">n</span></span>
                 </div>
               </div>
+            </section>
+
+            {/*
+              * Below the list, not above it. These notes appear and disappear with the night's
+              * state, and every line of them used to push the Fellows down the page: walking
+              * from shelf to shelf moved the one thing you walked there to read.
+              */}
+            <section className="cc-block">
+              <p className="cc-note dim">
+                The order the shift walks the shelves in, and the arrows change it. Inside a shelf its Fellows keep their
+                own order: priority first, then age. Moving a shelf does not move you off it.
+              </p>
+              {planOnly.length > 0 && (
+                <p className="cc-note">
+                  <b>
+                    {planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out
+                    {' '}({[...new Set(planOnly.map((b) => b.fellowName))].join(', ')}).
+                  </b>{' '}
+                  Planning is free of the daily quota and the run it produces is not, so a Fellow that works more tasks a
+                  night than its <i>runs a day</i> allows plans them all and runs the top ones. What is left over stands as
+                  a proposal for two nights: approve it to move it ahead of the others, or raise the quota in the Fellow
+                  {planOnly.length === 1 ? "'s" : 's’'} settings so every planned task also runs.
+                </p>
+              )}
+              {overflow.length > 0 ? (
+                <p className="cc-note warn">
+                  <b>{overflow.length} task{overflow.length === 1 ? ' does' : 's do'} not fit tonight.</b> The night is one
+                  queue for every Fellow, not one per shelf: {dur(blocks.reduce((n, b) => n + b.minutes, 0))} of work against
+                  a {dur(span)} window. Widen the hours, or leave it: what does not fit stands for tomorrow.
+                </p>
+              ) : blocks.some((b) => b.waits) ? (
+                <p className="cc-note">
+                  {blocks.filter((b) => b.waits).length} of tonight’s {blocks.length} tasks belong to a Fellow set to{' '}
+                  <b>ask me every time</b>, and those wait for you. The rest run unless you veto them during the day.
+                </p>
+              ) : (
+                <p className="cc-note">
+                  Everything here runs on its own. What a Fellow proposes tonight runs tomorrow night unless you veto it.
+                </p>
+              )}
             </section>
           </div>
         </>
