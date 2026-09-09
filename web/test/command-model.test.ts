@@ -14,6 +14,7 @@ import {
   fellowMinutes,
   minutesFor,
   nightBlock,
+  nightRoom,
   scheduleFrom,
   shelfOrder,
   shelvesFrom,
@@ -225,6 +226,45 @@ describe('nightBlock', () => {
     expect(nightBlock({})).toBeNull()
     // Not measured is not the same as blocked: saying "held" without an answer is a guess.
     expect(nightBlock(undefined)).toBeNull()
+  })
+})
+
+describe('nightRoom', () => {
+  const plan = (five: number, week: number, over?: { active: boolean; pct: number }): Parameters<typeof nightRoom>[0] => ({
+    available: true,
+    gate: null,
+    windows: [
+      { window: 'five_hour', utilization: five, resetsAt: '2026-09-09T22:30:00.000Z' },
+      { window: 'seven_day', utilization: week, resetsAt: '2026-09-10T12:00:00.000Z' },
+    ],
+    settings: { reserve5hPct: 60, reserveWeekPct: 80 },
+    ...(over ? { override: over } : {}),
+  })
+
+  it('leads with the bound that has the least room, not the largest percentage', () => {
+    /*
+     * 62 % of an 80 % reserve has 18 points left; 50 % of a 60 % one has 10. The week is the
+     * bigger number and the five-hour window is the one a night would meet first.
+     */
+    const room = nightRoom(plan(50, 62))
+    expect(room?.tight).toMatchObject({ window: 'five-hour', pct: 50, reserve: 60 })
+    expect(room?.other).toMatchObject({ window: 'week', pct: 62, reserve: 80 })
+  })
+
+  it('takes a live release as the five-hour reserve', () => {
+    // Released to 90 %, the five-hour window has 40 points of room and the week decides.
+    expect(nightRoom(plan(50, 62, { active: true, pct: 90 }))?.tight.window).toBe('week')
+  })
+
+  it('says nothing while the gate is shut, because the other banner says that', () => {
+    expect(nightRoom({ ...plan(50, 83)!, gate: { window: 'seven_day' } })).toBeNull()
+  })
+
+  it('says nothing without a measurement to say it from', () => {
+    expect(nightRoom(undefined)).toBeNull()
+    expect(nightRoom({ available: false, windows: [], settings: { reserve5hPct: 60, reserveWeekPct: 80 } })).toBeNull()
+    // A sample that carries only one of the two windows cannot name the tighter of them.
+    expect(nightRoom({ available: true, gate: null, windows: [{ window: 'seven_day', utilization: 10, resetsAt: null }], settings: { reserve5hPct: 60, reserveWeekPct: 80 } })).toBeNull()
   })
 })
 

@@ -261,6 +261,57 @@ export function nightBlock(
 }
 
 /**
+ * How much room the night has left before the gate shuts, or null.
+ *
+ * The mirror of `nightBlock`, and worth drawing for the same reason: "nothing runs tonight"
+ * is only readable against a state where something does. What a reader cannot see from the
+ * schedule is how close the night is to the bound, and which of the two bounds it will meet
+ * first - so the tighter one leads, by margin rather than by percentage: 18 % of a 60 %
+ * reserve has less room left than 62 % of an 80 % one.
+ *
+ * Null when the gate is shut (that is `nightBlock`'s to say) and null when there is nothing
+ * measured: promising a night that runs, without a measurement behind it, is a guess.
+ */
+export interface Bound {
+  readonly window: 'five-hour' | 'week'
+  readonly pct: number
+  readonly reserve: number
+  readonly resetsAt: string | null
+}
+
+export interface NightRoom {
+  /** The bound with the least room left: the one a night would meet first. */
+  readonly tight: Bound
+  readonly other: Bound
+}
+
+export function nightRoom(
+  plan:
+    | {
+        readonly available: boolean
+        readonly gate?: { readonly window: string } | null
+        readonly windows: ReadonlyArray<{ readonly window: string; readonly utilization: number; readonly resetsAt: string | null }>
+        readonly override?: { readonly active: boolean; readonly pct: number } | null
+        readonly settings?: { readonly reserve5hPct: number; readonly reserveWeekPct: number }
+      }
+    | undefined,
+): NightRoom | null {
+  if (plan === undefined || !plan.available || plan.settings === undefined) return null
+  if (plan.gate !== undefined && plan.gate !== null) return null
+  const five = plan.windows.find((w) => w.window === 'five_hour')
+  const week = plan.windows.find((w) => w.window === 'seven_day')
+  if (five === undefined || week === undefined) return null
+  // A live release lifts the five-hour reserve to its own percentage, and only that one.
+  const lift = plan.override?.active === true ? plan.override.pct : null
+  const bounds: Bound[] = [
+    { window: 'five-hour', pct: five.utilization, reserve: lift ?? plan.settings.reserve5hPct, resetsAt: five.resetsAt },
+    { window: 'week', pct: week.utilization, reserve: plan.settings.reserveWeekPct, resetsAt: week.resetsAt },
+  ]
+  const [tight, other] = [...bounds].sort((a, b) => a.reserve - a.pct - (b.reserve - b.pct)) as [Bound, Bound]
+  return { tight, other }
+}
+
+/**
  * The marks on a time scale, every `step` minutes, ends excluded.
  *
  * The ends are the frame the bar is drawn in; a mark there sits on the border and a label

@@ -42,6 +42,7 @@ import {
   isSystemPage,
   minutesFor,
   nightBlock,
+  nightRoom,
   scheduleFrom,
   taskCount,
   shelfOrder,
@@ -50,6 +51,7 @@ import {
   ticksIn,
   windowMinutes,
   type Block,
+  type Bound,
   type Shelf,
 } from '../../lib/command/model.ts'
 import { domainColor } from '../../lib/domains.ts'
@@ -180,6 +182,11 @@ const autonomyOf = (k: string): { label: string; short: string; long: string } =
 
 /** One shared empty list: a fresh `[]` each render would re-sort the shelves on every render. */
 const NO_ORDER: readonly string[] = []
+
+/** What a bound is called: the two the gate checks, in the words the gate uses. */
+const boundName = (b: Bound): string => (b.window === 'week' ? 'the week' : 'the 5-hour window')
+/** A reset instant, short enough to sit in a one-line banner. */
+const when = (iso: string): string => new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
 
 /** Below this overlap the service calls a proposal drift and will not run it unasked. */
 const DRIFT_THRESHOLD = 0.2
@@ -333,6 +340,7 @@ export function CommandCentre({
    * the service has already decided not to do.
    */
   const blocked = nightBlock(usage.data)
+  const room = nightRoom(usage.data)
 
   const deciders = useMemo(
     // Undecided, not standing: approving one is what takes it off this list.
@@ -595,16 +603,24 @@ export function CommandCentre({
                   <span className="h r" onMouseDown={dragEdge('to')} />
                 </div>
               </div>
-              {blocked !== null && (
-                <p className="cc-note warn">
-                  <b>Nothing runs tonight: {blocked.reason}.</b> Every Fellow run meets that gate first, planning
-                  included, so a night stops at it rather than running a smaller version of itself.{' '}
+              {/* One line each. The rule behind them is in the note under the queue; here the
+                  reader wants the number and, when it is shut, when it opens again. */}
+              {blocked !== null ? (
+                <p className="cc-note warn one">
+                  <b>Nothing runs tonight: {blocked.reason}.</b>{' '}
                   {blocked.liftable
-                    ? 'Release the rest of the window under System to lift it, or wait for the reset'
-                    : 'Only time clears this one: the week is the bound a release does not lift'}
-                  {blocked.resetsAt === null ? '.' : `, ${new Date(blocked.resetsAt).toLocaleString()}.`}
+                    ? `Release the window under System${blocked.resetsAt === null ? '' : `, or wait until ${when(blocked.resetsAt)}`}.`
+                    : blocked.resetsAt === null
+                      ? 'Only time clears this one; a release does not lift the week.'
+                      : `Only time clears this one: ${when(blocked.resetsAt)}.`}
                 </p>
-              )}
+              ) : room !== null ? (
+                <p className="cc-note ok one">
+                  <b>Tonight runs.</b> {room.tight.reserve - room.tight.pct} points of room on {boundName(room.tight)}{' '}
+                  ({room.tight.pct}% of {room.tight.reserve}%), {room.other.reserve - room.other.pct} on{' '}
+                  {boundName(room.other)} ({room.other.pct}% of {room.other.reserve}%).
+                </p>
+              ) : null}
             </section>
             <Shelves
               staffed={staffed}
