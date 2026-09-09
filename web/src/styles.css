@@ -7183,6 +7183,8 @@ tr:focus-within .rowacts {
 .lib-spawn label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text-dim); }
 /* A label that carries a footnote: the marker sits ON the baseline of the word, not under it. */
 .sp-lbl { display: inline-flex; align-items: center; gap: 5px; }
+/* A field that may be left empty says so, rather than the required ones each carrying a mark. */
+.sp-opt { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-faint); font-size: 10.5px; }
 /* The standing work on the card: what each task is, and where it stands tonight. */
 .fc-tasks {
   list-style: none;
@@ -8521,6 +8523,33 @@ tr:focus-within .rowacts {
   border-radius: 999px; min-width: 17px; height: 17px; display: grid; place-items: center; padding: 0 4px;
 }
 .cc-body { padding: 20px 18px 26px; }
+/*
+ * The window's own spacer. `.grow` was written into fifteen rows here and never had a rule,
+ * so every trailing control sat against the text it was meant to be pushed away from.
+ */
+.cc .grow { flex: 1 1 auto; }
+/*
+ * The overview is three stacked boxes: the hours, then two panes of equal height that scroll
+ * on their own. The hours are the number the panes are read against, so they must not scroll
+ * away from them.
+ */
+.cc-shelves { padding: 16px 18px 18px; gap: 14px; }
+.cc-hours { flex: none; }
+.cc-hours .cc-sec { margin-top: 0; }
+.cc-hours .cc-under { flex-wrap: wrap; }
+.cc-hours .cc-under .cc-note { margin: 0; }
+.cc-pane {
+  flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
+  border-top: 1px solid var(--border); padding: 4px 10px 0 0;
+}
+.cc-pane .cc-sec { margin-top: 8px; position: sticky; top: 0; background: var(--bg-elev); z-index: 1; padding-bottom: 6px; }
+/* The wing a shelf stands in, as a heading inside the list rather than a column beside it. */
+.cc-wing + .cc-wing { margin-top: 10px; }
+.cc-wing-h {
+  margin: 0 0 5px; font-family: ui-monospace, monospace; font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint);
+}
+.cc-wing { display: flex; flex-direction: column; gap: 6px; }
 /* The dossier does not scroll as a whole: its head stays put and the reading area scrolls. */
 .cc-fixed { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
@@ -8609,6 +8638,12 @@ tr:focus-within .rowacts {
 .cc-row.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .cc-row.new { border-style: dashed; }
 .cc-row.new b { color: var(--text-dim); font-weight: 600; }
+/* One line: at twenty-one domains the second line was most of the scrolling. The facts sit
+   beside the name and give way first when the row runs out of room. */
+.cc-row.one { display: flex; gap: 9px; padding: 8px 11px; }
+.cc-row.one .cc-key { font-size: 13px; white-space: nowrap; }
+.cc-row.one .cc-t { min-width: 0; flex: 0 1 auto; }
+.cc-row.one .btn.sm { flex: none; }
 .cc-id { min-width: 0; }
 .cc-idline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .cc-t { font-size: 12px; color: var(--text-dim); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -8740,13 +8775,22 @@ tr:focus-within .rowacts {
 .cc-shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
 @media (max-width: 1100px) { .cc-shapes { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .cc-shapes { grid-template-columns: 1fr; } }
-.cc-shape { position: relative; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 12px 36px; background: var(--bg-elev); cursor: pointer; }
+/* A button, so it needs telling: left-aligned like the prose it holds, and a column so the
+   specs of all four cards sit on one line however long the description above them ran. */
+.cc-shape {
+  position: relative; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 13px 13px 15px; background: var(--bg-elev); cursor: pointer;
+  display: flex; flex-direction: column; align-items: stretch; text-align: left; font: inherit; color: inherit;
+}
+.cc-shape:hover { border-color: var(--accent); }
 .cc-shape.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .cc-shape b { display: flex; align-items: center; gap: 6px; font-size: 13.5px; margin-bottom: 4px; }
 .cc-shape .want { font-size: 12.5px; color: var(--text); margin: 0 0 6px; font-style: italic; }
-.cc-shape .what { font-size: 12px; color: var(--text-dim); margin: 0 0 9px; }
-.cc-shape .specs { display: flex; flex-direction: column; gap: 3px; }
+.cc-shape .what { font-size: 12px; color: var(--text-dim); margin: 0 0 12px; line-height: 1.45; }
+.cc-shape .specs { display: flex; flex-direction: column; gap: 3px; margin-top: auto; }
 .cc-shape .specs span { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); }
+/* What the shape holds is the line that decides, so it is set in the reading face, not mono. */
+.cc-shape .specs .holds { font-family: inherit; font-size: 11.5px; color: var(--text-dim); margin-bottom: 3px; }
 .cc-gear { position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text-dim); display: grid; place-items: center; cursor: pointer; font-size: 13px; }
 .cc-shape.sel .cc-gear { border-color: var(--accent); color: var(--accent); }
 .cc-gear.open { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }

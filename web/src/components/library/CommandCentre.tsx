@@ -23,10 +23,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
-import type { AgentPatchBody, FellowCard, FellowRecord, FellowSummary, ProposalRecord, RecapFellow, SpawnBody, TaskKind } from '../../api/types.ts'
+import type {
+  AgentPatchBody,
+  FellowCard,
+  FellowRecord,
+  FellowSummary,
+  ProposalRecord,
+  RecapFellow,
+  PlanStatus,
+  SceneDepartment,
+  SceneRoom,
+  SpawnBody,
+  TaskKind,
+} from '../../api/types.ts'
 import {
   carriedTonight,
   fellowMinutes,
+  minutesFor,
   scheduleFrom,
   taskCount,
   shelfOrder,
@@ -41,16 +54,31 @@ import { navigate, pageRoute } from '../../lib/router.ts'
 import { SpawnForm } from './SpawnForm.tsx'
 import { queryState } from '../QueryState.tsx'
 import { usd } from '../../lib/format.ts'
+import { weeklyProjection } from '../../lib/plan.ts'
 
 export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
 type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
 
-/** The night, drawn 18:00 to 06:00: one scale for the hours and for the work inside them. */
-const SCALE_FROM = 18 * 60
-const SCALE_TO = 30 * 60
-const SCALE_SPAN = SCALE_TO - SCALE_FROM
-const pctAt = (m: number): number => ((m - SCALE_FROM) / SCALE_SPAN) * 100
-const SCALE_HOURS = Array.from({ length: SCALE_SPAN / 60 + 1 }, (_, i) => SCALE_FROM + i * 60)
+/**
+ * Two scales, because the two bars answer different questions.
+ *
+ * The setter spans a whole night, 18:00 to 06:00, so there is somewhere to drag the window
+ * TO. The queue on a shelf spans the active hours themselves: the work is minutes long and a
+ * twelve-hour scale draws it as a hairline, which is the wrong picture of a night that is
+ * mostly empty in a different way than "too small to see".
+ */
+interface Scale {
+  readonly from: number
+  readonly to: number
+}
+const NIGHT: Scale = { from: 18 * 60, to: 30 * 60 }
+const pctIn = (s: Scale, m: number): number => ((m - s.from) / (s.to - s.from)) * 100
+/** The full hours strictly inside a scale; the ends are the frame and carry no mark. */
+const hoursIn = (s: Scale): number[] => {
+  const out: number[] = []
+  for (let m = Math.ceil(s.from / 60) * 60; m < s.to; m += 60) if (m > s.from) out.push(m)
+  return out
+}
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 const hhmm = (m: number): string => `${pad2(Math.floor((m % 1440) / 60))}:${pad2(Math.round(m) % 60)}`
 const dur = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} h ${pad2(Math.round(m % 60))}` : `${Math.round(m)} min`)
@@ -67,38 +95,58 @@ const ART_TEXT: Record<TaskKind, string> = {
  * The four shapes a Fellow is spawned as. A shape is a starting point AND a promise: the
  * service holds a Fellow to its `art`, so an observer cannot later be given a deepen task
  * (`artRefusal`). `custom` is the one that promises nothing, which is why it exists.
+ *
+ * Each carries the settings it is a shape FOR, not only its art: a researcher reads sources
+ * and writes a synthesis, which is what pays for opus and a deep step, and it asks first
+ * because that is the expensive one. The form shows every one of them and every one can be
+ * changed, so these are a starting point and never a hidden decision.
  */
 const SHAPES: ReadonlyArray<{
   readonly art: FellowRecord['art']
   readonly name: string
-  readonly line: string
-  readonly body: string
+  /** What the user wants, in their words. It is what they pick by. */
+  readonly want: string
+  readonly what: string
+  readonly holds: string
+  readonly defaults: Partial<SpawnBody> & { model: string; step: string; autonomy: string }
 }> = [
   {
     art: 'watch',
-    name: 'Observer',
-    line: 'up to three subjects, watched',
-    body: 'Sweeps the web for what is new in each subject and files what it finds. Never finished, so it never falls quiet.',
+    name: 'The observer',
+    want: 'Keep me current.',
+    what: 'Searches the web for what is new in a subject and writes it into the vault. A watch task never finishes: it comes round for as long as there is something to find.',
+    holds: 'up to 3 tasks, all of them watch',
+    defaults: { model: 'sonnet-5', step: 'standard', autonomy: 'veto' },
   },
   {
     art: 'explore',
-    name: 'Researcher',
-    line: 'up to three questions, answered',
-    body: 'Pursues one question at a time until the vault can answer it, then puts that question to rest and takes the next.',
+    name: 'The researcher',
+    want: 'Answer my questions.',
+    what: 'Searches the web to answer one question, reads the sources it finds and writes the synthesis into the vault. The question rests once the planner judges the vault has it covered; when the last one rests, the Fellow goes quiet and waits for a new question from you.',
+    holds: 'up to 3 tasks, all of them explore',
+    defaults: { model: 'opus-5', step: 'deep', autonomy: 'manual' },
   },
   {
     art: 'deepen',
-    name: 'Librarian',
-    line: 'up to three themes, built out',
-    body: 'Reads no further than the shelf: it extends the pages the vault already has on a theme, at most four a night.',
+    name: 'The librarian',
+    want: 'Expand what we already have.',
+    what: 'Ranks the concept and entity pages of this shelf against a theme, backlinks per kilobyte, and extends the four thinnest with what it finds on the web. It writes no new pages.',
+    holds: 'up to 3 tasks, all of them deepen',
+    defaults: { model: 'sonnet-5', step: 'standard', autonomy: 'veto' },
   },
   {
     art: 'custom',
     name: 'Custom',
-    line: 'any mix of the three',
-    body: 'One Fellow that watches, asks and extends. Nothing holds it to a single art, so nothing warns you when it drifts across them.',
+    want: 'Something of my own.',
+    what: 'Any mix of the three arts, up to three tasks, and every setting yours from the start. The shape with no opinion about what a Fellow should be.',
+    holds: 'up to 3 tasks, any of the three arts',
+    defaults: { model: 'sonnet-5', step: 'standard', autonomy: 'veto' },
   },
 ]
+
+/** What one run of this shape costs, list price, from the same table the spawn form uses. */
+const STEP_USD: Record<string, number> = { small: 2, standard: 6, deep: 6 }
+const MODEL_FACTOR: Record<string, number> = { 'sonnet-5': 1, 'opus-5': 2.5, 'fable-5-1': 5 }
 
 const shapeOf = (art: FellowRecord['art']): (typeof SHAPES)[number] => SHAPES.find((x) => x.art === art) ?? SHAPES[3]!
 
@@ -161,6 +209,10 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
   const registry = useQuery({ queryKey: ['domains'], queryFn: api.domains, staleTime: 300_000 })
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, staleTime: 60_000 })
   const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, staleTime: 60_000 })
+  // Only for the wing an unstaffed shelf stands in; the room strip behind the window has it too.
+  const scene = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 60_000 })
+  // Only to price a shape in the plan's own unit; the spawn form shows the same figure.
+  const usage = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, staleTime: 300_000 })
   const card = useQuery({
     queryKey: ['agent-card', fellowId],
     queryFn: () => api.agentCard(fellowId!),
@@ -180,15 +232,16 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
   )
   const order = orderDraft ?? agents.data?.shelfOrder ?? NO_ORDER
   const staffed = useMemo(() => shelfOrder(shelves, order), [shelves, order])
-  // Sorted here rather than in `Shelves`: the keyboard walks these rows by index, and two
-  // different orders for one list is how Enter opens a different shelf than the one lit up.
-  const empty = useMemo(
-    () =>
-      shelves
-        .filter((s) => s.fellows.length === 0)
-        .sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2)),
-    [shelves],
+  /*
+   * Grouped here rather than in `Shelves`: the keyboard walks these rows by index, and two
+   * different orders for one list is how Enter opens a different shelf than the one lit up.
+   * `empty` is the same list read flat, which is what makes the two agree by construction.
+   */
+  const wings = useMemo(
+    () => byWing(shelves.filter((s) => s.fellows.length === 0), scene.data?.rooms ?? [], scene.data?.departments ?? []),
+    [shelves, scene.data],
   )
+  const empty = useMemo(() => wings.flatMap((w) => w.shelves), [wings])
   const roster = useMemo(() => staffed.flatMap((s) => s.fellows.map((f) => ({ shelf: s, fellow: f }))), [staffed])
   const shelf = staffed[Math.min(stop, Math.max(0, staffed.length - 1))]
 
@@ -388,11 +441,12 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
     const move = (ev: MouseEvent): void => {
       const rect = track?.getBoundingClientRect()
       if (!rect) return
-      const m = SCALE_FROM + Math.round((((ev.clientX - rect.left) / rect.width) * SCALE_SPAN) / 15) * 15
+      const span = NIGHT.to - NIGHT.from
+      const m = NIGHT.from + Math.round((((ev.clientX - rect.left) / rect.width) * span) / 15) * 15
       next =
         edge === 'from'
-          ? { from: Math.max(SCALE_FROM, Math.min(m, next.to - 60)), to: next.to }
-          : { from: next.from, to: Math.min(SCALE_TO, Math.max(m, next.from + 60)) }
+          ? { from: Math.max(NIGHT.from, Math.min(m, next.to - 60)), to: next.to }
+          : { from: next.from, to: Math.min(NIGHT.to, Math.max(m, next.from + 60)) }
       setDrag(next)
     }
     const up = (): void => {
@@ -427,21 +481,55 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
               `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
             ]}
           />
-          <Shelves
-            staffed={staffed}
-            empty={empty}
-            row={row}
-            blocks={blocks}
-            onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
-            onSpawn={openSpawn}
-            onDecisions={(key) => {
-              const first = deciders.findIndex((x) => x.shelf.key === key)
-              if (first < 0) return
-              setDecIndex(first)
-              setOptIndex(0)
-              setView('decisions')
-            }}
-          />
+          <div className="cc-fixed cc-shelves">
+            {/*
+              * The hours are one setting for every Fellow, so they belong to the overview and
+              * not to a shelf. Kept out of the two panes below and above their scroll, because
+              * the number the panes are read against must not scroll away from them.
+              */}
+            <section className="cc-hours">
+              <h3 className="cc-sec">
+                Active hours
+                <span className="grow" />
+                <span className="c">shared by every Fellow, drag either end</span>
+              </h3>
+              <Axis scale={NIGHT} />
+              <div className="cc-track set">
+                {hoursIn(NIGHT).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(NIGHT, m)}%` }} />)}
+                <div
+                  className="cc-window"
+                  style={{ left: `${pctIn(NIGHT, live.from)}%`, width: `${(span / (NIGHT.to - NIGHT.from)) * 100}%` }}
+                >
+                  <span className="h l" onMouseDown={dragEdge('from')} />
+                  <span className="h r" onMouseDown={dragEdge('to')} />
+                </div>
+              </div>
+              <div className="cc-under">
+                <b>{hhmm(live.from)} to {hhmm(live.to)}</b>
+                <span>{dur(span)}</span>
+                <span className="cc-note dim">
+                  The runs go through it one at a time, so this is the length of one queue and not a budget per Fellow.
+                </span>
+                {saveWindow.isPending && <span className="mono-meta">saving…</span>}
+              </div>
+            </section>
+            <Shelves
+              staffed={staffed}
+              empty={empty}
+              wings={wings}
+              row={row}
+              blocks={blocks}
+              onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
+              onSpawn={openSpawn}
+              onDecisions={(key) => {
+                const first = deciders.findIndex((x) => x.shelf.key === key)
+                if (first < 0) return
+                setDecIndex(first)
+                setOptIndex(0)
+                setView('decisions')
+              }}
+            />
+          </div>
         </>
       )}
 
@@ -456,41 +544,19 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
           />
           <div className="lib-window-body cc-body">
             <section className="cc-block">
-              <h3 className="cc-sec">Active Hours</h3>
-              <p className="cc-note">
-                The stretch of the night the shift may work in. Every Fellow shares it, and the runs go through it one at
-                a time, so this is not a budget per Fellow but the length of one queue. Drag either end.
-              </p>
-              <Axis />
-              <div className="cc-track set">
-                {SCALE_HOURS.slice(1, -1).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />)}
-                <div className="cc-window" style={{ left: `${pctAt(live.from)}%`, width: `${(span / SCALE_SPAN) * 100}%` }}>
-                  <span className="h l" onMouseDown={dragEdge('from')} />
-                  <span className="h r" onMouseDown={dragEdge('to')} />
-                </div>
-              </div>
-              <div className="cc-under">
-                <b>{hhmm(live.from)} to {hhmm(live.to)}</b>
-                <span>{dur(span)}</span>
-                {saveWindow.isPending && <span className="mono-meta">saving…</span>}
-              </div>
-            </section>
-
-            <section className="cc-block">
               <h3 className="cc-sec">
                 The queue
                 <span className="grow" />
-                <span className="c">one run at a time, planning included</span>
+                <span className="c">{hhmm(live.from)} to {hhmm(live.to)}, one run at a time, planning included</span>
               </h3>
-              <Axis />
+              <Axis scale={live} />
               <div className="cc-track">
-                {SCALE_HOURS.slice(1, -1).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />)}
-                <div className="cc-active" style={{ left: `${pctAt(live.from)}%`, width: `${(span / SCALE_SPAN) * 100}%` }} />
+                {hoursIn(live).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(live, m)}%` }} />)}
                 {bandsOf(blocks).map((g) => (
                   <div
                     key={`${g.shelf}-${g.from}`}
                     className={`cc-band ${g.shelf === shelf.key ? 'here' : ''}`}
-                    style={{ left: `${pctAt(g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / SCALE_SPAN) * 100)}%`, ['--dc' as string]: domainColor(g.shelf) }}
+                    style={{ left: `${pctIn(live, g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / (live.to - live.from)) * 100)}%`, ['--dc' as string]: domainColor(g.shelf) }}
                     title={`${g.shelf}: ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
                   >
                     <span className="cc-parts">
@@ -540,7 +606,10 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
               </p>
               {planOnly.length > 0 && (
                 <p className="cc-note">
-                  <b>{planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out.</b>{' '}
+                  <b>
+                    {planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out
+                    {' '}({[...new Set(planOnly.map((b) => b.fellowName))].join(', ')}).
+                  </b>{' '}
                   Planning is free of the daily quota and the run it produces is not, so a Fellow that works more tasks a
                   night than its <i>runs a day</i> allows plans them all and runs the top ones. What is left over stands as
                   a proposal for two nights: approve it to move it ahead of the others, or raise the quota in the Fellow
@@ -653,7 +722,6 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
           durations={durations}
           setPane={setPane}
           onBack={back}
-          onStep={stepFellow}
           onAct={(what) => act.mutate({ id: fellow.agent.id, what })}
           onPatch={(body) => patch.mutate({ id: fellow.agent.id, body })}
           patching={patch.isPending}
@@ -676,7 +744,15 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
         />
       )}
 
-      {view === 'spawn' && <Spawn shelf={spawnShelf ?? shelf?.key ?? ''} onBack={back} onDone={openFellow} />}
+      {view === 'spawn' && (
+        <Spawn
+          shelf={spawnShelf ?? shelf?.key ?? ''}
+          durations={durations}
+          plan={usage.data}
+          onBack={back}
+          onDone={openFellow}
+        />
+      )}
     </div>
   )
 }
@@ -694,13 +770,12 @@ function bandsOf(blocks: readonly Block[]): Array<{ shelf: string; from: number;
   return out
 }
 
-/** The shared axis: one label at every full hour, the same shape above both bars. */
-function Axis(): React.ReactElement {
+/** The shared axis: one label at every full hour of whatever stretch is being drawn. */
+function Axis({ scale }: { scale: Scale }): React.ReactElement {
   return (
     <div className="cc-axis">
-      {/* The ends are the frame itself; a label there hangs off the edge and reads as loose. */}
-      {SCALE_HOURS.slice(1, -1).map((m) => (
-        <span key={m} className="cc-hour" style={{ left: `${pctAt(m)}%` }}>{hhmm(m)}</span>
+      {hoursIn(scale).map((m) => (
+        <span key={m} className="cc-hour" style={{ left: `${pctIn(scale, m)}%` }}>{hhmm(m)}</span>
       ))}
     </div>
   )
@@ -724,9 +799,16 @@ function NightLine({ facts }: { facts: readonly string[] }): React.ReactElement 
   )
 }
 
+/**
+ * The two panes of the overview: the shelves that have a Fellow, and the shelves that do not.
+ *
+ * Each scrolls on its own so the active hours above them stay put, and a row is one line: at
+ * twenty-one domains the second line was most of the scrolling.
+ */
 function Shelves({
   staffed,
   empty,
+  wings,
   row,
   blocks,
   onOpen,
@@ -735,19 +817,18 @@ function Shelves({
 }: {
   staffed: readonly Shelf[]
   empty: readonly Shelf[]
+  wings: ReadonlyArray<{ name: string; shelves: Shelf[] }>
   row: number
   blocks: readonly Block[]
   onOpen: (index: number) => void
   onSpawn: (key: string) => void
   onDecisions: (key: string) => void
 }): React.ReactElement {
-  // Already sorted by what is waiting there; see the parent's `empty`.
-  const top = empty[0]
   return (
-    <div className="lib-window-body cc-body">
-      <section className="cc-block">
+    <>
+      <section className="cc-pane">
         <h3 className="cc-sec">
-          Staffed <span className="c">{staffed.length}</span>
+          Staffed domains <span className="c">{staffed.length}</span>
           <span className="grow" />
           <span className="c">the order the night works them in</span>
         </h3>
@@ -759,24 +840,19 @@ function Shelves({
               const nightly = blocks.filter((b) => b.shelf === d.key).reduce((n, b) => n + b.minutes, 0)
               const open = d.fellows.reduce((n, f) => n + f.pendingProposals, 0)
               return (
-                <div key={d.key} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => onOpen(i)}>
-                  <span className="cc-id">
-                    <span className="cc-idline">
-                      <span className="chip-dot" style={{ background: domainColor(d.key) }} aria-hidden />
-                      <b>{d.key}</b>
-                    </span>
-                    <span className="cc-t">
-                      {d.fellows.map((f) => f.agent.name).join(', ')} · {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'}
-                    </span>
+                <div key={d.key} className={`cc-row one ${i === row ? 'sel' : ''}`} onClick={() => onOpen(i)}>
+                  <span className="chip-dot" style={{ background: domainColor(d.key) }} aria-hidden />
+                  <b className="cc-key">{d.key}</b>
+                  <span className="cc-t">
+                    {d.fellows.map((f) => f.agent.name).join(', ')} · {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'}
                   </span>
-                  <span className="cc-right">
-                    {open > 0 && (
-                      <button className="sev due cc-pill" onClick={(e) => { e.stopPropagation(); onDecisions(d.key) }}>
-                        {open} decision{open === 1 ? '' : 's'}
-                      </button>
-                    )}
-                    <span className="mono-meta">{nightly > 0 ? `${nightly} min tonight` : 'nothing tonight'}</span>
-                  </span>
+                  <span className="grow" />
+                  {open > 0 && (
+                    <button className="sev due cc-pill" onClick={(e) => { e.stopPropagation(); onDecisions(d.key) }}>
+                      {open} decision{open === 1 ? '' : 's'}
+                    </button>
+                  )}
+                  <span className="mono-meta">{nightly > 0 ? `${nightly} min tonight` : 'nothing tonight'}</span>
                 </div>
               )
             })}
@@ -784,34 +860,32 @@ function Shelves({
         )}
       </section>
 
-      <section className="cc-block">
+      <section className="cc-pane">
         <h3 className="cc-sec">
-          Nobody on them <span className="c">{empty.length}</span>
+          Unstaffed domains <span className="c">{empty.length}</span>
           <span className="grow" />
-          <span className="c">sorted by what is waiting there, not by size</span>
+          <span className="c">by wing, and inside one by what is waiting there</span>
         </h3>
-        <p className="cc-note">
-          A shelf earns a Fellow when it holds questions nobody is answering.
-          {top && top.questions + top.gaps > 0 && (
-            <> <b>{top.key}</b> has the most: {top.questions} open question{top.questions === 1 ? '' : 's'} and {top.gaps} page{top.gaps === 1 ? '' : 's'} linked but never written.</>
-          )}
-        </p>
         <div className="cc-rows">
-          {empty.map((d, i) => (
-            <div key={d.key} className={`cc-row ${row === staffed.length + i ? 'sel' : ''}`} onClick={() => onSpawn(d.key)}>
-              <span className="cc-id">
-                <span className="cc-idline">
+          {wings.map((w) => (
+            <div key={w.name} className="cc-wing">
+              <h4 className="cc-wing-h">{w.name}</h4>
+              {w.shelves.map((d) => (
+                <div
+                  key={d.key}
+                  className={`cc-row one ${row === staffed.length + empty.indexOf(d) ? 'sel' : ''}`}
+                  onClick={() => onSpawn(d.key)}
+                >
                   <span className="chip-dot" style={{ background: domainColor(d.key), opacity: 0.45 }} aria-hidden />
-                  <b>{d.key}</b>
-                </span>
-                <span className="cc-t">
-                  {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'} · {d.gaps} linked but never written
-                </span>
-              </span>
-              <span className="cc-right">
-                <span className="cc-bar" title="how much is waiting here"><i style={{ width: `${Math.min(100, (d.questions + d.gaps * 2) * 6)}%` }} /></span>
-                <button className="btn sm" onClick={(e) => { e.stopPropagation(); onSpawn(d.key) }}>Staff it ›</button>
-              </span>
+                  <b className="cc-key">{d.key}</b>
+                  <span className="cc-t">
+                    {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'} · {d.gaps} linked but never written
+                  </span>
+                  <span className="grow" />
+                  <span className="cc-bar" title="how much is waiting here"><i style={{ width: `${Math.min(100, (d.questions + d.gaps * 2) * 6)}%` }} /></span>
+                  <button className="btn sm" onClick={(e) => { e.stopPropagation(); onSpawn(d.key) }}>Spawn fellow ›</button>
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -820,8 +894,43 @@ function Shelves({
           night.
         </p>
       </section>
-    </div>
+    </>
   )
+}
+
+/**
+ * The unstaffed shelves grouped by the wing they stand in, wings in the order the room strip
+ * shows them, and inside a wing the shelf with the most open questions first.
+ *
+ * The wing is where a shelf physically is, so it is the grouping a reader already has a map
+ * for. A domain nobody has placed goes last under its own heading rather than into the first
+ * wing, which would be a claim about where it stands.
+ */
+function byWing(
+  empty: readonly Shelf[],
+  rooms: readonly SceneRoom[],
+  departments: readonly SceneDepartment[],
+): Array<{ name: string; shelves: Shelf[] }> {
+  const roomOf = new Map(departments.map((d) => [d.domain, d.room]))
+  const order = [...rooms].sort((a, b) => a.position - b.position)
+  const name = new Map(order.map((r) => [r.id, r.name]))
+  const groups = new Map<string, Shelf[]>()
+  for (const r of order) groups.set(r.id, [])
+  const UNPLACED = '\u0000unplaced'
+  for (const shelf of empty) {
+    const id = roomOf.get(shelf.key) ?? null
+    const key = id !== null && groups.has(id) ? id : UNPLACED
+    groups.set(key, [...(groups.get(key) ?? []), shelf])
+  }
+  const out: Array<{ name: string; shelves: Shelf[] }> = []
+  for (const [id, shelves] of groups) {
+    if (shelves.length === 0) continue
+    out.push({
+      name: id === UNPLACED ? 'Not shelved in a wing yet' : (name.get(id) ?? id),
+      shelves: [...shelves].sort((a, b) => b.questions - a.questions || b.gaps - a.gaps || a.key.localeCompare(b.key)),
+    })
+  }
+  return out
 }
 
 function Dossier({
@@ -832,7 +941,6 @@ function Dossier({
   durations,
   setPane,
   onBack,
-  onStep,
   onAct,
   onPatch,
   patching,
@@ -846,7 +954,6 @@ function Dossier({
   durations: Readonly<Record<string, number | null>>
   setPane: (p: Pane) => void
   onBack: () => void
-  onStep: (delta: number) => void
   onAct: (what: 'step' | 'plan' | 'pause' | 'resume') => void
   onPatch: (body: AgentPatchBody) => void
   patching: boolean
@@ -886,11 +993,7 @@ function Dossier({
           <span className="cc-sub">{autonomyOf(a.autonomy).short}</span>
         </span>
         <span className="grow" />
-        <span className="cc-step">
-          <button onClick={() => onStep(-1)} title="Previous Fellow · ←">‹</button>
-          <span>Fellow</span>
-          <button onClick={() => onStep(1)} title="Next Fellow · →">›</button>
-        </span>
+        {/* The arrow keys walk the roster; a pair of buttons saying so was the same door twice. */}
         <button className="btn sm" disabled={busy} onClick={() => onAct('plan')}>Plan now</button>
         {a.state === 'paused' ? (
           <button className="btn primary sm" disabled={busy} onClick={() => onAct('resume')}>Resume</button>
@@ -1130,7 +1233,7 @@ function Dossier({
                 <h5>Model, effort, share</h5>
                 <div className="cc-card">
                   <span className="mono-meta">
-                    {a.model} · {a.effort} effort · {a.step} depth · {a.lens} lens · {shapeOf(a.art).name.toLowerCase()}
+                    {a.model} · {a.effort} effort · {a.step} depth · {a.lens} lens · {a.art === 'custom' ? 'custom' : `${a.art} only`}
                     {a.quotaWeekPct !== null ? ` · ${a.quotaWeekPct}% of the week` : ''}
                     {card ? ` · this week ${card.spend.runsWeek} run(s), ${usd(card.spend.weekUsd)}` : ''}
                   </span>
@@ -1368,7 +1471,19 @@ function Option({
  * (`artRefusal`). So the choice here is the one thing on this screen that cannot be undone by
  * editing a field, which is why it is a screen of its own rather than a select in the form.
  */
-function Spawn({ shelf, onBack, onDone }: { shelf: string; onBack: () => void; onDone: (id: string) => void }): React.ReactElement {
+function Spawn({
+  shelf,
+  durations,
+  plan,
+  onBack,
+  onDone,
+}: {
+  shelf: string
+  durations: Readonly<Record<string, number | null>>
+  plan: PlanStatus | undefined
+  onBack: () => void
+  onDone: (id: string) => void
+}): React.ReactElement {
   const [shape, setShape] = useState<FellowRecord['art'] | null>(null)
   const picked = shape === null ? null : shapeOf(shape)
 
@@ -1379,28 +1494,45 @@ function Spawn({ shelf, onBack, onDone }: { shelf: string; onBack: () => void; o
           <button className="cc-back" onClick={onBack} title="Back · Esc">‹</button>
           <span className="cc-lead"><b>A new Fellow{shelf ? ` for ${shelf}` : ''}</b></span>
           <span className="grow" />
-          <span className="cc-sub">what shape should it have?</span>
+          <span className="cc-sub">what should it be?</span>
         </div>
         <div className="lib-window-body cc-body">
           <div className="cc-shapes">
-            {SHAPES.map((sh) => (
-              <button key={sh.art} className="cc-shape" onClick={() => setShape(sh.art)}>
-                <b>
-                  {sh.name}
-                  <span className={`cc-art a-${sh.art}`}>{sh.art}</span>
-                </b>
-                <p className="want">{sh.line}</p>
-                <p className="what">{sh.body}</p>
-                <span className="specs">
-                  <span>art: {sh.art === 'custom' ? 'any' : `${sh.art} only`}</span>
-                  <span>a night: every standing task</span>
-                </span>
-              </button>
-            ))}
+            {SHAPES.map((sh) => {
+              /*
+               * Its own numbers, not the same three copied four times: the shapes differ in
+               * model and depth, which is most of what a Fellow costs. Three standing tasks
+               * is what the shape is sized for, and what a spawn defaults its quota to.
+               */
+              const kind: TaskKind = sh.art === 'custom' ? 'explore' : sh.art
+              const perRun = STEP_USD[sh.defaults.step]! * (MODEL_FACTOR[sh.defaults.model] ?? 1)
+              const week = weeklyProjection(plan, { stepUsd: perRun, stepsPerDay: 3, model: sh.defaults.model })
+              return (
+                <button key={sh.art} className="cc-shape" onClick={() => setShape(sh.art)}>
+                  <b>
+                    {sh.name}
+                    <span className={`cc-art a-${sh.art}`}>{sh.art === 'custom' ? 'mixed' : sh.art}</span>
+                  </b>
+                  <p className="want">“{sh.want}”</p>
+                  <p className="what">{sh.what}</p>
+                  <span className="specs">
+                    <span className="holds">{sh.holds}</span>
+                    <span>{minutesFor(kind, durations)} min a task · {usd(perRun)} a run</span>
+                    <span>
+                      {sh.defaults.model.replace(/-\d.*$/, '')}
+                      {(MODEL_FACTOR[sh.defaults.model] ?? 1) > 1 ? ` (×${MODEL_FACTOR[sh.defaults.model]!} the plan)` : ''} ·{' '}
+                      {sh.defaults.step} depth
+                      {week.weekPct === null ? '' : ` · ${week.weekPct}% of the week at 3 tasks`}
+                    </span>
+                    <span>{autonomyOf(sh.defaults.autonomy).short}</span>
+                  </span>
+                </button>
+              )
+            })}
           </div>
           <p className="cc-note dim">
-            A shape is kept: the service refuses a task of another art afterwards. Only <b>custom</b> takes any mix, and
-            takes no warning with it either.
+            A shape is kept: the service refuses a task of another art afterwards. Every other setting here is a starting
+            point you change on the next screen. Only <b>custom</b> takes any mix, and takes no warning with it either.
           </p>
         </div>
       </>
@@ -1414,17 +1546,26 @@ function Spawn({ shelf, onBack, onDone }: { shelf: string; onBack: () => void; o
         <button className="cc-back" onClick={() => setShape(null)} title="Back to the shapes">‹</button>
         <span className="cc-lead">
           <b>{picked.name}</b>
-          <span className={`cc-art a-${picked.art}`}>{picked.art}</span>
+          <span className={`cc-art a-${picked.art}`}>{picked.art === 'custom' ? 'mixed' : picked.art}</span>
           {/* The headline above names the stop you came from, which is not where this one is
               going when an empty shelf is being staffed. So the shelf is named here too. */}
           {shelf !== '' && <span className="cc-sub">for {shelf}</span>}
         </span>
         <span className="grow" />
-        <span className="cc-sub">{picked.line}</span>
+        <span className="cc-sub">“{picked.want}”</span>
       </div>
       <div className="lib-window-body cc-body">
         <SpawnForm
-          prefill={{ homeDomain: shelf, art: picked.art, nightly: 'sweep', tasks: [{ text: '', kind }] } satisfies Partial<SpawnBody>}
+          prefill={
+            {
+              homeDomain: shelf,
+              art: picked.art,
+              nightly: 'sweep',
+              tasks: [{ text: '', kind }],
+              ...picked.defaults,
+            } satisfies Partial<SpawnBody>
+          }
+          plan={plan}
           onDone={onDone}
           onCancel={() => setShape(null)}
         />

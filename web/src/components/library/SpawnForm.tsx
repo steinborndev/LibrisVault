@@ -164,6 +164,20 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
       </div>
       <label>
         <span className="sp-lbl">
+          Scope <span className="sp-opt">optional</span>
+          <Tip text="Standing notes that qualify every task: what to leave out, which sources to prefer, a period to stay inside. The planner is shown them with each task, and they count towards the drift score alongside the task's own wording - so a scope narrows what the Fellow may propose rather than adding a fourth subject. You can edit it later on the Fellow's notebook page, which is where it lives." />
+        </span>
+        <textarea
+          className="input"
+          rows={2}
+          value={form.scope ?? ''}
+          onChange={(e) => setForm({ ...form, scope: e.target.value })}
+          placeholder="e.g. clinical evidence only, nothing preclinical; prefer primary sources"
+          maxLength={2000}
+        />
+      </label>
+      <label>
+        <span className="sp-lbl">
           Home domain
           <Tip text="The department this Fellow belongs to. It bounds its work: candidates come from here, a question about another domain is handed to that domain's Fellow instead of pursued, and a deepen task may only build out pages that stand here. Add more under extra domains after spawning if it should reach further." />
         </span>
