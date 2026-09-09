@@ -8506,7 +8506,7 @@ tr:focus-within .rowacts {
   flex: none; width: 225px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 @media (max-width: 900px) { .cc-name { width: 150px; } }
-.cc-of { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono, ui-monospace, monospace); white-space: nowrap; }
+.cc-of { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono, ui-monospace, monospace); white-space: nowrap; margin-left: 6px; font-weight: 400; }
 .cc-dots { display: flex; gap: 5px; align-items: center; margin-left: 2px; }
 .cc-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); cursor: pointer; }
 .cc-dots i.on { background: var(--accent); transform: scale(1.25); }
@@ -8544,11 +8544,21 @@ tr:focus-within .rowacts {
  */
 .cc-bars { flex: none; padding: 6px 0 22px; }
 .cc-bars .cc-sec { margin: 0 0 8px; }
+/* On the overview the bar is a setting and the panes below are the work; the gap says so.
+   Bottom padding only, so the bar itself stays on the row the shelf pages put it on. */
+.cc-shelves .cc-bars { padding-bottom: 60px; }
 .cc-pane {
   flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
-  border-top: 1px solid var(--border); padding: 4px 10px 0 0;
+  border-top: 1px solid var(--border); padding: 0 10px 0 0;
 }
-.cc-pane .cc-sec { margin-top: 8px; position: sticky; top: 0; background: var(--bg-elev); z-index: 1; padding-bottom: 6px; }
+/*
+ * The pane's heading holds the top while its rows scroll under it. It needs to be opaque over
+ * its whole height, margins included: as a margin those 8px were transparent, so a row slid
+ * up into the gap and showed through, and the heading appeared to jump as it collapsed.
+ */
+/* Flush at the top of the scrollport: any padding on the pane above it is a strip the rows
+   scroll through, which is exactly what a sticky heading is there to prevent. */
+.cc-pane .cc-sec { position: sticky; top: 0; z-index: 2; margin: 0; padding: 10px 0 8px; background: var(--bg-elev); }
 /* The wing a shelf stands in, as a heading inside the list rather than a column beside it. */
 .cc-wing + .cc-wing { margin-top: 10px; }
 .cc-wing-h {
@@ -8701,11 +8711,37 @@ tr:focus-within .rowacts {
 .cc-bar-row { display: flex; align-items: center; gap: 10px; padding: 12px 18px 10px; flex: none; flex-wrap: wrap; }
 /* Prose gets a measure; a 66ch column is the difference between a page and a wall of text. */
 .cc-prose { max-width: 72ch; }
-/* The notebook is a vault page shown as it is written; the window is a reader, not an editor. */
-.cc-notebook {
-  margin: 0; max-width: 84ch; white-space: pre-wrap; word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; color: var(--text-dim);
+.cc-prose p { margin: 0 0 9px; }
+.cc-prose p:last-child { margin-bottom: 0; }
+.cc-prose ul, .cc-prose ol { margin: 0 0 9px; padding-left: 18px; font-size: 13px; color: var(--text-dim); }
+.cc-prose li { margin: 3px 0; }
+.cc-prose code { font-family: ui-monospace, monospace; font-size: 11.5px; background: var(--muted-bg); padding: 1px 4px; border-radius: 4px; }
+.cc-prose h3, .cc-prose h4 { margin: 10px 0 5px; font-size: 13px; }
+.cc-prose em { font-style: normal; color: var(--accent); }
+
+/*
+ * A document read rather than a file dumped. The notebook and the recap answer the same
+ * questions in the same order, so they get the same shape: one titled block per section, the
+ * markdown of a section rendered as it stands. Read-only - nothing here writes the page back.
+ */
+.cc-doc { display: flex; flex-direction: column; gap: 4px; max-width: 78ch; }
+.cc-doc-sec { border-top: 1px solid var(--border); padding: 12px 0 4px; }
+.cc-doc-sec:first-child { border-top: 0; padding-top: 0; }
+.cc-doc-sec > h5 { margin: 0 0 7px; }
+.cc-doc-sec .empty { margin: 0; }
+
+/* One run of the night: what kind it was, what it was about, what it left behind. */
+.cc-list.runs { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.cc-list.runs li { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.cc-list.runs .t { flex: 1 1 auto; color: var(--text); }
+.cc-list.runs .mono-meta { flex: none; white-space: nowrap; }
+
+/* Bottom right of the log, because it changes what the rows above it are. */
+.cc-toggle {
+  display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 14px;
+  font-size: 12px; color: var(--text-dim); cursor: pointer;
 }
+.cc-toggle input { cursor: pointer; }
 .cc-pages li { cursor: pointer; }
 .cc-ledger tr.open { cursor: pointer; }
 .cc-ledger tr.open:hover td { background: var(--accent-soft); }

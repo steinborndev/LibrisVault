@@ -116,6 +116,8 @@ export function LibraryScreen({
   const [ccView, setCcView] = useState<CcView>('shelves')
   /* Reported up by the window: the headline names the shelf, the window knows which they are. */
   const [ccShelves, setCcShelves] = useState<readonly string[]>([])
+  /** The Fellow whose dossier is open; the headline names it in front of its shelf. */
+  const [ccFellow, setCcFellow] = useState<string | null>(null)
   const ccShelf = ccView === 'shelves' ? null : (ccShelves[ccStop] ?? null)
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
@@ -639,7 +641,10 @@ export function LibraryScreen({
                   style={{ background: ccShelf === null ? 'var(--accent)' : domainColor(ccShelf) }}
                   aria-hidden
                 />
-                <b className={`cc-name${ccShelf === null ? ' dim' : ''}`}>{ccShelf === null ? 'Fellows' : signText(ccShelf)}</b>
+                <b className={`cc-name${ccShelf === null ? ' dim' : ''}`}>
+                  {ccShelf === null ? 'Fellows' : ccFellow === null ? signText(ccShelf) : ccFellow}
+                  {ccShelf !== null && ccFellow !== null && <span className="cc-of">({signText(ccShelf)})</span>}
+                </b>
                 <span className="cc-dots">
                   {/* The overview is a stop on the ring like any shelf, so it gets the same
                       dot: a different shape there read as a control rather than a stop. */}
@@ -779,6 +784,7 @@ export function LibraryScreen({
               setView={setCcView}
               onClose={() => setCcOpen(false)}
               onShelves={setCcShelves}
+              onFellow={setCcFellow}
             />
           )}
 

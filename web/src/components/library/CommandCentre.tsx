@@ -53,6 +53,7 @@ import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
 import { SpawnForm } from './SpawnForm.tsx'
 import { queryState } from '../QueryState.tsx'
+import { Markdown } from '../Markdown.tsx'
 import { usd } from '../../lib/format.ts'
 import { weeklyProjection } from '../../lib/plan.ts'
 
@@ -186,11 +187,13 @@ export interface CommandCentreProps {
   readonly onClose: () => void
   /** Reported upward so the headline can name the shelf you are on. */
   readonly onShelves: (keys: readonly string[]) => void
+  /** The Fellow whose dossier is open, so the headline can name it as well as its shelf. */
+  readonly onFellow: (name: string | null) => void
 }
 
-export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves }: CommandCentreProps): React.ReactElement {
+export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves, onFellow }: CommandCentreProps): React.ReactElement {
   const [fellowId, setFellowId] = useState<string | null>(null)
-  const [pane, setPane] = useState<Pane>('notebook')
+  const [pane, setPane] = useState<Pane>('recap')
   const [decIndex, setDecIndex] = useState(0)
   const [optIndex, setOptIndex] = useState(0)
   const [row, setRow] = useState(0)
@@ -254,6 +257,13 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
 
   // The headline needs the names; it does not need to know how they were derived.
   useEffect(() => onShelves(staffed.map((s) => s.key)), [staffed, onShelves])
+  /*
+   * The dossier is a Fellow, not a shelf, and the headline said only the shelf: two Fellows
+   * on one shelf were indistinguishable from each other up there. Reported rather than
+   * derived, because only this window knows which of them is open.
+   */
+  const openName = view === 'dossier' ? (roster.find((r) => r.fellow.agent.id === fellowId)?.fellow.agent.name ?? null) : null
+  useEffect(() => onFellow(openName), [openName, onFellow])
 
   const set = settings.data?.effective
   const win = useMemo(
@@ -340,7 +350,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
     const at = roster.findIndex((r) => r.fellow.agent.id === id)
     if (at >= 0) setStop(staffed.indexOf(roster[at]!.shelf))
     setFellowId(id)
-    setPane('notebook')
+    setPane('recap')
     setView('dossier')
   }
   const stepFellow = (delta: number): void => {
@@ -371,7 +381,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
         return
       }
       if (view === 'dossier') {
-        const order: Pane[] = ['notebook', 'recap', 'ledger', 'pages', 'settings']
+        const order: Pane[] = ['recap', 'ledger', 'pages', 'notebook', 'settings']
         const n = Number(e.key)
         if (n >= 1 && n <= 5) setPane(order[n - 1]!)
         else if (e.key === 'ArrowRight') {
@@ -490,7 +500,7 @@ export function CommandCentre({ stop, setStop, view, setView, onClose, onShelves
           <NightLine
             facts={[
               `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
-              `${hhmm(win.from)} to ${hhmm(win.to)} (active hours)`,
+              `${hhmm(win.from)} to ${hhmm(win.to)}`,
               blocks.length === 0 ? 'nothing to run' : `${dur(blocks.reduce((n, b) => n + b.minutes, 0))} estimated`,
               `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
             ]}
@@ -839,8 +849,6 @@ function Shelves({
       <section className="cc-pane">
         <h3 className="cc-sec">
           Staffed domains <span className="c">{staffed.length}</span>
-          <span className="grow" />
-          <span className="c">the order the night works them in</span>
         </h3>
         {staffed.length === 0 ? (
           <p className="empty">No Fellow anywhere yet. Any shelf below can have the first one.</p>
@@ -873,8 +881,6 @@ function Shelves({
       <section className="cc-pane">
         <h3 className="cc-sec">
           Unstaffed domains <span className="c">{empty.length}</span>
-          <span className="grow" />
-          <span className="c">by wing, and inside one by what is waiting there</span>
         </h3>
         <div className="cc-rows">
           {wings.map((w) => (
@@ -977,15 +983,21 @@ function Dossier({
   const art = a.art
   const runs = card?.runs ?? []
   const pages = card?.pages ?? []
+  /*
+   * What the night produced first, what it did second, and the settings behind it last. The
+   * notebook is the Fellow's own page and belongs near the settings that write to it.
+   */
   const panes: Array<[Pane, string]> = [
-    ['notebook', 'Notebook'],
     ['recap', 'Recap'],
-    ['ledger', `Ledger ${runs.length}`],
-    ['pages', `Pages ${pages.length}`],
+    ['ledger', `Activity log ${runs.length}`],
+    ['pages', `Created pages ${pages.length}`],
+    ['notebook', 'Notebook'],
     ['settings', 'Settings'],
   ]
   const nightly = fellowMinutes(a, durations)
   const carried = carriedTonight(a)
+  const [showPlanning, setShowPlanning] = useState(false)
+  const shown = showPlanning ? runs : runs.filter((r) => r.kind !== 'plan')
 
   return (
     <>
@@ -1041,54 +1053,72 @@ function Dossier({
             {pane === 'notebook' ? a.notebookPath
               : pane === 'recap' ? 'one Fellow’s slice · the wall board keeps the whole'
                 : pane === 'ledger' ? 'a row opens the page it filed'
-                  : pane === 'settings' ? 'changes apply to the next night' : ''}
+                  : pane === 'pages' ? 'a row opens the page' 
+                    : pane === 'settings' ? 'changes apply to the next night' : ''}
           </span>
         </div>
 
         <div className="cc-area">
           {pane === 'notebook' && <Notebook path={a.notebookPath} />}
 
-          {pane === 'recap' && (
-            <div className="cc-prose">
-              {recap === undefined ? (
-                <p className="empty">No recap covers this Fellow yet.</p>
-              ) : (
-                <>
-                  {recap.runs.length > 0 ? (
-                    <p className="mono-meta">{recap.runs.length} run(s) in the last recap</p>
-                  ) : (
+          {pane === 'recap' &&
+            (recap === undefined ? (
+              <p className="empty">No recap covers this Fellow yet.</p>
+            ) : (
+              /* The same shape as the notebook beside it: one section per question the recap
+                 answers, so the two panes read as two views of one Fellow. */
+              <div className="cc-doc">
+                <section className="cc-doc-sec">
+                  <h5>The night</h5>
+                  {recap.runs.length === 0 ? (
                     <p className="cc-note warn">Did not run: {recap.sleepReason ?? 'nothing worth a run'}</p>
+                  ) : (
+                    <ul className="cc-list runs">
+                      {recap.runs.map((r) => (
+                        <li key={r.runId}>
+                          <span className={`sev ${r.ok ? 'ok' : 'err'}`}>{r.kind.replace('research-', '').replace('research', 'sweep')}</span>
+                          <span className="t">{r.topic}</span>
+                          <span className="mono-meta">
+                            {r.pagesCreated.length + r.pagesUpdated.length} page
+                            {r.pagesCreated.length + r.pagesUpdated.length === 1 ? '' : 's'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                  {recap.found.length > 0 && (
-                    <>
-                      <h5>What it found</h5>
-                      {recap.found.map((x) => <p key={x}>{x}</p>)}
-                    </>
+                </section>
+                <section className="cc-doc-sec">
+                  <h5>What it found</h5>
+                  {recap.found.length === 0 ? (
+                    <p className="empty">Nothing was written up.</p>
+                  ) : (
+                    <div className="cc-prose">{recap.found.map((x) => <p key={x}>{x}</p>)}</div>
                   )}
-                  {recap.openQuestions.length > 0 && (
-                    <>
-                      <h5>Questions it raised</h5>
-                      <ul className="cc-list">{recap.openQuestions.map((q) => <li key={q}>{q}</li>)}</ul>
-                    </>
-                  )}
+                </section>
+                {recap.openQuestions.length > 0 && (
+                  <section className="cc-doc-sec">
+                    <h5>Questions it raised</h5>
+                    <ul className="cc-list">{recap.openQuestions.map((q) => <li key={q}>{q}</li>)}</ul>
+                  </section>
+                )}
+                <section className="cc-doc-sec">
                   <h5>Did you use it</h5>
                   <p className="mono-meta">{recap.value.pageOpens} page open(s) · {recap.value.recapLinks} link(s) followed</p>
                   <p className="cc-note dim">
                     {a.name}’s slice of the last recap. The wall board in the Library keeps the whole night.
                   </p>
-                </>
-              )}
-            </div>
-          )}
+                </section>
+              </div>
+            ))}
 
           {pane === 'ledger' &&
-            (runs.length === 0 ? (
-              <p className="empty">No runs yet.</p>
+            (shown.length === 0 ? (
+              <p className="empty">{runs.length === 0 ? 'No runs yet.' : 'Only planning runs so far; show them to see the night.'}</p>
             ) : (
               <table className="cc-ledger">
                 <thead><tr><th>When</th><th>Task</th><th>Out</th><th>Cost</th></tr></thead>
                 <tbody>
-                  {runs.map((r) => {
+                  {shown.map((r) => {
                     const page = r.pages.find((p) => p.startsWith('wiki/questions/')) ?? r.pages[0]
                     return (
                       <tr
@@ -1107,6 +1137,18 @@ function Dossier({
                 </tbody>
               </table>
             ))}
+          {pane === 'ledger' && (
+            /*
+              * Planning runs are most of the rows and none of the result: a Fellow that sweeps
+              * three tasks plans three times a night. Off by default, so the log reads as what
+              * the Fellow did rather than as how often it thought about it.
+              */
+            <label className="cc-toggle">
+              <input type="checkbox" checked={showPlanning} onChange={(e) => setShowPlanning(e.target.checked)} />
+              Show planning
+              <span className="mono-meta">{runs.length - shown.length} hidden</span>
+            </label>
+          )}
 
           {pane === 'pages' &&
             (pages.length === 0 ? (
@@ -1262,12 +1304,61 @@ function Dossier({
   )
 }
 
-/** The notebook is a vault page; the window shows what the page says, not a copy of it. */
+/**
+ * The notebook is a vault page; the window shows what the page says, not a copy of it.
+ *
+ * Read-only and non-destructive: the markdown is split on its own `## ` headings and each
+ * section is rendered as it stands. Nothing is rewritten, and a page that does not follow the
+ * shape (a section renamed by hand, a preamble above the first heading) still shows in full,
+ * because what is not under a heading is kept as the first block rather than dropped.
+ */
 function Notebook({ path }: { path: string }): React.ReactElement {
-  const page = useQuery({ queryKey: ['page', path], queryFn: () => api.page(path), staleTime: 30_000 })
+  // `api.page` is a PREVIEW and truncates: the notebook lost its last section to it, silently.
+  const page = useQuery({ queryKey: ['page-full', path], queryFn: () => api.pageFull(path), staleTime: 30_000 })
   const state = queryState(page, 'the notebook')
   if (state) return <>{state}</>
-  return <pre className="cc-notebook">{page.data?.markdown ?? ''}</pre>
+  const sections = splitSections(page.data?.markdown ?? '')
+  if (sections.length === 0) return <p className="empty">The notebook page is empty.</p>
+  return (
+    <div className="cc-doc">
+      {sections.map((sec) => (
+        <section key={sec.name ?? '_'} className="cc-doc-sec">
+          {sec.name !== null && <h5>{sec.name}</h5>}
+          {sec.body.trim() === '' ? (
+            <p className="empty">Nothing here yet.</p>
+          ) : (
+            <div className="cc-prose"><Markdown source={sec.body} /></div>
+          )}
+        </section>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A markdown document as its `## ` sections, in the order it wrote them. Frontmatter and the
+ * `# Title` line go, because the pane is already inside a window that names the Fellow; a
+ * `name: null` section is whatever stood before the first heading.
+ */
+function splitSections(markdown: string): Array<{ name: string | null; body: string }> {
+  // The blank line between the frontmatter and the title is why the title strip needs `\s*`.
+  const text = markdown.replace(/^---[\s\S]*?\n---\n/, '').replace(/^\s*#\s+.*\n/, '')
+  const out: Array<{ name: string | null; body: string }> = []
+  let name: string | null = null
+  let body: string[] = []
+  const flush = (): void => {
+    if (name !== null || body.join('\n').trim() !== '') out.push({ name, body: body.join('\n') })
+  }
+  for (const line of text.split('\n')) {
+    const head = /^##\s+(.+?)\s*$/.exec(line)
+    if (head) {
+      flush()
+      name = head[1]!
+      body = []
+    } else body.push(line)
+  }
+  flush()
+  return out
 }
 
 function Decisions({
