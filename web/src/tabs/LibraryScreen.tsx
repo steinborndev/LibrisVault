@@ -661,17 +661,13 @@ export function LibraryScreen({
                 </button>
               </div>
             )}
-            {/* Spawning belongs to the room, where the Fellows are. */}
+            {/* Managing the Fellows belongs to the room, where they are. The button used to
+                open the spawn form alone; the command centre holds spawning and everything
+                else about them (TASKS-A7). */}
             {shelf === null && board === null && (
               <>
-                <button
-                  className="btn primary sm"
-                  onClick={() => {
-                    setMode('full')
-                    setSpawnOpen(true)
-                  }}
-                >
-                  Spawn a Fellow
+                <button className="btn primary sm" onClick={() => setCcOpen(true)}>
+                  Manage Fellows
                 </button>
                 {/* What the Fellows are waiting on you for, counted across all of them. */}
                 <button
