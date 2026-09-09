@@ -60,6 +60,9 @@ const DIR_LABELS: Record<string, string> = {
   questions: 'Questions',
   folds: 'Folds',
   meta: 'Meta',
+  // Pages that sit directly in `wiki/` - the index, the hot cache, the journal. They have no
+  // folder to be named after, and used to be counted by nobody.
+  root: 'Wiki root',
 }
 
 export function System({ section = '' }: { section?: string }): React.ReactElement {

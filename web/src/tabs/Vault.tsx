@@ -747,9 +747,17 @@ function GraphView({
     setSelectedDomains(next)
   }
 
+  /** What the "System pages" toggle would add - the number it shows has to be that. */
+  const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
+
   /**
    * The tail of the scope sentence - what the current filters narrowed to, in words. A
    * shrinking count alone cannot tell a domain filter from a type filter from a search.
+   *
+   * The system pages belong in it too, and they are the exclusion the reader cannot see: it
+   * lives behind the collapsed "Include" control and is off by default. Left out, the line
+   * read "1043 of 1074 pages - the whole vault", which says that 31 pages went missing to
+   * something the reader set. The wording is the Library's, for the same set of pages.
    */
   const scopeTail = useMemo(() => {
     const parts: string[] = []
@@ -759,11 +767,12 @@ function GraphView({
     } else if (selectedDomains.size > 1) parts.push(`${selectedDomains.size} domains`)
     if (selectedTypes.size > 0) parts.push([...selectedTypes].map((t) => TYPE_LABELS[t] ?? t).join(' + '))
     if (query.trim() !== '') parts.push(`matching “${query.trim()}”`)
-    return parts.length === 0 ? ' - the whole vault' : ` - ${parts.join(', ')}`
-  }, [selectedDomains, selectedTypes, query])
-
-  /** What the "System pages" toggle would add - the number it shows has to be that. */
-  const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
+    const systemHidden = !showSystem && systemCount > 0
+    if (parts.length === 0) {
+      return systemHidden ? ` - every page except the ${systemCount} system ones` : ' - the whole vault'
+    }
+    return ` - ${parts.join(', ')}${systemHidden ? `, ${systemCount} system pages hidden` : ''}`
+  }, [selectedDomains, selectedTypes, query, showSystem, systemCount])
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
 
