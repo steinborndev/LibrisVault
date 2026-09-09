@@ -8429,6 +8429,19 @@ tr:focus-within .rowacts {
   border-bottom: 1px solid var(--border); background: var(--bg-elev-2); min-height: 44px; box-sizing: border-box;
 }
 .cc-lead { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+/* Four facts that change every night, each in a slot of its own so the line never re-centres
+   itself as they do. The sides are equal, which is what keeps the strip in the middle. */
+.cc-side { flex: 1 1 0; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cc-side.end { justify-content: flex-end; }
+.cc-facts { display: flex; align-items: center; gap: 0; flex: none; }
+.cc-facts > b { font-size: 13.5px; font-weight: 650; padding-right: 16px; }
+.cc-facts .s {
+  font-size: 12.5px; color: var(--text-dim); padding: 0 16px; border-left: 1px solid var(--border-strong);
+  text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.cc-facts .s:nth-of-type(1) { min-width: 190px; }
+.cc-facts .s:nth-of-type(2) { min-width: 130px; }
+.cc-facts .s:nth-of-type(3) { min-width: 110px; }
 .cc-lead > b { font-size: 14px; font-weight: 650; }
 .cc-step { display: inline-flex; align-items: center; gap: 4px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-faint); }
 .cc-step button {
@@ -8442,7 +8455,7 @@ tr:focus-within .rowacts {
 .cc-block { margin-bottom: 26px; }
 .cc-block:last-child { margin-bottom: 0; }
 /* An axis, not four stray numbers: a label at every full hour and a gridline under each. */
-.cc-axis { position: relative; height: 14px; margin-bottom: 2px; }
+.cc-axis { position: relative; height: 15px; margin-bottom: 3px; }
 .cc-hour {
   position: absolute; transform: translateX(-50%); font-family: ui-monospace, monospace;
   font-size: 10px; color: var(--text-faint);
@@ -8482,23 +8495,25 @@ tr:focus-within .rowacts {
 .cc-sub { font-size: 12px; color: var(--text-dim); }
 .cc-sub b { color: var(--text); }
 
-.cc-setter { margin: 12px 0 16px; }
-.cc-setter-scale { display: flex; font-family: ui-monospace, monospace; font-size: 10px; color: var(--text-faint); margin-bottom: 3px; }
-.cc-setter-scale span { flex: 1; }
-.cc-setter-track { height: 16px; border-radius: 8px; background: var(--bg-elev-2); border: 1px solid var(--border); position: relative; }
-.cc-setter-win { position: absolute; top: -1px; bottom: -1px; border-radius: 8px; background: var(--accent-soft); border: 1px solid var(--accent); }
-.cc-setter-win .h {
-  position: absolute; top: 50%; transform: translateY(-50%); width: 10px; height: 22px; border-radius: 4px;
-  background: var(--accent); cursor: ew-resize; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-.cc-setter-win .h.l { left: -5px; }
-.cc-setter-win .h.r { right: -5px; }
-.cc-setter-legend { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; font-size: 12px; color: var(--text-dim); flex-wrap: wrap; }
-.cc-setter-legend b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 
 .cc-ticks { display: flex; font-family: ui-monospace, monospace; font-size: 10px; color: var(--text-faint); margin-bottom: 3px; }
 .cc-ticks span { flex: 1; border-left: 1px solid var(--border); padding-left: 4px; }
 .cc-track { height: 28px; border-radius: 6px; background: var(--muted-bg); position: relative; overflow: hidden; }
+/* The hours the shift may work in: the setter draws them as a handle, the queue as a ground. */
+.cc-track.set { background: var(--bg-elev-2); border: 1px solid var(--border); }
+.cc-window {
+  position: absolute; top: -1px; bottom: -1px; border-radius: 6px;
+  background: var(--accent-soft); border: 1px solid var(--accent); cursor: grab;
+}
+.cc-window .h {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 10px; height: 26px; border-radius: 4px;
+  background: var(--accent); cursor: ew-resize; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.cc-window .h.l { left: -5px; }
+.cc-window .h.r { right: -5px; }
+.cc-active { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); opacity: 0.55; }
+.cc-under { display: flex; align-items: baseline; gap: 10px; margin-top: 7px; font-size: 12px; color: var(--text-dim); }
+.cc-under b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 /* A domain occupies one band of the night in its own colour; hairlines are its topics. */
 .cc-band { position: absolute; top: 0; bottom: 0; background: var(--dc); opacity: 0.42; border-right: 2px solid var(--bg-elev); overflow: hidden; cursor: grab; }
 .cc-band.here { opacity: 1; }

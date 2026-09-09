@@ -36,12 +36,21 @@ import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
 import type { TaskKind } from '../../api/types.ts'
 
-export type CcView = 'tonight' | 'dossier' | 'decisions' | 'spawn'
+export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
 type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
 
-/** The scale the window setter is drawn on: 18:00 to 12:00 the next day, in minutes. */
+/**
+ * One scale for both bars: 18:00 to 06:00 the next morning. Active Hours sets a stretch of it
+ * and the queue draws the night's work on the same axis, so the two read against each other
+ * rather than each in its own frame.
+ */
 const SCALE_FROM = 18 * 60
-const SCALE_TO = 36 * 60
+const SCALE_TO = 30 * 60
+const SCALE_SPAN = SCALE_TO - SCALE_FROM
+/** Where a minute of the night sits on that scale, in percent. */
+const pctAt = (m: number): number => ((m - SCALE_FROM) / SCALE_SPAN) * 100
+/** Every full hour of the scale - both axes carry the same labels, in the same shape. */
+const SCALE_HOURS = Array.from({ length: SCALE_SPAN / 60 + 1 }, (_, i) => SCALE_FROM + i * 60)
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 const hhmm = (m: number): string => `${pad2(Math.floor((m % 1440) / 60))}:${pad2(Math.round(m) % 60)}`
 const dur = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} h ${pad2(Math.round(m % 60))}` : `${Math.round(m)} min`)
@@ -69,6 +78,53 @@ export interface CommandCentreProps {
   readonly onClose: () => void
 }
 
+/** The shared axis: one label at every full hour, the same shape above both bars. */
+function Axis(): React.ReactElement {
+  return (
+    <div className="cc-axis">
+      {SCALE_HOURS.map((m) => (
+        <span key={m} className="cc-hour" style={{ left: `${pctAt(m)}%` }}>{hhmm(m)}</span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The night in four facts, centred and in fixed slots. They change every night and with every
+ * setting, and a line that re-centres itself as they do is a line you have to find again each
+ * time - so each fact keeps its width whatever it says.
+ */
+function NightLine({
+  tasks,
+  shelves,
+  from,
+  to,
+  fellows,
+  onNew,
+}: {
+  tasks: number
+  shelves: number
+  from: number
+  to: number
+  fellows: number
+  onNew: () => void
+}): React.ReactElement {
+  return (
+    <div className="cc-line2">
+      <span className="cc-side" />
+      <span className="cc-facts">
+        <b>Tonight</b>
+        <span className="s">{tasks} task{tasks === 1 ? '' : 's'} across {shelves} shel{shelves === 1 ? 'f' : 'ves'}</span>
+        <span className="s">{hhmm(from)} – {hhmm(to)}</span>
+        <span className="s">{fellows} Fellow{fellows === 1 ? '' : 's'}</span>
+      </span>
+      <span className="cc-side end">
+        <button className="btn sm" onClick={onNew}>New Fellow</button>
+      </span>
+    </div>
+  )
+}
+
 export function CommandCentre({ stop, setStop, order, setOrder, view, setView, onClose }: CommandCentreProps): React.ReactElement {
   const [fellowId, setFellowId] = useState<string | null>(null)
   const [pane, setPane] = useState<Pane>('notebook')
@@ -84,9 +140,7 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
 
   const staffed = useMemo(() => staffedIn(order), [order])
   const roster = useMemo(() => fellowsIn(order), [order])
-  const atShelves = stop >= staffed.length
   const domain = staffed[Math.min(stop, staffed.length - 1)]!
-  const stops = staffed.length + 1
 
   const deciders = useMemo(
     () => DOMAINS.flatMap((d) => d.fellows.filter((f) => f.options.some((o) => decided[o.id] === undefined)).map((f) => ({ d, f }))),
@@ -116,7 +170,6 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
 
   const span = winTo - winFrom
   const booked = blocks.reduce((n, b) => n + b.minutes, 0)
-  const here = blocks.filter((b) => b.domain.key === domain.key).reduce((n, b) => n + b.minutes, 0)
   const overflow = blocks.filter((b) => b.to > winTo)
 
   /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
@@ -131,13 +184,6 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
     }
     return out
   }, [blocks])
-
-  /* One label per full hour, with a gridline under each: an axis, not four stray numbers. */
-  const hours = useMemo(() => {
-    const out: number[] = []
-    for (let m = Math.ceil(winFrom / 60) * 60; m <= winTo; m += 60) out.push(m)
-    return out
-  }, [winFrom, winTo])
 
   /** Opening a Fellow puts the rotation on its shelf, so the headline never lies about where you are. */
   const openFellow = (id: string): void => {
@@ -159,11 +205,10 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
   }
 
   const back = (): void => {
-    if (view === 'tonight') onClose()
-    else {
-      setView('tonight')
-      setGearOpen(false)
-    }
+    setGearOpen(false)
+    if (view === 'shelves') onClose()
+    else if (view === 'tonight') setView('shelves')
+    else setView('tonight')
   }
 
   useEffect(() => {
@@ -215,21 +260,27 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
       }
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        setStop((stop - 1 + stops) % stops)
+        setStop((stop - 1 + staffed.length) % staffed.length)
         setRow(0)
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
-        setStop((stop + 1) % stops)
+        setStop((stop + 1) % staffed.length)
         setRow(0)
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setRow(Math.min((atShelves ? UNSTAFFED.length : domain.fellows.length) - 1, row + 1))
+        setRow(Math.min((view === 'shelves' ? staffed.length : domain.fellows.length) - 1, row + 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         setRow(Math.max(0, row - 1))
-      } else if (e.key === 'Enter' && !atShelves) {
-        const f = domain.fellows[row]
-        if (f) openFellow(f.id)
+      } else if (e.key === 'Enter') {
+        if (view === 'shelves') {
+          setStop(row)
+          setRow(0)
+          setView('tonight')
+        } else {
+          const f = domain.fellows[row]
+          if (f) openFellow(f.id)
+        }
       } else if (e.key === 'n') {
         setShapeIndex(0)
         setGearOpen(false)
@@ -276,7 +327,7 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
   const dragEdge = (edge: 'from' | 'to') => (e: React.MouseEvent): void => {
     e.preventDefault()
     e.stopPropagation()
-    const track = (e.currentTarget as HTMLElement).closest('.cc-setter-track')
+    const track = (e.currentTarget as HTMLElement).closest('.cc-track')
     const move = (ev: MouseEvent): void => {
       const rect = track?.getBoundingClientRect()
       if (!rect) return
@@ -294,45 +345,37 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
 
   return (
     <div className="lib-window cc" role="dialog" aria-label="Fellow command centre">
-      {view === 'tonight' && !atShelves && (
+      {view === 'tonight' && (
         <>
-          <div className="cc-line2">
-            <span className="cc-lead">
-              <b>Tonight</b>
-              <span className="cc-sub">
-                {blocks.length} task{blocks.length === 1 ? '' : 's'} across {new Set(blocks.map((b) => b.domain.key)).size} shelves ·{' '}
-                <b>{dur(booked)}</b> of {dur(span)} · {dur(here)} of that here
-              </span>
-            </span>
-            <span className="grow" />
-            <span className="mono-meta">{domain.fellows.length} Fellows · {domain.pages} pages</span>
-            <button className="btn sm" onClick={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}>New Fellow</button>
-          </div>
+          <NightLine
+            tasks={blocks.length}
+            shelves={new Set(blocks.map((b) => b.domain.key)).size}
+            from={winFrom}
+            to={winTo}
+            fellows={domain.fellows.length}
+            onNew={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
+          />
 
           <div className="lib-window-body cc-body">
             <section className="cc-block">
-              <h3 className="cc-sec">
-                The window
-                <span className="grow" />
-                <span className="c">drag either end · every Fellow shares it</span>
-              </h3>
-              <div className="cc-setter">
-                <div className="cc-setter-scale">
-                  {[18, 21, 0, 3, 6, 9, 12].map((h) => <span key={h}>{pad2(h)}</span>)}
+              <h3 className="cc-sec">Active Hours</h3>
+              <p className="cc-note">
+                The stretch of the night the shift may work in. Every Fellow shares it, and the runs go through it one at
+                a time — so this is not a budget per Fellow but the length of one queue. Drag either end.
+              </p>
+              <Axis />
+              <div className="cc-track set">
+                {SCALE_HOURS.slice(1, -1).map((m) => (
+                  <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />
+                ))}
+                <div className="cc-window" style={{ left: `${pctAt(winFrom)}%`, width: `${(span / SCALE_SPAN) * 100}%` }}>
+                  <span className="h l" onMouseDown={dragEdge('from')} />
+                  <span className="h r" onMouseDown={dragEdge('to')} />
                 </div>
-                <div className="cc-setter-track">
-                  <div
-                    className="cc-setter-win"
-                    style={{ left: `${((winFrom - SCALE_FROM) / (SCALE_TO - SCALE_FROM)) * 100}%`, width: `${(span / (SCALE_TO - SCALE_FROM)) * 100}%` }}
-                  >
-                    <span className="h l" onMouseDown={dragEdge('from')} />
-                    <span className="h r" onMouseDown={dragEdge('to')} />
-                  </div>
-                </div>
-                <div className="cc-setter-legend">
-                  <b>{hhmm(winFrom)} – {hhmm(winTo)}</b>
-                  <span>{dur(span)}</span>
-                </div>
+              </div>
+              <div className="cc-under">
+                <b>{hhmm(winFrom)} – {hhmm(winTo)}</b>
+                <span>{dur(span)}</span>
               </div>
             </section>
 
@@ -342,20 +385,18 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
                 <span className="grow" />
                 <span className="c">one run at a time, planning included · drag a shelf to move it</span>
               </h3>
-              <div className="cc-axis">
-                {hours.map((m) => (
-                  <span key={m} className="cc-hour" style={{ left: `${((m - winFrom) / span) * 100}%` }}>{hhmm(m)}</span>
-                ))}
-              </div>
+              <Axis />
               <div className="cc-track" ref={trackRef}>
-                {hours.slice(1, -1).map((m) => (
-                  <span key={m} className="cc-grid" style={{ left: `${((m - winFrom) / span) * 100}%` }} />
+                {SCALE_HOURS.slice(1, -1).map((m) => (
+                  <span key={m} className="cc-grid" style={{ left: `${pctAt(m)}%` }} />
                 ))}
+                {/* The hours the shift may work in, behind the work itself. */}
+                <div className="cc-active" style={{ left: `${pctAt(winFrom)}%`, width: `${(span / SCALE_SPAN) * 100}%` }} />
                 {bands.map((g) => (
                   <div
                     key={`${g.domain.key}-${g.from}`}
                     className={`cc-band ${g.domain.key === domain.key ? 'here' : ''}`}
-                    style={{ left: `${((g.from - winFrom) / span) * 100}%`, width: `${Math.max(0.6, ((g.to - g.from) / span) * 100)}%`, ['--dc' as string]: domainColor(g.domain.key) }}
+                    style={{ left: `${pctAt(g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / SCALE_SPAN) * 100)}%`, ['--dc' as string]: domainColor(g.domain.key) }}
                     title={`${g.domain.key} — ${g.parts.length} task(s), ${dur(g.to - g.from)} · drag to move it in the queue`}
                     onMouseDown={startDrag(g.domain.key)}
                   >
@@ -384,7 +425,7 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
                 <p className="cc-note warn">
                   <b>{overflow.length} task{overflow.length === 1 ? ' does' : 's do'} not fit tonight.</b> The night is one
                   queue for every Fellow, not one per shelf: {dur(booked)} of work against a {dur(span)} window. Widen the
-                  window, put a Fellow on <b>one task a night</b>, or leave it — what does not fit stands for tomorrow.
+                  hours, put a Fellow on <b>one task a night</b>, or leave it — what does not fit stands for tomorrow.
                 </p>
               ) : blocks.some((b) => b.waits) ? (
                 <p className="cc-note">
@@ -401,8 +442,6 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
             <section className="cc-block">
               <h3 className="cc-sec">
                 Fellows of this shelf <span className="c">{domain.fellows.length}</span>
-                <span className="grow" />
-                <span className="c">↑ ↓ to walk · ↵ to open</span>
               </h3>
               <div className="cc-rows">
                 {domain.fellows.map((f, i) => {
@@ -444,7 +483,14 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
         </>
       )}
 
-      {view === 'tonight' && atShelves && <Shelves row={row} onStaff={() => { setShapeIndex(0); setView('spawn') }} />}
+      {view === 'shelves' && (
+        <Shelves
+          staffed={staffed}
+          row={row}
+          onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
+          onStaff={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
+        />
+      )}
       {view === 'dossier' && fellow && <Dossier fellow={fellow} pane={pane} setPane={setPane} onBack={back} onStep={stepFellow} />}
       {view === 'decisions' && (
         <Decisions
@@ -466,28 +512,82 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
   )
 }
 
-function Shelves({ row, onStaff }: { row: number; onStaff: (key: string) => void }): React.ReactElement {
-  const sorted = [...UNSTAFFED].sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2))
-  const top = sorted[0]
+function Shelves({
+  staffed,
+  row,
+  onOpen,
+  onStaff,
+}: {
+  staffed: readonly CcDomain[]
+  row: number
+  onOpen: (index: number) => void
+  onStaff: (key: string) => void
+}): React.ReactElement {
+  const empty = [...UNSTAFFED].sort((a, b) => b.questions + b.gaps * 2 - (a.questions + a.gaps * 2))
+  const top = empty[0]
+  const fellows = staffed.reduce((n, d) => n + d.fellows.length, 0)
   return (
     <>
       <div className="cc-line2">
-        <span className="cc-lead">
-          <b>Nobody on them</b>
-          <span className="cc-sub">{sorted.length} of {DOMAINS.length} shelves · sorted by what is waiting there, not by size</span>
+        <span className="cc-side" />
+        <span className="cc-facts">
+          <b>Shelves</b>
+          <span className="s">{staffed.length} staffed, {empty.length} not</span>
+          <span className="s">{fellows} Fellow{fellows === 1 ? '' : 's'}</span>
+          <span className="s">{DOMAINS.reduce((n, d) => n + d.pages, 0)} pages</span>
         </span>
+        <span className="cc-side end" />
       </div>
       <div className="lib-window-body cc-body">
         <section className="cc-block">
+          <h3 className="cc-sec">
+            Staffed <span className="c">{staffed.length}</span>
+            <span className="grow" />
+            <span className="c">the order they are worked in — set it in the queue</span>
+          </h3>
+          <div className="cc-rows">
+            {staffed.map((d, i) => {
+              const nightly = d.fellows.reduce((n, f) => n + tonightTasks(f).reduce((m, t) => m + taskMinutes(t.kind), 0), 0)
+              const open = d.fellows.reduce((n, f) => n + f.options.length, 0)
+              return (
+                <div key={d.key} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => onOpen(i)}>
+                  <span className="cc-id">
+                    <span className="cc-idline">
+                      <span className="chip-dot" style={{ background: domainColor(d.key) }} aria-hidden />
+                      <b>{d.key}</b>
+                    </span>
+                    <span className="cc-t">
+                      {d.fellows.map((f) => f.name).join(', ')} · {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'}
+                    </span>
+                  </span>
+                  <span className="cc-right">
+                    {open > 0 && <span className="sev due">{open} up for review</span>}
+                    <span className="mono-meta">{nightly > 0 ? `${Math.round(nightly)} min tonight` : 'nothing tonight'}</span>
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="cc-block">
+          <h3 className="cc-sec">
+            Nobody on them <span className="c">{empty.length}</span>
+            <span className="grow" />
+            <span className="c">sorted by what is waiting there, not by size</span>
+          </h3>
           <p className="cc-note">
             A shelf earns a Fellow when it holds questions nobody is answering.
             {top && <> <b>{top.key}</b> has the most: {top.questions} open questions and {top.gaps} pages linked but never written.</>}
           </p>
           <div className="cc-rows">
-            {sorted.map((d, i) => (
-              <div key={d.key} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => onStaff(d.key)}>
+            {empty.map((d) => (
+              <div key={d.key} className="cc-row" onClick={() => onStaff(d.key)}>
                 <span className="cc-id">
-                  <span className="cc-idline"><b>{d.key}</b></span>
+                  <span className="cc-idline">
+                    <span className="chip-dot" style={{ background: domainColor(d.key), opacity: 0.45 }} aria-hidden />
+                    <b>{d.key}</b>
+                  </span>
                   <span className="cc-t">
                     {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'} · {d.gaps} linked but never written
                     {d.handoffs.length > 0 && (

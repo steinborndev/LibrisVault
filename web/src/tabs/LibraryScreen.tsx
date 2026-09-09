@@ -115,11 +115,9 @@ export function LibraryScreen({
   const [ccOpen, setCcOpen] = useState(ccParam !== '')
   const [ccStop, setCcStop] = useState(0)
   const [ccOrder, setCcOrder] = useState<readonly string[]>([])
-  const [ccView, setCcView] = useState<CcView>('tonight')
+  const [ccView, setCcView] = useState<CcView>('shelves')
   const ccStaffed = useMemo(() => staffedIn(ccOrder), [ccOrder])
-  const ccAtShelves = ccStop >= ccStaffed.length
-  const ccShelf = ccAtShelves ? null : (ccStaffed[ccStop]?.key ?? null)
-  const ccStops = ccStaffed.length + 1
+  const ccShelf = ccView === 'shelves' ? null : (ccStaffed[ccStop]?.key ?? null)
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
@@ -623,22 +621,26 @@ export function LibraryScreen({
           </div>
           <div className="lib-head-mid">
             {ccOpen && (
+              /* Just where you are. Escape steps back, the dots jump, and the shelves view is
+                 the map - so the name needs no arrows around it. */
               <span className="lib-open cc-rot">
-                <button className="cc-arrow" onClick={() => { setCcStop((ccStop - 1 + ccStops) % ccStops); setCcView('tonight') }} aria-label="Previous shelf">‹</button>
                 {ccShelf === null ? (
-                  <b className="cc-name dim">unstaffed shelves</b>
+                  <b className="cc-name dim">Fellows</b>
                 ) : (
                   <>
                     <span className="chip-dot" style={{ background: domainColor(ccShelf) }} aria-hidden />
                     <b className="cc-name">{signText(ccShelf)}</b>
                   </>
                 )}
-                <button className="cc-arrow" onClick={() => { setCcStop((ccStop + 1) % ccStops); setCcView('tonight') }} aria-label="Next shelf">›</button>
                 <span className="cc-dots">
                   {ccStaffed.map((d, i) => (
-                    <i key={d.key} className={i === ccStop ? 'on' : ''} title={d.key} onClick={() => { setCcStop(i); setCcView('tonight') }} />
+                    <i
+                      key={d.key}
+                      className={ccView !== 'shelves' && i === ccStop ? 'on' : ''}
+                      title={d.key}
+                      onClick={() => { setCcStop(i); setCcView('tonight') }}
+                    />
                   ))}
-                  <i className={`shelf ${ccAtShelves ? 'on' : ''}`} title="shelves with nobody on them" onClick={() => { setCcStop(ccStaffed.length); setCcView('tonight') }} />
                 </span>
               </span>
             )}
@@ -684,9 +686,6 @@ export function LibraryScreen({
             )}
           </div>
           <div className="lib-head-right">
-            {ccOpen && (
-              <button className="btn ghost sm" onClick={() => setCcOpen(false)} title="Close · Esc">Close</button>
-            )}
             {!ccOpen && shelf !== null && shelfPage === null && (
               /* Same width and same right edge as "Deepen this domain" in the band below:
                  the two controls of a department stand in one column. */
@@ -704,7 +703,7 @@ export function LibraryScreen({
                 else about them (TASKS-A7). */}
             {shelf === null && board === null && (
               <>
-                <button className="btn primary sm" onClick={() => setCcOpen(true)}>
+                <button className="btn primary sm" onClick={() => { setCcView('shelves'); setCcOpen(true) }}>
                   Manage Fellows
                 </button>
                 {/* What the Fellows are waiting on you for, counted across all of them. */}
