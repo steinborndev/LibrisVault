@@ -152,6 +152,58 @@ describe('system-prompt extension', () => {
     // A link split by a paragraph wrap stops resolving and reads as a dead link everywhere.
     expect(extra).toContain('NEVER break a wikilink across a line')
   })
+
+  /*
+   * The ingest prompt is `ingest <path>` and nothing else, so a url job's address used to stop
+   * at the queue: the run filed the document without ever being told where it came from, and
+   * the source page came out with an empty `sources:`. That page is the reading list's most
+   * reliable route to "this document is already here", so the address has to reach the run.
+   */
+  it('tells a url run the address the service knows', async () => {
+    let extra = ''
+    const q = new IngestQueue({
+      store,
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      detectToolsFn: async () => NO_TOOLS,
+      commit: async () => ({ committed: true, hash: 'h', committedPages: ['wiki/x.md'] }),
+      refreshHotCache: async () => 'noop',
+      runIngest: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        return okResult()
+      },
+      preprocessUrlFn: async (input) => {
+        fs.mkdirSync(input.jobDir, { recursive: true })
+        return {
+          type: 'web',
+          deferred: false,
+          manifestPath: path.join(input.jobDir, 'manifest.json'),
+          primaryArtifact: `.raw/${input.jobId}/normalized.md`,
+          manifest: {} as never,
+        }
+      },
+    })
+    q.start()
+    q.enqueueUrl({ url: 'https://example.org/report.pdf', source: 'drop' })
+    await q.onIdle()
+    expect(extra).toContain('<provenance>')
+    expect(extra).toContain('https://example.org/report.pdf')
+  })
+
+  it('tells a dropped file that the service has no address for it', async () => {
+    let extra = ''
+    const q = makeQueue({
+      runIngest: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        return okResult()
+      },
+    })
+    q.start()
+    await q.enqueueFile({ sourcePath: writeSource('note.md'), source: 'drop' })
+    await q.onIdle()
+    // Said out loud rather than left silent: silence is what a run fills with a guess.
+    expect(extra).toContain('handed over as a file; the service has no address for it')
+  })
 })
 
 describe('post-run validation', () => {

@@ -160,6 +160,40 @@ tags to any page:
 `.trim()
 
 /**
+ * Where each document in this run came from (2026-09-09).
+ *
+ * The ingest prompt is `ingest <path>` and nothing else, so a run had no way to record an
+ * origin unless the document stated one itself. Measured before this existed: 210 of 281
+ * source pages carried no address under `sources:`, and even the pages whose job HAD a url
+ * got it onto the page only about half the time. One page recorded its `.raw/` staging path
+ * there, which is not an address and does not survive the job.
+ *
+ * That address is what makes a source page checkable, and the reading list resolves an entry
+ * to a page by it (`reading-list.ts`, route 3) - without it a Fellow that asked for a paper
+ * is never told the paper arrived.
+ */
+export function renderProvenance(items: ReadonlyArray<{ readonly artifact: string; readonly url: string | null }>): string {
+  if (items.length === 0) return ''
+  const lines = items
+    .map((i) => `- ${i.artifact}: ${i.url ?? 'handed over as a file; the service has no address for it'}`)
+    .join('\n')
+  return `
+<provenance>
+Where the document(s) in this run came from. The service knows this and the file does not,
+so it is stated here:
+
+${lines}
+
+Record the address under the source page's \`sources:\` key, verbatim, as the page's own
+address. A document handed over as a file may still carry its own canonical address - a DOI,
+a publisher url on its title page, an accession number. Record that when the document states
+one, and leave \`sources:\` empty when it does not: never a guess, and never the \`.raw/\`
+staging path, which is not an address and is deleted with the job.
+</provenance>
+`.trim()
+}
+
+/**
  * System-prompt extension for the READ-ONLY query runner (SPEC.md §5, §6.3). The chat
  * answers from the wiki and must not mutate it — the sandbox denies vault writes, and this
  * tells the model why so it doesn't waste turns trying to "file the answer back" (a default

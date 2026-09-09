@@ -52,7 +52,7 @@ import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { msUntilReset } from './budget.js'
 import { readDomainRegistry, domainSystemPrompt } from './domains.js'
-import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES } from './system-prompt.js'
+import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES, renderProvenance } from './system-prompt.js'
 import type { Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
@@ -1007,6 +1007,7 @@ export class IngestQueue {
         PAGE_HYGIENE_CHECKLIST,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -1236,7 +1237,7 @@ export class IngestQueue {
    * Deferred/failed members drop out but never sink the rest of the batch.
    */
   private async processBatch(unit: BatchUnit): Promise<void> {
-    const ready: Array<{ id: string; artifact: string }> = []
+    const ready: Array<{ id: string; artifact: string; url: string | null }> = []
     const names: string[] = []
 
     for (const id of unit.memberIds) {
@@ -1261,7 +1262,7 @@ export class IngestQueue {
           await this.settleContentDuplicate(job, dup)
           continue
         }
-        ready.push({ id, artifact: pre.primaryArtifact })
+        ready.push({ id, artifact: pre.primaryArtifact, url: job.url })
         names.push(job.original_name ?? job.url ?? id)
       } catch (err) {
         this.store.transition(id, 'failed', {
@@ -1298,6 +1299,9 @@ export class IngestQueue {
         PAGE_HYGIENE_CHECKLIST,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        // Each member keeps its OWN origin: a batch is several documents, and one shared
+        // address would file the wrong one on all but one of them.
+        renderProvenance(ready.map((r) => ({ artifact: r.artifact, url: r.url }))),
       ]
         .filter(Boolean)
         .join('\n\n'),
