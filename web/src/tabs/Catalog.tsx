@@ -16,7 +16,7 @@ import { timeAgo } from '../lib/format.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { domainColor, STUB_BYTES } from '../lib/domains.ts'
 import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
-import { sourceLink } from '../lib/sources.ts'
+import { addressLink, sourceLink } from '../lib/sources.ts'
 import { Icon } from '../components/Icon.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import type { GraphNode, SourceRef } from '../api/types.ts'
@@ -423,7 +423,12 @@ function SourceCell({
   // Still loading: nothing at all, not a dash. A dash is a statement ("no source"), and
   // making it before the index arrives would be a lie that flickers.
   if (refs === undefined) return <span className="src-none" />
-  const link = sourceLink(refs[node.path])
+  /*
+   * The ingested document first, the page's own address second. A page a research run wrote
+   * has no ingest behind it - the run read the web rather than filing a document - so the
+   * index never knew it and the column said "no source" about a page that names one.
+   */
+  const link = sourceLink(refs[node.path]) ?? addressLink(node.url)
   if (link === null) return <span className="src-none">-</span>
   return (
     <a

@@ -199,6 +199,12 @@ export interface GraphNode {
   in: number
   /** File mtime (epoch ms) - the "recency" color lens. Absent on hand-built fixtures. */
   mtimeMs?: number
+  /**
+   * The web address the page states for itself (`url:`, or a bare link in `sources:`). A
+   * page a research run wrote has no ingested document behind it, so this is the only record
+   * of where it came from. Absent on most pages and on hand-built fixtures.
+   */
+  url?: string | null
   /** File size in bytes - the "stubs" lens threshold. */
   size?: number
 }

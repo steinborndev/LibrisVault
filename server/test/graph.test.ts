@@ -74,7 +74,7 @@ describe('GraphBuilder', () => {
   })
 
   it('parseFrontmatterMeta handles absence and malformed frontmatter', () => {
-    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [] }
+    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null }
     expect(parseFrontmatterMeta('no frontmatter')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ntags:\n---\nbody')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ndomain:\n---\nbody')).toEqual(empty)
@@ -86,6 +86,21 @@ describe('GraphBuilder', () => {
     const meta = parseFrontmatterMeta('---\ntitle: "Does it work?"\naliases:\n  - "The Q"\n---\nbody')
     expect(meta.title).toBe('Does it work?')
     expect(meta.aliases).toEqual(['The Q'])
+
+    /*
+     * The address a page states for itself, in the two spellings the vault has. An ingest
+     * writes `url:` and puts the stored copy in `sources:`; a research run has no stored
+     * copy and writes the address into `sources:` directly.
+     */
+    expect(parseFrontmatterMeta('---\nurl: "https://example.org/a"\n---\nb').url).toBe('https://example.org/a')
+    expect(parseFrontmatterMeta('---\nsources:\n  - "https://example.org/b"\n---\nb').url).toBe('https://example.org/b')
+    // `url:` leads when both are there: `sources:` may hold the stored copy instead.
+    expect(parseFrontmatterMeta('---\nurl: "https://a.test/x"\nsources:\n  - "[[.raw/j1/raw.html]]"\n---\nb').url).toBe('https://a.test/x')
+    // Only links to follow. A DOI, an archive path and a wikilink are none of them.
+    expect(parseFrontmatterMeta('---\nurl: "10.1016/j.onano.2026.100319"\n---\nb').url).toBeNull()
+    expect(parseFrontmatterMeta('---\nsources:\n  - "[[.raw/j1/raw.html]]"\n---\nb').url).toBeNull()
+    // `sources:` is read as a block, so a list somewhere ABOVE it is not mistaken for one.
+    expect(parseFrontmatterMeta('---\ntags:\n  - "https://not-a-source.test/"\nsources:\n  - "[[x]]"\n---\nb').url).toBeNull()
     expect(parseFrontmatterMeta('---\naliases: [A, "B"]\n---\nbody').aliases).toEqual(['A', 'B'])
   })
 

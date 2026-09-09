@@ -5,7 +5,7 @@
  * it. The server refuses to serve HTML inline as the backstop; this is the near side.
  */
 import { describe, it, expect } from 'vitest'
-import { sourceLink } from '../src/lib/sources.ts'
+import { addressLink, sourceLink } from '../src/lib/sources.ts'
 import type { SourceRef } from '../src/api/types.ts'
 
 const ref = (over: Partial<SourceRef>): SourceRef => ({
@@ -63,5 +63,27 @@ describe('sourceLink', () => {
     const link = sourceLink(ref({ type: 'web', file: null, url: 'not a url' }))
     expect(link!.href).toBe('not a url')
     expect(link!.external).toBe(true)
+  })
+})
+
+/**
+ * The second route to a source: a page that states its own address. A research run reads the
+ * web and writes the page - there is no ingested document, so the index that maps `.raw/`
+ * documents to pages never knew it and the column said "no source" about a page naming one.
+ */
+describe('addressLink', () => {
+  it('links out to the address, and names the site without the www', () => {
+    const link = addressLink('https://www.minimalistbaker.com/a-recipe/')
+    expect(link).toMatchObject({ label: 'Web', icon: 'globe', external: true })
+    expect(link!.href).toBe('https://www.minimalistbaker.com/a-recipe/')
+    expect(link!.title).toBe('Open the source at minimalistbaker.com')
+  })
+
+  it('is nothing when the page states nothing', () => {
+    // A page synthesised from several sources has no single address, and a dash is the
+    // honest answer there. Absent, null and empty all mean the same thing.
+    expect(addressLink(undefined)).toBeNull()
+    expect(addressLink(null)).toBeNull()
+    expect(addressLink('')).toBeNull()
   })
 })

@@ -1,7 +1,8 @@
 /**
  * Turning a page's source reference into the link the Library renders (2026-08-26).
  *
- * Two destinations, and which one a source gets is a security decision, not a preference:
+ * Three routes to a source, and which one a page gets is a security decision, not a
+ * preference:
  *
  *  - A WEB ingest links to its live URL. Its stored payload is the scraped `raw.html`, and
  *    rendering that from the dashboard's origin would run whatever script the page carried,
@@ -9,6 +10,9 @@
  *    inline for the same reason (api/routes/sources.ts); the live site is also what a
  *    reader wants from a web source anyway.
  *  - Everything else links to the document the ingest stored, served out of `.raw/`.
+ *  - A page with no ingested document behind it links to the address it states itself. A
+ *    research run reads the web and writes the page; there is no stored copy to serve, and
+ *    the live address is the only record of where the page came from.
  */
 
 import type { IconName } from '../components/Icon.tsx'
@@ -51,6 +55,23 @@ function host(url: string): string {
     return new URL(url).hostname.replace(/^www\./, '')
   } catch {
     return url
+  }
+}
+
+/**
+ * The link for a page that states its own address (`GraphNode.url`), or null.
+ *
+ * Only reached when no ingest claims the page: the stored document is the better answer
+ * where there is one, because it is the copy the vault holds and the copy the run read.
+ */
+export function addressLink(url: string | null | undefined): SourceLink | null {
+  if (url === undefined || url === null || url === '') return null
+  return {
+    label: LABELS['web']!,
+    icon: ICONS['web']!,
+    href: url,
+    external: true,
+    title: `Open the source at ${host(url)}`,
   }
 }
 
