@@ -18,6 +18,7 @@ import {
   shelvesFrom,
   taskCount,
   tasksTonight,
+  ticksIn,
   toMinutes,
   windowMinutes,
 } from '../src/lib/command/model.ts'
@@ -197,6 +198,30 @@ describe('shelfOrder', () => {
     ])
     // b first for its priority; then c before a, because it is older.
     expect(order.map((s) => s.key)).toEqual(['b', 'c', 'a'])
+  })
+})
+
+describe('ticksIn', () => {
+  it('marks every half hour and calls the whole ones major', () => {
+    // 23:30 to 01:00 across midnight: the scale is unwrapped, so this is 1410 to 1500.
+    expect(ticksIn(1410, 1500, 30)).toEqual([
+      { at: 1440, major: true },
+      { at: 1470, major: false },
+    ])
+  })
+
+  it('leaves the ends bare, because they are the frame', () => {
+    // A mark on 23:00 and on 01:00 would sit on the border of the bar, and a label there
+    // hangs off it. Both ends are excluded, the start by value and the end by the loop.
+    expect(ticksIn(23 * 60, 25 * 60, 60)).toEqual([{ at: 24 * 60, major: true }])
+  })
+
+  it('starts at the first step past the start, not at the start rounded down', () => {
+    expect(ticksIn(1415, 1500, 30).map((t) => t.at)).toEqual([1440, 1470])
+  })
+
+  it('returns nothing rather than looping forever on a step of zero', () => {
+    expect(ticksIn(0, 600, 0)).toEqual([])
   })
 })
 

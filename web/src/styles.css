@@ -8490,6 +8490,10 @@ tr:focus-within .rowacts {
   font-size: 10px; color: var(--text-faint);
 }
 .cc-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--bg-elev); opacity: 0.55; }
+/* The half hour is a finer reading of the same ruler: shorter, so the hour still sets the
+   rhythm and the mark between them only says where you are inside it. */
+.cc-grid.half { top: 60%; opacity: 0.4; }
+.cc-hour.half { opacity: 0.55; font-size: 9px; }
 .cc-arrow {
   width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
   background: var(--bg-elev); color: var(--text-dim); cursor: pointer; font-size: 13px; line-height: 1;

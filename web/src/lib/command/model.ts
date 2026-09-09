@@ -232,6 +232,27 @@ export function taskCount(blocks: readonly Block[]): string {
 }
 
 /**
+ * The marks on a time scale, every `step` minutes, ends excluded.
+ *
+ * The ends are the frame the bar is drawn in; a mark there sits on the border and a label
+ * there hangs off it. `major` is a full hour: the queue is read in half hours but counted in
+ * whole ones, so the two need to look different rather than be two lists drawn twice.
+ */
+export interface Tick {
+  readonly at: number
+  readonly major: boolean
+}
+
+export function ticksIn(from: number, to: number, step: number): Tick[] {
+  const out: Tick[] = []
+  if (step <= 0) return out
+  for (let m = Math.ceil(from / step) * step; m < to; m += step) {
+    if (m > from) out.push({ at: m, major: m % 60 === 0 })
+  }
+  return out
+}
+
+/**
  * Whether a page is the vault's own machinery rather than something a Fellow set out to make.
  *
  * A run touches the indexes it has to touch: `hot.md` and `log.md` are rewritten by every

@@ -46,9 +46,11 @@ import {
   shelfOrder,
   shelvesFrom,
   tasksTonight,
+  ticksIn,
   windowMinutes,
   type Block,
   type Shelf,
+  type Tick,
 } from '../../lib/command/model.ts'
 import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
@@ -75,12 +77,14 @@ interface Scale {
 }
 const NIGHT: Scale = { from: 18 * 60, to: 30 * 60 }
 const pctIn = (s: Scale, m: number): number => ((m - s.from) / (s.to - s.from)) * 100
-/** The full hours strictly inside a scale; the ends are the frame and carry no mark. */
-const hoursIn = (s: Scale): number[] => {
-  const out: number[] = []
-  for (let m = Math.ceil(s.from / 60) * 60; m < s.to; m += 60) if (m > s.from) out.push(m)
-  return out
-}
+/**
+ * How finely each bar is marked. The setter spans a whole night and is dragged in quarter
+ * hours, so hours are enough to aim by. The queue holds work six to eleven minutes long, and
+ * half hours are what make the difference between "starts around one" and "starts at 01:30".
+ */
+const HOUR = 60
+const HALF_HOUR = 30
+const marks = (s: Scale, step: number): Tick[] => ticksIn(s.from, s.to, step)
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 const hhmm = (m: number): string => `${pad2(Math.floor((m % 1440) / 60))}:${pad2(Math.round(m) % 60)}`
 const dur = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} h ${pad2(Math.round(m % 60))}` : `${Math.round(m)} min`)
@@ -569,9 +573,9 @@ export function CommandCentre({
                 <span className="grow" />
                 {saveWindow.isPending && <span className="c">saving…</span>}
               </h3>
-              <Axis scale={NIGHT} />
+              <Axis scale={NIGHT} step={HOUR} />
               <div className="cc-track set">
-                {hoursIn(NIGHT).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(NIGHT, m)}%` }} />)}
+                {marks(NIGHT, HOUR).map((t) => <span key={t.at} className="cc-grid" style={{ left: `${pctIn(NIGHT, t.at)}%` }} />)}
                 <div
                   className="cc-window"
                   style={{ left: `${pctIn(NIGHT, live.from)}%`, width: `${(span / (NIGHT.to - NIGHT.from)) * 100}%` }}
@@ -613,9 +617,11 @@ export function CommandCentre({
           <div className="lib-window-body cc-body">
             <section className="cc-bars">
               <h3 className="cc-sec">The queue</h3>
-              <Axis scale={live} />
+              <Axis scale={live} step={HALF_HOUR} />
               <div className="cc-track">
-                {hoursIn(live).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(live, m)}%` }} />)}
+                {marks(live, HALF_HOUR).map((t) => (
+                  <span key={t.at} className={`cc-grid ${t.major ? '' : 'half'}`} style={{ left: `${pctIn(live, t.at)}%` }} />
+                ))}
                 {bandsOf(blocks).map((g) => (
                   <div
                     key={`${g.shelf}-${g.from}`}
@@ -843,12 +849,14 @@ function bandsOf(blocks: readonly Block[]): Array<{ shelf: string; from: number;
   return out
 }
 
-/** The shared axis: one label at every full hour of whatever stretch is being drawn. */
-function Axis({ scale }: { scale: Scale }): React.ReactElement {
+/** The shared axis: a label at every mark, the half hours set behind the whole ones. */
+function Axis({ scale, step }: { scale: Scale; step: number }): React.ReactElement {
   return (
     <div className="cc-axis">
-      {hoursIn(scale).map((m) => (
-        <span key={m} className="cc-hour" style={{ left: `${pctIn(scale, m)}%` }}>{hhmm(m)}</span>
+      {marks(scale, step).map((t) => (
+        <span key={t.at} className={`cc-hour ${t.major ? '' : 'half'}`} style={{ left: `${pctIn(scale, t.at)}%` }}>
+          {hhmm(t.at)}
+        </span>
       ))}
     </div>
   )
