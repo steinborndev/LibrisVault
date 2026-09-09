@@ -8422,8 +8422,32 @@ tr:focus-within .rowacts {
    A shelf window's frame with its own body: the night, a dossier, the decisions
    overlay and the spawn form. Everything here is scoped under `.cc` so it cannot
    reach the room behind it. */
-.cc-head { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg-elev-2); }
+/* The window's own second line, under the library headline: what is here, and the one or two
+   things you can do to it. Same height as a department's filter band. */
+.cc-line2 {
+  display: flex; align-items: center; gap: 10px; flex: none; padding: 9px 18px;
+  border-bottom: 1px solid var(--border); background: var(--bg-elev-2); min-height: 44px; box-sizing: border-box;
+}
+.cc-lead { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.cc-lead > b { font-size: 14px; font-weight: 650; }
+.cc-step { display: inline-flex; align-items: center; gap: 4px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-faint); }
+.cc-step button {
+  width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border-strong);
+  background: var(--bg-elev); color: var(--text-dim); cursor: pointer; line-height: 1;
+}
+.cc-step button:hover { border-color: var(--accent); color: var(--accent); }
 .cc-rot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cc-name.dim { color: var(--text-dim); }
+/* Vertical rhythm: one block per question the view answers, never three things in one band. */
+.cc-block { margin-bottom: 26px; }
+.cc-block:last-child { margin-bottom: 0; }
+/* An axis, not four stray numbers: a label at every full hour and a gridline under each. */
+.cc-axis { position: relative; height: 14px; margin-bottom: 2px; }
+.cc-hour {
+  position: absolute; transform: translateX(-50%); font-family: ui-monospace, monospace;
+  font-size: 10px; color: var(--text-faint);
+}
+.cc-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--bg-elev); opacity: 0.55; }
 .cc-arrow {
   width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
   background: var(--bg-elev); color: var(--text-dim); cursor: pointer; font-size: 13px; line-height: 1;
@@ -8449,7 +8473,7 @@ tr:focus-within .rowacts {
   font-family: ui-monospace, monospace; font-size: 11px; background: var(--gold); color: #fff;
   border-radius: 999px; min-width: 17px; height: 17px; display: grid; place-items: center; padding: 0 4px;
 }
-.cc-body { padding: 14px 18px 22px; }
+.cc-body { padding: 20px 18px 26px; }
 /* The dossier does not scroll as a whole: its head stays put and the reading area scrolls. */
 .cc-fixed { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
@@ -8504,7 +8528,7 @@ tr:focus-within .rowacts {
 
 .cc-rows { display: flex; flex-direction: column; gap: 6px; }
 .cc-row {
-  display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 9px 11px;
+  display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 11px 13px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); cursor: pointer;
 }
 .cc-row:hover { border-color: var(--border-strong); }
@@ -8545,9 +8569,17 @@ tr:focus-within .rowacts {
 .cc-dos-head h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 7px; }
 .cc-back { border: none; background: none; color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
 .cc-back:hover { color: var(--accent); }
-.cc-upnext { padding: 0 18px 9px; display: flex; align-items: center; gap: 8px; flex: none; font-size: 12.5px; color: var(--text-dim); }
+.cc-upnext {
+  display: flex; align-items: center; gap: 9px; flex: none; font-size: 12.5px; color: var(--text-dim);
+  padding: 10px 18px; border-bottom: 1px solid var(--border);
+}
+.cc-upnext-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-upnext .k { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
-.cc-bar-row { display: flex; align-items: center; gap: 10px; padding: 0 18px 10px; flex: none; flex-wrap: wrap; }
+.cc-bar-row { display: flex; align-items: center; gap: 10px; padding: 12px 18px 10px; flex: none; flex-wrap: wrap; }
+/* Prose gets a measure; a 66ch column is the difference between a page and a wall of text. */
+.cc-prose { max-width: 72ch; }
+.cc-ledger tr.open { cursor: pointer; }
+.cc-ledger tr.open:hover td { background: var(--accent-soft); }
 /* The reading area takes the window's whole remaining height and scrolls on its own - the
    same rule the catalog reader follows. */
 .cc-area {

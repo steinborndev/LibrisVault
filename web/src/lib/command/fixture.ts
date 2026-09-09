@@ -67,7 +67,15 @@ export interface CcFellow {
   readonly tasks: readonly CcTask[]
   readonly options: readonly CcOption[]
   readonly notebook: ReadonlyArray<{ readonly head: string; readonly body: string }>
-  readonly ledger: ReadonlyArray<{ readonly when: string; readonly topic: string; readonly kind: string; readonly out: string; readonly cost: string }>
+  readonly ledger: ReadonlyArray<{
+    readonly when: string
+    readonly topic: string
+    readonly kind: string
+    readonly out: string
+    readonly cost: string
+    /** The synthesis page the run filed, when it filed one. A planning run has none. */
+    readonly page?: string
+  }>
   readonly pages: readonly string[]
   readonly recap: {
     readonly date: string
@@ -232,9 +240,9 @@ export const DOMAINS: readonly CcDomain[] = [
           },
         ],
         ledger: [
-          { when: '09-08 01:12', topic: 'Self-amplifying mRNA durability', kind: 'research', out: '7 pages', cost: '$2.58' },
-          { when: '09-06 01:04', topic: 'FDA antibody approvals, reconciled', kind: 'research-step', out: '3 pages', cost: '$2.61' },
-          { when: '09-04 01:09', topic: 'LNP manufacturing literature', kind: 'research-expand', out: '4 pages', cost: '$2.74' },
+          { when: '09-08 01:12', topic: 'Self-amplifying mRNA durability', kind: 'research', out: '7 pages', cost: '$2.58', page: 'wiki/questions/Research: Self-amplifying mRNA durability.md' },
+          { when: '09-06 01:04', topic: 'FDA antibody approvals, reconciled', kind: 'research-step', out: '3 pages', cost: '$2.61', page: 'wiki/questions/Research: FDA antibody approvals, reconciled.md' },
+          { when: '09-04 01:09', topic: 'LNP manufacturing literature', kind: 'research-expand', out: '4 pages', cost: '$2.74', page: 'wiki/concepts/LNP Manufacturing and Characterisation.md' },
           { when: '09-03 01:02', topic: 'Planning run', kind: 'plan', out: '—', cost: '$0.54' },
         ],
         pages: [
@@ -316,8 +324,8 @@ export const DOMAINS: readonly CcDomain[] = [
           },
         ],
         ledger: [
-          { when: '09-07 01:20', topic: 'EU assessment reports, 2026', kind: 'research-expand', out: '4 pages', cost: '$2.66' },
-          { when: '09-05 01:15', topic: 'Process control literature', kind: 'research-expand', out: '4 pages', cost: '$2.71' },
+          { when: '09-07 01:20', topic: 'EU assessment reports, 2026', kind: 'research-expand', out: '4 pages', cost: '$2.66', page: 'wiki/concepts/European Medicines Agency.md' },
+          { when: '09-05 01:15', topic: 'Process control literature', kind: 'research-expand', out: '4 pages', cost: '$2.71', page: 'wiki/concepts/Good Manufacturing Practice.md' },
         ],
         pages: ['Assessment Report - Kostaive', 'European Medicines Agency', 'Self-Amplifying RNA'],
         recap: {
@@ -344,7 +352,7 @@ export const DOMAINS: readonly CcDomain[] = [
         notebook: [
           { head: '2026-09-06', body: 'Both questions answered as far as the library can take them. Nothing left to pursue.' },
         ],
-        ledger: [{ when: '09-06 01:11', topic: 'Linker chemistries, approved 2025', kind: 'research', out: '5 pages', cost: '$2.90' }],
+        ledger: [{ when: '09-06 01:11', topic: 'Linker chemistries, approved 2025', kind: 'research', out: '5 pages', cost: '$2.90', page: 'wiki/questions/Research: Linker chemistries approved 2025.md' }],
         pages: ['Antibody-Drug Conjugate'],
         recap: {
           date: '2026-09-09',
@@ -419,7 +427,7 @@ export const DOMAINS: readonly CcDomain[] = [
             body: 'The vault had the architecture pages but nothing on the evaluation methodology. That is the gap worth closing.',
           },
         ],
-        ledger: [{ when: '09-08 01:30', topic: 'Long-context evaluation methods', kind: 'research', out: '4 pages', cost: '$6.45' }],
+        ledger: [{ when: '09-08 01:30', topic: 'Long-context evaluation methods', kind: 'research', out: '4 pages', cost: '$6.45', page: 'wiki/questions/Research: Long-context evaluation methods.md' }],
         pages: ['Scikit-Learn', 'Training Deep Neural Networks', 'PyTorch'],
         recap: {
           date: '2026-09-09',
@@ -450,7 +458,7 @@ export const DOMAINS: readonly CcDomain[] = [
         lens: 'startups',
         tasks: [{ kind: 'watch', text: 'reserve-currency mechanics' }],
         notebook: [{ head: '2026-09-05', body: 'Filed the Bretton Woods page. The vault treats this as history; the live mechanics are the gap.' }],
-        ledger: [{ when: '09-05 01:08', topic: 'Bretton Woods dollar system', kind: 'research-step', out: '3 pages', cost: '$2.49' }],
+        ledger: [{ when: '09-05 01:08', topic: 'Bretton Woods dollar system', kind: 'research-step', out: '3 pages', cost: '$2.49', page: 'wiki/concepts/Bretton Woods Dollar System.md' }],
         pages: ['Bretton Woods Dollar System', 'Financial Repression'],
         recap: {
           date: '2026-09-09',
@@ -483,7 +491,7 @@ export const DOMAINS: readonly CcDomain[] = [
           { kind: 'watch', text: 'how teams adopt them in production' },
         ],
         notebook: [{ head: '2026-09-08', body: 'Wrote the skills tutorial synthesis. It is long; the next pass should split it.' }],
-        ledger: [{ when: '09-08 21:45', topic: 'Claude Code skills tutorial', kind: 'research', out: '23 pages', cost: '$6.45' }],
+        ledger: [{ when: '09-08 21:45', topic: 'Claude Code skills tutorial', kind: 'research', out: '23 pages', cost: '$6.45', page: 'wiki/questions/Research: Claude Code skills tutorial.md' }],
         pages: ['Agentic Loop', 'Claude SEO', 'Vibe Coding'],
         recap: {
           date: '2026-09-09',
@@ -508,6 +516,23 @@ export const DOMAINS: readonly CcDomain[] = [
   { key: 'quantum-computing', pages: 14, questions: 2, gaps: 0, handoffs: [], fellows: [] },
   { key: 'carbon-fiber', pages: 13, questions: 1, gaps: 1, handoffs: [], fellows: [] },
 ]
+
+/** The domains that have a Fellow, in the order the night works them (the drag sets it). */
+export function staffedIn(order: readonly string[]): readonly CcDomain[] {
+  const known = DOMAINS.filter((d) => d.fellows.length > 0)
+  const byKey = new Map(known.map((d) => [d.key, d]))
+  const out = order.map((k) => byKey.get(k)).filter((d): d is CcDomain => d !== undefined)
+  for (const d of known) if (!out.includes(d)) out.push(d)
+  return out
+}
+
+/** The shelves nobody looks after: the rotation's last stop, never a dead end. */
+export const UNSTAFFED: readonly CcDomain[] = DOMAINS.filter((d) => d.fellows.length === 0)
+
+/** Every Fellow, in the order the rotation walks them - what left and right step through. */
+export function fellowsIn(order: readonly string[]): ReadonlyArray<{ readonly domain: CcDomain; readonly fellow: CcFellow }> {
+  return staffedIn(order).flatMap((domain) => domain.fellows.map((fellow) => ({ domain, fellow })))
+}
 
 /** The four shapes a new Fellow can start from (A7 D7): worked examples, not types. */
 export interface CcShape {

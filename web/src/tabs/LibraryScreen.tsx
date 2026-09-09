@@ -26,7 +26,8 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
-import { CommandCentre } from '../components/library/CommandCentre.tsx'
+import { CommandCentre, type CcView } from '../components/library/CommandCentre.tsx'
+import { staffedIn } from '../lib/command/fixture.ts'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
@@ -105,8 +106,20 @@ export function LibraryScreen({
   const [mode, setMode] = useState<Mode>(shelfParam !== '' || agentParam !== '' ? 'full' : 'focus')
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
-  /* The Fellow command centre (TASKS-A7), opened by `?cc=1` while it runs on fixture data. */
+  /*
+   * The Fellow command centre (TASKS-A7), opened by "Manage Fellows" or `?cc=1`. Its shelf
+   * rotation lives here rather than in the window, because the name it rotates through stands
+   * in the HEADLINE - the same two-line shape a department gets, where the middle zone says
+   * where you are and the window below it says what is there.
+   */
   const [ccOpen, setCcOpen] = useState(ccParam !== '')
+  const [ccStop, setCcStop] = useState(0)
+  const [ccOrder, setCcOrder] = useState<readonly string[]>([])
+  const [ccView, setCcView] = useState<CcView>('tonight')
+  const ccStaffed = useMemo(() => staffedIn(ccOrder), [ccOrder])
+  const ccAtShelves = ccStop >= ccStaffed.length
+  const ccShelf = ccAtShelves ? null : (ccStaffed[ccStop]?.key ?? null)
+  const ccStops = ccStaffed.length + 1
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
@@ -299,7 +312,7 @@ export function LibraryScreen({
     },
     [rooms, current, pickRoom],
   )
-  const windowOpen = shelf !== null || board !== null
+  const windowOpen = shelf !== null || board !== null || ccOpen
   useEffect(() => {
     const el = areaRef.current
     if (!el || windowOpen) return
@@ -586,7 +599,9 @@ export function LibraryScreen({
              * looking at; the reading list's own two lists when that board is open, because
              * they are the choice that matters there; nothing for the other two boards.
              */}
-            {board === 'reading' && shelf === null ? (
+            {/* The command centre always opens in focus: the room behind it is not what you
+                are looking at, so there is no mode to choose while it is open. */}
+            {ccOpen ? null : board === 'reading' && shelf === null ? (
               <div className="seg sm" role="radiogroup" aria-label="Reading list">
                 <button role="radio" aria-checked={readingTab === 'current'} onClick={() => setReadingTab('current')}>
                   Current
@@ -607,7 +622,27 @@ export function LibraryScreen({
             )}
           </div>
           <div className="lib-head-mid">
-            {shelf === null && board === null && rooms.length > 0 && current && (
+            {ccOpen && (
+              <span className="lib-open cc-rot">
+                <button className="cc-arrow" onClick={() => { setCcStop((ccStop - 1 + ccStops) % ccStops); setCcView('tonight') }} aria-label="Previous shelf">‹</button>
+                {ccShelf === null ? (
+                  <b className="cc-name dim">unstaffed shelves</b>
+                ) : (
+                  <>
+                    <span className="chip-dot" style={{ background: domainColor(ccShelf) }} aria-hidden />
+                    <b className="cc-name">{signText(ccShelf)}</b>
+                  </>
+                )}
+                <button className="cc-arrow" onClick={() => { setCcStop((ccStop + 1) % ccStops); setCcView('tonight') }} aria-label="Next shelf">›</button>
+                <span className="cc-dots">
+                  {ccStaffed.map((d, i) => (
+                    <i key={d.key} className={i === ccStop ? 'on' : ''} title={d.key} onClick={() => { setCcStop(i); setCcView('tonight') }} />
+                  ))}
+                  <i className={`shelf ${ccAtShelves ? 'on' : ''}`} title="shelves with nobody on them" onClick={() => { setCcStop(ccStaffed.length); setCcView('tonight') }} />
+                </span>
+              </span>
+            )}
+            {!ccOpen && shelf === null && board === null && rooms.length > 0 && current && (
               <RoomStrip
                 rooms={rooms}
                 current={current.id}
@@ -620,13 +655,13 @@ export function LibraryScreen({
                 {...(createWing.isPending ? {} : { onNewWing: () => createWing.mutate() })}
               />
             )}
-            {shelf === null && board !== null && (
+            {!ccOpen && shelf === null && board !== null && (
               <span className="lib-open">
                 <b>{BOARD_TITLES[board]}</b>
                 <span className="box-sub">{BOARD_SUBS[board]}</span>
               </span>
             )}
-            {shelf !== null && (
+            {!ccOpen && shelf !== null && (
               <span className="lib-open">
                 <span className="chip-dot" style={{ background: domainColor(shelf) }} aria-hidden />
                 {shelfPage === null ? (
@@ -649,7 +684,10 @@ export function LibraryScreen({
             )}
           </div>
           <div className="lib-head-right">
-            {shelf !== null && shelfPage === null && (
+            {ccOpen && (
+              <button className="btn ghost sm" onClick={() => setCcOpen(false)} title="Close · Esc">Close</button>
+            )}
+            {!ccOpen && shelf !== null && shelfPage === null && (
               /* Same width and same right edge as "Deepen this domain" in the band below:
                  the two controls of a department stand in one column. */
               <div className="seg sm shelf-view" role="tablist" aria-label="View">
@@ -672,7 +710,7 @@ export function LibraryScreen({
                 {/* What the Fellows are waiting on you for, counted across all of them. */}
                 <button
                   className={`btn sm lib-decisions${openDecisions > 0 ? ' due' : ''}`}
-                  onClick={() => setBoard('recap')}
+                  onClick={() => { setCcView('decisions'); setCcOpen(true) }}
                   title={openDecisions > 0 ? `${openDecisions} proposal(s) waiting for a decision` : 'Nothing is waiting for a decision'}
                 >
                   Decisions
@@ -714,7 +752,17 @@ export function LibraryScreen({
 
           {/* The Fellow command centre, over the room like a shelf window (TASKS-A7). Behind
               `?cc=1` while it runs on fixture data. */}
-          {ccOpen && <CommandCentre onClose={() => setCcOpen(false)} />}
+          {ccOpen && (
+            <CommandCentre
+              stop={ccStop}
+              setStop={setCcStop}
+              order={ccOrder}
+              setOrder={setCcOrder}
+              view={ccView}
+              setView={setCcView}
+              onClose={() => setCcOpen(false)}
+            />
+          )}
 
           {/* A department's window: its graph and its catalog, over the room (section 10.5). */}
           {shelf !== null && !ccOpen && (
