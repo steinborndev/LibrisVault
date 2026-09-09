@@ -328,7 +328,8 @@ export function CommandCentre({
   const planOnly = mine.filter((b) => !b.runs)
 
   const deciders = useMemo(
-    () => roster.filter((r) => r.fellow.pendingProposals > 0),
+    // Undecided, not standing: approving one is what takes it off this list.
+    () => roster.filter((r) => r.fellow.undecidedProposals > 0),
     [roster],
   )
 
@@ -689,7 +690,7 @@ export function CommandCentre({
                         <span className="cc-t">{rested ? `all ${f.agent.tasks.length} questions answered, nothing standing` : f.agent.intent}</span>
                       </span>
                       <span className="cc-right">
-                        {f.pendingProposals > 0 && (
+                        {f.undecidedProposals > 0 && (
                           <button
                             className="sev due cc-pill"
                             onClick={(e) => {
@@ -701,7 +702,7 @@ export function CommandCentre({
                               setView('decisions')
                             }}
                           >
-                            {f.pendingProposals} decision{f.pendingProposals === 1 ? '' : 's'}
+                            {f.undecidedProposals} decision{f.undecidedProposals === 1 ? '' : 's'}
                           </button>
                         )}
                         {tonight.length === 0 ? (
@@ -912,7 +913,7 @@ function Shelves({
           <div className="cc-rows">
             {staffed.map((d, i) => {
               const nightly = blocks.filter((b) => b.shelf === d.key).reduce((n, b) => n + b.minutes, 0)
-              const open = d.fellows.reduce((n, f) => n + f.pendingProposals, 0)
+              const open = d.fellows.reduce((n, f) => n + f.undecidedProposals, 0)
               return (
                 <div key={d.key} className={`cc-row one ${i === row ? 'sel' : ''}`} onClick={() => onOpen(i)}>
                   <span className="chip-dot" style={{ background: domainColor(d.key) }} aria-hidden />
@@ -1533,7 +1534,7 @@ function Decisions({
           {list.map(({ shelf, fellow }, i) => (
             <div key={fellow.agent.id} className={`cc-rail-i ${i === at ? 'on' : ''}`} onClick={() => onPick(i)}>
               <span className="nm">{fellow.agent.name}<i>{shelf.key}</i></span>
-              <span className="cnt">{fellow.pendingProposals}</span>
+              <span className="cnt">{fellow.undecidedProposals}</span>
             </div>
           ))}
         </div>

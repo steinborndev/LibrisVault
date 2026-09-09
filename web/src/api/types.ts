@@ -958,7 +958,14 @@ export interface FellowSummary {
   currentRun: MaintenanceRun | null
   lastRun: AgentRunRecord | null
   runsToday: number
+  /** Proposals still to decide or to run: approved ones stand here until they have run. */
   pendingProposals: number
+  /**
+   * Proposals still UNDECIDED. An approved proposal keeps standing until a run takes it, so
+   * `pendingProposals` counts it while nothing is up for review; a count labelled "decisions"
+   * has to be this one.
+   */
+  undecidedProposals: number
   next: ProposalRecord | null
 }
 

@@ -210,8 +210,14 @@ export interface FellowSummary {
   readonly currentRun: MaintenanceRun | null
   readonly lastRun: AgentRunRecord | null
   readonly runsToday: number
-  /** Proposals still to decide or to run. */
+  /** Proposals still to decide or to run: approved ones stand here until they have run. */
   readonly pendingProposals: number
+  /**
+   * Proposals still UNDECIDED. Not the same number: an approved proposal keeps standing
+   * until a run takes it, so `pendingProposals` counts it and nothing is up for review. A
+   * count labelled "decisions" has to be this one, or it promises work that is already done.
+   */
+  readonly undecidedProposals: number
   /** The proposal the next shift would run, if any. */
   readonly next: ProposalRecord | null
 }
@@ -457,6 +463,7 @@ export class FellowService {
       lastRun: lastRun ?? null,
       runsToday: this.runsToday(agent.id),
       pendingProposals: this.pendingProposals(agent.id).length,
+      undecidedProposals: this.pendingProposals(agent.id).filter((p) => p.status === 'proposed').length,
       next: this.runnable(agent.id) ?? null,
     }
   }

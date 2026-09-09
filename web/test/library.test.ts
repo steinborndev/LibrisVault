@@ -8,6 +8,7 @@ import {
   furthestFamily,
   runPercent,
   buildActors,
+  exitOk,
   floorLine,
   EXIT_MS,
   POSE_WINDOW_MS,
@@ -338,5 +339,26 @@ describe('the progress figure', () => {
     expect(by['run:r3']?.caption).toBe('researcher (writing 50%)')
     // Queued behind the runner: it has not started, so there is nothing to be 10 % of.
     expect(by['fellow:a2']?.caption).toBe('Bo (waiting)')
+  })
+})
+
+describe('exitOk', () => {
+  it('calls a run failed only when its record says so', () => {
+    expect(exitOk({ status: 'error' })).toBe(false)
+    expect(exitOk({ status: 'done' })).toBe(true)
+  })
+
+  it('does not read a stale in-flight record as a failure', () => {
+    /*
+     * The run list is a separate poll with its own staleness, so a run that has just left
+     * the scene is often still `running` there. Reading "not done" as failure put a red
+     * "failed" tag on a planning run that was writing its result.
+     */
+    expect(exitOk({ status: 'running' })).toBe(true)
+  })
+
+  it('does not read a missing record as a failure either', () => {
+    // Same evidence, same answer: nothing said is not the same as something went wrong.
+    expect(exitOk(undefined)).toBe(true)
   })
 })

@@ -37,7 +37,7 @@ import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
 import { orderedDomains, stepInOrder } from '../lib/library/shelfOrder.ts'
 import { navigate } from '../lib/router.ts'
-import { buildActors, floorLine, roleOfRun, ROLE_NAME, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
+import { buildActors, exitOk, floorLine, roleOfRun, ROLE_NAME, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
 import { shareLine } from '../lib/plan.ts'
 import { planCorner } from '../lib/library/planCorner.ts'
 import { FiveHourRelease } from '../components/library/FiveHourRelease.tsx'
@@ -246,16 +246,18 @@ export function LibraryScreen({
     const gone: Exit[] = []
     for (const [id, who] of seen.current) {
       if (live.has(id)) continue
-      const run = runsQ.data?.runs.find((r) => r.id === id)
-      const ok = run ? run.status === 'done' : true
+      const ok = exitOk(runsQ.data?.runs.find((r) => r.id === id))
       gone.push({ id, kind: who.role === 'clerk' ? 'job' : 'run', ok, name: who.name, role: who.role, at: Date.now(), ...(who.agentId ? { agentId: who.agentId } : {}) })
     }
     seen.current = live
     if (gone.length > 0) {
       setExits((xs) => [...xs, ...gone])
       // A run that just settled is the one event that certainly moved the plan windows; the
-      // poll would otherwise show the old figure for up to a minute (section 8.3).
+      // poll would otherwise show the old figure for up to a minute (section 8.3). The run
+      // list is refetched for the same reason: it is the record every other screen reads the
+      // outcome from, and it is the one this handler just found to be out of date.
       void qc.invalidateQueries({ queryKey: ['usage-plan'] })
+      void qc.invalidateQueries({ queryKey: ['maintenance-runs'] })
     }
   }, [scene.data, runsQ.data, qc])
 

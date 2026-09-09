@@ -221,6 +221,18 @@ export interface Exit {
 
 export const EXIT_MS = 6000
 
+/**
+ * Whether a run that just left the room left having succeeded.
+ *
+ * Only a record that SAYS it failed is a failure. The run list is a separate poll with its
+ * own staleness, so at the moment a run disappears from the scene its record is often still
+ * the in-flight one - `status: 'running'` - and reading "not done" as failure told the room a
+ * planning run had failed while it was writing its result.
+ */
+export function exitOk(run: { readonly status: string } | undefined): boolean {
+  return run === undefined || run.status !== 'error'
+}
+
 export interface AdapterInput {
   readonly scene: LibraryScene
   /** The log lines of a channel, oldest first; the pose reads the recent ones (see {@link steadyFamily}). */
