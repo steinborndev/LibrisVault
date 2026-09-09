@@ -2,13 +2,14 @@
  * Where a document came from, told to the ingest run (system-prompt.ts `renderProvenance`).
  *
  * Written 2026-09-09 after a hand-dropped regulatory report was ingested and the reading list
- * never noticed it had arrived. All five of its matching routes failed, each for its own reason,
- * and the one that would have caught it - a source page recording the document's address -
- * failed because the page recorded none. It could not: the ingest prompt is `ingest <path>` and
- * nothing else, so the run was never told the address even when the job had one.
+ * never noticed it had arrived. All five of its matching routes failed, and the one that
+ * should have caught it - a source page recording the document's address - failed for a
+ * reason worth encoding in tests: the page HAD the address, written into `url:` as a sentence
+ * with the address in brackets inside it. A reader sees it; the duplicate check compares the
+ * field literally and matches nothing.
  *
- * Measured on the vault before this block existed: 210 of 281 source pages carried no address
- * under `sources:`, and of the pages whose job DID know a url, only about half carried it.
+ * Hence the two things asserted here: the address reaches the run at all, and the run is told
+ * the shape to write it in.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -20,7 +21,8 @@ describe('renderProvenance', () => {
     expect(block).toContain('<provenance>')
     expect(block).toContain('</provenance>')
     expect(block).toContain('.raw/j1/normalized.md: https://example.org/media/155931/download')
-    expect(block).toContain('`sources:`')
+    // `url:` is the source schema's own field for the page's address.
+    expect(block).toContain('`url:`')
   })
 
   it('says plainly when there is no address, rather than leaving the run to guess', () => {
@@ -31,10 +33,22 @@ describe('renderProvenance', () => {
     expect(block).toMatch(/never a guess/i)
   })
 
-  it('forbids the staging path, which one page had recorded as its source', () => {
-    // A `- "[[.raw/<job-id>/normalized.md]]"` line stood under `sources:` on a real page: not
-    // an address, and deleted with the job.
-    expect(renderProvenance([{ artifact: 'a', url: null }])).toContain('`.raw/`')
+  it('rules out the shapes that actually turned up in the vault', () => {
+    const block = renderProvenance([{ artifact: 'a', url: null }])
+    // A sentence with the address inside it - three pages had exactly this.
+    expect(block).toContain('bare address and nothing else')
+    // Placeholder words where an empty field was meant.
+    expect(block).toContain('`unknown`')
+    // The staging path: a location on this disk, not an address.
+    expect(block).toContain('`.raw/`')
+  })
+
+  it('leaves `sources:` alone, because the vault schema already uses it', () => {
+    // `sources:` is the universal field holding the `[[.raw/...]]` link to the raw file the
+    // page was made from. An address written there would be in the wrong field AND would
+    // displace the link the schema asks for.
+    const block = renderProvenance([{ artifact: 'a', url: 'https://example.org/x' }])
+    expect(block).toContain('do not\nput an address there')
   })
 
   it('keeps each member of a batch on its own origin', () => {

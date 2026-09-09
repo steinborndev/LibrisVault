@@ -163,14 +163,23 @@ tags to any page:
  * Where each document in this run came from (2026-09-09).
  *
  * The ingest prompt is `ingest <path>` and nothing else, so a run had no way to record an
- * origin unless the document stated one itself. Measured before this existed: 210 of 281
- * source pages carried no address under `sources:`, and even the pages whose job HAD a url
- * got it onto the page only about half the time. One page recorded its `.raw/` staging path
- * there, which is not an address and does not survive the job.
+ * origin unless the document stated one itself. The address is what makes a source page
+ * checkable, and the reading list resolves an entry to a page by it (`reading-list.ts`,
+ * route 3, over the dedupe index's `url:`/`source_url:`/`doi:` reading) - without it a
+ * Fellow that asked for a paper is never told the paper arrived.
  *
- * That address is what makes a source page checkable, and the reading list resolves an entry
- * to a page by it (`reading-list.ts`, route 3) - without it a Fellow that asked for a paper
- * is never told the paper arrived.
+ * Measured on the vault before this block existed: 202 of 281 source pages carried a usable
+ * address, 73 never had one to carry (dropped files that state none), and 6 had lost one the
+ * service or the page itself still knew. Small - but the shape of those 6 is the point:
+ *
+ * - 3 wrote a SENTENCE into the field, with the real address in brackets inside it. A reader
+ *   sees the address; the duplicate check compares the field literally and matches nothing.
+ * - 2 wrote `unknown`, 2 wrote `null` - a placeholder where an empty field was meant.
+ * - the rest came from url jobs whose address simply never reached the run.
+ *
+ * So the block states the address AND the shape it has to be written in. The field is `url:`,
+ * which the vault's own source schema gives a page for its own address; `sources:` is the
+ * universal field holding the `[[.raw/...]]` link and is deliberately left alone.
  */
 export function renderProvenance(items: ReadonlyArray<{ readonly artifact: string; readonly url: string | null }>): string {
   if (items.length === 0) return ''
@@ -184,11 +193,20 @@ so it is stated here:
 
 ${lines}
 
-Record the address under the source page's \`sources:\` key, verbatim, as the page's own
-address. A document handed over as a file may still carry its own canonical address - a DOI,
-a publisher url on its title page, an accession number. Record that when the document states
-one, and leave \`sources:\` empty when it does not: never a guess, and never the \`.raw/\`
-staging path, which is not an address and is deleted with the job.
+Record it as the source page's \`url:\` - the field the vault schema gives a source page for
+its own address. \`sources:\` is a different field and keeps its \`[[.raw/...]]\` link; do not
+put an address there.
+
+\`url:\` holds a bare address and nothing else. Not a sentence about the address, not the
+address in brackets after a description of the file: the duplicate check reads this field
+literally, so \`url: "local file: .raw/<job>/x.pdf (example.org/media/123)"\` is unreadable to
+it even though a human can see the address inside. Write \`url: "https://example.org/media/123"\`.
+
+A document handed over as a file may still carry its own canonical address - a DOI, a
+publisher url on its title page, an accession number. Record that when the document states
+one. When it states none, leave the field empty (\`url: ""\`): never a guess, never the
+placeholder words \`unknown\` or \`null\`, and never the \`.raw/\` staging path, which is a
+location on this disk rather than an address.
 </provenance>
 `.trim()
 }

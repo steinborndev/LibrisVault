@@ -37,6 +37,7 @@ export type ValidationRule =
   | 'address-map'
   | 'stale-counter'
   | 'single-source-entity'
+  | 'source-url'
   | 'hot-cache-size'
 
 export interface ValidationFinding {
@@ -286,6 +287,23 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
         rule: 'dates',
         path: rel,
         message: `created (${created}) is after updated (${updated}) — bump updated: when editing`,
+      })
+    }
+
+    /*
+     * A source page's `url:` is read literally by the dedupe index and the reading list, so a
+     * value that merely CONTAINS an address is as good as blank to them. Three pages had one
+     * written as a sentence with the address in brackets inside it, and four held placeholder
+     * words; none of the seven could answer "is this document already here?".
+     *
+     * An empty field is fine and stays silent: plenty of documents state no address.
+     */
+    const rawUrl = (fm.fields.get('url') ?? '').trim().replace(/^["']|["']$/g, '')
+    if ((fm.fields.get('type') ?? '').toLowerCase() === 'source' && rawUrl !== '' && !/^https?:\/\/\S+$/.test(rawUrl)) {
+      findings.push({
+        rule: 'source-url',
+        path: rel,
+        message: `url: must be a bare address or empty, not ${JSON.stringify(rawUrl.slice(0, 60))}`,
       })
     }
 

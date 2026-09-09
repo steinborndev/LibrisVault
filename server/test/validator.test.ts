@@ -61,6 +61,36 @@ function dragonScale(counter = 100, legacyLines: string[] = []): void {
 
 const rules = (findings: ValidationFinding[]): string[] => findings.map((f) => f.rule)
 
+describe('source url shape', () => {
+  /*
+   * The dedupe index and the reading list compare this field literally, so a value that a
+   * human can read an address out of is still no address to them. Both shapes below were
+   * found on real pages.
+   */
+  it('flags a value that merely contains an address', () => {
+    page('wiki/sources/A.md', { type: 'source', url: '"local file: .raw/j1/x.pdf (example.org/media/123)"' })
+    const findings = validatePages(vaultRoot, ['wiki/sources/A.md'])
+    expect(rules(findings)).toContain('source-url')
+    expect(findings[0]!.message).toContain('bare address')
+  })
+
+  it('flags a placeholder word', () => {
+    page('wiki/sources/B.md', { type: 'source', url: 'unknown' })
+    expect(rules(validatePages(vaultRoot, ['wiki/sources/B.md']))).toContain('source-url')
+  })
+
+  it('says nothing about a bare address, an empty field, or a page of another type', () => {
+    page('wiki/sources/C.md', { type: 'source', url: '"https://example.org/a"' })
+    page('wiki/sources/D.md', { type: 'source', url: '""' })
+    // Plenty of documents state no address; an empty field is the correct way to say so.
+    page('wiki/sources/E.md', { type: 'source' })
+    // Only source pages carry an address of their own.
+    page('wiki/concepts/F.md', { url: 'see the sources below' })
+    const paths = ['wiki/sources/C.md', 'wiki/sources/D.md', 'wiki/sources/E.md', 'wiki/concepts/F.md']
+    expect(rules(validatePages(vaultRoot, paths)).filter((r) => r === 'source-url')).toEqual([])
+  })
+})
+
 describe('frontmatter and dates', () => {
   it('a complete page yields no findings', () => {
     page('wiki/concepts/Alpha.md')
