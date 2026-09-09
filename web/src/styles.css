@@ -8424,6 +8424,11 @@ tr:focus-within .rowacts {
    reach the room behind it. */
 /* The window's own second line, under the library headline: what is here, and the one or two
    things you can do to it. Same height as a department's filter band. */
+.lib-manage { display: inline-flex; align-items: center; gap: 7px; }
+.lib-manage .n {
+  font-family: ui-monospace, monospace; font-size: 11px; background: var(--gold); color: #fff;
+  border-radius: 999px; min-width: 17px; height: 17px; display: grid; place-items: center; padding: 0 4px;
+}
 .cc-line2 {
   display: flex; align-items: center; gap: 10px; flex: none; padding: 9px 18px;
   border-bottom: 1px solid var(--border); background: var(--bg-elev-2); min-height: 44px; box-sizing: border-box;
@@ -8525,6 +8530,22 @@ tr:focus-within .rowacts {
   font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); pointer-events: none; white-space: nowrap;
 }
 .cc-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 7px; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); }
+/* The queue's order lives here rather than on the bands: a seven-minute task is a few pixels
+   wide, which is not a drag target. A chip is. */
+.cc-order { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+.cc-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--bg-elev);
+  font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-dim);
+}
+.cc-chip.here { border-color: var(--border-strong); color: var(--text); }
+.cc-chip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.cc-chip button {
+  width: 18px; height: 18px; border-radius: 5px; border: 1px solid transparent; background: transparent;
+  color: var(--text-faint); cursor: pointer; line-height: 1; font-size: 12px; padding: 0;
+}
+.cc-chip button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cc-chip button:disabled { opacity: 0.3; cursor: default; }
 .cc-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .cc-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .cc-legend-note { color: var(--text-faint); }

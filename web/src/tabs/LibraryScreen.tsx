@@ -311,6 +311,13 @@ export function LibraryScreen({
     [rooms, current, pickRoom],
   )
   const windowOpen = shelf !== null || board !== null || ccOpen
+  /*
+   * The centre is somewhere you went, not a setting. Leaving the Library for another screen
+   * and coming back should put you in the room, the way closing it does.
+   */
+  useEffect(() => {
+    if (!active) setCcOpen(false)
+  }, [active])
   useEffect(() => {
     const el = areaRef.current
     if (!el || windowOpen) return
@@ -698,24 +705,29 @@ export function LibraryScreen({
                 </button>
               </div>
             )}
-            {/* Managing the Fellows belongs to the room, where they are. The button used to
-                open the spawn form alone; the command centre holds spawning and everything
-                else about them (TASKS-A7). */}
+            {/* One slot, two states. Outside the centre the door is "Manage Fellows" and the
+                count rides beside it; inside it, the door is gone and the count becomes the
+                way to the decisions - there is no sense offering to open what is open. */}
             {shelf === null && board === null && (
-              <>
-                <button className="btn primary sm" onClick={() => { setCcView('shelves'); setCcOpen(true) }}>
-                  Manage Fellows
-                </button>
-                {/* What the Fellows are waiting on you for, counted across all of them. */}
+              ccOpen ? (
                 <button
                   className={`btn sm lib-decisions${openDecisions > 0 ? ' due' : ''}`}
-                  onClick={() => { setCcView('decisions'); setCcOpen(true) }}
-                  title={openDecisions > 0 ? `${openDecisions} proposal(s) waiting for a decision` : 'Nothing is waiting for a decision'}
+                  onClick={() => setCcView('decisions')}
+                  title={openDecisions > 0 ? `${openDecisions} proposal(s) up for review` : 'Nothing is up for review'}
                 >
                   Decisions
                   <span className="n">{openDecisions}</span>
                 </button>
-              </>
+              ) : (
+                <button
+                  className={`btn primary sm lib-manage${openDecisions > 0 ? ' due' : ''}`}
+                  onClick={() => { setCcView('shelves'); setCcOpen(true) }}
+                  title={openDecisions > 0 ? `${openDecisions} proposal(s) up for review` : 'The Fellows, their nights and their notebooks'}
+                >
+                  Manage Fellows
+                  {openDecisions > 0 && <span className="n">{openDecisions}</span>}
+                </button>
+              )
             )}
           </div>
         </div>

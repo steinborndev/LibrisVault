@@ -82,7 +82,8 @@ export interface CommandCentreProps {
 function Axis(): React.ReactElement {
   return (
     <div className="cc-axis">
-      {SCALE_HOURS.map((m) => (
+      {/* The ends are the frame itself; a label there hangs off the edge and reads as loose. */}
+      {SCALE_HOURS.slice(1, -1).map((m) => (
         <span key={m} className="cc-hour" style={{ left: `${pctAt(m)}%` }}>{hhmm(m)}</span>
       ))}
     </div>
@@ -100,14 +101,12 @@ function NightLine({
   from,
   to,
   fellows,
-  onNew,
 }: {
   tasks: number
   shelves: number
   from: number
   to: number
   fellows: number
-  onNew: () => void
 }): React.ReactElement {
   return (
     <div className="cc-line2">
@@ -118,9 +117,7 @@ function NightLine({
         <span className="s">{hhmm(from)} – {hhmm(to)}</span>
         <span className="s">{fellows} Fellow{fellows === 1 ? '' : 's'}</span>
       </span>
-      <span className="cc-side end">
-        <button className="btn sm" onClick={onNew}>New Fellow</button>
-      </span>
+      <span className="cc-side end" />
     </div>
   )
 }
@@ -291,7 +288,7 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
         }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setRow(Math.min((view === 'shelves' ? staffed.length + UNSTAFFED.length : domain.fellows.length) - 1, row + 1))
+        setRow(Math.min((view === 'shelves' ? staffed.length + UNSTAFFED.length : domain.fellows.length + 1) - 1, row + 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         setRow(Math.max(0, row - 1))
@@ -307,6 +304,10 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
             setGearOpen(false)
             setView('spawn')
           }
+        } else if (row >= domain.fellows.length) {
+          setShapeIndex(0)
+          setGearOpen(false)
+          setView('spawn')
         } else {
           const f = domain.fellows[row]
           if (f) openFellow(f.id)
@@ -321,37 +322,20 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  /* Dragging a band reorders the night: it is one serial queue, so the order IS the schedule. */
-  const startDrag = (key: string) => (e: React.MouseEvent): void => {
-    e.preventDefault()
-    const move = (ev: MouseEvent): void => {
-      const rect = trackRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const x = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-      const keys = staffed.map((d) => d.key)
-      let acc = 0
-      let target = keys.length - 1
-      for (let i = 0; i < keys.length; i++) {
-        const w = blocks.filter((b) => b.domain.key === keys[i]).reduce((n, b) => n + b.minutes, 0) / span
-        if (x < acc + w) {
-          target = i
-          break
-        }
-        acc += w
-      }
-      const from = keys.indexOf(key)
-      if (from >= 0 && from !== target) {
-        const next = [...keys]
-        next.splice(target, 0, next.splice(from, 1)[0]!)
-        setOrder(next)
-      }
-    }
-    const up = (): void => {
-      document.removeEventListener('mousemove', move)
-      document.removeEventListener('mouseup', up)
-    }
-    document.addEventListener('mousemove', move)
-    document.addEventListener('mouseup', up)
+  /*
+   * Moving a shelf in the queue. It used to be a drag on the band itself, which is a target a
+   * few pixels wide for a seven-minute task and recomputed its answer on every mouse move -
+   * fiddly to hit and unreliable when it was hit. The legend chips are the same information at
+   * a size a hand can use, so the order is set there instead.
+   */
+  const moveShelf = (key: string, delta: number): void => {
+    const keys = staffed.map((d) => d.key)
+    const from = keys.indexOf(key)
+    const to = from + delta
+    if (from < 0 || to < 0 || to >= keys.length) return
+    const next = [...keys]
+    next.splice(to, 0, next.splice(from, 1)[0]!)
+    setOrder(next)
   }
 
   const dragEdge = (edge: 'from' | 'to') => (e: React.MouseEvent): void => {
@@ -383,7 +367,6 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
             from={winFrom}
             to={winTo}
             fellows={domain.fellows.length}
-            onNew={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
           />
 
           <div className="lib-window-body cc-body">
@@ -413,7 +396,7 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
               <h3 className="cc-sec">
                 The queue
                 <span className="grow" />
-                <span className="c">one run at a time, planning included · drag a shelf to move it</span>
+                <span className="c">one run at a time, planning included</span>
               </h3>
               <Axis />
               <div className="cc-track" ref={trackRef}>
@@ -427,8 +410,7 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
                     key={`${g.domain.key}-${g.from}`}
                     className={`cc-band ${g.domain.key === domain.key ? 'here' : ''}`}
                     style={{ left: `${pctAt(g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / SCALE_SPAN) * 100)}%`, ['--dc' as string]: domainColor(g.domain.key) }}
-                    title={`${g.domain.key} — ${g.parts.length} task(s), ${dur(g.to - g.from)} · drag to move it in the queue`}
-                    onMouseDown={startDrag(g.domain.key)}
+                    title={`${g.domain.key} — ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
                   >
                     <span className="cc-parts">
                       {g.parts.map((b, i) => (
@@ -443,11 +425,13 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
                   </div>
                 ))}
               </div>
-              <div className="cc-legend">
-                {staffed.filter((d) => blocks.some((b) => b.domain.key === d.key)).map((d) => (
-                  <span key={d.key}>
-                    <i style={{ background: domainColor(d.key), ...(d.key === domain.key ? { outline: '2px solid var(--text)', outlineOffset: '1px' } : { opacity: 0.5 }) }} />
+              <div className="cc-order">
+                {staffed.map((d, i) => (
+                  <span key={d.key} className={`cc-chip ${d.key === domain.key ? 'here' : ''}`}>
+                    <button disabled={i === 0} onClick={() => moveShelf(d.key, -1)} title="Earlier in the night" aria-label={`Move ${d.key} earlier`}>‹</button>
+                    <i style={{ background: domainColor(d.key) }} aria-hidden />
                     {d.key}
+                    <button disabled={i === staffed.length - 1} onClick={() => moveShelf(d.key, 1)} title="Later in the night" aria-label={`Move ${d.key} later`}>›</button>
                   </span>
                 ))}
               </div>
@@ -507,6 +491,16 @@ export function CommandCentre({ stop, setStop, order, setOrder, view, setView, o
                     </div>
                   )
                 })}
+                <div
+                  className={`cc-row new ${row === domain.fellows.length ? 'sel' : ''}`}
+                  onClick={() => { setShapeIndex(0); setGearOpen(false); setView('spawn') }}
+                >
+                  <span className="cc-id">
+                    <span className="cc-idline"><b>New Fellow</b></span>
+                    <span className="cc-t">take one of four examples and change anything about it</span>
+                  </span>
+                  <span className="cc-right"><span className="mono-meta">n</span></span>
+                </div>
               </div>
             </section>
           </div>
@@ -561,8 +555,8 @@ function Shelves({
       <div className="cc-line2">
         <span className="cc-side" />
         <span className="cc-facts">
-          <b>Shelves</b>
-          <span className="s">{staffed.length} staffed, {empty.length} not</span>
+          <b>Overview</b>
+          <span className="s">{staffed.length} staffed, {empty.length} unstaffed</span>
           <span className="s">{fellows} Fellow{fellows === 1 ? '' : 's'}</span>
           <span className="s">{DOMAINS.reduce((n, d) => n + d.pages, 0)} pages</span>
         </span>
@@ -949,7 +943,6 @@ function Decisions({
           <span className="cc-sub">{d.key} · {AUTONOMY_TEXT[f.autonomy].label.toLowerCase()} · {open.length} of {f.options.length} undecided</span>
         </span>
         <span className="grow" />
-        <span className="mono-meta">← → Fellow · j k option · a / v decide</span>
       </div>
       <div className="cc-dec-wrap">
         <div className="cc-rail">
@@ -1120,7 +1113,6 @@ function Spawn({
           <span className="cc-sub">four shapes — the first three hold one art each, the fourth any mix</span>
         </span>
         <span className="grow" />
-        <span className="mono-meta">← → shape · c customize</span>
       </div>
       <div className="lib-window-body cc-body">
         <section className="cc-block">
