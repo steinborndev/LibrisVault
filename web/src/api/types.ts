@@ -966,6 +966,12 @@ export interface FellowSummary {
    * has to be this one.
    */
   undecidedProposals: number
+  /**
+   * What became of each standing task tonight, in the order the tasks stand: a run carried one
+   * of its proposals out, every proposal it got was vetoed, or it is still open. The queue bar
+   * marks its sections from this.
+   */
+  tonight: Array<{ id: string; outcome: 'ran' | 'vetoed' | 'open' }>
   next: ProposalRecord | null
 }
 

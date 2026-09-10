@@ -372,6 +372,68 @@ describe('scheduleFrom', () => {
     expect(taskCount([])).toBe('0 tasks')
   })
 
+  it('carries what the night made of each task onto its block', () => {
+    /*
+     * The record, not the forecast: the service says what became of a task this cycle and the
+     * bar marks the section from that. A task with no outcome yet is `open`, which is what a
+     * schedule drawn before the night is.
+     */
+    const a = agent({
+      id: 'o',
+      name: 'O',
+      nightly: 'sweep',
+      quotaRunsPerDay: 3,
+      tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')],
+    })
+    const summaryWith = summary(a) as FellowSummary & { tonight: Array<{ id: string; outcome: 'ran' | 'vetoed' | 'open' }> }
+    summaryWith.tonight = [
+      { id: 'a', outcome: 'ran' },
+      { id: 'b', outcome: 'vetoed' },
+      { id: 'c', outcome: 'open' },
+    ]
+    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summaryWith] }], 1500, durations)
+    expect(blocks.map((b) => b.outcome)).toEqual(['ran', 'vetoed', 'open'])
+  })
+
+  it('calls a task open when the service says nothing about it', () => {
+    // A Fellow the payload has no outcomes for at all: absent is not the same as decided.
+    const a = agent({ id: 'q', name: 'Q', tasks: [task('watch', 'a')] })
+    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations)
+    expect(blocks[0]!.outcome).toBe('open')
+  })
+
+  it('carries what the night made of each task onto its block', () => {
+    /*
+     * The record, not the forecast: the service says what became of a task this cycle and the
+     * bar marks the section from that. A task with no outcome yet is `open`, which is what a
+     * schedule drawn before the night is.
+     */
+    const a = agent({
+      id: 'o',
+      name: 'O',
+      nightly: 'sweep',
+      quotaRunsPerDay: 3,
+      tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')],
+    })
+    const withOutcomes = {
+      ...summary(a),
+      tonight: [
+        { id: 'a', outcome: 'ran' as const },
+        { id: 'b', outcome: 'vetoed' as const },
+        { id: 'c', outcome: 'open' as const },
+      ],
+    }
+    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withOutcomes] }], 1500, durations)
+    expect(blocks.map((b) => b.outcome)).toEqual(['ran', 'vetoed', 'open'])
+  })
+
+  it('calls a task open when the service says nothing about it', () => {
+    // A Fellow the payload carries no outcomes for: absent is not the same as decided.
+    const a = agent({ id: 'q', name: 'Q', tasks: [task('watch', 'a')] })
+    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations)
+    expect(blocks[0]!.outcome).toBe('open')
+  })
+
   it('marks a task whose Fellow asks first, since it does not start on its own', () => {
     const shelves = [{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(agent({ id: 'x', name: 'X', autonomy: 'manual', tasks: [task('watch', 'a')] }))] }]
     expect(scheduleFrom(shelves, 1500, durations)[0]!.waits).toBe(true)

@@ -581,10 +581,15 @@ describe('planning, proposals and the night shift', () => {
     const di = await spawn({ name: 'Di', autonomy: 'auto' })
     const night = await h.shift.run('timer')
 
-    // One run, not two, over the same topic - and the second Fellow's copy says who covered it.
-    expect(night.summary.executed).toHaveLength(1)
+    /*
+     * One run over the same TOPIC, which is the invariant - not one run in the night. Phase 3
+     * runs in rounds since the sweep landed, so Di, whose top proposal was covered, comes
+     * round again and spends its night on the one that is not a duplicate.
+     */
+    const topics = night.summary.executed.map((e) => e.topic)
+    expect(new Set(topics).size).toBe(topics.length)
     expect(night.summary.executed[0]).toMatchObject({ agentName: 'Cy' })
-    expect(night.summary.merged).toMatchObject([{ keptAgentName: 'Cy', droppedAgentName: 'Di' }])
+    expect(night.summary.merged[0]).toMatchObject({ keptAgentName: 'Cy', droppedAgentName: 'Di' })
     const dropped = h.service.pendingProposals(di.id)
     expect(dropped.every((p) => p.topic !== night.summary.executed[0]!.topic)).toBe(true)
   })
@@ -688,7 +693,8 @@ describe('planning, proposals and the night shift', () => {
     }
     const night = await h.shift.run('timer')
     // The lexical dedupe from earlier tonight still did its work, and the shift finished.
-    expect(night.summary.executed).toHaveLength(1)
+    const topics = night.summary.executed.map((e) => e.topic)
+    expect(new Set(topics).size).toBe(topics.length)
     expect(night.finishedAt).not.toBeNull()
   })
 
@@ -708,14 +714,70 @@ describe('planning, proposals and the night shift', () => {
     expect(h.service.runnable(vi.id)?.id).toBe(drift!.id)
   })
 
-  it('auto mode plans and runs the top proposal in the same night', async () => {
+  it('auto mode plans and runs in the same night, until its quota says stop', async () => {
     const cy = await spawn({ name: 'Cy', autonomy: 'auto' })
     const night = await h.shift.run('timer')
     expect(night.summary.planned).toMatchObject([{ agentName: 'Cy', proposals: 2 }])
     expect(night.summary.executed).toMatchObject([{ agentName: 'Cy', kind: 'research-step' }])
     expect(h.calls.map((c) => c.profile)).toEqual(['query', 'research'])
-    expect(h.service.get(cy.id)!.state).toBe('waiting')
+    /*
+     * Phase 3 runs in rounds now, so the quota is what ends the night rather than the shape of
+     * the loop - and a Fellow that has spent it says so, the same as one stopped in phase 1.
+     * One task means a quota of one, so one run and then the reason.
+     */
+    expect(h.service.get(cy.id)).toMatchObject({ state: 'sleeping', sleepCode: 'quota' })
     expect(pending(cy.id)).toHaveLength(1)
+  })
+
+  it('an auto Fellow that sweeps runs every task it planned, one run each', async () => {
+    /*
+     * The gap the sweep left. Phase 1 skips auto Fellows on purpose - their proposals do not
+     * exist when it runs - and phase 3 called `executeOne` once, so a Fellow planned three
+     * tasks and ran one of them whatever its runs-per-day allowed.
+     */
+    const cy = await spawn({
+      name: 'Cy',
+      autonomy: 'auto',
+      quotaRunsPerDay: 3,
+      tasks: [
+        { text: 'What is new in transit photometry?', kind: 'watch' },
+        { text: 'How far can ground-based systematics be bounded?', kind: 'explore' },
+        { text: 'What is new in adaptive optics?', kind: 'watch' },
+      ],
+    })
+    /*
+     * A topic per planning run. The shared fixture answers every run alike, and three tasks
+     * proposing the same topic are deduped into one - which would hide exactly what this
+     * test is about.
+     */
+    const TASKS = [
+      'What is new in transit photometry?',
+      'How far can ground-based systematics be bounded?',
+      'What is new in adaptive optics?',
+    ]
+    let planned = 0
+    h.planAnswer = () => {
+      // Echo the task the run is for: the scope score is measured against it, and in auto mode
+      // a drifting proposal is dropped rather than run.
+      const task = TASKS[planned % TASKS.length]!
+      planned += 1
+      return {
+        proposals: [
+          { candidate: 'C1', kind: 'research-step', topic: `${task} First option`, rationale: task, lens: 'broad' },
+          { candidate: 'C2', kind: 'research-step', topic: `${task} Second option`, rationale: task, lens: 'broad' },
+        ],
+        nothing_worth_a_run: false,
+        intent_covered: false,
+        reason: '',
+      }
+    }
+    const night = await h.shift.run('timer')
+    expect(night.summary.planned).toHaveLength(3)
+    expect(night.summary.executed).toHaveLength(3)
+    // One run per task, not three runs of the task that happened to plan first.
+    const tasks = night.summary.executed.map((e) => h.service.getProposal(e.proposalId!)?.provenance.task)
+    expect(new Set(tasks).size).toBe(3)
+    expect(h.service.get(cy.id)).toMatchObject({ sleepCode: 'quota' })
   })
 
   it('decisions: veto, undo, topic edit and reorder; an executed proposal refuses them; vetoes reach the planner', async () => {

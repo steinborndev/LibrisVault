@@ -8599,6 +8599,17 @@ tr:focus-within .rowacts {
 .cc-part { display: block; height: 100%; box-sizing: border-box; }
 /* Planned tonight, carried out later: the band still holds the planning run's minutes, but
    drawing them solid would claim the work happened. */
+/* What the night made of a task, over the band that forecast it. The mark sits on the section
+   itself so the two readings - what was planned, what came of it - stay one picture. */
+.cc-part { position: relative; display: flex; align-items: center; justify-content: center; }
+.cc-part.ran { background: color-mix(in srgb, var(--ok) 45%, transparent); }
+.cc-part.vetoed { background: color-mix(in srgb, var(--err) 35%, transparent); }
+.cc-mark {
+  font-style: normal; font-size: 11px; line-height: 1; font-weight: 700;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.cc-mark.ok { color: #fff; }
+.cc-mark.no { color: #fff; }
 .cc-part.plan {
   background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.5) 0 2px, transparent 2px 5px);
   opacity: 0.75;

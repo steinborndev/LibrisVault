@@ -142,7 +142,16 @@ export interface Block {
    * on earlier tasks, so this one is planned tonight and carried out on a later night.
    */
   readonly runs: boolean
+  /**
+   * What the night made of this task, as the service recorded it: `ran` when a run carried one
+   * of its proposals out, `vetoed` when every proposal it got was vetoed, `open` otherwise.
+   * The bar marks a section from this rather than from the schedule, because the schedule is a
+   * forecast and this is the record.
+   */
+  readonly outcome: TaskOutcome
 }
+
+export type TaskOutcome = 'ran' | 'vetoed' | 'open'
 
 /*
  * Milliseconds first, minutes at the end: rounding each part and adding the results loses
@@ -196,6 +205,7 @@ export function scheduleFrom(
   for (const s of shelves) {
     for (const f of s.fellows) {
       const carried = carriedTonight(f.agent)
+      const outcomes = new Map((f.tonight ?? []).map((o) => [o.id, o.outcome]))
       for (const [i, t] of tasksTonight(f.agent).entries()) {
         const runs = i < carried
         const minutes = runs ? minutesFor(t.kind, durations) : planMinutes(durations)
@@ -210,6 +220,7 @@ export function scheduleFrom(
           to: cur + minutes,
           waits: f.agent.autonomy === 'manual',
           runs,
+          outcome: outcomes.get(t.id) ?? 'open',
         })
         cur += minutes
       }

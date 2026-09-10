@@ -175,7 +175,7 @@ describe('LibraryService', () => {
         lastRun: null,
         runsToday: 1,
         pendingProposals: 1,
-        undecidedProposals: 1,
+        undecidedProposals: 1, tonight: [],
         next: { topic: 'Next', kind: 'research-step', estCostUsd: 2, status: 'proposed' } as FellowSummary['next'],
       },
     ]
@@ -216,7 +216,7 @@ describe('LibraryService', () => {
         lastRun: null,
         runsToday: 1,
         pendingProposals: 0,
-        undecidedProposals: 0,
+        undecidedProposals: 0, tonight: [],
         next: null,
       },
     ]

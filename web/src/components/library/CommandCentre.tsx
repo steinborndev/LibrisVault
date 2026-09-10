@@ -694,14 +694,23 @@ export function CommandCentre({
                       {g.parts.map((b, i) => (
                         <span
                           key={`${b.fellowId}-${b.text}`}
-                          className={`cc-part ${b.runs ? '' : 'plan'}`}
+                          className={`cc-part ${b.runs ? '' : 'plan'} ${b.outcome}`}
                           style={{ width: `${(b.minutes / (g.to - g.from)) * 100}%`, borderLeft: i > 0 ? '1px solid rgba(255,255,255,.55)' : undefined }}
                           title={
-                            b.runs
-                              ? `${b.fellowName} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`
-                              : `${b.fellowName} · ${b.kind}: ${b.text} · planned only tonight (${dur(b.minutes)}); the daily quota is spent, so it is carried out on a later night`
+                            b.outcome === 'ran'
+                              ? `${b.fellowName} · ${b.kind}: ${b.text} · done, a run carried it out tonight`
+                              : b.outcome === 'vetoed'
+                                ? `${b.fellowName} · ${b.kind}: ${b.text} · nothing runs: you vetoed every option it proposed`
+                                : b.runs
+                                  ? `${b.fellowName} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`
+                                  : `${b.fellowName} · ${b.kind}: ${b.text} · planned only tonight (${dur(b.minutes)}); the daily quota is spent, so it is carried out on a later night`
                           }
-                        />
+                        >
+                          {/* The mark is the record of what happened, not part of the forecast:
+                              it appears only once the night has made something of the task. */}
+                          {b.outcome === 'ran' ? <i className="cc-mark ok" aria-hidden>✓</i> : null}
+                          {b.outcome === 'vetoed' ? <i className="cc-mark no" aria-hidden>✕</i> : null}
+                        </span>
                       ))}
                     </span>
                   </div>

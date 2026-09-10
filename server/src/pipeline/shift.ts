@@ -694,10 +694,25 @@ export class NightShift {
       this.log('warn', `shift: the second judging pass failed, the lexical passes stand: ${(err as Error).message}`)
     }
 
-    // Phase 3: auto Fellows run their fresh top proposal in the same night (section 6.5).
-    for (const agent of active()) {
-      if (agent.autonomy !== 'auto') continue
-      await executeOne(agent)
+    /*
+     * Phase 3: auto Fellows run what phase 2 just planned for them (section 6.5), in rounds.
+     *
+     * It used to be one `executeOne` per Fellow, which was right while a Fellow planned ONE
+     * task a night: its top proposal WAS its night. Since `nightly: sweep` a Fellow plans
+     * every standing task, and phase 1 - the loop that runs more than one - skips auto
+     * Fellows on purpose, because their proposals do not exist yet when it runs. So an auto
+     * Fellow swept three tasks and ran one of them, whatever its runs-per-day allowed.
+     *
+     * The same round shape as phase 1, and the same thing stops it: the quota, the gate, or
+     * nothing left that is runnable.
+     */
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      let progressed = false
+      for (const agent of active()) {
+        if (agent.autonomy !== 'auto') continue
+        if (await executeOne(agent)) progressed = true
+      }
+      if (!progressed) break
     }
 
     const done = record(this.now().toISOString())

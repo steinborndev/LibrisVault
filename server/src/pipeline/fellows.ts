@@ -205,6 +205,12 @@ export interface PlanOutcome {
   readonly skipped?: string
 }
 
+export interface TaskOutcome {
+  /** The task's own id (`t1`..`t3`); its text is the key the proposals carry. */
+  readonly id: string
+  readonly outcome: 'ran' | 'vetoed' | 'open'
+}
+
 export interface FellowSummary {
   readonly agent: AgentRecord
   readonly currentRun: MaintenanceRun | null
@@ -218,6 +224,15 @@ export interface FellowSummary {
    * count labelled "decisions" has to be this one, or it promises work that is already done.
    */
   readonly undecidedProposals: number
+  /**
+   * What became of each standing task tonight, in the order the tasks stand.
+   *
+   * Derived here because the proposals live here: a task "ran" when a run today carried out
+   * one of its proposals, and is "vetoed" when every proposal it got this cycle was vetoed
+   * and none ran. Anything else is still open. The queue bar marks its sections from this,
+   * so the drawing of a night and the record of it cannot disagree.
+   */
+  readonly tonight: readonly TaskOutcome[]
   /** The proposal the next shift would run, if any. */
   readonly next: ProposalRecord | null
 }
@@ -464,6 +479,7 @@ export class FellowService {
       runsToday: this.runsToday(agent.id),
       pendingProposals: this.pendingProposals(agent.id).length,
       undecidedProposals: this.pendingProposals(agent.id).filter((p) => p.status === 'proposed').length,
+      tonight: this.taskOutcomes(agent),
       next: this.runnable(agent.id) ?? null,
     }
   }
@@ -860,13 +876,55 @@ export class FellowService {
     const agent = this.agents.get(agentId)
     if (!agent) return undefined
     const pending = this.pendingProposals(agentId)
-    const approved = pending.filter((p) => p.status === 'approved').sort((a, b) => a.rank - b.rank)
+    /*
+     * A task that has already run today goes to the back (docs/tasks/TASKS-A7.md D8).
+     *
+     * The planner ranks each task's proposals 1..3 independently, so a sweeping Fellow holds
+     * three rank-1 proposals and `rank` alone cannot tell them apart. Ordered by rank only,
+     * three runs could all be options of ONE task while the other two stood planned and
+     * untouched - which is the opposite of what "every standing task each night" promises.
+     * Rank still decides inside a task; it just no longer decides between them.
+     */
+    const done = this.tasksRunToday(agentId)
+    const byTask = (a: ProposalRecord, b: ProposalRecord): number => {
+      const ad = done.has(a.provenance.task ?? '') ? 1 : 0
+      const bd = done.has(b.provenance.task ?? '') ? 1 : 0
+      return ad - bd || a.rank - b.rank
+    }
+    const approved = pending.filter((p) => p.status === 'approved').sort(byTask)
     if (approved[0]) return approved[0]
     if (agent.autonomy === 'manual') return undefined
     if (agent.state === 'sleeping' && (agent.sleepCode === 'covered' || agent.sleepCode === 'stalled')) return undefined
-    return pending
-      .filter((p) => p.status === 'proposed' && !isDrift(p.scopeScore))
-      .sort((a, b) => a.rank - b.rank)[0]
+    return pending.filter((p) => p.status === 'proposed' && !isDrift(p.scopeScore)).sort(byTask)[0]
+  }
+
+  /**
+   * What each standing task came to this cycle: a run carried one of its proposals out, every
+   * proposal it got was vetoed, or it is still open. Read against TODAY, the same day the
+   * quota and the schedule are read against.
+   */
+  private taskOutcomes(agent: AgentRecord): TaskOutcome[] {
+    const ran = this.tasksRunToday(agent.id)
+    const cycle = localDate(this.now())
+    const mine = this.proposals.list({ agentId: agent.id, limit: 60 }).filter((p) => p.cycleDate === cycle)
+    return agent.tasks.map((t) => {
+      if (ran.has(t.text)) return { id: t.id, outcome: 'ran' as const }
+      const forTask = mine.filter((p) => p.provenance.task === t.text)
+      // Vetoed only when there was something to veto and nothing survived it.
+      const vetoed = forTask.length > 0 && forTask.every((p) => p.status === 'vetoed')
+      return { id: t.id, outcome: vetoed ? ('vetoed' as const) : ('open' as const) }
+    })
+  }
+
+  /** The standing tasks this Fellow has already run today, by their text (what proposals store). */
+  private tasksRunToday(agentId: string): Set<string> {
+    const out = new Set<string>()
+    for (const r of this.runs.list({ agentId, since: startOfToday(this.now()).toISOString() })) {
+      if (!isResearchKind(r.kind) || !r.proposalId) continue
+      const task = this.proposals.get(r.proposalId)?.provenance.task
+      if (task !== undefined && task !== '') out.add(task)
+    }
+    return out
   }
 
   /**

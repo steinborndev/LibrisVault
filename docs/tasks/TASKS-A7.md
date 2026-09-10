@@ -392,3 +392,51 @@ command centre decides against the live Fellows and invalidates `agents`. Nothin
 count held its old value until an unrelated mount happened to refetch, and disagreed with the
 per-shelf pill beside it the whole time. It counts `undecidedProposals` from the same payload
 the pill does now: one number, one source.
+
+## 6. What the sweep still owed, found by comparing a night to its record (2026-09-10)
+
+Two Fellows configured for several tasks a night, one of which had planned all night and run
+nothing. The record said why.
+
+### 6.1 An auto Fellow ran once a night, whatever its quota said
+
+Phase 1 executes in rounds and **skips auto Fellows on purpose** - their proposals do not exist
+when it runs, phase 2 creates them. Phase 3 then called `executeOne` **once** per auto Fellow.
+That was right while a Fellow planned ONE task a night: its top proposal WAS its night. Since
+`nightly: sweep` it meant a Fellow planned three tasks and ran one, and the runs-per-day the
+user set said nothing. Phase 3 runs in rounds now, the same shape as phase 1, and the same
+things end it: the quota, the gate, or nothing runnable left.
+
+A Fellow that spends its quota now ends the night `sleeping` with `sleepCode: 'quota'` rather
+than `waiting` - the same as one stopped in phase 1, and it says why.
+
+### 6.2 The night's runs could all belong to one task
+
+`runnable()` ordered by `rank` alone. The planner ranks each task's proposals 1..3
+independently, so a sweeping Fellow holds three rank-1 proposals and rank cannot tell them
+apart: three runs could be three options of ONE task while the other two stood planned and
+untouched. A task already run today now sorts last, so rank decides inside a task and no
+longer between them.
+
+### 6.3 Clara had planned and not run, and that was correct
+
+Phase 1 (execute) runs before phase 2 (plan), and phase 3 executes only `auto` Fellows. A
+`veto` Fellow's proposals are therefore created after the only phase that could run them, and
+wait for the next night - which is what veto means and what the dossier says. Her three
+approved proposals are three OPTIONS for one task, not three tasks: the top one runs.
+
+### 6.4 A swept task with no candidate costs a planning run and yields nothing
+
+Measured: two test Fellows, five tasks, five planning runs, **two** proposals. On a thin shelf
+the first task takes the candidate that fits and the rest have nothing to propose from. The
+sweep is doing what it was asked; it is worth knowing that a task's cost is its planning run
+whether or not the shelf can feed it.
+
+### 6.5 Open: the schedule draws shelves, the shift walks rounds
+
+`scheduleFrom` lays one shelf's blocks end to end, then the next shelf's - the picture the
+shelf order promises. Both execution phases are `for round { for agent { executeOne } }`, so a
+night actually gives each Fellow one run in shelf order, then goes round again. With one task
+each the two readings agree; with several they do not. Either the bar should interleave or the
+shift should drain a Fellow before moving on, and that is a decision about what the shelf order
+MEANS, not a detail.
