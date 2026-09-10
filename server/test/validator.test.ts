@@ -122,6 +122,30 @@ describe('frontmatter and dates', () => {
   })
 })
 
+/**
+ * The shape a title with a path separator in it makes: a folder named after the first half,
+ * and a page inside it named after the second. Found the long way round, weeks later, because
+ * every wikilink aimed at the whole title resolved to nothing while the run that wrote it
+ * reported a synthesis filed.
+ */
+describe('pages a folder below their bucket', () => {
+  it('flags a page written into a folder inside its bucket', () => {
+    page('wiki/questions/Research: A/b.md')
+    expect(rules(validatePages(vaultRoot, ['wiki/questions/Research: A/b.md']))).toEqual(['nested-page'])
+  })
+
+  it('leaves a page directly in its bucket alone', () => {
+    page('wiki/questions/Research: A-b.md')
+    expect(validatePages(vaultRoot, ['wiki/questions/Research: A-b.md'])).toEqual([])
+  })
+
+  it('leaves wiki/meta alone, where the journals legitimately live in folders', () => {
+    page('wiki/meta/recaps/Recap 2026-09-08.md')
+    page('wiki/meta/agents/somebody.md')
+    expect(validatePages(vaultRoot, ['wiki/meta/recaps/Recap 2026-09-08.md', 'wiki/meta/agents/somebody.md'])).toEqual([])
+  })
+})
+
 describe('DragonScale addresses', () => {
   it('is entirely inert when the vault has not adopted DragonScale', () => {
     page('wiki/concepts/Alpha.md') // post-rollout, no address

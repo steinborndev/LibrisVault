@@ -120,8 +120,41 @@ export function getResearchProfile(key: string | undefined): ResearchProfile {
 export const RESEARCH_PREFIX = 'Research: '
 
 /** The deterministic synthesis-page title the service pins for this lens + topic. */
+/**
+ * Characters that cannot survive a title becoming a filename (2026-09-10).
+ *
+ * The synthesis title is PINNED in the prompt and the run files a page under that name, so
+ * whatever the topic carries ends up in a path. A topic with a slash in it - "durability/
+ * dosing-advantage", the usual "A or B" shorthand - was written as a directory and a page one
+ * level down under the half of the title after the slash, and all five wikilinks aimed at the
+ * full title resolved to nothing. Nothing noticed: the page WAS under `wiki/questions/` and
+ * WAS prefixed `Research: `, which is all the post-run check asked (see `isSynthesisPath`,
+ * which now also asks that it sit directly in the folder).
+ *
+ * Both separators become a hyphen rather than being dropped, which is what the shorthand
+ * meant anyway. Control characters and a leading dot or hyphen go, the same set the vault's
+ * own `safe_name()` strips, so a title can neither escape its folder nor read as a flag.
+ */
+export function titleSafe(topic: string): string {
+  const cleaned = [...topic.replace(/[/\\]+/g, '-')]
+    // Control characters, the other half of what the vault's own `safe_name()` strips. A
+    // character class would say this more directly, but the lint rule that forbids control
+    // characters in a regex is right about every other use of one.
+    .filter((c) => (c.codePointAt(0) ?? 0) > 0x1f)
+    .join('')
+    .trim()
+    // After the trim, not before: leading whitespace used to shelter the dot behind it.
+    .replace(/^[.-]+/, '')
+    .trim()
+  return cleaned === '' ? 'untitled' : cleaned
+}
+
+/**
+ * The title the run is told to file its synthesis under. The one place a topic becomes a
+ * name, so it is the one place the name has to be safe to be a filename.
+ */
 export function researchTargetTitle(profile: ResearchProfile, topic: string): string {
-  return `${RESEARCH_PREFIX}${topic}${profile.titleSuffix}`
+  return `${RESEARCH_PREFIX}${titleSafe(topic)}${profile.titleSuffix}`
 }
 
 /**
@@ -136,7 +169,12 @@ export function researchTargetTitle(profile: ResearchProfile, topic: string): st
 export function isSynthesisPath(relPath: string): boolean {
   const prefix = 'wiki/questions/'
   if (!relPath.startsWith(prefix) || !relPath.endsWith('.md')) return false
-  return relPath.slice(prefix.length).startsWith(RESEARCH_PREFIX)
+  const name = relPath.slice(prefix.length)
+  // Directly in the folder, not one level down. A title with a path separator in it used to
+  // land as `<first half>/<second half>.md` and pass this check, so the run reported a
+  // synthesis filed and the warning that would have caught it never fired (see `titleSafe`).
+  if (name.includes('/')) return false
+  return name.startsWith(RESEARCH_PREFIX)
 }
 
 /**

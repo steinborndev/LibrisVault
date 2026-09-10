@@ -245,9 +245,31 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   })
 }
 
-/** The deterministic page title a run with this topic and lens will file as. */
+/**
+ * The deterministic page title a run with this topic and lens will file as.
+ *
+ * Mirrors `titleSafe` in `server/src/pipeline/research-profiles.ts`, which is what actually
+ * pins the title in the prompt. A topic with a path separator in it would otherwise be shown
+ * here as one name and filed under another - and the lookup below, which finds a run's page
+ * by its title, would miss it.
+ */
 export function targetTitle(topic: string, profile: ResearchProfile | undefined): string {
-  return `${RESEARCH_PREFIX}${topic}${profile?.titleSuffix ?? ''}`
+  return `${RESEARCH_PREFIX}${titleSafe(topic)}${profile?.titleSuffix ?? ''}`
+}
+
+/** A topic reduced to something that can be a file name. See the server-side original. */
+export function titleSafe(topic: string): string {
+  const cleaned = [...topic.replace(/[/\\]+/g, '-')]
+    // Control characters, the other half of what the vault's own `safe_name()` strips. A
+    // character class would say this more directly, but the lint rule that forbids control
+    // characters in a regex is right about every other use of one.
+    .filter((c) => (c.codePointAt(0) ?? 0) > 0x1f)
+    .join('')
+    .trim()
+    // After the trim, not before: leading whitespace used to shelter the dot behind it.
+    .replace(/^[.-]+/, '')
+    .trim()
+  return cleaned === '' ? 'untitled' : cleaned
 }
 
 /**

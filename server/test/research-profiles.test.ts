@@ -9,6 +9,7 @@ import {
   isSynthesisPath,
   researchTargetTitle,
   researchProfileList,
+  titleSafe,
 } from '../src/pipeline/research-profiles.js'
 
 describe('research profiles (Achse A)', () => {
@@ -88,10 +89,44 @@ describe('research profiles (Achse A)', () => {
     })
   })
 
+  /**
+   * A title becomes a file name, so a topic that cannot be one has to be repaired before the
+   * prompt pins it. This is the bug that was found the long way round: a slash in a topic was
+   * written as a directory, the page landed one level down under the second half of its own
+   * title, and all five wikilinks aimed at the whole title resolved to nothing.
+   */
+  describe('titleSafe', () => {
+    it('turns a path separator into a hyphen rather than a directory', () => {
+      expect(titleSafe('durability/dosing-advantage versus X')).toBe('durability-dosing-advantage versus X')
+      expect(titleSafe('a\\b')).toBe('a-b')
+      expect(researchTargetTitle(getResearchProfile('broad'), 'A/B')).toBe('Research: A-B')
+    })
+
+    it('leaves an ordinary topic exactly as it was typed', () => {
+      expect(titleSafe('quantum error correction in 2026')).toBe('quantum error correction in 2026')
+    })
+
+    it('drops control characters and a leading dot or hyphen, however it is padded', () => {
+      expect(titleSafe('a\u0000b\u001fc')).toBe('abc')
+      expect(titleSafe('  .hidden topic')).toBe('hidden topic')
+      expect(titleSafe('--flag-shaped')).toBe('flag-shaped')
+    })
+
+    it('never returns an empty name', () => {
+      expect(titleSafe('///')).toBe('untitled')
+      expect(titleSafe('   ')).toBe('untitled')
+    })
+  })
+
   describe('isSynthesisPath', () => {
     it('accepts a research synthesis, whatever the lens suffix', () => {
       expect(isSynthesisPath('wiki/questions/Research: tidal turbines.md')).toBe(true)
       expect(isSynthesisPath('wiki/questions/Research: kelp farming — State of the Art.md')).toBe(true)
+    })
+
+    it('rejects a page a folder below the bucket - the shape a slashed title makes', () => {
+      expect(isSynthesisPath('wiki/questions/Research: A/b.md')).toBe(false)
+      expect(isSynthesisPath('wiki/questions/Research: A-b.md')).toBe(true)
     })
 
     it('rejects an ordinary question page and pages outside wiki/questions', () => {

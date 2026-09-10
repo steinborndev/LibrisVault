@@ -513,7 +513,49 @@ gained real structure it had been missing (efficacy, safety, manufacturing and r
 history as sections rather than one dated block), and one unverified figure became a `[!gap]`
 callout on the claim, which is what the new rule asks a run to do in the first place.
 
-A separate finding fell out of it, not fixed here: a synthesis page whose TITLE contains a
-slash was written to a path that took the slash as a directory separator, so the page lives
-one level down under a truncated name and the five wikilinks that point at its full title all
-resolve to nothing. Renaming a page is a decision, not a cleanup.
+### 7a. A title that carried a path separator (2026-09-10)
+
+That cleanup turned one up: a synthesis page whose TITLE contained a slash was written to a
+path that read the slash as a directory separator. The page sat one folder down, named after
+the half of its title AFTER the slash, and all five wikilinks aimed at the whole title
+resolved to nothing. It had been that way since the run that wrote it, which reported success.
+
+Why nothing noticed: `renderSynthesisMandate` pins the title in the prompt and the run files
+under it, and the post-run check `isSynthesisPath` asked only that the page be under
+`wiki/questions/` and start with `Research: `. A nested page satisfies both.
+
+Fixed in three places, deepest first:
+
+- **`titleSafe`** (`research-profiles.ts`, mirrored in `web/src/lib/researchRuns.ts` so the
+  composer's "files as" line cannot promise a different name than the run uses). A topic
+  becomes a name exactly once, in `researchTargetTitle`, so that is where the name is made
+  safe to be one: both separators become a hyphen, which is what the "A or B" shorthand meant;
+  control characters and a leading dot or hyphen go, the same set the vault's own `safe_name()`
+  strips; an empty result becomes `untitled` rather than a bare prefix.
+- **`isSynthesisPath`** now requires the page to sit directly in the bucket, so a run that
+  files one a folder down is reported as having filed none, which is the warning that was
+  owed.
+- **`validator.ts`** gained a `nested-page` finding over the pages of every commit, since a
+  title is not the only way to end up a folder down. `wiki/meta/` is exempt: the agent and
+  recap journals live in folders by design.
+
+The page itself was renamed to the name `titleSafe` now produces, its frontmatter title
+corrected, and all five wikilinks repointed, in one vault commit. The plain-text records of
+what was asked (the log heading, the recap, the notebook's task list) keep the topic as it was
+typed - they quote a request, they do not link a page.
+
+**It was not one page.** Running the validator over the whole vault afterwards found 45 dead
+links, and 37 of them were this same class under four different disguises: a title with a
+separator in it, and a run that repaired the FILE name (a hyphen here, an underscore there,
+dropping it once, a real directory once) while writing every wikilink from the TITLE. One
+more was a title too long to be a file name, shortened on disk and linked in full. All 37
+were repointed to the file name of the page that answers to them - matched on name,
+frontmatter `title:` and `aliases:`, and only ever when exactly one page answered. The eight
+that remain are ordinary gaps: pages nothing has written yet.
+
+Which is why the third layer is a prompt rule, not code. `titleSafe` only guards the ONE
+title the service pins; concept, entity and source pages are named by the run itself, and no
+validator can rename a page after the fact. `PAGE_HYGIENE_CHECKLIST` now states the rule the
+runs were each inventing differently: a page's name is its file name, a file name holds no
+separator, write the hyphen in the title AND the file name AND every link, and do not repair
+the file name alone - that is precisely what breaks the links.

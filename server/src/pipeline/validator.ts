@@ -38,6 +38,7 @@ export type ValidationRule =
   | 'stale-counter'
   | 'single-source-entity'
   | 'source-url'
+  | 'nested-page'
   | 'hot-cache-size'
 
 export interface ValidationFinding {
@@ -262,6 +263,23 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       markdown = fs.readFileSync(path.join(vaultRoot, rel), 'utf8')
     } catch {
       continue
+    }
+
+    /*
+     * A page one folder below its bucket (2026-09-10). A page title carrying a path separator
+     * is written as a directory plus a page named after the rest of the title, and every
+     * wikilink aimed at the whole title then resolves to nothing - which is how it was found,
+     * long after the run that wrote it reported success. The buckets under `wiki/` are flat;
+     * `wiki/meta/` is the exception, where the agent and recap journals live in folders of
+     * their own.
+     */
+    const inBucket = rel.startsWith('wiki/') ? rel.slice('wiki/'.length) : rel
+    if (!rel.startsWith('wiki/meta/') && inBucket.split('/').length > 2) {
+      findings.push({
+        rule: 'nested-page',
+        path: rel,
+        message: 'page sits a folder below its bucket - a path separator in the title makes one',
+      })
     }
 
     const fm = parseFrontmatter(markdown)

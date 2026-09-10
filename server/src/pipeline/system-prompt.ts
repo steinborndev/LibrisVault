@@ -69,6 +69,14 @@ flags violations to the operator):
   leave an explicit note that they are stale.
 - Wikilinks use exact page titles (no trailing "?" or other punctuation drift). Wrap the
   FIRST mention of an existing entity/concept page in a [[wikilink]] instead of plain text.
+- A page's NAME is its file name, and a file name cannot hold a "/" or a "\\". Where the
+  subject has one - "LS/Xtend", "ESI-MS/MS", "implantable/wearable" - write a hyphen, and
+  write that same hyphenated string in the file name, in the frontmatter "title:", and in
+  every wikilink to the page. Do NOT keep the slash in the title and repair it only in the
+  file name: the links are written from the title, so they then point at a page that does
+  not exist. Thirty-seven links in this vault broke exactly that way, one of them because a
+  slash in a title was taken as a directory and the page was filed one folder down. The same
+  goes for shortening: if the name you file under is not the title, no link will find it.
 - NEVER break a wikilink across a line. When you wrap a paragraph, keep the whole link - the
   two opening brackets, the page title and the two closing brackets - on ONE line, and let
   that line run long instead. A link split by a newline stops resolving and reads as a dead
