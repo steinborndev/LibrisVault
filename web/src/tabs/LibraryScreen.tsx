@@ -685,7 +685,11 @@ export function LibraryScreen({
                   * ring: there the arrows walk the Fellows, so three dots for two Fellows was
                   * the shelves' ring drawn over a view that never visits it.
                   */}
-                <span className="cc-dots">
+                {/*
+                  * A ring of one gets no dots. With every Fellow retired the only stop is the
+                  * overview, and a lone dot reads as an invitation to walk somewhere.
+                  */}
+                <span className="cc-dots" hidden={ccView === 'dossier' ? ccRoster.length < 2 : ccShelves.length === 0}>
                   {ccView === 'dossier' ? (
                     ccRoster.map((r) => (
                       <i

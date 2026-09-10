@@ -383,7 +383,7 @@ export function CommandCentre({
     },
   })
   const act = useMutation({
-    mutationFn: async (v: { id: string; what: 'step' | 'plan' | 'pause' | 'resume' }): Promise<void> => {
+    mutationFn: async (v: { id: string; what: 'step' | 'plan' | 'pause' | 'resume' | 'retire' }): Promise<void> => {
       if (v.what === 'step') await api.stepAgent(v.id)
       else if (v.what === 'plan') await api.planAgent(v.id)
       else await api.agentAction(v.id, v.what)
@@ -499,6 +499,16 @@ export function CommandCentre({
         return
       }
       if (view === 'spawn') return
+      /*
+       * A ring of one has nowhere to go. With every Fellow retired there are no staffed
+       * shelves, so the only stop is the overview - and stepping off it landed on `tonight`
+       * with no shelf to draw, which renders nothing at all. The dots agree: they draw one
+       * stop, and the arrows must not offer a second.
+       */
+      if (staffed.length === 0) {
+        if (view !== 'shelves') setView('shelves')
+        return
+      }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
         if (view === 'shelves') {
@@ -668,6 +678,15 @@ export function CommandCentre({
         </>
       )}
 
+      {view === 'tonight' && !shelf && (
+        <div className="lib-window-body cc-body">
+          <p className="empty">
+            No shelf has a Fellow. Every stop on this ring is a staffed shelf, so there is only
+            the overview until one is.
+          </p>
+        </div>
+      )}
+
       {view === 'tonight' && shelf && (
         <>
           <NightLine
@@ -694,7 +713,7 @@ export function CommandCentre({
                       {g.parts.map((b, i) => (
                         <span
                           key={`${b.fellowId}-${b.text}`}
-                          className={`cc-part ${b.runs ? '' : 'plan'} ${b.outcome}`}
+                          className={`cc-part ${b.runs ? '' : 'plan'}`}
                           style={{ width: `${(b.minutes / (g.to - g.from)) * 100}%`, borderLeft: i > 0 ? '1px solid rgba(255,255,255,.55)' : undefined }}
                           title={
                             b.outcome === 'ran'
@@ -857,7 +876,16 @@ export function CommandCentre({
 
       {view === 'dossier' && !fellow && (
         <div className="lib-window-body cc-body">
-          <p className="empty">Opening the Fellow…</p>
+          {/* Two reasons a dossier has no Fellow, and they are not the same: one is a moment
+              after a spawn, the other is a Fellow that has been retired out of the roster. */}
+          {agents.data?.fellows.some((f) => f.agent.id === fellowId) === true ? (
+            <p className="empty">
+              This Fellow is retired. Its notebook and the pages it wrote stay in the vault; it
+              is off every shelf.
+            </p>
+          ) : (
+            <p className="empty">Opening the Fellow…</p>
+          )}
         </div>
       )}
 
@@ -1104,7 +1132,7 @@ function Dossier({
   durations: Readonly<Record<string, number | null>>
   setPane: (p: Pane) => void
   onBack: () => void
-  onAct: (what: 'step' | 'plan' | 'pause' | 'resume') => void
+  onAct: (what: 'step' | 'plan' | 'pause' | 'resume' | 'retire') => void
   onPatch: (body: AgentPatchBody) => void
   onOpenPage: (page: string) => void
   /** Why nothing will run tonight, if anything: the state line says so where it applies. */
@@ -1126,6 +1154,8 @@ function Dossier({
    * What the night produced first, what it did second, and the settings behind it last. The
    * notebook is the Fellow's own page and belongs near the settings that write to it.
    */
+  /** The retire button's second step: ending a Fellow is not a single click. */
+  const [asking, setAsking] = useState(false)
   const [showPlanning, setShowPlanning] = useState(false)
   const shown = showPlanning ? runs : runs.filter((r) => r.kind !== 'plan')
   /*
@@ -1191,12 +1221,38 @@ function Dossier({
           <span className="cc-sub">{stateReason(a, fellow, held, nextShift)}</span>
         </span>
         <span className="grow" />
-        {/* The arrow keys walk the roster; a pair of buttons saying so was the same door twice. */}
-        <button className="btn sm" disabled={busy} onClick={() => onAct('plan')}>Plan now</button>
-        {a.state === 'paused' ? (
-          <button className="btn primary sm" disabled={busy} onClick={() => onAct('resume')}>Resume</button>
+        {/*
+          * Retiring is the one action here that ends something, so it asks first and wears no
+          * colour: it stops the Fellow for good, keeps its record and its pages, and takes it
+          * off every shelf. Pausing is the reversible neighbour and stays a plain button.
+          */}
+        {a.state === 'retired' ? (
+          <span className="cc-sub">retired; its pages and notebook stay in the vault</span>
+        ) : asking ? (
+          <span className="cc-ask">
+            <button className="cc-rel go" disabled={busy} onClick={() => { setAsking(false); onAct('retire') }}>
+              yes, retire {a.name}
+            </button>
+            <button className="cc-rel" onClick={() => setAsking(false)}>no</button>
+          </span>
         ) : (
-          <button className="btn primary sm" disabled={busy} onClick={() => onAct('step')}>Run a task now</button>
+          <>
+            <button
+              className="btn ghost sm"
+              disabled={busy}
+              title={`Stop ${a.name} for good. Its notebook and the pages it wrote stay; nothing plans or runs for it again.`}
+              onClick={() => setAsking(true)}
+            >
+              Retire
+            </button>
+            <button className="btn sm" disabled={busy} onClick={() => onAct(a.state === 'paused' ? 'resume' : 'pause')}>
+              {a.state === 'paused' ? 'Resume' : 'Pause'}
+            </button>
+            <button className="btn sm" disabled={busy} onClick={() => onAct('plan')}>Plan now</button>
+            <button className="btn primary sm" disabled={busy || a.state === 'paused'} onClick={() => onAct('step')}>
+              Run a task now
+            </button>
+          </>
         )}
       </div>
 
