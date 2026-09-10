@@ -955,15 +955,16 @@ export class FellowService {
     const expired = this.proposals.expire(agent.id, addDays(cycleDate, -2))
     if (expired > 0) this.log('info', `fellows: ${expired} proposal(s) of ${agent.name} expired`)
     const runs = this.runs.list({ agentId: agent.id, limit: 200 })
-    const { candidates } = this.candidates(agent.id) ?? { candidates: [] }
-    if (candidates.length === 0) {
-      const reason = `no open questions and no candidates in ${[agent.homeDomain, ...agent.extraDomains].join(', ')}`
-      this.sleep(agent.id, 'no-candidates', reason)
-      return { skipped: reason }
-    }
     /*
      * Tonight's task, taken in turn. Every task resting is what puts the Fellow to sleep now -
      * one answered question used to do it for the whole Fellow (decision 2026-09-07).
+     *
+     * Decided BEFORE the candidates, because the list depends on it: the standing sweep
+     * candidate IS this task's text, and it is the only candidate a task can stand on by
+     * itself. Built from the rotation instead, every run of a sweeping Fellow was handed the
+     * FIRST task's sweep - the cursor does not move for a sweep - so tasks two and three were
+     * offered the first task's material and told not to propose against it. The planner said
+     * so in its own words and proposed nothing, night after night.
      */
     const chosen = opts.task
     const tonight =
@@ -973,6 +974,12 @@ export class FellowService {
     if (tonight === null) {
       const reason = 'every standing task is answered as far as the library can take it'
       this.sleep(agent.id, 'covered', reason)
+      return { skipped: reason }
+    }
+    const { candidates } = this.candidates(agent.id, tonight.task) ?? { candidates: [] }
+    if (candidates.length === 0) {
+      const reason = `no open questions and no candidates in ${[agent.homeDomain, ...agent.extraDomains].join(', ')}`
+      this.sleep(agent.id, 'no-candidates', reason)
       return { skipped: reason }
     }
     const kinds = kindsForTask(tonight.task.kind, agent.step)
@@ -1212,16 +1219,20 @@ export class FellowService {
     return { ...outcome, ...(claimed ? { handoff: claimed } : {}) }
   }
 
-  /** What the planner would be shown right now (the dashboard's "why this plan" view). */
-  candidates(agentId: string): { candidates: Candidate[]; since: string | null } | undefined {
+  /**
+   * What the planner would be shown for one task (the dashboard's "why this plan" view).
+   *
+   * `task` is which one to build the list for; without it, the one the rotation has up. It has
+   * to be asked for, because the list is not the same for every task: the standing sweep
+   * candidate IS the task, and it is the only candidate a task can stand on by itself.
+   */
+  candidates(agentId: string, task?: AgentTask): { candidates: Candidate[]; since: string | null } | undefined {
     const agent = this.agents.get(agentId)
     if (!agent) return undefined
     const runs = this.runs.list({ agentId, limit: 200 })
     const since = runs.find((r) => isResearchKind(r.kind))?.startedAt ?? agent.createdAt
-    // The same task the planner would be given, so the view shows the same list - the standing
-    // sweep only exists for a watch task, and which task is up depends on the cursor.
-    const tonight = taskForTonight(agent.tasks, agent.taskCursor)
-    return { candidates: this.candidatesFn(agent, runs, since, tonight?.task), since }
+    const chosen = task ?? taskForTonight(agent.tasks, agent.taskCursor)?.task
+    return { candidates: this.candidatesFn(agent, runs, since, chosen), since }
   }
 
   /**

@@ -29,6 +29,7 @@ import { buildServer } from '../src/api/server.js'
 import type { Config } from '../src/config.js'
 import type { AgentRunResult, RunAgentOptions } from '../src/pipeline/agent-runner.js'
 import type { Candidate } from '../src/pipeline/candidates.js'
+import type { AgentTask } from '../src/db/agents.js'
 import type { ReadingEntry } from '../src/pipeline/reading-list.js'
 import { MemoryUsageSampleStore } from '../src/db/usage-samples.js'
 import type { PlanSettings } from '../src/pipeline/usage-monitor.js'
@@ -75,7 +76,8 @@ interface Harness {
   gate: () => GateBlock | null
   /** The shift's injected waits (A5 D5): each advances the clock instead of sleeping. */
   sleeps: number[]
-  candidates: () => Candidate[]
+  /** The 4th argument is the task the planning run is for; tests assert on it. */
+  candidates: (agent?: AgentRecord, runs?: unknown, since?: string | null, task?: AgentTask) => Candidate[]
   /** Reading list entries the service wrote for the planner. */
   reading: ReadingEntry[]
   /** What the reconcile pass reports as newly arrived in the vault. */
@@ -180,7 +182,7 @@ function makeHarness(withUsage = false): Harness {
       entries: () => h.reading!.map((e) => ({ ...e, page: e.filed })),
     },
     now,
-    candidates: () => h.candidates!(),
+    candidates: (agent, runs, since, task) => h.candidates!(agent, runs, since, task),
     gate: (ctx) => h.gate!() ?? (usage ? usage.gate(ctx) : null),
     ...(usage ? { estimatePct: (cost: number, model: string) => usage.estimatePct(cost, model) } : {}),
   })
@@ -589,7 +591,7 @@ describe('planning, proposals and the night shift', () => {
     const topics = night.summary.executed.map((e) => e.topic)
     expect(new Set(topics).size).toBe(topics.length)
     expect(night.summary.executed[0]).toMatchObject({ agentName: 'Cy' })
-    expect(night.summary.merged[0]).toMatchObject({ keptAgentName: 'Cy', droppedAgentName: 'Di' })
+    expect(night.summary.merged).toContainEqual(expect.objectContaining({ keptAgentName: 'Cy', droppedAgentName: 'Di' }))
     const dropped = h.service.pendingProposals(di.id)
     expect(dropped.every((p) => p.topic !== night.summary.executed[0]!.topic)).toBe(true)
   })
@@ -727,6 +729,34 @@ describe('planning, proposals and the night shift', () => {
      */
     expect(h.service.get(cy.id)).toMatchObject({ state: 'sleeping', sleepCode: 'quota' })
     expect(pending(cy.id)).toHaveLength(1)
+  })
+
+  it('plans each task against ITS OWN candidates, not the first task\'s', async () => {
+    /*
+     * The standing sweep candidate IS the task's text, and for a watch task it is the only
+     * candidate that task can stand on by itself. The list used to be built from the ROTATION
+     * - and a sweep leaves the cursor alone - so every run of a sweeping Fellow was handed the
+     * first task's sweep and told not to propose against the first task. Tasks two and three
+     * were offered nothing they were allowed to use.
+     */
+    await spawn({
+      name: 'Cy',
+      autonomy: 'auto',
+      quotaRunsPerDay: 3,
+      tasks: [
+        { text: 'What is new in transit photometry?', kind: 'watch' },
+        { text: 'What is new in adaptive optics?', kind: 'watch' },
+      ],
+    })
+    // Which task each planning run asked its candidates for.
+    const asked: Array<string | undefined> = []
+    h.candidates = (_agent, _runs, _since, task) => {
+      asked.push(task?.text)
+      return CANDIDATES
+    }
+    h.planAnswer = () => ({ proposals: [], handoffs: [], reading: [], nothing_worth_a_run: true, intent_covered: false, reason: 'noted' })
+    await h.shift.run('timer')
+    expect(asked).toEqual(['What is new in transit photometry?', 'What is new in adaptive optics?'])
   })
 
   it('an auto Fellow that sweeps runs every task it planned, one run each', async () => {

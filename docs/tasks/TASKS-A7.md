@@ -425,12 +425,33 @@ Phase 1 (execute) runs before phase 2 (plan), and phase 3 executes only `auto` F
 wait for the next night - which is what veto means and what the dossier says. Her three
 approved proposals are three OPTIONS for one task, not three tasks: the top one runs.
 
-### 6.4 A swept task with no candidate costs a planning run and yields nothing
+### 6.4 Every run of a sweep was handed the FIRST task's candidates
 
-Measured: two test Fellows, five tasks, five planning runs, **two** proposals. On a thin shelf
-the first task takes the candidate that fits and the rest have nothing to propose from. The
-sweep is doing what it was asked; it is worth knowing that a task's cost is its planning run
-whether or not the shelf can feed it.
+Measured: three test Fellows, seven tasks, seven planning runs, **two** proposals. The planner
+wrote the reason into its own answer:
+
+> "Tonight's task is the watch for new non-invasive EEG decoding accuracy results. Every
+> candidate offered (C1-C9) traces back to Yuri's other standing task - the invasive BCI
+> clinical trial watch - which the brief explicitly excludes from tonight's proposals."
+
+It was literally true. `plan()` built its candidate list with `this.candidates(agent.id)`, and
+that method chose the task from the ROTATION - `taskForTonight(tasks, taskCursor)`. A sweep
+leaves the cursor alone by design, so every planning run of a sweeping Fellow got task one's
+list. That matters because exactly one candidate is task-specific: the standing sweep, whose
+text IS the task, and which for a watch task is the only candidate the task can stand on by
+itself. Everything else comes from the vault and belongs to whatever the Fellow has already
+worked - and the prompt tells each run "do not propose against the other tasks".
+
+So tasks two and three were offered the first task's sweep plus the first task's follow-up
+questions, and forbidden to use any of it. Nothing left to propose, every night, at the cost of
+a planning run each.
+
+The list is now built for the task the run is actually for, and `candidates(id, task)` takes
+the task rather than reading the cursor. The order in `plan()` changed with it: the task is
+decided before the candidates, because the list depends on it.
+
+What remains true and is worth knowing: a task's own sweep is its only self-standing candidate,
+so a watch task whose subject the vault has nothing on proposes a sweep or nothing at all.
 
 ### 6.5 Open: the schedule draws shelves, the shift walks rounds
 
