@@ -701,8 +701,9 @@ export class MaintenanceRunner {
 
   /**
    * A research EXPAND (docs/agents/SPEC.md section 7, docs/tasks/TASKS-A3.md): deepen the
-   * listed pages append-only. The rules ride in the prompt; the commit is validated against
-   * the page set afterwards and reverted with a new commit when it breaks them.
+   * listed pages by adding to them, never by rewriting them. The rules ride in the prompt;
+   * the commit is validated against the page set afterwards and reverted with a new commit
+   * when it breaks them.
    */
   startResearchExpand(topic: string, profileKey: string | undefined, fellow: FellowRunContext, pageSet: readonly string[]): MaintenanceRun {
     const profile = getResearchProfile(profileKey)

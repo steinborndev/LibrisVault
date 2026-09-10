@@ -170,7 +170,7 @@ export interface PlannerInput {
 const KIND_HELP: Readonly<Record<ProposalKind, string>> = {
   'research-step': 'one question: 1 search round, at most 5 sources and 5 new pages, about 2 USD',
   research: 'a full sweep of a broader topic: 3 rounds, up to 15 pages, about 6 USD',
-  'research-expand': 'deepen up to 4 EXISTING pages you name in `pages` with dated append-only update sections, about 3 USD',
+  'research-expand': 'deepen up to 4 EXISTING pages you name in `pages`, adding to them without rewriting a line, about 3 USD',
 }
 
 /** The planning prompt. Everything the planner may draw on is vault-internal (section 13). */

@@ -52,6 +52,39 @@ describe('expand rules and validator', () => {
     expect(block).toContain('at most 3 new pages')
   })
 
+  /**
+   * The two rules that stop a deepening from turning the page into a changelog. Asserted on
+   * the wording because the wording IS the mechanism here: the validator allows an insertion
+   * anywhere, so where the run puts what it found is decided by this block alone.
+   */
+  it('tells the run to add in place and to flag rather than delete', () => {
+    const block = renderExpandRules(['wiki/concepts/A.md'], '2026-09-07')
+    expect(block).toContain('Every edit is ADDITIVE')
+    expect(block).toContain('PUT IT WHERE IT BELONGS')
+    expect(block).toContain('it is not a changelog')
+    expect(block).toContain('CORRECT BY FLAGGING, NEVER BY DELETING')
+    expect(block).toContain('> [!contradiction]')
+    expect(block).toContain('`> [!stale]`')
+    expect(block).not.toContain('at the end of the page.')
+  })
+
+  /**
+   * An insertion in the middle is what the new wording asks for, and the guarantee has always
+   * covered it: every old line still stands, in order. This is the case the old rule forbade
+   * by wording and the validator never minded.
+   */
+  it('accepts an addition made inside a section, not at the end', async () => {
+    const set = ['wiki/concepts/A.md']
+    const before = '# A\n\n## Clinical Precedent\n\n- first\n\n## Sources\n\n- s1'
+    const after = '# A\n\n## Clinical Precedent\n\n- first\n- a third one, found tonight\n\n> [!stale] Superseded\n> The figure above predates the 2026 review.\n\n## Sources\n\n- s1\n- s2'
+    const reader = fakeReader(
+      { 'wiki/concepts/A.md': 'M' },
+      { 'wiki/concepts/A.md': PAGE(before) },
+      { 'wiki/concepts/A.md': PAGE(after) },
+    )
+    expect(await validateExpandCommit(reader, set)).toEqual([])
+  })
+
   it('accepts appended updates, new pages within the cap and frontmatter changes', async () => {
     const set = ['wiki/concepts/A.md']
     const reader = fakeReader(

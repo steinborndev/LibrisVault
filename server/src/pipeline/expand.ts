@@ -1,7 +1,8 @@
 /**
  * `research-expand` (docs/agents/SPEC.md section 7, docs/tasks/TASKS-A3.md D1 to D3): a run
- * that deepens a listed page set append-only. This module holds the rules block the prompt
- * carries, the validator that checks a commit against those rules, and the finding types.
+ * that deepens a listed page set additively - it may insert anywhere on those pages and may
+ * never rewrite or delete a line. This module holds the rules block the prompt carries, the
+ * validator that checks a commit against those rules, and the finding types.
  * The validator reads both sides of every page from git through a small reader interface,
  * so the tests feed it fixtures and the runner feeds it `git show`.
  */
@@ -56,7 +57,23 @@ export function isExemptPath(p: string): boolean {
   )
 }
 
-/** The prompt block that states the rules for one run (section 7, verbatim in spirit). */
+/**
+ * The prompt block that states the rules for one run (section 7).
+ *
+ * ADDITIVE, NOT APPENDED (2026-09-10). The rule used to demand one dated `## Update <date>`
+ * section at the END of every page, and that is not how the vault's own skill maintains a
+ * page: `wiki-ingest` says "create or update", edits in place with PATCH, keeps pages to a
+ * few hundred lines, and flags a conflicting claim with a `[!contradiction]` callout next to
+ * the claim rather than overwriting it. A dated tail is what claude-obsidian reserves for its
+ * journals (`wiki/log.md`, the folds), and it showed: a real run wrote "extends the <named>
+ * section above", which is a fact that belongs IN that section and that a reader of that
+ * section will never see, and another had to narrate a correction it was not allowed to make.
+ *
+ * What holds the run is unchanged, and is the part worth having: the validator below checks
+ * that every old body line survives, in order, and a run that rewrites or deletes one is
+ * reverted. `isSubsequence` allows an insertion ANYWHERE, so placing the addition where it
+ * belongs was always within the guarantee - only this wording stood in the way.
+ */
 export function renderExpandRules(pageSet: readonly string[], date: string): string {
   return (
     '\n\n<research_expand>\n' +
@@ -64,12 +81,23 @@ export function renderExpandRules(pageSet: readonly string[], date: string): str
     'and touch nothing else. The service checks the commit against these rules and reverts a run that breaks them.\n' +
     'Rules:\n' +
     `- You may EDIT only these existing pages (plus wiki/index.md, wiki/hot.md and wiki/log.md as usual):\n${pageSet.map((p) => `  - ${p}`).join('\n')}\n` +
-    `- Every edit is APPEND-ONLY: add a dated section "## Update ${date}" (or bullets under an existing one) at the end of the page. ` +
-    'Never rewrite, reorder or delete a line of existing body text. In the frontmatter you may change only `updated`, `related` and `tags`; ' +
-    'the `related:` footer line at the end of a page may gain links and move below your update.\n' +
+    '- Every edit is ADDITIVE: you may insert new text anywhere, and you may never rewrite, reorder or delete ' +
+    'a line of existing body text. In the frontmatter you may change only `updated`, `related` and `tags`; ' +
+    'the `related:` footer line at the end of a page may gain links and move below what you add.\n' +
+    '- PUT IT WHERE IT BELONGS. Add to the section the fact belongs to, in that section\'s voice and tense - ' +
+    'the page states what is known, it is not a changelog. Only what fits no existing section gets one of its own, ' +
+    `named for its subject; if the addition is genuinely a dated development, "## Update ${date}" is a fine name for that section. ` +
+    'Carry the date and the source in the sentence itself, the way the page already cites its claims.\n' +
+    '- CORRECT BY FLAGGING, NEVER BY DELETING. When what you found contradicts a claim on the page, or supersedes ' +
+    'a figure it states, leave the old line where it is and put a callout directly under it:\n' +
+    '  > [!contradiction] <what conflicts>\n' +
+    '  > This page says X. <source> says Y. <which is better founded, and why>\n' +
+    '  Use `> [!stale]` instead when the old claim is not wrong but has been overtaken by a newer or more primary ' +
+    'source. Both are the vault\'s own callouts. Do not narrate the correction in a section at the end of the page: ' +
+    'a reader of the old claim must meet the flag at the claim.\n' +
     `- You may CREATE at most ${EXPAND_MAX_NEW} new pages (sources you cite, a concept the update needs), under the normal hygiene rules.\n` +
     '- Do not modify, rename or delete any other existing page. If a finding belongs elsewhere, leave a bullet in your notebook\'s Open Questions instead.\n' +
-    '- The synthesis page in the list is where the update\'s summary goes; it counts as an edit, not as a new page.\n' +
+    '- The synthesis page in the list is where the run\'s summary goes; it counts as an edit, not as a new page.\n' +
     '</research_expand>'
   )
 }

@@ -461,3 +461,41 @@ night actually gives each Fellow one run in shelf order, then goes round again. 
 each the two readings agree; with several they do not. Either the bar should interleave or the
 shift should drain a Fellow before moving on, and that is a decision about what the shelf order
 MEANS, not a detail.
+### 7. A deepening writes in place, not into a dated tail (2026-09-10)
+
+`renderExpandRules` demanded one `## Update <date>` section at the END of every page it
+touched. Comparing that against the vault's own skills says it was the wrong shape:
+
+- `wiki-ingest` steps 4 to 6 are "**create or update** entity pages ... concept pages ...
+  update relevant domain pages", with "use PATCH for surgical edits" and "keep wiki pages
+  short, 100 to 300 lines max; if a page grows beyond 300 lines, split it".
+- A conflicting claim gets a `> [!contradiction]` callout **on both pages, at the claim** -
+  "do not silently overwrite old claims. Flag and let the user decide."
+- `wiki-lint` reports "stale claims: assertions on older pages that newer sources have
+  contradicted or updated", i.e. it looks for the pages where that was not done.
+- The style check wants declarative present tense - a page states what is known.
+- Append-only exists upstream for the JOURNALS only: `wiki/log.md` and the `wiki-fold`
+  rollups ("a fold is additive: child log entries and their referenced pages are never
+  modified"). There is no `## Update <date>` convention anywhere in claude-obsidian.
+
+Evidence from the six pages that carry such sections in the production vault: one update
+opens "extends the <named> section above" - the fact belongs in that section and a reader of
+it never sees the update. Another opens "the figures above ... now trace to a properly filed
+primary source", a correction narrated because it could not be made. One page is a quarter
+dated tail from a single night. Finding F2
+of A3 was the same collision seen from the other side: the skill's `related:` footer had to
+be excluded from the validator because the appended section displaced it.
+
+What was actually load-bearing stays untouched: `isSubsequence` checks that every old body
+line survives in order, and a run that rewrites or deletes one is reverted. It allows an
+insertion ANYWHERE - the tail was forced by the prompt wording alone. The block now says
+additive rather than append-only, tells the run to add to the section the fact belongs to
+(in that section's voice, with the date and source in the sentence), and sanctions
+`> [!contradiction]` and `> [!stale]` directly under a claim as the way to correct one.
+SPEC section 7a carries the reasoning; `expand.test.ts` asserts the wording, because here
+the wording IS the mechanism.
+
+Open: **splitting an overgrown page.** The vault wants pages split past a few hundred lines,
+and the additive rule cannot express that - moving a section to a new page reads to the
+validator as deleted lines. A deepening can only leave a note in Open Questions. Probably a
+run kind of its own rather than a loosening of this one.

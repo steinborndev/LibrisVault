@@ -163,8 +163,9 @@ export function DeepenDialog({
             and that do not pay off
           </h2>
           <p className="mono-meta">
-            An append-only run: it adds dated sections to these pages and never
-            rewrites them. Ranked by backlinks against page size.
+            An additive run: it writes what it finds into the section it belongs to
+            and never rewrites a line, flagging what it contradicts. Ranked by
+            backlinks against page size.
           </p>
         </div>
 

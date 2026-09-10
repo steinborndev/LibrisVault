@@ -510,8 +510,8 @@ work and always runs on the default model (Sonnet 5).
 
 **`research-expand` rules (the deferred "Achse B").** The proposal lists the pages the run
 may edit: the Fellow's own synthesis page, its notebook, and at most N existing pages. The
-prompt states: append-only, dated `## Update <date>` sections, never rewrite or delete
-body text, frontmatter `updated`, `related` and `tags` may change. After the commit the
+prompt states: additive, never rewrite or delete body text, frontmatter `updated`,
+`related` and `tags` may change. After the commit the
 service validates with `git diff --numstat` against the commit's parent: any modified page
 outside the set, or any deleted body line inside the set, fails the run; the service
 **reverts the commit with a new commit** (never a history rewrite) and marks the run
@@ -521,6 +521,39 @@ exist (at most 4) plus the Fellow's synthesis pages and notebook; "deleted body 
 checked as the old body surviving line by line in order (insertions allowed); at most 3
 new pages; the revert restores the commit's paths from its parent in a new commit; the
 Fellow sleeps `idle` with the finding rather than going `blocked`, so the planner carries on.
+
+**7a. Where a deepening puts what it found (2026-09-10).** The rule used to be a dated
+`## Update <date>` section at the END of every page. That is not how the vault's own skill
+maintains a page - `wiki-ingest` says "create or update", edits in place, holds pages to a
+few hundred lines and splits beyond that, and flags a conflicting claim with a
+`> [!contradiction]` callout **next to the claim** rather than overwriting it ("do not
+silently overwrite old claims. Flag and let the user decide"). `wiki-lint` then looks for
+exactly the pages where that was not done ("stale claims"). A dated tail is what
+claude-obsidian reserves for its journals: `wiki/log.md` and the `wiki-fold` rollups. There
+is no `## Update` convention upstream at all; ours was invented here.
+
+It showed on the real pages. One run wrote "extends the <named> section above" - a fact
+that belongs IN that section, and that a reader of that section never sees. Another
+had to narrate a correction it was not allowed to make, opening with "the figures above
+now trace to a properly filed primary source". A third of one page was a dated tail from a
+single night.
+
+The guarantee is unchanged and is the part worth having: `isSubsequence` checks that every
+old body line survives IN ORDER, and it has always allowed an insertion **anywhere** - only
+the wording forced the tail. So the prompt block now says three things instead:
+
+- **Additive**, not appended: insert anywhere, never rewrite, reorder or delete a line.
+- **Put it where it belongs**: add to the section the fact belongs to, in that section's
+  voice and tense; only what fits no section gets one of its own, named for its subject.
+  The date and the source ride in the sentence, the way the page already cites its claims.
+- **Correct by flagging, never by deleting**: a contradicted claim keeps its line and gains
+  a `> [!contradiction]` callout directly under it; `> [!stale]` when the claim is not wrong
+  but has been overtaken. Both are the vault's own custom callouts. The correction must not
+  be narrated in a section at the end - a reader of the old claim has to meet the flag at
+  the claim.
+
+Splitting an overgrown page is the one thing the additive rule still cannot express (the
+validator would see the moved lines as deleted). Open, docs/tasks/TASKS-A7.md.
 
 **Caps on every run.** Timeout per kind, `maxBudgetUsd` per kind scaled by the model
 factor, the `research` profile's web hygiene, and the existing zero-token guard.
