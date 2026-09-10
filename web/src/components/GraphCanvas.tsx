@@ -515,6 +515,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const edgeColor = cssVar('--border', '#444')
     const textColor = cssVar('--text-dim', '#aaa')
+    /**
+     * A node's colour, computed once per frame. The edge pass asks for it twice per bridge
+     * and the node pass asks again, and for the metric lenses `colorFor` mixes two colours
+     * to get there.
+     */
+    const nodeColors = new Array<string | undefined>(nodes.length)
+    const nodeColor = (i: number): string => (nodeColors[i] ??= colorFor(nodes[i]!))
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
@@ -707,6 +714,37 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // point-cloud into a legible network. Classification needs cluster ids and is skipped for
     // ghost links (those keep their dashed "points at a missing page" treatment).
     ctx.lineWidth = 1 / t.k
+    /*
+     * The context's state is set only where it CHANGES (2026-09-10). Every edge used to
+     * assign the dash pattern, the stroke and the alpha before its own stroke() - counted on
+     * a vault of a thousand pages that was 5933 setLineDash calls a frame, almost all of them
+     * setting an empty dash to an empty dash, and as many redundant style assignments.
+     *
+     * Batching the segments into one path per look was tried first and is NOT what this is:
+     * measured here it HALVED the frame rate, because stroking one path of thousands of
+     * segments makes the rasteriser resolve the overlaps analytically, where thousands of
+     * one-segment strokes each take a fast path. Kept as a note so it is not tried twice.
+     */
+    let curDash = false
+    let curStroke = ''
+    let curAlpha = -1
+    const dash = [3 / t.k, 3 / t.k]
+    const setDash = (on: boolean): void => {
+      if (on === curDash) return
+      ctx.setLineDash(on ? dash : [])
+      curDash = on
+    }
+    const setStroke = (color: string): void => {
+      if (color === curStroke) return
+      ctx.strokeStyle = color
+      curStroke = color
+    }
+    const setAlpha = (a: number): void => {
+      if (a === curAlpha) return
+      ctx.globalAlpha = a
+      curAlpha = a
+    }
+    ctx.setLineDash([])
     for (const [a, b] of edges) {
       const x1 = pos[a * 2]!
       const y1 = pos[a * 2 + 1]!
@@ -724,26 +762,39 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const cb = clusters?.[b] ?? -1
       const isBridge = netOn && ca >= 0 && cb >= 0 && ca !== cb
 
-      let stroke: string | CanvasGradient = edgeColor
-      if (isBridge) {
-        const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-        grad.addColorStop(0, colorFor(nodes[a]!))
-        grad.addColorStop(1, colorFor(nodes[b]!))
-        stroke = grad
-      }
       let alpha: number
       if (highlight !== null) alpha = lit ? 0.9 : dimEdge
       else if (isBridge) alpha = 0.85
       else if (netOn) alpha = 0.5 // intra-cluster mesh, subtly more present than the 0.35 default
       else alpha = toGhost ? 0.45 : 0.35
 
-      ctx.setLineDash(toGhost ? [3 / t.k, 3 / t.k] : [])
-      ctx.strokeStyle = stroke
-      ctx.globalAlpha = alpha * edgeRev
-      ctx.beginPath()
-      ctx.moveTo(x1, y1)
-      ctx.lineTo(x2, y2)
-      ctx.stroke()
+      setDash(toGhost)
+      setAlpha(alpha * edgeRev)
+      if (isBridge) {
+        /*
+         * A bridge reads from→to in the two node colours. That was a two-stop linear gradient
+         * built per edge per frame - an allocation, and a slower rasterisation than a flat
+         * colour. Two solid halves say the same thing at one pixel wide.
+         */
+        const mx = (x1 + x2) / 2
+        const my = (y1 + y2) / 2
+        setStroke(nodeColor(a))
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(mx, my)
+        ctx.stroke()
+        setStroke(nodeColor(b))
+        ctx.beginPath()
+        ctx.moveTo(mx, my)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+      } else {
+        setStroke(edgeColor)
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+      }
 
       // Direction arrowhead on bridges only (few, so cheap), suppressed when the spotlight
       // dims this edge. Points at the link TARGET, wearing the target node's colour.
@@ -752,9 +803,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         const tx = x1 + (x2 - x1) * 0.62
         const ty = y1 + (y2 - y1) * 0.62
         const ah = 6 / t.k
-        ctx.setLineDash([])
-        ctx.fillStyle = colorFor(nodes[b]!)
-        ctx.globalAlpha = 0.9 * edgeRev
+        setDash(false)
+        ctx.fillStyle = nodeColor(b)
+        setAlpha(0.9 * edgeRev)
         ctx.beginPath()
         ctx.moveTo(tx + Math.cos(ang) * ah, ty + Math.sin(ang) * ah)
         ctx.lineTo(tx + Math.cos(ang + 2.5) * ah, ty + Math.sin(ang + 2.5) * ah)
@@ -763,7 +814,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.fill()
       }
     }
-    ctx.setLineDash([])
+    setDash(false)
+    ctx.globalAlpha = 1
 
     // Nodes.
     const now = performance.now()
@@ -797,7 +849,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.stroke()
         ctx.setLineDash([])
       } else {
-        ctx.fillStyle = colorFor(nodes[i]!)
+        ctx.fillStyle = nodeColor(i)
         ctx.beginPath()
         ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
@@ -818,7 +870,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           flashActive = true
           const p = age / FLASH_MS
           ctx.globalAlpha = (1 - p) * 0.9 * nodeRev
-          ctx.strokeStyle = colorFor(nodes[i]!)
+          ctx.strokeStyle = nodeColor(i)
           ctx.lineWidth = 2 / t.k
           ctx.beginPath()
           ctx.arc(x, y, r + (3 + p * 14) / t.k, 0, Math.PI * 2)

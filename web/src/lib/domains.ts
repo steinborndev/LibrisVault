@@ -30,8 +30,22 @@ export function domainHue(domain: string): number {
   return h % 360
 }
 
+/**
+ * Cached, because the graph asks for the same handful of colours thousands of times per
+ * frame: once per node, and twice more per bridge under the network lens. The template
+ * literal was a fresh string allocation on every one of those, which showed up as garbage
+ * collection in a profile of a pan gesture. A vault has tens of domains, so the map is tiny
+ * and never needs clearing.
+ */
+const domainColors = new Map<string, string>()
+
 export function domainColor(domain: string): string {
-  return `hsl(${domainHue(domain)} 62% 52%)`
+  let c = domainColors.get(domain)
+  if (c === undefined) {
+    c = `hsl(${domainHue(domain)} 62% 52%)`
+    domainColors.set(domain, c)
+  }
+  return c
 }
 
 /** A page under ~this many bytes is treated as a stub (frontmatter + a line). */
