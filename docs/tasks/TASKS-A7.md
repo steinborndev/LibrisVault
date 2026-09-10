@@ -499,3 +499,21 @@ Open: **splitting an overgrown page.** The vault wants pages split past a few hu
 and the additive rule cannot express that - moving a section to a new page reads to the
 validator as deleted lines. A deepening can only leave a note in Open Questions. Probably a
 run kind of its own rather than a loosening of this one.
+
+**The tails already written were folded in by hand (2026-09-10).** Six pages carried one, and
+that is small enough that a run kind for the cleanup would have cost more than the cleanup.
+Each was read, rewritten so every fact sits in the section it belongs to, and written back
+through `PUT /api/v1/pages` - the sanctioned non-agent mutation path (hard rule 1), one
+revertable commit per page, the same shape `src/cli/backfill-sources.ts` uses. Two invariants
+were checked per page before writing: every wikilink the page had still on it, and every
+figure still present. Method notes the run had written about itself ("fetched the full text
+to get…", "is now filed on X, cross-referenced against Y") were dropped where the vault
+already recorded the same thing in `related:`; nothing that was a claim was dropped. One page
+gained real structure it had been missing (efficacy, safety, manufacturing and regulatory
+history as sections rather than one dated block), and one unverified figure became a `[!gap]`
+callout on the claim, which is what the new rule asks a run to do in the first place.
+
+A separate finding fell out of it, not fixed here: a synthesis page whose TITLE contains a
+slash was written to a path that took the slash as a directory separator, so the page lives
+one level down under a truncated name and the five wikilinks that point at its full title all
+resolve to nothing. Renaming a page is a decision, not a cleanup.
