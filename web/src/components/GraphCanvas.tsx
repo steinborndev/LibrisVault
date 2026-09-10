@@ -125,6 +125,14 @@ export interface GraphCanvasProps {
    * Live SSE updates leave this key alone, so mid-ingest arrivals still never move the camera.
    */
   fitKey?: string
+  /**
+   * Which graph this canvas is - the key its camera and its laid-out positions are kept
+   * under. Two canvases are mounted at once (every screen stays in the DOM behind `hidden`),
+   * and a positions array belongs to exactly one node list, so they must not share a slot.
+   * Stable for the life of a view: the Graph screen is one, a department window is one per
+   * department, so each opens where it was left.
+   */
+  view: string
   /** Rendered in the canvas control bar, right of Fit (scope line, tip, fullscreen). */
   barExtra?: React.ReactNode
   /** Single click/tap on a node (when the click doesn't isolate - see onClusterClick). */
@@ -135,10 +143,10 @@ export interface GraphCanvasProps {
    */
   openOnClick?: boolean
   /**
-   * Fit once on mount, whatever the fit key says. Positions and the camera are module state
-   * shared with the Graph screen, so a canvas that mounts on an already-placed subgraph
-   * inherits whatever pan and zoom the last view left - which, for a different subgraph, is
-   * usually off screen. Hosts that open and close (the Library's department window) set it.
+   * Fit once on mount, whatever the fit key says. The camera outlives the component, so a
+   * canvas that mounts on an already-placed subgraph inherits the pan and zoom that view
+   * was left at - right for a view continuing, wrong for one being opened again. Hosts that
+   * open and close (the Library's department window) set it.
    */
   fitOnMount?: boolean
   /**
@@ -235,38 +243,72 @@ interface LayoutMsg {
 /**
  * Camera + layout memory that OUTLIVES the component: the canvas unmounts on every
  * graph ↔ page-view switch, and refs die with it - which used to reset the user's zoom
- * and re-run the whole force layout each time. Module scope is safe because the app has
- * exactly one graph view.
+ * and re-run the whole force layout each time.
+ *
+ * ONE SLOT PER VIEW (2026-09-10). This was a single module-level object, on the reasoning
+ * that the app has exactly one graph view. It has two: the Graph screen and the Library's
+ * department window, and every screen stays mounted behind `hidden`, so both canvases are
+ * live at once. `positions` is index-aligned with the node list it was laid out for, and a
+ * department holds a fraction of the pages the whole graph does - so opening a department
+ * graph left the Graph screen holding an array too short for its own nodes, and its draw,
+ * which bails on exactly that, painted nothing at all. Nothing re-ran the layout either:
+ * the screen's nodes had not changed, so the effect that rebuilds the array never fired,
+ * and the canvas stayed blank until the vault next updated.
+ *
+ * A slot per view also makes the camera per view, which is what a reader expects: the Graph
+ * screen keeps the pan and zoom it had while you look at a department, rather than adopting
+ * the department's frame and needing the re-fit-on-return that used to paper over it.
  */
-const persist = {
+interface ViewMemory {
   /** Positions aligned with the CURRENT `nodes` prop, [x0, y0, x1, y1, …]; NaN = unplaced. */
-  positions: { current: new Float32Array(0) as Float32Array },
-  /** The persistent position memory, keyed by page path - index-stable across updates. */
-  posByPath: { current: new Map<string, { x: number; y: number }>() },
-  transform: { current: { x: 0, y: 0, k: 1 } as Transform },
+  positions: { current: Float32Array }
+  transform: { current: Transform }
   /** Set once the user pans/zooms, so an automatic re-fit never yanks the view away. */
-  userMoved: { current: false },
-  fitted: { current: false },
+  userMoved: { current: boolean }
+  fitted: { current: boolean }
   /** The last posted layout, re-postable (remounts and StrictMode re-create the worker). */
-  lastMsg: { current: null as LayoutMsg | null },
+  lastMsg: { current: LayoutMsg | null }
   /** True once the posted layout finished cooling - a remount then skips the replay. */
-  settled: { current: true },
+  settled: { current: boolean }
 }
 
-/*
- * The same refs under their working names, at MODULE scope like the object they alias.
- * Inside the component they read as component-scope consts, and the deps rule then asks for
- * them in eleven dependency arrays - truthfully, since it cannot see that `persist` outlives
- * every render. Out here they are what they always were: constants.
- */
-const positionsRef = persist.positions
-const posByPathRef = persist.posByPath
-const transformRef = persist.transform
-const fittedRef = persist.fitted
-const userMovedRef = persist.userMoved
-const lastMsgRef = persist.lastMsg
+const views = new Map<string, ViewMemory>()
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+function viewMemory(view: string): ViewMemory {
+  let mem = views.get(view)
+  if (mem === undefined) {
+    mem = {
+      positions: { current: new Float32Array(0) },
+      transform: { current: { x: 0, y: 0, k: 1 } },
+      userMoved: { current: false },
+      fitted: { current: false },
+      lastMsg: { current: null },
+      settled: { current: true },
+    }
+    views.set(view, mem)
+  }
+  return mem
+}
+
+/**
+ * Where every view's nodes are, keyed by page path - and SHARED on purpose, unlike the rest.
+ * A path is a path in any view, so a page opened in the whole graph and then in its
+ * department starts where the reader last saw it instead of flying in from d3's spiral.
+ */
+const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
+
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, view, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+  /*
+   * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
+   * across renders exactly as they did when there was one module-level set of them.
+   */
+  const mem = useMemo(() => viewMemory(view), [view])
+  const positionsRef = mem.positions
+  const transformRef = mem.transform
+  const fittedRef = mem.fitted
+  const userMovedRef = mem.userMoved
+  const lastMsgRef = mem.lastMsg
+  const settledRef = mem.settled
   const canvasRef = useRef<HTMLCanvasElement>(null)
   /** Paths recently added to the view → timestamp, for the arrival flash. */
   const flashRef = useRef<Map<string, number>>(new Map())
@@ -284,6 +326,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   /** No placed node is on screen: zoom and pan left the picture empty (graphZoom.ts). */
   const [offMap, setOffMap] = useState(false)
   const offMapRef = useRef(false)
+  /**
+   * Did the last pass paint a graph? The overlays describe one - the overview frames it, and
+   * "go to nearest cluster" says where it went - so on a canvas that drew nothing they have
+   * nothing to say. The entrance holds the canvas blank on purpose while the first layout
+   * cools (lib/graphReveal.ts), and the overview used to appear over that emptiness and then
+   * vanish as the fit landed, which reads as a glitch rather than as an entrance.
+   */
+  const paintedRef = useRef(false)
   const miniRef = useRef<HTMLCanvasElement>(null)
   // Hover-driven neighborhood spotlight, OFF by default: it dims the rest of the graph and
   // drops their labels, which makes precise clicking hard as it flickers under the pointer.
@@ -427,6 +477,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     if (!ctx) return
     // Anything worth redrawing may have moved the world - invalidate the hull hit cache.
     drawEpochRef.current++
+    // Cleared up front, set at the end: every early return below leaves an empty canvas.
+    paintedRef.current = false
     const pos = positionsRef.current
     const t = transformRef.current
     const dpr = window.devicePixelRatio || 1
@@ -860,11 +912,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ctx.fillText(text, x, y)
     }
     ctx.globalAlpha = 1
+    paintedRef.current = true
 
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT])
+  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, positionsRef, transformRef])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -873,6 +926,15 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const overlayPass = useCallback((): void => {
     const canvas = canvasRef.current
     if (!canvas) return
+    if (!paintedRef.current) {
+      const blank = miniRef.current
+      if (blank !== null && !blank.hidden) blank.hidden = true
+      if (offMapRef.current) {
+        offMapRef.current = false
+        setOffMap(false)
+      }
+      return
+    }
     const dpr = window.devicePixelRatio || 1
     const vp: Viewport = { w: canvas.width / dpr, h: canvas.height / dpr }
     const pos = positionsRef.current
@@ -885,7 +947,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const mini = miniRef.current
     if (mini) drawMinimap(mini, t, vp, pos, dpr)
-  }, [])
+  }, [positionsRef, transformRef])
   const scheduleDraw = useRafDraw(() => {
     draw()
     overlayPass()
@@ -935,7 +997,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       y: -((minY + maxY) / 2) * k,
     }
     scheduleDraw()
-  }, [scheduleDraw])
+  }, [scheduleDraw, positionsRef, transformRef])
 
   // ---------------------------------------------------------------- layout worker session
   //
@@ -949,7 +1011,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     gen: 0,
     // A remount picks up the persisted layout's paths so replayed worker frames land
     // in the right posByPath slots.
-    paths: persist.lastMsg.current?.paths ?? [],
+    paths: mem.lastMsg.current?.paths ?? [],
   })
   const fitPendingRef = useRef(false)
 
@@ -1015,7 +1077,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ? null
       : performance.now()
     scheduleDrawRef.current?.()
-  }, [fitToView])
+  }, [fitToView, fittedRef])
   const beginEntranceRef = useRef(beginEntrance)
   beginEntranceRef.current = beginEntrance
   useEffect(
@@ -1036,7 +1098,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       { gen: layoutRef.current.gen, nodes: msg.degrees, edges: msg.edges, groups: msg.groups, seed, alpha: msg.alpha },
       { transfer: [seed.buffer] },
     )
-  }, [])
+  }, [lastMsgRef])
 
   useEffect(() => {
     const worker = new Worker(new URL('../lib/graphLayout.worker.ts', import.meta.url), { type: 'module' })
@@ -1051,7 +1113,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         byPath.set(paths[i]!, { x: positions[i * 2]!, y: positions[i * 2 + 1]! })
       }
       if (type === 'done') {
-        persist.settled.current = true
+        settledRef.current = true
         setLayouting(false)
         // Frame the FIRST finished layout once, so a graph of any size lands filling the
         // viewport instead of as a speck, and build it in from there. Later layouts (live
@@ -1067,12 +1129,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // A recreated worker (remount, dev StrictMode double-mount) starts empty. Replay only
     // when the last layout was still cooling - a settled layout's positions are already
     // persisted, and re-posting would make the graph jiggle on every return to this view.
-    if (!persist.settled.current) postLayout()
+    if (!settledRef.current) postLayout()
     return () => {
       worker.terminate()
       workerRef.current = null
     }
-  }, [fitToView, postLayout])
+  }, [fitToView, postLayout, positionsRef, settledRef])
 
   useEffect(() => {
     if (nodes.length === 0) {
@@ -1185,13 +1247,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       seed,
       alpha: cold ? 1 : 0.3,
     }
-    persist.settled.current = false
+    settledRef.current = false
     postLayout()
-  }, [nodes, edges, scheduleDraw, postLayout])
+  }, [nodes, edges, scheduleDraw, postLayout, lastMsgRef, positionsRef, settledRef])
 
   // A changed fitKey = the user changed the visible subgraph (filter/depth toggle) - re-fit
   // so the remaining graph fills the canvas. Runs AFTER the layout effect above, so
-  // `persist.settled` already reflects whether that change posted a re-layout: when one is
+  // `settledRef` already reflects whether that change posted a re-layout: when one is
   // cooling the canvas goes blank and the entrance frames and builds it in on settle, and
   // when none is (a view change that only re-frames) the fit here is the whole job. First
   // mount keeps the first-layout fit path.
@@ -1203,7 +1265,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const first = prevFitKeyRef.current === undefined
     prevFitKeyRef.current = fitKey
     userMovedRef.current = false // an explicit view change wins over an old pan/zoom
-    if (!persist.settled.current) {
+    if (!settledRef.current) {
       // A re-layout is cooling: blank the canvas and let the entrance do the framing when it
       // settles. The fit below still runs, on positions nothing is drawing - what the reader
       // used to see instead was that half-cooled frame, fitted, until the build-in cut it.
@@ -1218,7 +1280,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     fitToView()
     return undefined
-  }, [fitKey, fitToView])
+  }, [fitKey, fitToView, settledRef, userMovedRef])
 
   // Canvas sizing (device-pixel aware) + redraw on resize and theme change.
   useEffect(() => {
@@ -1249,7 +1311,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ro.disconnect()
       mq.removeEventListener('change', onTheme)
     }
-  }, [scheduleDraw, fitToView])
+  }, [scheduleDraw, fitToView, fittedRef, userMovedRef])
 
   // Repaint when pure-presentation props change (search rings, focus, selection, color axis)
   // - these must not depend on a pointer move or a layout tick happening to come along.
@@ -1266,7 +1328,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       x: (sx - rect.left - rect.width / 2 - t.x) / t.k,
       y: (sy - rect.top - rect.height / 2 - t.y) / t.k,
     }
-  }, [])
+  }, [transformRef])
 
   const hitTest = useCallback(
     (sx: number, sy: number): number | null => {
@@ -1288,7 +1350,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       return best
     },
-    [nodes, radius, toWorld],
+    [nodes, radius, toWorld, positionsRef, transformRef],
   )
 
   /**
@@ -1345,7 +1407,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     cache.geoms = geoms
     return geoms
-  }, [clusters, nodes.length])
+  }, [clusters, nodes.length, positionsRef, transformRef])
 
   const hitCluster = useCallback(
     (sx: number, sy: number): number => {
@@ -1373,7 +1435,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       return best
     },
-    [spotlight, clusters, clusterSets, nodes.length, ghostIndices, toWorld, clusterGeoms],
+    [spotlight, clusters, clusterSets, nodes.length, ghostIndices, toWorld, clusterGeoms, positionsRef],
   )
 
   // ---- hover refresh: the hover is only correct at the moment of a pointer event, but the
@@ -1458,7 +1520,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     zoomTransform(transformRef.current, vp, sx - rect.left, sy - rect.top, next)
     leash(transformRef.current, vp, worldBounds(positionsRef.current))
     userMovedRef.current = true
-  }, [])
+  }, [positionsRef, transformRef, userMovedRef])
 
   /** Button zoom: around the canvas center. */
   const zoomBy = (factor: number): void => {
@@ -1489,7 +1551,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           : localAnchor(transformRef.current, vp, cx, cy, positionsRef.current)
       return { x: a.x + rect.left, y: a.y + rect.top }
     },
-    [clusterGeoms],
+    [clusterGeoms, positionsRef, transformRef],
   )
 
   // Smooth zoom and the way-back pan: the wheel (or the button) writes a target, one rAF
@@ -1530,7 +1592,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       else animRunningRef.current = false
     }
     requestAnimationFrame(step)
-  }, [zoomAt, scheduleDraw])
+  }, [zoomAt, scheduleDraw, transformRef])
 
   /** The way back when nothing is on screen: center the nearest community (or node), animated. */
   const goToNearest = (): void => {

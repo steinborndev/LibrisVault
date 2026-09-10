@@ -397,11 +397,10 @@ function GraphView({
   /*
    * Coming back to this screen re-fits the camera.
    *
-   * The canvas keeps pan and zoom in module state, SHARED with the Library's shelf window -
-   * that is what makes a department open where you left it. The cost is that a look inside
-   * the Library moves this screen's camera too, and nothing here changed, so the old fitKey
-   * still held: you returned to a graph framed for a different, smaller set of nodes, which
-   * shows as empty space beside it. Counting activations puts it back in frame.
+   * The canvas keeps pan and zoom past its own unmount, under this screen's own key since
+   * 2026-09-10 - a look inside a department no longer moves this screen's camera. What is
+   * left is the ordinary case: a graph left half-zoomed weeks ago, returned to, is better
+   * met in frame than wherever it was parked. Counting activations puts it there.
    */
   const [visits, setVisits] = useState(0)
   useEffect(() => {
@@ -1036,6 +1035,7 @@ function GraphView({
         <div className="graph-main">
       <div className="graph-stage">
         <GraphCanvas
+          view="graph"
           nodes={nodes}
           edges={edges}
           focusIndex={focusIndex}

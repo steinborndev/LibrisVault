@@ -208,6 +208,9 @@ export function ShelfWindow({
         <div className="shelf-graph">
           {state ?? (
             <GraphCanvas
+              // One slot per department: each keeps its own camera and its own laid-out
+              // positions, and neither can hand the Graph screen an array of the wrong length.
+              view={`shelf:${domain}`}
               nodes={drawn.nodes}
               edges={drawn.edges}
               focusIndex={null}
