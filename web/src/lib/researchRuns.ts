@@ -29,6 +29,14 @@ import { contentPages } from './activity.ts'
 
 export interface ResearchRunEntry {
   readonly id: string
+  /**
+   * The persistent history row this entry can be taken out of, or null when there is none.
+   *
+   * Only a settled run HAS such a row. A run still in flight, and an entry reconstructed from
+   * a synthesis page whose run record is long gone, have nothing to remove - and offering a
+   * cross that cannot do anything is worse than offering none.
+   */
+  readonly removableId: string | null
   /** The topic as typed, with the lens suffix stripped back off. */
   readonly topic: string
   readonly profileKey: string | null
@@ -110,6 +118,7 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
     })
     out.push({
       id: h.id,
+      removableId: h.id,
       topic: h.label ?? 'Research run',
       profileKey: h.profileKey,
       status: h.ok ? 'done' : 'failed',
@@ -148,6 +157,8 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
     }
     out.push({
       id: r.id,
+      // A run still in flight has no history row yet; it gets one when it settles.
+      removableId: null,
       topic: r.label ?? 'Research run',
       profileKey: r.profileKey ?? null,
       status,
@@ -189,6 +200,8 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
     if (duplicate) continue
     out.push({
       id: `page:${n.path}`,
+      // Reconstructed from the page alone: the run that wrote it left no record to remove.
+      removableId: null,
       topic: split.topic,
       profileKey: split.profileKey,
       status: 'done',
@@ -209,6 +222,8 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
     if (seenIds.has(a.runId) || out.some((e) => e.id === a.runId)) continue
     out.push({
       id: `state:${a.runId}`,
+      // The last settle of a kind. If its run were in the history it would be an `h` entry.
+      removableId: null,
       topic: 'Research run',
       profileKey: null,
       status: 'failed',

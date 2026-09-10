@@ -7665,6 +7665,21 @@ tr:focus-within .rowacts {
 .rtable th.c-when {
   width: 96px;
 }
+/* The delete cross, in a lane of its own so When does not shift when a row is hovered.
+   The lane is narrow, so the button gives up the padding it does not need rather than
+   hanging over the table's right edge (the same trim the activity table's acts cell uses). */
+.rtable th.c-acts {
+  width: 58px;
+}
+.rtable td.c-acts {
+  text-align: right;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+.rtable td.c-acts .btn {
+  min-width: 24px;
+  padding-inline: 5px;
+}
 /* Every count, and nothing taken from the topic: the three figure columns gave up the width
    they never used, and a run that wrote three or four kinds takes a second line rather than an
    ellipsis. Most rows stay one line; the ones that need two are the ones with the most to say. */

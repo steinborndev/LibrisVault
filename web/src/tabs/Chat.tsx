@@ -57,6 +57,7 @@ import { openableRow } from '../lib/tableRow.ts'
 import { chatStream } from '../lib/chatStream.ts'
 import { timeAgo, tokens } from '../lib/format.ts'
 import { Cost, ESTIMATE_LABEL, isEstimate } from '../components/Cost.tsx'
+import { RowDelete } from '../components/ActivityRows.tsx'
 import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry, RESEARCH_PREFIX } from '../lib/researchRuns.ts'
 import { frontmatter } from '../lib/frontmatter.ts'
 
@@ -75,6 +76,14 @@ type ComposerMode = 'research' | 'ask'
  * back, and Escape leaves it like every other opened thing.
  */
 type View = { kind: 'start' } | { kind: 'run'; id: string } | { kind: 'thread'; id: string | null } | { kind: 'gaps' }
+
+/**
+ * A research topic is often a paragraph - a whole brief typed into the box. The delete
+ * button names the row it removes, and a tooltip carrying 400 characters names nothing.
+ */
+function shortTopic(topic: string): string {
+  return topic.length <= 60 ? topic : `${topic.slice(0, 57).trimEnd()}...`
+}
 
 /**
  * `m:ss` for the Took column. The run in flight counts from its start to now; a settled run
@@ -914,50 +923,64 @@ function StartView({
                     <th className="c-took">Took</th>
                     <th className="num c-cost">Cost</th>
                     <th className="c-when">When</th>
+                    {/* The run log is operational; a row can be taken out of it without the
+                        vault noticing. Only settled runs have such a row, so the column is
+                        declared once and the cell is empty for the rest. */}
+                    <th className="c-acts" aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map((e) => (
-                    <tr key={e.id} {...openableRow(() => onOpen(e), `Open the run about ${e.topic}`)}>
-                      <td>
-                        <span className="hrow-name">
-                          {/* The lens leads the row, in a lane of its own so the topics of
-                              four lenses still start on one x. It replaces a whole column:
-                              a mark says the same thing as a word and leaves the width to
-                              the topic. */}
-                          <span className="lensmark rowlens" title={lensLabel(e.profileKey)}>
-                            <Icon name={lensIcon(e.profileKey)} />
+                  {entries.map((e) => {
+                    // Bound outside the JSX: the narrowing on `e.removableId` does not
+                    // survive into the callback the button holds.
+                    const removable = e.removableId
+                    return (
+                      <tr key={e.id} {...openableRow(() => onOpen(e), `Open the run about ${e.topic}`)}>
+                        <td>
+                          <span className="hrow-name">
+                            {/* The lens leads the row, in a lane of its own so the topics of
+                                four lenses still start on one x. It replaces a whole column:
+                                a mark says the same thing as a word and leaves the width to
+                                the topic. */}
+                            <span className="lensmark rowlens" title={lensLabel(e.profileKey)}>
+                              <Icon name={lensIcon(e.profileKey)} />
+                            </span>
+                            <span className={`hrow-dot ${e.status === 'running' ? 'running' : e.status}`} aria-hidden />
+                            <span className="nm" title={e.topic}>
+                              {e.topic}
+                            </span>
                           </span>
-                          <span className={`hrow-dot ${e.status === 'running' ? 'running' : e.status}`} aria-hidden />
-                          <span className="nm" title={e.topic}>
-                            {e.topic}
-                          </span>
-                        </span>
-                        {e.error !== null && <span className="rowerr">{e.error}</span>}
-                      </td>
-                      {/* What it wrote, by kind. The width is declared for the run that wrote
-                          all four, so a figure that moves while a run works cannot push the
-                          columns beside it sideways. */}
-                      {/* Live while it runs: the pages come off the log, not the settle
-                          record, and the clock ticks. Cost stays a dash until it settles - a
-                          running total is not the final one, and a dash says "not known yet"
-                          where a 0 would lie. */}
-                      {/* One figure, live for the run in flight: the kinds are stated in the
-                          opened run, where there is room for them. */}
-                      <td className={`wrotec${e.status === 'running' ? ' pending' : ''}`} title={countLine(e.status === 'running' ? livePaths : e.pages)}>
-                        {(() => {
-                          const n = e.status === 'running' ? livePaths.length : e.pages.length
-                          if (n === 0) return e.status === 'running' ? 'nothing yet' : '-'
-                          return `${n} page${n === 1 ? '' : 's'}`
-                        })()}
-                      </td>
-                      <td className={`tookc${e.status === 'running' ? ' pending' : ''}`}>{took(e, now)}</td>
-                      <td className={`num dimc${e.status === 'running' ? ' pending' : ''}`}>
-                        {e.costUsd !== null ? <Cost value={e.costUsd} authMode={authMode} /> : '-'}
-                      </td>
-                      <td className="faintc">{e.status === 'running' ? 'running' : timeAgo(e.finishedAt)}</td>
-                    </tr>
-                  ))}
+                          {e.error !== null && <span className="rowerr">{e.error}</span>}
+                        </td>
+                        {/* What it wrote, by kind. The width is declared for the run that wrote
+                            all four, so a figure that moves while a run works cannot push the
+                            columns beside it sideways. */}
+                        {/* Live while it runs: the pages come off the log, not the settle
+                            record, and the clock ticks. Cost stays a dash until it settles - a
+                            running total is not the final one, and a dash says "not known yet"
+                            where a 0 would lie. */}
+                        {/* One figure, live for the run in flight: the kinds are stated in the
+                            opened run, where there is room for them. */}
+                        <td className={`wrotec${e.status === 'running' ? ' pending' : ''}`} title={countLine(e.status === 'running' ? livePaths : e.pages)}>
+                          {(() => {
+                            const n = e.status === 'running' ? livePaths.length : e.pages.length
+                            if (n === 0) return e.status === 'running' ? 'nothing yet' : '-'
+                            return `${n} page${n === 1 ? '' : 's'}`
+                          })()}
+                        </td>
+                        <td className={`tookc${e.status === 'running' ? ' pending' : ''}`}>{took(e, now)}</td>
+                        <td className={`num dimc${e.status === 'running' ? ' pending' : ''}`}>
+                          {e.costUsd !== null ? <Cost value={e.costUsd} authMode={authMode} /> : '-'}
+                        </td>
+                        <td className="faintc">{e.status === 'running' ? 'running' : timeAgo(e.finishedAt)}</td>
+                        <td className="c-acts">
+                          {removable !== null && (
+                            <RowDelete label={shortTopic(e.topic)} remove={() => api.deleteRun(removable)} />
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             ))}

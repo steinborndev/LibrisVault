@@ -271,6 +271,38 @@ describe('buildResearchRuns with the persistent run log', () => {
     expect(entries.map((e) => e.source).sort()).toEqual(['history', 'page'])
   })
 
+  /**
+   * Which rows the reader may take out of the list. The cross removes a history row and
+   * nothing else - so it is offered on exactly the entries that HAVE one. A run in flight
+   * has not been recorded yet, and a run reconstructed from a page left no record at all;
+   * a cross on either would be a control that cannot do what it says.
+   */
+  it('marks a recorded run as removable and an in-flight one as not', () => {
+    const entries = buildResearchRuns({
+      history: [history({ id: 'old' })],
+      runs: [run({ id: 'live', status: 'running', finishedAt: undefined, result: undefined, label: 'Live' })],
+      lastRuns: [],
+      nodes: [],
+      profiles: PROFILES,
+    })
+    expect(entries.map((e) => [e.id, e.removableId])).toEqual([
+      ['live', null],
+      ['old', 'old'],
+    ])
+  })
+
+  it('offers nothing to remove for a run rebuilt from its page or its settle record', () => {
+    const entries = buildResearchRuns({
+      history: [],
+      runs: [],
+      lastRuns: [settle({ runId: 'gone' })],
+      nodes: [node({ path: 'wiki/Research: Kelp.md', title: 'Research: Kelp' })],
+      profiles: PROFILES,
+    })
+    expect(entries.every((e) => e.removableId === null)).toBe(true)
+    expect(entries.map((e) => e.source).sort()).toEqual(['page', 'state'])
+  })
+
   it('drops a settle row the log already explains', () => {
     const entries = buildResearchRuns({
       history: [history({ id: 'run-old', ok: false, pages: [], error: 'boom' })],
@@ -397,6 +429,7 @@ describe('listedRuns', () => {
     error: null,
     source: 'history',
     pagePath: null,
+    removableId: 'e',
     ...over,
   })
 
@@ -446,6 +479,7 @@ describe('synthesisPage', () => {
     error: null,
     source: 'history',
     pagePath: null,
+    removableId: 'e',
     ...over,
   })
 
