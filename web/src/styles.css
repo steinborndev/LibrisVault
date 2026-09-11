@@ -5086,7 +5086,9 @@ tr:focus-within .rowacts {
 /* Hero, the graph, and the panel that took the half the graph gave back. */
 .vaultzone {
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr) minmax(0, 1fr);
+  /* The picture first, the figures in the middle at their fixed width, the domains last
+     (2026-09-11); the two pictures keep the halves they had. */
+  grid-template-columns: minmax(0, 1fr) 244px minmax(0, 1fr);
   flex: none;
   background: var(--bg-elev);
   border: 1px solid var(--border);
@@ -5097,6 +5099,7 @@ tr:focus-within .rowacts {
   display: flex;
   flex-direction: column;
   padding: 16px 18px;
+  border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
 }
 .vz-n {
@@ -5116,9 +5119,13 @@ tr:focus-within .rowacts {
 .vz-facts {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 16px;
+  gap: 0;
+  margin-top: 11px;
 }
+/* One fine line between the figures (2026-09-11), the padding in place of the gap so the
+   line stands halfway between two rows; the rail's copies of `.vzf` keep their gaps. */
+.vz-facts > .vzf { padding: 5px 0; }
+.vz-facts > .vzf + .vzf { border-top: 1px solid var(--border); }
 .vzf {
   display: flex;
   align-items: baseline;
@@ -5154,9 +5161,6 @@ tr:focus-within .rowacts {
   flex-direction: column;
   min-width: 0;
   padding: 11px 14px 12px;
-}
-.vz-panel + .vz-panel {
-  border-left: 1px solid var(--border);
 }
 .vz-phead {
   display: flex;
@@ -6040,6 +6044,10 @@ tr:focus-within .rowacts {
 .fact.lead:last-child {
   border-right: 0;
 }
+/* A strip's facts are set apart by a line whatever their size: a record's facts are the
+   default size inside a lead strip, and stood unseparated (2026-09-11). */
+.facts.lead > .fact { border-right: 1px solid var(--border); }
+.facts.lead > .fact:last-child { border-right: 0; }
 .fact.linky:hover {
   background: var(--bg-elev-2);
 }

@@ -260,3 +260,17 @@ A second list, split the same way and settled up front:
       spacer element (one would cost a gap of its own). Measured: with and without a
       selection, in both tabs, the toggle is 122px with 57px halves, neither label clipped,
       its right edge at the head's right edge, the × 24px, nothing overflowing.
+- [x] Follow-up (2026-09-11). Home, four things. Up and down walk the stream's rows while
+      the list shows (the Catalog's mechanic: focus moves between the rows, the first press
+      lands on the first or last row, the walk wraps), and still step the records while one
+      is open; the foot says "↑ ↓ walk the rows" and "Enter opens a row" in place of the Tab
+      hint (Tab still walks them). The stock band leads with the picture: the graph first at
+      the half it had, the figures in the middle at their 244px, the domains where they
+      were; the figures are set apart by one fine line each, the padding in place of the gap
+      so the line stands halfway between two rows. A record's facts are set apart by lines
+      (they are default-size facts in a lead strip, and the strip's line was on the lead
+      size only), and a sixth fact carries the commit hash; the foot says only when the
+      record finished. Measured: three presses land on rows 0, 1 and 8 of 9; the zone is
+      531 / 244 / 531 with a line on each side of the figures and on five of six rows; the
+      foot's five hints are 593px in a 1306px foot with no overflow; six facts of 218px with
+      a 1px line after each but the last.

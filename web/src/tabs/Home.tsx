@@ -377,9 +377,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   /*
    * The keys, only while Home is the screen in front and the caret is not in a field. Left
    * and right step the day, PageUp and PageDown step a week, in both views and over an open
-   * record (which they close: it belongs to another day's list); up and down walk the records
-   * while one is open; Escape steps back one level. Enter belongs to a focused row (the rows
-   * are tab stops of their own).
+   * record (which they close: it belongs to another day's list); up and down walk the rows
+   * while the list shows and the records while one is open; Escape steps back one level.
+   * Enter belongs to a focused row (the rows are tab stops of their own).
    */
   useEffect(() => {
     if (!active) return
@@ -403,18 +403,21 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         }
         return
       }
-      if (e.key === 'Tab' && view === 'activity') {
+      if ((e.key === 'Tab' || e.key === 'ArrowDown' || e.key === 'ArrowUp') && view === 'activity') {
         /*
-         * Tab walks the stream's rows and nothing else: from anywhere on the screen the first
-         * press lands on a row, the next ones step through them and wrap at the end. The header
-         * tabs and the column took a dozen presses before the first row came up. Shift+Tab on
-         * the first row is left to the browser, so the table can still be left upwards.
+         * Tab, and since 2026-09-11 the up and down arrows (the Catalog's and the Research
+         * ledger's mechanic), walk the stream's rows and nothing else: from anywhere on the
+         * screen the first press lands on a row (the last one going up), the next ones step
+         * through them and wrap at both ends. The header tabs and the column took a dozen Tab
+         * presses before the first row came up. Shift+Tab on the first row is left to the
+         * browser, so the table can still be left upwards.
          */
         const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>('.home-main .dtable tbody tr[tabindex]'))
         if (rows.length === 0) return
+        const back = e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)
         const at = rows.indexOf(document.activeElement as HTMLTableRowElement)
-        if (e.shiftKey && at === 0) return
-        const next = at === -1 ? (e.shiftKey ? rows.length - 1 : 0) : (at + (e.shiftKey ? -1 : 1) + rows.length) % rows.length
+        if (e.key === 'Tab' && e.shiftKey && at === 0) return
+        const next = at === -1 ? (back ? rows.length - 1 : 0) : (at + (back ? -1 : 1) + rows.length) % rows.length
         e.preventDefault()
         rows[next]!.focus()
         rows[next]!.scrollIntoView({ block: 'nearest' })
@@ -606,8 +609,36 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
 
       <div className="home-main">
         {/* THE BAND - the stock, as a glance. No heads: the number is the header, the picture
-            says what it is, the list says what it lists. Every figure is a door. */}
+            says what it is, the list says what it lists. Every figure is a door. The picture
+            leads (2026-09-11), the figures stand between it and the domains. */}
         <section className="vaultzone">
+          <div className="vz-panel bare">
+            <div className="vz-body first frame">
+              {constellation !== null ? (
+                <VaultConstellation
+                  nodes={constellation.nodes}
+                  edges={constellation.edges}
+                  onOpen={() => navigate('/graph')}
+                />
+              ) : (
+                (queryState(graphQ, 'the vault graph') ?? <div className="empty">No pages yet.</div>)
+              )}
+            </div>
+            <div className="vz-foot">
+              {legend.map(([dir, n]) => (
+                <span key={dir} className="vzl">
+                  <span className="dot" style={{ background: `var(${TYPE_VARS[dir] ?? '--type-meta'})` }} aria-hidden />
+                  {dir} <b>{n}</b>
+                </span>
+              ))}
+              {legendRest > 0 && (
+                <span className="vzl">
+                  <span className="dot" style={{ background: 'var(--type-meta)' }} aria-hidden />
+                  other <b>{legendRest}</b>
+                </span>
+              )}
+            </div>
+          </div>
           <div className="vz-hero">
             <div className="vz-n">{stats.data?.pages.total ?? statPlaceholder}</div>
             <div className="vz-k">pages in the wiki</div>
@@ -665,33 +696,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             </div>
           </div>
 
-          <div className="vz-panel bare">
-            <div className="vz-body first frame">
-              {constellation !== null ? (
-                <VaultConstellation
-                  nodes={constellation.nodes}
-                  edges={constellation.edges}
-                  onOpen={() => navigate('/graph')}
-                />
-              ) : (
-                (queryState(graphQ, 'the vault graph') ?? <div className="empty">No pages yet.</div>)
-              )}
-            </div>
-            <div className="vz-foot">
-              {legend.map(([dir, n]) => (
-                <span key={dir} className="vzl">
-                  <span className="dot" style={{ background: `var(${TYPE_VARS[dir] ?? '--type-meta'})` }} aria-hidden />
-                  {dir} <b>{n}</b>
-                </span>
-              ))}
-              {legendRest > 0 && (
-                <span className="vzl">
-                  <span className="dot" style={{ background: 'var(--type-meta)' }} aria-hidden />
-                  other <b>{legendRest}</b>
-                </span>
-              )}
-            </div>
-          </div>
           <div className="vz-panel bare">
             <div className="vz-body first inset tall">
               {/* A domain is a shelf: the click opens that shelf's window in the Library, the way
@@ -968,7 +972,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                         </button>
                       )}
                     </span>
-                    <FootKeys items={['← → step the day', 'PgUp PgDn a week', 'Tab to a row, Enter opens it', 'Esc steps back']} />
+                    <FootKeys items={['← → step the day', 'PgUp PgDn a week', '↑ ↓ walk the rows', 'Enter opens a row', 'Esc steps back']} />
                     {/* History management lives with the history count, not in the headline:
                         it is rare, and it is the one destructive thing on the screen. The
                         button keeps one width, armed or not, so nothing beside it moves. */}

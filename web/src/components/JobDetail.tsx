@@ -190,6 +190,9 @@ export function JobDetail({
           }
         />
         <Fact k="Pages written" v={pages.length > 0 ? `+${pages.length}` : '-'} />
+        {/* The vault commit this record produced, where the other facts are (2026-09-11);
+            the foot used to carry it, and says only when the record finished now. */}
+        <Fact k="Commit" v={<span className="mono-meta">{event.commit !== null ? event.commit.slice(0, 10) : '-'}</span>} />
       </Facts>
 
       <div className="chipband">
@@ -228,13 +231,8 @@ export function JobDetail({
 
       <div className="detail-foot">
         <span className="prov">
-          {event.commit !== null ? (
-            <>
-              Commit <span className="mono-meta">{event.commit.slice(0, 10)}</span> · finished {timeAgo(event.whenIso)}
-            </>
-          ) : (
-            <>Finished {timeAgo(event.whenIso)} · nothing was committed</>
-          )}
+          Finished {timeAgo(event.whenIso)}
+          {event.commit === null && ' · nothing was committed'}
         </span>
         <span className="spacer" />
         {/* Two doors to the page it wrote: the graph with the node selected, or the Catalog
