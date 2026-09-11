@@ -8997,8 +8997,29 @@ tr:focus-within .rowacts {
 /* The band without heads: the number is the header, the picture is the door. */
 .vz-panel.bare { padding-top: 14px; }
 .vz-body.first { margin-top: 0; }
-.vz-body { height: clamp(190px, 26vh, 260px); }
-.vz-body.tall { height: calc(clamp(190px, 26vh, 260px) + 26px); }
+.vaultzone { --vz-h: clamp(190px, 26vh, 260px); }
+.vz-body { height: var(--vz-h); }
+.vz-body.tall { height: calc(var(--vz-h) + 26px); }
+/* The graph's frame is the body itself, as tall as the domain list's box beside it, so the
+   two boxes end on one line. The canvas keeps its own height inside it (the component sizes
+   the drawing off its wrapper's rect, so the wrapper stays exactly the box it was, border
+   and all replaced by a pixel of padding) and the legend keeps its place, standing over the
+   frame's foot. The frame's line is an inset shadow, not a border, so it takes no width. */
+.vz-body.frame {
+  position: relative;
+  height: calc(var(--vz-h) + 26px);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.vz-body.frame > .constell {
+  height: var(--vz-h);
+  padding: 1px;
+  border: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+}
+.vz-panel.bare > .vz-body.frame + .vz-foot { position: relative; margin-top: -18px; }
 /* The feed alone in its frame: the days stand in the headline, the Fellows in the column. */
 .rfeed-split.solo { grid-template-columns: minmax(0, 1fr); }
 .home-crumb-t { font-size: 13px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 64ch; }

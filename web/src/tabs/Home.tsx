@@ -740,7 +740,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
           </div>
 
           <div className="vz-panel bare">
-            <div className="vz-body first">
+            <div className="vz-body first frame">
               {constellation !== null ? (
                 <VaultConstellation
                   nodes={constellation.nodes}
