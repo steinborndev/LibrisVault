@@ -1286,6 +1286,9 @@ export class FellowService {
       const agent = this.agents.list().find((a) => a.name.toLowerCase() === (f.entry.by ?? '').toLowerCase())
       this.log('info', `fellows: "${f.entry.title}" from the reading list is in the vault as ${f.page}`)
       if (!agent) continue
+      // A retired Fellow plans no more, so a line for its next plan has nowhere to go; the
+      // entry's own `filed` mark is the record that the publication arrived.
+      if (agent.state === 'retired') continue
       const line = `The publication you asked for is in the vault: "${f.entry.title}" as ${f.page}${f.entry.why ? ` - you wanted it because: ${f.entry.why}` : ''}`
       byAgent.set(agent.id, [...(byAgent.get(agent.id) ?? []), line])
     }

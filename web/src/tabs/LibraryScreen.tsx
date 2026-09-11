@@ -201,6 +201,14 @@ export function LibraryScreen({
     if (ccFellowIdParam !== '') {
       setCcFellowId(ccFellowIdParam)
       setCcView('dossier')
+    } else {
+      /*
+       * `?cc=1` names the overview. The view is state that outlives a visit - Escape steps
+       * back and leaves the last dossier in place, so the arrows land where you were - and
+       * without this reset a link to the overview reopened the centre on that dossier: from
+       * Home's "Spawn a Fellow", on a retired Fellow's notice instead of the shelves.
+       */
+      setCcView('shelves')
     }
   }, [ccParam, ccFellowIdParam])
   useEffect(() => {

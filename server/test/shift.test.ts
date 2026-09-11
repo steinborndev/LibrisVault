@@ -915,6 +915,34 @@ describe('planning, proposals and the night shift', () => {
     expect(h.reading[1]).toMatchObject({ domain: 'astronomy', access: 'open', blocked: null })
   })
 
+  it('a publication that arrived for a retired Fellow is marked, and its notebook stays closed', async () => {
+    const ada = await spawn({})
+    await h.service.retire(ada.id)
+    const before = fs.readFileSync(path.join(h.vaultRoot, ada.notebookPath), 'utf8')
+    h.readingFiled = [
+      {
+        entry: {
+          title: 'The preprint Ada asked for',
+          url: 'https://arxiv.invalid/1',
+          ref: 'arXiv:2506.20907',
+          domain: 'astronomy',
+          why: 'The only per-facility scatter.',
+          found: null,
+          by: 'Ada',
+          at: '2026-09-06',
+          access: 'paywalled',
+          blocked: 'HTTP 403',
+          filed: 'wiki/sources/The Preprint.md',
+          filedAt: '2026-09-08',
+          archivedAt: null,
+        },
+        page: 'wiki/sources/The Preprint.md',
+      },
+    ]
+    expect(await h.service.noteFiledReading('2026-09-08')).toBe(1)
+    expect(fs.readFileSync(path.join(h.vaultRoot, ada.notebookPath), 'utf8')).toBe(before)
+  })
+
   it('a publication that arrived closes its entry: the Fellow is told and the planner sees it', async () => {
     const ada = await spawn({})
     h.readingFiled = [
