@@ -6438,6 +6438,7 @@ tr:focus-within .rowacts {
 .rf-hint { margin: 0 0 8px; font-size: 11.5px; color: var(--text-faint); }
 /* What the last answer came back with, under the Fellow it was given for. */
 .rf-toast { margin: 0 0 14px; }
+
 .rf-v .prop + .prop { margin-top: 6px; }
 .recap-none { margin: 0; font-size: 13px; color: var(--text-faint); }
 .recap-fname-link { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
@@ -6505,7 +6506,7 @@ tr:focus-within .rowacts {
   justify-items: start;
   min-width: 0;
 }
-.recap-pages { margin-top: 8px; }
+
 .recap-list {
   margin: 0;
   padding-left: 18px;
@@ -9100,3 +9101,25 @@ tr:focus-within .rowacts {
 .gx-gappick:hover { color: var(--text); border-color: var(--text-faint); }
 .gx-gappick.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .gx-body > .gapbar { margin: 8px 12px 4px; }
+
+/* The recap reads at the width it has (2026-09-11; at the end of the sheet, after the caps it lifts): the text blocks and the chips take the
+   content column - a chip stays one line and ends in an ellipsis - so the same margin stands
+   left and right and less of the sheet is below the fold. A little more air between a run,
+   what it created and what it updated. */
+.prop-topic,
+.prop-why,
+.prop-from,
+.recap-ran-line,
+.recap-list li { max-width: none; }
+.rf-v .pagelink,
+.recap-pages .pagelink { max-width: 100%; min-width: 0; }
+.rf-v .pagelink-main,
+.recap-pages .pagelink-main { min-width: 0; }
+.rf-v .pagelink-label,
+.recap-pages .pagelink-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-v .filed { max-width: 100%; min-width: 0; }
+.rf-v .filed .pagelink { flex: 0 1 auto; }
+.rf-v .filed .by { flex: none; }
+.rf-v .filed .filed-link { max-width: 100%; }
+.recap-pages { margin-top: 14px; }
+.recap-pages + .recap-pages { margin-top: 10px; }
