@@ -2809,8 +2809,11 @@ details.hot-cache[open] summary {
 .graph-search-inbar {
   position: relative;
   z-index: 5;
-  flex: none;
-  width: min(300px, 34%);
+  /* One width on both screens (the two bars are the same width, so the box starts at the
+     same x), shrinking only when the right group cannot hold it. */
+  flex: 0 1 300px;
+  width: 300px;
+  min-width: 140px;
   background: var(--bg);
 }
 .graph-search-inbar input {
@@ -3087,6 +3090,34 @@ details.hot-cache[open] summary {
    its empty stand-in, so "Showing" starts at the same x whichever tab is in front. */
 .graph-controls .head-slot { flex: none; width: 58px; min-width: 58px; justify-content: center; padding: 0; }
 span.head-slot { display: inline-block; }
+/* The scope bar's three groups (2026-09-11), the headline's rule: the left and right groups
+   share what the middle leaves, in equal halves, so the middle sits at the bar's true
+   centre whatever stands beside it - a Fit and a sentence on one side, a fullscreen button
+   and the search on the other, or a Reset slot and the search. */
+.scope-bar .bar-l, .scope-bar .bar-r { display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; }
+.scope-bar .bar-r { justify-content: flex-end; }
+/* The middle block: one width, centred, the text flush left behind a fixed lead. Switching
+   domains makes the heading longer or shorter from a start that never moves; the lead sets
+   a heading of typical length (two words of the vault's domain names) about the centre,
+   and a long one runs to the right until the block cuts it. */
+.bar-mid {
+  flex: none;
+  box-sizing: border-box;
+  width: 320px;
+  padding-left: 100px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+.bar-mid .mid-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }
+/* A hollow ring where no one colour applies: several domains, a wing, the whole vault. */
+.bar-mid .mid-dot.none { background: transparent; border: 1.5px solid var(--text-faint); }
 /* The Catalog's head is the graph's bar, and the box under it keeps its rounded corners. */
 .box > .catalog-head { border-radius: var(--radius) var(--radius) 0 0; }
 .graph-controls .btn.active {
@@ -3136,10 +3167,11 @@ span.head-slot { display: inline-block; }
   z-index: 5;
   box-shadow: var(--shadow);
 }
-/* Bottom-right: the legend's corner; the transient layout status shares it. */
+/* Bottom-right, above the shortcuts button: the legend's corner; the transient layout
+   status shares it. */
 .graph-status {
   position: absolute;
-  bottom: 10px;
+  bottom: 44px;
   right: 12px;
   font-size: 12px;
   color: var(--text-faint);
@@ -3233,11 +3265,11 @@ span.head-slot { display: inline-block; }
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-/* Metric-lens legend, bottom-right of the canvas. */
+/* Metric-lens legend, bottom-right of the canvas, above the shortcuts button. */
 .lens-legend {
   position: absolute;
   right: 12px;
-  bottom: 10px;
+  bottom: 44px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -4058,6 +4090,34 @@ kbd {
 .shortcut-wrap {
   position: relative;
   display: inline-flex;
+}
+/* In the drawing's bottom-right corner (2026-09-11), the trail's corner mirrored: the
+   button wears the crumbs' pill, and the panel opens upward over the canvas - downward
+   from here is into the clipped region. */
+.shortcut-wrap.corner {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 7;
+}
+.shortcut-wrap.corner .btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+  backdrop-filter: blur(6px);
+}
+.shortcut-wrap.corner .btn:hover,
+.shortcut-wrap.corner .btn[aria-expanded='true'] {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.shortcut-wrap.corner .shortcut-pop {
+  top: auto;
+  bottom: calc(100% + 8px);
 }
 .shortcut-pop {
   position: absolute;
@@ -6147,9 +6207,6 @@ tr:focus-within .rowacts {
   height: var(--control-h);
   padding-top: 0;
   padding-bottom: 0;
-}
-.graph-controls .shortcut-wrap {
-  align-items: center;
 }
 
 /* Ingests per day: bars, because a count per day is discrete. The shared Sparkline is a

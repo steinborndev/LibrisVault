@@ -21,6 +21,8 @@ import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
 import { addressLink, sourceLink } from '../lib/sources.ts'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
+import { ScopeMid } from '../components/ScopeMid.tsx'
+import { scopeHeading } from '../lib/scopeHeading.ts'
 import { wingGroups, wingOf } from '../lib/wings.ts'
 import { useWingMode } from '../hooks/useWingMode.ts'
 import { queryState } from '../components/QueryState.tsx'
@@ -254,20 +256,16 @@ export function Catalog({
   /** Whether anything is narrowing the list - the reset only appears when it would do something. */
   const dirty = query !== '' || type !== null || domain !== null || subset !== 'all' || sort !== 'changed'
   /*
-   * What the head says: the count against the pool a type narrows to ("4 of 529 concepts"),
-   * then the narrowing in words, the way the graph's bar says it.
+   * What the head says: the count against the pool a type narrows to ("4 of 529 concepts")
+   * on the left, and the domain in the middle, the way the graph's bar says it (2026-09-11;
+   * the narrowing used to trail the count in words). The chips say the rest.
    */
   const pool = type === null ? knowledge : knowledge.filter((n) => n.type === type)
   const noun = type === null ? 'pages' : bucketLabel(type).toLowerCase()
-  const scopeTail = ((): string => {
-    const parts: string[] = []
-    if (domain === 'none') parts.push('pages with no domain')
-    else if (domain !== null) parts.push(`the ${domain} domain`)
-    else if (wing !== null) parts.push(wings.find((g) => g.id === wing)?.name ?? 'one wing')
-    if (subset !== 'all') parts.push(subset)
-    if (query.trim() !== '') parts.push(`matching “${query.trim()}”`)
-    return parts.length === 0 ? '' : ` - ${parts.join(', ')}`
-  })()
+  const scopeMid = scopeHeading(
+    new Set(domain === null ? [] : [domain === 'none' ? '' : domain]),
+    wing === null ? null : (wings.find((g) => g.id === wing)?.name ?? 'one wing'),
+  )
   const subsetHint = SUBSETS.find((x) => x.key === (subsetHover ?? subset))!.desc
   const sortHint = SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
   const reset = (): void => {
@@ -400,37 +398,40 @@ export function Catalog({
           <CatalogArticle path={openPage} vaultName={vaultName} nodes={nodes ?? []} onBack={() => navigate('/catalog')} />
         ) : (
           <>
-        {/* The same bar the graph draws over its canvas, in the same shape: a slot as wide as
-            the graph's Fit button (the reset stands in it once a filter is set), what is
-            shown in words, and the search at the right edge. Switching the tabs moves
-            neither the sentence nor the box. */}
-        <div className="graph-controls catalog-head">
-          {dirty ? (
-            <button className="btn ghost head-slot" onClick={reset} title="Back to every page, newest first">
-              Reset
-            </button>
-          ) : (
-            <span className="head-slot" aria-hidden />
-          )}
-          <span className="scopeline">
-            Showing{' '}
-            <strong>
-              {filtered.length} of {pool.length}
-            </strong>{' '}
-            {noun}
-            {scopeTail}
+        {/* The same bar the graph draws over its canvas, in the same three groups: a slot
+            as wide as the graph's Fit button (the reset stands in it once a filter is set)
+            and the count on the left, the domain in the middle, the search at the right
+            edge. Switching the tabs moves neither the sentence, the heading nor the box. */}
+        <div className="graph-controls scope-bar catalog-head">
+          <span className="bar-l">
+            {dirty ? (
+              <button className="btn ghost head-slot" onClick={reset} title="Back to every page, newest first">
+                Reset
+              </button>
+            ) : (
+              <span className="head-slot" aria-hidden />
+            )}
+            <span className="scopeline">
+              Showing{' '}
+              <strong>
+                {filtered.length} of {pool.length}
+              </strong>{' '}
+              {noun}
+            </span>
           </span>
-          <span className="spacer" />
-          <div className="graph-search graph-search-inbar">
-            <Icon name="search" />
-            <input
-              type="search"
-              placeholder="Filter by title, tag or domain…"
-              aria-label="Filter pages by title, tag or domain"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
+          <ScopeMid heading={scopeMid} />
+          <span className="bar-r">
+            <div className="graph-search graph-search-inbar">
+              <Icon name="search" />
+              <input
+                type="search"
+                placeholder="Filter by title, tag or domain…"
+                aria-label="Filter pages by title, tag or domain"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          </span>
         </div>
         {/* The scroll box is a DIV, not the table: a table set to `display: block` (the old
             way of making it scroll) shrinks to its content, so the columns moved every time

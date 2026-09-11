@@ -1,5 +1,5 @@
 /**
- * The graph's keyboard reference, as a popover anchored under the canvas bar.
+ * The graph's keyboard reference, as a popover anchored to its button.
  *
  * It used to be a `<Tip>`, which opens UPWARD by default. That was fine while the bar sat
  * in the page header; once the density pass moved it into the canvas - `position: absolute;
@@ -7,9 +7,12 @@
  * so the panel rendered off-screen and unreadable. The flip-down rule that had covered this
  * keyed off a wrapper class that same pass deleted, so it silently stopped applying.
  *
- * Hence a component rather than another CSS override: opening downward and staying inside
- * the canvas is structural here, not a per-instance tweak. A dozen shortcut rows also want
- * click-to-pin and Escape, which a hover tooltip does not give you.
+ * Hence a component rather than another CSS override: which way the panel opens follows
+ * where the button stands, and that is structural here, not a per-instance tweak. In the
+ * bar it opens downward; in the drawing's bottom-right corner (`corner`, 2026-09-11) it
+ * opens upward, over the canvas, where downward would be into the clipped region again. A
+ * dozen shortcut rows also want click-to-pin and Escape, which a hover tooltip does not
+ * give you.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -21,7 +24,7 @@ export interface ShortcutRow {
   readonly what: string
 }
 
-export function Shortcuts({ rows }: { rows: readonly ShortcutRow[] }): React.ReactElement {
+export function Shortcuts({ rows, corner = false }: { rows: readonly ShortcutRow[]; corner?: boolean }): React.ReactElement {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
 
@@ -47,7 +50,7 @@ export function Shortcuts({ rows }: { rows: readonly ShortcutRow[] }): React.Rea
 
   return (
     <span
-      className="shortcut-wrap"
+      className={`shortcut-wrap${corner ? ' corner' : ''}`}
       ref={wrapRef}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => {

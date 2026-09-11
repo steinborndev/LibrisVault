@@ -222,3 +222,23 @@ A second list, split the same way and settled up front:
       log); a dotted name without a path stays text, so file names never link. Measured:
       the four cited addresses of a source page are links in the record's article, and a
       315-line log gains no false link.
+- [x] Follow-up (2026-09-11). The Graph's and the Catalog's bar say the domain in the
+      middle: a dot in the domain's colour and its name, prominent, at the bar's true centre
+      (left and right groups share the rest in equal halves, the headline's rule). The text
+      starts flush left in a block of one width behind a fixed lead, so switching domains
+      makes the heading longer or shorter and never moves its start; a long name runs right
+      and is cut. One domain is named, several are a count ("2 domains"), nothing picked
+      names the wing in front while the list is by wing (the view IS narrowed to it) and
+      says "all domains" otherwise, with a hollow ring where no one colour applies. The
+      count sentence lost its tail (the narrowing in words, the hidden system pages, the
+      gaps door - the panel says all of it): the Graph says "Showing N of M pages and L
+      links", the Catalog "Showing 4 of 529 concepts". The Shortcuts button left the bar
+      for the drawing's bottom-right corner, a pill like the trail's crumbs, its panel
+      opening upward; the legend and the layout status step up above it. Its rows match the
+      handlers again (click selects, Enter also takes the search's one match, the Escape
+      ladder in order, the wing keys, a plain wheel zooms). The Library's Graph | Catalog
+      toggle wears the ink grey. Measured: the name starts at x=889 in every state of both
+      tabs (a wing, one domain, two domains, all domains, a 24-character name), the dot at
+      872, the search at 1275 in both; the corner button sits 12px and 10px from the edges,
+      its panel 8px above it inside the drawing with 11 rows, the legend 8px above the
+      button; the toggle's selected half has the same ground as Focus | Full.

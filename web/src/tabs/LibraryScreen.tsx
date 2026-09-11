@@ -792,7 +792,7 @@ export function LibraryScreen({
             {!ccOpen && shelf !== null && shelfPage === null && (
               /* Same width and same right edge as "Deepen this domain" in the band below:
                  the two controls of a department stand in one column. */
-              <div className="seg sm shelf-view" role="tablist" aria-label="View">
+              <div className="seg sm ink shelf-view" role="tablist" aria-label="View">
                 <button role="tab" aria-selected={shelfPane === 'graph'} onClick={() => setShelfPane('graph')}>
                   Graph
                 </button>

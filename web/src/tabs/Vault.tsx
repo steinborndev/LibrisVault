@@ -25,6 +25,8 @@ import { GapCleanupBar, useGapCleanup } from '../components/GapCleanup.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
 import { Shortcuts } from '../components/Shortcuts.tsx'
+import { ScopeMid } from '../components/ScopeMid.tsx'
+import { scopeHeading } from '../lib/scopeHeading.ts'
 import { linkifyText } from '../lib/linkify.tsx'
 import { navigate, pageRoute, pageFromPath, originPath, catalogPageRoute } from '../lib/router.ts'
 import { detectClusters } from '../lib/communities.ts'
@@ -69,18 +71,24 @@ const TYPE_LABELS: Record<string, string> = {
   folds: 'Folds',
 }
 
-/** The graph's key bindings, in the order someone learning the view meets them. */
+/**
+ * The graph's key bindings, in the order someone learning the view meets them. Kept by
+ * hand against the handlers (the window-level ladder below, the canvas's own keys, the
+ * wing keys in the domain section): the list is documentation, and a row that names a key
+ * nothing binds any more is worse than no list.
+ */
 const GRAPH_SHORTCUTS = [
   { keys: ['2x click'], what: 'open a page from the graph' },
-  { keys: ['click'], what: 'with Spotlight on: a cluster area drills in, a node opens it' },
-  { keys: ['Enter'], what: 'open the selected page' },
-  { keys: ['Esc'], what: 'leave fullscreen, clear search, close panel, leave cluster or focus' },
-  { keys: ['Esc', 'Esc'], what: 'reset all filters - show the whole vault' },
-  { keys: ['/'], what: 'search the graph' },
+  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens' },
+  { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, the panel, a cluster, the gaps, a focus' },
+  { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
+  { keys: ['/'], what: 'search pages and tags; a click outside folds the list, the filter stays' },
+  { keys: ['←', '→'], what: 'previous or next wing, while the domains are listed by wing' },
   { keys: ['f'], what: 'fit the view' },
-  { keys: ['Ctrl', 'wheel'], what: 'zoom in and out' },
-  { keys: ['+', '-'], what: 'zoom' },
-  { keys: ['drag'], what: 'pan the canvas' },
+  { keys: ['+', '-'], what: 'zoom in and out' },
+  { keys: ['wheel'], what: 'zoom towards the pointer' },
+  { keys: ['drag'], what: 'pan the canvas; the overview in the corner jumps the view' },
 ]
 
 export function Vault({ path, active = true }: { path: string; active?: boolean }): React.ReactElement {
@@ -821,29 +829,17 @@ function GraphView({
   const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
 
   /**
-   * The tail of the scope sentence - what the current filters narrowed to, in words. A
-   * shrinking count alone cannot tell a domain filter from a type filter from a search.
-   *
-   * The system pages belong in it too, and they are the exclusion the reader cannot see: it
-   * lives behind the collapsed "Include" control and is off by default. Left out, the line
-   * read "1043 of 1074 pages - the whole vault", which says that 31 pages went missing to
-   * something the reader set. The wording is the Library's, for the same set of pages.
+   * The bar's middle: which domain the drawing shows, said once and prominently, with the
+   * domain's own colour ahead of it (2026-09-11). It replaced a tail on the count sentence
+   * that listed every narrowing in words ("- the x domain, 32 system pages hidden · 3
+   * gaps"); the chips in the panel say the rest, and the gaps have their toggle there.
+   * One domain names it; more than one is a count; nothing picked is the wing in front
+   * while the domains are listed by wing, and "all domains" otherwise.
    */
-  const scopeTail = useMemo(() => {
-    const parts: string[] = []
-    if (selectedDomains.size === 1) {
-      const only = [...selectedDomains][0]!
-      parts.push(only === NO_DOMAIN ? 'pages with no domain' : `the ${only} domain`)
-    } else if (selectedDomains.size > 1) parts.push(`${selectedDomains.size} domains`)
-    else if (wing !== null) parts.push(wings.find((g) => g.id === wing)?.name ?? 'one wing')
-    if (selectedTypes.size > 0) parts.push([...selectedTypes].map((t) => TYPE_LABELS[t] ?? t).join(' + '))
-    if (query.trim() !== '') parts.push(`matching “${query.trim()}”`)
-    const systemHidden = !showSystem && systemCount > 0
-    if (parts.length === 0) {
-      return systemHidden ? ` - every page except the ${systemCount} system ones` : ' - the whole vault'
-    }
-    return ` - ${parts.join(', ')}${systemHidden ? `, ${systemCount} system pages hidden` : ''}`
-  }, [selectedDomains, selectedTypes, wing, wings, query, showSystem, systemCount])
+  const scopeMid = useMemo(
+    () => scopeHeading(selectedDomains, wing === null ? null : (wings.find((g) => g.id === wing)?.name ?? 'one wing')),
+    [selectedDomains, wing, wings],
+  )
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
 
@@ -1156,38 +1152,18 @@ function GraphView({
           // and re-fitting through the fitKey also clears `userMoved` - so a graph the user
           // had panned is re-framed too, instead of staying parked off-screen.
           fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}`}
-          barExtra={
+          barLeft={
+            <span className="scopeline">
+              Showing{' '}
+              <strong>
+                {realCount} of {graph.nodes.length}
+              </strong>{' '}
+              pages and <strong>{realEdgeCount}</strong> links
+            </span>
+          }
+          barMid={<ScopeMid heading={scopeMid} />}
+          barRight={
             <>
-              <span className="scopeline">
-                Showing{' '}
-                <strong>
-                  {realCount} of {graph.nodes.length}
-                </strong>{' '}
-                pages and <strong>{realEdgeCount}</strong> links
-                {scopeTail}
-                {graph.gaps.length > 0 && !showGaps && (
-                  <>
-                    {' · '}
-                    <button
-                      className="linkish"
-                      // Same landing as the Gaps toggle in the panel: the gaps view with the
-                      // explorer's ranked list. The two entry points used to diverge.
-                      onClick={() => setShowGaps(true)}
-                      // The GAP count, not `graph.unresolved`: this button opens the gap list,
-                      // and that list is shorter. `unresolved` counts every dangling wikilink,
-                      // most of which nominate nothing to write - `.raw/…` staging references,
-                      // links a lint report or a session log quotes while reporting on them,
-                      // and the plugin's own doc pages pointing into upstream docs. It said
-                      // "54 gaps" over a list of ten.
-                      title="Explore the links that point at pages nobody has written yet"
-                    >
-                      {graph.gaps.length} gaps
-                    </button>
-                  </>
-                )}
-              </span>
-              <span className="spacer" />
-              <Shortcuts rows={GRAPH_SHORTCUTS} />
               <button
                 className="btn ghost"
                 onClick={() => setFullscreen((v) => !v)}
@@ -1249,6 +1225,9 @@ function GraphView({
                 </div>
               )}
               <LensLegend lens={effectiveLens} types={types} />
+              {/* Bottom-right of the drawing, with the legend: the reference is about the
+                  canvas, and the bar is for what the canvas shows. */}
+              <Shortcuts rows={GRAPH_SHORTCUTS} corner />
               {trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">
                   {trail.map((p, i) => {

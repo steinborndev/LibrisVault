@@ -133,8 +133,15 @@ export interface GraphCanvasProps {
    * department, so each opens where it was left.
    */
   view: string
-  /** Rendered in the canvas control bar, right of Fit (scope line, tip, fullscreen). */
-  barExtra?: React.ReactNode
+  /**
+   * The canvas bar's three groups (2026-09-11): what follows Fit on the left (the scope
+   * line), the middle block (the domain heading, at the bar's true centre whatever stands
+   * left and right of it), and the right group (fullscreen, the search). The Catalog draws
+   * the same bar by hand; the groups keep the two in step.
+   */
+  barLeft?: React.ReactNode
+  barMid?: React.ReactNode
+  barRight?: React.ReactNode
   /** Single click/tap on a node (when the click doesn't isolate - see onClusterClick). */
   onSelect: (node: GraphNode) => void
   /**
@@ -297,7 +304,7 @@ function viewMemory(view: string): ViewMemory {
  */
 const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, view, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -1880,26 +1887,30 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
   return (
     <div className="graph-canvas-wrap">
-      {/* The canvas bar: Fit, then whatever the screen puts beside it (the scope line,
-          the shortcut tip, fullscreen). The −/+ buttons are gone - Ctrl+wheel and the
-          +/- keys do the same job without spending bar width on it.
+      {/* The canvas bar: Fit and the scope line on the left, the domain heading in the
+          middle, fullscreen and the search on the right. The −/+ buttons are gone - the
+          wheel and the +/- keys do the same job without spending bar width on it.
           It is the panel's HEADER ROW, not a floating box (2026-08-26): a second bordered
           box inset inside the first read as a box in a box, and the graph kept drawing
           underneath it, so whatever the layout put up there was hidden behind the bar. */}
-      <div className="graph-controls">
-        {/* The first slot has one width in every bar that copies this one (the Catalog's),
-            so "Showing" starts at the same x on both screens. */}
-        <button
-          className="btn ghost head-slot"
-          onClick={() => {
-            userMovedRef.current = false
-            fitToView()
-          }}
-          title="Fit the view to the graph (f)"
-        >
-          Fit
-        </button>
-        {barExtra}
+      <div className="graph-controls scope-bar">
+        <span className="bar-l">
+          {/* The first slot has one width in every bar that copies this one (the
+              Catalog's), so "Showing" starts at the same x on both screens. */}
+          <button
+            className="btn ghost head-slot"
+            onClick={() => {
+              userMovedRef.current = false
+              fitToView()
+            }}
+            title="Fit the view to the graph (f)"
+          >
+            Fit
+          </button>
+          {barLeft}
+        </span>
+        {barMid}
+        <span className="bar-r">{barRight}</span>
       </div>
       {/* Everything positioned against the drawing - the overlays, the tooltip, and the
           canvas sizing itself (the canvas measures its PARENT) - hangs off this box, so
