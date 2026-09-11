@@ -435,8 +435,13 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   return (
     <div className="workspace research">
       <aside className="gpanel" aria-label="Research controls">
-        {!lensDisabled && (
-        <div className="gp-sec">
+        {/* The same column in both modes. The lens shapes a web research run only; under a
+            vault question it stays where it is, greyed, and says why on hover, so the
+            column does not change shape when the mode does. */}
+        <div
+          className={`gp-sec${lensDisabled ? ' off' : ''}`}
+          title={lensDisabled ? 'The lens shapes a web research run: which kind of source it reaches for first. A question to the vault reads what is already here, so it has no lens.' : undefined}
+        >
           <div className="gp-head">
             <span className="gp-eyebrow">Lens</span>
           </div>
@@ -468,7 +473,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             {profiles.length === 0 && <div className="gp-none">Loading lenses…</div>}
           </div>
         </div>
-        )}
 
         {/* The plan, as the Library states it: which windows are how full, what an unmeasured
             run has probably added on top, and how old the reading is. */}
@@ -507,16 +511,23 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 recorded across {costed.length} run{costed.length === 1 ? '' : 's'}
               </span>
             </div>
-            {mode === 'research' && (
+            {/* A fact about the vault, so it stands in both modes; the gaps are run down
+                with web research, so from a vault question it turns the mode there first. */}
             <button
               className="vzf"
               aria-pressed={view.kind === 'gaps'}
-              onClick={() => setView(view.kind === 'gaps' ? { kind: 'start' } : { kind: 'gaps' })}
+              onClick={() => {
+                if (mode === 'ask') {
+                  setMode('research')
+                  setView({ kind: 'gaps' })
+                  return
+                }
+                setView(view.kind === 'gaps' ? { kind: 'start' } : { kind: 'gaps' })
+              }}
             >
               <b>{gaps.length}</b>
               <span>gaps worth a run</span>
             </button>
-            )}
           </div>
         </div>
 
@@ -873,6 +884,27 @@ function StartView({
     key === null ? '-' : (profiles.find((p) => p.key === key)?.label ?? key)
   const liveRow = entries.find((e) => e.status === 'running')
   const now = useNow(liveRow !== undefined)
+  /*
+   * One search over the ledger on show, in its head where the count stood; the count is in
+   * the box's placeholder now, and "4 of 12" beside the text while it narrows. A run is
+   * found by its topic, its lens, the pages it filed or the error it ended in; a question
+   * by its title.
+   */
+  const [ledgerQuery, setLedgerQuery] = useState('')
+  const q = ledgerQuery.trim().toLowerCase()
+  const listedEntries = q === '' ? entries : entries.filter((e) => [e.topic, lensLabel(e.profileKey), ...e.pages, e.error ?? ''].join(' ').toLowerCase().includes(q))
+  const listedSessions = q === '' ? sessions : sessions.filter((s) => (s.title ?? '').toLowerCase().includes(q))
+  const search = (total: number, shown: number, noun: string, label: string): React.ReactElement => (
+    <div className="graph-search ledger-search">
+      <Icon name="search" />
+      <input type="search" value={ledgerQuery} placeholder={`Search ${total} ${noun}${total === 1 ? '' : 's'}…`} aria-label={label} onChange={(e) => setLedgerQuery(e.target.value)} />
+      {q !== '' && (
+        <span className="graph-matches">
+          {shown} of {total}
+        </span>
+      )}
+    </div>
+  )
   return (
     <>
       {mode === 'research' && (
@@ -881,18 +913,17 @@ function StartView({
           <h3 className="sub-title">Web Research</h3>
           <span className="box-sub">topic, lens, the pages it filed and what it cost</span>
           <span className="spacer" />
-          <span className="count">
-            {entries.length}
-            {entries.length !== totalRuns ? ` of ${totalRuns}` : ''}
-          </span>
+          {search(entries.length, listedEntries.length, 'run', 'Search the runs')}
         </div>
         <div className="box-body">
           {runState ??
-            (entries.length === 0 ? (
+            (listedEntries.length === 0 ? (
               <div className="empty">
                 {totalRuns === 0
                   ? 'No research run yet. Name a topic above, pick a lens on the left, and the run files one synthesis page.'
-                  : 'No run used that lens. Clear the filter on the left to see the rest.'}
+                  : entries.length === 0
+                    ? 'No run used that lens. Clear the filter on the left to see the rest.'
+                    : `No run matches “${ledgerQuery.trim()}”.`}
               </div>
             ) : (
               <table className="dtable rtable">
@@ -910,7 +941,7 @@ function StartView({
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map((e) => {
+                  {listedEntries.map((e) => {
                     // Bound outside the JSX: the narrowing on `e.removableId` does not
                     // survive into the callback the button holds.
                     const removable = e.removableId
@@ -974,14 +1005,15 @@ function StartView({
           <h3 className="sub-title">Vault Research</h3>
           <span className="box-sub">questions the vault answered from what it already holds</span>
           <span className="spacer" />
-          <span className="count">{sessions.length}</span>
+          {search(sessions.length, listedSessions.length, 'question', 'Search the questions')}
         </div>
         <div className="box-body">
           {sessionState ??
-            (sessions.length === 0 ? (
+            (listedSessions.length === 0 ? (
               <div className="empty">
-                Nothing asked yet. Ask above - the answer cites the pages it came from, and nothing is
-                written.
+                {sessions.length === 0
+                  ? 'Nothing asked yet. Ask above - the answer cites the pages it came from, and nothing is written.'
+                  : `No question matches “${ledgerQuery.trim()}”.`}
               </div>
             ) : (
               <table className="dtable rtable">
@@ -998,7 +1030,7 @@ function StartView({
                   </tr>
                 </thead>
                 <tbody>
-                  {sessions.map((s) => (
+                  {listedSessions.map((s) => (
                     <SessionLedgerRow
                       key={s.id}
                       session={s}
@@ -1587,13 +1619,16 @@ function SessionLedgerRow({
           >
             <Icon name="edit" />
           </button>
+        </span>
+        {/* The same trash as Home's stream: always there, armed by the first click. */}
+        <span className="rowacts always">
           <button
-            className={`session-act${confirming ? ' danger' : ''}`}
+            className={`btn ghost sm trash${confirming ? ' danger' : ''}`}
             onClick={() => void del()}
-            title={confirming ? 'Really delete?' : 'Delete'}
+            title={confirming ? 'Click again to delete the conversation' : `Delete this conversation: ${session.title ?? 'untitled'}`}
             aria-label={confirming ? 'Confirm delete' : 'Delete conversation'}
           >
-            {confirming ? 'Really?' : <Icon name="x" />}
+            {confirming ? 'Sure?' : <Icon name="trash" />}
           </button>
         </span>
       </td>

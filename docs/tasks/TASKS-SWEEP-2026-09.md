@@ -181,3 +181,11 @@ A second list, split the same way and settled up front:
       the keys and the Deepen button. Measured: the bar, the slot, "Showing" and the search
       box stand at the same x and width in both tabs; the two headings sit exactly over the
       badges and the names.
+- [x] Chunk 5 (2026-09-11). The Research column is the same three sections in both modes,
+      measured at the same heights; under Vault Research the lens section is greyed, its
+      buttons disabled and its head explains why on hover; "gaps worth a run" stands in both
+      modes and turns a vault question to web research first. Start run and Ask are the
+      accent blue with white letters at the console's unchanged size. The ledger heads carry
+      a search with the count in its placeholder and "N of M" while narrowing; a miss says
+      so in the empty state. The run rows carry Home's trash; the session rows carry it
+      beside the hover pencil.

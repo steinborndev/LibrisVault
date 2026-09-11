@@ -8051,10 +8051,18 @@ tr:focus-within .rowacts {
 .workspace.research .console:focus-within {
   border-color: var(--border-strong);
 }
+/* Blue with white letters, like "Add link" on Home: the one thing to press, in the colour
+   every other screen uses for that. The size is the console's, unchanged. */
 .workspace.research .btn-run {
-  background: var(--text);
-  color: var(--bg-elev);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
+/* The ledger's search, in the head where the count stood; the count is its placeholder. */
+.sub-head .ledger-search { align-self: center; width: 260px; height: 26px; padding: 0 9px; }
+.sub-head .ledger-search input { font-size: 12px; }
+/* Two spans in one cell: the pencil on hover, the trash always; they sit side by side. */
+.lt-acts-cell { white-space: nowrap; }
+.lt-acts-cell .rowacts { vertical-align: middle; }
 .workspace.research .pl-val.pl-hi {
   color: var(--text);
 }
