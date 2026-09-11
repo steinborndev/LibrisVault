@@ -533,6 +533,8 @@ export class FellowService {
     if (!agent) return undefined
     const at = windowAt(this.now(), this.settings().window)
     const cycleDate = at.current?.cycleDate ?? at.next.cycleDate
+    // A retired Fellow has no shift to skip; the request is answered, not applied.
+    if (agent.state === 'retired') return { agent, cycleDate }
     const next = this.agents.update(id, { skipUntil: cycleDate }, this.now().toISOString())
     if (!next) return undefined
     await this.writeNotebook(next)
@@ -555,6 +557,8 @@ export class FellowService {
     if (!agent) return undefined
     const clean = text.replace(/\s+/g, ' ').trim()
     if (clean === '') return agent
+    // A retired Fellow plans no more; a note for its next plan has nowhere to go.
+    if (agent.state === 'retired') return agent
     await this.writeNotebook(agent, { appendNotes: [`Recap note ${date}: ${clean}`] })
     if (agent.state === 'sleeping' && (agent.sleepCode === 'covered' || agent.sleepCode === 'stalled')) {
       return this.agents.update(id, { sleepReason: 'a recap note arrived; the planner reconsiders in the next night shift', sleepCode: 'idle' }, this.now().toISOString())
@@ -1623,6 +1627,9 @@ export class FellowService {
   }
 
   async pause(id: string): Promise<AgentRecord | undefined> {
+    // Retired is final: pausing it would make it look resumable.
+    const agent = this.agents.get(id)
+    if (agent?.state === 'retired') return agent
     return this.setState(id, { state: 'paused', sleepReason: 'paused by you', sleepCode: null })
   }
 
@@ -1635,6 +1642,7 @@ export class FellowService {
     const agent = this.agents.get(id)
     if (!agent) return undefined
     const stuck = agent.state === 'active' && !this.inFlight.has(agent.id)
+    if (agent.state === 'retired') return agent
     if (agent.state !== 'paused' && agent.state !== 'blocked' && !stuck) return agent
     const pending = this.pendingProposals(id).length > 0
     return this.setState(

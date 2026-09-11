@@ -21,7 +21,7 @@ import type { ShiftRecord, ShiftStore } from '../db/shifts.js'
 import type { JobStore } from '../db/jobs.js'
 import type { MaintenanceRun, MaintenanceRunner } from './maintenance.js'
 import type { FellowService } from './fellows.js'
-import type { DecisionChannel, ProposalRecord } from '../db/proposals.js'
+import type { DecisionChannel, ProposalRecord, ProposalStatus } from '../db/proposals.js'
 import type { HandoffRecord, HandoffStore } from '../db/handoffs.js'
 import { commitPaths, commitFileStatus, type CommitResult } from './git.js'
 import type { Mutex } from '../util/mutex.js'
@@ -412,6 +412,32 @@ export function withModelDefaults(row: RecapRow<RecapModel>): RecapRow<RecapMode
  * with what the store knows and marked `addedAfterBuild`, and a rebuild stays the way to get
  * the "what it found" lines.
  */
+/**
+ * An older recap is the record of its day, and what it recorded stays: the runs, the prose,
+ * the totals. Two things in it are not a record but a fact with a later truth - a proposal's
+ * status and the Fellow's state - and both are read from the store on the way out
+ * (2026-09-11). Left as recorded, a retired Fellow's "proposed" of a week ago stayed a
+ * decision to make: a count on its day and two buttons that could only fail. A proposal the
+ * store no longer knows counts as expired; the night it was for has passed.
+ */
+export function settleRecap(
+  row: RecapRow<RecapModel>,
+  lookup: {
+    readonly proposal: (id: string) => { readonly status: ProposalStatus } | undefined
+    readonly agent: (agentId: string) => { readonly state: string; readonly sleepCode: string | null; readonly sleepReason: string | null; readonly skipUntil: string | null } | undefined
+  },
+): RecapRow<RecapModel> {
+  const fellows = row.model.fellows.map((f): RecapFellow => {
+    const agent = lookup.agent(f.agentId)
+    return {
+      ...f,
+      proposals: f.proposals.map((p) => ({ ...p, status: lookup.proposal(p.proposalId)?.status ?? 'expired' })),
+      ...(agent ? { state: agent.state, sleepCode: agent.sleepCode, sleepReason: agent.sleepReason, skipUntil: agent.skipUntil } : {}),
+    }
+  })
+  return { ...row, model: { ...row.model, fellows } }
+}
+
 export function freshenRecap(
   row: RecapRow<RecapModel>,
   live: (agentId: string) => { readonly agent: { readonly state: string; readonly sleepCode: string | null; readonly sleepReason: string | null; readonly skipUntil: string | null } | undefined; readonly proposals: readonly ProposalRecord[]; readonly runsAfter: readonly RecapRun[] },
@@ -864,15 +890,27 @@ export class RecapService {
 
   list(limit = 30): RecapRow<RecapModel>[] {
     const rows = this.o.recaps.list(limit).map(withModelDefaults)
-    // Only the newest is a decision surface; the ones below it are the record of their day.
-    return rows.map((r, i) => (i === 0 ? this.freshen(r) : r))
+    // Only the newest is a decision surface; the ones below it are the record of their day,
+    // with what became of their proposals read from the store.
+    return rows.map((r, i) => (i === 0 ? this.freshen(r) : this.settle(r)))
   }
 
   get(cycleDate: string): RecapRow<RecapModel> | undefined {
     const row = this.o.recaps.get(cycleDate)
     if (!row) return undefined
     const fresh = withModelDefaults(row)
-    return this.o.recaps.list(1)[0]?.cycleDate === cycleDate ? this.freshen(fresh) : fresh
+    return this.o.recaps.list(1)[0]?.cycleDate === cycleDate ? this.freshen(fresh) : this.settle(fresh)
+  }
+
+  /** An older recap: its proposals' statuses and its Fellows' states as the store has them now. */
+  private settle(row: RecapRow<RecapModel>): RecapRow<RecapModel> {
+    return settleRecap(row, {
+      proposal: (id) => this.o.fellows.getProposal(id),
+      agent: (agentId) => {
+        const a = this.o.fellows.get(agentId)
+        return a ? { state: a.state, sleepCode: a.sleepCode, sleepReason: a.sleepReason, skipUntil: a.skipUntil } : undefined
+      },
+    })
   }
 
   latest(): RecapRow<RecapModel> | undefined {
@@ -1185,6 +1223,15 @@ export class RecapService {
     const recap = this.get(cycleDate)
     if (!recap) return undefined
     const results: AnswerResult[] = []
+    // An older recap is the record of its day. Its proposals were for a night that has
+    // passed, and its Fellows may have moved on; the newest recap is where tonight is decided.
+    const newest = this.o.recaps.list(1)[0]?.cycleDate
+    if (newest !== undefined && newest !== cycleDate) {
+      return {
+        results: answers.map((a) => ({ answer: a, ok: false, message: `the recap of ${cycleDate} is the record of its day; decisions are made on the newest recap (${newest})` })),
+        recap,
+      }
+    }
     for (const a of answers) {
       if (a.action === 'spawn') {
         const request = recap.model.unclaimed.find((u) => u.code === `u${a.request}`)
@@ -1227,6 +1274,11 @@ export class RecapService {
     const needProposal = (): RecapProposal => {
       if (!proposal) throw new Error(`no proposal ${a.fellow}${'letter' in a ? a.letter : ''} in the recap`)
       return proposal
+    }
+    // A retired Fellow has no nights left: nothing to skip, pause, note or set. Its proposals
+    // were expired when it retired, so `decide` refuses those on its own.
+    if (a.action !== 'pick' && a.action !== 'veto' && a.action !== 'topic' && f.get(fellow.agentId)?.state === 'retired') {
+      return { ok: false, message: `${fellow.name} is retired; the recap takes no more answers for it` }
     }
     switch (a.action) {
       case 'pick': {

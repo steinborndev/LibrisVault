@@ -133,6 +133,8 @@ export function RecapFeed({
 
   const state = queryState(recaps, 'the recaps')
   const status = recaps.data?.status
+  /** Only the newest recap takes answers; every older one is the record of its day. */
+  const newest = rows.reduce<string | null>((n, r) => (n === null || r.cycleDate > n ? r.cycleDate : n), null)
   const current = shown.find((r) => r.cycleDate === visible) ?? shown[0]
   const fellows = (agents.data?.fellows ?? []).filter((f) => f.agent.state !== 'retired')
   const firstWeek = earliestWeek(rows, today)
@@ -162,13 +164,16 @@ export function RecapFeed({
 
       <div className={`rfeed-split${control !== undefined ? ' solo' : ''}`}>
         <div className="rfeed" ref={feedRef} tabIndex={0} aria-label="Daily recaps, newest first">
-          {toasts.length > 0 && (
+          {/* A Fellow's answers come back under that Fellow; only a spawn has no section. */}
+          {toasts.some((t) => t.answer.action === 'spawn') && (
             <div className={`toast ${toasts.every((t) => t.ok) ? 'ok' : 'warn'}`} role="status">
-              {toasts.map((t, i) => (
-                <div key={i}>
-                  {t.ok ? '✓' : '✗'} {t.message}
-                </div>
-              ))}
+              {toasts
+                .filter((t) => t.answer.action === 'spawn')
+                .map((t, i) => (
+                  <div key={i}>
+                    {t.ok ? '✓' : '✗'} {t.message}
+                  </div>
+                ))}
             </div>
           )}
           {answer.error != null && <div className="toast err">Answer failed: {(answer.error as Error).message}</div>}
@@ -225,6 +230,8 @@ export function RecapFeed({
                   facts={false}
                   settings={!compact}
                   query={query}
+                  decidable={row.cycleDate === newest}
+                  results={toasts}
                   {...(fellow !== null ? { only: fellow } : {})}
                 />
               </section>

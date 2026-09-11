@@ -679,6 +679,51 @@ describe('the newest recap keeps its decision half current', () => {
     expect(read.model.sinceBuilt).toBeNull()
   })
 
+  it('an older recap shows what became of its proposals, and takes no answers', async () => {
+    const { agent } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    const older = await h.recaps.build({ trigger: 'manual' })
+    expect(older.row.model.fellows[0]!.proposals.some((p) => p.status === 'proposed')).toBe(true)
+    await h.service.retire(agent!.id)
+    h.clock.now = at(9, 7, 0)
+    await h.recaps.build({ trigger: 'manual' })
+
+    // The runs are the record and stay; the proposals and the Fellow's state are the store's.
+    const read = h.recaps.get(older.row.cycleDate)!
+    expect(read.model.fellows[0]!.runs).toEqual(older.row.model.fellows[0]!.runs)
+    expect(read.model.fellows[0]!.proposals.length).toBeGreaterThan(0)
+    expect(read.model.fellows[0]!.proposals.every((p) => p.status === 'expired')).toBe(true)
+    expect(read.model.fellows[0]!.state).toBe('retired')
+    const listed = h.recaps.list().find((r) => r.cycleDate === older.row.cycleDate)!
+    expect(listed.model.fellows[0]!.proposals.every((p) => p.status === 'expired')).toBe(true)
+    // The stored snapshot is untouched: settling is a read, not a rewrite.
+    expect(h.recapStore.get(older.row.cycleDate)!.model.fellows[0]!.proposals.some((p) => p.status === 'proposed')).toBe(true)
+
+    const code = older.row.model.fellows[0]!.proposals[0]!.code
+    const refused = await h.recaps.answer(older.row.cycleDate, [{ action: 'pick', fellow: 1, letter: code.slice(1) }, { action: 'skip', fellow: 1 }], 'dashboard')
+    expect(refused!.results.map((r) => r.ok)).toEqual([false, false])
+    expect(refused!.results[0]!.message).toContain('record of its day')
+    expect(h.recapStore.get(older.row.cycleDate)!.answeredAt).toBeNull()
+  })
+
+  it('a retired Fellow takes no skip, pause, note, model or step', async () => {
+    const { agent } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
+    await h.shift.run('timer')
+    h.clock.now = at(8, 7, 0)
+    await h.recaps.build({ trigger: 'manual' })
+    await h.service.retire(agent!.id)
+    const before = h.service.get(agent!.id)!
+    const reply = await h.recaps.answerText('skip 1\npause 1\nnote 1: later\nmodel 1 opus-5\nstep 1 small')
+    expect(reply).toContain('❌ Ada is retired')
+    expect(reply).not.toContain('✅')
+    expect(h.service.get(agent!.id)).toMatchObject({ state: 'retired', skipUntil: null, model: before.model, step: before.step })
+    // The service itself holds the line, whichever door the request comes through.
+    expect((await h.service.pause(agent!.id))?.state).toBe('retired')
+    expect((await h.service.resume(agent!.id))?.state).toBe('retired')
+    expect(h.service.get(agent!.id)!.skipUntil).toBeNull()
+  })
+
   it('an answer comes back with the proposal in the state it just gave it', async () => {
     const { agent } = await h.service.spawn({ name: 'Ada', intent: INTENT, homeDomain: 'astronomy', runFirstStep: false })
     await h.shift.run('timer')

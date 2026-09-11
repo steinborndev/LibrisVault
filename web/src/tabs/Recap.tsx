@@ -117,7 +117,15 @@ export function Recap({ date }: { date: string }): React.ReactElement {
             <p className="qs-line">The first one is built at {status?.recapTime ?? '07:00'} and covers the night's Fellow runs and their proposals. Build one now to see today's.</p>
           </div>
         ) : (
-          <RecapBody row={current} vaultName={vaultName} onAnswer={send} onFollow={followed} busy={answer.isPending} />
+          <RecapBody
+            row={current}
+            vaultName={vaultName}
+            onAnswer={send}
+            onFollow={followed}
+            busy={answer.isPending}
+            decidable={current.cycleDate === rows[0]?.cycleDate}
+            results={toasts}
+          />
         ))}
       </div>
     </div>
@@ -134,6 +142,8 @@ export function RecapBody({
   only,
   settings = true,
   query = '',
+  decidable = true,
+  results = [],
 }: {
   row: RecapRow
   vaultName: string
@@ -148,6 +158,10 @@ export function RecapBody({
   settings?: boolean
   /** The search box's text: only the Fellow sections and requests that say it. */
   query?: string
+  /** False for a recap older than the newest: the record of its day, with no answers to give. */
+  decidable?: boolean
+  /** What the last answers came back with; each Fellow shows the lines that concern it. */
+  results?: readonly RecapAnswerResult[]
 }): React.ReactElement {
   const q = query.trim().toLowerCase()
   // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
@@ -253,9 +267,21 @@ export function RecapBody({
       {!m.quiet &&
         m.fellows
           .filter((f) => (only === undefined || f.name === only) && (q === '' || fellowText(f).includes(q)))
-          .map((f) => <FellowSection key={f.agentId} f={f} vaultName={vaultName} onAnswer={onAnswer} onFollow={onFollow} busy={busy} settings={settings} />)}
+          .map((f) => (
+            <FellowSection
+              key={f.agentId}
+              f={f}
+              vaultName={vaultName}
+              onAnswer={onAnswer}
+              onFollow={onFollow}
+              busy={busy}
+              settings={settings}
+              decidable={decidable}
+              results={results.filter((r) => r.answer.action !== 'spawn' && r.answer.fellow === f.index)}
+            />
+          ))}
       {only === undefined &&
-        m.unclaimed.filter((u) => q === '' || `${u.question} ${u.domain} ${u.fromName}`.toLowerCase().includes(q)).map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />)}
+        m.unclaimed.filter((u) => q === '' || `${u.question} ${u.domain} ${u.fromName}`.toLowerCase().includes(q)).map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} decidable={decidable} />)}
       {row.path && (
         <div className="rf-grid day foot">
           <span className="rf-k">Vault page</span>
@@ -276,6 +302,8 @@ export function FellowSection({
   onFollow,
   busy,
   settings = true,
+  decidable = true,
+  results = [],
 }: {
   f: RecapFellow
   vaultName: string
@@ -283,8 +311,13 @@ export function FellowSection({
   onFollow: (page: string, agentId: string) => void
   busy: boolean
   settings?: boolean
+  decidable?: boolean
+  results?: readonly RecapAnswerResult[]
 }): React.ReactElement {
   const [note, setNote] = useState('')
+  /* Answers are for tonight and for a Fellow that still has nights: an older recap is the
+     record of its day, and a retired Fellow has no shift to skip and no plan to note for. */
+  const canAct = decidable && f.state !== 'retired'
   const stateLine = f.state === 'sleeping' ? `sleeping: ${f.sleepReason ?? f.sleepCode ?? ''}` : f.state
   const autonomyLine =
     f.autonomy === 'manual'
@@ -322,10 +355,12 @@ export function FellowSection({
           {f.skipUntil ? ` · skipped tonight (${f.skipUntil})` : ''}
         </span>
         <span className="spacer" />
-        <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'skip', fellow: f.index })} onClick={() => onAnswer({ action: 'skip', fellow: f.index })}>
-          Skip tonight
-        </button>
-        {settings && (
+        {canAct && (
+          <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'skip', fellow: f.index })} onClick={() => onAnswer({ action: 'skip', fellow: f.index })}>
+            Skip tonight
+          </button>
+        )}
+        {canAct && settings && (
           <>
             {f.state === 'paused' ? (
               <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'resume', fellow: f.index })} onClick={() => onAnswer({ action: 'resume', fellow: f.index })}>
@@ -355,6 +390,15 @@ export function FellowSection({
         )}
       </header>
 
+      {results.length > 0 && (
+        <div className={`toast ${results.every((r) => r.ok) ? 'ok' : 'warn'} rf-toast`} role="status">
+          {results.map((r, i) => (
+            <div key={i}>
+              {r.ok ? '✓' : '✗'} {r.message}
+            </div>
+          ))}
+        </div>
+      )}
       {/* One rail of labels, one column of content. The eye finds the band it wants on the
           rail and reads across, rather than down a wall; every list is one item per line. */}
       <div className="rf-grid">
@@ -365,7 +409,7 @@ export function FellowSection({
           {f.proposals.length === 0 ? (
             <p className="recap-none">None pending. A note steers the next plan.</p>
           ) : (
-            f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} />)
+            f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} canAct={canAct} />)
           )}
         </div>
 
@@ -429,6 +473,8 @@ export function FellowSection({
           </>
         )}
 
+        {canAct && (
+          <>
         <span className="rf-k">Note</span>
         <form
           className="rf-v recap-note"
@@ -444,6 +490,8 @@ export function FellowSection({
             Send note
           </button>
         </form>
+          </>
+        )}
 
         <span className="rf-k">Notebook</span>
         <p className="rf-v recap-foot">
@@ -482,7 +530,7 @@ function defaultFellowName(domain: string): string {
   return words.concat(['Fellow']).join(' ')
 }
 
-export function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnclaimed; vaultName: string; onAnswer: (a: RecapAnswer) => void; busy: boolean }): React.ReactElement {
+export function UnclaimedSection({ u, vaultName, onAnswer, busy, decidable = true }: { u: RecapUnclaimed; vaultName: string; onAnswer: (a: RecapAnswer) => void; busy: boolean; decidable?: boolean }): React.ReactElement {
   const [name, setName] = useState(defaultFellowName(u.domain))
   const request = Number(u.code.slice(1))
   return (
@@ -506,34 +554,44 @@ export function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnc
             </p>
           )}
         </div>
-        <span className="rf-k">Spawn</span>
-        <form
-          className="rf-v recap-note"
-          onSubmit={(e) => {
-            e.preventDefault()
-            onAnswer({ action: 'spawn', request, ...(name.trim() !== '' ? { name: name.trim() } : {}) })
-          }}
-        >
-          <input className="input" aria-label="Name of the new Fellow" value={name} onChange={(e) => setName(e.target.value)} />
-          <button className="btn primary sm" type="submit" disabled={busy} title={answerCode({ action: 'spawn', request, name })}>
-            Spawn a Fellow for this
-          </button>
-        </form>
+        {decidable && (
+          <>
+            <span className="rf-k">Spawn</span>
+            <form
+              className="rf-v recap-note"
+              onSubmit={(e) => {
+                e.preventDefault()
+                onAnswer({ action: 'spawn', request, ...(name.trim() !== '' ? { name: name.trim() } : {}) })
+              }}
+            >
+              <input className="input" aria-label="Name of the new Fellow" value={name} onChange={(e) => setName(e.target.value)} />
+              <button className="btn primary sm" type="submit" disabled={busy} title={answerCode({ action: 'spawn', request, name })}>
+                Spawn a Fellow for this
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </section>
   )
 }
 
-function ProposalRow({ fellow, p, onAnswer, busy }: { fellow: number; p: RecapProposal; onAnswer: (a: RecapAnswer) => void; busy: boolean }): React.ReactElement {
+/** What a proposal's status says once it is not a question any more. */
+const SETTLED_CHIPS: Record<string, string> = { vetoed: 'vetoed', executed: 'ran', expired: 'expired', superseded: 'superseded' }
+
+function ProposalRow({ fellow, p, onAnswer, busy, canAct = true }: { fellow: number; p: RecapProposal; onAnswer: (a: RecapAnswer) => void; busy: boolean; canAct?: boolean }): React.ReactElement {
   const pick: RecapAnswer = { action: 'pick', fellow, letter: p.code.slice(-1) }
   const veto: RecapAnswer = { action: 'veto', fellow, letter: p.code.slice(-1) }
+  // The two answers exist while the question is open and the reader may answer it; anything
+  // else is a chip that says what became of the proposal.
+  const open = canAct && (p.status === 'proposed' || p.status === 'approved')
   return (
-    <div className={`prop${p.status === 'approved' ? ' approved' : p.status === 'vetoed' ? ' vetoed' : ''}`}>
+    <div className={`prop${p.status === 'approved' ? ' approved' : p.status === 'vetoed' || p.status === 'expired' || p.status === 'superseded' ? ' vetoed' : ''}`}>
       <div className="prop-main">
         <div className="prop-topic">
           <span className="prop-code">{p.code}</span> {p.kind} · {p.topic} · about {usd(p.estCostUsd)}
           {p.status === 'approved' && <span className="chip ok">runs tonight</span>}
-          {p.status === 'vetoed' && <span className="chip">vetoed</span>}
+          {SETTLED_CHIPS[p.status] !== undefined && <span className="chip">{SETTLED_CHIPS[p.status]}</span>}
           {p.drift && (
             <span className="chip" title="Low overlap with the intent; runs only if you approve it">
               drift
@@ -546,18 +604,18 @@ function ProposalRow({ fellow, p, onAnswer, busy }: { fellow: number; p: RecapPr
           From {p.provenance.candidate}: {p.provenance.text}
         </p>
       </div>
-      <div className="prop-acts">
-        {p.status !== 'approved' && (
-          <button className="btn primary sm" disabled={busy} title={answerCode(pick)} onClick={() => onAnswer(pick)}>
-            Run tonight
-          </button>
-        )}
-        {p.status !== 'vetoed' && (
+      {open && (
+        <div className="prop-acts">
+          {p.status !== 'approved' && (
+            <button className="btn primary sm" disabled={busy} title={answerCode(pick)} onClick={() => onAnswer(pick)}>
+              Run tonight
+            </button>
+          )}
           <button className="btn ghost sm" disabled={busy} title={answerCode(veto)} onClick={() => onAnswer(veto)}>
             Veto
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
