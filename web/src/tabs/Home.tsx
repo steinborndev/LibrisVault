@@ -434,7 +434,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         {!demoMode && (
           <div className="gp-sec">
             <div className="gp-head">
-              <span className="gp-eyebrow">Add now</span>
+              <span className="gp-eyebrow" title="Files, links and notes go into the queue right away; the next free worker files them, and the Activity stream shows each one settle.">
+                Add now
+              </span>
             </div>
             <Dropzone legend={false} />
           </div>
@@ -444,7 +446,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         {!demoMode && fellowsOn && (
           <div className="gp-sec">
             <div className="gp-head">
-              <span className="gp-eyebrow">Add to night shift</span>
+              <span className="gp-eyebrow" title="The same box, but everything it takes is held until the night shift begins. The shift runs these first, ahead of every Fellow, so the Fellows plan on a vault that already holds them. The Night shift window lists what is waiting and lets you take it off again.">
+                Add to night shift
+              </span>
             </div>
             <Dropzone legend={false} when="night" />
           </div>
@@ -704,10 +708,10 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             <div className="lib-head-left">
               {fellowsOn ? (
                 <div className="seg sm" role="tablist" aria-label="View">
-                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title={`Daily recaps${waiting > 0 ? ` · ${waiting} undecided` : ''} · left and right switch`}>
+                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title={`Daily recaps${waiting > 0 ? ` · ${waiting} undecided` : ''}`}>
                     Daily recaps
                   </button>
-                  <button role="tab" aria-selected={view === 'activity'} onClick={() => openView('activity')} title="Activity · left and right switch">
+                  <button role="tab" aria-selected={view === 'activity'} onClick={() => openView('activity')} title="Activity">
                     Activity
                   </button>
                 </div>
@@ -729,11 +733,29 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   </span>
                 </span>
               ) : (
-                /* Where you are: the week, or the one day. The same two slots in both views,
-                   each of a fixed width, so switching the view or walking the days moves the
-                   letters and nothing else. The list that moves it stands in the column. */
+                /* Where you are: the one day, in a slot of fixed width, so walking the days
+                   moves the letters and nothing else. The two arrows beside it are the same
+                   step the keys make, and the sign that the date is a place to move from. */
                 <span className="lib-open home-where">
+                  <button
+                    className="wh-step prev"
+                    aria-label="Previous day"
+                    title="The day before this one that has something · ←"
+                    disabled={!stops.some((d) => d < day)}
+                    onClick={() => stepDay('older')}
+                  >
+                    <Icon name="chevron" />
+                  </button>
                   <b>{fmtDay(day)}</b>
+                  <button
+                    className="wh-step next"
+                    aria-label="Next day"
+                    title="The next day that has something · →"
+                    disabled={!stops.some((d) => d > day)}
+                    onClick={() => stepDay('newer')}
+                  >
+                    <Icon name="chevron" />
+                  </button>
                 </span>
               )}
             </div>
@@ -942,7 +964,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                         Load older
                       </button>
                     )}
-                    <span className="dim">↑ ↓ walk the days · Tab to a row, Enter opens it · Esc steps back</span>
+                    <span className="dim">← → step the day · PgUp PgDn a week · Tab to a row, Enter opens it · Esc steps back</span>
                     {/* History management lives with the history count, not in the headline:
                         it is rare, and it is the one destructive thing on the screen. */}
                     {clearCount > 0 && (

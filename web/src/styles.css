@@ -964,6 +964,9 @@ button {
   background: var(--bg-elev-2);
   color: var(--text);
 }
+/* A ghost button with the accent's ring: for the one action in a foot that costs a run. */
+.btn.ghost.outline { border-color: var(--accent); color: var(--accent); }
+.btn.ghost.outline:hover { background: var(--accent-soft); color: var(--accent); }
 .btn.danger:hover {
   border-color: var(--err);
   color: var(--err);
@@ -9120,7 +9123,19 @@ tr:focus-within .rowacts {
 .home-headline .lib-head-left, .home-headline .lib-head-right { flex: 1 1 0; min-width: 0; }
 .home-headline .lib-head-right { justify-content: flex-end; }
 .home-headline .lib-head-mid { flex: none; gap: 10px; }
-.home-where b { flex: none; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.home-where { gap: 4px; }
+.home-where b { flex: none; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; text-align: center; }
+/* The date's two arrows: the same step the keys make, and the sign that the date is a place
+   to move from. One chevron, a quarter turn each way. */
+.home-where .wh-step {
+  width: 20px; height: 20px; display: grid; place-items: center; padding: 0; flex: none;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); color: var(--text-dim);
+}
+.home-where .wh-step:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.home-where .wh-step:disabled { opacity: 0.35; cursor: default; }
+.home-where .wh-step svg { width: 12px; height: 12px; }
+.home-where .wh-step.prev svg { transform: rotate(90deg); }
+.home-where .wh-step.next svg { transform: rotate(-90deg); }
 
 /* The five figures keep one height from day to day: no value wraps into a second line. */
 .home-main .facts.lead .fact.lead .k,

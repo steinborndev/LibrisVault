@@ -107,6 +107,12 @@ with an old sample, not where it is.
       injected held jobs: the facts, the block positions, the band order and both removal
       paths.
 
+- [x] Follow-up (2026-09-11). Home's foot says how to move in both views (the recap foot
+      used to say when the next build is; that moved into the Build now tooltip), Build now
+      wears the accent's ring, the headline date has an arrow on each side that steps the day
+      like the keys do (disabled at the ends), and the two add boxes explain themselves on
+      hover. The view toggle's tooltips no longer promise the left and right keys.
+
 ## Left open
 
 - `SPEC.md` section 8 still lists the job lifecycle without the `hold` column; a line
