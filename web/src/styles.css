@@ -5827,6 +5827,11 @@ tr:focus-within .rowacts {
   scrollbar-gutter: stable;
   padding: 14px 18px 18px;
 }
+/* Reading the log: the pane becomes a column and the log takes what is left of it, scrolling
+   inside itself, instead of a 320px box over empty space. */
+.detail-content.logview { display: flex; flex-direction: column; overflow: hidden; }
+.detail-content.logview > .toast { flex: none; }
+.detail-content.logview > .log { flex: 1 1 auto; min-height: 0; max-height: none; }
 .detail-foot {
   display: flex;
   align-items: center;

@@ -203,7 +203,9 @@ export function JobDetail({
         </div>
       </div>
 
-      <div className="detail-content">
+      {/* The log fills what is left of the pane instead of a 320px box over empty space, so
+          there is less to scroll; the article keeps its own flow. */}
+      <div className={`detail-content${tab === 'log' || articlePath === null ? ' logview' : ''}`}>
         {/* One line, one tone: a failure is red, a duplicate's or no-change run's explanation is not. */}
         {note !== undefined && <div className={`toast ${noteTone}`}>{note}</div>}
         {revertNote !== null && <div className="toast ok">{revertNote}</div>}
@@ -247,17 +249,8 @@ export function JobDetail({
             </button>
           </>
         )}
-        {canDelete && (
-          <button
-            className={`btn sm ghost${armedDelete ? ' danger' : ''}`}
-            disabled={del.isPending}
-            onClick={() => (armedDelete ? del.mutate() : setArmedDelete(true))}
-            title="Removes this entry from the history. The vault, its pages and its commit stay as they are."
-          >
-            {del.isPending ? 'Removing…' : armedDelete ? 'Really remove?' : 'Remove from history'}
-          </button>
-        )}
-        {del.error != null && <span className="dim">Removing failed: {(del.error as Error).message}</span>}
+        {/* The revert first, the removal last: the one that touches the vault before the one
+            that only forgets a row. Both in the foot's one button shape. */}
         {canRevert && (
           <button
             className={`btn sm${armedRevert ? ' danger' : ''}`}
@@ -272,6 +265,17 @@ export function JobDetail({
                 : 'Revert ingest'}
           </button>
         )}
+        {canDelete && (
+          <button
+            className={`btn sm${armedDelete ? ' danger' : ''}`}
+            disabled={del.isPending}
+            onClick={() => (armedDelete ? del.mutate() : setArmedDelete(true))}
+            title="Removes this entry from the history. The vault, its pages and its commit stay as they are."
+          >
+            {del.isPending ? 'Removing…' : armedDelete ? 'Really remove?' : 'Remove from history'}
+          </button>
+        )}
+        {del.error != null && <span className="dim">Removing failed: {(del.error as Error).message}</span>}
       </div>
     </>
   )

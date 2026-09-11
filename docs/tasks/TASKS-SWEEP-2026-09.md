@@ -203,3 +203,8 @@ A second list, split the same way and settled up front:
       position: a live row spans two columns with one cell, so its sixth cell was the trash
       and its When text sat left. A waiting job keeps a Cancel of its own in the cost cell,
       at the trash's height, so the row stays as tall as the rest; the trash cancels it too.
+- [x] Follow-up (2026-09-11). In an opened record's foot, Revert ingest stands before Remove
+      from history, and both wear the foot's one button shape (measured: same border,
+      ground and height as the two doors). Reading the log, the pane is a column and the log
+      takes what is left of it (344px of a 386px pane), scrolling inside itself, instead of a
+      320px box over empty space.
