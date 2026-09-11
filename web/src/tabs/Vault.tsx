@@ -18,6 +18,7 @@ import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../ap
 import { GraphCanvas, domainColor, TYPE_VARS, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
+import { GapCleanupBar, useGapCleanup } from '../components/GapCleanup.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
 import { Shortcuts } from '../components/Shortcuts.tsx'
@@ -1481,6 +1482,8 @@ function GapList({
   gaps: VaultGraph['gaps']
   onSelectGap: (title: string) => void
 }): React.ReactElement {
+  // The second way out of a gap: pick it for unlinking (moved here from Home, 2026-09-11).
+  const cleanup = useGapCleanup(gaps)
   const total = gaps.reduce((s, g) => s + g.refBy.length, 0)
   // Server ranks by knowledge referrers first, so the top row need not have the most links.
   const max = gaps.reduce((m, g) => Math.max(m, g.refBy.length), 1)
@@ -1500,19 +1503,35 @@ function GapList({
         many content pages are waiting. A ready-made research backlog.
       </div>
       <div className="gx-body">
+        <GapCleanupBar c={cleanup} />
         <ol className="gx-gaplist">
-          {gaps.map((g, i) => (
-            <li key={g.title}>
-              <button className="gx-gaprow" onClick={() => onSelectGap(g.title)}>
-                <span className="rank">{i + 1}</span>
-                <span className="gtitle">{g.title}</span>
-                <span className="meter" aria-hidden>
-                  <i style={{ width: `${Math.round((g.refBy.length / max) * 100)}%` }} />
-                </span>
-                <span className="gn">{g.refBy.length}</span>
-              </button>
-            </li>
-          ))}
+          {gaps.map((g, i) => {
+            const on = cleanup.live.includes(g.title)
+            return (
+              <li key={g.title} className={on ? 'picked' : ''}>
+                <button className="gx-gaprow" onClick={() => onSelectGap(g.title)}>
+                  <span className="rank">{i + 1}</span>
+                  <span className="gtitle">{g.title}</span>
+                  <span className="meter" aria-hidden>
+                    <i style={{ width: `${Math.round((g.refBy.length / max) * 100)}%` }} />
+                  </span>
+                  <span className="gn">{g.refBy.length}</span>
+                </button>
+                {/* Shown on hover, focus, or once picked - a row of idle controls would say
+                    "delete things" louder than the list means to. */}
+                <button
+                  className={`gx-gappick${on ? ' on' : ''}`}
+                  aria-pressed={on}
+                  aria-label={on ? `Unpick ${g.title}` : `Pick ${g.title} for unlinking`}
+                  title={on ? 'Picked for unlinking' : 'Pick: this should not become a page, unlink it instead'}
+                  disabled={cleanup.running}
+                  onClick={() => cleanup.toggle(g.title)}
+                >
+                  <Icon name={on ? 'check' : 'x'} />
+                </button>
+              </li>
+            )
+          })}
         </ol>
       </div>
     </>

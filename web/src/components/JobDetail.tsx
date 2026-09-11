@@ -42,11 +42,18 @@ export function JobDetail({
   vaultName,
   authMode,
   onBack,
+  bar = true,
+  tab: tabProp,
+  onTab,
 }: {
   event: ActivityEvent
   vaultName: string
   authMode: AuthMode
   onBack: () => void
+  /** Home mockup (2026-09-11): with `bar={false}` the screen's headline carries the path and the tab. */
+  bar?: boolean
+  tab?: 'article' | 'log'
+  onTab?: (t: 'article' | 'log') => void
 }): React.ReactElement {
   const qc = useQueryClient()
   const jobId = event.job?.id ?? null
@@ -61,7 +68,9 @@ export function JobDetail({
 
   const pages = readerPages(event.pages)
   const articlePath = mainArticle(event.pages)
-  const [tab, setTab] = useState<'article' | 'log'>(articlePath === null ? 'log' : 'article')
+  const [tabState, setTabState] = useState<'article' | 'log'>(articlePath === null ? 'log' : 'article')
+  const tab = tabProp ?? tabState
+  const setTab = onTab ?? setTabState
 
   const article = useQuery({
     queryKey: ['page-full', articlePath],
@@ -128,6 +137,7 @@ export function JobDetail({
 
   return (
     <>
+      {bar && (
       <div className={`detail-bar ${event.kind === 'research' ? 'research' : 'ingest'}`}>
         <button className="backlink" onClick={onBack}>
           <Icon name="back" />
@@ -163,6 +173,7 @@ export function JobDetail({
           </button>
         )}
       </div>
+      )}
 
       <Facts size="lead">
         <Fact k="Source" v={job !== undefined ? `${job.source} · ${job.type}` : event.channel} />

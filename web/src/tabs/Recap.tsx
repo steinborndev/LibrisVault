@@ -16,8 +16,9 @@ import { Fact, Facts } from '../components/Fact.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { navigate } from '../lib/router.ts'
-import { answerCode, nightLine, undecidedCount } from '../lib/recap.ts'
+import { answerCode, undecidedCount } from '../lib/recap.ts'
 import { timeAgo, usd } from '../lib/format.ts'
+import { domainColor } from '../lib/domains.ts'
 
 const MODELS = ['sonnet-5', 'opus-5', 'fable-5-1']
 const STEPS = ['small', 'standard', 'deep']
@@ -130,6 +131,7 @@ export function RecapBody({
   busy,
   facts = true,
   only,
+  settings = true,
 }: {
   row: RecapRow
   vaultName: string
@@ -140,6 +142,8 @@ export function RecapBody({
   facts?: boolean
   /** Only this Fellow's section, by name. Home's feed uses it for the Fellow filter. */
   only?: string
+  /** The pause, model and step controls. Home's feed leaves them to the dossier (mockup 2026-09-11). */
+  settings?: boolean
 }): React.ReactElement {
   // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
   const stored = row.model
@@ -167,58 +171,82 @@ export function RecapBody({
           {m.sleeping.length > 0 && <p className="qs-detail">{m.sleeping.map((s) => `${s.name}: ${s.reason}`).join(' · ')}</p>}
         </div>
       )}
-      {(m.readingFiled ?? []).length > 0 && (
-        <p className="recap-line">
-          From the reading list, now in the vault:{' '}
-          {(m.readingFiled ?? []).map((r, i) => (
-            <span key={r.page}>
-              {i > 0 ? ' · ' : ''}
-              {r.title} (<PageLink vaultName={vaultName} path={r.page} />
-              {r.by !== null ? `, ${r.by} asked for it` : ''})
-            </span>
-          ))}
-        </p>
-      )}
-      {m.summaryNote && <div className="toast warn">{m.summaryNote}</div>}
-      {m.shift && m.shift.skipped.length > 0 && (
-        <p className="recap-line">Skipped: {m.shift.skipped.map((s) => `${s.agentName} (${s.reason})`).join(' · ')}</p>
-      )}
-      {(m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
-        <p className="recap-line">
-          {/* A merge and a hedge are different events: one topic did not run, the other did.
-              And a judgement says it is one - a model's opinion is not a token count. */}
-          {m.dedupe.merged.map((d, i) =>
-            d.noted === true ? (
-              <span key={`m${i}`}>
-                {d.droppedAgentName}'s "{d.droppedTopic}" may be the same question as {d.keptAgentName}'s "{d.keptTopic}"; it ran anyway
-                {d.reason ? ` (${d.reason})` : ''}.{' '}
+      {/* The day's own rows, on the same rail the Fellows use: a label on the left, one line
+          per item on the right - a reading list entry, a skipped Fellow, a merged topic. */}
+      {((m.readingFiled ?? []).length > 0 || (m.shift !== null && m.shift !== undefined && m.shift.skipped.length > 0) || m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
+        <div className="rf-grid day">
+          {(m.readingFiled ?? []).length > 0 && (
+            <>
+              <span className="rf-k" title="From the reading list, now in the vault">
+                Reading list
               </span>
-            ) : (
-              <span key={`m${i}`}>
-                Merged {d.droppedAgentName}'s "{d.droppedTopic}" into {d.keptAgentName}'s "{d.keptTopic}"
-                {d.by === 'judge' ? ', judged the same question' : ''}
-                {d.by === 'judge' && d.reason ? ` (${d.reason})` : ''}.{' '}
-              </span>
-            ),
+              <div className="rf-v list">
+                {(m.readingFiled ?? []).map((r) => (
+                  <span key={r.page} className="filed">
+                    <PageLink vaultName={vaultName} path={r.page} />
+                    {r.by !== null && <span className="by">{r.by} asked for it</span>}
+                  </span>
+                ))}
+              </div>
+            </>
           )}
-          {m.dedupe.overlaps.map((o, i) => (
-            <span key={`o${i}`}>
-              {o.agentName}'s "{o.topic}" overlaps the existing page "{o.page}".{' '}
-            </span>
-          ))}
-        </p>
+          {m.shift && m.shift.skipped.length > 0 && (
+            <>
+              <span className="rf-k">Skipped</span>
+              <div className="rf-v list">
+                {m.shift.skipped.map((sk) => (
+                  <span key={sk.agentName} className="filed">
+                    <b>{sk.agentName}</b>
+                    <span className="by">{sk.reason}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          {(m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
+            <>
+              <span className="rf-k">Merged</span>
+              <p className="rf-v">
+                {/* A merge and a hedge are different events: one topic did not run, the other did.
+                    And a judgement says it is one - a model's opinion is not a token count. */}
+                {m.dedupe.merged.map((d, i) =>
+                  d.noted === true ? (
+                    <span key={`m${i}`}>
+                      {d.droppedAgentName}'s "{d.droppedTopic}" may be the same question as {d.keptAgentName}'s "{d.keptTopic}"; it ran anyway
+                      {d.reason ? ` (${d.reason})` : ''}.{' '}
+                    </span>
+                  ) : (
+                    <span key={`m${i}`}>
+                      Merged {d.droppedAgentName}'s "{d.droppedTopic}" into {d.keptAgentName}'s "{d.keptTopic}"
+                      {d.by === 'judge' ? ', judged the same question' : ''}
+                      {d.by === 'judge' && d.reason ? ` (${d.reason})` : ''}.{' '}
+                    </span>
+                  ),
+                )}
+                {m.dedupe.overlaps.map((o, i) => (
+                  <span key={`o${i}`}>
+                    {o.agentName}'s "{o.topic}" overlaps the existing page "{o.page}".{' '}
+                  </span>
+                ))}
+              </p>
+            </>
+          )}
+        </div>
       )}
       {!m.quiet &&
         m.fellows
           .filter((f) => only === undefined || f.name === only)
-          .map((f) => <FellowSection key={f.agentId} f={f} vaultName={vaultName} onAnswer={onAnswer} onFollow={onFollow} busy={busy} />)}
+          .map((f) => <FellowSection key={f.agentId} f={f} vaultName={vaultName} onAnswer={onAnswer} onFollow={onFollow} busy={busy} settings={settings} />)}
       {only === undefined &&
         m.unclaimed.map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />)}
       {row.path && (
-        <p className="recap-line">
-          Vault page: <PageLink vaultName={vaultName} path={row.path} />
-          {row.delivered.telegram ? ` · sent to Telegram ${timeAgo(row.delivered.telegram.at)}` : ' · Telegram: no bot connected'}
-        </p>
+        <div className="rf-grid day foot">
+          <span className="rf-k">Vault page</span>
+          <p className="rf-v">
+            <PageLink vaultName={vaultName} path={row.path} />
+            {row.delivered.telegram ? ` · sent to Telegram ${timeAgo(row.delivered.telegram.at)}` : ' · Telegram: no bot connected'}
+          </p>
+        </div>
       )}
     </div>
   )
@@ -230,12 +258,14 @@ export function FellowSection({
   onAnswer,
   onFollow,
   busy,
+  settings = true,
 }: {
   f: RecapFellow
   vaultName: string
   onAnswer: (a: RecapAnswer) => void
   onFollow: (page: string, agentId: string) => void
   busy: boolean
+  settings?: boolean
 }): React.ReactElement {
   const [note, setNote] = useState('')
   const stateLine = f.state === 'sleeping' ? `sleeping: ${f.sleepReason ?? f.sleepCode ?? ''}` : f.state
@@ -252,11 +282,25 @@ export function FellowSection({
   )
   return (
     <section className="recap-fellow" aria-label={`${f.index}. ${f.name}`}>
-      <div className="recap-fhead">
-        <h3 className="recap-fname">
-          {f.index}. {f.name}
+      {/* The head names the Fellow the way the column does - its domain's colour, its index,
+          its name - and carries the one decision that is the night's own: skip it. */}
+      <header className="rf-head">
+        <span className="rf-dot" style={{ background: domainColor(f.homeDomain) }} aria-hidden />
+        <span className="rf-idx">{f.index}</span>
+        <h3 className="rf-name">
+          {settings ? (
+            f.name
+          ) : (
+            <button
+              className="recap-fname-link"
+              title={`Open ${f.name}'s dossier in the Library`}
+              onClick={() => navigate(`/library?cc=${encodeURIComponent(f.agentId)}`)}
+            >
+              {f.name}
+            </button>
+          )}
         </h3>
-        <span className="recap-fmeta">
+        <span className="rf-meta">
           {f.homeDomain} · {f.model} · {stateLine}
           {f.skipUntil ? ` · skipped tonight (${f.skipUntil})` : ''}
         </span>
@@ -264,117 +308,131 @@ export function FellowSection({
         <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'skip', fellow: f.index })} onClick={() => onAnswer({ action: 'skip', fellow: f.index })}>
           Skip tonight
         </button>
-        {f.state === 'paused' ? (
-          <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'resume', fellow: f.index })} onClick={() => onAnswer({ action: 'resume', fellow: f.index })}>
-            Resume
-          </button>
-        ) : (
-          <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'pause', fellow: f.index })} onClick={() => onAnswer({ action: 'pause', fellow: f.index })}>
-            Pause
-          </button>
+        {settings && (
+          <>
+            {f.state === 'paused' ? (
+              <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'resume', fellow: f.index })} onClick={() => onAnswer({ action: 'resume', fellow: f.index })}>
+                Resume
+              </button>
+            ) : (
+              <button className="btn ghost sm" disabled={busy} title={answerCode({ action: 'pause', fellow: f.index })} onClick={() => onAnswer({ action: 'pause', fellow: f.index })}>
+                Pause
+              </button>
+            )}
+            <select className="select sm" aria-label={`Model of ${f.name}`} value={f.model} disabled={busy} onChange={(e) => onAnswer({ action: 'model', fellow: f.index, value: e.target.value })}>
+              {MODELS.map((mo) => (
+                <option key={mo} value={mo}>
+                  {mo}
+                </option>
+              ))}
+            </select>
+            <select className="select sm" aria-label={`Largest step of ${f.name}`} defaultValue="" disabled={busy} onChange={(e) => e.target.value !== '' && onAnswer({ action: 'step', fellow: f.index, value: e.target.value })}>
+              <option value="">step…</option>
+              {STEPS.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+          </>
         )}
-        <select className="select sm" aria-label={`Model of ${f.name}`} value={f.model} disabled={busy} onChange={(e) => onAnswer({ action: 'model', fellow: f.index, value: e.target.value })}>
-          {MODELS.map((mo) => (
-            <option key={mo} value={mo}>
-              {mo}
-            </option>
-          ))}
-        </select>
-        <select className="select sm" aria-label={`Largest step of ${f.name}`} defaultValue="" disabled={busy} onChange={(e) => e.target.value !== '' && onAnswer({ action: 'step', fellow: f.index, value: e.target.value })}>
-          <option value="">step…</option>
-          {STEPS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+      </header>
+
+      {/* One rail of labels, one column of content. The eye finds the band it wants on the
+          rail and reads across, rather than down a wall; every list is one item per line. */}
+      <div className="rf-grid">
+        {/* The decision first: the proposals are what the recap wants an answer to. */}
+        <span className="rf-k">Tonight</span>
+        <div className="rf-v">
+          <p className="rf-hint">{autonomyLine}</p>
+          {f.proposals.length === 0 ? (
+            <p className="recap-none">None pending. A note steers the next plan.</p>
+          ) : (
+            f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} />)
+          )}
+        </div>
+
+        <span className="rf-k">Last night</span>
+        <div className="rf-v">
+          {f.runs.length === 0 ? (
+            <p className="recap-none">Nothing since the last recap.</p>
+          ) : (
+            f.runs.map((r) => (
+              <div key={r.runId} className="recap-ran">
+                <div className="recap-ran-line">
+                  <b>{r.kind}</b> · {r.topic}
+                  {/* Its facts are here, its prose is not: the "what it found" lines are written
+                      during a build, and this run landed after one. */}
+                  {r.addedAfterBuild === true && (
+                    <span className="recap-later" title="This ran after the recap was built. Rebuilding adds its summary line.">
+                      after the build
+                    </span>
+                  )}
+                </div>
+                <div className="recap-ran-meta">
+                  {r.ok
+                    ? `${r.addedAfterBuild === true ? `${r.pagesUpdated.length} page(s)` : `${r.pagesCreated.length} page(s) created, ${r.pagesUpdated.length} updated`} · ${usd(r.costUsd)}${r.commit ? ` · commit ${r.commit.slice(0, 8)}` : ''}`
+                    : `failed: ${r.error ?? 'unknown'}`}
+                </div>
+                {r.pagesCreated.length > 0 && (
+                  <div className="recap-pages">
+                    <span className="k">Created</span>
+                    <span className="chips">{r.pagesCreated.map(link)}</span>
+                  </div>
+                )}
+                {r.pagesUpdated.length > 0 && (
+                  <div className="recap-pages">
+                    <span className="k">Updated</span>
+                    <span className="chips">{r.pagesUpdated.map(link)}</span>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {f.found.length > 0 && (
+          <>
+            <span className="rf-k">Found</span>
+            <ul className="rf-v recap-list">
+              {f.found.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        {f.openQuestions.length > 0 && (
+          <>
+            <span className="rf-k">Open questions</span>
+            <ul className="rf-v recap-list">
+              {f.openQuestions.map((q, i) => (
+                <li key={i}>{q}</li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        <span className="rf-k">Note</span>
+        <form
+          className="rf-v recap-note"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (note.trim() === '') return
+            onAnswer({ action: 'note', fellow: f.index, text: note.trim() })
+            setNote('')
+          }}
+        >
+          <input className="input" placeholder={`A note for ${f.name}'s next plan (becomes a candidate)`} value={note} onChange={(e) => setNote(e.target.value)} />
+          <button className="btn sm" type="submit" disabled={busy || note.trim() === ''} title={answerCode({ action: 'note', fellow: f.index, text: '…' })}>
+            Send note
+          </button>
+        </form>
+
+        <span className="rf-k">Notebook</span>
+        <p className="rf-v recap-foot">
+          <PageLink vaultName={vaultName} path={f.notebookPath} /> · opened {f.value.pageOpens} time(s) this month
+        </p>
       </div>
-
-      {/* The decision first: the proposals are what the recap wants an answer to. */}
-      <span className="recap-label">
-        Proposals for tonight <span className="recap-label-sub">{autonomyLine}</span>
-      </span>
-      {f.proposals.length === 0 ? (
-        <p className="recap-none">None pending. A note steers the next plan.</p>
-      ) : (
-        f.proposals.map((p) => <ProposalRow key={p.proposalId} fellow={f.index} p={p} onAnswer={onAnswer} busy={busy} />)
-      )}
-
-      <span className="recap-label">What it did last night</span>
-      {f.runs.length === 0 ? (
-        <p className="recap-none">Nothing since the last recap.</p>
-      ) : (
-        f.runs.map((r) => (
-          <div key={r.runId} className="recap-ran">
-            <div className="recap-ran-line">
-              <b>{r.kind}</b> · {r.topic}
-              {/* Its facts are here, its prose is not: the "what it found" lines are written
-                  during a build, and this run landed after one. */}
-              {r.addedAfterBuild === true && (
-                <span className="recap-later" title="This ran after the recap was built. Rebuilding adds its summary line.">
-                  after the build
-                </span>
-              )}
-            </div>
-            <div className="recap-ran-meta">
-              {r.ok
-                ? `${r.addedAfterBuild === true ? `${r.pagesUpdated.length} page(s)` : `${r.pagesCreated.length} page(s) created, ${r.pagesUpdated.length} updated`} · ${usd(r.costUsd)}${r.commit ? ` · commit ${r.commit.slice(0, 8)}` : ''}`
-                : `failed: ${r.error ?? 'unknown'}`}
-            </div>
-            {r.pagesCreated.length > 0 && (
-              <div className="recap-pages">
-                <span className="k">Created</span>
-                {r.pagesCreated.map(link)}
-              </div>
-            )}
-            {r.pagesUpdated.length > 0 && (
-              <div className="recap-pages">
-                <span className="k">Updated</span>
-                {r.pagesUpdated.map(link)}
-              </div>
-            )}
-          </div>
-        ))
-      )}
-
-      {f.found.length > 0 && (
-        <>
-          <span className="recap-label">Found</span>
-          <ul className="recap-list">
-            {f.found.map((l, i) => (
-              <li key={i}>{l}</li>
-            ))}
-          </ul>
-        </>
-      )}
-      {f.openQuestions.length > 0 && (
-        <>
-          <span className="recap-label">Open questions</span>
-          <ul className="recap-list">
-            {f.openQuestions.map((q, i) => (
-              <li key={i}>{q}</li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      <form
-        className="recap-note"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (note.trim() === '') return
-          onAnswer({ action: 'note', fellow: f.index, text: note.trim() })
-          setNote('')
-        }}
-      >
-        <input className="input" placeholder={`A note for ${f.name}'s next plan (becomes a candidate)`} value={note} onChange={(e) => setNote(e.target.value)} />
-        <button className="btn sm" type="submit" disabled={busy || note.trim() === ''} title={answerCode({ action: 'note', fellow: f.index, text: '…' })}>
-          Send note
-        </button>
-      </form>
-      <p className="recap-foot">
-        Notebook: <PageLink vaultName={vaultName} path={f.notebookPath} /> · opened {f.value.pageOpens} time(s) this month
-      </p>
     </section>
   )
 }
@@ -384,7 +442,14 @@ export function RecapFacts({ row }: { row: RecapRow }): React.ReactElement {
   const m = row.model
   return (
     <Facts size="lead">
-      <Fact k="Night" v={nightLine(m)} sub={m.shift ? `${m.shift.trigger} shift, ${m.shift.executed} run(s), ${m.shift.planned} plan(s)` : 'no shift ran'} size="lead" />
+      {/* One line whatever the night did - the cost and the shift go under it - so the strip
+          keeps one height from day to day; "12 runs · 43 pages · 29.82 USD" wrapped. */}
+      <Fact
+        k="Night"
+        v={m.quiet ? 'Quiet' : `${m.totals.runs} run${m.totals.runs === 1 ? '' : 's'} · ${m.totals.pages} page${m.totals.pages === 1 ? '' : 's'}`}
+        sub={`${m.quiet ? 'nothing ran' : usd(m.totals.costUsd)}${m.totals.failed > 0 ? ` · ${m.totals.failed} failed` : ''} · ${m.shift ? `${m.shift.trigger} shift, ${m.shift.executed} run(s), ${m.shift.planned} plan(s)` : 'no shift ran'}`}
+        size="lead"
+      />
       <Fact k="Consumption today" v={usd(m.usage.today.costUsd)} sub={`${m.usage.today.runs} run(s), manual ones included`} size="lead" />
       <Fact k="This week" v={usd(m.usage.week.costUsd)} sub={`${m.usage.week.runs} run(s)`} size="lead" />
       <Fact k="Undecided" v={undecidedCount(m)} sub={row.answeredAt ? `last answered ${timeAgo(row.answeredAt)}` : 'nothing answered yet'} size="lead" tone={undecidedCount(m) > 0 ? 'warn' : undefined} />
@@ -405,31 +470,39 @@ export function UnclaimedSection({ u, vaultName, onAnswer, busy }: { u: RecapUnc
   const request = Number(u.code.slice(1))
   return (
     <section className="recap-fellow" aria-label={`Unclaimed request ${u.code}`}>
-      <div className="recap-fhead">
-        <h3 className="recap-fname">{u.code}. Unclaimed request</h3>
-        <span className="recap-fmeta">
+      <header className="rf-head">
+        <span className="rf-dot" style={{ background: domainColor(u.domain) }} aria-hidden />
+        <span className="rf-idx">{u.code}</span>
+        <h3 className="rf-name">Unclaimed request</h3>
+        <span className="rf-meta">
           {u.domain} · from {u.fromName} · no Fellow covers this domain
         </span>
+      </header>
+      <div className="rf-grid">
+        <span className="rf-k">Question</span>
+        <div className="rf-v">
+          <div className="prop-topic">{u.question}</div>
+          {u.reason && <p className="prop-why">{u.reason}</p>}
+          {u.sourcePage && (
+            <p className="recap-foot">
+              From: <PageLink vaultName={vaultName} path={u.sourcePage} />
+            </p>
+          )}
+        </div>
+        <span className="rf-k">Spawn</span>
+        <form
+          className="rf-v recap-note"
+          onSubmit={(e) => {
+            e.preventDefault()
+            onAnswer({ action: 'spawn', request, ...(name.trim() !== '' ? { name: name.trim() } : {}) })
+          }}
+        >
+          <input className="input" aria-label="Name of the new Fellow" value={name} onChange={(e) => setName(e.target.value)} />
+          <button className="btn primary sm" type="submit" disabled={busy} title={answerCode({ action: 'spawn', request, name })}>
+            Spawn a Fellow for this
+          </button>
+        </form>
       </div>
-      <div className="prop-topic">{u.question}</div>
-      {u.reason && <p className="prop-why">{u.reason}</p>}
-      {u.sourcePage && (
-        <p className="recap-foot">
-          From: <PageLink vaultName={vaultName} path={u.sourcePage} />
-        </p>
-      )}
-      <form
-        className="recap-note"
-        onSubmit={(e) => {
-          e.preventDefault()
-          onAnswer({ action: 'spawn', request, ...(name.trim() !== '' ? { name: name.trim() } : {}) })
-        }}
-      >
-        <input className="input" aria-label="Name of the new Fellow" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn primary sm" type="submit" disabled={busy} title={answerCode({ action: 'spawn', request, name })}>
-          Spawn a Fellow for this
-        </button>
-      </form>
     </section>
   )
 }

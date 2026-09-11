@@ -358,7 +358,7 @@ export function App(): React.ReactElement {
           <section className="screen flush" hidden={screen !== 'home' || recapOpen} aria-label="Home">
             <div className="lane wide">
               <ErrorBoundary label="Home">
-                <Home statusFilter={screen === 'home' ? (query.get('filter') ?? '') : ''} />
+                <Home statusFilter={screen === 'home' ? (query.get('filter') ?? '') : ''} active={screen === 'home' && !recapOpen} />
               </ErrorBoundary>
             </div>
           </section>

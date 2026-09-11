@@ -5852,10 +5852,14 @@ tr:focus-within .rowacts {
 .fact.linky:hover {
   background: var(--bg-elev-2);
 }
+/* Explicit line heights (2026-09-11): a clickable fact is a <button>, whose UA line height is
+   "normal", a plain one is a <div> inheriting the body's 1.5 - so a strip of doors stood 6px
+   shorter than a strip of figures, and Home's box moved when the view switched. */
 .fact .k {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
+  line-height: 1.25;
   text-transform: uppercase;
   color: var(--text-faint);
 }
@@ -5875,6 +5879,7 @@ tr:focus-within .rowacts {
 .fact .v.err { color: var(--err); }
 .fact .s {
   font-size: 11px;
+  line-height: 1.25;
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6355,45 +6360,60 @@ tr:focus-within .rowacts {
 .recap > .facts.lead { border-bottom: 1px solid var(--border); }
 .recap-fellow { display: flex; flex-direction: column; }
 .recap-note { display: flex; gap: 8px; margin-top: 8px; }
-/* ---- The recap's own typography (2026-09-06): a decision sheet, not a log dump ----
-   Labels in small caps mark the four bands of a Fellow's section; each proposal is a card
-   with its answer on the right; the reasoning under it reads as prose, not as code. */
+/* ---- The recap's own typography (2026-09-06, rebuilt 2026-09-11): a decision sheet, not a
+   log dump. One rail of labels on the left, one column of content on the right, for the day's
+   rows and for every Fellow alike; a Fellow starts with a rule, air, and its domain's colour,
+   so the eye notices the change of subject while scrolling. Every list is one item per line. */
 .recap-fellow {
-  padding: 14px;
-  border-top: 1px solid var(--border);
-  gap: 6px;
+  padding: 22px 14px 26px;
+  border-top: 1px solid var(--border-strong);
+  gap: 0;
 }
-.recap-fhead {
+.rf-head {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 2px;
+  margin-bottom: 16px;
 }
-.recap-fname {
+.rf-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.rf-idx { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.rf-name {
   margin: 0;
   font-family: var(--display);
-  font-size: 14px;
+  font-optical-sizing: none;
+  font-size: 15px;
   font-weight: 600;
 }
-.recap-fmeta { font-size: 12px; color: var(--text-faint); }
-.recap-label {
-  display: block;
-  margin: 8px 0 2px;
+.rf-meta { font-size: 12px; color: var(--text-faint); }
+.rf-grid {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  column-gap: 18px;
+  row-gap: 18px;
+  align-items: start;
+}
+.rf-grid.day { padding: 16px 14px 20px; }
+.rf-grid.day.foot { padding: 14px 14px 18px; border-top: 1px solid var(--border); }
+.rf-k {
+  padding-top: 4px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-faint);
+  white-space: nowrap;
 }
-.recap-label-sub {
-  margin-left: 6px;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  font-size: 11px;
-}
+.rf-v { min-width: 0; margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-dim); }
+.rf-v.list { display: grid; gap: 5px; justify-items: start; }
+.rf-v .filed { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; color: var(--text); }
+.rf-v .filed b { font-weight: 600; }
+.rf-v .filed .by { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; }
+.rf-hint { margin: 0 0 8px; font-size: 11.5px; color: var(--text-faint); }
+.rf-v .prop + .prop { margin-top: 6px; }
 .recap-none { margin: 0; font-size: 13px; color: var(--text-faint); }
+.recap-fname-link { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.recap-fname-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 
 /* One proposal: what it would do, why, and the two answers. */
 .prop {
@@ -6430,28 +6450,34 @@ tr:focus-within .rowacts {
 .prop-acts { display: flex; gap: 6px; flex: none; }
 
 /* What the night actually did, under the decision it feeds. */
-.recap-ran {
-  padding: 7px 0;
-  border-top: 1px dashed var(--border);
-  font-size: 13px;
-}
-.recap-ran:first-of-type { border-top: 0; }
+.recap-ran { padding: 0; font-size: 13px; color: var(--text); }
+.recap-ran + .recap-ran { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
 .recap-ran-line { line-height: 1.45; max-width: 96ch; }
 .recap-ran-meta { margin-top: 1px; font-size: 12px; color: var(--text-dim); }
+/* A fixed label column and one chip per line beside it, like the detail's chip band: as flex
+   siblings the second row of chips started under the label, half a label left of the first
+   (2026-09-11). */
 .recap-pages {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-  margin-top: 4px;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 8px;
 }
 .recap-pages .k {
+  padding-top: 7px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
+.recap-pages .chips {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+}
+.recap-pages { margin-top: 8px; }
 .recap-list {
   margin: 0;
   padding-left: 18px;
@@ -6507,6 +6533,12 @@ tr:focus-within .rowacts {
 .rfeed > .empty { padding: 48px 20px; }
 .rfeed-day { border-bottom: 1px solid var(--border-strong); }
 .rfeed-day:last-child { border-bottom: 0; }
+/* Home's feed has no day bar: two days meet at a heavier rule with air on both sides, the
+   headline's date says which one is at the top. */
+.rfeed-split.solo .rfeed-day { padding-bottom: 10px; border-bottom: 2px solid var(--border-strong); }
+.rfeed-split.solo .rfeed-day + .rfeed-day { padding-top: 8px; }
+.rfeed-split.solo .rfeed-day:last-child { border-bottom: 0; }
+.rfeed-split.solo .recap-fellow:first-child { border-top: 0; }
 /* The date stays put while its day is on screen, and the next one pushes it out. */
 .rfeed-head {
   position: sticky;
@@ -8933,3 +8965,75 @@ tr:focus-within .rowacts {
 .seg.vert { flex-direction: column; border-radius: var(--radius-sm); }
 .seg.vert button + button { border-left: none; border-top: 1px solid var(--border); }
 .cc-acts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* ---- Home redesign (2026-09-11): one headline, a column that follows the view ----
+   The Library's headline classes are reused as they are (.lib-headline, .lib-strip, .lib-open,
+   .lib-crumb); what follows is only what Home adds to them. */
+/* Same height as .box-head, so the fact strip under it sits where it sat before. */
+.home-headline { min-height: calc(var(--control-h) + 21px); }
+/* The middle sits at the row's true centre whatever stands left and right of it (the command
+   centre's rule), and what stands in it has two slots of fixed width - walking the days or
+   switching the view moves the letters, not the label. */
+.home-headline .lib-head-left, .home-headline .lib-head-right { flex: 1 1 0; min-width: 0; }
+.home-headline .lib-head-right { justify-content: flex-end; }
+.home-headline .lib-head-mid { flex: none; gap: 10px; }
+.home-where b { flex: none; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.home-where .box-sub { flex: none; width: 180px; }
+/* The five figures keep one height from day to day: no value wraps into a second line. */
+.home-main .facts.lead .fact.lead .k,
+.home-main .facts.lead .fact.lead .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* The week list in the column, both views: the stream's count on a day, dimmed at zero. */
+.gp-sec .daylist { margin-top: 2px; }
+.day-row .rq.n { font-size: 11px; color: var(--text-dim); }
+.day-row .rq.n.zero { color: var(--text-faint); }
+/* The Fellow rows in the column: the Library's own row, plus a pressed state for the filter. */
+.lib-frow[aria-pressed='true'] { background: var(--accent-soft); }
+.lib-frow[aria-pressed='true'] .who b { color: var(--accent); }
+.lib-frow.spawn { color: var(--text-faint); }
+.lib-frow.spawn .who b { font-weight: 500; }
+.lib-frow.spawn .d { background: none; border: 1px dashed var(--border-strong); }
+.lib-frow.spawn:hover { color: var(--research); }
+.lib-frow.spawn:hover .d { border-color: var(--research); }
+/* The band without heads: the number is the header, the picture is the door. */
+.vz-panel.bare { padding-top: 14px; }
+.vz-body.first { margin-top: 0; }
+.vz-body { height: clamp(190px, 26vh, 260px); }
+.vz-body.tall { height: calc(clamp(190px, 26vh, 260px) + 26px); }
+/* The feed alone in its frame: the days stand in the headline, the Fellows in the column. */
+.rfeed-split.solo { grid-template-columns: minmax(0, 1fr); }
+.home-crumb-t { font-size: 13px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 64ch; }
+/* Only the states that hold something, as chips: a list of seven zeros said nothing. */
+.statechips { display: flex; flex-wrap: wrap; gap: 5px; }
+.statechips .viewpill .hrow-dot { width: 7px; height: 7px; }
+/* The stream's rows as a list while one is open - the ShelfPanel's department list, for records. */
+.home-recs { display: grid; gap: 1px; align-content: start; }
+.home-recs .lib-drow .when { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.home-recs .lib-drow .hrow-dot { width: 7px; height: 7px; }
+/* The graph's gap list carries the unlink picker (moved from Home, 2026-09-11): the same
+   corner control the gap cards had, shown on hover, focus, or once picked. */
+.gx-gaplist li { position: relative; }
+.gx-gaplist li .gx-gaprow { padding-right: 40px; }
+.gx-gaplist li.picked .gx-gaprow { background: var(--accent-soft); }
+.gx-gappick {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elev-2);
+  color: var(--text-faint);
+  visibility: hidden;
+  cursor: pointer;
+}
+.gx-gappick svg { width: 11px; height: 11px; }
+.gx-gaplist li:hover .gx-gappick,
+.gx-gaplist li:focus-within .gx-gappick,
+.gx-gappick.on { visibility: visible; }
+.gx-gappick:hover { color: var(--text); border-color: var(--text-faint); }
+.gx-gappick.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.gx-body > .gapbar { margin: 8px 12px 4px; }

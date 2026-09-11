@@ -1,30 +1,35 @@
 /**
- * Home (redesign 2026-08-26, third pass) - two questions, two treatments.
+ * Home, redesign (2026-09-11): the Library's conventions (docs/agents/SPEC.md 10.7) applied
+ * to this screen - one headline with three zones, a control column that answers for what is
+ * visible, and arrow keys where buttons used to repeat them.
  *
- *   ZONE 1  THE VAULT, the stock: one hero number, the countable facts beside it, and the
- *           wikilink graph as a picture. Large type, few words. What you own.
- *   ZONE 2  ACTIVITY, the flow: the operational figures as a strip on top of the table they
- *           belong to, then the stream itself. Dense rows, small type. What is moving.
+ *   BAND      the stock, as a glance. The number is the header, every countable thing is a
+ *             door beside it, the picture is the door to the graph, the domains are a list.
+ *             No panel heads, no switcher, no button: nothing in the band asks for a click.
+ *   HEADLINE  left the view (Daily recaps | Activity; the arrow keys switch it), middle where
+ *             you are (the week or day on show, the stream's kinds, the open record's path),
+ *             right the one thing this state offers (Build now; the record's Article | Log).
+ *   COLUMN    intake first, always. Then the week: seven days, newest on top, one list that
+ *             filters BOTH views - the recaps to a night, the stream to a day - with the two
+ *             arrows that step calendar weeks. Under it what the view in front needs and
+ *             nothing else: the Fellows while the recaps show, the kind and state narrowing
+ *             while the stream shows, the record list while a record is open.
  *
- * The eye is led by the rhythm between them - quiet-and-large above, dense-and-small below -
- * rather than by two panels of equal weight separated by a rule. The five lead tiles used to
- * mix the two: `Pages` describes the stock, the other four describe the run of the machine.
- *
- *   LEFT    the control column, in the order the work happens: intake first (the reason to
- *           open the app), then the four ways to narrow the stream. The queue used to close
- *           it as a status foot; the lead tiles already say what is in flight and why, so
- *           what it added was a second answer to a question nobody asked twice.
+ * Keys, the same grammar as the room: left and right switch the view, up and down walk the
+ * list the column shows (days, or records while one is open), PageUp and PageDown step the
+ * week, Enter opens a focused row, Escape steps back (a record, a picked day, a filter).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { Job, JobStatus } from '../api/types.ts'
 import { Dropzone } from '../components/Dropzone.tsx'
 import { VaultConstellation } from '../components/VaultConstellation.tsx'
 import { JobDetail } from '../components/JobDetail.tsx'
-import { HomePanel } from '../components/HomePanel.tsx'
-import { isPanelId, newPagesIn, type PanelId } from '../lib/homePanels.ts'
+import { DomainRanks } from '../components/HomePanel.tsx'
+import { newPagesIn } from '../lib/homePanels.ts'
+import { mainArticle } from '../lib/homeArticle.ts'
 import { Icon } from '../components/Icon.tsx'
 import { queryState, merge } from '../components/QueryState.tsx'
 import { Cost } from '../components/Cost.tsx'
@@ -36,15 +41,12 @@ import {
   LiveJobRow,
   RunRow,
   SettleRow,
-  channelColor,
-  channelLabel,
   groupRows,
 } from '../components/ActivityRows.tsx'
 import { useActiveRuns } from '../hooks/useActiveRuns.ts'
 import { useMaintenanceStatus } from '../hooks/useMaintenanceStatus.ts'
 import {
   buildActivity,
-  channelCounts,
   filterActivity,
   type ActivityEvent,
   type ActivityFilter,
@@ -52,10 +54,23 @@ import {
   type ActivityState,
 } from '../lib/activity.ts'
 import { navigate } from '../lib/router.ts'
-import { undecidedCount } from '../lib/recap.ts'
-import { RecapFeed } from '../components/RecapFeed.tsx'
+import { nightLine, undecidedCount } from '../lib/recap.ts'
+import { RecapFeed, titleDomain } from '../components/RecapFeed.tsx'
 import { knowledgeSubgraph, vaultShape } from '../lib/vaultShape.ts'
-import { TYPE_VARS } from '../lib/domains.ts'
+import { TYPE_VARS, domainColor } from '../lib/domains.ts'
+import { timeAgo } from '../lib/format.ts'
+import {
+  addDays,
+  earliestWeek,
+  fmtDay,
+  fmtWeek,
+  localDate,
+  openingWeek,
+  runsInWeek,
+  weekDays,
+  weekStartOf,
+  workedOn,
+} from '../lib/recapFeed.ts'
 
 /** The event kinds as one choice - the same four the model distinguishes, plus "all". */
 const KINDS: Array<{ id: ActivityKind | 'all'; label: string; hint: string }> = [
@@ -63,7 +78,7 @@ const KINDS: Array<{ id: ActivityKind | 'all'; label: string; hint: string }> = 
   { id: 'ingest', label: 'Ingests', hint: 'Files, links and messages that became pages.' },
   { id: 'research', label: 'Research', hint: 'Web-enabled runs you started on purpose.' },
   { id: 'maintenance', label: 'Maintenance', hint: 'What the vault does to itself: lint, cache, domains.' },
-  { id: 'edit', label: 'Vault edits', hint: 'Pages you edited or deleted by hand.' },
+  { id: 'edit', label: 'Edits', hint: 'Pages you edited or deleted by hand.' },
 ]
 
 /** The state filter, in pipeline order: what is happening, then how it ended. */
@@ -77,23 +92,6 @@ const STATES: Array<{ id: ActivityState; label: string }> = [
   { id: 'cancelled', label: 'Cancelled' },
 ]
 
-const STATE_DOT: Record<ActivityState, string> = {
-  running: 'running',
-  queued: 'queued',
-  done: 'done',
-  failed: 'failed',
-  deferred: 'deferred',
-  duplicate: 'duplicate',
-  cancelled: 'cancelled',
-}
-
-const RANGES: Array<{ id: string; label: string; days: number | null }> = [
-  { id: 'today', label: 'Today', days: 1 },
-  { id: '7d', label: '7 days', days: 7 },
-  { id: '30d', label: '30 days', days: 30 },
-  { id: 'all', label: 'All', days: null },
-]
-
 /** Statuses a job rests in - what "clear history" is allowed to delete. */
 const AT_REST: JobStatus[] = ['done', 'failed', 'deferred', 'duplicate', 'cancelled']
 
@@ -101,7 +99,19 @@ const AT_REST: JobStatus[] = ['done', 'failed', 'deferred', 'duplicate', 'cancel
 const WINDOW_STEP = 300
 const WINDOW_MAX = 500
 
-const DEFAULT_FILTER: ActivityFilter = { kind: 'all', state: null, channel: null, days: 30, query: '' }
+/* The time axis is the week list in the column, not this filter's `days` - it stays null. */
+const DEFAULT_FILTER: ActivityFilter = { kind: 'all', state: null, channel: null, days: null, query: '' }
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+/** `Thu 10 Sep` - a day in the week list; the year stands in the week label above it. */
+function dayLabel(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const dt = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
+  return `${DOW[dt.getDay()]} ${fmtDay(date).slice(0, 6)}`
+}
+
+/** The local calendar day an event settled on - the same shape a recap's cycleDate has. */
+const eventDay = (e: ActivityEvent): string => localDate(new Date(e.whenIso))
 
 /**
  * The persisted run behind a settled-run event, if it has one. Only rows of the run log
@@ -110,84 +120,76 @@ const DEFAULT_FILTER: ActivityFilter = { kind: 'all', state: null, channel: null
  */
 const runIdOf = (e: ActivityEvent): string | null => (e.id.startsWith('logrun:') ? e.id.slice('logrun:'.length) : null)
 
-/** Where the second panel's choice is remembered. */
-const PANEL_KEY = 'bv.home.panel'
+/** True while the caret is somewhere the arrow keys already mean something. */
+function inField(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  )
+}
 
-/**
- * The flow zone holds two views in one box (2026-09-06): the daily recaps and the activity
- * stream. Recaps lead - they are the thing that wants an answer - and the box keeps its
- * height across the switch, so nothing below it moves.
- */
 type FlowView = 'recaps' | 'activity'
 
-export function Home({ statusFilter = '' }: { statusFilter?: string }): React.ReactElement {
+export function Home({ statusFilter = '', active = true }: { statusFilter?: string; active?: boolean }): React.ReactElement {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<ActivityFilter>(DEFAULT_FILTER)
   const [limit, setLimit] = useState(WINDOW_STEP)
   /** The activity row being read, by event id. Null = the stream itself. */
   const [detailId, setDetailId] = useState<string | null>(null)
-  /** Which of the flow zone's two views is on show. Recaps by default, activity on click. */
+  /** Which of the record's two views shows; the headline switches it. */
+  const [detailTab, setDetailTab] = useState<'article' | 'log'>('article')
+  /** Which of the box's two views is on show. Recaps by default, activity on click or arrow. */
   const [flow, setFlow] = useState<FlowView>('recaps')
   /**
-   * Which of the five second-panel views is on show. Remembered per browser: it is a
-   * standing preference about this vault, not a per-visit choice, and re-picking it on every
-   * load is the kind of small friction that makes a screen feel unfinished.
+   * The time axis, shared by both views: the Monday of the week on show (null = the opening
+   * week), one picked day or the whole week, and the Fellow the recaps are narrowed to.
    */
-  const [panel, setPanel] = useState<PanelId>(() => {
-    try {
-      const saved = localStorage.getItem(PANEL_KEY)
-      return isPanelId(saved) ? saved : 'domains'
-    } catch {
-      return 'domains'
-    }
-  })
-  const choosePanel = (id: PanelId): void => {
-    setPanel(id)
-    try {
-      localStorage.setItem(PANEL_KEY, id)
-    } catch {
-      // A browser with storage blocked keeps the choice for this visit; nothing else breaks.
-    }
-  }
+  const [week, setWeek] = useState<string | null>(null)
+  const [day, setDay] = useState<string | null>(null)
+  const [fellow, setFellow] = useState<string | null>(null)
+  /** The day at the top of the feed, reported by the feed as it scrolls. */
+  const [visible, setVisible] = useState<string | null>(null)
+  /** A `?filter=<state>` still looking for the week its newest match is in. */
+  const jumpTo = useRef<ActivityState | null>(null)
 
   // `?filter=` from elsewhere (a failure count, a notification) pre-applies a state - the
   // screen stays mounted, so this must react to navigation, not just the first mount.
   useEffect(() => {
     if (statusFilter === '') return
     const state = STATES.find((s) => s.id === statusFilter)
-    // A pre-applied state is meant to SHOW something; a narrow window could hide it all.
-    if (state !== undefined) setFilter((f) => ({ ...f, state: state.id, days: null }))
+    if (state !== undefined) {
+      setFilter((f) => ({ ...f, state: state.id }))
+      setFlow('activity')
+      setDay(null)
+      jumpTo.current = state.id
+    }
   }, [statusFilter])
 
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
-  // Same cached query the app shell uses; on a read-only demo the intake surface is gone.
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
-  // The morning recaps, only on an instance with Fellows (docs/agents/SPEC.md section 9.3).
-  // The feed reads the same cached query; this one is here for the toggle's count.
   const fellowsOn = health.data?.fellows === true
   const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, enabled: fellowsOn, staleTime: 30_000, refetchInterval: 60_000 })
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: fellowsOn, staleTime: 30_000 })
+  const rows = useMemo(() => recaps.data?.recaps ?? [], [recaps.data])
+  const status = recaps.data?.status
   const waiting = (() => {
-    const latest = recaps.data?.recaps[0]
+    const latest = rows[0]
     return latest !== undefined && !latest.quiet ? undecidedCount(latest.model) : 0
   })()
   const view: FlowView = fellowsOn ? flow : 'activity'
   const demoMode = health.data?.demoMode === true
   const jobsQ = useQuery({ queryKey: ['jobs', limit], queryFn: () => api.jobs({ limit }) })
-  // The persistent run log (schema v12): every settled agent run, not just the newest per
-  // kind - so a research run keeps its topic and its cost in the stream.
   const historyQ = useQuery({
     queryKey: ['maintenance-history', 'all'],
     queryFn: () => api.maintenanceHistory({ limit: 200 }),
   })
-  // The vault zone reads the graph. Same query key as the Graph tab, so opening that tab
-  // costs nothing extra - and the picture and its numbers come from one payload.
   const graphQ = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   const runs = useActiveRuns()
   const maint = useMaintenanceStatus()
 
   const vaultName = stats.data?.vaultName ?? 'vault'
-  // Until stats load, assume the subscription default - marking a real cost as an estimate is
-  // a harmless caption, whereas showing an estimate as a real charge would be misleading.
   const authMode = stats.data?.authMode ?? 'oauth'
   const totals = stats.data?.jobs ?? {}
   const jobs = useMemo(() => jobsQ.data?.jobs ?? [], [jobsQ.data])
@@ -204,23 +206,46 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
     [jobs, runs.running, historyQ.data, maint.data, stats.data],
   )
 
-  /**
-   * The row being read. Looked up against the UNFILTERED stream and by either id: a live job
-   * row hands over the job's id, a settled one the event's, and a filter the reader changes
-   * while a record is open must not close it out from under them.
-   */
-  const detailEvent =
-    detailId === null ? null : (events.find((e) => e.id === detailId || e.job?.id === detailId) ?? null)
+  // ---- The week on show, and the days in it that are stops. ----
+  const today = localDate(new Date())
+  const thisWeek = weekStartOf(today)
+  const shownWeek = week ?? openingWeek(rows, today)
+  const oldestEventDay = useMemo(() => {
+    let oldest: string | null = null
+    for (const e of events) {
+      if (e.live) continue
+      const d = eventDay(e)
+      if (oldest === null || d < oldest) oldest = d
+    }
+    return oldest
+  }, [events])
+  /** The oldest week either list can reach: the first recap or the oldest settled event. */
+  const firstWeek = (() => {
+    const fromRecaps = earliestWeek(rows, today)
+    const fromEvents = weekStartOf(oldestEventDay ?? today)
+    return fromEvents < fromRecaps ? fromEvents : fromRecaps
+  })()
+  const weekSet = useMemo(() => new Set(weekDays(shownWeek)), [shownWeek])
 
+  /*
+   * The stream, windowed by the column's week list: a picked day, else the whole week. Live
+   * rows are always in - something running now is never "not this week".
+   */
+  const windowed = useMemo(
+    () => events.filter((e) => e.live || (day !== null ? eventDay(e) === day : weekSet.has(eventDay(e)))),
+    [events, day, weekSet],
+  )
   const now = new Date()
-  const shown = filterActivity(events, filter, now)
+  const shown = filterActivity(windowed, filter, now)
   const live = shown.filter((e) => e.live)
   const settled = shown.filter((e) => !e.live)
   const liveJobs = live.filter((e) => e.job !== undefined).map((e) => e.job!)
   const liveRuns = live.filter((e) => e.run !== undefined).map((e) => e.run!)
 
-  // Files from ONE drop stay a unit: a table row per file would otherwise make cancelling a
-  // ten-file drop ten clicks. A batch of one is just a row.
+  const detailEvent =
+    detailId === null ? null : (events.find((e) => e.id === detailId || e.job?.id === detailId) ?? null)
+  const detailArticle = detailEvent !== null && mainArticle(detailEvent.pages) !== null
+
   const batches = useMemo(() => {
     const m = new Map<string, Job[]>()
     for (const j of jobs) {
@@ -230,27 +255,44 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
     return new Map([...m].filter(([, group]) => group.length > 1))
   }, [jobs])
 
-  const channels = useMemo(() => channelCounts(events), [events])
+  /** What one pill would show - every OTHER axis of the filter, and the window, still applied. */
+  const facet = (patch: Partial<ActivityFilter>): number => filterActivity(windowed, { ...filter, ...patch }, now).length
+  /** Settled events on one day, under the current kind, state and channel. */
+  const dayCount = (date: string): number =>
+    filterActivity(
+      events.filter((e) => !e.live && eventDay(e) === date),
+      filter,
+      now,
+    ).length
 
-  /**
-   * What one pill would show. The count is the number of rows you get by clicking it -
-   * every OTHER axis of the filter still applies - so the panel answers "is there anything
-   * there" before the click rather than after it.
-   */
-  const facet = (patch: Partial<ActivityFilter>): number => filterActivity(events, { ...filter, ...patch }, now).length
 
-  /** Counts for the state list: live states from the stream, settled ones all-time from the DB. */
   const stateCount = (id: ActivityState): number => {
     if (id === 'running' || id === 'queued') return events.filter((e) => e.live && e.state === id).length
     return totals[id] ?? events.filter((e) => e.state === id).length
   }
+  /* The states that hold anything. A closed set of seven with six zeros in it said nothing;
+     with everything done there is one line to say instead of one chip to click. */
+  const heldStates = STATES.filter((s) => stateCount(s.id) > 0 || filter.state === s.id)
+  const stateChips = heldStates.some((s) => s.id !== 'done') ? heldStates : []
 
-  const filtered =
-    filter.kind !== 'all' || filter.state !== null || filter.channel !== null || filter.days !== 30 || filter.query !== ''
+  const filtered = filter.kind !== 'all' || filter.state !== null || filter.channel !== null || filter.query !== ''
   const reset = (): void => setFilter(DEFAULT_FILTER)
 
-  // The number the clear action actually deletes: the all-time DB count for the filter -
-  // NOT the visible slice (an old bug promised the filtered count but deleted more).
+  /*
+   * A pre-applied state is meant to SHOW something. Once the events are in, the week jumps
+   * to the newest match if the week on show has none - a failure from three weeks ago must
+   * not land the reader on an empty table.
+   */
+  useEffect(() => {
+    const want = jumpTo.current
+    if (want === null || events.length === 0) return
+    const newest = [...events].filter((e) => !e.live && e.state === want).sort((a, b) => b.whenIso.localeCompare(a.whenIso))[0]
+    jumpTo.current = null
+    if (newest === undefined) return
+    const d = eventDay(newest)
+    if (!weekSet.has(d)) setWeek(weekStartOf(d))
+  }, [events, weekSet])
+
   const clearable = filter.state !== null && AT_REST.includes(filter.state as JobStatus) ? (filter.state as JobStatus) : null
   const clearCount =
     clearable === null ? AT_REST.reduce((sum, st) => sum + (totals[st] ?? 0), 0) : (totals[clearable] ?? 0)
@@ -262,9 +304,20 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
       void qc.invalidateQueries({ queryKey: ['stats'] })
     },
   })
+  /* Retry stood in the record's own bar; the bar folded into the headline, so it stands there. */
+  const retry = useMutation({
+    mutationFn: (id: string) => api.retry(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
+    },
+  })
+  const build = useMutation({
+    mutationFn: (force: boolean) => api.buildRecap({ force }),
+    onSuccess: () => setTimeout(() => void qc.invalidateQueries({ queryKey: ['recaps'] }), 4_000),
+  })
 
-  // Two-step confirm on the button itself (no `window.confirm` - blocked/ugly in installed
-  // PWAs). First click arms it for 4 s, second click clears.
+  // Two-step confirm on the button itself. First click arms it for 4 s, second click clears.
   const [armedLeft, setArmedLeft] = useState<number | null>(null)
   const armTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const disarm = (): void => {
@@ -296,28 +349,17 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
     clear.mutate()
   }
 
-  // The stream needs both queries: the jobs are the rows, the stats are the all-time counts
-  // the rows are read against. Either failing means the table cannot be trusted.
   const streamState = queryState(merge(jobsQ, stats), 'the activity stream')
-  // Stats missing is not "still loading" once the query has failed - the tiles say so
-  // instead of sitting on their placeholder forever.
   const statPlaceholder = stats.isError ? '-' : '…'
 
   const shape = vaultShape(graphQ.data)
-  // The picture draws knowledge pages only. With the scaffolding in, `index.md` links to
-  // everything there is, and one 800-edge hub pulls every domain into a single star.
   const constellation = useMemo(
     () => (graphQ.data === undefined ? null : knowledgeSubgraph(graphQ.data)),
     [graphQ.data],
   )
-  // What the vault gained, by calendar day rather than by index into a sparse series
-  // (lib/homePanels.ts). The hero's delta and the two growth facts under it read the SAME
-  // derivation - they used to be computed twice, in two places, from the same array.
   const growth = stats.data?.growth ?? []
   const grew7 = newPagesIn(growth, 7, now.getTime())
   const grew30 = newPagesIn(growth, 30, now.getTime())
-  // The legend doubles as the composition read, and it counts the DOTS - deriving it from
-  // the page census instead would list kinds the picture does not draw.
   const kinds = useMemo(() => {
     const counts = new Map<string, number>()
     for (const n of constellation?.nodes ?? []) counts.set(n.type, (counts.get(n.type) ?? 0) + 1)
@@ -328,146 +370,316 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
   const historyCount = jobs.filter((j) => AT_REST.includes(j.status)).length
   const allTime = AT_REST.reduce((sum, st) => sum + (totals[st] ?? 0), 0)
 
+  // ---- The week list: what each day holds, and which days are stops. ----
+  const fellows = useMemo(() => (agents.data?.fellows ?? []).filter((f) => f.agent.state !== 'retired'), [agents.data])
+  const recapOf = (date: string) => rows.find((r) => r.cycleDate === date)
+  /** A day is a stop when the view in front has something on it; the future is no stop. */
+  const isStop = (date: string): boolean => date <= today && (view === 'recaps' ? recapOf(date) !== undefined : dayCount(date) > 0)
+  /** Newest on top, like the feed: down the list is back in time. */
+  const daysDesc = [...weekDays(shownWeek)].reverse()
+  const stops = daysDesc.filter(isStop)
+  const stepWeek = (delta: number): void => {
+    const next = addDays(shownWeek, 7 * delta)
+    if (next < firstWeek || next > thisWeek) return
+    setWeek(next)
+    setDay(null)
+  }
+  /** Down is older, up is newer - the arrows follow the list and the feed alike. */
+  const walkDay = (toward: 'older' | 'newer'): void => {
+    if (stops.length === 0) return
+    const from = day ?? (view === 'recaps' ? visible : null) ?? ''
+    const at = stops.indexOf(from)
+    const delta = toward === 'older' ? 1 : -1
+    const next = at === -1 ? (toward === 'older' ? stops[0]! : stops[stops.length - 1]!) : stops[(at + delta + stops.length) % stops.length]!
+    setDay(next)
+  }
+
+  const openView = useCallback((v: FlowView): void => {
+    setDetailId(null)
+    setFlow(v)
+  }, [])
+  const openDetail = (id: string): void => {
+    setDetailTab('article')
+    setDetailId(id)
+  }
+  const stepRecord = (delta: number): void => {
+    if (detailEvent === null || settled.length === 0) return
+    const at = settled.findIndex((e) => e.id === detailEvent.id)
+    const next = settled[(at + delta + settled.length) % settled.length]!
+    openDetail(next.id)
+  }
+
+  /*
+   * The keys, only while Home is the screen in front and the caret is not in a field. Left
+   * and right switch the view (and close a record: the other view is not where it lives);
+   * up and down walk what the column lists; PageUp and PageDown step the week; Escape steps
+   * back one level. Enter belongs to a focused row (the rows are tab stops of their own).
+   */
+  useEffect(() => {
+    if (!active) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (inField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (!fellowsOn) return
+        e.preventDefault()
+        openView(view === 'recaps' ? 'activity' : 'recaps')
+        return
+      }
+      if (detailEvent !== null && view === 'activity') {
+        // Escape belongs to the record itself (JobDetail closes on it).
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          stepRecord(e.key === 'ArrowDown' ? 1 : -1)
+        }
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        walkDay(e.key === 'ArrowDown' ? 'older' : 'newer')
+      } else if (e.key === 'PageDown' || e.key === 'PageUp') {
+        e.preventDefault()
+        stepWeek(e.key === 'PageDown' ? 1 : -1)
+      } else if (e.key === 'Escape') {
+        if (day !== null) setDay(null)
+        else if (view === 'recaps' && fellow !== null) setFellow(null)
+        else if (view === 'activity' && filtered) reset()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const feedCount = day !== null ? (recapOf(day) !== undefined ? 1 : 0) : rows.filter((r) => weekSet.has(r.cycleDate)).length
+  /*
+   * The date the headline names. In the recaps it is the night at the top of the feed - the
+   * feed reports it as it scrolls, so the label walks with the reader - or the picked one; in
+   * the stream it is the picked day, else the week.
+   */
+  const whereDate = day ?? (view === 'recaps' ? visible : null)
+  const whereRow = view === 'recaps' && whereDate !== null ? recapOf(whereDate) : undefined
+
   return (
     <div className="workspace">
       <aside className="gpanel" aria-label="Home controls">
-        {/* Intake first: it is the reason to open the app at all, and the two other ways in
-            (watch folder, bot) state themselves right under it. Everything below it narrows
-            the stream, in the order you reach for: what kind, from when, in what state, over
-            which channel. The channel list is last because it is the one that grows with the
-            vault - it takes the leftover height and scrolls, and nothing sits under it that
-            a long list could push out of sight. */}
+        {/* Intake first: it is the reason to open the app at all. The two other ways in are
+            the header's own chips, one row up, so they are not restated here. */}
         {!demoMode && (
           <div className="gp-sec">
             <div className="gp-head">
               <span className="gp-eyebrow">Add to vault</span>
             </div>
-            <Dropzone />
+            <Dropzone legend={false} />
           </div>
         )}
 
-        {/* The reset lives in the head of the panel's first FILTERING section - here that is
-            this one, on Library the search, on Graph the view lens. It used to sit in
-            whichever section happened to come first, which is now intake. */}
-        <div className="gp-sec">
-          <div className="gp-head">
-            <span className="gp-eyebrow">Filter</span>
-            <span className="spacer" />
-            {filtered && (
-              <button className="btn ghost" onClick={reset} title="Back to everything, last 30 days">
-                Reset
-              </button>
-            )}
-          </div>
-          {/* One kind per row, with the count it would leave on the table - the same shape
-              Research files its lens filter in. As wrapping chips the five labels came out
-              as a ragged three-line block, and the column has the height to spare since the
-              search field (never used) and the queue foot came out. */}
-          <div className="pillrow stacked" role="radiogroup" aria-label="Event kind">
-            {KINDS.map((k) => (
-              <button
-                key={k.id}
-                className="viewpill"
-                role="radio"
-                aria-checked={filter.kind === k.id}
-                title={k.hint}
-                onClick={() => setFilter({ ...filter, kind: k.id })}
-              >
-                <span className="pl">{k.label}</span>
-                <span className="pn">{facet({ kind: k.id })}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="gp-sec">
-          <div className="gp-head">
-            <span className="gp-eyebrow">When</span>
-          </div>
-          <div className="pillrow stacked two" role="radiogroup" aria-label="Time range">
-            {RANGES.map((r) => (
-              <button
-                key={r.id}
-                className="viewpill"
-                role="radio"
-                aria-checked={filter.days === r.days}
-                onClick={() => setFilter({ ...filter, days: r.days })}
-              >
-                <span className="pl">{r.label}</span>
-                <span className="pn">{facet({ days: r.days })}</span>
-              </button>
-            ))}
-          </div>
-          <div className="pillhint" title={`The range applies to settled rows only - anything still running or queued is listed whatever you pick here - and the newest ${WINDOW_MAX} settled rows are what the screen holds.`}>
-            Settled rows only · newest {WINDOW_MAX}
-          </div>
-        </div>
-
-        {/* Seven states, a closed set: two columns keep them one glance instead of a scroll,
-            and the height that buys goes to the channel list, which grows with the vault. */}
-        <div className="gp-sec">
-          <div className="gp-head">
-            <span className="gp-eyebrow">State</span>
-            <span className="spacer" />
-            <span className="gp-state">{filter.state ?? 'all'}</span>
-          </div>
-          <div className="domlist static stategrid">
-            {STATES.map((s) => {
-              const active = filter.state === s.id
-              return (
-                <button
-                  key={s.id}
-                  className={`domrow${active ? ' active' : ''}`}
-                  aria-pressed={active}
-                  onClick={() => setFilter({ ...filter, state: active ? null : s.id })}
-                >
-                  <span className={`hrow-dot ${STATE_DOT[s.id]}`} aria-hidden />
-                  <span className="nm">{s.label}</span>
-                  <span className="n">{stateCount(s.id)}</span>
+        {/* The week, for both views. A row is a night for the recaps and a day for the stream;
+            what it shows on the right is what the view in front would find there. Up and down
+            walk it, the two arrows step calendar weeks. */}
+        {(view === 'recaps' || detailEvent === null) && (
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Days</span>
+              <span className="spacer" />
+              <span className="wknav">
+                <button className="up" aria-label="Previous week" title="Previous week · PageUp" disabled={shownWeek <= firstWeek} onClick={() => stepWeek(-1)}>
+                  <Icon name="chevron" />
                 </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="gp-sec grow">
-          <div className="gp-head">
-            <span className="gp-eyebrow">Channel</span>
-            <span className="spacer" />
-            {filter.channel !== null ? (
-              <button className="btn ghost" onClick={() => setFilter({ ...filter, channel: null })}>
-                <Icon name="x" /> Clear
-              </button>
-            ) : (
-              <span className="gp-count">{channels.length}</span>
-            )}
-          </div>
-          <div className="domlist">
-            {channels.map(([src, count]) => {
-              const active = filter.channel === src
-              return (
-                <button
-                  key={src}
-                  className={`domrow${active ? ' active' : ''}`}
-                  aria-pressed={active}
-                  onClick={() => setFilter({ ...filter, channel: active ? null : src })}
-                >
-                  <span className="dot" style={{ background: channelColor(src) }} aria-hidden />
-                  <span className="nm">{channelLabel(src)}</span>
-                  <span className="n">{count}</span>
+                <button className="down" aria-label="Next week" title="Next week · PageDown" disabled={shownWeek >= thisWeek} onClick={() => stepWeek(1)}>
+                  <Icon name="chevron" />
                 </button>
-              )
-            })}
-            {channels.length === 0 && <div className="gp-none">Nothing has happened yet.</div>}
+              </span>
+            </div>
+            <div className="wk-label">{fmtWeek(shownWeek)}</div>
+            <div className="daylist">
+              {daysDesc.map((date) => {
+                const row = recapOf(date)
+                const n = dayCount(date)
+                const future = date > today
+                const stop = isStop(date)
+                const idle = view === 'recaps' && row !== undefined && fellow !== null && !workedOn(row, fellow)
+                const undecided = row === undefined ? 0 : undecidedCount(row.model)
+                const picked = day === date
+                const current = day === null && view === 'recaps' && visible === date
+                return (
+                  <button
+                    key={date}
+                    className={`day-row${date === today ? ' today' : ''}${idle ? ' idle' : ''}`}
+                    disabled={!stop}
+                    aria-pressed={picked}
+                    aria-current={current ? 'true' : undefined}
+                    title={
+                      !stop
+                        ? `${fmtDay(date)} · ${future ? 'to come' : 'nothing on this day'}`
+                        : idle
+                          ? `${fmtDay(date)} · ${fellow} did not work`
+                          : picked
+                            ? `${fmtDay(date)} · click again for the week`
+                            : `${fmtDay(date)} · only this day`
+                    }
+                    onClick={() => setDay(picked ? null : date)}
+                  >
+                    <span className="d">{dayLabel(date)}</span>
+                    {view === 'recaps' ? (
+                      row === undefined ? (
+                        <span className="rq">{future ? 'to come' : 'no recap'}</span>
+                      ) : idle ? (
+                        <span className="rq idle">idle</span>
+                      ) : undecided > 0 ? (
+                        <span className="rn">{undecided}</span>
+                      ) : (
+                        <span className="rq">{row.quiet ? 'quiet' : 'done'}</span>
+                      )
+                    ) : (
+                      <span className={`rq n${n === 0 ? ' zero' : ''}`}>{future ? 'to come' : n}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
+        {view === 'recaps' ? (
+          /* The Fellows, as the Library's own rows: a click narrows the feed to one of them,
+             the same row again widens it. One row to spawn, not five empty slots. */
+          <div className="gp-sec grow">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Fellows</span>
+              <span className="spacer" />
+              {fellow !== null ? (
+                <button className="btn ghost" onClick={() => setFellow(null)} title="Every Fellow again · Esc">
+                  <Icon name="x" /> Clear
+                </button>
+              ) : (
+                <span className="gp-count">{fellows.length}</span>
+              )}
+            </div>
+            <div className="lib-deps">
+              {fellows.map((f) => {
+                const n = runsInWeek(rows, shownWeek, f.agent.name)
+                const on = fellow === f.agent.name
+                return (
+                  <button
+                    key={f.agent.id}
+                    className="lib-frow"
+                    aria-pressed={on}
+                    title={on ? 'Every Fellow again' : `Only ${f.agent.name}'s nights`}
+                    onClick={() => {
+                      setFellow(on ? null : f.agent.name)
+                      setDay(null)
+                    }}
+                  >
+                    <span className="d" style={{ background: domainColor(f.agent.homeDomain) }} aria-hidden />
+                    <span className="who">
+                      <b>{f.agent.name}</b>
+                      <span className="st">
+                        {titleDomain(f.agent.homeDomain)} · {n === 0 ? 'no run this week' : `${n} run${n === 1 ? '' : 's'} this week`}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+              <button className="lib-frow spawn" onClick={() => navigate('/library?spawn=1')} title="Opens the Library with the spawn form">
+                <span className="d" aria-hidden />
+                <span className="who">
+                  <b>Spawn a Fellow</b>
+                  <span className="st">{fellows.length === 0 ? 'nobody works the nights yet' : 'one more desk in the Library'}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        ) : detailEvent !== null ? (
+          /* A record is open: the column becomes the stream's own list, the way the
+             department list stands beside an open shelf. Up and down walk it. */
+          <div className="gp-sec grow">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Records</span>
+              <span className="spacer" />
+              <span className="gp-count">{settled.length}</span>
+            </div>
+            <div className="lib-deps home-recs">
+              {settled.map((e) => (
+                <button
+                  key={e.id}
+                  className={`lib-drow pick${e.id === detailEvent.id ? ' on' : ''}`}
+                  title={e.title}
+                  onClick={() => openDetail(e.id)}
+                >
+                  <span className={`hrow-dot ${e.state}`} aria-hidden />
+                  <span className="nm">{e.title !== '' ? e.title : (e.runKind ?? e.kind)}</span>
+                  <span className="when">{timeAgo(e.whenIso)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* The kind, one row each with the count it would leave on the table - the
+                strip that stood in the headline, in the column where the other narrowing
+                is. The reset lives in the head of the first filtering section. */}
+            <div className="gp-sec">
+              <div className="gp-head">
+                <span className="gp-eyebrow">Kind</span>
+                <span className="spacer" />
+                {filtered && (
+                  <button className="btn ghost" onClick={reset} title="Every kind and state again · Esc">
+                    Reset
+                  </button>
+                )}
+              </div>
+              <div className="pillrow stacked" role="radiogroup" aria-label="Event kind">
+                {KINDS.map((k) => (
+                  <button
+                    key={k.id}
+                    className="viewpill"
+                    role="radio"
+                    aria-checked={filter.kind === k.id}
+                    title={k.hint}
+                    onClick={() => setFilter({ ...filter, kind: k.id })}
+                  >
+                    <span className="pl">{k.label}</span>
+                    <span className="pn">{facet({ kind: k.id })}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
+            <div className="gp-sec">
+              <div className="gp-head">
+                <span className="gp-eyebrow">State</span>
+                <span className="spacer" />
+                <span className="gp-state">{filter.state ?? 'all'}</span>
+              </div>
+              {stateChips.length === 0 ? (
+                <div className="gp-none">Everything settled · {stateCount('done')} done</div>
+              ) : (
+                <div className="statechips" role="radiogroup" aria-label="State">
+                  {stateChips.map((s) => {
+                    const on = filter.state === s.id
+                    return (
+                      <button
+                        key={s.id}
+                        className="viewpill"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => setFilter({ ...filter, state: on ? null : s.id })}
+                      >
+                        <span className={`hrow-dot ${s.id}`} aria-hidden />
+                        {s.label}
+                        <span className="pn">{stateCount(s.id)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </aside>
 
       <div className="home-main">
-        {/* ZONE 1 - the stock. No section header: the number IS the header, and a caption
-            above it would only say what the number already says. */}
+        {/* THE BAND - the stock, as a glance. No heads: the number is the header, the picture
+            says what it is, the list says what it lists. Every figure is a door. */}
         <section className="vaultzone">
           <div className="vz-hero">
             <div className="vz-n">{stats.data?.pages.total ?? statPlaceholder}</div>
@@ -488,11 +700,7 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
                   {shape !== null && shape.undomained > 0 ? `, ${shape.undomained} pages unfiled` : ''}
                 </span>
               </button>
-              {/* The GAPS, not `unresolved`. This line is a door to the gaps view, and that
-                  view lists ten while the line said 54: `unresolved` counts every dangling
-                  wikilink, and most of them nominate nothing to write (`.raw/…` staging
-                  references, links a lint report quotes while reporting on them, the
-                  plugin's own doc pages). The raw figure stays, in the title. */}
+              {/* The gaps view of the graph lists them, and carries the unlink picker now. */}
               <button
                 className="vzf"
                 onClick={() => navigate('/graph?gaps=1')}
@@ -505,44 +713,34 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
                 <b>{shape !== null ? shape.gaps : statPlaceholder}</b>
                 <span>pages linked but not written</span>
               </button>
-              <button className="vzf" onClick={() => navigate('/catalog')}>
-                <b>{stats.data?.pages.total ?? statPlaceholder}</b>
-                <span>pages in the wiki</span>
+              {/* Growth as two doors: the week opens the stream on this week, the month opens
+                  the chart it was read off. */}
+              <button
+                className="vzf"
+                onClick={() => {
+                  setFilter(DEFAULT_FILTER)
+                  setWeek(thisWeek)
+                  setDay(null)
+                  openView('activity')
+                }}
+                title="New wiki pages over the last 7 days, from the vault's own git history. Opens the stream on this week."
+              >
+                <b>{grew7 === null ? statPlaceholder : `+${grew7}`}</b>
+                <span>new pages in 7 days</span>
               </button>
-              {/* Growth used to be one of the second panel's views. It is a number per
-                  window, not a picture, so it belongs in the column of numbers - and the
-                  chart it came from is still a click away in System. */}
               <button
                 className="vzf"
                 onClick={() => navigate('/system?section=vault')}
-                title="New wiki pages over the last 7 days, from the vault's own git history."
+                title="New wiki pages over the last 30 days - as far back as the growth series reaches. Opens the growth chart."
               >
-                <b>{grew7 ?? statPlaceholder}</b>
-                <span>new pages (7d)</span>
-              </button>
-              <button
-                className="vzf"
-                onClick={() => navigate('/system?section=vault')}
-                title="New wiki pages over the last 30 days - as far back as the growth series reaches."
-              >
-                <b>{grew30 ?? statPlaceholder}</b>
-                <span>new pages (30d)</span>
+                <b>{grew30 === null ? statPlaceholder : `+${grew30}`}</b>
+                <span>new pages in 30 days</span>
               </button>
             </div>
           </div>
 
-          <div className="vz-panel">
-            <div className="vz-phead">
-              <span className="gp-eyebrow">Shape</span>
-              <span className="box-sub">the wikilink graph, clustered by domain</span>
-              <span className="spacer" />
-              <button className="btn ghost" onClick={() => navigate('/graph')}>
-                Open Graph
-              </button>
-            </div>
-            {/* A force layout is a decorative read - nothing can be counted off it, which is
-                why every countable thing is stated as text to the left of it. */}
-            <div className="vz-body">
+          <div className="vz-panel bare">
+            <div className="vz-body first">
               {constellation !== null ? (
                 <VaultConstellation
                   nodes={constellation.nodes}
@@ -568,239 +766,287 @@ export function Home({ statusFilter = '' }: { statusFilter?: string }): React.Re
               )}
             </div>
           </div>
-          <HomePanel
-            panel={panel}
-            onPanel={choosePanel}
-            nodes={graphQ.data?.nodes ?? []}
-            events={events}
-            gaps={graphQ.data?.gaps ?? []}
-            vaultName={vaultName}
-            now={Date.now()}
-            onOpenDomain={(domain) => navigate(`/catalog?domain=${encodeURIComponent(domain)}`)}
-            onOpenGaps={() => navigate('/graph?gaps=1')}
-            onResearch={(topic) => navigate(`/research?prefill=${encodeURIComponent(topic)}`)}
-          />
+          <div className="vz-panel bare">
+            <div className="vz-body first inset tall">
+              <DomainRanks nodes={graphQ.data?.nodes ?? []} onOpenDomain={(domain) => navigate(`/catalog?domain=${encodeURIComponent(domain)}`)} />
+            </div>
+          </div>
         </section>
 
-        {/* ZONE 2 - the flow. One box, two views (2026-09-06): the daily recaps, which want
-            an answer, and the activity stream. The head carries the switch, each view brings
-            its own five lead figures, and the box keeps its height across the switch. */}
+        {/* THE BOX - one headline, three zones, one control height. */}
         <div className="box">
-          {(view === 'recaps' || detailEvent === null) && (
-            <div className="box-head">
+          <div className="graph-controls lib-headline home-headline">
+            <div className="lib-head-left">
               {fellowsOn ? (
-                <div className="seg" role="tablist" aria-label="Flow view">
-                  <button
-                    role="tab"
-                    aria-selected={view === 'recaps'}
-                    aria-controls="flow-recaps"
-                    onClick={() => setFlow('recaps')}
-                  >
+                <div className="seg sm" role="tablist" aria-label="View">
+                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title="Daily recaps · left and right switch">
                     Daily recaps
                     {waiting > 0 && <span className="chip-n">{waiting}</span>}
                   </button>
-                  <button role="tab" aria-selected={view === 'activity'} aria-controls="flow-activity" onClick={() => setFlow('activity')}>
+                  <button role="tab" aria-selected={view === 'activity'} onClick={() => openView('activity')} title="Activity · left and right switch">
                     Activity
                   </button>
                 </div>
               ) : (
                 <h2 className="box-title">Activity</h2>
               )}
-              <span className="box-sub">
-                {view === 'recaps'
-                  ? "what the Fellows did last night, and what they propose for tonight"
-                  : `${filter.kind === 'all' ? 'everything' : KINDS.find((k) => k.id === filter.kind)!.label.toLowerCase()}${filter.state !== null ? `, ${filter.state}` : ''}${filter.channel !== null ? `, via ${channelLabel(filter.channel).toLowerCase()}` : ''}${filter.days === null ? ', all time' : filter.days === 1 ? ', today' : `, last ${filter.days} days`}`}
-              </span>
-              <span className="spacer" />
-              {view === 'activity' && clearCount > 0 && (
-                <button
-                  className={`btn ${armedLeft !== null ? 'armed' : 'ghost danger'}`}
-                  disabled={clear.isPending}
-                  onClick={onClear}
-                  title={
-                    clearable === null
-                      ? 'Deletes every stored history entry (all statuses, including ones not shown), and with it the token and cost history those entries carry - System → Usage & cost counts from them, and so does the daily budget. The vault and created pages stay untouched.'
-                      : `Deletes every stored "${clearable}" entry, including ones the filters hide, and with it the token and cost history those entries carry. The vault and created pages stay untouched.`
-                  }
-                >
-                  {armedLeft !== null
-                    ? `Really delete ${clearCount} ${clearable === null ? 'entries' : `${clearable} entries`}? (${armedLeft})`
-                    : clearable === null
-                      ? 'Clear history'
-                      : `Clear ${clearable}`}
-                </button>
+            </div>
+            <div className="lib-head-mid">
+              {detailEvent !== null && view === 'activity' ? (
+                <span className="lib-open">
+                  <button className="lib-crumb" onClick={() => setDetailId(null)} title="Back to the stream · Esc">
+                    Activity
+                  </button>
+                  <span className="lib-sep" aria-hidden>
+                    /
+                  </span>
+                  <span className="home-crumb-t" title={detailEvent.title}>
+                    {detailEvent.title}
+                  </span>
+                </span>
+              ) : (
+                /* Where you are: the week, or the one day. The same two slots in both views,
+                   each of a fixed width, so switching the view or walking the days moves the
+                   letters and nothing else. The list that moves it stands in the column. */
+                <span className="lib-open home-where">
+                  <b>{whereDate !== null ? fmtDay(whereDate) : fmtWeek(shownWeek)}</b>
+                  <span className="box-sub">
+                    {view === 'recaps'
+                      ? whereRow !== undefined
+                        ? nightLine(whereRow.model)
+                        : `${feedCount} recap${feedCount === 1 ? '' : 's'} this week`
+                      : day !== null
+                        ? `one day · ${shown.length} event${shown.length === 1 ? '' : 's'}`
+                        : `${shown.length} event${shown.length === 1 ? '' : 's'}`}
+                  </span>
+                </span>
               )}
             </div>
-          )}
+            <div className="lib-head-right">
+              {view === 'recaps' && (
+                <button
+                  className="btn ghost sm"
+                  disabled={build.isPending || status?.building === true}
+                  title="Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it."
+                  onClick={() => build.mutate(rows.some((r) => r.cycleDate === today))}
+                >
+                  {status?.building === true ? 'Building…' : 'Build now'}
+                </button>
+              )}
+              {view === 'activity' && detailEvent?.job !== undefined && (detailEvent.job.status === 'failed' || detailEvent.job.status === 'deferred') && (
+                <button className="btn sm" disabled={retry.isPending} onClick={() => retry.mutate(detailEvent.job!.id)}>
+                  {retry.isPending ? 'Retrying…' : 'Retry'}
+                </button>
+              )}
+              {view === 'activity' && detailEvent !== null && detailArticle && (
+                <div className="seg sm" role="radiogroup" aria-label="What to show">
+                  <button role="radio" aria-checked={detailTab === 'article'} onClick={() => setDetailTab('article')}>
+                    Article
+                  </button>
+                  <button role="radio" aria-checked={detailTab === 'log'} onClick={() => setDetailTab('log')}>
+                    Log
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
 
           {view === 'recaps' ? (
             <div className="flow-view" id="flow-recaps" role="tabpanel">
-              <RecapFeed vaultName={vaultName} />
+              <RecapFeed vaultName={vaultName} compact control={{ week: shownWeek, day, fellow, onVisible: setVisible }} />
             </div>
           ) : (
             <>
-          <Facts size="lead">
-            <Fact
-              k="In flight"
-              v={events.filter((e) => e.live).length}
-              sub={`${events.filter((e) => e.live && e.state === 'running').length} running, ${events.filter((e) => e.state === 'queued').length} queued`}
-              size="lead"
-              onOpen={() => setFilter({ ...DEFAULT_FILTER, state: 'running', days: null })}
-            />
-            <Fact
-              k="Failures · 7d"
-              v={stats.data?.kpis7d.failures ?? statPlaceholder}
-              tone={(stats.data?.kpis7d.failures ?? 0) > 0 ? 'err' : undefined}
-              sub={(stats.data?.kpis7d.failures ?? 0) > 0 ? 'retry from the row' : 'nothing failed this week'}
-              size="lead"
-              onOpen={() => setFilter({ ...DEFAULT_FILTER, state: 'failed', days: null })}
-            />
-            <Fact
-              k="Ingests · 7d"
-              v={stats.data?.kpis7d.ingests ?? statPlaceholder}
-              sub={`${stats.data?.usage.today.ingests ?? 0} today`}
-              size="lead"
-              onOpen={() => setFilter({ ...DEFAULT_FILTER, kind: 'ingest', days: 7 })}
-            />
-            <Fact
-              k="Spend today"
-              v={
-                stats.data !== undefined ? (
-                  <Cost value={stats.data.usage.today.costUsd} authMode={authMode} />
-                ) : (
-                  statPlaceholder
-                )
-              }
-              sub={
-                stats.data?.budget.limit != null
-                  ? `${Math.min(100, Math.round((stats.data.budget.spent / stats.data.budget.limit) * 100))}% of the daily budget`
-                  : 'no daily budget set'
-              }
-              size="lead"
-              onOpen={() => navigate('/system?section=usage')}
-            />
-            <Fact
-              k="Checks due"
-              v={maint.data?.status.due ?? statPlaceholder}
-              tone={(maint.data?.status.due ?? 0) > 0 ? 'warn' : undefined}
-              sub={
-                maint.data === null
-                  ? 'checking…'
-                  : (maint.data?.status.recommended ?? 0) > 0
-                    ? `${maint.data?.status.recommended} recommended soon`
-                    : 'nothing else pending'
-              }
-              size="lead"
-              onOpen={() => navigate('/system')}
-            />
-          </Facts>
+              {/* The stream's five figures describe the stream. While a record is open the
+                  box is the record's, and its own facts stand where these did. */}
+              {detailEvent === null && (
+              <Facts size="lead">
+                <Fact
+                  k="In flight"
+                  v={events.filter((e) => e.live).length}
+                  sub={`${events.filter((e) => e.live && e.state === 'running').length} running, ${events.filter((e) => e.state === 'queued').length} queued`}
+                  size="lead"
+                  onOpen={() => setFilter({ ...DEFAULT_FILTER, state: 'running' })}
+                />
+                <Fact
+                  k="Failures · 7d"
+                  v={stats.data?.kpis7d.failures ?? statPlaceholder}
+                  tone={(stats.data?.kpis7d.failures ?? 0) > 0 ? 'err' : undefined}
+                  sub={(stats.data?.kpis7d.failures ?? 0) > 0 ? 'retry from the row' : 'nothing failed this week'}
+                  size="lead"
+                  onOpen={() => {
+                    setFilter({ ...DEFAULT_FILTER, state: 'failed' })
+                    jumpTo.current = 'failed'
+                  }}
+                />
+                <Fact
+                  k="Ingests · 7d"
+                  v={stats.data?.kpis7d.ingests ?? statPlaceholder}
+                  sub={`${stats.data?.usage.today.ingests ?? 0} today`}
+                  size="lead"
+                  onOpen={() => {
+                    setFilter({ ...DEFAULT_FILTER, kind: 'ingest' })
+                    setWeek(thisWeek)
+                    setDay(null)
+                  }}
+                />
+                <Fact
+                  k="Spend today"
+                  v={
+                    stats.data !== undefined ? (
+                      <Cost value={stats.data.usage.today.costUsd} authMode={authMode} />
+                    ) : (
+                      statPlaceholder
+                    )
+                  }
+                  sub={
+                    stats.data?.budget.limit != null
+                      ? `${Math.min(100, Math.round((stats.data.budget.spent / stats.data.budget.limit) * 100))}% of the daily budget`
+                      : 'no daily budget set'
+                  }
+                  size="lead"
+                  onOpen={() => navigate('/system?section=usage')}
+                />
+                <Fact
+                  k="Checks due"
+                  v={maint.data?.status.due ?? statPlaceholder}
+                  tone={(maint.data?.status.due ?? 0) > 0 ? 'warn' : undefined}
+                  sub={
+                    maint.data === null
+                      ? 'checking…'
+                      : (maint.data?.status.recommended ?? 0) > 0
+                        ? `${maint.data?.status.recommended} recommended soon`
+                        : 'nothing else pending'
+                  }
+                  size="lead"
+                  onOpen={() => navigate('/system')}
+                />
+              </Facts>
+              )}
 
-        {detailEvent === null ? (
-          <>
-          {clear.error != null && <div className="toast err">Clearing failed: {(clear.error as Error).message}</div>}
+              {detailEvent === null ? (
+                <>
+                  {clear.error != null && <div className="toast err">Clearing failed: {(clear.error as Error).message}</div>}
 
-          <div className="box-body">
-            <table className="dtable inbox-table">
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th>Channel</th>
-                  <th className="num">Pages</th>
-                  <th className="num">Took</th>
-                  <th className="num">Cost</th>
-                  <th>When</th>
-                  <th className="acts" aria-label="Row actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {live.length > 0 && (
-                  <tr className="livehead">
-                    <td colSpan={7}>In flight - {live.length}</td>
-                  </tr>
-                )}
-                {liveRuns.map((r) => (
-                  <RunRow key={r.id} run={r} />
-                ))}
-                {groupRows(liveJobs, batches).map((row) =>
-                  row.kind === 'batch' ? (
-                    <BatchHead key={`batch:${row.batchId}`} jobs={row.jobs} />
-                  ) : (
-                    <LiveJobRow key={row.job.id} job={row.job} onOpen={() => setDetailId(row.job.id)} />
-                  ),
-                )}
-                {settled.map((e) =>
-                  e.job !== undefined ? (
-                    <HistoryJobRow
-                      key={e.id}
-                      job={e.job}
-                      vaultName={vaultName}
-                      authMode={authMode}
-                      onOpen={() => setDetailId(e.id)}
-                    />
-                  ) : e.commit !== null ? (
-                    /* A commit no job claims. The test used to be `kind === 'edit'`, which sent
-                       an unclaimed `ingest:` commit to SettleRow - and that prefixes the run's
-                       name onto a subject that already starts with "ingest: ". Only jobs and
-                       commits carry a hash, and jobs are handled above, so this is exact. */
-                    <CommitRow key={e.id} event={e} vaultName={vaultName} />
-                  ) : (
-                    <SettleRow
-                      key={e.id}
-                      event={e}
-                      vaultName={vaultName}
-                      authMode={authMode}
-                      onOpen={() => setDetailId(e.id)}
-                      {...(runIdOf(e) !== null ? { remove: () => api.deleteRun(runIdOf(e)!) } : {})}
-                    />
-                  ),
-                )}
-                {shown.length === 0 && (
-                  <tr className="staterow">
-                    <td colSpan={7}>
-                      {/* A failed query must not render as an empty vault. `streamState` is
-                          null once the data is there, and only then does "nothing here" mean
-                          what it says. */}
-                      {streamState ?? (
-                        <div className="empty">
-                          {filtered
-                            ? 'Nothing matches these filters.'
-                            : 'Nothing yet - drop a file on the left and it starts here.'}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  <div className="box-body">
+                    <table className="dtable inbox-table">
+                      <thead>
+                        <tr>
+                          <th>Event</th>
+                          <th>Channel</th>
+                          <th className="num">Pages</th>
+                          <th className="num">Took</th>
+                          <th className="num">Cost</th>
+                          <th>When</th>
+                          <th className="acts" aria-label="Row actions" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {live.length > 0 && (
+                          <tr className="livehead">
+                            <td colSpan={7}>In flight - {live.length}</td>
+                          </tr>
+                        )}
+                        {liveRuns.map((r) => (
+                          <RunRow key={r.id} run={r} />
+                        ))}
+                        {groupRows(liveJobs, batches).map((row) =>
+                          row.kind === 'batch' ? (
+                            <BatchHead key={`batch:${row.batchId}`} jobs={row.jobs} />
+                          ) : (
+                            <LiveJobRow key={row.job.id} job={row.job} onOpen={() => openDetail(row.job.id)} />
+                          ),
+                        )}
+                        {settled.map((e) =>
+                          e.job !== undefined ? (
+                            <HistoryJobRow
+                              key={e.id}
+                              job={e.job}
+                              vaultName={vaultName}
+                              authMode={authMode}
+                              onOpen={() => openDetail(e.id)}
+                            />
+                          ) : e.commit !== null ? (
+                            <CommitRow key={e.id} event={e} vaultName={vaultName} />
+                          ) : (
+                            <SettleRow
+                              key={e.id}
+                              event={e}
+                              vaultName={vaultName}
+                              authMode={authMode}
+                              onOpen={() => openDetail(e.id)}
+                              {...(runIdOf(e) !== null ? { remove: () => api.deleteRun(runIdOf(e)!) } : {})}
+                            />
+                          ),
+                        )}
+                        {shown.length === 0 && (
+                          <tr className="staterow">
+                            <td colSpan={7}>
+                              {streamState ?? (
+                                <div className="empty">
+                                  {filtered
+                                    ? 'Nothing matches these filters.'
+                                    : day !== null
+                                      ? 'Nothing happened on this day. Esc shows the week.'
+                                      : 'Nothing happened this week - step back with the arrows, or drop a file on the left.'}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
 
-          <div className="box-foot">
-            <span>
-              {shown.length} shown · {historyCount} stored
-              {allTime > historyCount ? ` · ${allTime} all-time` : ''}
-            </span>
-            <span className="spacer" />
-            {historyCount >= limit && limit < WINDOW_MAX && (
-              <button className="btn sm" onClick={() => setLimit(WINDOW_MAX)}>
-                Load older
-              </button>
-            )}
-            <span className="dim">Click a row for the full record: log, commit, pages, retry, revert.</span>
-          </div>
-          </>
-        ) : (
-          <JobDetail
-            event={detailEvent}
-            vaultName={vaultName}
-            authMode={authMode}
-            onBack={() => setDetailId(null)}
-          />
-        )}
+                  <div className="box-foot">
+                    <span>
+                      {shown.length} shown · {day !== null ? fmtDay(day) : `week of ${fmtWeek(shownWeek)}`} · {historyCount} stored
+                      {allTime > historyCount ? ` · ${allTime} all-time` : ''}
+                    </span>
+                    <span className="spacer" />
+                    {historyCount >= limit && limit < WINDOW_MAX && (
+                      <button className="btn sm" onClick={() => setLimit(WINDOW_MAX)}>
+                        Load older
+                      </button>
+                    )}
+                    {/* History management lives with the history count, not in the headline:
+                        it is rare, and it is the one destructive thing on the screen. */}
+                    {clearCount > 0 && (
+                      <button
+                        className={`btn sm ${armedLeft !== null ? 'armed' : 'ghost danger'}`}
+                        disabled={clear.isPending}
+                        onClick={onClear}
+                        title={
+                          clearable === null
+                            ? 'Deletes every stored history entry (all statuses, including ones not shown), and with it the token and cost history those entries carry. The vault and created pages stay untouched.'
+                            : `Deletes every stored "${clearable}" entry, including ones the filters hide, and with it the token and cost history those entries carry. The vault and created pages stay untouched.`
+                        }
+                      >
+                        {armedLeft !== null
+                          ? `Really delete ${clearCount} ${clearable === null ? 'entries' : `${clearable} entries`}? (${armedLeft})`
+                          : clearable === null
+                            ? 'Clear history'
+                            : `Clear ${clearable}`}
+                      </button>
+                    )}
+                    <span className="dim">↑ ↓ walk the days · Tab to a row, Enter opens it · Esc steps back</span>
+                  </div>
+                </>
+              ) : (
+                <JobDetail
+                  event={detailEvent}
+                  vaultName={vaultName}
+                  authMode={authMode}
+                  onBack={() => setDetailId(null)}
+                  bar={false}
+                  tab={detailTab}
+                  onTab={setDetailTab}
+                />
+              )}
             </>
           )}
         </div>
       </div>
-
     </div>
   )
 }

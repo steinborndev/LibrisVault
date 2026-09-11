@@ -34,7 +34,7 @@ function looksLikeUrl(value: string): boolean {
   return !value.includes('\n') && /^https?:\/\/\S+$/i.test(value.trim())
 }
 
-export function Dropzone(): React.ReactElement {
+export function Dropzone({ legend = true }: { legend?: boolean } = {}): React.ReactElement {
   const qc = useQueryClient()
   const [over, setOver] = useState(false)
   const [toast, setToast] = useState<Toast>(null)
@@ -196,14 +196,18 @@ export function Dropzone(): React.ReactElement {
           {isNote ? 'Add note' : 'Add link'}
         </button>
         <span className="spacer" />
-        <span className="ch" title={stats.data?.watcher.folder}>
-          <span className={`d ${stats.data?.watcher.active === true ? 'ok' : 'warn'}`} />
-          watcher
-        </span>
-        <span className="ch">
-          <span className={`d ${telegram.data?.configured === true ? 'ok' : ''}`} />
-          bot
-        </span>
+        {legend && (
+          <>
+            <span className="ch" title={stats.data?.watcher.folder}>
+              <span className={`d ${stats.data?.watcher.active === true ? 'ok' : 'warn'}`} />
+              watcher
+            </span>
+            <span className="ch">
+              <span className={`d ${telegram.data?.configured === true ? 'ok' : ''}`} />
+              bot
+            </span>
+          </>
+        )}
       </div>
 
       {toast && <div className={`toast ${toast.kind}`}>{toast.text}</div>}
