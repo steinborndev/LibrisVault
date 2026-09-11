@@ -274,3 +274,10 @@ A second list, split the same way and settled up front:
       531 / 244 / 531 with a line on each side of the figures and on five of six rows; the
       foot's five hints are 593px in a 1306px foot with no overflow; six facts of 218px with
       a 1px line after each but the last.
+- [x] Follow-up (2026-09-11). In the stream, a job held for the night wears a crescent
+      where the other rows wear the status dot: the amber dot said "waiting", and a night
+      job waits for something the row should name. The glyph keeps the dot's 8px slot (so
+      the names stay in one column), is drawn at 13px and solid so it reads at row size, and
+      wears the tonight chip's quiet tone. Measured against an injected held job beside a
+      plain queued one: both markers occupy an 8px slot at the same x, the crescent is a 13px
+      filled glyph with no stroke, and both names start at the same x.

@@ -204,7 +204,16 @@ export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): R
     <tr className="live" {...openableRow(onOpen, `Open job detail: ${name}`)}>
       <td>
         <span className="hrow-name">
-          <span className={`hrow-dot ${job.status === 'queued' ? 'queued' : 'running'}`} aria-hidden />
+          {/* A job held for the night wears a crescent where the others wear the status
+              dot (2026-09-11): the amber dot said "waiting", and a night job is waiting for
+              something the row should name. It keeps the dot's slot, so the names align. */}
+          {job.hold === 'night' ? (
+            <span className="hrow-moon" aria-hidden>
+              <Icon name="moon" />
+            </span>
+          ) : (
+            <span className={`hrow-dot ${job.status === 'queued' ? 'queued' : 'running'}`} aria-hidden />
+          )}
           <span className="nm" title={name}>
             {name}
           </span>

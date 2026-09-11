@@ -6189,6 +6189,21 @@ tr:focus-within .rowacts {
   animation: badge-pulse 1.4s ease-in-out infinite;
 }
 .hrow-dot.queued { background: var(--warn); }
+/* The night job's crescent in the dot's slot: the slot keeps the dot's width so the names
+   stay in one column, the glyph is drawn larger and solid so it reads at row size, and it
+   wears the tonight chip's quiet tone - nothing is wrong with a job that waits for the night. */
+.hrow-moon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dot);
+  height: var(--dot);
+  flex: none;
+  font-size: 13px;
+  color: var(--text-dim);
+  overflow: visible;
+}
+.hrow-moon svg { fill: currentColor; stroke: none; flex: none; }
 .hrow-dot.edit { background: var(--type-meta); }
 
 /* ── Fixes 2026-08-25 (second pass, round two) ─────────────────────────────── */
