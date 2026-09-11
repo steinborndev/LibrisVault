@@ -10,8 +10,11 @@
  * tested function rather than three lines of JSX:
  *
  *  - **The numbers age.** They are sampled inside runs and, between runs, from an endpoint
- *    that is itself rate limited. A percentage with no age on it is a percentage that lies
- *    quietly, so a stale one says how old it is.
+ *    that is itself rate limited - or, with a long-lived token, not at all, so that days can
+ *    pass between two samples. A percentage with no age on it is a percentage that lies
+ *    quietly, so a stale one says how old it is and why there is no newer one. It is still
+ *    shown: the card used to vanish once the service called the sample unavailable (a day
+ *    old), which left "can I afford tonight" with no answer at all in three places at once.
  *  - **A window that has reset is not stale, it is empty.** Past its `resetsAt`, the last
  *    sample describes a window that no longer exists: the honest answer is 0 % used, not the
  *    figure from before the rollover.
@@ -86,9 +89,16 @@ export function windowLabel(key: string): string {
 /** Five hours first, then the plain week, then the per-model weeks in their own order. */
 const RANK: Record<string, number> = { five_hour: 0, seven_day: 1 }
 
-/** The corner's content for this plan status, as of `now`. */
+/** `0m old`, `3h old`, `2d old`: the age at the resolution it deserves. */
+export function ageLabel(ageMin: number): string {
+  if (ageMin < 60) return `${ageMin}m old`
+  if (ageMin < 48 * 60) return `${Math.floor(ageMin / 60)}h old`
+  return `${Math.floor(ageMin / (24 * 60))}d old`
+}
+
+/** The corner's content for this plan status, as of `now`; null only when nothing was ever measured. */
 export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorner | null {
-  if (!plan || !plan.available || plan.windows.length === 0) return null
+  if (!plan || plan.windows.length === 0) return null
   const sampled = plan.sampledAt === null ? null : Date.parse(plan.sampledAt)
   const ageMin = sampled === null || Number.isNaN(sampled) ? null : Math.max(0, Math.floor((now - sampled) / 60_000))
 
@@ -133,13 +143,15 @@ export function planCorner(plan: PlanStatus | undefined, now: number): PlanCorne
     runsSince: plan.sinceSample?.runs ?? 0,
     // Always said, even at zero: the age is the line the release button stands next to, and a
     // line that appears and disappears takes the button with it.
-    ageText: ageMin === null ? 'never measured' : `${ageMin}m old`,
+    ageText: ageMin === null ? 'never measured' : ageLabel(ageMin),
     release: {
       enabled: plan.override?.enabled ?? false,
       active: plan.override?.active ?? false,
       pct: plan.override?.pct ?? 90,
       until: plan.override?.expiresAt ?? null,
     },
-    reason: plan.liveReason,
+    // Why there is nothing newer: while the sample counts as available the live reason is
+    // the one that speaks; once the service calls it unavailable, its own reason says why.
+    reason: plan.available ? plan.liveReason : (plan.reason ?? plan.liveReason),
   }
 }

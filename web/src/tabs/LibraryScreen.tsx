@@ -41,6 +41,7 @@ import { buildActors, exitOk, floorLine, roleOfRun, ROLE_NAME, EXIT_MS, type Act
 import { shareLine } from '../lib/plan.ts'
 import { planCorner } from '../lib/library/planCorner.ts'
 import { FiveHourRelease } from '../components/library/FiveHourRelease.tsx'
+import { PlanCard } from '../components/PlanCard.tsx'
 import { signText } from '../lib/library/room.ts'
 import { roomToFollow } from '../lib/library/follow.ts'
 
@@ -912,43 +913,20 @@ export function LibraryScreen({
             if (corner === null) return null
             return (
               <div className="lib-corner br">
-                <div className={`lib-plan${night ? ' dark' : ''}`}>
-                  {/* "left" once, in the head: with a per-model window or three it would be
-                      four repetitions of the same word in a card this size. */}
-                  {/* The unit sits over the column it describes, right-aligned with the
-                      figures, and a rule separates the head from the readings. */}
-                  <div className="lp-name">
-                    <span>{corner.plan ?? 'plan'}</span>
-                    <span className="lp-unit">{corner.unit}</span>
-                  </div>
-                  {corner.lines.map((l) => (
-                    <div key={l.window} className={`lp-row${l.usedPct + (l.sincePct ?? 0) >= 90 ? ' spent' : l.usedPct + (l.sincePct ?? 0) >= 75 ? ' low' : ''}`}>
-                      <span className="lp-w">{l.label}</span>
-                      <span className="lp-n">
-                        {l.usedPct}%
-                        {l.sincePct !== null && (
-                          <span className="lp-est" title={`plus about ${l.sincePct}% from ${corner.runsSince} run(s) since the last measurement`}>
-                            +{l.sincePct}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                  {/* The age is always said - "0m old" is a fact worth having - and the
-                      release button stands next to it. */}
-                  <div className="lp-foot">
-                    <span className={corner.stale ? 'lp-stale' : 'lp-age'} title={corner.stale ? (corner.reason ?? 'the plan endpoint has not answered since') : 'when the plan last reported these numbers'}>
-                      {corner.ageText}
-                    </span>
-                    {corner.release.enabled && (
+                {/* The release button stands beside the age; the card is the shared one. */}
+                <PlanCard
+                  corner={corner}
+                  dark={night}
+                  foot={
+                    corner.release.enabled && (
                       <FiveHourRelease
                         release={corner.release}
                         fiveHourUsed={corner.lines.find((l) => l.window === 'five_hour')?.usedPct ?? null}
                         onDone={() => void qc.invalidateQueries({ queryKey: ['usage-plan'] })}
                       />
-                    )}
-                  </div>
-                </div>
+                    )
+                  }
+                />
               </div>
             )
           })()}

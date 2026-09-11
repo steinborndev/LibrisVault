@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { planCorner, STALE_MS } from '../src/lib/library/planCorner.ts'
+import { ageLabel, planCorner, STALE_MS } from '../src/lib/library/planCorner.ts'
 import type { PlanStatus } from '../src/api/types.ts'
 
 const NOW = Date.parse('2026-09-07T15:00:00.000Z')
@@ -147,6 +147,28 @@ describe('what the corner says', () => {
   it('always says the age, so the button beside it never moves', () => {
     expect(planCorner(plan({ sampledAt: ago(0) }), NOW)!.ageText).toBe('0m old')
     expect(planCorner(plan({ sampledAt: null }), NOW)!.ageText).toBe('never measured')
+    // Minutes while they mean something, then hours, then days.
+    expect(ageLabel(59)).toBe('59m old')
+    expect(ageLabel(60)).toBe('1h old')
+    expect(ageLabel(30 * 60)).toBe('30h old')
+    expect(ageLabel(48 * 60)).toBe('2d old')
+  })
+
+  it('keeps showing an old sample, with its age and the reason there is no newer one', () => {
+    /*
+     * With a long-lived token the service polls no endpoint; samples come from Fellow runs
+     * only, and a day after the last one it calls the sample unavailable. The card used to
+     * return null then and vanished from the Library, the Research tab and Home at once.
+     */
+    const old = planCorner(
+      plan({ available: false, reason: 'this credential is inference-only by design', liveReason: null, sampledAt: ago(30 * 3600_000), windows: [{ window: 'seven_day', utilization: 53, resetsAt: ahead(48 * 3600_000) }] }),
+      NOW,
+    )!
+    expect(old).not.toBeNull()
+    expect(old.lines.map((l) => [l.label, l.usedPct])).toEqual([['week', 53]])
+    expect(old.stale).toBe(true)
+    expect(old.ageText).toBe('30h old')
+    expect(old.reason).toBe('this credential is inference-only by design')
   })
 
   it('carries the release: whether it may be granted, and whether one is live', () => {
@@ -162,7 +184,7 @@ describe('what the corner says', () => {
 
   it('says nothing at all when there is nothing measured', () => {
     expect(planCorner(undefined, NOW)).toBeNull()
-    expect(planCorner(plan({ available: false }), NOW)).toBeNull()
     expect(planCorner(plan({ windows: [] }), NOW)).toBeNull()
+    expect(planCorner(plan({ available: false, windows: [] }), NOW)).toBeNull()
   })
 })

@@ -46,6 +46,7 @@ import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { Icon, type IconName } from '../components/Icon.tsx'
 import { planCorner } from '../lib/library/planCorner.ts'
+import { PlanCard } from '../components/PlanCard.tsx'
 import { RunActivity, AskActivity } from '../components/RunActivity.tsx'
 import { useAskTrail } from '../hooks/useAskTrail.ts'
 import { useJobLog } from '../hooks/useJobLog.ts'
@@ -471,33 +472,12 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
 
         {/* The plan, as the Library states it: which windows are how full, what an unmeasured
             run has probably added on top, and how old the reading is. */}
-        {corner !== null && corner.lines.length > 0 && (
+        {corner !== null && (
           <div className="gp-sec">
             <div className="gp-head">
-              <span className="gp-eyebrow">Plan</span>
+              <span className="gp-eyebrow">Plan usage</span>
             </div>
-            <div className="lib-plan">
-              <div className="lp-name">
-                <span>{corner.plan ?? 'plan'}</span>
-                <span className="lp-unit">{corner.unit}</span>
-              </div>
-              {corner.lines.map((l) => (
-                <div key={l.window} className={`lp-row${l.usedPct + (l.sincePct ?? 0) >= 90 ? ' spent' : l.usedPct + (l.sincePct ?? 0) >= 75 ? ' low' : ''}`}>
-                  <span className="lp-w">{l.label}</span>
-                  <span className="lp-n">
-                    {l.usedPct}%
-                    {l.sincePct !== null && (
-                      <span className="lp-est" title={`plus about ${l.sincePct}% from ${corner.runsSince} run(s) since the last measurement`}>
-                        +{l.sincePct}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              ))}
-              <div className="lp-age" title={corner.reason ?? undefined}>
-                {corner.ageMin === null ? 'never measured' : `${corner.ageMin}m old`}
-              </div>
-            </div>
+            <PlanCard corner={corner} />
           </div>
         )}
 

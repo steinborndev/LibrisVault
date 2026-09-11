@@ -25,6 +25,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { Job, JobStatus } from '../api/types.ts'
 import { Dropzone } from '../components/Dropzone.tsx'
+import { PlanCard } from '../components/PlanCard.tsx'
+import { planCorner } from '../lib/library/planCorner.ts'
 import { VaultConstellation } from '../components/VaultConstellation.tsx'
 import { JobDetail } from '../components/JobDetail.tsx'
 import { DomainRanks } from '../components/HomePanel.tsx'
@@ -181,6 +183,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const fellowsOn = health.data?.fellows === true
   const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, enabled: fellowsOn, staleTime: 30_000, refetchInterval: 60_000 })
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: fellowsOn, staleTime: 30_000 })
+  // The plan, the same card and the same cached reading the Library and the Research tab use.
+  const planQ = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, enabled: fellowsOn, refetchInterval: 60_000, retry: false })
+  const planCard = fellowsOn ? planCorner(planQ.data, Date.now()) : null
   const rows = useMemo(() => recaps.data?.recaps ?? [], [recaps.data])
   const waiting = (() => {
     const latest = rows[0]
@@ -701,6 +706,17 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
               )}
             </div>
           </>
+        )}
+
+        {/* The plan, last: what tonight can cost against what is left of the windows. The
+            same card as the Library's corner and the Research tab's rail. */}
+        {planCard !== null && (
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Plan usage</span>
+            </div>
+            <PlanCard corner={planCard} />
+          </div>
         )}
       </aside>
 

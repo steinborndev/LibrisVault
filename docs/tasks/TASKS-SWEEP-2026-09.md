@@ -60,3 +60,7 @@ with an old sample, not where it is.
       could not reach, an entry's side never changes because it was fetched by hand; the
       headline date reads `06 Sep 2026`; "Night shift" with its tooltip, and the window's
       overview carries the same name.
+- [x] Chunk 2 (2026-09-11). `planCorner` returns a reading whenever a window was ever
+      measured; the age reads in minutes, hours or days, and an unavailable sample carries the
+      service's reason as the tooltip. The card is one component (`PlanCard`) in the Library's
+      corner, the Research rail and, new, the last section of the Home column.
