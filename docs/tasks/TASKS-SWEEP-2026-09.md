@@ -173,3 +173,11 @@ A second list, split the same way and settled up front:
       Measured in the browser: a fresh load opens on the first room in both tabs, the walked
       room and the mode survive a reload, and a domain of the last room lands on that room
       with its row marked and the table narrowed.
+- [x] Chunk 4 (2026-09-11). The Catalog's box wears the graph's bar: a first slot of one
+      width on both screens (Fit there, Reset or an empty stand-in here), "Showing N of M
+      pages" or "N of M concepts" with the narrowing in words, and the search at the right
+      edge; the Find section left the column. The table's first column is headed "Type" over
+      the badges and "Title" over the names; the column's section is "Type". The foot keeps
+      the keys and the Deepen button. Measured: the bar, the slot, "Showing" and the search
+      box stand at the same x and width in both tabs; the two headings sit exactly over the
+      badges and the names.

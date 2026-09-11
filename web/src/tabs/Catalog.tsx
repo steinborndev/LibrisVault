@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { navigate, pageRoute, catalogPageRoute } from '../lib/router.ts'
 import { CatalogArticle } from '../components/CatalogArticle.tsx'
+import { FootKeys } from '../components/FootKeys.tsx'
 import { openableRow } from '../lib/tableRow.ts'
 import { timeAgo } from '../lib/format.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
@@ -252,6 +253,21 @@ export function Catalog({
 
   /** Whether anything is narrowing the list - the reset only appears when it would do something. */
   const dirty = query !== '' || type !== null || domain !== null || subset !== 'all' || sort !== 'changed'
+  /*
+   * What the head says: the count against the pool a type narrows to ("4 of 529 concepts"),
+   * then the narrowing in words, the way the graph's bar says it.
+   */
+  const pool = type === null ? knowledge : knowledge.filter((n) => n.type === type)
+  const noun = type === null ? 'pages' : bucketLabel(type).toLowerCase()
+  const scopeTail = ((): string => {
+    const parts: string[] = []
+    if (domain === 'none') parts.push('pages with no domain')
+    else if (domain !== null) parts.push(`the ${domain} domain`)
+    else if (wing !== null) parts.push(wings.find((g) => g.id === wing)?.name ?? 'one wing')
+    if (subset !== 'all') parts.push(subset)
+    if (query.trim() !== '') parts.push(`matching “${query.trim()}”`)
+    return parts.length === 0 ? '' : ` - ${parts.join(', ')}`
+  })()
   const subsetHint = SUBSETS.find((x) => x.key === (subsetHover ?? subset))!.desc
   const sortHint = SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
   const reset = (): void => {
@@ -274,34 +290,10 @@ export function Catalog({
           which subset and in what order - and domains last, because that is the section
           that grows with the vault and it takes the leftover height. */}
       <aside className="gpanel" aria-label="Library filters">
-        {/* Same place as Home: the reset belongs to the head of the panel's first section. */}
-        <div className="gp-sec gp-find">
-          <div className="gp-head">
-            <span className="gp-eyebrow">Find</span>
-            <span className="spacer" />
-            {dirty && (
-              <button className="btn ghost" onClick={reset} title="Back to every page, newest first">
-                Reset
-              </button>
-            )}
-          </div>
-          <div className="gp-search">
-            <Icon name="search" />
-            <input
-              type="search"
-              placeholder="Filter by title, tag or domain…"
-              aria-label="Filter pages by title, tag or domain"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-              }}
-            />
-          </div>
-        </div>
 
         <div className="gp-sec">
           <div className="gp-head">
-            <span className="gp-eyebrow">Page types</span>
+            <span className="gp-eyebrow">Type</span>
             <span className="spacer" />
             <span className="gp-state">{type === null ? 'all' : bucketLabel(type)}</span>
           </div>
@@ -408,6 +400,38 @@ export function Catalog({
           <CatalogArticle path={openPage} vaultName={vaultName} nodes={nodes ?? []} onBack={() => navigate('/catalog')} />
         ) : (
           <>
+        {/* The same bar the graph draws over its canvas, in the same shape: a slot as wide as
+            the graph's Fit button (the reset stands in it once a filter is set), what is
+            shown in words, and the search at the right edge. Switching the tabs moves
+            neither the sentence nor the box. */}
+        <div className="graph-controls catalog-head">
+          {dirty ? (
+            <button className="btn ghost head-slot" onClick={reset} title="Back to every page, newest first">
+              Reset
+            </button>
+          ) : (
+            <span className="head-slot" aria-hidden />
+          )}
+          <span className="scopeline">
+            Showing{' '}
+            <strong>
+              {filtered.length} of {pool.length}
+            </strong>{' '}
+            {noun}
+            {scopeTail}
+          </span>
+          <span className="spacer" />
+          <div className="graph-search graph-search-inbar">
+            <Icon name="search" />
+            <input
+              type="search"
+              placeholder="Filter by title, tag or domain…"
+              aria-label="Filter pages by title, tag or domain"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </div>
         {/* The scroll box is a DIV, not the table: a table set to `display: block` (the old
             way of making it scroll) shrinks to its content, so the columns moved every time
             a domain filter changed the longest title on screen. */}
@@ -422,19 +446,19 @@ export function Catalog({
           <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} onOpenPage={(p) => navigate(catalogPageRoute(p))} />
         )}
         </div>
-        <div className="box-foot" hidden={state !== null}>
-          <span>
-            {filtered.length} page{filtered.length === 1 ? '' : 's'}
-            {filtered.length !== knowledge.length ? ` of ${knowledge.length} in this subset` : ''}
+        <div className="box-foot keys" hidden={state !== null}>
+          {/* The count moved up into the head; the foot keeps the keys and the one action. */}
+          <span className="fl" />
+          <FootKeys items={['← → step the wing', 'Enter opens a row', 'Esc closes a page']} />
+          <span className="fr">
+            {/* Only with a domain filter on: a deepening run is bounded by a domain, and this
+                is where the domain is already the thing you are looking at. */}
+            {domain !== null && domain !== 'none' && (
+              <button className="btn" onClick={() => setDeepening(true)} title={`Have the Fellow of ${domain} append to its thinnest, most linked pages`}>
+                Deepen this domain
+              </button>
+            )}
           </span>
-          <span className="spacer" />
-          {/* Only with a domain filter on: a deepening run is bounded by a domain, and this
-              is where the domain is already the thing you are looking at. */}
-          {domain !== null && domain !== 'none' && (
-            <button className="btn" onClick={() => setDeepening(true)} title={`Have the Fellow of ${domain} append to its thinnest, most linked pages`}>
-              Deepen this domain
-            </button>
-          )}
         </div>
           </>
         )}
@@ -507,7 +531,12 @@ export function CatalogTable({
       <table className="dtable lib-table">
         <thead>
           <tr>
-            <th>Page</th>
+            <th>
+              <span className="lt-cell">
+                <span className="lt-kind">Type</span>
+                Title
+              </span>
+            </th>
             {domainCol && <th>Domain</th>}
             <th className="num">In / out</th>
             <th>Changed</th>

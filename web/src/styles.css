@@ -3083,6 +3083,12 @@ details.hot-cache[open] summary {
   font-size: 12px;
   padding: 0 10px;
 }
+/* The bar's first slot, one width on both screens: the graph's Fit, the Catalog's Reset or
+   its empty stand-in, so "Showing" starts at the same x whichever tab is in front. */
+.graph-controls .head-slot { flex: none; width: 58px; min-width: 58px; justify-content: center; padding: 0; }
+span.head-slot { display: inline-block; }
+/* The Catalog's head is the graph's bar, and the box under it keeps its rounded corners. */
+.box > .catalog-head { border-radius: var(--radius) var(--radius) 0 0; }
 .graph-controls .btn.active {
   border-color: var(--accent);
   color: var(--accent);

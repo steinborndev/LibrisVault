@@ -1887,8 +1887,10 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           box inset inside the first read as a box in a box, and the graph kept drawing
           underneath it, so whatever the layout put up there was hidden behind the bar. */}
       <div className="graph-controls">
+        {/* The first slot has one width in every bar that copies this one (the Catalog's),
+            so "Showing" starts at the same x on both screens. */}
         <button
-          className="btn ghost"
+          className="btn ghost head-slot"
           onClick={() => {
             userMovedRef.current = false
             fitToView()
