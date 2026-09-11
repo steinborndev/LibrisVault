@@ -9121,5 +9121,16 @@ tr:focus-within .rowacts {
 .rf-v .filed .pagelink { flex: 0 1 auto; }
 .rf-v .filed .by { flex: none; }
 .rf-v .filed .filed-link { max-width: 100%; }
+/* The lists are grids of one implicit column, and an implicit column is sized by its
+   min-content - which, for a chip that must not wrap, is the whole title. Bounding the
+   column at the container's width is what lets the chip shrink into its ellipsis; without
+   it the sheet grew a horizontal scrollbar the width of the longest page name. */
+.recap-pages .chips,
+.rf-v.list { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+/* Each chip sits in a wrapper (it counts the click for the Fellow); the wrapper is the grid
+   item, and a grid item's automatic minimum is its min-content - the whole title again. */
+.recap-pages .chips > *,
+.rf-v.list > * { display: block; min-width: 0; max-width: 100%; }
+.rfeed-split.solo .rfeed { overflow-x: hidden; }
 .recap-pages { margin-top: 14px; }
-.recap-pages + .recap-pages { margin-top: 10px; }
+.recap-pages + .recap-pages { margin-top: 14px; }
