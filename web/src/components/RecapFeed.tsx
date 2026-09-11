@@ -184,13 +184,15 @@ export function RecapFeed({
             <div className="empty">
               {state ?? (
                 <>
-                  <h2>{rows.length === 0 ? 'No recap yet' : 'Nothing in this week'}</h2>
+                  <h2>{rows.length === 0 ? 'No recap yet' : day !== null ? 'No recap for this day' : 'Nothing in this week'}</h2>
                   <p className="qs-line">
                     {rows.length === 0
                       ? `The first one is built at ${status?.recapTime ?? '07:00'} and covers the night's Fellow runs and their proposals.`
                       : query.trim() !== ''
                         ? 'No recap in this week says that. Esc clears the search.'
-                        : fellow !== null
+                        : day !== null
+                          ? `The next one is built at ${status?.recapTime ?? '07:00'}. Press ↓ for the last one, or Esc for the week.`
+                          : fellow !== null
                         ? `${fellow} did not work in this week. Open a dimmed day to see why.`
                         : 'No recap was stored for these days. Step back a week.'}
                   </p>

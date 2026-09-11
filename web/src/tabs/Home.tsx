@@ -143,11 +143,13 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   /** Which of the box's two views is on show. Recaps by default, activity on click or arrow. */
   const [flow, setFlow] = useState<FlowView>('recaps')
   /**
-   * The time axis, shared by both views: the Monday of the week on show (null = the opening
-   * week), one picked day or the whole week, and the Fellow the recaps are narrowed to.
+   * The time axis, shared by both views: the Monday of the week on show, one picked day or
+   * the whole week, and the Fellow the recaps are narrowed to. It opens on TODAY, picked:
+   * the morning's recap and the day's stream are what the screen is opened for, and the
+   * filter stays where it is until the reader moves it (2026-09-11).
    */
-  const [week, setWeek] = useState<string | null>(null)
-  const [day, setDay] = useState<string | null>(null)
+  const [week, setWeek] = useState<string | null>(() => weekStartOf(localDate(new Date())))
+  const [day, setDay] = useState<string | null>(() => localDate(new Date()))
   const [fellow, setFellow] = useState<string | null>(null)
   /** The day at the top of the feed, reported by the feed as it scrolls. */
   const [visible, setVisible] = useState<string | null>(null)
@@ -523,7 +525,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                     role="radio"
                     aria-checked={picked}
                     aria-current={current ? 'true' : undefined}
-                    disabled={!stop}
+                    disabled={!stop && !picked}
                     title={
                       !stop
                         ? `${fmtDay(date)} · ${future ? 'to come' : 'nothing on this day'}`
