@@ -11,6 +11,7 @@ export type IconName =
   | 'copy'
   | 'retry'
   | 'x'
+  | 'trash'
   | 'check'
   | 'search'
   | 'library'
@@ -115,6 +116,14 @@ const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
     </>
   ),
   x: <path d="M6 6l12 12M18 6L6 18" />,
+  trash: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </>
+  ),
   check: <path d="M4 12.5l5 5L20 6.5" />,
   search: (
     <>

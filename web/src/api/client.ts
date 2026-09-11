@@ -155,6 +155,10 @@ export const api = {
   deleteRun: (id: string): Promise<{ deleted: boolean }> =>
     fetch(`${BASE}/maintenance/history/${id}`, { method: 'DELETE' }).then(json<{ deleted: boolean }>),
 
+  /** Takes a commit off the Activity stream; the vault keeps it. */
+  dismissCommit: (hash: string): Promise<{ ok: boolean }> =>
+    fetch(`${BASE}/stats/commits/${encodeURIComponent(hash)}/dismiss`, { method: 'POST' }).then(json<{ ok: boolean }>),
+
   /** Clear finished jobs from history. With `status`, only that status; otherwise all at-rest jobs. */
   clearHistory: (status?: JobStatus): Promise<{ removed: number }> => {
     const qs = status ? `?status=${status}` : ''

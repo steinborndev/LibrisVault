@@ -11,6 +11,7 @@ import { JobStore } from './db/jobs.js'
 import { ChatStore } from './db/chat.js'
 import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
+import { CommitDismissalStore } from './db/commit-dismissals.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
 import { SAMPLE_LIMIT } from './pipeline/run-duration.js'
@@ -400,6 +401,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     autoCommit: () => settings.effective(config).gitAutoCommit,
     // Persistent, so a rejected domain candidate stays rejected across restarts.
     domainDismissals: new DomainDismissalStore(db),
+    commitDismissals: new CommitDismissalStore(db),
     maintenanceState,
     agentRuns,
     telegramDrops,

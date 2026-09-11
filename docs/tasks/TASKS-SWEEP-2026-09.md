@@ -120,3 +120,41 @@ with an old sample, not where it is.
   the spec is opened for edits.
 - The reading list's three-way toggle treats an entry's side as its access alone; a
   paywalled paper the user fetched by hand stands under "paywalled" with its vault link.
+
+## Second sweep (2026-09-11, evening)
+
+A second list, split the same way and settled up front:
+
+1. **Home stream.** A trash at the right edge of every row, always visible (the hover-only
+   x is gone): it cancels a queued job, removes a settled job or run, takes a commit off the
+   stream through a server-side list of dismissed hashes (schema v25; the vault keeps the
+   commit), and is disabled with a reason on a run or ingest in flight and on the per-kind
+   settle records the service keeps for itself. First click arms it, the second acts. Rows
+   share one height. An ingest row's chips count the same pages the record lists (index
+   hubs left out). Log lines link their addresses. Both foots stand in three zones: what is
+   shown, the keys (bars between them), the one action, and Build now and Clear history are
+   one width, with a short armed label.
+2. **Opened entry and the graph article.** "Graph view" and "Catalog view" pills; an article
+   view inside the Catalog tab (`/catalog/page/<path>`); "In catalog" beside "In graph",
+   Obsidian in the ⋯ menu, a title of at most two lines, no Esc hint; the Library answers
+   Escape without a click first.
+3. **Domain section v2.** No filter box; a "by wing | show all" toggle of equal halves in
+   place of the switch word; by wing by default; the choice and the wing remembered per tab.
+4. **Catalog.** TITLE and TYPE columns, a "Type" section, a headline like the graph's:
+   "Showing N of M" on the left behind a slot as wide as the graph's Fit button (the Reset
+   button stands there when a filter is set), the search on the right at the graph's x.
+5. **Research tab.** One column for both modes with the lens greyed and explained under
+   Vault Research; a blue Start run / Ask; a search box in the ledger's head with the count
+   in its placeholder; the trash instead of the hover x.
+6. **Night shift, spawn, reading list.** The night's estimate counts the held ingests and
+   says when only the Fellows are held by the reserve; a Fellow spawned from a shelf keeps
+   that domain; the lens dropdown reads "lens - what it reaches for" from a short line the
+   server carries per lens; the reading list's lede is one line.
+
+### Done
+
+- [x] Chunk 1 (2026-09-11). Measured in the browser: every row carries the trash (two
+      disabled with their reason on a busy day), plain settled rows are 42.5px each, the
+      keys line is centred on the foot in both views (same x), Build now and Clear history
+      are 118px at the same x, an overflow row's count equals the record's list, and the
+      commit trash arms and posts the dismissal.

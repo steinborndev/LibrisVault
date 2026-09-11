@@ -28,6 +28,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { Job, JobStatus } from '../api/types.ts'
 import { Dropzone } from '../components/Dropzone.tsx'
+import { FootKeys } from '../components/FootKeys.tsx'
 import { PlanCard } from '../components/PlanCard.tsx'
 import { planCorner } from '../lib/library/planCorner.ts'
 import { VaultConstellation } from '../components/VaultConstellation.tsx'
@@ -955,38 +956,40 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                     </table>
                   </div>
 
-                  <div className="box-foot">
-                    <span>
-                      {shown.length} shown · {fmtDay(day)} · {historyCount} stored
-                      {allTime > historyCount ? ` · ${allTime} all-time` : ''}
+                  <div className="box-foot keys">
+                    <span className="fl">
+                      <span>
+                        {shown.length} shown · {fmtDay(day)} · {historyCount} stored
+                        {allTime > historyCount ? ` · ${allTime} all-time` : ''}
+                      </span>
+                      {historyCount >= limit && limit < WINDOW_MAX && (
+                        <button className="btn sm" onClick={() => setLimit(WINDOW_MAX)}>
+                          Load older
+                        </button>
+                      )}
                     </span>
-                    <span className="spacer" />
-                    {historyCount >= limit && limit < WINDOW_MAX && (
-                      <button className="btn sm" onClick={() => setLimit(WINDOW_MAX)}>
-                        Load older
-                      </button>
-                    )}
-                    <span className="dim">← → step the day · PgUp PgDn a week · Tab to a row, Enter opens it · Esc steps back</span>
+                    <FootKeys items={['← → step the day', 'PgUp PgDn a week', 'Tab to a row, Enter opens it', 'Esc steps back']} />
                     {/* History management lives with the history count, not in the headline:
-                        it is rare, and it is the one destructive thing on the screen. */}
-                    {clearCount > 0 && (
-                      <button
-                        className={`btn sm ${armedLeft !== null ? 'armed' : 'ghost danger'}`}
-                        disabled={clear.isPending}
-                        onClick={onClear}
-                        title={
-                          clearable === null
-                            ? 'Deletes every stored history entry (all statuses, including ones not shown), and with it the token and cost history those entries carry. The vault and created pages stay untouched.'
-                            : `Deletes every stored "${clearable}" entry, including ones the filters hide, and with it the token and cost history those entries carry. The vault and created pages stay untouched.`
-                        }
-                      >
-                        {armedLeft !== null
-                          ? `Really delete ${clearCount} ${clearable === null ? 'entries' : `${clearable} entries`}? (${armedLeft})`
-                          : clearable === null
-                            ? 'Clear history'
-                            : `Clear ${clearable}`}
-                      </button>
-                    )}
+                        it is rare, and it is the one destructive thing on the screen. The
+                        button keeps one width, armed or not, so nothing beside it moves. */}
+                    <span className="fr">
+                      {clearCount > 0 && (
+                        <button
+                          className={`btn sm wide ${armedLeft !== null ? 'armed' : 'ghost danger'}`}
+                          disabled={clear.isPending}
+                          onClick={onClear}
+                          title={
+                            armedLeft !== null
+                              ? `Really delete ${clearCount} ${clearable === null ? 'entries' : `${clearable} entries`}? Click again within ${armedLeft} s.`
+                              : clearable === null
+                                ? 'Deletes every stored history entry (all statuses, including ones not shown), and with it the token and cost history those entries carry. The vault and created pages stay untouched.'
+                                : `Deletes every stored "${clearable}" entry, including ones the filters hide, and with it the token and cost history those entries carry. The vault and created pages stay untouched.`
+                          }
+                        >
+                          {armedLeft !== null ? `Delete ${clearCount}? (${armedLeft})` : clearable === null ? 'Clear history' : `Clear ${clearable}`}
+                        </button>
+                      )}
+                    </span>
                   </div>
                 </>
               ) : (

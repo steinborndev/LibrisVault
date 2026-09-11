@@ -4817,6 +4817,15 @@ kbd {
      happens to fit without scrolling does not shift the columns sideways. */
   scrollbar-gutter: stable;
 }
+/* A foot in three zones: what is shown, how to move, the one action. The middle is centred
+   on the box and not on what is left over, so the two views' hints stand in one place. */
+.box-foot.keys { display: grid; grid-template-columns: 1fr auto 1fr; }
+.box-foot .fl { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.box-foot .fr { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
+.foot-keys { display: inline-flex; align-items: center; gap: 14px; color: var(--text-faint); white-space: nowrap; }
+.foot-keys .sep { font-style: normal; color: var(--border-strong); }
+/* Build now and Clear history share one width, so switching the view moves nothing. */
+.box-foot .btn.wide { min-width: 118px; justify-content: center; }
 .box-foot {
   display: flex;
   align-items: center;
@@ -4957,6 +4966,16 @@ tr:hover .rowacts,
 tr:focus-within .rowacts {
   visibility: visible;
 }
+/* The trash is always there: a row's one action, in the same place on every row, and the
+   same height on every row, so a stream of mixed kinds keeps one rhythm. */
+.rowacts.always { visibility: visible; }
+.btn.trash { width: 26px; min-width: 26px; height: 22px; padding: 0; color: var(--text-faint); }
+.btn.trash svg { width: 14px; height: 14px; }
+.btn.trash:hover:not(:disabled) { color: var(--err); background: var(--err-bg); }
+.btn.trash.danger { color: var(--err); width: auto; padding: 0 7px; font-size: 11px; }
+.btn.trash:disabled { opacity: 0.3; cursor: default; }
+/* The overflow count under a row's chips: a fact in the faint ink, not a chip of its own. */
+.rowpages .chip-n { align-self: center; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
 
 /* ---- Home: the vault zone (redesign 2026-08-26) ----
    Two zones stacked in the content column: the stock above (quiet, large, few words) and

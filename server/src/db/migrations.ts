@@ -623,6 +623,22 @@ const V24 = `
 ALTER TABLE jobs ADD COLUMN hold TEXT;
 `
 
+/**
+ * v25 - commits taken off the Activity stream (docs/tasks/TASKS-SWEEP-2026-09.md, second
+ * sweep, chunk 1). The stream's commit rows come straight out of `git log` on every request,
+ * so a row the user removed came back on the next poll; the trash needs somewhere to keep
+ * the hash. Same shape as the domain dismissals. Operational state only: losing it costs
+ * nothing but a row reappearing, and the vault's history is never touched.
+ */
+const V25 = `
+CREATE TABLE commit_dismissals (
+  user_id      TEXT NOT NULL DEFAULT 'local',
+  hash         TEXT NOT NULL,
+  dismissed_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, hash)
+);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -648,4 +664,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 22, up: V22 },
   { version: 23, up: V23 },
   { version: 24, up: V24 },
+  { version: 25, up: V25 },
 ]

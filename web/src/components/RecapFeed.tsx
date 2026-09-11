@@ -20,6 +20,7 @@ import { api } from '../api/client.ts'
 import type { RecapAnswer, RecapAnswerResult } from '../api/types.ts'
 import { RecapBody, RecapFacts } from '../tabs/Recap.tsx'
 import { Icon } from './Icon.tsx'
+import { FootKeys } from './FootKeys.tsx'
 import { queryState } from './QueryState.tsx'
 import { navigate } from '../lib/router.ts'
 import { domainColor } from '../lib/domains.ts'
@@ -354,26 +355,36 @@ export function RecapFeed({
         )}
       </div>
 
-      <div className="box-foot">
-        <span>
-          {shown.length} of {rows.length} recap(s)
-          {day !== null ? ` · ${fmtDay(day)}` : ` · week of ${fmtWeek(shownWeek)}`}
-          {fellow !== null ? ` · ${fellow} only` : ''}
+      <div className={`box-foot${compact ? ' keys' : ''}`}>
+        <span className="fl">
+          <span>
+            {shown.length} of {rows.length} recap(s)
+            {day !== null ? ` · ${fmtDay(day)}` : ` · week of ${fmtWeek(shownWeek)}`}
+            {fellow !== null ? ` · ${fellow} only` : ''}
+          </span>
         </span>
-        <span className="spacer" />
-        {/* Home's foot says how to move, the way the stream's does; the Library's board says
-            when the next build is. The button's tooltip says it in both. */}
-        <span className="dim">{compact ? '← → step the day · PgUp PgDn a week · Esc steps back' : status !== undefined ? `Next at ${status.recapTime}` : ''}</span>
+        {/* Home's foot says how to move, in the same slot as the stream's; the Library's
+            board says when the next build is. The button's tooltip says it in both. */}
+        {compact ? (
+          <FootKeys items={['← → step the day', 'PgUp PgDn a week', 'Esc steps back']} />
+        ) : (
+          <>
+            <span className="spacer" />
+            <span className="dim">{status !== undefined ? `Next at ${status.recapTime}` : ''}</span>
+          </>
+        )}
         {/* In the corner, where the stream keeps its own history action; ringed in the
             accent because it is the one action here, and the one that costs a run. */}
-        <button
-          className="btn ghost sm outline"
-          disabled={build.isPending || status?.building === true}
-          title={`Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it.${status !== undefined ? ` The next build is at ${status.recapTime}.` : ''}`}
-          onClick={() => build.mutate(rows.some((r) => r.cycleDate === today))}
-        >
-          {status?.building === true ? 'Building…' : 'Build now'}
-        </button>
+        <span className="fr">
+          <button
+            className={`btn ghost sm outline${compact ? ' wide' : ''}`}
+            disabled={build.isPending || status?.building === true}
+            title={`Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it.${status !== undefined ? ` The next build is at ${status.recapTime}.` : ''}`}
+            onClick={() => build.mutate(rows.some((r) => r.cycleDate === today))}
+          >
+            {status?.building === true ? 'Building…' : 'Build now'}
+          </button>
+        </span>
       </div>
     </>
   )

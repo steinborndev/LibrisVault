@@ -75,6 +75,8 @@ export interface AppContext {
   readonly autoCommit?: () => boolean
   /** Dismissed domain candidates (SPEC.md §12.4 Stufe 3); defaults to a non-persistent store. */
   readonly domainDismissals?: DismissalStore
+  /** Commits taken off the Activity stream (schema v25); a memory store when a test omits it. */
+  readonly commitDismissals?: DismissalStore
   /** Per-kind maintenance settle state (SPEC.md §12.7 Stufe b); omitted → empty state list. */
   readonly maintenanceState?: MaintenanceStateStore
   /** Persistent per-run history (schema v12); omitted → the history endpoint answers empty. */
