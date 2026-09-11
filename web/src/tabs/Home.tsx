@@ -151,6 +151,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const [fellow, setFellow] = useState<string | null>(null)
   /** The day at the top of the feed, reported by the feed as it scrolls. */
   const [visible, setVisible] = useState<string | null>(null)
+  /** The search box, one for both views: the stream matches titles and pages, the feed its sections. */
+  const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
   /** A `?filter=<state>` still looking for the week its newest match is in. */
   const jumpTo = useRef<ActivityState | null>(null)
 
@@ -173,7 +176,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, enabled: fellowsOn, staleTime: 30_000, refetchInterval: 60_000 })
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: fellowsOn, staleTime: 30_000 })
   const rows = useMemo(() => recaps.data?.recaps ?? [], [recaps.data])
-  const status = recaps.data?.status
   const waiting = (() => {
     const latest = rows[0]
     return latest !== undefined && !latest.quiet ? undecidedCount(latest.model) : 0
@@ -236,7 +238,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
     [events, day, weekSet],
   )
   const now = new Date()
-  const shown = filterActivity(windowed, filter, now)
+  /** The column's narrowing plus the search box. */
+  const liveFilter = { ...filter, query }
+  const shown = filterActivity(windowed, liveFilter, now)
   const live = shown.filter((e) => e.live)
   const settled = shown.filter((e) => !e.live)
   const liveJobs = live.filter((e) => e.job !== undefined).map((e) => e.job!)
@@ -256,12 +260,12 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   }, [jobs])
 
   /** What one pill would show - every OTHER axis of the filter, and the window, still applied. */
-  const facet = (patch: Partial<ActivityFilter>): number => filterActivity(windowed, { ...filter, ...patch }, now).length
+  const facet = (patch: Partial<ActivityFilter>): number => filterActivity(windowed, { ...liveFilter, ...patch }, now).length
   /** Settled events on one day, under the current kind, state and channel. */
   const dayCount = (date: string): number =>
     filterActivity(
       events.filter((e) => !e.live && eventDay(e) === date),
-      filter,
+      liveFilter,
       now,
     ).length
 
@@ -311,10 +315,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
       void qc.invalidateQueries({ queryKey: ['jobs'] })
       void qc.invalidateQueries({ queryKey: ['stats'] })
     },
-  })
-  const build = useMutation({
-    mutationFn: (force: boolean) => api.buildRecap({ force }),
-    onSuccess: () => setTimeout(() => void qc.invalidateQueries({ queryKey: ['recaps'] }), 4_000),
   })
 
   // Two-step confirm on the button itself. First click arms it for 4 s, second click clears.
@@ -439,8 +439,24 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
       } else if (e.key === 'PageDown' || e.key === 'PageUp') {
         e.preventDefault()
         stepWeek(e.key === 'PageDown' ? 1 : -1)
+      } else if (e.key === 'Tab' && view === 'activity') {
+        /*
+         * Tab walks the stream's rows and nothing else: from anywhere on the screen the first
+         * press lands on a row, the next ones step through them and wrap at the end. The header
+         * tabs and the column took a dozen presses before the first row came up. Shift+Tab on
+         * the first row is left to the browser, so the table can still be left upwards.
+         */
+        const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>('.home-main .dtable tbody tr[tabindex]'))
+        if (rows.length === 0) return
+        const at = rows.indexOf(document.activeElement as HTMLTableRowElement)
+        if (e.shiftKey && at === 0) return
+        const next = at === -1 ? (e.shiftKey ? rows.length - 1 : 0) : (at + (e.shiftKey ? -1 : 1) + rows.length) % rows.length
+        e.preventDefault()
+        rows[next]!.focus()
+        rows[next]!.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Escape') {
         if (day !== null) setDay(null)
+        else if (query !== '') setQuery('')
         else if (view === 'recaps' && fellow !== null) setFellow(null)
         else if (view === 'activity' && filtered) reset()
       }
@@ -821,15 +837,25 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
               )}
             </div>
             <div className="lib-head-right">
-              {view === 'recaps' && (
-                <button
-                  className="btn ghost sm"
-                  disabled={build.isPending || status?.building === true}
-                  title="Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it."
-                  onClick={() => build.mutate(rows.some((r) => r.cycleDate === today))}
-                >
-                  {status?.building === true ? 'Building…' : 'Build now'}
-                </button>
+              {/* One search box for both views. The stream matches titles and the pages a row
+                  wrote, the feed keeps the days and Fellow sections that say the word. Escape
+                  in the box clears it and hands the keys back to the screen. */}
+              {(view === 'recaps' || detailEvent === null) && (
+                <input
+                  ref={searchRef}
+                  className="input sm home-search"
+                  type="search"
+                  placeholder={view === 'recaps' ? 'Search the recaps…' : 'Search the stream…'}
+                  aria-label={view === 'recaps' ? 'Search the recaps' : 'Search the stream'}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setQuery('')
+                      e.currentTarget.blur()
+                    }
+                  }}
+                />
               )}
               {view === 'activity' && detailEvent?.job !== undefined && (detailEvent.job.status === 'failed' || detailEvent.job.status === 'deferred') && (
                 <button className="btn sm" disabled={retry.isPending} onClick={() => retry.mutate(detailEvent.job!.id)}>
@@ -851,7 +877,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
 
           {view === 'recaps' ? (
             <div className="flow-view" id="flow-recaps" role="tabpanel">
-              <RecapFeed vaultName={vaultName} compact control={{ week: shownWeek, day, fellow, onVisible: setVisible }} />
+              <RecapFeed vaultName={vaultName} compact control={{ week: shownWeek, day, fellow, query, onVisible: setVisible }} />
             </div>
           ) : (
             <>
@@ -987,7 +1013,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                             <td colSpan={7}>
                               {streamState ?? (
                                 <div className="empty">
-                                  {filtered
+                                  {filtered || query !== ''
                                     ? 'Nothing matches these filters.'
                                     : day !== null
                                       ? 'Nothing happened on this day. Esc shows the week.'

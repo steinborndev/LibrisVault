@@ -5731,6 +5731,11 @@ tr:focus-within .rowacts {
   font-size: 11.5px;
   color: var(--text-faint);
 }
+/* The foot stays one line: a long page name in its chip is cut with an ellipsis, not wrapped. */
+.detail-foot .pagelink { flex: 0 1 auto; min-width: 0; max-width: 60ch; }
+.detail-foot .pagelink-main { min-width: 0; }
+.detail-foot .pagelink-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-foot .prov { flex: none; white-space: nowrap; }
 .detail-foot .prov {
   min-width: 0;
   overflow: hidden;
@@ -6006,11 +6011,11 @@ tr:focus-within .rowacts {
    a third of the row, and a left-aligned "When" in an 18% column left the last sixth of every
    row empty while its value sat pressed against the cost (2026-08-27). */
 .inbox-table th:nth-child(1) { width: 40%; }
-.inbox-table th:nth-child(2) { width: 12%; }
+.inbox-table th:nth-child(2) { width: 10%; }
 .inbox-table th:nth-child(3),
 .inbox-table th:nth-child(4),
 .inbox-table th:nth-child(5),
-.inbox-table th:nth-child(6) { width: 8%; }
+.inbox-table th:nth-child(6) { width: 7%; }
 .inbox-table th:nth-child(6),
 .inbox-table td:nth-child(6) { text-align: right; }
 /* The name may take the whole column now - the fixed width is the limit, not a magic px. */
@@ -6332,7 +6337,7 @@ tr:focus-within .rowacts {
    column, which was the only one with room to give. The note under a duplicate or a
    no-change run reads like `.rowerr` but in the muted ink: it explains, it does not warn. */
 /* The event column holds the title, the note and the page chips: it gets the width. */
-.inbox-table th:nth-child(1) { width: 52%; }
+.inbox-table th:nth-child(1) { width: 59%; }
 .inbox-table th:nth-child(7) { width: 4%; }
 .inbox-table td.acts {
   text-align: right;
@@ -6415,6 +6420,21 @@ tr:focus-within .rowacts {
 .rf-v .filed { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; color: var(--text); }
 .rf-v .filed b { font-weight: 600; }
 .rf-v .filed .by { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; }
+/* A publication not in the vault yet: the title links out, in the chip's own shape. */
+.rf-v .filed .filed-link {
+  display: inline-block;
+  max-width: 64ch;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-v .filed .filed-link:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .rf-hint { margin: 0 0 8px; font-size: 11.5px; color: var(--text-faint); }
 .rf-v .prop + .prop { margin-top: 6px; }
 .recap-none { margin: 0; font-size: 13px; color: var(--text-faint); }
@@ -8986,6 +9006,8 @@ tr:focus-within .rowacts {
   box-shadow: none;
   color: var(--text);
 }
+/* The search box in the headline's right slot: the row's control height, a fixed width. */
+.home-headline .home-search { width: 220px; height: 28px; }
 /* The middle sits at the row's true centre whatever stands left and right of it (the command
    centre's rule), and what stands in it has two slots of fixed width - walking the days or
    switching the view moves the letters, not the label. */
@@ -9034,7 +9056,7 @@ tr:focus-within .rowacts {
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
 }
-.vz-panel.bare > .vz-body.frame + .vz-foot { position: relative; margin-top: -18px; }
+.vz-panel.bare > .vz-body.frame + .vz-foot { position: relative; margin-top: -18px; justify-content: center; }
 /* The feed alone in its frame: the days stand in the headline, the Fellows in the column. */
 .rfeed-split.solo { grid-template-columns: minmax(0, 1fr); }
 .home-crumb-t { font-size: 13px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 64ch; }

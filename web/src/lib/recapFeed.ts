@@ -5,7 +5,7 @@
  * to get wrong around month ends - is testable.
  */
 
-import type { RecapRow } from '../api/types.ts'
+import type { RecapFellow, RecapRow } from '../api/types.ts'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const DAY_MS = 24 * 3600_000
@@ -117,4 +117,28 @@ export function openingWeek(rows: readonly RecapRow[], today: string): string {
 export function earliestWeek(rows: readonly RecapRow[], today: string): string {
   const oldest = [...rows].sort((a, b) => a.cycleDate.localeCompare(b.cycleDate))[0]
   return weekStartOf(oldest?.cycleDate ?? today)
+}
+
+/** Everything a Fellow's section says, lower-cased, for the search box over the feed. */
+export function fellowText(f: RecapFellow): string {
+  return [
+    f.name,
+    f.homeDomain,
+    ...f.proposals.flatMap((p) => [p.topic, p.rationale, p.provenance.text]),
+    ...f.runs.flatMap((r) => [r.topic, ...r.pagesCreated, ...r.pagesUpdated]),
+    ...f.found,
+    ...f.openQuestions,
+  ]
+    .join('\n')
+    .toLowerCase()
+}
+
+/** True when the query is empty or something in the recap says it - a Fellow, a document, a request. */
+export function recapMatches(row: RecapRow, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (q === '') return true
+  const m = row.model
+  if (m.fellows.some((f) => fellowText(f).includes(q))) return true
+  if ((m.readingAdded ?? []).some((r) => `${r.title} ${r.url} ${r.page ?? ''} ${r.by ?? ''}`.toLowerCase().includes(q))) return true
+  return (m.unclaimed ?? []).some((u) => `${u.question} ${u.domain} ${u.fromName}`.toLowerCase().includes(q))
 }

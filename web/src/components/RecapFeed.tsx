@@ -26,6 +26,7 @@ import { domainColor } from '../lib/domains.ts'
 import { nightLine, undecidedCount } from '../lib/recap.ts'
 import {
   absenceOf,
+  recapMatches,
   addDays,
   earliestWeek,
   feedRows,
@@ -56,6 +57,8 @@ export interface FeedControl {
   readonly fellow: string | null
   /** The day at the top of the feed, as it scrolls. */
   readonly onVisible: (date: string | null) => void
+  /** The search box's text; the feed keeps the days and sections that say it. */
+  readonly query?: string
 }
 
 export function RecapFeed({
@@ -85,7 +88,8 @@ export function RecapFeed({
   const shownWeek = control !== undefined ? control.week : (weekState ?? openingWeek(rows, today))
   const day = control !== undefined ? control.day : dayState
   const fellow = control !== undefined ? control.fellow : fellowState
-  const shown = useMemo(() => feedRows(rows, { week: shownWeek, day, fellow }), [rows, shownWeek, day, fellow])
+  const query = control?.query ?? ''
+  const shown = useMemo(() => feedRows(rows, { week: shownWeek, day, fellow }).filter((r) => recapMatches(r, query)), [rows, shownWeek, day, fellow, query])
 
   const answer = useMutation({
     mutationFn: (input: { date: string; answers: RecapAnswer[] }) => api.answerRecap(input.date, { answers: input.answers }),
@@ -177,7 +181,9 @@ export function RecapFeed({
                   <p className="qs-line">
                     {rows.length === 0
                       ? `The first one is built at ${status?.recapTime ?? '07:00'} and covers the night's Fellow runs and their proposals.`
-                      : fellow !== null
+                      : query.trim() !== ''
+                        ? 'No recap in this week says that. Esc clears the search.'
+                        : fellow !== null
                         ? `${fellow} did not work in this week. Open a dimmed day to see why.`
                         : 'No recap was stored for these days. Step back a week.'}
                   </p>
@@ -218,6 +224,7 @@ export function RecapFeed({
                   busy={answer.isPending}
                   facts={false}
                   settings={!compact}
+                  query={query}
                   {...(fellow !== null ? { only: fellow } : {})}
                 />
               </section>
@@ -342,17 +349,16 @@ export function RecapFeed({
           {fellow !== null ? ` · ${fellow} only` : ''}
         </span>
         <span className="spacer" />
-        {control === undefined && (
-          <button
-            className="btn ghost sm"
-            disabled={build.isPending || status?.building === true}
-            title="Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it."
-            onClick={() => build.mutate(rows.some((r) => r.cycleDate === today))}
-          >
-            {status?.building === true ? 'Building…' : 'Build now'}
-          </button>
-        )}
         <span className="dim">{status !== undefined ? `Next at ${status.recapTime}` : ''}</span>
+        {/* In the corner, where the stream keeps its own history action. */}
+        <button
+          className="btn ghost sm"
+          disabled={build.isPending || status?.building === true}
+          title="Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it."
+          onClick={() => build.mutate(rows.some((r) => r.cycleDate === today))}
+        >
+          {status?.building === true ? 'Building…' : 'Build now'}
+        </button>
       </div>
     </>
   )

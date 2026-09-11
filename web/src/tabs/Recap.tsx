@@ -17,6 +17,7 @@ import { PageLink } from '../components/PageLink.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { navigate } from '../lib/router.ts'
 import { answerCode, undecidedCount } from '../lib/recap.ts'
+import { fellowText } from '../lib/recapFeed.ts'
 import { timeAgo, usd } from '../lib/format.ts'
 import { domainColor } from '../lib/domains.ts'
 
@@ -132,6 +133,7 @@ export function RecapBody({
   facts = true,
   only,
   settings = true,
+  query = '',
 }: {
   row: RecapRow
   vaultName: string
@@ -144,10 +146,16 @@ export function RecapBody({
   only?: string
   /** The pause, model and step controls. Home's feed leaves them to the dossier (mockup 2026-09-11). */
   settings?: boolean
+  /** The search box's text: only the Fellow sections and requests that say it. */
+  query?: string
 }): React.ReactElement {
+  const q = query.trim().toLowerCase()
   // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
   const stored = row.model
   const m = { ...stored, unclaimed: stored.unclaimed ?? [], dedupe: stored.dedupe ?? { merged: [], overlaps: [] }, sleeping: stored.sleeping ?? [], fellows: stored.fellows ?? [] }
+  /* The night's own reading-list entries, not everything that arrived since the last recap;
+     on a quiet night nobody asked for anything, so the row stays away. */
+  const reading = m.quiet ? [] : (stored.readingAdded ?? [])
   const since = m.sinceBuilt ?? null
   return (
     <div className="recap">
@@ -173,18 +181,27 @@ export function RecapBody({
       )}
       {/* The day's own rows, on the same rail the Fellows use: a label on the left, one line
           per item on the right - a reading list entry, a skipped Fellow, a merged topic. */}
-      {((m.readingFiled ?? []).length > 0 || (m.shift !== null && m.shift !== undefined && m.shift.skipped.length > 0) || m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
+      {(reading.length > 0 || (m.shift !== null && m.shift !== undefined && m.shift.skipped.length > 0) || m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
         <div className="rf-grid day">
-          {(m.readingFiled ?? []).length > 0 && (
+          {reading.length > 0 && (
             <>
-              <span className="rf-k" title="From the reading list, now in the vault">
+              <span className="rf-k" title="What the Fellows put on the reading list this night">
                 Reading list
               </span>
               <div className="rf-v list">
-                {(m.readingFiled ?? []).map((r) => (
-                  <span key={r.page} className="filed">
-                    <PageLink vaultName={vaultName} path={r.page} />
-                    {r.by !== null && <span className="by">{r.by} asked for it</span>}
+                {reading.map((r) => (
+                  <span key={r.url} className="filed">
+                    {r.page !== null ? (
+                      <PageLink vaultName={vaultName} path={r.page} />
+                    ) : (
+                      <a className="filed-link" href={r.url} target="_blank" rel="noreferrer noopener" title={r.url}>
+                        {r.title}
+                      </a>
+                    )}
+                    <span className="by">
+                      {r.by !== null ? `${r.by} asked for it` : 'asked for'}
+                      {r.page !== null ? ' · in the vault' : ''}
+                    </span>
                   </span>
                 ))}
               </div>
@@ -235,10 +252,10 @@ export function RecapBody({
       )}
       {!m.quiet &&
         m.fellows
-          .filter((f) => only === undefined || f.name === only)
+          .filter((f) => (only === undefined || f.name === only) && (q === '' || fellowText(f).includes(q)))
           .map((f) => <FellowSection key={f.agentId} f={f} vaultName={vaultName} onAnswer={onAnswer} onFollow={onFollow} busy={busy} settings={settings} />)}
       {only === undefined &&
-        m.unclaimed.map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />)}
+        m.unclaimed.filter((u) => q === '' || `${u.question} ${u.domain} ${u.fromName}`.toLowerCase().includes(q)).map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} />)}
       {row.path && (
         <div className="rf-grid day foot">
           <span className="rf-k">Vault page</span>

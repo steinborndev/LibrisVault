@@ -752,6 +752,8 @@ export interface RecapModel {
   sinceBuilt: { runs: number; proposals: number } | null
   /** Publications from the reading list that reached the vault in this window. */
   readingFiled: Array<{ title: string; page: string; by: string | null }>
+  /** What the Fellows put on the reading list in this recap's period; `page` once it is in the vault. */
+  readingAdded?: Array<{ title: string; url: string; by: string | null; page: string | null }>
   window: { start: string; end: string }
   shift: { trigger: string; startedAt: string; finishedAt: string | null; executed: number; planned: number; skipped: Array<{ agentName: string; reason: string }>; costUsd: number } | null
   totals: { runs: number; failed: number; costUsd: number; pages: number }

@@ -331,7 +331,7 @@ export function matchesFilter(e: ActivityEvent, f: ActivityFilter, now: Date): b
   if (f.state !== null && e.state !== f.state) return false
   if (f.channel !== null && e.channel !== f.channel) return false
   const q = f.query.trim().toLowerCase()
-  if (q !== '' && !e.title.toLowerCase().includes(q)) return false
+  if (q !== '' && !e.title.toLowerCase().includes(q) && !e.pages.some((p) => p.toLowerCase().includes(q))) return false
   if (!e.live && f.days !== null && now.getTime() - Date.parse(e.whenIso) > f.days * DAY_MS) return false
   return true
 }
