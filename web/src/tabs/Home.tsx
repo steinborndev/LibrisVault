@@ -9,9 +9,10 @@
  *   HEADLINE  left the view (Daily recaps | Activity), middle where
  *             you are (the day on show, the stream's kinds, the open record's path),
  *             right the one thing this state offers (Build now; the record's Article | Log).
- *   COLUMN    intake first, always. Then what the view in front needs and nothing else: the
- *             Fellows while the recaps show, the kind and state narrowing while the stream
- *             shows, the record list while a record is open; the plan last.
+ *   COLUMN    intake first, always, now and for the night; then the plan; then what the view
+ *             in front needs and nothing else: the Fellows while the recaps show, the kind
+ *             and state narrowing while the stream shows, the record list while a record
+ *             is open.
  *
  * The time axis is one day, shown in the headline, for both views: the recaps to that night,
  * the stream to that day. It opens on today and moves only by key. Left and right step to
@@ -453,6 +454,17 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             <Dropzone legend={false} when="night" />
           </div>
         )}
+        {/* The plan, between the two boxes and the view's own sections: what tonight can cost
+            against what is left of the windows. The same card as the Library's corner and the
+            Research tab's rail. */}
+        {planCard !== null && (
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Plan usage</span>
+            </div>
+            <PlanCard corner={planCard} />
+          </div>
+        )}
 
         {view === 'recaps' ? (
           /* The Fellows, as the Library's own rows: a click narrows the feed to one of them,
@@ -589,16 +601,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
           </>
         )}
 
-        {/* The plan, last: what tonight can cost against what is left of the windows. The
-            same card as the Library's corner and the Research tab's rail. */}
-        {planCard !== null && (
-          <div className="gp-sec">
-            <div className="gp-head">
-              <span className="gp-eyebrow">Plan usage</span>
-            </div>
-            <PlanCard corner={planCard} />
-          </div>
-        )}
       </aside>
 
       <div className="home-main">
