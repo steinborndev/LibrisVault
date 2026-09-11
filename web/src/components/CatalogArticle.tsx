@@ -75,7 +75,7 @@ export function CatalogArticle({
         </h2>
         {node && <span className="bucket">{node.type}</span>}
         <span className="spacer" />
-        <button className="btn" onClick={() => navigate(`/graph?focus=${encodeURIComponent(path)}`)} title="Focus this page in the graph">
+        <button className="btn" onClick={() => navigate(`/graph?select=${encodeURIComponent(path)}`)} title="Open the graph with this page selected">
           <Icon name="graph" /> In graph
         </button>
         <a className="btn" href={obsidianUri(vaultName, path)} title="Open in Obsidian">

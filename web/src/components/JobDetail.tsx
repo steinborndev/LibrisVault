@@ -241,7 +241,7 @@ export function JobDetail({
             reading it. One pill that opened the viewer used to stand here. */}
         {articlePath !== null && (
           <>
-            <button className="btn sm" onClick={() => navigate(`/graph?focus=${encodeURIComponent(articlePath)}`)} title={`Open the graph with this page selected: ${articlePath}`}>
+            <button className="btn sm" onClick={() => navigate(`/graph?select=${encodeURIComponent(articlePath)}`)} title={`Open the graph with this page selected: ${articlePath}`}>
               <Icon name="graph" /> Graph view
             </button>
             <button className="btn sm" onClick={() => navigate(catalogPageRoute(articlePath))} title={`Read this page in the Catalog: ${articlePath}`}>

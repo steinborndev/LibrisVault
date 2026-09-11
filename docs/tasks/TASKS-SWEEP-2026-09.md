@@ -208,3 +208,10 @@ A second list, split the same way and settled up front:
       ground and height as the two doors). Reading the log, the pane is a column and the log
       takes what is left of it (344px of a 386px pane), scrolling inside itself, instead of a
       320px box over empty space.
+- [x] Follow-up (2026-09-11). `/graph?select=<path>` is the graph's second door: the page
+      is selected in the whole graph (the explorer opens on it, nothing is narrowed, and
+      whatever would hide the node steps aside), the param is consumed. A record's "Graph
+      view" and the Catalog's "In graph" use it; they used to land in focus mode. The
+      record's Article | Log toggle wears the headline's grey, and the Catalog's article
+      takes the pane's width. Measured: both doors arrive at `/graph` with no focus bar and
+      the page's title in the explorer; the article body is 1251px of a 1306px pane.

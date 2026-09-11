@@ -90,6 +90,9 @@ export function Vault({ path, active = true }: { path: string; active?: boolean 
   const page = pageFromPath(pathname)
   const params = new URLSearchParams(search ?? '')
   const focus = params.get('focus')
+  // `/graph?select=<path>`: the page selected in the whole graph, nothing narrowed - what a
+  // record's "Graph view" and the Catalog's "In graph" mean. `?focus=` is the other door.
+  const select = params.get('select')
   // `/graph?domain=<key>` (a shelf click in the Library, docs/tasks/TASKS-A4.md D10) sets the
   // domain filter once; the chips take over from there.
   const domainParam = params.get('domain')
@@ -119,7 +122,7 @@ export function Vault({ path, active = true }: { path: string; active?: boolean 
   }
 
   if (page !== null) return <PageView graph={graphQ.data} path={page} />
-  return <GraphView graph={graphQ.data} focusPath={focus} openGaps={openGaps} hideLabels={hideLabels} domainParam={domainParam} clearFilters={clearFilters} active={active} />
+  return <GraphView graph={graphQ.data} focusPath={focus} selectPath={select} openGaps={openGaps} hideLabels={hideLabels} domainParam={domainParam} clearFilters={clearFilters} active={active} />
 }
 
 // ---------------------------------------------------------------------------- graph view
@@ -358,6 +361,7 @@ function useDebounced<T>(value: T, delay: number): T {
 function GraphView({
   graph,
   focusPath,
+  selectPath = null,
   openGaps,
   hideLabels = false,
   domainParam = null,
@@ -366,6 +370,8 @@ function GraphView({
 }: {
   graph: VaultGraph
   focusPath: string | null
+  /** A page to select in the whole graph, consumed on arrival; null when nothing is asked. */
+  selectPath?: string | null
   openGaps: boolean
   /** `?labels=off` - render the graph without any text (screenshot mode). */
   hideLabels?: boolean
@@ -490,6 +496,7 @@ function GraphView({
     })
   }, [openGaps, focusPath])
 
+
   // Write-through into the module-scope memory: every committed render snapshots the view
   // state, so the next mount (returning from an article) restores exactly this view.
   useEffect(() => {
@@ -587,6 +594,35 @@ function GraphView({
     const target = [...selectedDomains].map((d) => wingOf(wings, d)).find((id): id is string => id !== undefined)
     if (target !== undefined) wingMode.setWing(target)
   }, [selectedDomains, wing, wings, wingMode])
+
+  /*
+   * `?select=`: the page is selected - the explorer opens on it, the canvas marks it - and
+   * nothing is narrowed. The two doors that say "graph" (a record's "Graph view", the
+   * Catalog's "In graph") used to land in focus mode, which is the neighbourhood view and
+   * not what they promised. Whatever would hide the node steps aside: the domain and type
+   * filters, a cluster drill-down, the wing on show (it turns to the node's room, or to the
+   * flat list when the room is not known yet), and the system-page switch for a system page.
+   * The param is consumed, so the same button works twice in a row.
+   */
+  useEffect(() => {
+    if (selectPath === null || selectPath === undefined) return
+    navigate('/graph', { replace: true })
+    const node = graph.nodes.find((n) => n.path === selectPath)
+    if (node === undefined) return
+    setSelectedDomains(new Set())
+    setSelectedTypes(new Set())
+    setClusterStack([])
+    setLocalDepth(0)
+    setInput('')
+    if (!isKnowledge(node)) setShowSystem(true)
+    if (wing !== null) {
+      const room = wingOf(wings, node.domain ?? NO_DOMAIN)
+      if (room !== undefined) wingMode.setWing(room)
+      else wingMode.setMode('all')
+    }
+    selectPage(node.path)
+    // The param is gone by the next render, so a later change of the rooms cannot replay this.
+  }, [selectPath, graph.nodes, wing, wingMode, wings])
   // With no domains assigned, the domain lens falls back to type-coloring; the legend must
   // follow the SAME resolution so it explains what's actually drawn.
   const effectiveLens: Lens = hasDomains ? lens : lens === 'domain' ? 'type' : lens

@@ -3555,6 +3555,8 @@ span.head-slot { display: inline-block; }
 .ca { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ca-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .ca-head .btn, .ca-head .bucket { flex: none; }
+/* The article takes the pane: no measure here, the list beside it is wide too. */
+.ca .shelf-page .page-body { max-width: none; }
 .ca-title {
   flex: 1 1 auto; min-width: 0; margin: 0; font-family: var(--display); font-size: 17px; font-weight: 600; line-height: 1.25;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;

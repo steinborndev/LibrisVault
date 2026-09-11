@@ -789,7 +789,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                 </button>
               )}
               {view === 'activity' && detailEvent !== null && detailArticle && (
-                <div className="seg sm" role="radiogroup" aria-label="What to show">
+                <div className="seg sm ink" role="radiogroup" aria-label="What to show">
                   <button role="radio" aria-checked={detailTab === 'article'} onClick={() => setDetailTab('article')}>
                     Article
                   </button>
