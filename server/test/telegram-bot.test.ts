@@ -164,6 +164,7 @@ function makeJob(over: Partial<JobRow> = {}): JobRow {
     duplicate_of: null,
     outcome: null,
     hold: null,
+    night_released_at: null,
     ...over,
   }
 }

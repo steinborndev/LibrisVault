@@ -340,7 +340,9 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           vaultRoot: config.vaultRoot,
           store: new SqliteLibraryStore(db),
           graph: () => graph.build(),
-          jobs: () => [...store.list({ status: 'queued', limit: 50 }), ...store.list({ status: 'preprocessing', limit: 50 }), ...store.list({ status: 'ingesting', limit: 50 })],
+          // Tonight's released ingests first, whatever their status: they stay in the queue
+          // the Library draws until their commit is made (v26), and the scene keeps one row per id.
+          jobs: () => [...store.nightReleased(), ...store.list({ status: 'queued', limit: 50 }), ...store.list({ status: 'preprocessing', limit: 50 }), ...store.list({ status: 'ingesting', limit: 50 })],
           runs: () => maintenance.listRuns(),
           fellows: () => fellows.list(),
           runHistory: (kind) => agentRuns.list({ kind, limit: SAMPLE_LIMIT }),

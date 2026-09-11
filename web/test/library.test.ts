@@ -147,9 +147,9 @@ describe('scene adapter', () => {
         run({ id: 'r4', kind: 'retrieve-index', channel: 'maintenance:retrieve-index', label: null }),
       ],
       jobs: [
-        { id: 'j1', status: 'queued', name: 'a.pdf', source: 'upload', batchId: null, hold: null, typicalMs: null, type: 'pdf', createdAt: '2026-09-10T00:00:00.000Z' },
-        { id: 'j2', status: 'preprocessing', name: 'b.pdf', source: 'upload', batchId: null, hold: null, typicalMs: null, type: 'pdf', createdAt: '2026-09-10T00:00:00.000Z' },
-        { id: 'j3', status: 'ingesting', name: 'c.pdf', source: 'telegram', batchId: null, hold: null, typicalMs: null, type: 'pdf', createdAt: '2026-09-10T00:00:00.000Z' },
+        { id: 'j1', status: 'queued', name: 'a.pdf', source: 'upload', batchId: null, hold: null, night: false, typicalMs: null, type: 'pdf', createdAt: '2026-09-10T00:00:00.000Z' },
+        { id: 'j2', status: 'preprocessing', name: 'b.pdf', source: 'upload', batchId: null, hold: null, night: false, typicalMs: null, type: 'pdf', createdAt: '2026-09-10T00:00:00.000Z' },
+        { id: 'j3', status: 'ingesting', name: 'c.pdf', source: 'telegram', batchId: null, hold: null, night: false, typicalMs: null, type: 'pdf', createdAt: '2026-09-10T00:00:00.000Z' },
       ],
     })
     const actors = buildActors(input(s, { 'maintenance:research': '→ WebFetch({})', j3: '→ Write({})' }))

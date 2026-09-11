@@ -92,6 +92,12 @@ export interface SceneJob {
   readonly batchId: string | null
   /** `night` while the job waits for the shift (chunk 6); null for an ordinary job. */
   readonly hold: JobHold | null
+  /**
+   * Part of tonight's ingest queue: held for it, or released by the shift and not through
+   * yet (its commit made, or its run over). The queue the Library draws is exactly these,
+   * and a released job stays in it while it waits its turn, runs, and commits.
+   */
+  readonly night: boolean
   /** How long an ingest of its type usually takes, for the queue's blocks; null when nothing says. */
   readonly typicalMs: number | null
   readonly type: string
@@ -260,22 +266,28 @@ export class LibraryService {
     }))
     const attributed = new Set(fellows.map((f) => f.run?.id).filter((x): x is string => x !== undefined && x !== null))
     const jobHistory = this.o.jobHistory?.() ?? []
-    const jobs = this.o
-      .jobs()
-      .filter((j) => j.status === 'queued' || j.status === 'preprocessing' || j.status === 'ingesting')
-      .map(
-        (j): SceneJob => ({
-          id: j.id,
-          status: j.status,
-          name: j.original_name ?? j.url ?? j.id.slice(-6),
-          source: j.source,
-          batchId: j.batch_id,
-          hold: j.hold ?? null,
-          typicalMs: typicalJobMs(jobHistory, j.type),
-          type: j.type,
-          createdAt: j.created_at,
-        }),
-      )
+    // The live jobs, and every job still in tonight's ingest queue whatever its status: a
+    // released job is `done` before its commit is made, and leaves the queue only after.
+    // The lists overlap (a released job is also a queued or running one), so one row per id.
+    const released = (j: JobRow): boolean => typeof j.night_released_at === 'string'
+    const byId = new Map<string, JobRow>()
+    for (const j of this.o.jobs()) {
+      if (j.status === 'queued' || j.status === 'preprocessing' || j.status === 'ingesting' || released(j)) byId.set(j.id, j)
+    }
+    const jobs = [...byId.values()].map(
+      (j): SceneJob => ({
+        id: j.id,
+        status: j.status,
+        name: j.original_name ?? j.url ?? j.id.slice(-6),
+        source: j.source,
+        batchId: j.batch_id,
+        hold: j.hold ?? null,
+        night: j.hold === 'night' || released(j),
+        typicalMs: typicalJobMs(jobHistory, j.type),
+        type: j.type,
+        createdAt: j.created_at,
+      }),
+    )
     const window = this.o.window()
     return {
       generatedAt: nowIso,

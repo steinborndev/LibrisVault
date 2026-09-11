@@ -872,6 +872,11 @@ export interface SceneJob {
   batchId: string | null
   /** `night` while the job waits for the shift; null for an ordinary job. */
   hold: 'night' | null
+  /**
+   * Part of tonight's ingest queue: held for it, or released by the shift and not through
+   * yet. A released job stays in the queue while it waits its turn, runs, and commits.
+   */
+  night: boolean
   /** How long an ingest of its type usually takes, for the queue's blocks; null when nothing says. */
   typicalMs: number | null
   type: string

@@ -724,10 +724,31 @@ describe('jobs held for the night shift', () => {
     expect(store.getOrThrow(job.id).status).toBe('queued')
 
     expect(q.releaseHeld('night')).toEqual([job.id])
+    // Released, the job keeps its place in tonight's queue (v26) until it is through.
+    expect(store.getOrThrow(job.id).night_released_at).toEqual(expect.any(String))
     await q.onIdle()
     expect(runs).toBe(1)
-    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'done', hold: null })
+    // Through: done AND committed (the commit step ran), so the place is cleared.
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'done', hold: null, night_released_at: null, commit_hash: 'abcd1234ef' })
     expect(q.releaseHeld('night')).toEqual([])
+  })
+
+  it('keeps a released job in tonight\'s queue while a retry is pending, and drops it once it gives up', async () => {
+    let attempts = 0
+    const q = makeQueue({
+      maxRetries: 1,
+      runIngest: async () => {
+        attempts++
+        return failResult('fetch failed ECONNRESET')
+      },
+    })
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource('tonight.md'), source: 'drop', hold: 'night' })
+    q.releaseHeld('night')
+    await q.onIdle()
+    // Two attempts (the retry is immediate: the job is queued again), then it gave up.
+    expect(attempts).toBe(2)
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'failed', night_released_at: null })
   })
 
   it('holds a batch as a unit and runs it as one combined ingest once released', async () => {

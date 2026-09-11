@@ -55,6 +55,7 @@ import {
   type Shelf,
   ingestSchedule,
   type IngestBlock,
+  type IngestPhase,
 } from '../../lib/command/model.ts'
 import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
@@ -1028,6 +1029,14 @@ function NightLine({ facts }: { facts: readonly string[] }): React.ReactElement 
   )
 }
 
+/** Where an ingest of tonight's queue stands, as its row says it. */
+const PHASE_TEXT: Record<IngestPhase, string> = {
+  held: 'held for tonight',
+  waiting: 'released, waiting its turn',
+  running: 'running now',
+  committing: 'run finished, committing',
+}
+
 /**
  * The two panes of the overview: the shelves that have a Fellow, and the shelves that do not.
  *
@@ -1067,9 +1076,13 @@ function Shelves({
   return (
     <>
       {/*
-       * The held ingests, one row each, in the order they run: the block in the bar above
-       * and the row here are the same job (a click on the block marks the row). Removing is
-       * cancelling; the rows are tab stops, and Delete removes the focused one.
+       * Tonight's ingests, one row each, in the order they run: the block in the bar above
+       * and the row here are the same job (a click on the block marks the row). A row stays
+       * from "Add to night shift" until the job's commit is made (2026-09-12): released and
+       * waiting, running, committing - the queue empties one job at a time as the night goes,
+       * not all at once when it begins. Removing is cancelling, so only a job still waiting
+       * can be removed; a running one is left to finish. The rows are tab stops, and Delete
+       * removes the focused one.
        */}
       <section className="cc-pane">
         <h3 className="cc-sec">
@@ -1079,42 +1092,52 @@ function Shelves({
           <p className="empty">Nothing is held for tonight. "Add to night shift" on Home holds an ingest until the shift begins, and it runs ahead of every Fellow.</p>
         ) : (
           <div className="cc-rows">
-            {ingests.map((b) => (
-              <div
-                key={b.id}
-                className={`cc-row one ingest ${picked === b.id ? 'sel' : ''}`}
-                tabIndex={0}
-                aria-label={`${b.name}, held for tonight`}
-                onClick={() => onPick(b.id)}
-                onFocus={() => onPick(b.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Delete' || e.key === 'Backspace') {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    onRemove(b.id)
-                  } else if (e.key === 'Enter') e.stopPropagation()
-                }}
-              >
-                <span className="chip-dot ingest" aria-hidden />
-                <b className="cc-key">{b.name}</b>
-                <span className="cc-t">
-                  {b.type} · about {b.minutes} min · added {timeAgo(b.createdAt)}
-                </span>
-                <span className="grow" />
-                <span className="mono-meta">{hhmm(b.from)}</span>
-                <button
-                  className="btn sm"
-                  disabled={removing}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRemove(b.id)
+            {ingests.map((b) => {
+              const removable = b.phase === 'held' || b.phase === 'waiting'
+              return (
+                <div
+                  key={b.id}
+                  className={`cc-row one ingest ${b.phase} ${picked === b.id ? 'sel' : ''}`}
+                  tabIndex={0}
+                  aria-label={`${b.name}, ${PHASE_TEXT[b.phase]}`}
+                  onClick={() => onPick(b.id)}
+                  onFocus={() => onPick(b.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Delete' || e.key === 'Backspace') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (removable) onRemove(b.id)
+                    } else if (e.key === 'Enter') e.stopPropagation()
                   }}
-                  title="Take it off tonight's queue: the job is cancelled and stays in the history"
                 >
-                  Remove
-                </button>
-              </div>
-            ))}
+                  <span className="chip-dot ingest" aria-hidden />
+                  <b className="cc-key">{b.name}</b>
+                  <span className="cc-t">
+                    {b.type} · about {b.minutes} min · added {timeAgo(b.createdAt)}
+                    {b.phase !== 'held' && ` · ${PHASE_TEXT[b.phase]}`}
+                  </span>
+                  <span className="grow" />
+                  <span className="mono-meta">{hhmm(b.from)}</span>
+                  {removable ? (
+                    <button
+                      className="btn sm"
+                      disabled={removing}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRemove(b.id)
+                      }}
+                      title="Take it off tonight's queue: the job is cancelled and stays in the history"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <span className="cc-t cc-left" title="A running ingest is left to finish; the row goes once its commit is made">
+                      left to finish
+                    </span>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </section>

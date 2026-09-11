@@ -475,25 +475,48 @@ describe('windowMinutes', () => {
 })
 
 describe('ingestSchedule', () => {
-  const job = (id: string, over: Partial<{ hold: 'night' | null; typicalMs: number | null; createdAt: string; type: string }> = {}) => ({
+  const job = (id: string, over: Partial<{ hold: 'night' | null; night: boolean; status: string; typicalMs: number | null; createdAt: string; type: string }> = {}) => ({
     id,
     name: `${id}.pdf`,
     type: 'pdf',
     hold: 'night' as const,
+    night: true,
+    status: 'queued',
     typicalMs: 480_000,
     createdAt: `2026-09-11T10:0${id.slice(-1)}:00.000Z`,
     ...over,
   })
 
-  it('lays the held ingests end to end from the start, oldest first, and skips what is not held', () => {
+  it('lays the held ingests end to end from the start, oldest first, and skips what is not tonight\'s', () => {
     // Phase 0 of the night: what the user queued for tonight runs before any Fellow, in the
     // order it was added, each block as wide as its kind of ingest usually takes.
-    const blocks = ingestSchedule([job('j2'), job('j1'), job('j3', { hold: null })], 1500)
+    const blocks = ingestSchedule([job('j2'), job('j1'), job('j3', { hold: null, night: false })], 1500)
     expect(blocks.map((b) => [b.id, b.from, b.to])).toEqual([
       ['j1', 1500, 1508],
       ['j2', 1508, 1516],
     ])
-    expect(blocks[0]).toMatchObject({ name: 'j1.pdf', type: 'pdf', minutes: 8 })
+    expect(blocks[0]).toMatchObject({ name: 'j1.pdf', type: 'pdf', minutes: 8, phase: 'held' })
+  })
+
+  it('keeps a released job in the queue, and says where it stands, until its commit is made', () => {
+    // The shift releases a job by clearing its hold; the scene's `night` flag keeps it in
+    // the queue while it waits its turn, runs and commits, and the row says which.
+    const blocks = ingestSchedule(
+      [
+        job('j1', { hold: null, status: 'queued' }),
+        job('j2', { hold: null, status: 'ingesting' }),
+        job('j3', { hold: null, status: 'done' }),
+        job('j4', { hold: null, status: 'preprocessing' }),
+        job('j5', { hold: null, night: false, status: 'done' }),
+      ],
+      0,
+    )
+    expect(blocks.map((b) => [b.id, b.phase])).toEqual([
+      ['j1', 'waiting'],
+      ['j2', 'running'],
+      ['j3', 'committing'],
+      ['j4', 'running'],
+    ])
   })
 
   it('gives a type nobody has measured five minutes, and never less than one', () => {

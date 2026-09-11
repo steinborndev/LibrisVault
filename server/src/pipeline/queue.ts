@@ -292,6 +292,8 @@ export class IngestQueue {
   /** Why the queue is paused — the dashboard distinguishes a rate limit from a spent budget. */
   private pauseReason: 'rate-limit' | 'budget' | null = null
   private inFlight = 0
+  /** Jobs sitting in `failed` only until their preprocess retry timer fires: still to run. */
+  private readonly preprocessRetries = new Set<string>()
   private toolsCache: ToolAvailability | undefined
   private idleWaiters: Array<() => void> = []
   /** Batches awaiting their combined ingest run. A slot in the pool is one batch OR one job. */
@@ -870,6 +872,21 @@ export class IngestQueue {
     return ids
   }
 
+  /**
+   * A job the night shift released leaves tonight's ingest queue once it is through (v26):
+   * its commit made, or its run ended with nothing left to run tonight. Called when a
+   * worker finishes with it, which is after the commit step - `done` alone is not through,
+   * the commit comes after it, and the Library draws the queue until the commit is made. A
+   * job queued again (a transient failure, a usage-limit pause) or waiting on a preprocess
+   * retry stays: it still runs.
+   */
+  private settleNight(id: string): void {
+    const row = this.store.get(id)
+    if (row === undefined || row.night_released_at === null) return
+    if (row.status === 'queued' || (row.status === 'failed' && this.preprocessRetries.has(id))) return
+    this.store.clearNightRelease(id)
+  }
+
   /** Resolves once the queue has no in-flight jobs and nothing left to claim. */
   onIdle(): Promise<void> {
     if (this.isIdle()) return Promise.resolve()
@@ -929,6 +946,7 @@ export class IngestQueue {
           })
           .finally(() => {
             this.inFlight--
+            for (const id of unit.memberIds) this.settleNight(id)
             this.pump()
           })
         continue
@@ -948,6 +966,7 @@ export class IngestQueue {
         })
         .finally(() => {
           this.inFlight--
+          this.settleNight(job.id)
           this.pump()
         })
     }
@@ -1489,7 +1508,9 @@ export class IngestQueue {
       'info',
       `transient preprocess failure — retry ${attempt}/${this.maxRetries} in ${Math.round(delayMs / 1000)}s`,
     )
+    this.preprocessRetries.add(jobId)
     this.setTimeoutFn(() => {
+      this.preprocessRetries.delete(jobId)
       if (!this.running) return
       if (this.store.get(jobId)?.status !== 'failed') return // manually retried or cancelled meanwhile
       this.store.transition(jobId, 'queued', {

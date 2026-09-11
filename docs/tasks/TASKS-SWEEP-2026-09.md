@@ -115,9 +115,10 @@ with an old sample, not where it is.
 
 ## Left open
 
-- `SPEC.md` section 8 still lists the job lifecycle without the `hold` column; a line
-  saying that a held job is a queued job waiting for the night shift belongs there, once
-  the spec is opened for edits.
+- `SPEC.md` section 8 still lists the job lifecycle without the `hold` column (v24) and
+  the `night_released_at` timestamp beside it (v26); a line saying that a held job is a
+  queued job waiting for the night shift, and that a released one keeps its place in the
+  night's queue until its commit is made, belongs there, once the spec is opened for edits.
 - The reading list's three-way toggle treats an entry's side as its access alone; a
   paywalled paper the user fetched by hand stands under "paywalled" with its vault link.
 
@@ -281,3 +282,18 @@ A second list, split the same way and settled up front:
       wears the tonight chip's quiet tone. Measured against an injected held job beside a
       plain queued one: both markers occupy an 8px slot at the same x, the crescent is a 13px
       filled glyph with no stroke, and both names start at the same x.
+- [x] Follow-up (2026-09-12). The night's ingest queue in the Library empties one job at a
+      time, not all at once when the shift begins. Releasing a held job used to clear its
+      hold and leave no trace, so every row vanished the moment phase 0 started, though none
+      had run. Now `release` stamps `night_released_at` (schema v26), the scene carries every
+      stamped job whatever its status (with `night: true`, one row per id), and the queue
+      clears the stamp when a worker is through with the job - which is after the commit
+      step, since `done` is written before the commit is made. A job queued again by a
+      transient failure or a usage-limit pause, or waiting on a preprocess retry, keeps its
+      place; a permanent failure, a deferral, a duplicate and a cancel (the store, at the
+      transition) end it. The rows say where each job stands (released and waiting its turn,
+      running now, run finished and committing), and only a job still waiting can be
+      removed - a running one is left to finish, as the row says. Covered by tests on the
+      store (release stamps, cancel clears, done keeps), the scene (stamped rows stay
+      through done, an unstamped done row is history), the queue (through after the commit,
+      kept across a retry, dropped when it gives up) and the schedule model (phases).

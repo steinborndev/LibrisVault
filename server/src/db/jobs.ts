@@ -114,6 +114,13 @@ export interface JobRow {
   outcome: JobOutcome | null
   /** Set while the job waits for its moment (v24); NULL for every ordinary job. */
   hold: JobHold | null
+  /**
+   * Set when the night shift released the job (v26), cleared once the job is through: its
+   * commit made, or its run ended with nothing left to run tonight. Between the two the job
+   * is still part of tonight's ingest queue, whatever its status says - `done` comes before
+   * the commit, and the queue is drawn until the commit is made.
+   */
+  night_released_at: string | null
 }
 
 export type JobOutcome = 'no-changes'
@@ -448,6 +455,16 @@ export class JobStore {
     return this.db.prepare("SELECT * FROM jobs WHERE status = 'queued' AND hold = ? ORDER BY created_at").all(hold) as JobRow[]
   }
 
+  /** The jobs the night shift released that are not through yet, oldest first (v26). */
+  nightReleased(): JobRow[] {
+    return this.db.prepare('SELECT * FROM jobs WHERE night_released_at IS NOT NULL ORDER BY created_at').all() as JobRow[]
+  }
+
+  /** The job is through: it leaves tonight's ingest queue (v26). A no-op for any other job. */
+  clearNightRelease(id: string): void {
+    this.db.prepare('UPDATE jobs SET night_released_at = NULL WHERE id = ?').run(id)
+  }
+
   /**
    * Lets every job held for this moment be claimed, and says which they were. The status
    * does not change - they were queued all along - so this is not a transition; the rows
@@ -457,7 +474,7 @@ export class JobStore {
     const run = this.db.transaction((): string[] => {
       const ids = this.held(hold).map((j) => j.id)
       if (ids.length === 0) return ids
-      this.db.prepare("UPDATE jobs SET hold = NULL WHERE status = 'queued' AND hold = ?").run(hold)
+      this.db.prepare("UPDATE jobs SET hold = NULL, night_released_at = ? WHERE status = 'queued' AND hold = ?").run(nowIso(), hold)
       for (const id of ids) this.log(id, 'info', 'released to the queue by the night shift')
       return ids
     })
@@ -624,7 +641,10 @@ export class JobStore {
              batch_id = COALESCE(@batch_id, batch_id),
              duplicate_of = COALESCE(@duplicate_of, duplicate_of),
              started_at = CASE WHEN started_at IS NULL AND @set_started = 1 THEN @now ELSE started_at END,
-             finished_at = CASE WHEN @set_finished = 1 THEN @now ELSE NULL END
+             finished_at = CASE WHEN @set_finished = 1 THEN @now ELSE NULL END,
+             -- A cancelled job leaves tonight's ingest queue (v26); every other move keeps
+             -- its place until the queue says it is through.
+             night_released_at = CASE WHEN @status = 'cancelled' THEN NULL ELSE night_released_at END
            WHERE id = @id`,
         )
         .run({

@@ -2319,6 +2319,10 @@ details.hot-cache[open] summary {
 .gp-head .dom-state { margin-left: auto; }
 /* The clear action beside the label: the × alone, square, in the head's height. */
 .gp-head .btn.dom-clear { width: 24px; padding: 0; justify-content: center; }
+/* An ingest of tonight's queue that is past waiting: its dot fills in while it runs, and the
+   place of its Remove says why there is none. */
+.cc-row.ingest.running .chip-dot.ingest, .cc-row.ingest.committing .chip-dot.ingest { background: var(--text-dim); }
+.cc-row .cc-left { flex: none; }
 /* The wing on show, under the search: the arrows at the ends, the room's name between them. */
 .dom-wing {
   display: flex;

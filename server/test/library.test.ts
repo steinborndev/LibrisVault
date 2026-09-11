@@ -181,7 +181,7 @@ describe('LibraryService', () => {
     ]
     const scene = service.scene()
     expect(scene.runs.map((r) => r.id)).toEqual(['r1'])
-    expect(scene.jobs).toEqual([{ id: 'j1', status: 'queued', name: 'paper.pdf', source: 'upload', batchId: null, hold: null, typicalMs: null }])
+    expect(scene.jobs).toEqual([{ id: 'j1', status: 'queued', name: 'paper.pdf', source: 'upload', batchId: null, hold: null, night: false, typicalMs: null }])
     expect(scene.fellows[0]).toMatchObject({ agentId: 'a1', name: 'Ada', state: 'active', run: { id: 'r3', channel: 'maintenance:research-step' }, next: { topic: 'Next' } })
   })
 
@@ -202,9 +202,32 @@ describe('LibraryService', () => {
       concurrency: () => 2,
       now: () => clock,
     })
-    expect(withHistory.scene().jobs[0]).toMatchObject({ id: 'j1', hold: 'night', typicalMs: 420_000 })
+    expect(withHistory.scene().jobs[0]).toMatchObject({ id: 'j1', hold: 'night', night: true, typicalMs: 420_000 })
     // Younger than three of the type: the reference size for a PDF.
-    expect(service.scene().jobs[0]).toMatchObject({ id: 'j1', hold: 'night', typicalMs: JOB_REFERENCE_MS['pdf'] })
+    expect(service.scene().jobs[0]).toMatchObject({ id: 'j1', hold: 'night', night: true, typicalMs: JOB_REFERENCE_MS['pdf'] })
+  })
+
+  it('keeps a released job in tonight\'s queue while it waits, runs and commits, and drops it once through', () => {
+    // The shift releases a held job by clearing its hold; the timestamp beside it (v26) is what
+    // keeps the job in the queue the Library draws - through `done`, which comes before the
+    // commit - until the queue clears it. A done job without it is history, not queue.
+    const row = (id: string, status: string, over: Partial<JobRow>): JobRow =>
+      ({ id, status, type: 'pdf', original_name: `${id}.pdf`, url: null, source: 'drop', batch_id: null, hold: null, night_released_at: null, created_at: `2026-09-12T00:0${id.slice(-1)}:00.000Z`, ...over }) as unknown as JobRow
+    jobs = [
+      row('j1', 'queued', { night_released_at: '2026-09-12T00:00:00.000Z' }),
+      row('j2', 'ingesting', { night_released_at: '2026-09-12T00:00:00.000Z' }),
+      row('j3', 'done', { night_released_at: '2026-09-12T00:00:00.000Z' }),
+      row('j4', 'done', {}),
+      row('j5', 'queued', { hold: 'night' }),
+      row('j2', 'ingesting', { night_released_at: '2026-09-12T00:00:00.000Z' }),
+    ]
+    const scene = service.scene()
+    expect(scene.jobs.map((j) => [j.id, j.status, j.night])).toEqual([
+      ['j1', 'queued', true],
+      ['j2', 'ingesting', true],
+      ['j3', 'done', true],
+      ['j5', 'queued', true],
+    ])
   })
 
   it('tells every running run how long its kind usually takes, so the scene can draw progress', () => {

@@ -186,7 +186,21 @@ export function fellowMinutes(agent: FellowRecord, durations: Readonly<Record<st
   return tasks.reduce((n, t, i) => n + (i < carried ? minutesFor(t.kind, durations) : planMinutes(durations)), 0)
 }
 
-/** A held ingest as the night's queue draws it: one grey block, as wide as its kind usually takes. */
+/**
+ * Where an ingest of tonight's queue stands (2026-09-12): held until the shift begins;
+ * released and waiting its turn; running; or run and committing - `done` is written before
+ * the commit, and the job leaves the queue only once the commit is made.
+ */
+export type IngestPhase = 'held' | 'waiting' | 'running' | 'committing'
+
+export function ingestPhase(j: Pick<SceneJob, 'hold' | 'status'>): IngestPhase {
+  if (j.hold === 'night') return 'held'
+  if (j.status === 'preprocessing' || j.status === 'ingesting') return 'running'
+  if (j.status === 'done') return 'committing'
+  return 'waiting'
+}
+
+/** An ingest of tonight's queue as the night draws it: one grey block, as wide as its kind usually takes. */
 export interface IngestBlock {
   readonly id: string
   readonly name: string
@@ -195,25 +209,29 @@ export interface IngestBlock {
   readonly from: number
   readonly to: number
   readonly createdAt: string
+  readonly phase: IngestPhase
 }
 
 /** Five minutes for a type the scene has no figure for (nothing measured, nothing listed). */
 export const INGEST_FALLBACK_MS = 300_000
 
 /**
- * Phase 0 of the night, laid end to end from the window's start: the ingests held for
- * tonight run through the queue, oldest first, before any Fellow works (chunk 6 of
- * docs/tasks/TASKS-SWEEP-2026-09.md), so the Fellows' queue starts where this ends.
+ * Phase 0 of the night, laid end to end from the window's start: the ingests of tonight's
+ * queue run before any Fellow works, oldest first (chunk 6 of
+ * docs/tasks/TASKS-SWEEP-2026-09.md), so the Fellows' queue starts where this ends. Held or
+ * released alike: a released job stays in the queue until its commit is made (the scene's
+ * `night` flag), so the queue empties one job at a time as the night goes, not all at once
+ * when it begins.
  */
 export function ingestSchedule(
-  jobs: ReadonlyArray<Pick<SceneJob, 'id' | 'name' | 'type' | 'hold' | 'typicalMs' | 'createdAt'>>,
+  jobs: ReadonlyArray<Pick<SceneJob, 'id' | 'name' | 'type' | 'hold' | 'night' | 'status' | 'typicalMs' | 'createdAt'>>,
   startMinute: number,
 ): readonly IngestBlock[] {
   const out: IngestBlock[] = []
   let cur = startMinute
-  for (const j of [...jobs].filter((j) => j.hold === 'night').sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+  for (const j of [...jobs].filter((j) => j.night).sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
     const minutes = Math.max(1, Math.round((j.typicalMs ?? INGEST_FALLBACK_MS) / 60_000))
-    out.push({ id: j.id, name: j.name, type: j.type, minutes, from: cur, to: cur + minutes, createdAt: j.createdAt })
+    out.push({ id: j.id, name: j.name, type: j.type, minutes, from: cur, to: cur + minutes, createdAt: j.createdAt, phase: ingestPhase(j) })
     cur += minutes
   }
   return out

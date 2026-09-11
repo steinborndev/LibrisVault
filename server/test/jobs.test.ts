@@ -235,10 +235,31 @@ describe('a job held for the night shift (schema v24)', () => {
     expect(store.claimNextQueued()?.id).toBe(now.id)
 
     expect(store.release('night')).toEqual([job.id])
-    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'queued', hold: null })
+    // Released, the job keeps its place in tonight's ingest queue (v26) until it is through.
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'queued', hold: null, night_released_at: expect.any(String) })
+    expect(store.nightReleased().map((j) => j.id)).toEqual([job.id])
     expect(store.claimNextQueued()?.id).toBe(job.id)
     expect(store.release('night')).toEqual([])
     expect(store.logs(job.id).map((l) => l.message)).toContainEqual(expect.stringContaining('released to the queue by the night shift'))
+    store.clearNightRelease(job.id)
+    expect(store.getOrThrow(job.id).night_released_at).toBeNull()
+    expect(store.nightReleased()).toEqual([])
+  })
+
+  it('leaves tonight\'s queue when it is cancelled, and stays in it through done until the queue clears it', () => {
+    // `done` is written before the commit is made, so the store never clears the place on
+    // its own; the queue does, once the commit step is over. A cancel is final at once.
+    const { job } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/tonight', hold: 'night' })
+    store.release('night')
+    const claimed = store.claimNextQueued()!
+    store.transition(claimed.id, 'ingesting')
+    store.transition(claimed.id, 'done')
+    expect(store.nightReleased().map((j) => j.id)).toEqual([job.id])
+    const { job: other } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/other', hold: 'night' })
+    store.release('night')
+    store.transition(other.id, 'cancelled')
+    expect(store.getOrThrow(other.id).night_released_at).toBeNull()
+    expect(store.nightReleased().map((j) => j.id)).toEqual([job.id])
   })
 
   it('never holds a duplicate: it is terminal on arrival', () => {

@@ -639,6 +639,17 @@ CREATE TABLE commit_dismissals (
 );
 `
 
+/**
+ * v26 - a job's place in tonight's ingest queue after the shift released it
+ * (docs/tasks/TASKS-SWEEP-2026-09.md, follow-up of 2026-09-12). Releasing left no trace: the
+ * moment the shift began, every held job dropped out of the queue the Library draws, though
+ * none had run yet. The timestamp stays until the job is through - its commit made, or its
+ * run ended with nothing left to run tonight - and is NULL again from then on.
+ */
+const V26 = `
+ALTER TABLE jobs ADD COLUMN night_released_at TEXT;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -665,4 +676,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 23, up: V23 },
   { version: 24, up: V24 },
   { version: 25, up: V25 },
+  { version: 26, up: V26 },
 ]
