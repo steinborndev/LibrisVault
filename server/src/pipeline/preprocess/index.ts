@@ -74,7 +74,7 @@ export async function preprocess(input: PreprocessInput): Promise<PreprocessResu
     source: input.source,
     type: plugin.type as JobType,
     originalName: input.originalName,
-    ...(input.url ? { url: input.url } : {}),
+    ...(input.url ? { url: input.url } : result.url !== undefined ? { url: result.url } : {}),
     ...(input.sha256 ? { sha256: input.sha256 } : {}),
     createdAt: nowIso(),
     original: originalRel,

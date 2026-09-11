@@ -79,6 +79,36 @@ describe('preprocess chain', () => {
     expect(written.notes.join(' ')).toMatch(/passthrough/)
   })
 
+  it('extracts a saved web page to markdown and names the address the page gives itself', async () => {
+    // The way through a site that refuses automated fetches: the page saved from the browser
+    // is the HTML a URL job would have fetched, so it gets the same extraction (here the
+    // built-in fallback, defuddle being absent) instead of passing through as text.
+    const body = 'Harnesses matter more than models. '.repeat(12)
+    const html = `<!doctype html><html><head><title>An article</title>
+      <link href="https://publisher.example/posts/an-article" rel="canonical">
+      <meta property="og:url" content="https://publisher.example/posts/an-article?utm=x">
+      <script>window.app = {}</script><style>.x{}</style></head>
+      <body><nav>menu</nav><article><h1>An article</h1><p>${body}</p></article></body></html>`
+    const r = await preprocess(stage('j1', 'An article _ Publisher.htm', Buffer.from(html)))
+    expect(r.type).toBe('text')
+    expect(r.primaryArtifact).toBe('.raw/j1/normalized.md')
+    expect(r.manifest.normalized).toBe('normalized.md')
+    expect(r.manifest.url).toBe('https://publisher.example/posts/an-article')
+    expect(r.manifest.notes.join(' ')).toMatch(/saved web page/)
+    const normalized = fs.readFileSync(path.join(vaultRoot, r.primaryArtifact), 'utf8')
+    expect(normalized).toContain('Saved from: https://publisher.example/posts/an-article')
+    expect(normalized).toContain('Harnesses matter more than models.')
+    expect(normalized).not.toMatch(/<(div|script|style|nav)\b/)
+  })
+
+  it('passes a saved page through when its extraction is junk, rather than failing it', async () => {
+    const r = await preprocess(stage('j1', 'shell.html', Buffer.from('<html><body><div id="app"></div></body></html>')))
+    expect(r.type).toBe('text')
+    expect(r.primaryArtifact).toBe('.raw/j1/shell.html')
+    expect(r.manifest.normalized).toBeUndefined()
+    expect(r.manifest.notes.join(' ')).toMatch(/junk/)
+  })
+
   it('defers audio/video', async () => {
     const r = await preprocess(stage('j2', 'talk.mp3', Buffer.from('ID3 fake')))
     expect(r.type).toBe('av')

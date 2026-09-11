@@ -117,7 +117,7 @@ async function fetchCapped(
       continue
     }
     if (res.status < 200 || res.status >= 300) {
-      throw new PreprocessError(`fetch failed: HTTP ${res.status} for ${current.url.href}`)
+      throw new PreprocessError(fetchFailureMessage(res.status, current.url.href))
     }
     return res.body
   }
@@ -190,6 +190,50 @@ export function pinnedRequest(
     req.on('error', (err) => reject(new PreprocessError(`fetch failed for ${v.url.href}: ${err.message}`)))
     req.end()
   })
+}
+
+/**
+ * The line a non-2xx answer fails the job with. A 401 or 403 is nearly always a site
+ * refusing automated fetches - bot protection in front of a public page - and the way
+ * through is the browser: the line says so, because the job's error is the one thing the
+ * user reads before deciding what to do next (2026-09-12: a night ingest of a blog post
+ * ended this way, and the saved page was dropped by hand the same evening).
+ */
+export function fetchFailureMessage(status: number, href: string): string {
+  const refused = status === 401 || status === 403
+  return `fetch failed: HTTP ${status} for ${href}${
+    refused ? ' - the site refuses automated fetches; save the page from your browser and drop the .html file instead, it is extracted the same way' : ''
+  }`
+}
+
+/**
+ * The address a saved page names for itself - its canonical link, else its Open Graph
+ * URL - so a page dropped as a file still says where it came from (the manifest's `url`,
+ * the source page's, the reading list's). Attribute order is not fixed in HTML, so both
+ * orders are read; anything but an http(s) address is ignored.
+ */
+export function canonicalUrlOf(html: string): string | undefined {
+  const head = html.slice(0, 200_000)
+  const attr = (tag: RegExp, key: string): string | undefined => {
+    const m = head.match(tag)
+    if (m === null) return undefined
+    const v = m[0].match(new RegExp(`\\b${key}\\s*=\\s*["']([^"']+)["']`, 'i'))
+    return v?.[1]
+  }
+  const candidates = [
+    attr(/<link\b[^>]*\brel\s*=\s*["']canonical["'][^>]*>/i, 'href'),
+    attr(/<meta\b[^>]*\bproperty\s*=\s*["']og:url["'][^>]*>/i, 'content'),
+  ]
+  for (const c of candidates) {
+    if (c === undefined) continue
+    try {
+      const u = new URL(c.trim())
+      if (u.protocol === 'http:' || u.protocol === 'https:') return u.href
+    } catch {
+      /* not an address */
+    }
+  }
+  return undefined
 }
 
 /** Bare-minimum HTML→text when defuddle is unavailable — strips tags, collapses space. */

@@ -40,6 +40,8 @@ export interface NormalizeResult {
   readonly exif?: Record<string, unknown>
   /** True for unsupported types (audio/video, archives): job ends `deferred`, not ingested. */
   readonly deferred?: boolean
+  /** The address the material names for itself (a saved page's canonical link); the manifest's `url` when the job has none. */
+  readonly url?: string
   /** Human-readable decisions worth recording in the manifest and job log. */
   readonly notes: readonly string[]
 }

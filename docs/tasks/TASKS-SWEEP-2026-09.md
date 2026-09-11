@@ -297,3 +297,18 @@ A second list, split the same way and settled up front:
       store (release stamps, cancel clears, done keeps), the scene (stamped rows stay
       through done, an unstamped done row is history), the queue (through after the commit,
       kept across a retry, dropped when it gives up) and the schedule model (phases).
+- [x] Follow-up (2026-09-12). One of the night's five ingests failed on the fetch: the
+      publisher answers automated requests with HTTP 403 (bot protection in front of a
+      public post). The user saved the page from the browser and dropped the `.htm`, which
+      ran to a good source page - but the file passed through as text, so the agent ran
+      defuddle by hand, could not read its own scratch output, and wrote the extraction into
+      the vault root to read it back (removed before the commit). Two changes: a saved page
+      (`.html`, `.htm`) now takes the fetched page's extraction in preprocessing (defuddle,
+      else the built-in fallback; a junk extraction falls back to the passthrough rather
+      than failing the user's own file), with the page's own address (canonical link, else
+      Open Graph URL) as the manifest's `url` and a "Saved from:" line; and a 401/403 fetch
+      fails with a line that says what to do (save the page from the browser and drop the
+      file). Spec: SPEC.md section 5 lists text as passthrough and the web row's extractor;
+      a saved page is the web row's material, so this reads as the same rule, not a new one.
+      Observed, not changed: the shift counted "4 of 5 done" although all five ended done -
+      the count is taken when the queue first turns idle, and one job was between attempts.

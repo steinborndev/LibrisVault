@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isPrivateAddress, validateUrl, htmlToText } from '../src/pipeline/preprocess/web.js'
+import { isPrivateAddress, validateUrl, htmlToText, fetchFailureMessage, canonicalUrlOf } from '../src/pipeline/preprocess/web.js'
 import { PreprocessError } from '../src/pipeline/preprocess/index.js'
 
 describe('isPrivateAddress', () => {
@@ -57,5 +57,28 @@ describe('htmlToText', () => {
     expect(text).toContain('Body text')
     expect(text).not.toContain('x()')
     expect(text).not.toContain('<')
+  })
+})
+
+describe('fetchFailureMessage', () => {
+  it('tells a refused fetch how to get through, and says nothing more for other statuses', () => {
+    // A 403 in front of a public page is bot protection; the job's error is the one line the
+    // user reads, and the browser is the way through.
+    expect(fetchFailureMessage(403, 'https://publisher.example/posts/an-article')).toMatch(/save the page from your browser and drop the \.html file/)
+    expect(fetchFailureMessage(401, 'https://publisher.example/x')).toMatch(/refuses automated fetches/)
+    expect(fetchFailureMessage(500, 'https://publisher.example/x')).toBe('fetch failed: HTTP 500 for https://publisher.example/x')
+    expect(fetchFailureMessage(404, 'https://publisher.example/x')).not.toMatch(/browser/)
+  })
+})
+
+describe('canonicalUrlOf', () => {
+  it('reads the canonical link in either attribute order, then the Open Graph URL, and only http(s)', () => {
+    expect(canonicalUrlOf('<link rel="canonical" href="https://publisher.example/a">')).toBe('https://publisher.example/a')
+    expect(canonicalUrlOf("<link href='https://publisher.example/b' rel='canonical'>")).toBe('https://publisher.example/b')
+    expect(canonicalUrlOf('<meta property="og:url" content="https://publisher.example/c">')).toBe('https://publisher.example/c')
+    expect(canonicalUrlOf('<link rel="canonical" href="https://publisher.example/a"><meta property="og:url" content="https://publisher.example/c">')).toBe('https://publisher.example/a')
+    expect(canonicalUrlOf('<link rel="canonical" href="javascript:void(0)">')).toBeUndefined()
+    expect(canonicalUrlOf('<link rel="stylesheet" href="https://publisher.example/x.css">')).toBeUndefined()
+    expect(canonicalUrlOf('<p>no head at all</p>')).toBeUndefined()
   })
 })
