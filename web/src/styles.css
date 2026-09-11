@@ -9128,9 +9128,17 @@ tr:focus-within .rowacts {
 .recap-pages .chips,
 .rf-v.list { grid-template-columns: minmax(0, 1fr); min-width: 0; }
 /* Each chip sits in a wrapper (it counts the click for the Fellow); the wrapper is the grid
-   item, and a grid item's automatic minimum is its min-content - the whole title again. */
-.recap-pages .chips > *,
-.rf-v.list > * { display: block; min-width: 0; max-width: 100%; }
+   item, and a grid item's automatic minimum is its min-content - the whole title again. A
+   list row stays a flex row, so a name keeps its gap to what follows it. */
+.recap-pages .chips > * { display: block; min-width: 0; max-width: 100%; }
+.rf-v.list > * { display: flex; min-width: 0; max-width: 100%; }
+/* A centimetre to either edge (2026-09-11): with the text at full width the sheet touched
+   the box, and looked squeezed. The same on both sides, so the rail and the content sit in
+   one frame. */
+.rfeed-split.solo .recap-fellow { padding-left: 40px; padding-right: 40px; }
+.rfeed-split.solo .rf-grid.day { padding-left: 40px; padding-right: 40px; }
+.rfeed-split.solo .recap-line { padding-left: 40px; padding-right: 40px; }
+.rfeed-split.solo .rfeed > .empty { padding-left: 40px; padding-right: 40px; }
 .rfeed-split.solo .rfeed { overflow-x: hidden; }
 .recap-pages { margin-top: 14px; }
 .recap-pages + .recap-pages { margin-top: 14px; }

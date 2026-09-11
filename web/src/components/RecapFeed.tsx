@@ -137,6 +137,8 @@ export function RecapFeed({
   const newest = rows.reduce<string | null>((n, r) => (n === null || r.cycleDate > n ? r.cycleDate : n), null)
   const current = shown.find((r) => r.cycleDate === visible) ?? shown[0]
   const fellows = (agents.data?.fellows ?? []).filter((f) => f.agent.state !== 'retired')
+  /** Every Fellow the service knows, retired ones too: a name in an old recap still opens its dossier. */
+  const agentIdOf = (name: string): string | undefined => agents.data?.fellows.find((f) => f.agent.name === name)?.agent.id
   const firstWeek = earliestWeek(rows, today)
   const thisWeek = weekStartOf(today)
 
@@ -232,6 +234,7 @@ export function RecapFeed({
                   query={query}
                   decidable={row.cycleDate === newest}
                   results={toasts}
+                  agentIdOf={agentIdOf}
                   {...(fellow !== null ? { only: fellow } : {})}
                 />
               </section>

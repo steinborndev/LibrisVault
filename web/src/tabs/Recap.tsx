@@ -144,6 +144,7 @@ export function RecapBody({
   query = '',
   decidable = true,
   results = [],
+  agentIdOf,
 }: {
   row: RecapRow
   vaultName: string
@@ -162,6 +163,8 @@ export function RecapBody({
   decidable?: boolean
   /** What the last answers came back with; each Fellow shows the lines that concern it. */
   results?: readonly RecapAnswerResult[]
+  /** A Fellow's id by name, for the names that stand outside their own section (the skipped). */
+  agentIdOf?: (name: string) => string | undefined
 }): React.ReactElement {
   const q = query.trim().toLowerCase()
   // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
@@ -225,12 +228,21 @@ export function RecapBody({
             <>
               <span className="rf-k">Skipped</span>
               <div className="rf-v list">
-                {m.shift.skipped.map((sk) => (
-                  <span key={sk.agentName} className="filed">
-                    <b>{sk.agentName}</b>
-                    <span className="by">{sk.reason}</span>
-                  </span>
-                ))}
+                {m.shift.skipped.map((sk) => {
+                  const id = agentIdOf?.(sk.agentName)
+                  return (
+                    <span key={sk.agentName} className="filed">
+                      {id !== undefined ? (
+                        <button className="recap-fname-link" title={`Open ${sk.agentName}'s dossier in the Library`} onClick={() => navigate(`/library?cc=${encodeURIComponent(id)}`)}>
+                          <b>{sk.agentName}</b>
+                        </button>
+                      ) : (
+                        <b>{sk.agentName}</b>
+                      )}
+                      <span className="by">{sk.reason}</span>
+                    </span>
+                  )
+                })}
               </div>
             </>
           )}
