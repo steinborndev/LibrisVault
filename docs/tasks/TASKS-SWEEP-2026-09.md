@@ -252,3 +252,11 @@ A second list, split the same way and settled up front:
       Measured: three presses land on rows 0, 1 and 703 of 704 with the ring on the row,
       Enter opens the row's article and Escape returns, an arrow in the search field stays
       there; the foot shows four hints by wing and three with "show all".
+- [x] Follow-up (2026-09-11). The domain section's head (Graph and Catalog) is 222px, and
+      "× Clear" beside the 148px toggle came to 291px once a domain was picked: the toggle
+      gave way and its two halves drew over each other. The clear action is now the × alone,
+      square in the head's height, beside the label it clears (tooltip and accessible name
+      "Clear the domain filter"), and the toggle is 122px at the head's right edge with no
+      spacer element (one would cost a gap of its own). Measured: with and without a
+      selection, in both tabs, the toggle is 122px with 57px halves, neither label clipped,
+      its right edge at the head's right edge, the × 24px, nothing overflowing.

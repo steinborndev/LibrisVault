@@ -68,15 +68,20 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
 
   return (
     <div className="gp-sec grow">
+      {/* The head is 222px in the standing panel, and the toggle has to keep its two halves
+          readable in it beside the label and, once a domain is picked, the clear action.
+          "× Clear" and a 148px toggle came to 291px: the toggle gave way and its halves
+          drew over each other (2026-09-11). So the clear action is the × alone, at the
+          label it clears, and the toggle is as wide as what is left. */}
       <div className="gp-head">
         <span className="gp-eyebrow">Domains</span>
-        <span className="spacer" />
         {selected.size > 0 && (
-          <button className="btn ghost" onClick={onClear} title="Show all domains">
-            <Icon name="x" /> Clear
+          <button className="btn ghost dom-clear" onClick={onClear} title="Clear the domain filter" aria-label="Clear the domain filter">
+            <Icon name="x" />
           </button>
         )}
-        {/* The toggle, in two equal halves; without rooms there is only the flat list. */}
+        {/* The toggle, in two equal halves, at the right edge; without rooms there is only
+            the flat list. */}
         {groups.length > 0 ? (
           <div className="seg sm ink dom-mode" role="radiogroup" aria-label="Domain list">
             <button role="radio" aria-checked={mode === 'wing'} onClick={() => onMode('wing')} title="One wing at a time: the room is the filter, and the arrows walk the rooms">
@@ -87,7 +92,7 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
             </button>
           </div>
         ) : (
-          <span className="gp-state">showing all</span>
+          <span className="gp-state dom-state">showing all</span>
         )}
       </div>
       {group !== undefined && (

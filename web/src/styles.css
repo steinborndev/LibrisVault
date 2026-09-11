@@ -2310,9 +2310,15 @@ details.hot-cache[open] summary {
   font-size: 11px;
   color: var(--text-faint);
 }
-/* The list's two modes as a toggle in the section head, two equal halves. */
-.gp-head .seg.dom-mode { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 148px; }
+/* The list's two modes as a toggle at the head's right edge, two equal halves. 122px is
+   what a 222px head leaves beside the label, the clear × and the gaps (with 2px to spare),
+   and gives each half 57px for a 42px label; no spacer element, since one would cost a
+   gap of its own. */
+.gp-head .seg.dom-mode { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 122px; margin-left: auto; }
 .gp-head .seg.dom-mode button { justify-content: center; padding-inline: 0; min-width: 0; }
+.gp-head .dom-state { margin-left: auto; }
+/* The clear action beside the label: the × alone, square, in the head's height. */
+.gp-head .btn.dom-clear { width: 24px; padding: 0; justify-content: center; }
 /* The wing on show, under the search: the arrows at the ends, the room's name between them. */
 .dom-wing {
   display: flex;
