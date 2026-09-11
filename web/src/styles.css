@@ -4259,6 +4259,11 @@ kbd {
 .dtable tbody tr[tabindex] {
   cursor: pointer;
 }
+/* The row is the tab stop (its chips and its delete button are not), so the ring is the row's. */
+.dtable tbody tr[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .dtable tbody tr:hover td {
   background: color-mix(in srgb, var(--bg-elev-2) 55%, transparent);
 }
@@ -6001,11 +6006,11 @@ tr:focus-within .rowacts {
    a third of the row, and a left-aligned "When" in an 18% column left the last sixth of every
    row empty while its value sat pressed against the cost (2026-08-27). */
 .inbox-table th:nth-child(1) { width: 40%; }
-.inbox-table th:nth-child(2) { width: 16%; }
+.inbox-table th:nth-child(2) { width: 12%; }
 .inbox-table th:nth-child(3),
 .inbox-table th:nth-child(4),
 .inbox-table th:nth-child(5),
-.inbox-table th:nth-child(6) { width: 11%; }
+.inbox-table th:nth-child(6) { width: 8%; }
 .inbox-table th:nth-child(6),
 .inbox-table td:nth-child(6) { text-align: right; }
 /* The name may take the whole column now - the fixed width is the limit, not a magic px. */
@@ -6326,7 +6331,8 @@ tr:focus-within .rowacts {
    A seventh, narrow column carries the remove control; it takes its width from the name
    column, which was the only one with room to give. The note under a duplicate or a
    no-change run reads like `.rowerr` but in the muted ink: it explains, it does not warn. */
-.inbox-table th:nth-child(1) { width: 36%; }
+/* The event column holds the title, the note and the page chips: it gets the width. */
+.inbox-table th:nth-child(1) { width: 52%; }
 .inbox-table th:nth-child(7) { width: 4%; }
 .inbox-table td.acts {
   text-align: right;
@@ -8971,6 +8977,15 @@ tr:focus-within .rowacts {
    .lib-crumb); what follows is only what Home adds to them. */
 /* Same height as .box-head, so the fact strip under it sits where it sat before. */
 .home-headline { min-height: calc(var(--control-h) + 21px); }
+/* The view toggle: two halves of one width, and the picked one in ink on paper like the
+   Research tab's, not in the research violet - which here would say "web egress". */
+.home-headline .seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.home-headline .seg button { justify-content: center; }
+.home-headline .seg button[aria-selected='true'] {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg-elev));
+  box-shadow: none;
+  color: var(--text);
+}
 /* The middle sits at the row's true centre whatever stands left and right of it (the command
    centre's rule), and what stands in it has two slots of fixed width - walking the days or
    switching the view moves the letters, not the label. */

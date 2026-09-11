@@ -45,7 +45,7 @@ export function channelLabel(source: string): string {
     url: 'Link',
     telegram: 'Telegram',
     manual: 'Manual edits',
-    research: 'Research runs',
+    research: 'Research',
     git: 'Vault commit',
   }
   return map[source] ?? source
@@ -65,7 +65,7 @@ function PageChips({ vaultName, paths }: { vaultName: string; paths: readonly st
   return (
     <span className="rowpages">
       {paths.slice(0, 3).map((p) => (
-        <PageLink key={p} vaultName={vaultName} path={p} />
+        <PageLink key={p} vaultName={vaultName} path={p} tabbable={false} />
       ))}
       {paths.length > 3 && <span className="chip-n">+{paths.length - 3} more</span>}
     </span>
@@ -105,6 +105,7 @@ export function RowDelete({
     <span className="rowacts">
       <button
         className={`btn ghost sm${armed ? ' danger' : ''}`}
+        tabIndex={-1}
         disabled={del.isPending}
         title={armed ? 'Click again to remove this entry from the history' : `Remove from history: ${label}`}
         aria-label={armed ? 'Confirm removal' : `Remove from history: ${label}`}
@@ -333,14 +334,17 @@ export function SettleRow({
 export function CommitRow({
   event,
   vaultName,
+  onOpen,
 }: {
   event: ActivityEvent
   vaultName: string
+  /** Opens the commit's record when it is not a single page: the pages it touched, its hash. */
+  onOpen?: () => void
 }): React.ReactElement {
   const single = event.pages.length === 1 ? event.pages[0]! : null
-  const open = single !== null ? () => navigate(pageRoute(single)) : undefined
+  const open = single !== null ? () => navigate(pageRoute(single)) : onOpen
   return (
-    <tr {...openableRow(open, single !== null ? `Open ${single}` : '')}>
+    <tr {...openableRow(open, single !== null ? `Open ${single}` : `Open the record: ${event.title}`)}>
       <td>
         <span className="hrow-name">
           <span className="hrow-dot edit" aria-hidden />

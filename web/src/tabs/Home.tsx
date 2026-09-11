@@ -614,12 +614,11 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
           </div>
         ) : (
           <>
-            {/* The kind, one row each with the count it would leave on the table - the
-                strip that stood in the headline, in the column where the other narrowing
-                is. The reset lives in the head of the first filtering section. */}
+            {/* The type, one row each with the count it would leave on the table. The reset
+                lives in the head of the first filtering section. */}
             <div className="gp-sec">
               <div className="gp-head">
-                <span className="gp-eyebrow">Kind</span>
+                <span className="gp-eyebrow">Type</span>
                 <span className="spacer" />
                 {filtered && (
                   <button className="btn ghost" onClick={reset} title="Every kind and state again · Esc">
@@ -627,7 +626,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   </button>
                 )}
               </div>
-              <div className="pillrow stacked" role="radiogroup" aria-label="Event kind">
+              <div className="pillrow stacked" role="radiogroup" aria-label="Event type">
                 {KINDS.map((k) => (
                   <button
                     key={k.id}
@@ -779,9 +778,8 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             <div className="lib-head-left">
               {fellowsOn ? (
                 <div className="seg sm" role="tablist" aria-label="View">
-                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title="Daily recaps · left and right switch">
+                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title={`Daily recaps${waiting > 0 ? ` · ${waiting} undecided` : ''} · left and right switch`}>
                     Daily recaps
-                    {waiting > 0 && <span className="chip-n">{waiting}</span>}
                   </button>
                   <button role="tab" aria-selected={view === 'activity'} onClick={() => openView('activity')} title="Activity · left and right switch">
                     Activity
@@ -966,8 +964,13 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                               authMode={authMode}
                               onOpen={() => openDetail(e.id)}
                             />
-                          ) : e.commit !== null ? (
-                            <CommitRow key={e.id} event={e} vaultName={vaultName} />
+                          ) : e.runKind === undefined ? (
+                            /* A commit no job or run claims. It used to be "any event with a hash",
+                               which was right until the run log started keeping hashes (schema v13):
+                               from then on every research step and research run rendered as a bare
+                               commit, openable only when it wrote exactly one page, and then as that
+                               page. A run has a record; only the reconstructed commits have none. */
+                            <CommitRow key={e.id} event={e} vaultName={vaultName} onOpen={() => openDetail(e.id)} />
                           ) : (
                             <SettleRow
                               key={e.id}
@@ -1009,6 +1012,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                         Load older
                       </button>
                     )}
+                    <span className="dim">↑ ↓ walk the days · Tab to a row, Enter opens it · Esc steps back</span>
                     {/* History management lives with the history count, not in the headline:
                         it is rare, and it is the one destructive thing on the screen. */}
                     {clearCount > 0 && (
@@ -1029,7 +1033,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                             : `Clear ${clearable}`}
                       </button>
                     )}
-                    <span className="dim">↑ ↓ walk the days · Tab to a row, Enter opens it · Esc steps back</span>
                   </div>
                 </>
               ) : (
