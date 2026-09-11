@@ -598,7 +598,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   </button>
                 )
               })}
-              <button className="lib-frow spawn" onClick={() => navigate('/library?spawn=1')} title="Opens the Library with the spawn form">
+              {/* Manage Fellows in the Library: its overview lists every shelf with the button
+                  that spawns one there, which is the choice a new Fellow starts with. */}
+              <button className="lib-frow spawn" onClick={() => navigate('/library?cc=1')} title="Opens Manage Fellows in the Library">
                 <span className="d" aria-hidden />
                 <span className="who">
                   <b>Spawn a Fellow</b>
