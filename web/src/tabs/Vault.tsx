@@ -834,6 +834,22 @@ function GraphView({
   // view at once.
   const rootRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  /*
+   * The result list is open while the field is being used and closes on a click anywhere
+   * else - the FILTER stays. Search narrows the graph, and the point of narrowing it is to
+   * explore what is left; a list that stayed open over the canvas until the text was cleared
+   * made the two exclusive. Focusing or typing opens it again.
+   */
+  const searchBoxRef = useRef<HTMLDivElement>(null)
+  const [resultsOpen, setResultsOpen] = useState(false)
+  useEffect(() => {
+    if (!resultsOpen) return
+    const onDown = (e: PointerEvent): void => {
+      if (searchBoxRef.current?.contains(e.target as Node) !== true) setResultsOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    return () => document.removeEventListener('pointerdown', onDown)
+  }, [resultsOpen])
   const lastEscRef = useRef(0)
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyRef.current = (e: KeyboardEvent): void => {
@@ -887,15 +903,20 @@ function GraphView({
 
   // The search sits in the canvas bar with Fit and the view actions: it acts on the
   // canvas, and a second floating box was claiming the same corner as the bar.
+  const resultsShown = resultsOpen && query.trim() !== '' && (results.length > 0 || domainResults.length > 0)
   const searchOverlay = (
-    <div className="graph-search graph-search-inbar">
+    <div className="graph-search graph-search-inbar" ref={searchBoxRef}>
       <Icon name="search" />
       <input
         ref={searchRef}
         type="search"
         placeholder="Search pages or tags…"
         value={input}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(e) => {
+          setInput(e.target.value)
+          setResultsOpen(true)
+        }}
+        onFocus={() => setResultsOpen(true)}
         onKeyDown={(e) => {
           // Enter on an unambiguous match opens the page.
           if (e.key === 'Enter' && matches.size === 1) {
@@ -913,7 +934,7 @@ function GraphView({
         aria-label="Search the graph for a page or tag"
       />
       {input && <span className="graph-matches">{matches.size} match{matches.size === 1 ? '' : 'es'}</span>}
-      {query.trim() !== '' && (results.length > 0 || domainResults.length > 0) && (
+      {resultsShown && (
         <ul className="graph-search-results">
           {domainResults.map(([d, count]) => (
             <li key={`dom-${d}`}>
@@ -1064,7 +1085,8 @@ function GraphView({
           onReset={resetView}
         />
         <div className="graph-main">
-      <div className="graph-stage">
+      {/* While the search's list is open it has the corner: the minimap steps out of sight. */}
+      <div className={`graph-stage${resultsShown ? ' search-open' : ''}`}>
         <GraphCanvas
           view="graph"
           nodes={nodes}

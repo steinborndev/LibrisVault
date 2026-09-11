@@ -80,3 +80,8 @@ with an old sample, not where it is.
       every room and turns the page to the first hit. Measured in the browser: the graph's
       scope sentence names the room and its page count follows the walk; the catalog's table
       does the same.
+- [x] Chunk 5 (2026-09-11). The graph search's result list is open while the field is in
+      use and closes on a click anywhere else; the filter stays, and focusing or typing opens
+      the list again. While it is open the minimap steps out of sight, and the canvas bar
+      stacks above the minimap in any case. Measured in the browser: after the outside click
+      the field still holds the text and the scope sentence still says "matching".

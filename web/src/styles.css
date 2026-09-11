@@ -2822,6 +2822,12 @@ details.hot-cache[open] summary {
   flex: 1;
 }
 
+/* While the list is open it has the corner: the minimap steps out of sight and comes back
+   with the list gone. The list is what the reader is using; the overview is not. */
+.graph-stage.search-open .graph-minimap {
+  visibility: hidden;
+  pointer-events: none;
+}
 .graph-search-results {
   position: absolute;
   top: calc(100% + 4px);
@@ -3059,9 +3065,10 @@ details.hot-cache[open] summary {
 .graph-controls {
   flex: none;
   /* Positioned so it wins over the drawing below it: the search dropdown hangs out of the
-     bar into the canvas area, and the area is itself positioned and later in the DOM. */
+     bar into the canvas area, and the area is itself positioned and later in the DOM. Above
+     the minimap (5) too, which used to paint over the list's top-right corner. */
   position: relative;
-  z-index: 3;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 8px;
