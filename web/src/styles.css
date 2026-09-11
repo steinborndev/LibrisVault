@@ -9023,7 +9023,10 @@ tr:focus-within .rowacts {
 .home-main .facts.lead .fact.lead .k,
 .home-main .facts.lead .fact.lead .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 /* The week list in the column, both views, in the type list's rows: today in bold, the day
-   at the top of the feed quietly raised, an undecided count in the warning colour. */
+   at the top of the feed quietly raised, an undecided count in the warning colour. The weekday
+   has a slot of one width, so the dates start at one x. */
+.pillrow.stacked .viewpill > .pl > .dow { display: inline-block; width: 34px; }
+.pillrow.stacked .viewpill > .pl { font-variant-numeric: tabular-nums; }
 .gp-sec .wk-label + .pillrow.stacked { margin-top: 2px; }
 .pillrow.stacked .viewpill.today > .pl { font-weight: 600; }
 .pillrow.stacked .viewpill[aria-current='true']:not([aria-checked='true']) { background: var(--bg-elev-2); color: var(--text); }

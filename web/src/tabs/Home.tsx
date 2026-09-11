@@ -103,11 +103,15 @@ const WINDOW_MAX = 500
 const DEFAULT_FILTER: ActivityFilter = { kind: 'all', state: null, channel: null, days: null, query: '' }
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-/** `Thu 10 Sep` - a day in the week list; the year stands in the week label above it. */
-function dayLabel(date: string): string {
+/**
+ * `Thu` and `10 Sep` - a day in the week list, in two parts: the weekday sits in a slot of
+ * one width, so the dates under each other start at one x whatever the weekday's letters
+ * measure. The year stands in the week label above the list.
+ */
+function dayLabel(date: string): { dow: string; date: string } {
   const [y, m, d] = date.split('-').map(Number)
   const dt = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
-  return `${DOW[dt.getDay()]} ${fmtDay(date).slice(0, 6)}`
+  return { dow: DOW[dt.getDay()] ?? '', date: fmtDay(date).slice(0, 6) }
 }
 
 /** The local calendar day an event settled on - the same shape a recap's cycleDate has. */
@@ -537,7 +541,10 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                     }
                     onClick={() => setDay(picked ? null : date)}
                   >
-                    <span className="pl">{dayLabel(date)}</span>
+                    <span className="pl">
+                      <span className="dow">{dayLabel(date).dow}</span>
+                      {dayLabel(date).date}
+                    </span>
                     {view === 'recaps' ? (
                       row === undefined ? (
                         <span className="pn">{future ? 'to come' : 'no recap'}</span>
@@ -788,7 +795,13 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
           </div>
           <div className="vz-panel bare">
             <div className="vz-body first inset tall">
-              <DomainRanks nodes={graphQ.data?.nodes ?? []} onOpenDomain={(domain) => navigate(`/catalog?domain=${encodeURIComponent(domain)}`)} />
+              {/* A domain is a shelf: the click opens that shelf's window in the Library, the way
+                  a click on the shelf in the room does. Without Fellows there is no Library tab,
+                  and the catalog filtered to the domain is the next best door. */}
+              <DomainRanks
+                nodes={graphQ.data?.nodes ?? []}
+                onOpenDomain={(domain) => navigate(fellowsOn ? `/library?shelf=${encodeURIComponent(domain)}` : `/catalog?domain=${encodeURIComponent(domain)}`)}
+              />
             </div>
           </div>
         </section>

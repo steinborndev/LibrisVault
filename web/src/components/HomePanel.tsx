@@ -17,7 +17,7 @@ export function DomainRanks({
   onOpenDomain,
 }: {
   nodes: readonly GraphNode[]
-  /** The Catalog, filtered to one domain - a bar you click is a question about that domain. */
+  /** The domain's shelf in the Library (or the catalog filtered to it) - a bar you click is a question about that domain. */
   onOpenDomain: (domain: string) => void
 }): React.ReactElement {
   const { domains } = domainCounts(nodes)
@@ -30,7 +30,7 @@ export function DomainRanks({
           key={d.domain}
           className="rank"
           onClick={() => onOpenDomain(d.domain)}
-          title={`List the ${d.pages} pages in ${d.domain}`}
+          title={`Open the ${d.domain} shelf: ${d.pages} pages`}
         >
           <span className="lab">
             <span className="dot" style={{ background: domainColor(d.domain) }} aria-hidden />
