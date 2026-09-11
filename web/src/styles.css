@@ -9139,6 +9139,11 @@ tr:focus-within .rowacts {
 .rfeed-split.solo .rf-grid.day { padding-left: 40px; padding-right: 40px; }
 .rfeed-split.solo .recap-line { padding-left: 40px; padding-right: 40px; }
 .rfeed-split.solo .rfeed > .empty { padding-left: 40px; padding-right: 40px; }
+/* A proposal's answers and its state stand in one column on the right, top-aligned with
+   the topic: the two buttons on one row while the question is open, the chip that says
+   what became of it otherwise, drift under either. */
+.prop-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; align-content: flex-start; gap: 6px; flex: none; max-width: 240px; min-height: 24px; }
+.prop-acts:empty { display: none; }
 .rfeed-split.solo .rfeed { overflow-x: hidden; }
 .recap-pages { margin-top: 14px; }
 .recap-pages + .recap-pages { margin-top: 14px; }

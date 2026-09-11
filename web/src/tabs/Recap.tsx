@@ -595,20 +595,14 @@ function ProposalRow({ fellow, p, onAnswer, busy, canAct = true }: { fellow: num
   const pick: RecapAnswer = { action: 'pick', fellow, letter: p.code.slice(-1) }
   const veto: RecapAnswer = { action: 'veto', fellow, letter: p.code.slice(-1) }
   // The two answers exist while the question is open and the reader may answer it; anything
-  // else is a chip that says what became of the proposal.
+  // else is a chip that says what became of the proposal. Both stand in the column on the
+  // right, so the text on the left reads as text and the state is always in one place.
   const open = canAct && (p.status === 'proposed' || p.status === 'approved')
   return (
     <div className={`prop${p.status === 'approved' ? ' approved' : p.status === 'vetoed' || p.status === 'expired' || p.status === 'superseded' ? ' vetoed' : ''}`}>
       <div className="prop-main">
         <div className="prop-topic">
           <span className="prop-code">{p.code}</span> {p.kind} · {p.topic} · about {usd(p.estCostUsd)}
-          {p.status === 'approved' && <span className="chip ok">runs tonight</span>}
-          {SETTLED_CHIPS[p.status] !== undefined && <span className="chip">{SETTLED_CHIPS[p.status]}</span>}
-          {p.drift && (
-            <span className="chip" title="Low overlap with the intent; runs only if you approve it">
-              drift
-            </span>
-          )}
         </div>
         {p.rationale && <p className="prop-why">{p.rationale}</p>}
         <p className="prop-from">
@@ -616,18 +610,31 @@ function ProposalRow({ fellow, p, onAnswer, busy, canAct = true }: { fellow: num
           From {p.provenance.candidate}: {p.provenance.text}
         </p>
       </div>
-      {open && (
-        <div className="prop-acts">
-          {p.status !== 'approved' && (
-            <button className="btn primary sm" disabled={busy} title={answerCode(pick)} onClick={() => onAnswer(pick)}>
-              Run tonight
-            </button>
-          )}
+      <div className="prop-acts">
+        {open && p.status !== 'approved' && (
+          <button className="btn primary sm" disabled={busy} title={answerCode(pick)} onClick={() => onAnswer(pick)}>
+            Run tonight
+          </button>
+        )}
+        {open && (
           <button className="btn ghost sm" disabled={busy} title={answerCode(veto)} onClick={() => onAnswer(veto)}>
             Veto
           </button>
-        </div>
-      )}
+        )}
+        {p.status === 'approved' && <span className="chip ok">runs tonight</span>}
+        {SETTLED_CHIPS[p.status] !== undefined && <span className="chip">{SETTLED_CHIPS[p.status]}</span>}
+        {/* Still undecided in the store, but this recap is not where it is decided any more. */}
+        {p.status === 'proposed' && !canAct && (
+          <span className="chip" title="Still undecided; it is decided on the newest recap">
+            open
+          </span>
+        )}
+        {p.drift && (
+          <span className="chip" title="Low overlap with the intent; runs only if you approve it">
+            drift
+          </span>
+        )}
+      </div>
     </div>
   )
 }
