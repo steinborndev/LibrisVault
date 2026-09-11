@@ -102,6 +102,18 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // Deterministic post-run checks (validator.ts) shared by ingest and maintenance runs —
   // findings land as warnings in the job/run log the moment a run introduces them.
   const validate = createValidator(config.vaultRoot, graph)
+  // One reading list for the whole service: the routes read it, the Fellows write to it, and
+  // it recognizes a publication through the queue's dedupe index - by its DOI or arXiv id, and
+  // failing that by the url a source page records, which is how a PDF the user fetched by hand
+  // closes the entry that asked for it even when the publication names no identifier. Built
+  // before the queue because the queue and the maintenance runner sign the entries a run
+  // adds; the index lookups are closures and run long after the queue exists.
+  const readingList: ReadingListService = new ReadingListService(config.vaultRoot, store, {
+    commitMutex,
+    autoCommit: () => settings.effective(config).gitAutoCommit,
+    byRef: (ref) => queue.dedupeIndex.byRef(ref),
+    byUrl: (url) => queue.dedupeIndex.byUrl(url),
+  })
   const queue = new IngestQueue({
     store,
     vaultRoot: config.vaultRoot,
@@ -110,6 +122,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     commitMutex,
     concurrency: effective.concurrency,
     runRegistry,
+    reading: readingList,
     // A provider, not a value: a settings change takes effect on the next commit, no restart.
     autoCommit: () => settings.effective(config).gitAutoCommit,
     doiDedupe: () => settings.effective(config).doiDedupe,
@@ -201,6 +214,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     validate,
     stateStore: maintenanceState,
     runStore: agentRuns,
+    reading: readingList,
     ...(usage !== undefined ? { usage } : {}),
   })
 
@@ -208,16 +222,6 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // notebook writer commits behind the shared mutex and honours gitAutoCommit like a user edit.
   // The app logger exists only after buildServer; until then Fellow log lines are dropped.
   const handoffStore = new SqliteHandoffStore(db)
-  // One reading list for the whole service: the routes read it, the Fellows write to it, and
-  // it recognizes a publication through the queue's dedupe index - by its DOI or arXiv id, and
-  // failing that by the url a source page records, which is how a PDF the user fetched by hand
-  // closes the entry that asked for it even when the publication names no identifier.
-  const readingList = new ReadingListService(config.vaultRoot, store, {
-    commitMutex,
-    autoCommit: () => settings.effective(config).gitAutoCommit,
-    byRef: (ref) => queue.dedupeIndex.byRef(ref),
-    byUrl: (url) => queue.dedupeIndex.byUrl(url),
-  })
   const fellows =
     config.agentsEnabled === true && !config.demoMode
       ? new FellowService({

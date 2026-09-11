@@ -16,6 +16,9 @@ import { IngestQueue } from '../src/pipeline/queue.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { ChatStore } from '../src/db/chat.js'
 import { Mutex } from '../src/util/mutex.js'
+import { execFileSync } from 'node:child_process'
+import type { AgentRunResult } from '../src/pipeline/agent-runner.js'
+import type { FellowRunContext } from '../src/pipeline/fellow-prompts.js'
 import { buildServer } from '../src/api/server.js'
 import { ReadingListService, parseReadingList, reachOf, urlKey, urlFileName, entryRef, READING_LIST_PAGE, type ReadingEntry } from '../src/pipeline/reading-list.js'
 import { refKey } from '../src/pipeline/dedupe.js'
@@ -509,5 +512,179 @@ describe('the reading list route', () => {
     // Not on the list: the route is not an open fetch proxy.
     expect((await app.inject({ method: 'POST', url: '/api/v1/reading-list/ingest', payload: { url: 'https://example.invalid/elsewhere' } })).statusCode).toBe(404)
     expect((await app.inject({ method: 'POST', url: '/api/v1/reading-list/ingest', payload: { url: 'not-a-url' } })).statusCode).toBe(400)
+  })
+})
+
+describe('signing the entries a run added', () => {
+  let vaultRoot: string
+  let db: Db
+  let store: JobStore
+  let page: string
+
+  const BEFORE = `---
+type: meta
+title: "Reading list"
+---
+# Reading list
+
+## Entries
+
+- title: A preprint the user fetched by hand
+  url: https://arxiv.org/abs/2506.20907
+  ref: arXiv:2506.20907
+  domain: astronomy
+  why: The only campaign that pooled heterogeneous sites.
+  by: Ada
+  at: 2026-09-06
+
+- title: A paper with a DOI
+  url: https://acs.invalid/paper
+  ref: doi:10.1021/example
+  domain: materials-science
+  by: Jane
+  at: 2026-09-07
+`
+
+  beforeEach(() => {
+    vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-sign-'))
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+    page = path.join(vaultRoot, READING_LIST_PAGE)
+    fs.writeFileSync(page, BEFORE)
+    db = openDb(MEMORY_DB)
+    store = new JobStore(db, new EventBus())
+  })
+  afterEach(() => {
+    db.close()
+    fs.rmSync(vaultRoot, { recursive: true, force: true })
+  })
+
+  const okResult = (): AgentRunResult => ({ ok: true, result: 'done', usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 }, durationMs: 1, numTurns: 1, sessionId: 's', timedOut: false })
+  const waitSettled = async (runner: MaintenanceRunner, id: string): Promise<void> => {
+    for (let i = 0; i < 400; i++) {
+      const run = runner.getRun(id)
+      if (run !== undefined && run.status !== 'running') return
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    throw new Error('run never settled')
+  }
+
+  it('puts the run on the by line of what it added, and leaves the rest of the entry and the page alone', async () => {
+    /*
+     * The failure this exists for: an ingest that found four publications signed them with
+     * the name it saw on the entries above - a retired Fellow's - and the recap and that
+     * Fellow's notebook took its word for it. The service knows who ran, so it says so.
+     */
+    const reading = new ReadingListService(vaultRoot, store)
+    const before = reading.urlKeys()
+    expect(before.size).toBe(2)
+    // The run appends three entries: one signed with a name it copied, one unsigned, and one
+    // the page already had (a duplicate the parser folds away, and not the run's to sign).
+    fs.appendFileSync(
+      page,
+      '\n- title: "A paper the ingest found"\n  url: https://publisher.invalid/found?utm_source=x\n  domain: ai-tooling\n  why: The primary source behind the article.\n  access: open\n  by: Ada\n  at: 2026-09-10\n' +
+        '\n- title: A paper without a signature\n  url: https://publisher.invalid/unsigned\n  why: Cited twice.\n  at: 2026-09-10\n' +
+        '\n- title: A preprint the user fetched by hand\n  url: https://arxiv.org/abs/2506.20907\n  by: Ada\n  at: 2026-09-10\n',
+    )
+    const signed = await reading.attributeRun('ingest', before)
+    expect(signed).toEqual([
+      { title: '"A paper the ingest found"', url: 'https://publisher.invalid/found?utm_source=x', was: 'Ada' },
+      { title: 'A paper without a signature', url: 'https://publisher.invalid/unsigned', was: null },
+    ])
+    const after = parseReadingList(fs.readFileSync(page, 'utf8'))
+    expect(after.map((e) => e.by)).toEqual(['Ada', 'Jane', 'ingest', 'ingest'])
+    // Everything else the agent wrote about the publication stays, and the page's own entries are untouched.
+    expect(after[2]).toMatchObject({ why: 'The primary source behind the article.', access: 'open', domain: 'ai-tooling', at: '2026-09-10' })
+    expect(after[3]).toMatchObject({ why: 'Cited twice.', at: '2026-09-10' })
+    expect(after[0]).toMatchObject({ by: 'Ada', why: 'The only campaign that pooled heterogeneous sites.' })
+    // The added line sits inside its entry's block, not at the end of the page.
+    expect(fs.readFileSync(page, 'utf8')).toMatch(/why: Cited twice\.\n {2}at: 2026-09-10\n {2}by: ingest\n/)
+    // Signed once: a second pass finds nothing to do and does not touch the file.
+    expect(await reading.attributeRun('ingest', before)).toEqual([])
+    // And a run that added nothing changes nothing.
+    expect(await reading.attributeRun('ingest', reading.urlKeys())).toEqual([])
+  })
+
+  it('leaves alone what another run committed in the meantime', async () => {
+    const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' })
+    git('init', '-q')
+    git('add', '-A')
+    git('commit', '-q', '--no-verify', '-m', 'seed')
+    const reading = new ReadingListService(vaultRoot, store)
+    const before = reading.urlKeys()
+    // Another run adds an entry and commits it while this one is still working.
+    fs.appendFileSync(page, "\n- title: Someone else's find\n  url: https://other.invalid/find\n  by: Jane\n  at: 2026-09-10\n")
+    git('add', '-A')
+    git('commit', '-q', '--no-verify', '-m', 'the other run')
+    // This run adds its own, under a copied name.
+    fs.appendFileSync(page, "\n- title: This run's find\n  url: https://mine.invalid/find\n  by: Jane\n  at: 2026-09-10\n")
+    const signed = await reading.attributeRun('research', before)
+    expect(signed.map((s) => s.title)).toEqual(["This run's find"])
+    expect(parseReadingList(fs.readFileSync(page, 'utf8')).map((e) => e.by)).toEqual(['Ada', 'Jane', 'Jane', 'research'])
+  })
+
+  it('a maintenance run without a Fellow is told to sign as its kind, and the service holds it to that', async () => {
+    const reading = new ReadingListService(vaultRoot, store)
+    let extra = ''
+    const pathspecs: string[][] = []
+    const runner = new MaintenanceRunner({
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex: new Mutex(),
+      reading,
+      runAgent: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        // The agent copies the name it sees on the page.
+        fs.appendFileSync(page, '\n- title: A paper the research found\n  url: https://publisher.invalid/research\n  why: Primary source.\n  by: Ada\n  at: 2026-09-10\n')
+        return okResult()
+      },
+      commit: async (_root, _message, opts) => {
+        pathspecs.push([...(opts?.pathspec ?? [])])
+        return { committed: true, hash: 'h', committedPages: [] }
+      },
+    })
+    const run = runner.startResearch('Sodium-ion cathodes', 'sota')
+    await waitSettled(runner, run.id)
+    expect(extra).toContain('<reading_list>')
+    expect(extra).toContain('by: research')
+    expect(parseReadingList(fs.readFileSync(page, 'utf8')).map((e) => e.by)).toEqual(['Ada', 'Jane', 'research'])
+    // In the run's own commit, not a commit of its own.
+    expect(pathspecs).toHaveLength(1)
+    expect(pathspecs[0]).toContain(READING_LIST_PAGE)
+  })
+
+  it("a Fellow's run signs with the Fellow's name", async () => {
+    const reading = new ReadingListService(vaultRoot, store)
+    const fellow: FellowRunContext = {
+      agentId: 'a1',
+      name: 'Cleo',
+      slug: 'cleo',
+      notebookPath: 'wiki/meta/agents/cleo.md',
+      intent: 'sparse array scaling',
+      scope: null,
+      model: 'claude-sonnet-5',
+      effort: 'high',
+      maxBudgetUsd: 6,
+      recentLog: [],
+      today: '2026-09-10',
+    }
+    let extra = ''
+    const runner = new MaintenanceRunner({
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex: new Mutex(),
+      reading,
+      runAgent: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        fs.appendFileSync(page, '\n- title: A paper the step found\n  url: https://publisher.invalid/step\n  by: Ada\n  at: 2026-09-10\n')
+        return okResult()
+      },
+      commit: async () => ({ committed: true, hash: 'h', committedPages: [] }),
+    })
+    const run = runner.startResearchStep('Sodium-ion cathodes', 'sota', fellow)
+    await waitSettled(runner, run.id)
+    expect(extra).toContain('by: Cleo')
+    expect(parseReadingList(fs.readFileSync(page, 'utf8')).map((e) => e.by)).toEqual(['Ada', 'Jane', 'Cleo'])
   })
 })

@@ -88,6 +88,9 @@ describe('the reading list block', () => {
     }
     expect(p).toContain('by: Ada')
     expect(p).toContain('at: 2026-09-08')
+    // The name is given, not left to the run: one copied its by line from the entries
+    // already on the page and signed a retired Fellow.
+    expect(p).toContain('never a name copied')
   })
 
   it('asks hardest for what it could NOT read, and forbids fetching the document itself', () => {

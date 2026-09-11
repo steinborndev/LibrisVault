@@ -7,6 +7,7 @@ import { JobStore } from '../src/db/jobs.js'
 import { IngestQueue, classifyFailure, guessType, sanitizeOriginalName, type IngestRunner } from '../src/pipeline/queue.js'
 import type { AgentRunResult } from '../src/pipeline/agent-runner.js'
 import type { Validator } from '../src/pipeline/validator.js'
+import { ReadingListService, parseReadingList, READING_LIST_PAGE } from '../src/pipeline/reading-list.js'
 import { PreprocessError, type PreprocessResult, type ToolAvailability } from '../src/pipeline/preprocess/index.js'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
@@ -82,6 +83,7 @@ interface QueueOverrides {
   maxRetries?: number
   budgetExceeded?: () => boolean
   validate?: Validator
+  reading?: ReadingListService
 }
 
 function makeQueue(over: QueueOverrides = {}): IngestQueue {
@@ -102,6 +104,7 @@ function makeQueue(over: QueueOverrides = {}): IngestQueue {
     runIngest: over.runIngest ?? (async () => okResult()),
     ...(over.budgetExceeded ? { budgetExceeded: over.budgetExceeded } : {}),
     ...(over.validate ? { validate: over.validate } : {}),
+    ...(over.reading ? { reading: over.reading } : {}),
   })
 }
 
@@ -149,6 +152,11 @@ describe('system-prompt extension', () => {
     // and the Fellow behind it disappear (section 10.6).
     expect(extra).toContain('wiki/meta/reading-list.md is append-only')
     expect(extra).toContain('NEVER remove or rewrite one')
+    // And the shape of an entry, signed as the ingest: without it the run copied the name
+    // it saw on the entries already there, a retired Fellow's.
+    expect(extra).toContain('<reading_list>')
+    expect(extra).toContain('by: ingest')
+    expect(extra).toMatch(/at: \d{4}-\d{2}-\d{2}/)
     // A link split by a paragraph wrap stops resolving and reads as a dead link everywhere.
     expect(extra).toContain('NEVER break a wikilink across a line')
   })
@@ -188,6 +196,28 @@ describe('system-prompt extension', () => {
     await q.onIdle()
     expect(extra).toContain('<provenance>')
     expect(extra).toContain('https://example.org/report.pdf')
+  })
+
+  it('signs the reading list entries the run added as the ingest, in the ingest commit', async () => {
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+    const page = path.join(vaultRoot, READING_LIST_PAGE)
+    fs.writeFileSync(page, '# Reading list\n\n## Entries\n\n- title: An earlier find\n  url: https://a.invalid/1\n  by: Ada\n  at: 2026-09-01\n')
+    const q = makeQueue({
+      reading: new ReadingListService(vaultRoot, store),
+      runIngest: async () => {
+        // The agent copies the name it sees on the page.
+        fs.appendFileSync(page, '\n- title: A paper the ingest found\n  url: https://a.invalid/2\n  why: Primary source.\n  by: Ada\n  at: 2026-09-10\n')
+        return okResult()
+      },
+    })
+    q.start()
+    await q.enqueueFile({ sourcePath: writeSource('note.md'), source: 'drop' })
+    await q.onIdle()
+    expect(parseReadingList(fs.readFileSync(page, 'utf8')).map((e) => e.by)).toEqual(['Ada', 'ingest'])
+    // Staged into the ingest's own commit, and said in the job log.
+    expect(commitPathspecs.at(-1)).toContain(READING_LIST_PAGE)
+    const job = store.list({ limit: 1 })[0]!
+    expect(store.logs(job.id).map((l) => l.message)).toContainEqual(expect.stringContaining('reading list: 1 new entry signed "ingest" (the run had written: Ada)'))
   })
 
   it('tells a dropped file that the service has no address for it', async () => {

@@ -52,7 +52,9 @@ import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { msUntilReset } from './budget.js'
 import { readDomainRegistry, domainSystemPrompt } from './domains.js'
-import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES, renderProvenance } from './system-prompt.js'
+import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES, renderProvenance, renderReadingList } from './system-prompt.js'
+import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
+import { localDate } from './clock.js'
 import type { Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
@@ -133,6 +135,12 @@ export interface IngestQueueOptions {
    */
   readonly runRegistry?: RunRegistry
   /**
+   * The reading list (docs/agents/SPEC.md section 10.6): an ingest may add entries, and the
+   * service signs the ones it added as `ingest` before the commit, whatever name the agent
+   * wrote. Without it the entries stand as written.
+   */
+  readonly reading?: ReadingListService
+  /**
    * Post-run validator (validator.ts): deterministic checks over the pages a run touched,
    * logged as warnings against the job. Read-only and advisory — findings never change the
    * job's outcome. Omitted (e.g. in the CLI) means no validation.
@@ -167,7 +175,12 @@ interface CommitScope {
   readonly dirtyBefore: ReadonlySet<string>
   /** Job-specific extras, e.g. `.raw/<job-id>`. */
   readonly extra: readonly string[]
+  /** The reading list's urls before the run, when a list is wired: what the run added is what is not in here. */
+  readonly readingBefore: ReadonlySet<string> | undefined
 }
+
+/** How an ingest signs the reading list entries it adds (the Fellow's name on a Fellow's run). */
+const INGEST_ACTOR = 'ingest'
 
 /** Classifies an agent failure to decide retry vs pause vs give-up. */
 export function classifyFailure(res: AgentRunResult): FailureClass {
@@ -259,6 +272,7 @@ export class IngestQueue {
   private readonly runRegistry: RunRegistry
   private readonly validate: Validator | undefined
   private readonly dedupe: DedupeIndex
+  private readonly reading: ReadingListService | undefined
 
   private readonly discardStaging: (vaultRoot: string, relDir: string) => Promise<boolean>
   private readonly doiDedupe: () => boolean
@@ -310,6 +324,7 @@ export class IngestQueue {
     this.runRegistry = opts.runRegistry ?? new RunRegistry()
     this.validate = opts.validate
     this.dedupe = opts.dedupe ?? new DedupeIndex(opts.vaultRoot)
+    this.reading = opts.reading
     this.discardStaging = opts.discardStaging ?? discardUntrackedDir
     this.doiDedupe = opts.doiDedupe ?? ((): boolean => true)
   }
@@ -993,6 +1008,8 @@ export class IngestQueue {
     // Bracket + register as a writer so Bash-written pages can be swept into the commit, but
     // only when this turns out to be the sole writer (finding F4).
     const dirtyBefore = await dirtyPaths(this.vaultRoot)
+    // The reading list before the run, so the entries the run adds can be signed by it.
+    const readingBefore = this.reading?.urlKeys()
     const endRun = this.runRegistry.begin(dirtyBefore)
     const written = new Set<string>()
     const res = await this.runIngest({
@@ -1007,6 +1024,7 @@ export class IngestQueue {
         PAGE_HYGIENE_CHECKLIST,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        renderReadingList(INGEST_ACTOR, localDate(new Date())),
         renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
       ]
         .filter(Boolean)
@@ -1033,6 +1051,7 @@ export class IngestQueue {
         written,
         dirtyBefore,
         extra: [path.posix.join('.raw', job.id)],
+        readingBefore,
       })
       endRun()
       this.markNoChanges(job.id, committed.length)
@@ -1088,7 +1107,14 @@ export class IngestQueue {
     } else if (!sole) {
       log('another run is writing — staging only tool-reported paths (F4 sweep skipped)')
     }
-    return [...new Set([...scope.written, ...swept, ...scope.extra, ...BOOKKEEPING_PATHS])]
+    // The reading list entries this run added are signed by it, whatever the agent wrote on
+    // their by line - only while it is the sole writer, for the same reason the sweep is.
+    const signed = sole && scope.readingBefore !== undefined && this.reading !== undefined ? await this.reading.attributeRun(INGEST_ACTOR, scope.readingBefore) : []
+    if (signed.length > 0) {
+      const wrote = [...new Set(signed.map((s) => s.was ?? 'no name'))].join(', ')
+      log(`reading list: ${signed.length} new entr${signed.length === 1 ? 'y' : 'ies'} signed "${INGEST_ACTOR}" (the run had written: ${wrote})`)
+    }
+    return [...new Set([...scope.written, ...swept, ...(signed.length > 0 ? [READING_LIST_PAGE] : []), ...scope.extra, ...BOOKKEEPING_PATHS])]
   }
 
   /** Returns the committed wiki pages, so the validation step can cover Bash-written pages
@@ -1285,6 +1311,7 @@ export class IngestQueue {
 
     // Same F4 bracket as the single-job path.
     const dirtyBefore = await dirtyPaths(this.vaultRoot)
+    const readingBefore = this.reading?.urlKeys()
     const endRun = this.runRegistry.begin(dirtyBefore)
     const written = new Set<string>()
     const res = await this.runIngest({
@@ -1299,6 +1326,7 @@ export class IngestQueue {
         PAGE_HYGIENE_CHECKLIST,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        renderReadingList(INGEST_ACTOR, localDate(new Date())),
         // Each member keeps its OWN origin: a batch is several documents, and one shared
         // address would file the wrong one on all but one of them.
         renderProvenance(ready.map((r) => ({ artifact: r.artifact, url: r.url }))),
@@ -1332,6 +1360,7 @@ export class IngestQueue {
         written,
         dirtyBefore,
         extra: ready.map((r) => path.posix.join('.raw', r.id)),
+        readingBefore,
       })
       endRun()
       for (const r of ready) this.markNoChanges(r.id, committed.length)

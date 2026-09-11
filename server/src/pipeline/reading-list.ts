@@ -18,7 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { JobStore } from '../db/jobs.js'
 import type { Mutex } from '../util/mutex.js'
-import { commitPaths, type CommitResult } from './git.js'
+import { commitPaths, readAtRevision, type CommitResult } from './git.js'
 import { refKey, urlKey } from './dedupe.js'
 
 /** Where the Fellows write their finds. One page, appended to, never rewritten. */
@@ -65,6 +65,14 @@ export interface ReadingEntry {
    * exactly the case the list had no answer for.
    */
   readonly archivedAt: string | null
+}
+
+/** One entry a run added under another name, as {@link ReadingListService.attribute} corrected it. */
+export interface ReadingAttribution {
+  readonly title: string
+  readonly url: string
+  /** The `by` the agent had written; null when it wrote none. */
+  readonly was: string | null
 }
 
 export interface ReadingItem extends ReadingEntry {
@@ -400,6 +408,96 @@ export class ReadingListService {
       }
     })
     return true
+  }
+
+  /**
+   * The urls on the list right now, in the form the list dedupes by. What a run's caller
+   * reads before the agent starts, so that afterwards "the entries this run added" has an
+   * answer that does not depend on what the agent wrote into them.
+   */
+  urlKeys(): Set<string> {
+    const file = path.join(this.vaultRoot, READING_LIST_PAGE)
+    let markdown: string
+    try {
+      markdown = fs.readFileSync(file, 'utf8')
+    } catch {
+      return new Set()
+    }
+    return new Set(parseReadingList(markdown).map((e) => urlKey(e.url)))
+  }
+
+  /** The same, for the page as HEAD holds it; empty when the vault is not a repository or the page is not in it. */
+  async committedUrlKeys(): Promise<Set<string>> {
+    const committed = await readAtRevision(this.vaultRoot, 'HEAD', READING_LIST_PAGE)
+    return new Set(committed === null ? [] : parseReadingList(committed).map((e) => urlKey(e.url)))
+  }
+
+  /**
+   * Signs the entries a run added with the name of the run that added them.
+   *
+   * Every writing run is told the shape of an entry and the `by` line to put on it, but an
+   * agent copies: an ingest that found four publications signed them with the name it saw on
+   * the entries above, a retired Fellow's, and the recap and the Fellow's notebook took its
+   * word for it. The service knows who ran, so it says so - on the `by` line of every entry
+   * `added` names, where the agent wrote another name or none, inside the entry's own block
+   * and nowhere else (the block rewrite {@link setArchived} uses). Everything the agent wrote
+   * about the publication stays.
+   *
+   * Writes the page only. The caller holds the commit mutex and stages the page in the run's
+   * own commit, so the correction lands in the commit that added the entries.
+   */
+  attribute(actor: string, added: (urlKey: string) => boolean): ReadingAttribution[] {
+    const file = path.join(this.vaultRoot, READING_LIST_PAGE)
+    let markdown: string
+    try {
+      markdown = fs.readFileSync(file, 'utf8')
+    } catch {
+      return []
+    }
+    const lines = markdown.split('\n')
+    const isTitle = (l: string): boolean => /^[ \t]*[-*][ \t]+title[ \t]*:/i.test(l)
+    const byLine = /^([ \t]*by[ \t]*:[ \t]*)(.*)$/i
+    const urlLine = /^[ \t]*url[ \t]*:[ \t]*(\S+)/i
+    const out: ReadingAttribution[] = []
+    let start = lines.findIndex(isTitle)
+    while (start !== -1 && start < lines.length) {
+      let end = start + 1
+      while (end < lines.length && !isTitle(lines[end]!)) end++
+      const block = lines.slice(start + 1, end)
+      const url = block.map((l) => urlLine.exec(l)?.[1]).find((u): u is string => u !== undefined)
+      if (url !== undefined && added(urlKey(url))) {
+        const at = block.findIndex((l) => byLine.test(l))
+        const was = at === -1 ? null : (byLine.exec(block[at]!)![2] ?? '').trim() || null
+        if (was !== actor) {
+          const title = lines[start]!.replace(/^[ \t]*[-*][ \t]+title[ \t]*:[ \t]*/i, '').trim()
+          if (at !== -1) {
+            lines[start + 1 + at] = `${byLine.exec(block[at]!)![1]}${actor}`
+          } else {
+            // After the last field of the block; the blank line that separates entries stays below.
+            let last = block.length - 1
+            while (last >= 0 && block[last]!.trim() === '') last--
+            lines.splice(start + 1 + last + 1, 0, `  by: ${actor}`)
+            end++
+          }
+          out.push({ title, url, was })
+        }
+      }
+      start = end
+    }
+    if (out.length > 0) fs.writeFileSync(file, lines.join('\n'), 'utf8')
+    return out
+  }
+
+  /**
+   * {@link attribute} for a run that is about to commit: the entries that were not on the
+   * list when the run began (`before`, from {@link urlKeys}) and are not committed yet. The
+   * second half keeps a run that finished and committed during this one out of the count.
+   * What it cannot tell apart is a run still writing alongside, so the caller only asks while
+   * it is the sole writer, the same rule the F4 sweep follows.
+   */
+  async attributeRun(actor: string, before: ReadonlySet<string>): Promise<ReadingAttribution[]> {
+    const committed = await this.committedUrlKeys()
+    return this.attribute(actor, (key) => !before.has(key) && !committed.has(key))
   }
 
   /** The first source page an ingest wrote, for the row's link into the vault. */

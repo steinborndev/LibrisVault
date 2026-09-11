@@ -93,12 +93,54 @@ flags violations to the operator):
   new pass below the previous ones, and keep related: to the pages of this pass. Older
   passes are preserved in git history and belong nowhere in this file.
 - wiki/meta/reading-list.md is append-only, in every kind of run. Add an entry when you find
-  a publication worth having in the original; NEVER remove or rewrite one, not even after its
-  document has been ingested. The service marks an entry as filed once the publication is in
-  the vault, and the Fellow that asked for it is told from that mark - delete the entry and
-  that request is simply gone.
+  a publication worth having in the original, in the shape the <reading_list> block gives;
+  NEVER remove or rewrite one, not even after its document has been ingested. The service
+  marks an entry as filed once the publication is in the vault, and the Fellow that asked for
+  it is told from that mark - delete the entry and that request is simply gone.
 </page_hygiene>
 `.trim()
+
+/**
+ * The reading list (docs/agents/SPEC.md section 10.6), on every run that may write: the
+ * entry shape, signed with the actor the service knows and dated by its clock.
+ *
+ * It used to hang off the research STEP alone, so a full sweep or an expand left nothing
+ * behind, and it asked only for what the run had actually READ - which dropped the entries
+ * worth the most. A paper behind a paywall, or a PDF that would not extract, is exactly the
+ * one the user's own access can get and the agent's cannot, so it belongs on the list with
+ * the reason written down.
+ *
+ * Runs without a Fellow used to carry the hygiene rule alone, with no shape. An ingest that
+ * added entries then copied its `by` line from the entries already on the page, and signed a
+ * retired Fellow's name for four publications it had found itself. So the name is given
+ * here, in every kind of run - `ingest` for an ingest job, the kind for a maintenance run,
+ * the Fellow's name for a Fellow's run - and the service checks the entries a run added
+ * against it before the commit (`ReadingListService.attributeRun`).
+ */
+export function renderReadingList(by: string, today: string): string {
+  return (
+    '<reading_list>\n' +
+    'Every publication worth having in the original (a paper, a standard, a dataset note - not a blog index or a ' +
+    'search page) goes on the reading list, whether or not you got the full text. Append one entry per publication ' +
+    'to wiki/meta/reading-list.md, under its "## Entries" heading, in exactly this shape, one field per line:\n' +
+    '- title: <the publication as its authors name it>\n' +
+    '  url: <a direct https link, the publisher or arXiv abstract page>\n' +
+    '  ref: <DOI or arXiv id, or leave the line out>\n' +
+    '  domain: <the vault domain it belongs to>\n' +
+    '  why: <one sentence on what it settles>\n' +
+    '  access: <open, paywalled or unreachable>\n' +
+    '  blocked: <the reason in a few words when it was not open: "HTTP 403", "subscription", "no extractable text"; ' +
+    'leave the line out for open>\n' +
+    `  by: ${by}\n` +
+    `  at: ${today}\n` +
+    `The by line says who is asking, and that is "${by}" in this run: write it exactly so, never a name copied ` +
+    'from entries already on the page. ' +
+    'The ones you could NOT read matter most here: the user can often get them where you cannot. Append only, never ' +
+    'rewrite entries already there, and skip a url the page already lists. Do not download the document yourself: ' +
+    'the entry is the request, and the service fetches it when the user asks.\n' +
+    '</reading_list>'
+  )
+}
 
 /**
  * Entity-notability policy appended to every vault-WRITING run, alongside the hygiene

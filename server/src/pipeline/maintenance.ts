@@ -20,7 +20,9 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { runAgent, EMPTY_USAGE, type AgentAuth, type AgentRunResult, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
-import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES } from './system-prompt.js'
+import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES, renderReadingList } from './system-prompt.js'
+import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
+import { localDate } from './clock.js'
 import { formatMessage } from './format-message.js'
 import { commitVault, dirtyPaths, newWikiPaths, BOOKKEEPING_PATHS, type CommitResult, type CommitOptions } from './git.js'
 import { RunRegistry } from './run-registry.js'
@@ -221,6 +223,12 @@ export interface MaintenanceRunnerOptions {
    * topic, lens, cost and duration need a row of their own or they die with the process.
    */
   readonly runStore?: AgentRunStore
+  /**
+   * The reading list (docs/agents/SPEC.md section 10.6): the entries a run adds are signed
+   * with the run's actor before the commit - the Fellow's name, or the kind for a run without
+   * one - whatever name the agent wrote. Without it the entries stand as written.
+   */
+  readonly reading?: ReadingListService
 }
 
 export interface MaintenanceResult {
@@ -338,6 +346,7 @@ function fellowRunOptions(fellow: FellowRunContext | undefined): Partial<RunOpti
   if (!fellow) return {}
   return {
     agentId: fellow.agentId,
+    actor: fellow.name,
     model: fellow.model,
     effort: fellow.effort,
     maxBudgetUsd: fellow.maxBudgetUsd,
@@ -360,6 +369,8 @@ interface RunOptions {
   readonly systemPromptExtra?: string
   /** The Fellow this run belongs to (docs/agents/SPEC.md); attributed in the run log. */
   readonly agentId?: string
+  /** Who the run works as on the reading list (`by`): the Fellow's name; defaults to the kind. */
+  readonly actor?: string
   /** SDK model id the run is pinned to; absent = CLI default. */
   readonly model?: string
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -393,6 +404,7 @@ export class MaintenanceRunner {
   private readonly runStore: AgentRunStore | undefined
   private readonly now: () => Date
   private readonly usage: UsageMonitor | undefined
+  private readonly reading: ReadingListService | undefined
   /** One maintenance run at a time — they all write the vault. */
   private readonly runMutex = new Mutex()
   /**
@@ -427,6 +439,7 @@ export class MaintenanceRunner {
     this.runStore = opts.runStore
     this.now = opts.now ?? ((): Date => new Date())
     this.usage = opts.usage
+    this.reading = opts.reading
   }
 
   /** The sampling hooks for one run, when a usage monitor is wired (section 8.3); each sample is a run log line. */
@@ -1243,17 +1256,28 @@ export class MaintenanceRunner {
 
       log('info', `maintenance: ${kind} started`)
       if (profile === 'query') return this.runReadOnly(kind, prompt, opts, log, runId, startedMs)
+      // Who signs what the run puts on the reading list: the Fellow, or the kind without one.
+      const actor = opts.actor ?? kind
       // Read the registry per run (it is a user-editable vault page), unless the caller pinned
-      // its own extension text. The hygiene checklist rides along for the same reason it does
-      // on ingest runs: any of these runs may write pages.
+      // its own extension text (a Fellow's run carries the same blocks in its own). The hygiene
+      // checklist and the reading list shape ride along for the same reason they do on ingest
+      // runs: any of these runs may write pages.
       const systemPromptExtra =
         opts.systemPromptExtra ??
-        [domainSystemPrompt(readDomainRegistry(this.vaultRoot)), PAGE_HYGIENE_CHECKLIST, ENTITY_NOTABILITY_RULES, TAG_HYGIENE_RULES]
+        [
+          domainSystemPrompt(readDomainRegistry(this.vaultRoot)),
+          PAGE_HYGIENE_CHECKLIST,
+          ENTITY_NOTABILITY_RULES,
+          TAG_HYGIENE_RULES,
+          renderReadingList(actor, localDate(this.now())),
+        ]
           .filter(Boolean)
           .join('\n\n')
       // Bracket the run and register as a writer, so pages the agent creates or renames via Bash
       // can still be committed — but only if we turn out to be the sole writer (F4).
       const dirtyBefore = await dirtyPaths(this.vaultRoot)
+      // The reading list before the run, so the entries the run adds can be signed by it.
+      const readingBefore = this.reading?.urlKeys()
       // Where the vault stood before the run. What the run DID is whatever moved HEAD, and
       // the service is not always the one that moves it - see the fallback below the commit.
       const headBefore = await headHash(this.vaultRoot)
@@ -1307,7 +1331,14 @@ export class MaintenanceRunner {
         } else if (!this.runRegistry.isSoleWriter()) {
           log('info', 'another run is writing — staging only tool-reported paths (F4 sweep skipped)')
         }
-        const pathspec = [...new Set([...written, ...swept, ...BOOKKEEPING_PATHS])]
+        // The reading list entries this run added are signed by it, whatever the agent wrote
+        // on their by line - only while it is the sole writer, for the same reason the sweep is.
+        const signed = this.runRegistry.isSoleWriter() && readingBefore !== undefined && this.reading !== undefined ? await this.reading.attributeRun(actor, readingBefore) : []
+        if (signed.length > 0) {
+          const wrote = [...new Set(signed.map((s) => s.was ?? 'no name'))].join(', ')
+          log('info', `reading list: ${signed.length} new entr${signed.length === 1 ? 'y' : 'ies'} signed "${actor}" (the run had written: ${wrote})`)
+        }
+        const pathspec = [...new Set([...written, ...swept, ...(signed.length > 0 ? [READING_LIST_PAGE] : []), ...BOOKKEEPING_PATHS])]
         // Read inside the mutex and before `endRun`, which is what "sole writer" means: with
         // the run deregistered the count is zero and the question no longer has an answer.
         soleWriter = this.runRegistry.isSoleWriter()

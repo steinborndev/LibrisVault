@@ -1203,6 +1203,17 @@ read, written only by a research STEP. Both cut out the entries worth the most:
 - Entries carry `by` and `at` instead of one free-text `found` line (the old line is still
   read and split), and the ingest route matches urls the way the list dedupes them, so a
   trailing slash or a tracking parameter is still the same entry.
+- **Every writing run gets the shape, and the service signs what a run added** (as built,
+  2026-09-11). Runs without a Fellow used to carry the append-only rule alone, with no entry
+  shape: an ingest that found four publications copied its `by` line from the entries already
+  on the page and signed a retired Fellow, and the recap and that Fellow's notebook took its
+  word for it. Now the `<reading_list>` block rides on every run that may write, with the
+  `by` line given - `ingest` for an ingest job, the kind for a maintenance run, the Fellow's
+  name for a Fellow's run - and before the run's commit the service rewrites the `by` line of
+  the entries the run added (not on the list when the run began, not committed since) to
+  that actor, inside the entry's own block, in the run's own commit. Only while the run is the
+  sole writer, the same rule the F4 sweep follows; a run alongside keeps its entries as
+  written.
 
 **Closing the loop** (as built, 2026-09-07). A url is not an identity. The most useful way to
 get a paywalled paper is for the user to fetch it and drop the PDF in, and that ingest has no
