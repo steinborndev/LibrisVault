@@ -176,6 +176,12 @@ export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): R
             {name}
           </span>
           <span className="badge type">{job.type}</span>
+          {/* Held for the night shift: queued, but not before the shift begins. */}
+          {job.hold === 'night' && (
+            <span className="hrow-state tonight" title="Held for the night shift, which runs it ahead of the Fellows">
+              tonight
+            </span>
+          )}
         </span>
         <span className="live-phase">{job.status}</span>
       </td>

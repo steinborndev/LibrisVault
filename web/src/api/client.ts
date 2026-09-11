@@ -97,6 +97,9 @@ export interface EnqueueResult {
   jobs: Array<{ id: string; name: string; status: JobStatus; duplicateOf?: string }>
 }
 
+/** `?when=night` holds a job for the night shift (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6). */
+const whenQs = (when?: 'night'): string => (when === undefined ? '' : `?when=${when}`)
+
 export const api = {
   health: (): Promise<Health> => fetch(`${BASE}/health`).then(json<Health>),
 
@@ -112,24 +115,27 @@ export const api = {
 
   job: (id: string): Promise<JobDetail> => fetch(`${BASE}/jobs/${id}`).then(json<JobDetail>),
 
-  /** Upload files (multipart). Multiple files → one batch (the server groups them). */
-  uploadFiles: (files: File[]): Promise<EnqueueResult> => {
+  /**
+   * Upload files (multipart). Multiple files → one batch (the server groups them). `when:
+   * 'night'` holds the jobs for the night shift, which runs them ahead of the Fellows.
+   */
+  uploadFiles: (files: File[], when?: 'night'): Promise<EnqueueResult> => {
     const form = new FormData()
     for (const f of files) form.append('files', f, f.name)
-    return fetch(`${BASE}/jobs`, { method: 'POST', body: form }).then(json<EnqueueResult>)
+    return fetch(`${BASE}/jobs${whenQs(when)}`, { method: 'POST', body: form }).then(json<EnqueueResult>)
   },
 
   /** Submit a pasted URL. */
-  submitUrl: (url: string): Promise<EnqueueResult> =>
-    fetch(`${BASE}/jobs`, {
+  submitUrl: (url: string, when?: 'night'): Promise<EnqueueResult> =>
+    fetch(`${BASE}/jobs${whenQs(when)}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ url }),
     }).then(json<EnqueueResult>),
 
   /** Submit pasted text as a note. */
-  submitText: (text: string, title?: string): Promise<EnqueueResult> =>
-    fetch(`${BASE}/jobs`, {
+  submitText: (text: string, title?: string, when?: 'night'): Promise<EnqueueResult> =>
+    fetch(`${BASE}/jobs${whenQs(when)}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(title ? { text, title } : { text }),

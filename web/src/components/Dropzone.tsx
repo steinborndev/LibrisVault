@@ -34,7 +34,11 @@ function looksLikeUrl(value: string): boolean {
   return !value.includes('\n') && /^https?:\/\/\S+$/i.test(value.trim())
 }
 
-export function Dropzone({ legend = true }: { legend?: boolean } = {}): React.ReactElement {
+/**
+ * `when: 'night'` is the same box for the night shift: everything it takes is held until the
+ * shift begins and runs ahead of every Fellow (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 7).
+ */
+export function Dropzone({ legend = true, when }: { legend?: boolean; when?: 'night' } = {}): React.ReactElement {
   const qc = useQueryClient()
   const [over, setOver] = useState(false)
   const [toast, setToast] = useState<Toast>(null)
@@ -51,12 +55,15 @@ export function Dropzone({ legend = true }: { legend?: boolean } = {}): React.Re
 
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: ['jobs'] })
+    // The night shift's window lists what is held for tonight.
+    if (when !== undefined) void qc.invalidateQueries({ queryKey: ['library-scene'] })
   }
+  const said = (res: EnqueueResult): string => `${summarize(res)}${when === 'night' ? ' · held for tonight' : ''}`
 
   const upload = useMutation({
-    mutationFn: (files: File[]) => api.uploadFiles(files),
+    mutationFn: (files: File[]) => api.uploadFiles(files, when),
     onSuccess: (res) => {
-      setToast({ kind: 'ok', text: summarize(res) })
+      setToast({ kind: 'ok', text: said(res) })
       invalidate()
     },
     onError: (e: Error) => setToast({ kind: 'err', text: e.message }),
@@ -65,10 +72,10 @@ export function Dropzone({ legend = true }: { legend?: boolean } = {}): React.Re
   const submit = useMutation({
     mutationFn: ({ value, noteTitle }: { value: string; noteTitle: string }) =>
       looksLikeUrl(value)
-        ? api.submitUrl(value.trim())
-        : api.submitText(value, noteTitle.trim() === '' ? undefined : noteTitle.trim()),
+        ? api.submitUrl(value.trim(), when)
+        : api.submitText(value, noteTitle.trim() === '' ? undefined : noteTitle.trim(), when),
     onSuccess: (res) => {
-      setToast({ kind: 'ok', text: summarize(res) })
+      setToast({ kind: 'ok', text: said(res) })
       setText('')
       setTitle('')
       invalidate()

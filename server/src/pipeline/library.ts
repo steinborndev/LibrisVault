@@ -94,6 +94,8 @@ export interface SceneJob {
   readonly hold: JobHold | null
   /** How long an ingest of its type usually takes, for the queue's blocks; null when nothing says. */
   readonly typicalMs: number | null
+  readonly type: string
+  readonly createdAt: string
 }
 
 export interface LibraryScene {
@@ -270,6 +272,8 @@ export class LibraryService {
           batchId: j.batch_id,
           hold: j.hold ?? null,
           typicalMs: typicalJobMs(jobHistory, j.type),
+          type: j.type,
+          createdAt: j.created_at,
         }),
       )
     const window = this.o.window()

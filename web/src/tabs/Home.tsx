@@ -434,9 +434,19 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         {!demoMode && (
           <div className="gp-sec">
             <div className="gp-head">
-              <span className="gp-eyebrow">Add to vault</span>
+              <span className="gp-eyebrow">Add now</span>
             </div>
             <Dropzone legend={false} />
+          </div>
+        )}
+        {/* The same box for the night: what it takes is held until the shift begins and runs
+            ahead of every Fellow, so the Fellows plan on a vault that already holds it. */}
+        {!demoMode && fellowsOn && (
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Add to night shift</span>
+            </div>
+            <Dropzone legend={false} when="night" />
           </div>
         )}
 

@@ -15,7 +15,7 @@
  *   when most of it is not booked, and two of the three tasks would look done.
  */
 
-import type { AgentTask, FellowRecord, FellowSummary, GraphNode, TaskKind } from '../../api/types.ts'
+import type { AgentTask, FellowRecord, FellowSummary, GraphNode, TaskKind, SceneJob } from '../../api/types.ts'
 
 /** A Fellow holds one art when all its tasks share one, and is custom when they do not. */
 export type FellowArt = TaskKind | 'custom'
@@ -184,6 +184,39 @@ export function fellowMinutes(agent: FellowRecord, durations: Readonly<Record<st
   const tasks = tasksTonight(agent)
   const carried = carriedTonight(agent)
   return tasks.reduce((n, t, i) => n + (i < carried ? minutesFor(t.kind, durations) : planMinutes(durations)), 0)
+}
+
+/** A held ingest as the night's queue draws it: one grey block, as wide as its kind usually takes. */
+export interface IngestBlock {
+  readonly id: string
+  readonly name: string
+  readonly type: string
+  readonly minutes: number
+  readonly from: number
+  readonly to: number
+  readonly createdAt: string
+}
+
+/** Five minutes for a type the scene has no figure for (nothing measured, nothing listed). */
+export const INGEST_FALLBACK_MS = 300_000
+
+/**
+ * Phase 0 of the night, laid end to end from the window's start: the ingests held for
+ * tonight run through the queue, oldest first, before any Fellow works (chunk 6 of
+ * docs/tasks/TASKS-SWEEP-2026-09.md), so the Fellows' queue starts where this ends.
+ */
+export function ingestSchedule(
+  jobs: ReadonlyArray<Pick<SceneJob, 'id' | 'name' | 'type' | 'hold' | 'typicalMs' | 'createdAt'>>,
+  startMinute: number,
+): readonly IngestBlock[] {
+  const out: IngestBlock[] = []
+  let cur = startMinute
+  for (const j of [...jobs].filter((j) => j.hold === 'night').sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    const minutes = Math.max(1, Math.round((j.typicalMs ?? INGEST_FALLBACK_MS) / 60_000))
+    out.push({ id: j.id, name: j.name, type: j.type, minutes, from: cur, to: cur + minutes, createdAt: j.createdAt })
+    cur += minutes
+  }
+  return out
 }
 
 /**

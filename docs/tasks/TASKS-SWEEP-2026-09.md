@@ -94,3 +94,23 @@ with an old sample, not where it is.
       job held after phase 0 waits for the next night. The scene's jobs carry `hold` and
       `typicalMs` (the median of finished ingests of the type once three exist, else a
       reference size per type read off the first vault's history).
+- [x] Chunk 7 (2026-09-11). Home's column has four sections: "Add now", "Add to night
+      shift" (the same box, posting with `?when=night`), the Fellows and the plan. A held job
+      shows in the Activity stream as queued with a "tonight" chip and the row's own Cancel.
+      The night shift window leads its subtitle with "Ingest queue: N" in both views, draws
+      one grey block per held ingest at the window's start in the active-hours bar (above
+      the window's tint, below its handles) and ahead of every band in a shelf's queue,
+      which the Fellows' schedule now starts after, and lists them in an "Ingest queue"
+      section with the type, the estimate, when they were added, their start and a Remove
+      button; the rows are tab stops, Delete removes, a click on a block marks its row, and
+      removing cancels the job through the existing route. Checked in the browser against
+      injected held jobs: the facts, the block positions, the band order and both removal
+      paths.
+
+## Left open
+
+- `SPEC.md` section 8 still lists the job lifecycle without the `hold` column; a line
+  saying that a held job is a queued job waiting for the night shift belongs there, once
+  the spec is opened for edits.
+- The reading list's three-way toggle treats an entry's side as its access alone; a
+  paywalled paper the user fetched by hand stands under "paywalled" with its vault link.

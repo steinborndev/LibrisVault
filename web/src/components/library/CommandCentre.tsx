@@ -53,6 +53,8 @@ import {
   type Block,
   type Bound,
   type Shelf,
+  ingestSchedule,
+  type IngestBlock,
 } from '../../lib/command/model.ts'
 import { domainColor } from '../../lib/domains.ts'
 import { navigate, pageRoute } from '../../lib/router.ts'
@@ -60,7 +62,7 @@ import { SpawnForm } from './SpawnForm.tsx'
 import { WeekRelease } from './WeekRelease.tsx'
 import { queryState } from '../QueryState.tsx'
 import { Markdown } from '../Markdown.tsx'
-import { usd } from '../../lib/format.ts'
+import { timeAgo, usd } from '../../lib/format.ts'
 import { weeklyProjection } from '../../lib/plan.ts'
 
 export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
@@ -242,6 +244,8 @@ export function CommandCentre({
    * form the staffed shelf you happened to be standing on.
    */
   const [spawnShelf, setSpawnShelf] = useState<string | null>(null)
+  /** The held ingest a click on its block marked; its row shows it. */
+  const [picked, setPicked] = useState<string | null>(null)
 
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, refetchInterval: 20_000 })
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph, staleTime: 60_000 })
@@ -325,7 +329,19 @@ export function CommandCentre({
   const span = live.to - live.from
   // A fresh `{}` every render would re-lay the schedule on every render with it.
   const durations = useMemo(() => agents.data?.durations ?? {}, [agents.data])
-  const blocks = useMemo(() => scheduleFrom(staffed, live.from, durations), [staffed, live.from, durations])
+  // Phase 0: the ingests held for tonight, from the window's start; the Fellows' queue
+  // starts where they end (chunk 7 of docs/tasks/TASKS-SWEEP-2026-09.md).
+  const ingests = useMemo(() => ingestSchedule(scene.data?.jobs ?? [], live.from), [scene.data, live.from])
+  const ingestEnd = ingests.length > 0 ? ingests[ingests.length - 1]!.to : live.from
+  const blocks = useMemo(() => scheduleFrom(staffed, ingestEnd, durations), [staffed, ingestEnd, durations])
+  // Removing is cancelling: the job stays in the history as cancelled, like any other.
+  const removeHeld = useMutation({
+    mutationFn: (id: string) => api.cancel(id),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['library-scene'] })
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
   const overflow = blocks.filter((b) => b.to > live.to)
   const mine = shelf ? blocks.filter((b) => b.shelf === shelf.key) : []
   /*
@@ -601,6 +617,7 @@ export function CommandCentre({
         <>
           <NightLine
             facts={[
+              `Ingest queue: ${ingests.length}`,
               `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
               `${hhmm(win.from)} to ${hhmm(win.to)}`,
               blocked !== null
@@ -633,6 +650,17 @@ export function CommandCentre({
                   <span className="h l" onMouseDown={dragEdge('from')} />
                   <span className="h r" onMouseDown={dragEdge('to')} />
                 </div>
+                {/* Phase 0 at the window's start: one grey block per held ingest, as wide as
+                    its kind usually takes. A click marks its row below. */}
+                {ingests.map((b) => (
+                  <span
+                    key={b.id}
+                    className={`cc-ingest${picked === b.id ? ' here' : ''}`}
+                    style={{ left: `${pctIn(NIGHT, b.from)}%`, width: `${Math.max(0.4, (b.minutes / (NIGHT.to - NIGHT.from)) * 100)}%` }}
+                    title={`${b.name} · ${b.type} · about ${b.minutes} min · held for tonight`}
+                    onClick={() => setPicked(b.id)}
+                  />
+                ))}
               </div>
               {/* One line each. The rule behind them is in the note under the queue; here the
                   reader wants the number and, when it is shut, when it opens again. */}
@@ -664,6 +692,11 @@ export function CommandCentre({
               wings={wings}
               row={row}
               blocks={blocks}
+              ingests={ingests}
+              picked={picked}
+              onPick={setPicked}
+              onRemove={(id) => removeHeld.mutate(id)}
+              removing={removeHeld.isPending}
               onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
               onSpawn={openSpawn}
               onDecisions={(key) => {
@@ -691,6 +724,7 @@ export function CommandCentre({
         <>
           <NightLine
             facts={[
+              `Ingest queue: ${ingests.length}`,
               taskCount(mine),
               mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} to ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
               `${shelf.fellows.length} Fellow${shelf.fellows.length === 1 ? '' : 's'}`,
@@ -702,6 +736,17 @@ export function CommandCentre({
               <Axis scale={live} step={HALF_HOUR} />
               <div className="cc-track">
                 {marks(live, HALF_HOUR).map((m) => <span key={m} className="cc-grid" style={{ left: `${pctIn(live, m)}%` }} />)}
+                {/* Phase 0 first, grey whichever shelf you are on: the held ingests run
+                    through the queue before any Fellow works. */}
+                {ingests.map((b) => (
+                  <div
+                    key={b.id}
+                    className={`cc-band ingest${picked === b.id ? ' here' : ''}`}
+                    style={{ left: `${pctIn(live, b.from)}%`, width: `${Math.max(0.4, (b.minutes / (live.to - live.from)) * 100)}%` }}
+                    title={`${b.name} · ${b.type} · about ${b.minutes} min · held for tonight, ahead of every Fellow`}
+                    onClick={() => setPicked(b.id)}
+                  />
+                ))}
                 {bandsOf(blocks).map((g) => (
                   <div
                     key={`${g.shelf}-${g.from}`}
@@ -990,6 +1035,11 @@ function Shelves({
   wings,
   row,
   blocks,
+  ingests,
+  picked,
+  onPick,
+  onRemove,
+  removing,
   onOpen,
   onSpawn,
   onDecisions,
@@ -999,12 +1049,71 @@ function Shelves({
   wings: ReadonlyArray<{ name: string; shelves: Shelf[] }>
   row: number
   blocks: readonly Block[]
+  /** Phase 0: the ingests held for tonight, in the order they run. */
+  ingests: readonly IngestBlock[]
+  picked: string | null
+  onPick: (id: string | null) => void
+  onRemove: (id: string) => void
+  removing: boolean
   onOpen: (index: number) => void
   onSpawn: (key: string) => void
   onDecisions: (key: string) => void
 }): React.ReactElement {
   return (
     <>
+      {/*
+       * The held ingests, one row each, in the order they run: the block in the bar above
+       * and the row here are the same job (a click on the block marks the row). Removing is
+       * cancelling; the rows are tab stops, and Delete removes the focused one.
+       */}
+      <section className="cc-pane">
+        <h3 className="cc-sec">
+          Ingest queue <span className="c">{ingests.length}</span>
+        </h3>
+        {ingests.length === 0 ? (
+          <p className="empty">Nothing is held for tonight. "Add to night shift" on Home holds an ingest until the shift begins, and it runs ahead of every Fellow.</p>
+        ) : (
+          <div className="cc-rows">
+            {ingests.map((b) => (
+              <div
+                key={b.id}
+                className={`cc-row one ingest ${picked === b.id ? 'sel' : ''}`}
+                tabIndex={0}
+                aria-label={`${b.name}, held for tonight`}
+                onClick={() => onPick(b.id)}
+                onFocus={() => onPick(b.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onRemove(b.id)
+                  } else if (e.key === 'Enter') e.stopPropagation()
+                }}
+              >
+                <span className="chip-dot ingest" aria-hidden />
+                <b className="cc-key">{b.name}</b>
+                <span className="cc-t">
+                  {b.type} · about {b.minutes} min · added {timeAgo(b.createdAt)}
+                </span>
+                <span className="grow" />
+                <span className="mono-meta">{hhmm(b.from)}</span>
+                <button
+                  className="btn sm"
+                  disabled={removing}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemove(b.id)
+                  }}
+                  title="Take it off tonight's queue: the job is cancelled and stays in the history"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="cc-pane">
         <h3 className="cc-sec">
           Staffed domains <span className="c">{staffed.length}</span>

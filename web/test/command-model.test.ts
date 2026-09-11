@@ -23,6 +23,8 @@ import {
   ticksIn,
   toMinutes,
   windowMinutes,
+  ingestSchedule,
+  INGEST_FALLBACK_MS,
 } from '../src/lib/command/model.ts'
 import type { AgentTask, FellowRecord, FellowSummary, GraphNode } from '../src/api/types.ts'
 
@@ -469,5 +471,34 @@ describe('windowMinutes', () => {
   it('reads the clock the way the settings write it', () => {
     expect(toMinutes('06:30')).toBe(390)
     expect(toMinutes('00:00')).toBe(0)
+  })
+})
+
+describe('ingestSchedule', () => {
+  const job = (id: string, over: Partial<{ hold: 'night' | null; typicalMs: number | null; createdAt: string; type: string }> = {}) => ({
+    id,
+    name: `${id}.pdf`,
+    type: 'pdf',
+    hold: 'night' as const,
+    typicalMs: 480_000,
+    createdAt: `2026-09-11T10:0${id.slice(-1)}:00.000Z`,
+    ...over,
+  })
+
+  it('lays the held ingests end to end from the start, oldest first, and skips what is not held', () => {
+    // Phase 0 of the night: what the user queued for tonight runs before any Fellow, in the
+    // order it was added, each block as wide as its kind of ingest usually takes.
+    const blocks = ingestSchedule([job('j2'), job('j1'), job('j3', { hold: null })], 1500)
+    expect(blocks.map((b) => [b.id, b.from, b.to])).toEqual([
+      ['j1', 1500, 1508],
+      ['j2', 1508, 1516],
+    ])
+    expect(blocks[0]).toMatchObject({ name: 'j1.pdf', type: 'pdf', minutes: 8 })
+  })
+
+  it('gives a type nobody has measured five minutes, and never less than one', () => {
+    expect(ingestSchedule([job('j1', { typicalMs: null })], 0)[0]!.minutes).toBe(INGEST_FALLBACK_MS / 60_000)
+    expect(ingestSchedule([job('j1', { typicalMs: 1_000 })], 0)[0]!.minutes).toBe(1)
+    expect(ingestSchedule([], 0)).toEqual([])
   })
 })

@@ -872,6 +872,8 @@ export interface SceneJob {
   hold: 'night' | null
   /** How long an ingest of its type usually takes, for the queue's blocks; null when nothing says. */
   typicalMs: number | null
+  type: string
+  createdAt: string
 }
 
 export interface LibraryScene {
