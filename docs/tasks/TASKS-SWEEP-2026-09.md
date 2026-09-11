@@ -242,3 +242,13 @@ A second list, split the same way and settled up front:
       872, the search at 1275 in both; the corner button sits 12px and 10px from the edges,
       its panel 8px above it inside the drawing with 11 rows, the legend 8px above the
       button; the toggle's selected half has the same ground as Focus | Full.
+- [x] Follow-up (2026-09-11). In the Catalog, up and down walk the table's rows, the
+      Research ledger's mechanic: the rows are already the focusable, Enter-openable things,
+      so the keys only move focus between them (from anywhere on the screen the first press
+      lands on the first or last row, the walk wraps at both ends, the row scrolls into
+      view), scoped to the Catalog's own table and off while a page is open or the caret is
+      in a field. The foot says so ("↑ ↓ walk the rows"), and "← → step the wing" stands
+      there only while the domains are listed by wing, since only then are the keys bound.
+      Measured: three presses land on rows 0, 1 and 703 of 704 with the ring on the row,
+      Enter opens the row's article and Escape returns, an arrow in the search field stays
+      there; the foot shows four hints by wing and three with "show all".

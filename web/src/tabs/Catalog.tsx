@@ -147,6 +147,34 @@ export function Catalog({
     return () => window.removeEventListener('keydown', onKey)
   }, [active, openPage])
 
+  /*
+   * Up and down walk the table's rows (2026-09-11), the Research ledger's mechanic: the rows
+   * are already the focusable, Enter-openable things (lib/tableRow.ts), so this only moves
+   * focus between them - no cursor state of its own, and Enter keeps meaning what it meant.
+   * From anywhere on the screen the first press lands on the first (or last) row; the walk
+   * wraps at both ends. Scoped to this screen's own table: the Library's shelf window draws
+   * the same table, mounted and hidden, and must not be walked from here.
+   */
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!active || openPage !== null) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const t = e.target
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return
+      const rows = Array.from(rootRef.current?.querySelectorAll<HTMLTableRowElement>('.lib-table tbody tr[tabindex="0"]') ?? [])
+      if (rows.length === 0) return
+      e.preventDefault()
+      const at = rows.indexOf(document.activeElement as HTMLTableRowElement)
+      const next = at === -1 ? (e.key === 'ArrowDown' ? 0 : rows.length - 1) : (at + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length
+      rows[next]!.focus()
+      rows[next]!.scrollIntoView({ block: 'nearest' })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, openPage])
+
   // System pages (index hubs, reports) are scaffolding - hidden unless asked for, same
   // default the graph uses.
   const knowledge = useMemo(
@@ -277,7 +305,7 @@ export function Catalog({
   }
 
   return (
-    <div className="workspace">
+    <div className="workspace" ref={rootRef}>
       {/* The same standing panel as the graph, and the ONLY chrome this screen has
           (2026-08-26): the bar that used to sit above both columns held a search box and a
           sentence restating what the panel and the table foot already say, so the screen
@@ -450,7 +478,9 @@ export function Catalog({
         <div className="box-foot keys" hidden={state !== null}>
           {/* The count moved up into the head; the foot keeps the keys and the one action. */}
           <span className="fl" />
-          <FootKeys items={['← → step the wing', 'Enter opens a row', 'Esc closes a page']} />
+          {/* The wing keys are bound only while the domains are listed by wing, and the
+              hint says only what the keys do. */}
+          <FootKeys items={['↑ ↓ walk the rows', ...(wing !== null ? ['← → step the wing'] : []), 'Enter opens a row', 'Esc closes a page']} />
           <span className="fr">
             {/* Only with a domain filter on: a deepening run is bounded by a domain, and this
                 is where the domain is already the thing you are looking at. */}
