@@ -78,6 +78,12 @@ export interface ShiftSummary {
   readonly merged?: readonly ShiftMerge[]
   readonly overlaps?: readonly ShiftOverlap[]
   /**
+   * Phase 0 (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6): the ingests the user had queued
+   * for tonight, released and run to the end before any Fellow worked. Absent when nothing
+   * was held.
+   */
+  readonly ingests?: { readonly released: number; readonly done: number }
+  /**
    * Set when a restart closed this round rather than the round closing itself. Without it an
    * interrupted round is indistinguishable from one that ran and found nothing to do, which
    * is a very different claim about the night.
@@ -137,6 +143,9 @@ function toRecord(row: Row): ShiftRecord {
       ...(Array.isArray(parsed.merged) ? { merged: parsed.merged } : {}),
       ...(Array.isArray(parsed.overlaps) ? { overlaps: parsed.overlaps } : {}),
       ...(parsed.interrupted === true ? { interrupted: true as const } : {}),
+      ...(parsed.ingests !== undefined && typeof parsed.ingests.released === 'number' && typeof parsed.ingests.done === 'number'
+        ? { ingests: { released: parsed.ingests.released, done: parsed.ingests.done } }
+        : {}),
     }
   } catch {
     /* a corrupt summary must not hide the shift */

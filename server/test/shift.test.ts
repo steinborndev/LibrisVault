@@ -82,6 +82,10 @@ interface Harness {
   reading: ReadingEntry[]
   /** What the reconcile pass reports as newly arrived in the vault. */
   readingFiled: Array<{ entry: ReadingEntry; page: string }>
+  /** Job ids held for the night; the fake queue releases them at phase 0. */
+  held: string[]
+  /** The order phase 0 ran in: `release:<n>` then `drained@<agent runs so far>`. */
+  order: string[]
   runner: MaintenanceRunner
   service: FellowService
   shift: NightShift
@@ -132,6 +136,8 @@ function makeHarness(withUsage = false): Harness {
   h.candidates = () => CANDIDATES
   h.reading = []
   h.readingFiled = []
+  h.held = []
+  h.order = []
   const now = (): Date => h.clock!.now
   const commitMutex = new Mutex()
   const events = new EventBus()
@@ -192,6 +198,18 @@ function makeHarness(withUsage = false): Harness {
     shifts,
     window: () => ({ start: '01:00', end: '06:00' }),
     now,
+    // The fake queue: phase 0 releases what is held and waits; the test reads the order.
+    ingests: {
+      release: () => {
+        const ids = h.held!.splice(0)
+        h.order!.push(`release:${ids.length}`)
+        return ids
+      },
+      onIdle: async () => {
+        h.order!.push(`drained@${h.calls!.length}`)
+      },
+      statusOf: () => 'done',
+    },
     sleep: async (ms) => {
       h.sleeps!.push(ms)
       h.clock!.now = new Date(h.clock!.now.getTime() + ms)
@@ -373,6 +391,26 @@ describe('planning, proposals and the night shift', () => {
    * arithmetic; this pins the thing that actually matters - that a different task reaches the
    * prompt each night, and that one answered task does not stop the Fellow.
    */
+  it('runs the ingests held for tonight before any Fellow works, and records them', async () => {
+    /*
+     * Phase 0 (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6): what the user queued for the
+     * night is released to the ordinary queue and run to the end before planning starts, so
+     * the Fellows work on a vault that already holds it. A night with nothing held records
+     * nothing about ingests.
+     */
+    await spawn()
+    h.held = ['j1', 'j2']
+    await h.shift.run('timer')
+    expect(h.order).toEqual(['release:2', 'drained@0'])
+    expect(h.calls.length).toBeGreaterThan(0)
+    expect(h.shifts.list(1)[0]!.summary.ingests).toEqual({ released: 2, done: 2 })
+
+    h.clock!.now = new Date('2026-09-08T01:10:00.000Z')
+    await h.shift.run('timer')
+    expect(h.order).toEqual(['release:2', 'drained@0', 'release:0'])
+    expect(h.shifts.list(1)[0]!.summary.ingests).toBeUndefined()
+  })
+
   it('takes its tasks in turn: a different one reaches the planner each night, and only that one', async () => {
     // `rotate` is the one-a-night mode; `sweep` (the default since A7 D8) is tested below.
     const ada = await spawn({

@@ -46,6 +46,8 @@ export interface Job {
   reverted_at?: string | null
   /** For a `duplicate` row: the id of the job whose content it repeats (schema v11). */
   duplicate_of?: string | null
+  /** `night` while a queued job waits for the night shift (schema v24); null or absent otherwise. */
+  hold?: 'night' | null
   /**
    * How a `done` run ended when "done" alone would mislead (schema v14): `no-changes` means
    * the agent finished cleanly but wrote no wiki page. Null for an ordinary run.
@@ -866,6 +868,10 @@ export interface SceneJob {
   name: string
   source: string
   batchId: string | null
+  /** `night` while the job waits for the shift; null for an ordinary job. */
+  hold: 'night' | null
+  /** How long an ingest of its type usually takes, for the queue's blocks; null when nothing says. */
+  typicalMs: number | null
 }
 
 export interface LibraryScene {

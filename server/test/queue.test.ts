@@ -704,3 +704,57 @@ describe('concurrency', () => {
     expect(store.listByStatus('done')).toHaveLength(5)
   })
 })
+
+describe('jobs held for the night shift', () => {
+  it('holds a job until it is released, then runs it; the queue is idle meanwhile', async () => {
+    let runs = 0
+    const q = makeQueue({
+      runIngest: async () => {
+        runs++
+        return okResult()
+      },
+    })
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource('tonight.md'), source: 'drop', hold: 'night' })
+    expect(job).toMatchObject({ status: 'queued', hold: 'night' })
+    // Resolves with a job still queued: a held job does not keep the queue awake, or the
+    // shift's wait for an empty queue (and every test's) would never end.
+    await q.onIdle()
+    expect(runs).toBe(0)
+    expect(store.getOrThrow(job.id).status).toBe('queued')
+
+    expect(q.releaseHeld('night')).toEqual([job.id])
+    await q.onIdle()
+    expect(runs).toBe(1)
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'done', hold: null })
+    expect(q.releaseHeld('night')).toEqual([])
+  })
+
+  it('holds a batch as a unit and runs it as one combined ingest once released', async () => {
+    let runs = 0
+    const q = makeQueue({
+      runIngest: async () => {
+        runs++
+        return okResult()
+      },
+    })
+    q.start()
+    const { jobs } = await q.enqueueBatch(
+      [
+        { kind: 'file', sourcePath: writeSource('h1.md'), originalName: 'h1.md' },
+        { kind: 'file', sourcePath: writeSource('h2.md', 'a different note'), originalName: 'h2.md' },
+      ],
+      'drop',
+      { hold: 'night' },
+    )
+    await q.onIdle()
+    expect(runs).toBe(0)
+    for (const r of jobs) expect(store.getOrThrow(r.job.id)).toMatchObject({ status: 'queued', hold: 'night' })
+
+    expect(q.releaseHeld('night').sort()).toEqual(jobs.map((r) => r.job.id).sort())
+    await q.onIdle()
+    // One run for the batch, not one per member.
+    expect(runs).toBe(1)
+    for (const r of jobs) expect(store.getOrThrow(r.job.id).status).toBe('done')
+  })
+})

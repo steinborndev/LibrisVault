@@ -19,11 +19,11 @@ import {
   type WingRecord,
 } from '../db/library.js'
 import type { VaultGraph } from './graph.js'
-import type { JobRow } from '../db/jobs.js'
+import type { JobRow, JobHold } from '../db/jobs.js'
 import type { MaintenanceRun } from './maintenance.js'
 import type { FellowSummary } from './fellows.js'
 import { MODEL_IDS } from '../db/agents.js'
-import { typicalRunMs, type DurationSample } from './run-duration.js'
+import { typicalRunMs, type DurationSample, typicalJobMs, type JobDurationSample } from './run-duration.js'
 import { readDomainRegistry } from './domains.js'
 import { windowAt, type NightWindow } from './clock.js'
 import { STUB_BYTES } from './candidates.js'
@@ -90,6 +90,10 @@ export interface SceneJob {
   readonly name: string
   readonly source: string
   readonly batchId: string | null
+  /** `night` while the job waits for the shift (chunk 6); null for an ordinary job. */
+  readonly hold: JobHold | null
+  /** How long an ingest of its type usually takes, for the queue's blocks; null when nothing says. */
+  readonly typicalMs: number | null
 }
 
 export interface LibraryScene {
@@ -120,6 +124,8 @@ export interface LibraryServiceOptions {
    * vault does anyway.
    */
   readonly runHistory?: (kind: string) => readonly DurationSample[]
+  /** Finished jobs, newest first, for the per-type ingest median; optional like `runHistory`. */
+  readonly jobHistory?: () => readonly JobDurationSample[]
   readonly window: () => NightWindow
   readonly concurrency: () => number
   readonly now?: () => Date
@@ -251,10 +257,21 @@ export class LibraryService {
       lastActive: s.lastRun?.finishedAt ?? null,
     }))
     const attributed = new Set(fellows.map((f) => f.run?.id).filter((x): x is string => x !== undefined && x !== null))
+    const jobHistory = this.o.jobHistory?.() ?? []
     const jobs = this.o
       .jobs()
       .filter((j) => j.status === 'queued' || j.status === 'preprocessing' || j.status === 'ingesting')
-      .map((j): SceneJob => ({ id: j.id, status: j.status, name: j.original_name ?? j.url ?? j.id.slice(-6), source: j.source, batchId: j.batch_id }))
+      .map(
+        (j): SceneJob => ({
+          id: j.id,
+          status: j.status,
+          name: j.original_name ?? j.url ?? j.id.slice(-6),
+          source: j.source,
+          batchId: j.batch_id,
+          hold: j.hold ?? null,
+          typicalMs: typicalJobMs(jobHistory, j.type),
+        }),
+      )
     const window = this.o.window()
     return {
       generatedAt: nowIso,

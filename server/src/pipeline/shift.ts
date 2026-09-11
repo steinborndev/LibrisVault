@@ -9,7 +9,7 @@
  * anyway; awaiting each lets the shift read the outcome before it decides the next one.
  */
 
-import type { ShiftRecord, ShiftStore, ShiftTrigger, ShiftExecution, ShiftPlanning, ShiftSkip, ShiftMerge, ShiftOverlap } from '../db/shifts.js'
+import type { ShiftSummary, ShiftRecord, ShiftStore, ShiftTrigger, ShiftExecution, ShiftPlanning, ShiftSkip, ShiftMerge, ShiftOverlap } from '../db/shifts.js'
 import { tokenize } from './related-pages.js'
 import type { AgentRecord } from '../db/agents.js'
 import type { FellowService } from './fellows.js'
@@ -27,10 +27,25 @@ export interface ShiftStatus {
   readonly recent: readonly ShiftRecord[]
 }
 
+/**
+ * The ingest queue's side of phase 0 (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6): the jobs
+ * the user held for tonight are released and run to the end before any Fellow works.
+ */
+export interface NightIngests {
+  /** Lets every job held for the night run; returns their ids. */
+  readonly release: () => readonly string[]
+  /** Resolves once the queue has nothing left to run. */
+  readonly onIdle: () => Promise<void>
+  /** A job's status once the queue is done with it. */
+  readonly statusOf: (id: string) => string | undefined
+}
+
 export interface NightShiftOptions {
   readonly fellows: FellowService
   readonly shifts: ShiftStore
   readonly window: () => NightWindow
+  /** The held ingests; absent when the queue is not wired (a test, a read-only service). */
+  readonly ingests?: NightIngests
   readonly now?: () => Date
   readonly log?: (level: 'info' | 'warn' | 'error', message: string) => void
   /** How often the timer checks the window; a minute by default. */
@@ -153,6 +168,7 @@ export class NightShift {
   private readonly beforeRound: () => Promise<void>
   private readonly sleep: (ms: number) => Promise<void>
   private readonly judge: ((pairs: readonly JudgePair[]) => Promise<readonly JudgeVerdict[]>) | undefined
+  private readonly ingests: NightIngests | undefined
   /**
    * Verdicts already obtained this shift, by unordered topic pair. The pass before the shift
    * judges every standing pair; the check before each run mostly asks about the same pairs
@@ -173,6 +189,7 @@ export class NightShift {
     this.beforeRound = opts.beforeRound ?? (async (): Promise<void> => {})
     this.sleep = opts.sleep ?? ((ms): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)))
     this.judge = opts.judge
+    this.ingests = opts.ingests
   }
 
   /**
@@ -456,6 +473,7 @@ export class NightShift {
     const planned: ShiftPlanning[] = []
     const skipped: ShiftSkip[] = []
     let dedupe: { merged: ShiftMerge[]; overlaps: ShiftOverlap[] } = { merged: [], overlaps: [] }
+    let ingests: ShiftSummary['ingests']
     const skippedOnce = new Set<string>()
     const skip = (agent: AgentRecord, reason: string): void => {
       const key = `${agent.id}:${reason}`
@@ -470,6 +488,7 @@ export class NightShift {
       costUsd: Math.round((executed.reduce((a, e) => a + (e.costUsd ?? 0), 0) + planned.reduce((a, p) => a + (p.costUsd ?? 0), 0)) * 100) / 100,
       merged: dedupe.merged,
       overlaps: dedupe.overlaps,
+      ...(ingests !== undefined ? { ingests } : {}),
     })
     const record = (finishedAt: string | null): ShiftRecord => ({ cycleDate, trigger, startedAt: startedAt.toISOString(), finishedAt, summary: summary() })
     // A verdict is about tonight's topics; next night's are different ones.
@@ -485,6 +504,23 @@ export class NightShift {
       if (filed > 0) this.log('info', `shift: ${filed} reading list entr${filed === 1 ? 'y is' : 'ies are'} in the vault`)
     } catch (err) {
       this.log('warn', `shift: reading list not reconciled: ${(err as Error).message}`)
+    }
+
+    /*
+     * Phase 0: the ingests the user queued for tonight, before any Fellow works. All of them,
+     * whatever the hour - the Fellows get what is left of the window, and a run with no room
+     * is skipped below with its reason, as ever. A job held after this point waits for the
+     * next night (chunk 6 of docs/tasks/TASKS-SWEEP-2026-09.md).
+     */
+    if (this.ingests !== undefined) {
+      const released = this.ingests.release()
+      if (released.length > 0) {
+        this.log('info', `shift: ${released.length} ingest${released.length === 1 ? '' : 's'} held for tonight released to the queue`)
+        await this.ingests.onIdle()
+        const done = released.filter((id) => this.ingests!.statusOf(id) === 'done').length
+        ingests = { released: released.length, done }
+        this.log('info', `shift: the ingest queue is drained, ${done} of ${released.length} done`)
+      }
     }
 
     const roomFor = (agent: AgentRecord, kind: 'research' | 'research-step' | 'research-expand' | 'plan'): boolean =>

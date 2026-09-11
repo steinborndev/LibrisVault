@@ -21,7 +21,7 @@ import path from 'node:path'
 import { ulid } from 'ulid'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { JobRow, JobSource, JobType, CreateJobResult } from '../db/jobs.js'
-import { JobStore } from '../db/jobs.js'
+import { JobStore, type JobHold } from '../db/jobs.js'
 import type { AgentAuth, AgentRunResult } from './agent-runner.js'
 import { runAgent, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import { formatMessage } from './format-message.js'
@@ -601,6 +601,8 @@ export class IngestQueue {
     readonly batchId?: string
     /** Where to report the terminal state, e.g. 'telegram:<chat_id>' (SPEC.md §4.3). */
     readonly notifyChannel?: string
+    /** Hold the job for the night shift instead of running it now. */
+    readonly hold?: JobHold
   }): Promise<CreateJobResult> {
     const originalName = sanitizeOriginalName(input.originalName ?? path.basename(input.sourcePath))
     const sha256 = await sha256File(input.sourcePath)
@@ -612,6 +614,7 @@ export class IngestQueue {
       ...this.vaultKnows(sha256),
       ...(input.batchId ? { batchId: input.batchId } : {}),
       ...(input.notifyChannel ? { notifyChannel: input.notifyChannel } : {}),
+      ...(input.hold ? { hold: input.hold } : {}),
     })
     if (created.duplicateOf === undefined) {
       try {
@@ -756,10 +759,10 @@ export class IngestQueue {
   async enqueueBatch(
     items: readonly BatchItem[],
     source: JobSource,
-    opts: { readonly notifyChannel?: string } = {},
+    opts: { readonly notifyChannel?: string; readonly hold?: JobHold } = {},
   ): Promise<{ batchId: string; jobs: CreateJobResult[] }> {
     const batchId = ulid()
-    const notify = opts.notifyChannel ? { notifyChannel: opts.notifyChannel } : {}
+    const notify = { ...(opts.notifyChannel ? { notifyChannel: opts.notifyChannel } : {}), ...(opts.hold ? { hold: opts.hold } : {}) }
     const jobs: CreateJobResult[] = []
     for (const item of items) {
       if (item.kind === 'url') {
@@ -796,7 +799,8 @@ export class IngestQueue {
     }
     // Only members still queued join the combined run — duplicates and stage-failed drop out.
     const memberIds = jobs.filter((r) => r.duplicateOf === undefined && r.job.status === 'queued').map((r) => r.job.id)
-    if (memberIds.length > 0) this.pendingBatches.push({ batchId, memberIds })
+    // A held batch is not pending yet: the release rebuilds its unit from the rows.
+    if (memberIds.length > 0 && opts.hold === undefined) this.pendingBatches.push({ batchId, memberIds })
     this.pump()
     return { batchId, jobs }
   }
@@ -837,6 +841,8 @@ export class IngestQueue {
     readonly source?: JobSource
     readonly batchId?: string
     readonly notifyChannel?: string
+    /** Hold the job for the night shift instead of running it now. */
+    readonly hold?: JobHold
   }): CreateJobResult {
     const created = this.store.create({
       source: input.source ?? 'url',
@@ -844,9 +850,24 @@ export class IngestQueue {
       url: input.url,
       ...(input.batchId ? { batchId: input.batchId } : {}),
       ...(input.notifyChannel ? { notifyChannel: input.notifyChannel } : {}),
+      ...(input.hold ? { hold: input.hold } : {}),
     })
     this.pump()
     return created
+  }
+
+  /**
+   * Lets the jobs held for this moment run (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6):
+   * the night shift calls it at its start and then waits on {@link onIdle}, so every held
+   * ingest is done before the first Fellow works. A held batch becomes a pending unit here,
+   * from its rows, the same way a restart rebuilds the units it lost.
+   */
+  releaseHeld(hold: JobHold): string[] {
+    const ids = this.store.release(hold)
+    if (ids.length === 0) return ids
+    this.reloadPendingBatches()
+    this.pump()
+    return ids
   }
 
   /** Resolves once the queue has no in-flight jobs and nothing left to claim. */
@@ -872,7 +893,8 @@ export class IngestQueue {
     // flight it counts as settled even though jobs are still queued behind the pause.
     if (this.paused) return true
     if (this.pendingBatches.length > 0) return false
-    return (this.store.counts()['queued'] ?? 0) === 0
+    // Held jobs are queued but wait for their moment: they do not keep the queue awake.
+    return this.store.queuedReady() === 0
   }
 
   private settleIdle(): void {

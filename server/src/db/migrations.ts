@@ -611,6 +611,18 @@ CREATE TABLE shelf_order (
 );
 `
 
+/**
+ * v24 - a job held for the night shift (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6).
+ *
+ * `hold = 'night'` on a `queued` job means the queue must not claim it until the shift
+ * releases it at its start, ahead of every Fellow run. A column, not a status: the
+ * lifecycle stays the eight states SPEC.md section 8 names, and a held job is a queued job
+ * waiting for a particular moment. NULL for every ordinary job.
+ */
+const V24 = `
+ALTER TABLE jobs ADD COLUMN hold TEXT;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -635,4 +647,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 21, up: V21 },
   { version: 22, up: V22 },
   { version: 23, up: V23 },
+  { version: 24, up: V24 },
 ]

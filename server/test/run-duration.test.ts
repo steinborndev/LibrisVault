@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { median, typicalRunMs, MIN_SAMPLES, REFERENCE_MS, type DurationSample } from '../src/pipeline/run-duration.js'
+import { median, typicalRunMs, typicalJobMs, MIN_SAMPLES, REFERENCE_MS, JOB_REFERENCE_MS, type DurationSample, type JobDurationSample } from '../src/pipeline/run-duration.js'
 
 const run = (over: Partial<DurationSample> & { readonly seconds: number }): DurationSample => ({
   kind: 'research',
@@ -77,5 +77,22 @@ describe('typicalRunMs', () => {
       { kind: 'research', model: 'claude-sonnet-5', ok: true, startedAt: '2026-09-08T10:10:00.000Z', finishedAt: '2026-09-08T10:00:00.000Z' },
     ]
     expect(typicalRunMs(history, 'research', 'claude-sonnet-5')).toBe(400_000)
+  })
+})
+
+describe('typicalJobMs', () => {
+  const job = (type: string, ms: number, status = 'done'): JobDurationSample => ({ type, status, started_at: '2026-09-10T01:00:00.000Z', finished_at: new Date(Date.parse('2026-09-10T01:00:00.000Z') + ms).toISOString() })
+
+  it('takes the median of the finished ingests of that type once there are enough, else the reference size', () => {
+    expect(typicalJobMs([job('pdf', 100_000), job('pdf', 200_000), job('pdf', 900_000)], 'pdf')).toBe(200_000)
+    expect(typicalJobMs([job('pdf', 100_000), job('pdf', 200_000)], 'pdf')).toBe(JOB_REFERENCE_MS['pdf'])
+    expect(typicalJobMs([], 'web')).toBe(JOB_REFERENCE_MS['web'])
+  })
+
+  it('leaves out what did not finish, and says nothing about a type nobody listed', () => {
+    const rows = [job('web', 100_000, 'failed'), job('web', 100_000, 'failed'), job('web', 100_000, 'failed'), { type: 'web', status: 'done', started_at: null, finished_at: null }]
+    expect(typicalJobMs(rows, 'web')).toBe(JOB_REFERENCE_MS['web'])
+    expect(typicalJobMs([], 'unheard-of')).toBeNull()
+    expect(MIN_SAMPLES).toBe(3)
   })
 })

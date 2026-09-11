@@ -85,3 +85,12 @@ with an old sample, not where it is.
       the list again. While it is open the minimap steps out of sight, and the canvas bar
       stacks above the minimap in any case. Measured in the browser: after the outside click
       the field still holds the text and the scope sentence still says "matching".
+- [x] Chunk 6 (2026-09-11). Schema v24 adds `jobs.hold`; a job created with `hold =
+      'night'` stays `queued` but is never claimed, does not keep the queue awake, and a held
+      batch is not a pending unit until its release rebuilds it from the rows. `POST
+      /api/v1/jobs?when=night` holds any of the three inputs. The shift's phase 0 releases the
+      held jobs right after the reading-list reconcile, waits for the queue to drain, and
+      records `summary.ingests = { released, done }`; a manual shift takes them along, and a
+      job held after phase 0 waits for the next night. The scene's jobs carry `hold` and
+      `typicalMs` (the median of finished ingests of the type once three exist, else a
+      reference size per type read off the first vault's history).

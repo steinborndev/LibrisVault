@@ -295,6 +295,12 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
             if (!settings.effective(config).dedupeJudgeEnabled) return pairs.map(() => ({ score: Number.NaN }))
             return judgePairs([...pairs], { vaultRoot: config.vaultRoot, auth: requireAuth(config) })
           },
+          // Phase 0: the ingests held for tonight run through the ordinary queue, first.
+          ingests: {
+            release: () => queue.releaseHeld('night'),
+            onIdle: () => queue.onIdle(),
+            statusOf: (id) => store.get(id)?.status,
+          },
           log: fellowsLog,
         })
       : undefined
@@ -337,6 +343,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           runs: () => maintenance.listRuns(),
           fellows: () => fellows.list(),
           runHistory: (kind) => agentRuns.list({ kind, limit: SAMPLE_LIMIT }),
+          jobHistory: () => store.list({ status: 'done', limit: 200 }),
           window: () => {
             const e = settings.effective(config)
             return { start: e.nightWindowStart, end: e.nightWindowEnd }

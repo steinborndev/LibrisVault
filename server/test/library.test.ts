@@ -17,7 +17,7 @@ import type { JobRow } from '../src/db/jobs.js'
 import type { MaintenanceRun } from '../src/pipeline/maintenance.js'
 import type { FellowSummary } from '../src/pipeline/fellows.js'
 import type { AgentRunRecord } from '../src/db/agent-runs.js'
-import { REFERENCE_MS } from '../src/pipeline/run-duration.js'
+import { REFERENCE_MS, JOB_REFERENCE_MS, type JobDurationSample } from '../src/pipeline/run-duration.js'
 import { JobStore } from '../src/db/jobs.js'
 import { ChatStore } from '../src/db/chat.js'
 import { EventBus } from '../src/pipeline/events.js'
@@ -181,8 +181,30 @@ describe('LibraryService', () => {
     ]
     const scene = service.scene()
     expect(scene.runs.map((r) => r.id)).toEqual(['r1'])
-    expect(scene.jobs).toEqual([{ id: 'j1', status: 'queued', name: 'paper.pdf', source: 'upload', batchId: null }])
+    expect(scene.jobs).toEqual([{ id: 'j1', status: 'queued', name: 'paper.pdf', source: 'upload', batchId: null, hold: null, typicalMs: null }])
     expect(scene.fellows[0]).toMatchObject({ agentId: 'a1', name: 'Ada', state: 'active', run: { id: 'r3', channel: 'maintenance:research-step' }, next: { topic: 'Next' } })
+  })
+
+  it('carries a held job with its hold and the typical length of its kind of ingest', () => {
+    // The night shift's queue draws one block per held job, as wide as the ingest is likely
+    // to take: the vault's own median per type once it has enough, the reference size before.
+    const done = (ms: number): JobDurationSample => ({ type: 'pdf', status: 'done', started_at: '2026-09-10T01:00:00.000Z', finished_at: new Date(Date.parse('2026-09-10T01:00:00.000Z') + ms).toISOString() })
+    jobs = [{ id: 'j1', status: 'queued', type: 'pdf', original_name: 'tonight.pdf', url: null, source: 'drop', batch_id: null, hold: 'night' } as unknown as JobRow]
+    const withHistory = new LibraryService({
+      vaultRoot,
+      store,
+      graph: () => null,
+      jobs: () => jobs,
+      runs: () => [],
+      fellows: () => [],
+      jobHistory: () => [done(300_000), done(420_000), done(600_000)],
+      window: () => WINDOW,
+      concurrency: () => 2,
+      now: () => clock,
+    })
+    expect(withHistory.scene().jobs[0]).toMatchObject({ id: 'j1', hold: 'night', typicalMs: 420_000 })
+    // Younger than three of the type: the reference size for a PDF.
+    expect(service.scene().jobs[0]).toMatchObject({ id: 'j1', hold: 'night', typicalMs: JOB_REFERENCE_MS['pdf'] })
   })
 
   it('tells every running run how long its kind usually takes, so the scene can draw progress', () => {

@@ -46,6 +46,43 @@ export const REFERENCE_MS: Readonly<Record<string, number>> = {
 }
 
 /** What the median needs of a settled run. `AgentRunRecord` satisfies it. */
+/**
+ * How long an ingest of each job type typically takes, from the first vault's own history
+ * (2026-09-11: PDFs around nine minutes, web pages around seven, a pasted note around four).
+ * What the night shift's queue draws its blocks with until the job log has enough of a type.
+ */
+export const JOB_REFERENCE_MS: Readonly<Record<string, number>> = {
+  pdf: 520_000,
+  office: 480_000,
+  web: 450_000,
+  image: 240_000,
+  text: 240_000,
+  av: 600_000,
+  other: 420_000,
+}
+
+/** What a job row says about its own duration: the columns the median reads. */
+export interface JobDurationSample {
+  readonly type: string
+  readonly status: string
+  readonly started_at: string | null
+  readonly finished_at: string | null
+}
+
+/**
+ * How long an ingest of this type typically takes, in milliseconds, or null for a type
+ * nobody has measured or listed. Same rule as {@link typicalRunMs}: the median of the
+ * vault's own finished jobs once there are enough of the type, the reference size before.
+ */
+export function typicalJobMs(history: readonly JobDurationSample[], type: string): number | null {
+  const ofType = history
+    .filter((j) => j.type === type && j.status === 'done' && j.started_at !== null && j.finished_at !== null)
+    .map((j) => Date.parse(j.finished_at!) - Date.parse(j.started_at!))
+    .filter((ms) => ms > 0)
+  if (ofType.length >= MIN_SAMPLES) return median(ofType)
+  return JOB_REFERENCE_MS[type] ?? null
+}
+
 export interface DurationSample {
   readonly kind: string
   /** The SDK model the run was pinned to; null when the runner's default ran. */

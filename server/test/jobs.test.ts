@@ -220,3 +220,31 @@ describe('ALLOWED_TRANSITIONS', () => {
     }
   })
 })
+
+describe('a job held for the night shift (schema v24)', () => {
+  it('is queued but not claimable until it is released, and does not keep the queue awake', () => {
+    const { job } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/tonight', hold: 'night' })
+    expect(job.status).toBe('queued')
+    expect(job.hold).toBe('night')
+    expect(store.claimNextQueued()).toBeUndefined()
+    expect(store.queuedReady()).toBe(0)
+    expect(store.held('night').map((j) => j.id)).toEqual([job.id])
+    // An ordinary job beside it is claimed as ever.
+    const { job: now } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/now' })
+    expect(store.queuedReady()).toBe(1)
+    expect(store.claimNextQueued()?.id).toBe(now.id)
+
+    expect(store.release('night')).toEqual([job.id])
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'queued', hold: null })
+    expect(store.claimNextQueued()?.id).toBe(job.id)
+    expect(store.release('night')).toEqual([])
+    expect(store.logs(job.id).map((l) => l.message)).toContainEqual(expect.stringContaining('released to the queue by the night shift'))
+  })
+
+  it('never holds a duplicate: it is terminal on arrival', () => {
+    store.create({ source: 'drop', type: 'pdf', originalName: 'a.pdf', sha256: 'same' })
+    const { job } = store.create({ source: 'drop', type: 'pdf', originalName: 'b.pdf', sha256: 'same', hold: 'night' })
+    expect(job.status).toBe('duplicate')
+    expect(job.hold).toBeNull()
+  })
+})

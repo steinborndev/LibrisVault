@@ -112,9 +112,19 @@ export interface JobRow {
    * ingested. NULL for every ordinary run.
    */
   outcome: JobOutcome | null
+  /** Set while the job waits for its moment (v24); NULL for every ordinary job. */
+  hold: JobHold | null
 }
 
 export type JobOutcome = 'no-changes'
+
+/**
+ * Why a queued job is not being claimed (schema v24): `night` waits for the night shift,
+ * which releases every held job at its start, ahead of the Fellows. A column beside the
+ * status, not a status of its own - the lifecycle stays the eight states SPEC.md section 8
+ * names, and a held job is a queued job waiting for a particular moment.
+ */
+export type JobHold = 'night'
 
 export interface CreateJobInput {
   readonly source: JobSource
@@ -136,6 +146,8 @@ export interface CreateJobInput {
   readonly duplicateOf?: string
   /** The one line that explains the duplicate to a reader; stored on the row. */
   readonly duplicateNote?: string
+  /** Hold the job for its moment instead of running it now; see {@link JobHold}. */
+  readonly hold?: JobHold
 }
 
 export interface CreateJobResult {
@@ -210,10 +222,10 @@ export class JobStore {
         .prepare(
           `INSERT INTO jobs
              (id, user_id, batch_id, source, type, original_name, url, sha256, status,
-              raw_path, attempts, created_at, finished_at, notify_channel, duplicate_of, error)
+              raw_path, attempts, created_at, finished_at, notify_channel, duplicate_of, error, hold)
            VALUES
              (@id, @user_id, @batch_id, @source, @type, @original_name, @url, @sha256, @status,
-              @raw_path, 0, @created_at, @finished_at, @notify_channel, @duplicate_of, @error)`,
+              @raw_path, 0, @created_at, @finished_at, @notify_channel, @duplicate_of, @error, @hold)`,
         )
         .run({
           id,
@@ -236,6 +248,8 @@ export class JobStore {
           // The explanation rides in `error`, which the dashboard already renders as the one
           // line under a settled row - a duplicate's "why" is that line, not a failure.
           error: note,
+          // A duplicate is terminal on arrival; there is nothing to hold.
+          hold: isDuplicate ? null : (input.hold ?? null),
         })
 
       this.log(
@@ -243,7 +257,7 @@ export class JobStore {
         isDuplicate ? 'warn' : 'info',
         isDuplicate
           ? `duplicate of job ${original.id} (sha256 match${inDb === undefined ? ' in the vault .raw manifests' : ''}) - skipped`
-          : `job created from ${input.source}${input.originalName ? ` (${input.originalName})` : ''}`,
+          : `job created from ${input.source}${input.originalName ? ` (${input.originalName})` : ''}${!isDuplicate && input.hold === 'night' ? '; held for the night shift' : ''}`,
       )
 
       return { job: this.getOrThrow(id), ...(isDuplicate ? { duplicateOf: original.id } : {}) }
@@ -424,6 +438,37 @@ export class JobStore {
   }
 
   /** Job counts grouped by status — for the dashboard/health overview (SPEC.md §6.1). */
+  /** Queued jobs the queue may claim now: the held ones do not count, or an idle queue would never be idle. */
+  queuedReady(): number {
+    return (this.db.prepare("SELECT COUNT(*) n FROM jobs WHERE status = 'queued' AND hold IS NULL").get() as { n: number }).n
+  }
+
+  /** The queued jobs waiting for this moment, oldest first. */
+  held(hold: JobHold): JobRow[] {
+    return this.db.prepare("SELECT * FROM jobs WHERE status = 'queued' AND hold = ? ORDER BY created_at").all(hold) as JobRow[]
+  }
+
+  /**
+   * Lets every job held for this moment be claimed, and says which they were. The status
+   * does not change - they were queued all along - so this is not a transition; the rows
+   * are announced the way a transition is, because the dashboard shows the hold.
+   */
+  release(hold: JobHold): string[] {
+    const run = this.db.transaction((): string[] => {
+      const ids = this.held(hold).map((j) => j.id)
+      if (ids.length === 0) return ids
+      this.db.prepare("UPDATE jobs SET hold = NULL WHERE status = 'queued' AND hold = ?").run(hold)
+      for (const id of ids) this.log(id, 'info', 'released to the queue by the night shift')
+      return ids
+    })
+    const ids = run()
+    for (const id of ids) {
+      const job = this.get(id)
+      if (job !== undefined) this.bus?.publish({ kind: 'job', job })
+    }
+    return ids
+  }
+
   counts(): Record<string, number> {
     const rows = this.db.prepare('SELECT status, COUNT(*) n FROM jobs GROUP BY status').all() as Array<{
       status: string
@@ -442,8 +487,9 @@ export class JobStore {
       // Batch members (batch_id set) are NEVER claimed individually — the batch
       // coordinator drives them as a unit so they share one combined ingest run
       // (SPEC.md §4.1). Only standalone jobs are claimed here.
+      // A held job is queued but not claimable: it waits for its moment (v24).
       const next = this.db
-        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL ORDER BY created_at LIMIT 1")
+        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL AND hold IS NULL ORDER BY created_at LIMIT 1")
         .get() as { id: string } | undefined
       if (next === undefined) return undefined
       return this.transition(next.id, 'preprocessing', { log: 'claimed by worker' })
@@ -523,7 +569,7 @@ export class JobStore {
   queuedBatches(): Array<{ batchId: string; memberIds: string[] }> {
     const rows = this.db
       .prepare(
-        "SELECT batch_id, id FROM jobs WHERE status = 'queued' AND batch_id IS NOT NULL ORDER BY created_at",
+        "SELECT batch_id, id FROM jobs WHERE status = 'queued' AND batch_id IS NOT NULL AND hold IS NULL ORDER BY created_at",
       )
       .all() as Array<{ batch_id: string; id: string }>
     const byBatch = new Map<string, string[]>()

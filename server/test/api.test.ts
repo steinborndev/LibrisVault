@@ -477,6 +477,33 @@ describe('cross-origin guard', () => {
     expect(res.status).toBe(403)
   })
 
+  it('holds a job for the night shift on ?when=night, through every input', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/jobs?when=night`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/tonight' }),
+    })
+    expect(res.status).toBe(202)
+    const { jobs } = (await res.json()) as { jobs: Array<{ id: string; status: string }> }
+    expect(store.getOrThrow(jobs[0]!.id)).toMatchObject({ status: 'queued', hold: 'night' })
+    // The queue leaves it alone: idle with the job still queued.
+    await queue.onIdle()
+    expect(store.getOrThrow(jobs[0]!.id).status).toBe('queued')
+
+    const note = await fetch(`${baseUrl}/api/v1/jobs?when=night`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'a note for tonight', title: 'Tonight' }),
+    })
+    expect(note.status).toBe(202)
+    const noteJobs = (await note.json()) as { jobs: Array<{ id: string }> }
+    expect(store.getOrThrow(noteJobs.jobs[0]!.id)).toMatchObject({ status: 'queued', hold: 'night' })
+    // Without the flag, an ordinary job.
+    const now = await fetch(`${baseUrl}/api/v1/jobs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/now' }) })
+    const nowJobs = (await now.json()) as { jobs: Array<{ id: string }> }
+    expect(store.getOrThrow(nowJobs.jobs[0]!.id).hold).toBeNull()
+  })
+
   it('treats Origin: null as foreign', async () => {
     const res = await fetch(`${baseUrl}/api/v1/jobs`, {
       method: 'POST',
