@@ -22,6 +22,16 @@ describe('research profiles (Achse A)', () => {
     expect(isResearchProfileKey('made-up-lens')).toBe(false)
   })
 
+  it('carries a short line per lens that fits one dropdown row, and serves it', () => {
+    // "lens - what it reaches for" on one line: the words, not a sentence, and never long.
+    for (const p of RESEARCH_PROFILES) {
+      expect(p.short.length).toBeGreaterThan(0)
+      expect(p.short.length).toBeLessThan(45)
+      expect(p.short).not.toMatch(/[.\n]/)
+    }
+    expect(researchProfileList().map((p) => p.short)).toEqual(RESEARCH_PROFILES.map((p) => p.short))
+  })
+
   it('falls back to the default lens for an unknown or omitted key', () => {
     expect(getResearchProfile(undefined).key).toBe('broad')
     expect(getResearchProfile('nope').key).toBe('broad')

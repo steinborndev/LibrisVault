@@ -620,11 +620,15 @@ export function CommandCentre({
               `Ingest queue: ${ingests.length}`,
               `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
               `${hhmm(win.from)} to ${hhmm(win.to)}`,
+              /* The night's length counts the held ingests with the Fellows' tasks; the
+                 reserve holds only the Fellows, and the line says so when ingests still run. */
               blocked !== null
-                ? 'held by the plan reserve'
-                : blocks.length === 0
+                ? ingests.length > 0
+                  ? 'ingests run, Fellows held by the plan reserve'
+                  : 'held by the plan reserve'
+                : blocks.length === 0 && ingests.length === 0
                   ? 'nothing to run'
-                  : `${dur(blocks.reduce((n, b) => n + b.minutes, 0))} estimated`,
+                  : `${dur(blocks.reduce((n, b) => n + b.minutes, 0) + ingests.reduce((n, b) => n + b.minutes, 0))} estimated`,
               `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
             ]}
           />

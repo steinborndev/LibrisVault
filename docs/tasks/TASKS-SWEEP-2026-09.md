@@ -189,3 +189,13 @@ A second list, split the same way and settled up front:
       a search with the count in its placeholder and "N of M" while narrowing; a miss says
       so in the empty state. The run rows carry Home's trash; the session rows carry it
       beside the hover pencil.
+- [x] Chunk 6 (2026-09-11). The night shift's estimate counts the held ingests with the
+      Fellows' tasks, says "nothing to run" only when both are empty, and names the reserve
+      as holding the Fellows alone when ingests still run. A Fellow spawned for a shelf keeps
+      that domain as a fixed field with the reason on hover; the lens dropdown reads "lens -
+      what it reaches for" from a short line each lens carries on the server (under 45
+      characters, served with the profiles), with the form's own list as the fallback while
+      it loads. The reading list's lede lost its measure and stands on one line. Measured:
+      the night line says "57 min estimated" over 4 tasks and 3 held ingests, the spawn form
+      from a shelf shows the domain fixed and four one-line lens options, the lede is one
+      line at 913px.

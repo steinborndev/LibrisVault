@@ -27,20 +27,29 @@ const MODELS: Array<{ key: string; label: string; factor: number }> = [
 const STEP_COST: Record<string, number> = { small: 2, standard: 6, deep: 6 }
 
 /**
- * The research lenses, from `server/src/pipeline/research-profiles.ts`. A closed set: the
- * spawn endpoint refuses a key it does not know, so this list is the same list or it is a bug.
+ * The research lenses while the server's list is still loading: the same closed set as
+ * `server/src/pipeline/research-profiles.ts` (the spawn endpoint refuses a key it does not
+ * know). Once loaded, the server's list leads, with what each lens reaches for beside it.
  */
-const LENSES: Array<{ key: string; label: string }> = [
-  { key: 'broad', label: 'Broad sweep' },
-  { key: 'sota', label: 'State of the art' },
-  { key: 'patents', label: 'Recent patents' },
-  { key: 'startups', label: 'Startups & funding' },
+const LENSES: Array<{ key: string; label: string; short: string }> = [
+  { key: 'broad', label: 'Broad sweep', short: 'every kind of source, the standard loop' },
+  { key: 'sota', label: 'State of the art', short: 'the last two years of results' },
+  { key: 'patents', label: 'Recent patents', short: 'filings, assignees and claim scope' },
+  { key: 'startups', label: 'Startups & funding', short: 'who builds it and who funds it' },
 ]
 
 export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Partial<SpawnBody>; plan?: PlanStatus | undefined; onDone: (agentId: string) => void; onCancel: () => void }): React.ReactElement {
   const qc = useQueryClient()
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents })
+  const profiles = useQuery({ queryKey: ['research-profiles'], queryFn: api.researchProfiles, staleTime: 300_000 })
+  const lenses = profiles.data?.profiles.map((p) => ({ key: p.key, label: p.label, short: p.short })) ?? LENSES
+  /*
+   * Spawned for a shelf (the night shift window, a department's own button), the domain is
+   * that shelf and not a choice: a Fellow meant for one department landing in another was a
+   * misconfiguration one click away.
+   */
+  const fixedDomain = prefill?.homeDomain !== undefined && prefill.homeDomain !== ''
   const [form, setForm] = useState<SpawnBody>({ name: '', intent: '', homeDomain: '', model: 'sonnet-5', step: 'standard', autonomy: 'veto', runFirstStep: true, ...prefill })
   /*
    * The quota follows the task count until the user sets one, the way the name follows the
@@ -179,16 +188,28 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
       <label>
         <span className="sp-lbl">
           Home domain
-          <Tip text="The department this Fellow belongs to. It bounds its work: candidates come from here, a question about another domain is handed to that domain's Fellow instead of pursued, and a deepen task may only build out pages that stand here. Add more under extra domains after spawning if it should reach further." />
+          <Tip
+            text={
+              fixedDomain
+                ? 'The shelf this Fellow is spawned for. Fixed here, because a Fellow meant for one department must not land in another; spawn from the Library column to choose freely. It bounds its work: candidates come from here, and a deepen task may only build out pages that stand here.'
+                : "The department this Fellow belongs to. It bounds its work: candidates come from here, a question about another domain is handed to that domain's Fellow instead of pursued, and a deepen task may only build out pages that stand here. Add more under extra domains after spawning if it should reach further."
+            }
+          />
         </span>
-        <select className="select" value={form.homeDomain} onChange={(e) => setForm({ ...form, homeDomain: e.target.value })} required>
-          <option value="">choose…</option>
-          {keys.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
+        {fixedDomain ? (
+          <span className="sp-fixed" title="Spawned for this shelf">
+            {form.homeDomain}
+          </span>
+        ) : (
+          <select className="select" value={form.homeDomain} onChange={(e) => setForm({ ...form, homeDomain: e.target.value })} required>
+            <option value="">choose…</option>
+            {keys.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+        )}
       </label>
       <div className="lib-spawn-row">
         <label>
@@ -218,12 +239,14 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         <label>
           <span className="sp-lbl">
             Lens
-            <Tip text="Which kind of source a run reaches for first. `Broad sweep` is the default and adds nothing to the prompt; the other three weight the search - the last two years of results, the patent record, or who is building and funding it. It shapes where a run looks, never what it is allowed to write." />
+            <Tip text="Which kind of source a run reaches for first, said beside each lens in the list. `Broad sweep` is the default and adds nothing to the prompt; the other three weight the search. It shapes where a run looks, never what it is allowed to write." />
           </span>
+          {/* One line per lens, "lens - what it reaches for": the words come from the server,
+              the same list every run is told. */}
           <select className="select" value={form.lens ?? 'broad'} onChange={(e) => setForm({ ...form, lens: e.target.value })}>
-            {LENSES.map((l) => (
+            {lenses.map((l) => (
               <option key={l.key} value={l.key}>
-                {l.label}
+                {l.label} - {l.short}
               </option>
             ))}
           </select>

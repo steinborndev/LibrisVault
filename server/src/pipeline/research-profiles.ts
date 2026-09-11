@@ -33,6 +33,11 @@ export interface ResearchProfile {
   readonly label: string
   /** One-line description shown in the run-plan preview and injected as the lens intent. */
   readonly blurb: string
+  /**
+   * What the lens reaches for, in a few words, for a dropdown that shows "lens - what it
+   * reaches for" on one line (second sweep, chunk 6). Under 45 characters, never a sentence.
+   */
+  readonly short: string
   /** Optional chip badge, e.g. 'default'. */
   readonly badge?: string
   /** Source preferences — shown as pills in the UI and injected into the lens block. */
@@ -55,6 +60,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     key: 'broad',
     label: 'Broad sweep',
     blurb: 'General authoritative coverage - the standard research loop.',
+    short: 'every kind of source, the standard loop',
     badge: 'default',
     sources: ['peer-reviewed papers', 'official documentation', 'primary sources'],
     fetchEstimate: '30-45',
@@ -65,6 +71,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     key: 'sota',
     label: 'State of the art',
     blurb: 'Latest developments, results and benchmarks - weighted to the last ~2 years.',
+    short: 'the last two years of results',
     sources: ['arXiv', 'official releases and changelogs', 'recent conference / peer-reviewed papers'],
     fetchEstimate: '30-40',
     titleSuffix: ' — State of the Art',
@@ -76,6 +83,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     key: 'patents',
     label: 'Recent patents',
     blurb: 'The IP landscape - filings, assignees and claim scope.',
+    short: 'filings, assignees and claim scope',
     sources: ['Google Patents', 'USPTO', 'EPO Espacenet'],
     fetchEstimate: '25-35',
     titleSuffix: ' — Patent Landscape',
@@ -88,6 +96,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     key: 'startups',
     label: 'Startups & funding',
     blurb: 'Companies, funding rounds and commercial traction around the topic.',
+    short: 'who builds it and who funds it',
     sources: ['company sites', 'funding trackers', 'trade press'],
     fetchEstimate: '25-35',
     titleSuffix: ' — Startup Landscape',
@@ -235,6 +244,7 @@ export interface ResearchProfileInfo {
   readonly key: ResearchProfileKey
   readonly label: string
   readonly blurb: string
+  readonly short: string
   readonly badge?: string
   readonly sources: readonly string[]
   readonly fetchEstimate: string
@@ -243,10 +253,11 @@ export interface ResearchProfileInfo {
 
 /** The lens list for the client, default first. */
 export function researchProfileList(): ResearchProfileInfo[] {
-  return RESEARCH_PROFILES.map(({ key, label, blurb, badge, sources, fetchEstimate, titleSuffix }) => ({
+  return RESEARCH_PROFILES.map(({ key, label, blurb, short, badge, sources, fetchEstimate, titleSuffix }) => ({
     key,
     label,
     blurb,
+    short,
     ...(badge ? { badge } : {}),
     sources,
     fetchEstimate,

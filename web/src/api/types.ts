@@ -363,6 +363,8 @@ export interface ResearchProfile {
   key: string
   label: string
   blurb: string
+  /** What the lens reaches for, in a few words, for a one-line dropdown row. */
+  short: string
   badge?: string
   sources: string[]
   fetchEstimate: string

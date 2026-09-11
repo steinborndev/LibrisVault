@@ -7683,7 +7683,8 @@ tr:focus-within .rowacts {
 .shelf-page .page-body code { font-family: var(--mono); font-size: 12.5px; }
 /* ---- The reading list board (section 10.6) ---- */
 .lib-window-body.reading { padding: 14px 18px 22px; }
-.reading-lede { margin: 0; max-width: 88ch; color: var(--text-dim); font-size: 13px; }
+/* No measure on the lede: it is one line beside the toggle, and only a narrow window wraps it. */
+.reading-lede { margin: 0; color: var(--text-dim); font-size: 13px; }
 /* The lede and the paywalled toggle share one line: the toggle belongs to the whole list. */
 .reading-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 /* Where the publication ended up, once it is in the vault by any route. */

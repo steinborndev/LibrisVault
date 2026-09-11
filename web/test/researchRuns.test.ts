@@ -17,11 +17,11 @@ import type {
 } from '../src/api/types.ts'
 
 const PROFILES: ResearchProfile[] = [
-  { key: 'broad', label: 'Broad sweep', blurb: '', sources: [], fetchEstimate: '30-45', titleSuffix: '' },
+  { key: 'broad', label: 'Broad sweep', blurb: '', short: 'a few words', sources: [], fetchEstimate: '30-45', titleSuffix: '' },
   {
     key: 'sota',
     label: 'State of the art',
-    blurb: '',
+    blurb: '', short: 'a few words',
     sources: [],
     fetchEstimate: '30-40',
     titleSuffix: ' - State of the Art',
@@ -29,7 +29,7 @@ const PROFILES: ResearchProfile[] = [
   {
     key: 'patents',
     label: 'Recent patents',
-    blurb: '',
+    blurb: '', short: 'a few words',
     sources: [],
     fetchEstimate: '25-35',
     titleSuffix: ' - Patent Landscape',
