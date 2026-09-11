@@ -10,7 +10,7 @@
  * (hard rule 1: the vault is only ever written by agent runs).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { staleLinks, useStaleLinks } from '../lib/staleLinks.ts'
@@ -18,6 +18,8 @@ import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../ap
 import { GraphCanvas, domainColor, TYPE_VARS, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
+import { DomainSection } from '../components/DomainSection.tsx'
+import { wingGroups, type WingGroup } from '../lib/wings.ts'
 import { GapCleanupBar, useGapCleanup } from '../components/GapCleanup.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
@@ -553,6 +555,28 @@ function GraphView({
     return [...counts.entries()].sort((a, b) => (a[0] === NO_DOMAIN ? 1 : b[0] === NO_DOMAIN ? -1 : b[1] - a[1]))
   }, [graph, showSystem])
   const hasDomains = domains.some(([d]) => d !== NO_DOMAIN)
+  /** The flat list's order: alphabetical, the no-domain bucket last. */
+  const domainRows = useMemo(() => [...domains].sort(([a], [b]) => (a === NO_DOMAIN ? 1 : b === NO_DOMAIN ? -1 : a.localeCompare(b))), [domains])
+  /*
+   * The Library's rooms, for the domain section's wing mode: the same placement the
+   * Library draws, so the two never disagree about where a domain stands. Without the
+   * Library (agents off) there is no scene and no wing mode.
+   */
+  const sceneQ = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 60_000, retry: false })
+  const wings = useMemo(() => wingGroups(sceneQ.data, domainRows.map(([d]) => d)), [sceneQ.data, domainRows])
+  /** The room on show, or null for the flat list; the room is a filter on the graph. */
+  const [wing, setWing] = useState<string | null>(null)
+  const wingScope = useMemo(() => (wing === null ? null : new Set(wings.find((g) => g.id === wing)?.domains ?? [])), [wing, wings])
+  /** Turning the page drops any selection outside it: the room is the filter now. */
+  const pickWing = useCallback(
+    (id: string | null): void => {
+      setWing(id)
+      if (id === null) return
+      const inside = new Set(wings.find((g) => g.id === id)?.domains ?? [])
+      setSelectedDomains((s) => (s.size === 0 ? s : new Set([...s].filter((d) => inside.has(d)))))
+    },
+    [wings],
+  )
   // With no domains assigned, the domain lens falls back to type-coloring; the legend must
   // follow the SAME resolution so it explains what's actually drawn.
   const effectiveLens: Lens = hasDomains ? lens : lens === 'domain' ? 'type' : lens
@@ -566,7 +590,7 @@ function GraphView({
       (n) =>
         (showSystem || isKnowledge(n)) &&
         (selectedTypes.size === 0 || selectedTypes.has(n.type)) &&
-        (selectedDomains.size === 0 || selectedDomains.has(n.domain ?? NO_DOMAIN)) &&
+        (selectedDomains.size > 0 ? selectedDomains.has(n.domain ?? NO_DOMAIN) : wingScope === null || wingScope.has(n.domain ?? NO_DOMAIN)) &&
         (clusterFocus === null || clusterFocus.paths.has(n.path)),
     )
 
@@ -676,7 +700,7 @@ function GraphView({
     }
 
     return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, realEdgeCount, matches }
-  }, [graph, selectedTypes, selectedDomains, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query])
+  }, [graph, selectedTypes, selectedDomains, wingScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query])
 
   // Subgraph index of the explorer selection, for the canvas ring + spotlight. Null when the
   // selected page/gap is currently filtered out of view (the panel still shows regardless).
@@ -765,6 +789,7 @@ function GraphView({
       const only = [...selectedDomains][0]!
       parts.push(only === NO_DOMAIN ? 'pages with no domain' : `the ${only} domain`)
     } else if (selectedDomains.size > 1) parts.push(`${selectedDomains.size} domains`)
+    else if (wing !== null) parts.push(wings.find((g) => g.id === wing)?.name ?? 'one wing')
     if (selectedTypes.size > 0) parts.push([...selectedTypes].map((t) => TYPE_LABELS[t] ?? t).join(' + '))
     if (query.trim() !== '') parts.push(`matching “${query.trim()}”`)
     const systemHidden = !showSystem && systemCount > 0
@@ -772,7 +797,7 @@ function GraphView({
       return systemHidden ? ` - every page except the ${systemCount} system ones` : ' - the whole vault'
     }
     return ` - ${parts.join(', ')}${systemHidden ? `, ${systemCount} system pages hidden` : ''}`
-  }, [selectedDomains, selectedTypes, query, showSystem, systemCount])
+  }, [selectedDomains, selectedTypes, wing, wings, query, showSystem, systemCount])
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
 
@@ -789,6 +814,7 @@ function GraphView({
     setInput('')
     setSelectedTypes(new Set())
     setSelectedDomains(new Set())
+    setWing(null)
     setLens('domain')
     setShowClusters(false)
     setShowGaps(false)
@@ -1011,10 +1037,14 @@ function GraphView({
           types={types}
           selectedTypes={selectedTypes}
           onToggleType={toggleType}
-          domains={domains}
+          domains={domainRows}
           selectedDomains={selectedDomains}
           onToggleDomain={toggleDomain}
           onClearDomains={() => setSelectedDomains(new Set())}
+          wings={wings}
+          wing={wing}
+          onWing={pickWing}
+          active={active}
           showClusters={showClusters}
           onClusters={() => setShowClusters((v) => !v)}
           showNetwork={showNetwork}
@@ -1055,7 +1085,7 @@ function GraphView({
           // Fullscreen rides along: entering or leaving changes the canvas width by ~40%,
           // and re-fitting through the fitKey also clears `userMoved` - so a graph the user
           // had panned is re-framed too, instead of staying parked off-screen.
-          fitKey={`${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}`}
+          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}`}
           barExtra={
             <>
               <span className="scopeline">
@@ -1599,6 +1629,10 @@ function GraphPanel({
   selectedDomains,
   onToggleDomain,
   onClearDomains,
+  wings,
+  wing,
+  onWing,
+  active,
   showClusters,
   onClusters,
   showNetwork,
@@ -1619,10 +1653,15 @@ function GraphPanel({
   types: Array<[string, number]>
   selectedTypes: ReadonlySet<string>
   onToggleType: (t: string) => void
-  domains: Array<[string, number]>
+  /** In the flat list's order. */
+  domains: ReadonlyArray<readonly [string, number]>
   selectedDomains: ReadonlySet<string>
   onToggleDomain: (d: string) => void
   onClearDomains: () => void
+  wings: readonly WingGroup[]
+  wing: string | null
+  onWing: (id: string | null) => void
+  active: boolean
   showClusters: boolean
   onClusters: () => void
   showNetwork: boolean
@@ -1637,19 +1676,12 @@ function GraphPanel({
   gapCount: number
   onReset: () => void
 }): React.ReactElement {
-  const [domFilter, setDomFilter] = useState('')
   const includeOn = (showSystem ? 1 : 0) + (showGaps ? 1 : 0)
   /** Hovering a pill previews its meaning; leaving falls back to the one in force. */
   const [lensPreview, setLensPreview] = useState<Lens | null>(null)
   const shownLens = LENSES.find((l) => l.key === (lensPreview ?? lens)) ?? LENSES[0]!
 
   const label = (d: string): string => (d === NO_DOMAIN ? 'no domain' : d)
-  const q = domFilter.trim().toLowerCase()
-  // The list is for FINDING a domain, so it orders alphabetically (the old band ordered by
-  // size, which is right for a legend and wrong for a lookup). The no-domain bucket is last.
-  const domainRows = [...domains]
-    .sort(([a], [b]) => (a === NO_DOMAIN ? 1 : b === NO_DOMAIN ? -1 : a.localeCompare(b)))
-    .filter(([d]) => q === '' || label(d).toLowerCase().includes(q))
 
   return (
     <aside className="gpanel" aria-label="Graph view controls">
@@ -1760,57 +1792,30 @@ function GraphPanel({
         </div>
       </div>
 
+      {/* The list is for FINDING a domain, so it comes alphabetical (the old band ordered by
+          size, which is right for a legend and wrong for a lookup), or one wing at a time. */}
       {hasDomains && (
-        <div className="gp-sec grow">
-          <div className="gp-head">
-            <span className="gp-eyebrow">Domains</span>
-            <span className="spacer" />
-            {selectedDomains.size > 0 ? (
-              <button className="btn ghost" onClick={onClearDomains} title="Show all domains">
-                <Icon name="x" /> Clear
-              </button>
-            ) : (
-              <span className="gp-state">showing all</span>
-            )}
-          </div>
-          <div className="gp-search">
-            <Icon name="search" />
-            <input
-              type="search"
-              value={domFilter}
-              placeholder="Filter domains…"
-              onChange={(e) => setDomFilter(e.target.value)}
-              aria-label="Filter the domain list"
-            />
-          </div>
-          <div className="domlist">
-            {domainRows.map(([d, count]) => {
-              const active = selectedDomains.has(d)
-              return (
-                <button
-                  key={d || '∅'}
-                  className={`domrow${active ? ' active' : ''}${selectedDomains.size > 0 && !active ? ' dimmed' : ''}`}
-                  aria-pressed={active}
-                  onClick={() => onToggleDomain(d)}
-                  title={
-                    active
-                      ? selectedDomains.size === 1
-                        ? 'Deselect - back to all domains'
-                        : `Remove ${label(d)} from the filter`
-                      : selectedDomains.size === 0
-                        ? 'Show only this domain'
-                        : `Add ${label(d)} to the current selection`
-                  }
-                >
-                  <span className="dot" style={{ background: d === NO_DOMAIN ? 'var(--muted)' : domainColor(d) }} aria-hidden />
-                  <span className="nm">{label(d)}</span>
-                  <span className="n">{count}</span>
-                </button>
-              )
-            })}
-            {domainRows.length === 0 && <div className="gp-none">No domain matches “{domFilter.trim()}”.</div>}
-          </div>
-        </div>
+        <DomainSection
+          domains={domains}
+          label={label}
+          color={(d) => (d === NO_DOMAIN ? 'var(--muted)' : domainColor(d))}
+          selected={selectedDomains}
+          onToggle={onToggleDomain}
+          onClear={onClearDomains}
+          groups={wings}
+          wing={wing}
+          onWing={onWing}
+          active={active}
+          rowTitle={(d, on) =>
+            on
+              ? selectedDomains.size === 1
+                ? 'Deselect - back to all domains'
+                : `Remove ${label(d)} from the filter`
+              : selectedDomains.size === 0
+                ? 'Show only this domain'
+                : `Add ${label(d)} to the current selection`
+          }
+        />
       )}
     </aside>
   )

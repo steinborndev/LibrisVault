@@ -2302,6 +2302,61 @@ details.hot-cache[open] summary {
   font-size: 11px;
   color: var(--text-faint);
 }
+/* The state word that is also the switch: "showing all" turns into "by wing" and back. */
+.gp-state.switch {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.gp-state.switch:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* The wing on show, under the search: the arrows at the ends, the room's name between them. */
+.dom-wing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+.dom-wing .nm {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dom-wing .pos {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dom-wing button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+.dom-wing button:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.dom-wing button:disabled { opacity: 0.35; cursor: default; }
+/* One chevron in the set, pointing down: a quarter turn each way points it back and forward. */
+.dom-wing svg { width: 12px; height: 12px; }
+.dom-wing .prev svg { transform: rotate(90deg); }
+.dom-wing .next svg { transform: rotate(-90deg); }
 .gp-none {
   padding: 8px 4px;
   font-size: 12px;

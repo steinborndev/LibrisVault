@@ -71,3 +71,12 @@ with an old sample, not where it is.
       walking records, a day step closes an open record, Escape no longer clears the day. The
       view is switched by its toggle only. Measured in the browser: the headline slot stays at
       one position across every step; a `?filter=` jump lands on the day of its newest match.
+- [x] Chunk 4 (2026-09-11). One `DomainSection` for the Graph and the Catalog, over
+      `lib/wings.ts` (main room, the wings in order, then what is not shelved; shelf order
+      inside; a room with none of the screen's domains is skipped). "showing all" is the
+      switch to "by wing"; the wing narrows the graph and the table until a domain is picked,
+      the arrows and the left and right keys walk the rooms (only on the screen in front,
+      never over a field), turning the page drops a pick outside it, the search runs over
+      every room and turns the page to the first hit. Measured in the browser: the graph's
+      scope sentence names the room and its page count follows the walk; the catalog's table
+      does the same.

@@ -418,6 +418,7 @@ export function App(): React.ReactElement {
                     <Catalog
                       vaultName={vaultName}
                       domainParam={screen === 'catalog' ? (query.get('domain') ?? '') : ''}
+                      active={screen === 'catalog'}
                     />
                   </Suspense>
                 </ErrorBoundary>

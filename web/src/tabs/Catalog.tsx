@@ -7,7 +7,7 @@
  * leaving them to a lucky node click.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { navigate, pageRoute } from '../lib/router.ts'
@@ -18,6 +18,8 @@ import { domainColor, STUB_BYTES } from '../lib/domains.ts'
 import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
 import { addressLink, sourceLink } from '../lib/sources.ts'
 import { Icon } from '../components/Icon.tsx'
+import { DomainSection } from '../components/DomainSection.tsx'
+import { wingGroups, wingOf } from '../lib/wings.ts'
 import { queryState } from '../components/QueryState.tsx'
 import type { GraphNode, SourceRef } from '../api/types.ts'
 
@@ -67,6 +69,7 @@ function isStub(n: GraphNode): boolean {
 export function Catalog({
   vaultName,
   domainParam = '',
+  active = true,
 }: {
   vaultName: string
   /**
@@ -74,6 +77,8 @@ export function Catalog({
    * state - see the effect below, which consumes it the way the graph consumes `?gaps=1`.
    */
   domainParam?: string
+  /** Whether this is the screen in front; the domain section's keys listen only then. */
+  active?: boolean
 }): React.ReactElement {
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   // Provenance rides its OWN query, not the graph payload: the canvas, Home and the Library
@@ -88,7 +93,8 @@ export function Catalog({
   const [deepening, setDeepening] = useState(false)
   const [subset, setSubset] = useState<Subset>('all')
   const [sort, setSort] = useState<SortKey>('changed')
-  const [domFilter, setDomFilter] = useState('')
+  /** The wing on show in the domain section, or null for the flat list; the wing narrows the table. */
+  const [wing, setWing] = useState<string | null>(null)
   /** Hover previews an option's meaning; leaving falls back to the one in force. */
   const [subsetHover, setSubsetHover] = useState<Subset | null>(null)
   const [sortHover, setSortHover] = useState<SortKey | null>(null)
@@ -111,6 +117,8 @@ export function Catalog({
     setQuery('')
     setType(null)
     setSubset('all')
+    // In wing mode the page turns to the wing that holds it, so the row is there to see.
+    setWing((w) => (w === null ? null : (wingOf(wingsRef.current, domainParam) ?? w)))
     navigate('/library', { replace: true })
     // The list is longer than the panel: a filter set from another screen must be visible
     // as a filter, not just as a shorter table.
@@ -144,6 +152,34 @@ export function Catalog({
     return { domains: [...m.entries()].sort((a, b) => b[1] - a[1]), none }
   }, [knowledge])
 
+  /** The flat list's order: alphabetical, the no-domain bucket (key '') last. */
+  const domainRows = useMemo(
+    () =>
+      [...domainCounts.domains.map(([d, c]) => [d, c] as const), ...(domainCounts.none > 0 ? [['', domainCounts.none] as const] : [])].sort(([a], [b]) =>
+        a === '' ? 1 : b === '' ? -1 : a.localeCompare(b),
+      ),
+    [domainCounts],
+  )
+  /*
+   * The Library's rooms, for the domain section's wing mode: the same placement the
+   * Library draws. Without the Library (agents off) there is no scene and no wing mode.
+   */
+  const sceneQ = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 60_000, retry: false })
+  const wings = useMemo(() => wingGroups(sceneQ.data, domainRows.map(([d]) => d)), [sceneQ.data, domainRows])
+  const wingsRef = useRef(wings)
+  wingsRef.current = wings
+  const wingScope = useMemo(() => (wing === null ? null : new Set(wings.find((g) => g.id === wing)?.domains ?? [])), [wing, wings])
+  /** Turning the page drops a pick outside it: the room is the filter now. */
+  const pickWing = useCallback(
+    (id: string | null): void => {
+      setWing(id)
+      if (id === null) return
+      const inside = new Set(wings.find((g) => g.id === id)?.domains ?? [])
+      setDomain((d) => (d === null || inside.has(d === 'none' ? '' : d) ? d : null))
+    },
+    [wings],
+  )
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const terms = q === '' ? [] : q.split(/\s+/)
@@ -151,6 +187,8 @@ export function Catalog({
       if (type !== null && n.type !== type) return false
       if (domain === 'none' && n.domain !== null) return false
       if (domain !== null && domain !== 'none' && n.domain !== domain) return false
+      // The wing on show narrows the table until one of its domains is picked.
+      if (domain === null && wingScope !== null && !wingScope.has(n.domain ?? '')) return false
       if (subset === 'orphans' && !isOrphan(n)) return false
       if (subset === 'stubs' && !isStub(n)) return false
       if (terms.length > 0) {
@@ -173,7 +211,7 @@ export function Catalog({
       )
     } else list.sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0))
     return list
-  }, [knowledge, query, type, domain, subset, sort])
+  }, [knowledge, query, type, domain, wingScope, subset, sort])
 
   /*
    * Every match, in one list. It was paged in 50s and grew as you reached the bottom, which
@@ -188,17 +226,8 @@ export function Catalog({
   // while the index loads or fails, so a retry does not make the whole workspace jump.
   // Only the table's own area changes.
 
-  const domainRows = [
-    ...domainCounts.domains.map(([d, c]) => [d, c] as [string, number]),
-    ...(domainCounts.none > 0 ? [['', domainCounts.none] as [string, number]] : []),
-  ]
-    .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
-    .filter(([d]) => {
-      const f = domFilter.trim().toLowerCase()
-      return f === '' || (d === '' ? 'no domain' : d).toLowerCase().includes(f)
-    })
   /** Whether anything is narrowing the list - the reset only appears when it would do something. */
-  const dirty = query !== '' || type !== null || domain !== null || subset !== 'all' || sort !== 'changed'
+  const dirty = query !== '' || type !== null || domain !== null || wing !== null || subset !== 'all' || sort !== 'changed'
   const subsetHint = SUBSETS.find((x) => x.key === (subsetHover ?? subset))!.desc
   const sortHint = SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
   const reset = (): void => {
@@ -207,7 +236,7 @@ export function Catalog({
     setDomain(null)
     setSubset('all')
     setSort('changed')
-    setDomFilter('')
+    setWing(null)
   }
 
   return (
@@ -329,48 +358,22 @@ export function Catalog({
           <div className="pillhint">{sortHint}</div>
         </div>
 
-        <div className="gp-sec grow">
-          <div className="gp-head">
-            <span className="gp-eyebrow">Domains</span>
-            <span className="spacer" />
-            {domain !== null ? (
-              <button className="btn ghost" onClick={() => setDomain(null)} title="Show all domains">
-                <Icon name="x" /> Clear
-              </button>
-            ) : (
-              <span className="gp-state">showing all</span>
-            )}
-          </div>
-          <div className="gp-search">
-            <Icon name="search" />
-            <input
-              type="search"
-              value={domFilter}
-              placeholder="Filter domains…"
-              onChange={(e) => setDomFilter(e.target.value)}
-              aria-label="Filter the domain list"
-            />
-          </div>
-          <div className="domlist" ref={domListRef}>
-            {domainRows.map(([d, count]) => {
-              const key = d === '' ? 'none' : d
-              const active = domain === key
-              return (
-                <button
-                  key={key}
-                  className={`domrow${active ? ' active' : ''}${domain !== null && !active ? ' dimmed' : ''}`}
-                  aria-pressed={active}
-                  onClick={() => setDomain(active ? null : key)}
-                >
-                  <span className="dot" style={{ background: d === '' ? 'var(--muted)' : domainColor(d) }} aria-hidden />
-                  <span className="nm">{d === '' ? 'no domain' : d}</span>
-                  <span className="n">{count}</span>
-                </button>
-              )
-            })}
-            {domainRows.length === 0 && <div className="gp-none">No domain matches that.</div>}
-          </div>
-        </div>
+        <DomainSection
+          domains={domainRows}
+          label={(d) => (d === '' ? 'no domain' : d)}
+          color={(d) => (d === '' ? 'var(--muted)' : domainColor(d))}
+          selected={new Set(domain === null ? [] : [domain === 'none' ? '' : domain])}
+          onToggle={(d) => {
+            const key = d === '' ? 'none' : d
+            setDomain((cur) => (cur === key ? null : key))
+          }}
+          onClear={() => setDomain(null)}
+          groups={wings}
+          wing={wing}
+          onWing={pickWing}
+          active={active}
+          listRef={domListRef}
+        />
       </aside>
 
       <div className="box">
