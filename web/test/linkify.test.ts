@@ -23,6 +23,21 @@ describe('linkifyText — URLs', () => {
     ])
   })
 
+  it('links an address written without its scheme, as https, when it carries a path', () => {
+    // A source page cites its further reading as `publisher.example/posts/an-article`; the
+    // reader should be one click from it. Closing parentheses and sentence punctuation stay out.
+    const nodes = linkifyText('Publisher - "An article" (publisher.example/posts/an-article).', 'k')
+    const a = nodes.find((n) => typeof n === 'object' && n !== null && 'props' in n) as { props: { href: string; children: string } }
+    expect(a.props.href).toBe('https://publisher.example/posts/an-article')
+    expect(a.props.children).toBe('publisher.example/posts/an-article')
+    expect(nodes.at(-1)).toBe(').')
+  })
+
+  it('leaves a dotted name without a path alone: a file, not an address', () => {
+    expect(linkifyText('staged .raw/01ABC/manifest.json and wiki/index.md', 'k')).toEqual(['staged .raw/01ABC/manifest.json and wiki/index.md'])
+    expect(linkifyText('see styles.css, then package.json', 'k')).toEqual(['see styles.css, then package.json'])
+  })
+
   it('does not swallow trailing sentence punctuation', () => {
     expect(hrefs(linkifyText('at https://example.com/page.', 'k'))).toEqual([
       'https://example.com/page',

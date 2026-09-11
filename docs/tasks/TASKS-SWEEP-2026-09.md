@@ -215,3 +215,10 @@ A second list, split the same way and settled up front:
       record's Article | Log toggle wears the headline's grey, and the Catalog's article
       takes the pane's width. Measured: both doors arrive at `/graph` with no focus bar and
       the page's title in the explorer; the article body is 1251px of a 1306px pane.
+- [x] Follow-up (2026-09-11). The night shift's subtitle leads with the hours ("23:00 to
+      02:00"), then the ingest queue and the rest, in slots of their own widths. An address
+      a page cites without its scheme (`publisher.example/posts/…`, the way a source page
+      lists its further reading) links as https wherever text is linkified (the article view, the
+      log); a dotted name without a path stays text, so file names never link. Measured:
+      the four cited addresses of a source page are links in the record's article, and a
+      315-line log gains no false link.

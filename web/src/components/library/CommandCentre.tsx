@@ -617,9 +617,10 @@ export function CommandCentre({
         <>
           <NightLine
             facts={[
+              /* The hours first: they are the setting the rest of the line is read against. */
+              `${hhmm(win.from)} to ${hhmm(win.to)}`,
               `Ingest queue: ${ingests.length}`,
               `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
-              `${hhmm(win.from)} to ${hhmm(win.to)}`,
               /* The night's length counts the held ingests with the Fellows' tasks; the
                  reserve holds only the Fellows, and the line says so when ingests still run. */
               blocked !== null

@@ -25,11 +25,15 @@ const PATENT_MAX_DIGITS = 13
 /**
  * URL first (so a patent-looking digit run INSIDE a URL is swallowed by the URL), then a
  * patent number: country code, an optional single space, a digit run (commas allowed, no
- * inner spaces - matches how the vault writes them), an optional kind code (A1/B2/…).
+ * inner spaces - matches how the vault writes them), an optional kind code (A1/B2/…), then
+ * an address written without its scheme - `publisher.example/posts/an-article`, the way a
+ * source page cites its further reading - which links as https. A path is required there:
+ * a dotted name alone (`manifest.json`, `wiki/index.md`) is a file, not an address.
  */
 const LINK_SRC =
   '(https?:\\/\\/[^\\s<>()]+[^\\s<>().,;:!?\'"])' +
-  `|(\\b(${PATENT_CC})\\s?(\\d[\\d,]*\\d)\\s?([A-C]\\d?)?\\b)`
+  `|(\\b(${PATENT_CC})\\s?(\\d[\\d,]*\\d)\\s?([A-C]\\d?)?\\b)` +
+  '|(\\b(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}\\/(?:[^\\s<>()]*[^\\s<>().,;:!?\'"])?)'
 
 /** Espacenet (EPO) publication-number search - official, worldwide, one scheme for every CC. */
 export function espacenetUrl(publicationNumber: string): string {
@@ -49,6 +53,12 @@ export function linkifyText(text: string, keyBase: string): ReactNode[] {
       out.push(
         <a key={key} href={m[1]} target="_blank" rel="noreferrer">
           {m[1]}
+        </a>,
+      )
+    } else if (m[6] !== undefined) {
+      out.push(
+        <a key={key} href={`https://${m[6]}`} target="_blank" rel="noreferrer">
+          {m[6]}
         </a>,
       )
     } else {
