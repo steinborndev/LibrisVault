@@ -1661,7 +1661,8 @@ export class FellowService {
     // Pending handoffs to a retired Fellow become unclaimed requests (section 5.2).
     const unclaimed = this.handoffs?.unclaimTarget(id, this.now().toISOString()) ?? 0
     if (unclaimed > 0) this.log('info', `fellows: ${unclaimed} handoff(s) to ${agent.name} are unclaimed now`)
-    return this.setState(id, { state: 'retired', sleepReason: null, sleepCode: null, retiredAt: this.now().toISOString() })
+    // A skip is a statement about a night to come; a retired Fellow has none.
+    return this.setState(id, { state: 'retired', sleepReason: null, sleepCode: null, skipUntil: null, retiredAt: this.now().toISOString() })
   }
 
   /** Removes a retired Fellow's record; the notebook and its pages stay in the vault. */

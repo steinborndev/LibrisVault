@@ -712,8 +712,12 @@ describe('the newest recap keeps its decision half current', () => {
     await h.shift.run('timer')
     h.clock.now = at(8, 7, 0)
     await h.recaps.build({ trigger: 'manual' })
+    // A skip set while it worked is cleared by retiring: there is no night left to skip.
+    await h.service.skipTonight(agent!.id)
+    expect(h.service.get(agent!.id)!.skipUntil).not.toBeNull()
     await h.service.retire(agent!.id)
     const before = h.service.get(agent!.id)!
+    expect(before.skipUntil).toBeNull()
     const reply = await h.recaps.answerText('skip 1\npause 1\nnote 1: later\nmodel 1 opus-5\nstep 1 small')
     expect(reply).toContain('❌ Ada is retired')
     expect(reply).not.toContain('✅')

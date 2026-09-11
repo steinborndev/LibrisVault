@@ -352,7 +352,7 @@ export function FellowSection({
         </h3>
         <span className="rf-meta">
           {f.homeDomain} · {f.model} · {stateLine}
-          {f.skipUntil ? ` · skipped tonight (${f.skipUntil})` : ''}
+          {f.skipUntil && f.state !== 'retired' ? ` · skipped tonight (${f.skipUntil})` : ''}
         </span>
         <span className="spacer" />
         {canAct && (
