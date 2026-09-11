@@ -19,7 +19,8 @@ import { GraphCanvas, domainColor, TYPE_VARS, type Lens } from '../components/Gr
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
-import { wingGroups, type WingGroup } from '../lib/wings.ts'
+import { wingGroups, wingOf, type WingGroup, type WingListMode } from '../lib/wings.ts'
+import { useWingMode } from '../hooks/useWingMode.ts'
 import { GapCleanupBar, useGapCleanup } from '../components/GapCleanup.tsx'
 import { queryState } from '../components/QueryState.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
@@ -564,19 +565,28 @@ function GraphView({
    */
   const sceneQ = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 60_000, retry: false })
   const wings = useMemo(() => wingGroups(sceneQ.data, domainRows.map(([d]) => d)), [sceneQ.data, domainRows])
-  /** The room on show, or null for the flat list; the room is a filter on the graph. */
-  const [wing, setWing] = useState<string | null>(null)
+  /** The room on show (by wing is the default, remembered per screen), or null for the flat list; the room is a filter on the graph. */
+  const wingMode = useWingMode('vault.domainMode.graph', wings)
+  const wing = wingMode.wing
   const wingScope = useMemo(() => (wing === null ? null : new Set(wings.find((g) => g.id === wing)?.domains ?? [])), [wing, wings])
   /** Turning the page drops any selection outside it: the room is the filter now. */
   const pickWing = useCallback(
-    (id: string | null): void => {
-      setWing(id)
-      if (id === null) return
+    (id: string): void => {
+      wingMode.setWing(id)
       const inside = new Set(wings.find((g) => g.id === id)?.domains ?? [])
       setSelectedDomains((s) => (s.size === 0 ? s : new Set([...s].filter((d) => inside.has(d)))))
     },
-    [wings],
+    [wings, wingMode],
   )
+  // A selection made elsewhere (Home's domain bars, the search) lands in its own room: when
+  // the room on show holds none of it, the page turns to the first selected domain's room.
+  useEffect(() => {
+    if (wing === null || selectedDomains.size === 0) return
+    const here = new Set(wings.find((g) => g.id === wing)?.domains ?? [])
+    if ([...selectedDomains].some((d) => here.has(d))) return
+    const target = [...selectedDomains].map((d) => wingOf(wings, d)).find((id): id is string => id !== undefined)
+    if (target !== undefined) wingMode.setWing(target)
+  }, [selectedDomains, wing, wings, wingMode])
   // With no domains assigned, the domain lens falls back to type-coloring; the legend must
   // follow the SAME resolution so it explains what's actually drawn.
   const effectiveLens: Lens = hasDomains ? lens : lens === 'domain' ? 'type' : lens
@@ -814,7 +824,7 @@ function GraphView({
     setInput('')
     setSelectedTypes(new Set())
     setSelectedDomains(new Set())
-    setWing(null)
+    wingMode.setMode('all')
     setLens('domain')
     setShowClusters(false)
     setShowGaps(false)
@@ -1063,6 +1073,8 @@ function GraphView({
           onToggleDomain={toggleDomain}
           onClearDomains={() => setSelectedDomains(new Set())}
           wings={wings}
+          wingMode={wingMode.mode}
+          onWingMode={wingMode.setMode}
           wing={wing}
           onWing={pickWing}
           active={active}
@@ -1652,6 +1664,8 @@ function GraphPanel({
   onToggleDomain,
   onClearDomains,
   wings,
+  wingMode,
+  onWingMode,
   wing,
   onWing,
   active,
@@ -1681,8 +1695,10 @@ function GraphPanel({
   onToggleDomain: (d: string) => void
   onClearDomains: () => void
   wings: readonly WingGroup[]
+  wingMode: WingListMode
+  onWingMode: (mode: WingListMode) => void
   wing: string | null
-  onWing: (id: string | null) => void
+  onWing: (id: string) => void
   active: boolean
   showClusters: boolean
   onClusters: () => void
@@ -1825,6 +1841,8 @@ function GraphPanel({
           onToggle={onToggleDomain}
           onClear={onClearDomains}
           groups={wings}
+          mode={wingMode}
+          onMode={onWingMode}
           wing={wing}
           onWing={onWing}
           active={active}

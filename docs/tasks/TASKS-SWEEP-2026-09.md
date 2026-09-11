@@ -165,3 +165,11 @@ A second list, split the same way and settled up front:
       and its buttons stand at the same x under a 4-character and a 218-character title
       (the title takes two lines and an ellipsis); the Library closes a shelf on Escape
       straight after arriving from Home, with nothing focused.
+- [x] Chunk 3 (2026-09-11). The domain section's filter box is gone; a "by wing | show all"
+      toggle of two equal halves stands in its head, by wing is the default, and the choice
+      and the wing are remembered per tab (localStorage). A domain picked elsewhere turns the
+      page to its room. On the way, the Catalog's consumed `?domain=` sent the address bar to
+      `/library`, a stale target from before the tab moved; it goes to `/catalog` now.
+      Measured in the browser: a fresh load opens on the first room in both tabs, the walked
+      room and the mode survive a reload, and a domain of the last room lands on that room
+      with its row marked and the table narrowed.

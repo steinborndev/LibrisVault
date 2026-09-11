@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { stepWing, UNSHELVED, wingGroups, wingOf, wingWithMatch } from '../src/lib/wings.ts'
+import { resolveWing, stepWing, UNSHELVED, wingGroups, wingOf } from '../src/lib/wings.ts'
 import type { SceneRoom } from '../src/api/types.ts'
 
 const shelf = (slot: number, domain: string): SceneRoom['shelves'][number] => ({ slot, domain, books: 1, volumes: 1, stubs: 0, placedBy: 'auto' })
@@ -43,15 +43,20 @@ describe('the wings a domain section walks', () => {
     expect(stepWing(groups, 'gone', 1)).toBeNull()
   })
 
-  it('knows where a domain stands, and where a search lands', () => {
+  it('knows where a domain stands', () => {
     const groups = wingGroups({ rooms }, known)
     expect(wingOf(groups, 'physics')).toBe('w-b')
     expect(wingOf(groups, 'unknown')).toBeUndefined()
-    const has = (needle: string) => (d: string) => d.includes(needle)
-    // The page on show keeps a hit of its own; otherwise the first page with one.
-    expect(wingWithMatch(groups, 'w-b', has('phys'))).toBe('w-b')
-    expect(wingWithMatch(groups, 'main', has('phys'))).toBe('w-b')
-    expect(wingWithMatch(groups, 'w-b', has('chem'))).toBe('w-b')
-    expect(wingWithMatch(groups, 'main', has('zzz'))).toBeNull()
+  })
+
+  it('resolves the wing on show from the mode and what was remembered', () => {
+    const groups = wingGroups({ rooms }, known)
+    // The flat list shows no wing; wing mode opens on the remembered room, else the first.
+    expect(resolveWing('all', 'w-b', groups)).toBeNull()
+    expect(resolveWing('wing', 'w-b', groups)).toBe('w-b')
+    expect(resolveWing('wing', 'gone', groups)).toBe('main')
+    expect(resolveWing('wing', null, groups)).toBe('main')
+    // Without rooms there is no wing mode at all.
+    expect(resolveWing('wing', 'main', [])).toBeNull()
   })
 })

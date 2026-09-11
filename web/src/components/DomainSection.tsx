@@ -1,19 +1,19 @@
 /**
- * The Domains section of a control column, shared by the Graph and the Catalog (chunk 4 of
- * docs/tasks/TASKS-SWEEP-2026-09.md). Two screens carried the same twenty lines with
- * different selection rules; the rules stay with the screens (a set here, one domain there)
- * and the section only draws, filters and walks.
+ * The Domains section of a control column, shared by the Graph and the Catalog (chunks 4
+ * and, in the second sweep, 3 of docs/tasks/TASKS-SWEEP-2026-09.md). Two screens carried
+ * the same twenty lines with different selection rules; the rules stay with the screens (a
+ * set here, one domain there) and the section only draws and walks.
  *
- * Two modes. "showing all" is the flat list the screen hands over, filtered by the box. "by
- * wing" shows one Library room at a time, its domains in shelf order, with two arrows and the
- * left and right keys to walk the rooms; the room on show is the screen's filter, so walking
- * the rooms is browsing the vault. The box searches every room: a hit in another one turns
- * the page there, and an empty box stays where the search led.
+ * Two modes, switched by a toggle in the head. "by wing", the default, shows one Library
+ * room at a time, its domains in shelf order, with two arrows and the left and right keys to
+ * walk the rooms; the room on show is the screen's filter, so walking the rooms is browsing
+ * the vault. "show all" is the flat list the screen hands over. There is no filter box any
+ * more: with a room a page, the list is short enough to read.
  */
 
-import { useEffect, useState, type Ref } from 'react'
+import { useEffect, type Ref } from 'react'
 import { Icon } from './Icon.tsx'
-import { stepWing, wingOf, wingWithMatch, type WingGroup } from '../lib/wings.ts'
+import { stepWing, type WingGroup, type WingListMode } from '../lib/wings.ts'
 
 export interface DomainSectionProps {
   /** Every domain the screen knows, with its count, in the order the flat list shows them. */
@@ -25,9 +25,11 @@ export interface DomainSectionProps {
   readonly onClear: () => void
   /** The rooms, from `wingGroups`; empty when the Library offers none, and then there is no wing mode. */
   readonly groups: readonly WingGroup[]
+  readonly mode: WingListMode
+  readonly onMode: (mode: WingListMode) => void
   /** The room on show, or null for the flat list. The screen owns it: the room is its filter. */
   readonly wing: string | null
-  readonly onWing: (id: string | null) => void
+  readonly onWing: (id: string) => void
   /** Only the screen in front listens for the keys; the screens stay mounted behind [hidden]. */
   readonly active: boolean
   readonly rowTitle?: (key: string, active: boolean) => string | undefined
@@ -43,23 +45,11 @@ function inField(target: EventTarget | null): boolean {
   )
 }
 
-export function DomainSection({ domains, label, color, selected, onToggle, onClear, groups, wing, onWing, active, rowTitle, listRef }: DomainSectionProps): React.ReactElement {
-  const [filter, setFilter] = useState('')
-  const needle = filter.trim().toLowerCase()
-  const matches = (d: string): boolean => needle === '' || label(d).toLowerCase().includes(needle)
+export function DomainSection({ domains, label, color, selected, onToggle, onClear, groups, mode, onMode, wing, onWing, active, rowTitle, listRef }: DomainSectionProps): React.ReactElement {
   const group = wing === null ? undefined : groups.find((g) => g.id === wing)
   const at = group === undefined ? -1 : groups.indexOf(group)
   const counts = new Map(domains)
   const rows: ReadonlyArray<readonly [string, number]> = group === undefined ? domains : group.domains.map((d) => [d, counts.get(d) ?? 0] as const)
-  const shown = rows.filter(([d]) => matches(d))
-
-  // The search runs over every room: when the one on show has no hit and another has, turn
-  // the page there. Nothing matching anywhere leaves the page where it is.
-  useEffect(() => {
-    if (wing === null || needle === '') return
-    const target = wingWithMatch(groups, wing, (d) => label(d).toLowerCase().includes(needle))
-    if (target !== null && target !== wing) onWing(target)
-  }, [needle, wing, groups, label, onWing])
 
   // Left and right walk the rooms, in wing mode, on the screen in front, never over a field.
   useEffect(() => {
@@ -76,12 +66,6 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
     return () => window.removeEventListener('keydown', onKey)
   }, [active, wing, groups, onWing])
 
-  /** Entering wing mode opens on the room of the first selected domain, else the first room. */
-  const enter = (): void => {
-    const fromSelection = [...selected].map((d) => wingOf(groups, d)).find((id): id is string => id !== undefined)
-    onWing(fromSelection ?? groups[0]?.id ?? null)
-  }
-
   return (
     <div className="gp-sec grow">
       <div className="gp-head">
@@ -92,22 +76,19 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
             <Icon name="x" /> Clear
           </button>
         )}
-        {/* The state word is the switch: "showing all" turns into "by wing" and back. */}
+        {/* The toggle, in two equal halves; without rooms there is only the flat list. */}
         {groups.length > 0 ? (
-          <button
-            className="gp-state switch"
-            onClick={() => (wing === null ? enter() : onWing(null))}
-            title={wing === null ? 'One wing at a time: the room is the filter, and the arrows walk the rooms' : 'Every domain in one list'}
-          >
-            {wing === null ? 'showing all' : 'by wing'}
-          </button>
+          <div className="seg sm ink dom-mode" role="radiogroup" aria-label="Domain list">
+            <button role="radio" aria-checked={mode === 'wing'} onClick={() => onMode('wing')} title="One wing at a time: the room is the filter, and the arrows walk the rooms">
+              by wing
+            </button>
+            <button role="radio" aria-checked={mode === 'all'} onClick={() => onMode('all')} title="Every domain in one list">
+              show all
+            </button>
+          </div>
         ) : (
           <span className="gp-state">showing all</span>
         )}
-      </div>
-      <div className="gp-search">
-        <Icon name="search" />
-        <input type="search" value={filter} placeholder={wing === null ? 'Filter domains…' : 'Find a domain in any wing…'} onChange={(e) => setFilter(e.target.value)} aria-label="Filter the domain list" />
       </div>
       {group !== undefined && (
         <div className="dom-wing">
@@ -126,7 +107,7 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
         </div>
       )}
       <div className="domlist" ref={listRef}>
-        {shown.map(([d, count]) => {
+        {rows.map(([d, count]) => {
           const on = selected.has(d)
           return (
             <button
@@ -142,7 +123,7 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
             </button>
           )
         })}
-        {shown.length === 0 && <div className="gp-none">{group === undefined ? `No domain matches “${filter.trim()}”.` : `No domain matches “${filter.trim()}” in any wing.`}</div>}
+        {rows.length === 0 && <div className="gp-none">No domain in this wing.</div>}
       </div>
     </div>
   )

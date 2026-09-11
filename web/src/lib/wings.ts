@@ -54,12 +54,14 @@ export function wingOf(groups: readonly WingGroup[], domain: string): string | u
   return groups.find((g) => g.domains.includes(domain))?.id
 }
 
+export type WingListMode = 'wing' | 'all'
+
 /**
- * Where a search over every wing lands: the group on show when it has a hit, else the
- * first group that has one, else null (nothing matches anywhere, and the page stays).
+ * The wing on show for a mode and a remembered id: none in the flat list, the remembered
+ * room while it still exists, else the first room. Null with no rooms at all, which is also
+ * what "no wing mode" looks like to the section.
  */
-export function wingWithMatch(groups: readonly WingGroup[], current: string | null, matches: (domain: string) => boolean): string | null {
-  const here = groups.find((g) => g.id === current)
-  if (here !== undefined && here.domains.some(matches)) return here.id
-  return groups.find((g) => g.domains.some(matches))?.id ?? null
+export function resolveWing(mode: WingListMode, id: string | null, groups: readonly WingGroup[]): string | null {
+  if (mode !== 'wing' || groups.length === 0) return null
+  return groups.some((g) => g.id === id) ? id : (groups[0]?.id ?? null)
 }

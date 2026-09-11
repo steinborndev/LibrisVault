@@ -21,6 +21,7 @@ import { addressLink, sourceLink } from '../lib/sources.ts'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
 import { wingGroups, wingOf } from '../lib/wings.ts'
+import { useWingMode } from '../hooks/useWingMode.ts'
 import { queryState } from '../components/QueryState.tsx'
 import type { GraphNode, SourceRef } from '../api/types.ts'
 
@@ -97,8 +98,6 @@ export function Catalog({
   const [deepening, setDeepening] = useState(false)
   const [subset, setSubset] = useState<Subset>('all')
   const [sort, setSort] = useState<SortKey>('changed')
-  /** The wing on show in the domain section, or null for the flat list; the wing narrows the table. */
-  const [wing, setWing] = useState<string | null>(null)
   /** Hover previews an option's meaning; leaving falls back to the one in force. */
   const [subsetHover, setSubsetHover] = useState<Subset | null>(null)
   const [sortHover, setSortHover] = useState<SortKey | null>(null)
@@ -121,9 +120,7 @@ export function Catalog({
     setQuery('')
     setType(null)
     setSubset('all')
-    // In wing mode the page turns to the wing that holds it, so the row is there to see.
-    setWing((w) => (w === null ? null : (wingOf(wingsRef.current, domainParam) ?? w)))
-    navigate('/library', { replace: true })
+    navigate('/catalog', { replace: true })
     // The list is longer than the panel: a filter set from another screen must be visible
     // as a filter, not just as a shorter table.
     requestAnimationFrame(() => {
@@ -184,19 +181,28 @@ export function Catalog({
    */
   const sceneQ = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 60_000, retry: false })
   const wings = useMemo(() => wingGroups(sceneQ.data, domainRows.map(([d]) => d)), [sceneQ.data, domainRows])
-  const wingsRef = useRef(wings)
-  wingsRef.current = wings
+  /** The wing on show (by wing is the default, remembered per screen), or null for the flat list; the wing narrows the table. */
+  const wingMode = useWingMode('vault.domainMode.catalog', wings)
+  const wing = wingMode.wing
   const wingScope = useMemo(() => (wing === null ? null : new Set(wings.find((g) => g.id === wing)?.domains ?? [])), [wing, wings])
   /** Turning the page drops a pick outside it: the room is the filter now. */
   const pickWing = useCallback(
-    (id: string | null): void => {
-      setWing(id)
-      if (id === null) return
+    (id: string): void => {
+      wingMode.setWing(id)
       const inside = new Set(wings.find((g) => g.id === id)?.domains ?? [])
       setDomain((d) => (d === null || inside.has(d === 'none' ? '' : d) ? d : null))
     },
-    [wings],
+    [wings, wingMode],
   )
+  // A domain picked elsewhere (Home's bars) lands in its own room: when the room on show
+  // does not hold it, the page turns there, so the row is there to see.
+  useEffect(() => {
+    if (wing === null || domain === null) return
+    const key = domain === 'none' ? '' : domain
+    if (wings.find((g) => g.id === wing)?.domains.includes(key)) return
+    const target = wingOf(wings, key)
+    if (target !== undefined) wingMode.setWing(target)
+  }, [domain, wing, wings, wingMode])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -245,7 +251,7 @@ export function Catalog({
   // Only the table's own area changes.
 
   /** Whether anything is narrowing the list - the reset only appears when it would do something. */
-  const dirty = query !== '' || type !== null || domain !== null || wing !== null || subset !== 'all' || sort !== 'changed'
+  const dirty = query !== '' || type !== null || domain !== null || subset !== 'all' || sort !== 'changed'
   const subsetHint = SUBSETS.find((x) => x.key === (subsetHover ?? subset))!.desc
   const sortHint = SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
   const reset = (): void => {
@@ -254,7 +260,6 @@ export function Catalog({
     setDomain(null)
     setSubset('all')
     setSort('changed')
-    setWing(null)
   }
 
   return (
@@ -387,6 +392,8 @@ export function Catalog({
           }}
           onClear={() => setDomain(null)}
           groups={wings}
+          mode={wingMode.mode}
+          onMode={wingMode.setMode}
           wing={wing}
           onWing={pickWing}
           active={active}

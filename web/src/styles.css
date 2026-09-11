@@ -2310,21 +2310,9 @@ details.hot-cache[open] summary {
   font-size: 11px;
   color: var(--text-faint);
 }
-/* The state word that is also the switch: "showing all" turns into "by wing" and back. */
-.gp-state.switch {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  font-size: 11px;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-.gp-state.switch:hover {
-  color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
+/* The list's two modes as a toggle in the section head, two equal halves. */
+.gp-head .seg.dom-mode { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 148px; }
+.gp-head .seg.dom-mode button { justify-content: center; padding-inline: 0; min-width: 0; }
 /* The wing on show, under the search: the arrows at the ends, the room's name between them. */
 .dom-wing {
   display: flex;
