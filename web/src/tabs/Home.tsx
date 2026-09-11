@@ -504,7 +504,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
               </span>
             </div>
             <div className="wk-label">{fmtWeek(shownWeek)}</div>
-            <div className="daylist">
+            {/* The same rows as the type list: the day left, what the view finds there right,
+                the picked one outlined, the one at the top of the feed quietly raised. */}
+            <div className="pillrow stacked" role="radiogroup" aria-label="Days">
               {daysDesc.map((date) => {
                 const row = recapOf(date)
                 const n = dayCount(date)
@@ -517,10 +519,11 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                 return (
                   <button
                     key={date}
-                    className={`day-row${date === today ? ' today' : ''}${idle ? ' idle' : ''}`}
-                    disabled={!stop}
-                    aria-pressed={picked}
+                    className={`viewpill${date === today ? ' today' : ''}${idle ? ' idle' : ''}`}
+                    role="radio"
+                    aria-checked={picked}
                     aria-current={current ? 'true' : undefined}
+                    disabled={!stop}
                     title={
                       !stop
                         ? `${fmtDay(date)} · ${future ? 'to come' : 'nothing on this day'}`
@@ -532,19 +535,19 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                     }
                     onClick={() => setDay(picked ? null : date)}
                   >
-                    <span className="d">{dayLabel(date)}</span>
+                    <span className="pl">{dayLabel(date)}</span>
                     {view === 'recaps' ? (
                       row === undefined ? (
-                        <span className="rq">{future ? 'to come' : 'no recap'}</span>
+                        <span className="pn">{future ? 'to come' : 'no recap'}</span>
                       ) : idle ? (
-                        <span className="rq idle">idle</span>
+                        <span className="pn">idle</span>
                       ) : undecided > 0 ? (
-                        <span className="rn">{undecided}</span>
+                        <span className="pn due">{undecided}</span>
                       ) : (
-                        <span className="rq">{row.quiet ? 'quiet' : 'done'}</span>
+                        <span className="pn">{row.quiet ? 'quiet' : 'done'}</span>
                       )
                     ) : (
-                      <span className={`rq n${n === 0 ? ' zero' : ''}`}>{future ? 'to come' : n}</span>
+                      <span className="pn">{future ? 'to come' : n}</span>
                     )}
                   </button>
                 )

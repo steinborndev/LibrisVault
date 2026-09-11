@@ -9019,10 +9019,13 @@ tr:focus-within .rowacts {
 /* The five figures keep one height from day to day: no value wraps into a second line. */
 .home-main .facts.lead .fact.lead .k,
 .home-main .facts.lead .fact.lead .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-/* The week list in the column, both views: the stream's count on a day, dimmed at zero. */
-.gp-sec .daylist { margin-top: 2px; }
-.day-row .rq.n { font-size: 11px; color: var(--text-dim); }
-.day-row .rq.n.zero { color: var(--text-faint); }
+/* The week list in the column, both views, in the type list's rows: today in bold, the day
+   at the top of the feed quietly raised, an undecided count in the warning colour. */
+.gp-sec .wk-label + .pillrow.stacked { margin-top: 2px; }
+.pillrow.stacked .viewpill.today > .pl { font-weight: 600; }
+.pillrow.stacked .viewpill[aria-current='true']:not([aria-checked='true']) { background: var(--bg-elev-2); color: var(--text); }
+.pillrow.stacked .viewpill.idle:not([aria-checked='true']) > .pl { opacity: 0.6; }
+.pillrow.stacked .viewpill > .pn.due { color: var(--warn); font-weight: 600; }
 /* The Fellow rows in the column: the Library's own row, plus a pressed state for the filter. */
 .lib-frow[aria-pressed='true'] { background: var(--accent-soft); }
 .lib-frow[aria-pressed='true'] .who b { color: var(--accent); }
