@@ -54,7 +54,7 @@ import {
   type ActivityState,
 } from '../lib/activity.ts'
 import { navigate } from '../lib/router.ts'
-import { nightLine, undecidedCount } from '../lib/recap.ts'
+import { undecidedCount } from '../lib/recap.ts'
 import { RecapFeed, titleDomain } from '../components/RecapFeed.tsx'
 import { knowledgeSubgraph, vaultShape } from '../lib/vaultShape.ts'
 import { TYPE_VARS, domainColor } from '../lib/domains.ts'
@@ -465,14 +465,12 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const feedCount = day !== null ? (recapOf(day) !== undefined ? 1 : 0) : rows.filter((r) => weekSet.has(r.cycleDate)).length
   /*
    * The date the headline names. In the recaps it is the night at the top of the feed - the
    * feed reports it as it scrolls, so the label walks with the reader - or the picked one; in
    * the stream it is the picked day, else the week.
    */
   const whereDate = day ?? (view === 'recaps' ? visible : null)
-  const whereRow = view === 'recaps' && whereDate !== null ? recapOf(whereDate) : undefined
 
   return (
     <div className="workspace">
@@ -824,15 +822,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                    letters and nothing else. The list that moves it stands in the column. */
                 <span className="lib-open home-where">
                   <b>{whereDate !== null ? fmtDay(whereDate) : fmtWeek(shownWeek)}</b>
-                  <span className="box-sub">
-                    {view === 'recaps'
-                      ? whereRow !== undefined
-                        ? nightLine(whereRow.model)
-                        : `${feedCount} recap${feedCount === 1 ? '' : 's'} this week`
-                      : day !== null
-                        ? `one day · ${shown.length} event${shown.length === 1 ? '' : 's'}`
-                        : `${shown.length} event${shown.length === 1 ? '' : 's'}`}
-                  </span>
                 </span>
               )}
             </div>
@@ -885,6 +874,12 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   box is the record's, and its own facts stand where these did. */}
               {detailEvent === null && (
               <Facts size="lead">
+                <Fact
+                  k="Events"
+                  v={shown.length}
+                  sub={day !== null ? 'on this day' : query !== '' || filtered ? 'matching, this week' : 'this week'}
+                  size="lead"
+                />
                 <Fact
                   k="In flight"
                   v={events.filter((e) => e.live).length}

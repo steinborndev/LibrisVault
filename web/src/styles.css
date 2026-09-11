@@ -8999,7 +8999,7 @@ tr:focus-within .rowacts {
 .home-headline { min-height: calc(var(--control-h) + 21px); }
 /* The view toggle: two halves of one width, and the picked one in ink on paper like the
    Research tab's, not in the research violet - which here would say "web egress". */
-.home-headline .seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.home-headline .seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 224px; }
 .home-headline .seg button { justify-content: center; }
 .home-headline .seg button[aria-selected='true'] {
   background: color-mix(in srgb, var(--text) 9%, var(--bg-elev));
@@ -9007,7 +9007,7 @@ tr:focus-within .rowacts {
   color: var(--text);
 }
 /* The search box in the headline's right slot: the row's control height, a fixed width. */
-.home-headline .home-search { width: 220px; height: 28px; }
+.home-headline .home-search { width: 224px; height: 28px; }
 /* The middle sits at the row's true centre whatever stands left and right of it (the command
    centre's rule), and what stands in it has two slots of fixed width - walking the days or
    switching the view moves the letters, not the label. */
@@ -9015,7 +9015,7 @@ tr:focus-within .rowacts {
 .home-headline .lib-head-right { justify-content: flex-end; }
 .home-headline .lib-head-mid { flex: none; gap: 10px; }
 .home-where b { flex: none; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.home-where .box-sub { flex: none; width: 180px; }
+
 /* The five figures keep one height from day to day: no value wraps into a second line. */
 .home-main .facts.lead .fact.lead .k,
 .home-main .facts.lead .fact.lead .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
