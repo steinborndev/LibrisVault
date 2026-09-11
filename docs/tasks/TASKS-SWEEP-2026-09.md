@@ -64,3 +64,10 @@ with an old sample, not where it is.
       measured; the age reads in minutes, hours or days, and an unavailable sample carries the
       service's reason as the tooltip. The card is one component (`PlanCard`) in the Library's
       corner, the Research rail and, new, the last section of the Home column.
+- [x] Chunk 3 (2026-09-11). Home's time axis is one day: the Days section and the week label
+      left the column, the headline names the day, left and right step to the nearest day the
+      view in front has something on (today is always a stop, the future never), PageUp and
+      PageDown land on the nearest stop at least a week away or the far end, up and down keep
+      walking records, a day step closes an open record, Escape no longer clears the day. The
+      view is switched by its toggle only. Measured in the browser: the headline slot stays at
+      one position across every step; a `?filter=` jump lands on the day of its newest match.

@@ -6,18 +6,20 @@
  *   BAND      the stock, as a glance. The number is the header, every countable thing is a
  *             door beside it, the picture is the door to the graph, the domains are a list.
  *             No panel heads, no switcher, no button: nothing in the band asks for a click.
- *   HEADLINE  left the view (Daily recaps | Activity; the arrow keys switch it), middle where
- *             you are (the week or day on show, the stream's kinds, the open record's path),
+ *   HEADLINE  left the view (Daily recaps | Activity), middle where
+ *             you are (the day on show, the stream's kinds, the open record's path),
  *             right the one thing this state offers (Build now; the record's Article | Log).
- *   COLUMN    intake first, always. Then the week: seven days, newest on top, one list that
- *             filters BOTH views - the recaps to a night, the stream to a day - with the two
- *             arrows that step calendar weeks. Under it what the view in front needs and
- *             nothing else: the Fellows while the recaps show, the kind and state narrowing
- *             while the stream shows, the record list while a record is open.
+ *   COLUMN    intake first, always. Then what the view in front needs and nothing else: the
+ *             Fellows while the recaps show, the kind and state narrowing while the stream
+ *             shows, the record list while a record is open; the plan last.
  *
- * Keys, the same grammar as the room: left and right switch the view, up and down walk the
- * list the column shows (days, or records while one is open), PageUp and PageDown step the
- * week, Enter opens a focused row, Escape steps back (a record, a picked day, a filter).
+ * The time axis is one day, shown in the headline, for both views: the recaps to that night,
+ * the stream to that day. It opens on today and moves only by key. Left and right step to
+ * the nearest day that has something in the view in front (the future is no stop), PageUp
+ * and PageDown seven days at a time, up and down walk the records while one is open, Enter
+ * opens a focused row, Escape steps back (a record, the search, a filter). The view is
+ * switched by its toggle, not by a key. The week list that used to stand in the column went
+ * with the day rail (2026-09-11): one axis, one place.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -61,18 +63,7 @@ import { RecapFeed, titleDomain } from '../components/RecapFeed.tsx'
 import { knowledgeSubgraph, vaultShape } from '../lib/vaultShape.ts'
 import { TYPE_VARS, domainColor } from '../lib/domains.ts'
 import { timeAgo } from '../lib/format.ts'
-import {
-  addDays,
-  earliestWeek,
-  fmtDay,
-  fmtWeek,
-  localDate,
-  openingWeek,
-  runsInWeek,
-  weekDays,
-  weekStartOf,
-  workedOn,
-} from '../lib/recapFeed.ts'
+import { addDays, fmtDay, localDate, runsInWeek, weekStartOf } from '../lib/recapFeed.ts'
 
 /** The event kinds as one choice - the same four the model distinguishes, plus "all". */
 const KINDS: Array<{ id: ActivityKind | 'all'; label: string; hint: string }> = [
@@ -104,20 +95,10 @@ const WINDOW_MAX = 500
 /* The time axis is the week list in the column, not this filter's `days` - it stays null. */
 const DEFAULT_FILTER: ActivityFilter = { kind: 'all', state: null, channel: null, days: null, query: '' }
 
-const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-/**
- * `Thu` and `10 Sep` - a day in the week list, in two parts: the weekday sits in a slot of
- * one width, so the dates under each other start at one x whatever the weekday's letters
- * measure. The year stands in the week label above the list.
- */
-function dayLabel(date: string): { dow: string; date: string } {
-  const [y, m, d] = date.split('-').map(Number)
-  const dt = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
-  return { dow: DOW[dt.getDay()] ?? '', date: fmtDay(date).slice(0, 6) }
-}
-
 /** The local calendar day an event settled on - the same shape a recap's cycleDate has. */
 const eventDay = (e: ActivityEvent): string => localDate(new Date(e.whenIso))
+/** The feed reports the day at its top as it scrolls; with one day on show there is nothing to hear. */
+const noop = (): void => undefined
 
 /**
  * The persisted run behind a settled-run event, if it has one. Only rows of the run log
@@ -149,20 +130,16 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   /** Which of the box's two views is on show. Recaps by default, activity on click or arrow. */
   const [flow, setFlow] = useState<FlowView>('recaps')
   /**
-   * The time axis, shared by both views: the Monday of the week on show, one picked day or
-   * the whole week, and the Fellow the recaps are narrowed to. It opens on TODAY, picked:
-   * the morning's recap and the day's stream are what the screen is opened for, and the
-   * filter stays where it is until the reader moves it (2026-09-11).
+   * The time axis, shared by both views: one day, and the Fellow the recaps are narrowed to.
+   * It opens on TODAY: the morning's recap and the day's stream are what the screen is opened
+   * for, and the day stays where it is until the reader moves it (2026-09-11).
    */
-  const [week, setWeek] = useState<string | null>(() => weekStartOf(localDate(new Date())))
-  const [day, setDay] = useState<string | null>(() => localDate(new Date()))
+  const [day, setDay] = useState<string>(() => localDate(new Date()))
   const [fellow, setFellow] = useState<string | null>(null)
-  /** The day at the top of the feed, reported by the feed as it scrolls. */
-  const [visible, setVisible] = useState<string | null>(null)
   /** The search box, one for both views: the stream matches titles and pages, the feed its sections. */
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
-  /** A `?filter=<state>` still looking for the week its newest match is in. */
+  /** A `?filter=<state>` still looking for the day its newest match is on. */
   const jumpTo = useRef<ActivityState | null>(null)
 
   // `?filter=` from elsewhere (a failure count, a notification) pre-applies a state - the
@@ -173,7 +150,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
     if (state !== undefined) {
       setFilter((f) => ({ ...f, state: state.id }))
       setFlow('activity')
-      setDay(null)
       jumpTo.current = state.id
     }
   }, [statusFilter])
@@ -219,41 +195,31 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
     [jobs, runs.running, historyQ.data, maint.data, stats.data],
   )
 
-  // ---- The week on show, and the days in it that are stops. ----
+  // ---- The day on show. ----
   const today = localDate(new Date())
-  const thisWeek = weekStartOf(today)
-  const shownWeek = week ?? openingWeek(rows, today)
-  const oldestEventDay = useMemo(() => {
-    let oldest: string | null = null
-    for (const e of events) {
-      if (e.live) continue
-      const d = eventDay(e)
-      if (oldest === null || d < oldest) oldest = d
-    }
-    return oldest
-  }, [events])
-  /** The oldest week either list can reach: the first recap or the oldest settled event. */
-  const firstWeek = (() => {
-    const fromRecaps = earliestWeek(rows, today)
-    const fromEvents = weekStartOf(oldestEventDay ?? today)
-    return fromEvents < fromRecaps ? fromEvents : fromRecaps
-  })()
-  const weekSet = useMemo(() => new Set(weekDays(shownWeek)), [shownWeek])
 
   /*
-   * The stream, windowed by the column's week list: a picked day, else the whole week. Live
-   * rows are always in - something running now is never "not this week".
+   * The stream, windowed to the day on show. Live rows are always in - something running now
+   * is never "not today".
    */
-  const windowed = useMemo(
-    () => events.filter((e) => e.live || (day !== null ? eventDay(e) === day : weekSet.has(eventDay(e)))),
-    [events, day, weekSet],
-  )
+  const windowed = useMemo(() => events.filter((e) => e.live || eventDay(e) === day), [events, day])
   const now = new Date()
   /** The column's narrowing plus the search box. */
   const liveFilter = { ...filter, query }
   const shown = filterActivity(windowed, liveFilter, now)
   const live = shown.filter((e) => e.live)
   const settled = shown.filter((e) => !e.live)
+  /*
+   * The days the arrows can land on, newest first: the nights that have a recap, or the days
+   * the stream has something on under the current narrowing - and today whatever it holds,
+   * because that is where the screen opens. Never the future.
+   */
+  const stops = ((): string[] => {
+    const set = new Set<string>([today])
+    if (view === 'recaps') for (const r of rows) set.add(r.cycleDate)
+    else for (const e of filterActivity(events.filter((x) => !x.live), liveFilter, now)) set.add(eventDay(e))
+    return [...set].filter((d) => d <= today).sort((a, b) => b.localeCompare(a))
+  })()
   const liveJobs = live.filter((e) => e.job !== undefined).map((e) => e.job!)
   const liveRuns = live.filter((e) => e.run !== undefined).map((e) => e.run!)
 
@@ -272,14 +238,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
 
   /** What one pill would show - every OTHER axis of the filter, and the window, still applied. */
   const facet = (patch: Partial<ActivityFilter>): number => filterActivity(windowed, { ...liveFilter, ...patch }, now).length
-  /** Settled events on one day, under the current kind, state and channel. */
-  const dayCount = (date: string): number =>
-    filterActivity(
-      events.filter((e) => !e.live && eventDay(e) === date),
-      liveFilter,
-      now,
-    ).length
-
 
   const stateCount = (id: ActivityState): number => {
     if (id === 'running' || id === 'queued') return events.filter((e) => e.live && e.state === id).length
@@ -294,19 +252,17 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const reset = (): void => setFilter(DEFAULT_FILTER)
 
   /*
-   * A pre-applied state is meant to SHOW something. Once the events are in, the week jumps
-   * to the newest match if the week on show has none - a failure from three weeks ago must
-   * not land the reader on an empty table.
+   * A pre-applied state is meant to SHOW something. Once the events are in, the day jumps to
+   * the newest match - a failure from three weeks ago must not land the reader on an empty
+   * table.
    */
   useEffect(() => {
     const want = jumpTo.current
     if (want === null || events.length === 0) return
     const newest = [...events].filter((e) => !e.live && e.state === want).sort((a, b) => b.whenIso.localeCompare(a.whenIso))[0]
     jumpTo.current = null
-    if (newest === undefined) return
-    const d = eventDay(newest)
-    if (!weekSet.has(d)) setWeek(weekStartOf(d))
-  }, [events, weekSet])
+    if (newest !== undefined) setDay(eventDay(newest))
+  }, [events])
 
   const clearable = filter.state !== null && AT_REST.includes(filter.state as JobStatus) ? (filter.state as JobStatus) : null
   const clearCount =
@@ -381,28 +337,24 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const historyCount = jobs.filter((j) => AT_REST.includes(j.status)).length
   const allTime = AT_REST.reduce((sum, st) => sum + (totals[st] ?? 0), 0)
 
-  // ---- The week list: what each day holds, and which days are stops. ----
+  // ---- Walking the days. ----
   const fellows = useMemo(() => (agents.data?.fellows ?? []).filter((f) => f.agent.state !== 'retired'), [agents.data])
-  const recapOf = (date: string) => rows.find((r) => r.cycleDate === date)
-  /** A day is a stop when the view in front has something on it; the future is no stop. */
-  const isStop = (date: string): boolean => date <= today && (view === 'recaps' ? recapOf(date) !== undefined : dayCount(date) > 0)
-  /** Newest on top, like the feed: down the list is back in time. */
-  const daysDesc = [...weekDays(shownWeek)].reverse()
-  const stops = daysDesc.filter(isStop)
-  const stepWeek = (delta: number): void => {
-    const next = addDays(shownWeek, 7 * delta)
-    if (next < firstWeek || next > thisWeek) return
-    setWeek(next)
-    setDay(null)
+  /** Moving the day closes an open record: it belongs to another day's list. */
+  const go = (date: string): void => {
+    setDay(date)
+    setDetailId(null)
   }
-  /** Down is older, up is newer - the arrows follow the list and the feed alike. */
-  const walkDay = (toward: 'older' | 'newer'): void => {
-    if (stops.length === 0) return
-    const from = day ?? (view === 'recaps' ? visible : null) ?? ''
-    const at = stops.indexOf(from)
-    const delta = toward === 'older' ? 1 : -1
-    const next = at === -1 ? (toward === 'older' ? stops[0]! : stops[stops.length - 1]!) : stops[(at + delta + stops.length) % stops.length]!
-    setDay(next)
+  /** Left is back in time, right is forward: the nearest stop on that side of the day on show. */
+  const stepDay = (toward: 'older' | 'newer'): void => {
+    const next = toward === 'older' ? stops.find((d) => d < day) : [...stops].reverse().find((d) => d > day)
+    if (next !== undefined) go(next)
+  }
+  /** Seven days at a time, landing on a stop: the nearest one at least a week away, else the far end. */
+  const stepWeek = (toward: 'older' | 'newer'): void => {
+    const target = addDays(day, toward === 'older' ? -7 : 7)
+    const next = toward === 'older' ? (stops.find((d) => d <= target) ?? stops[stops.length - 1]) : ([...stops].reverse().find((d) => d >= target) ?? stops[0])
+    if (next === undefined) return
+    if (toward === 'older' ? next < day : next > day) go(next)
   }
 
   const openView = useCallback((v: FlowView): void => {
@@ -422,18 +374,23 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
 
   /*
    * The keys, only while Home is the screen in front and the caret is not in a field. Left
-   * and right switch the view (and close a record: the other view is not where it lives);
-   * up and down walk what the column lists; PageUp and PageDown step the week; Escape steps
-   * back one level. Enter belongs to a focused row (the rows are tab stops of their own).
+   * and right step the day, PageUp and PageDown step a week, in both views and over an open
+   * record (which they close: it belongs to another day's list); up and down walk the records
+   * while one is open; Escape steps back one level. Enter belongs to a focused row (the rows
+   * are tab stops of their own).
    */
   useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent): void => {
       if (inField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        if (!fellowsOn) return
         e.preventDefault()
-        openView(view === 'recaps' ? 'activity' : 'recaps')
+        stepDay(e.key === 'ArrowLeft' ? 'older' : 'newer')
+        return
+      }
+      if (e.key === 'PageUp' || e.key === 'PageDown') {
+        e.preventDefault()
+        stepWeek(e.key === 'PageUp' ? 'older' : 'newer')
         return
       }
       if (detailEvent !== null && view === 'activity') {
@@ -444,13 +401,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         }
         return
       }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault()
-        walkDay(e.key === 'ArrowDown' ? 'older' : 'newer')
-      } else if (e.key === 'PageDown' || e.key === 'PageUp') {
-        e.preventDefault()
-        stepWeek(e.key === 'PageDown' ? 1 : -1)
-      } else if (e.key === 'Tab' && view === 'activity') {
+      if (e.key === 'Tab' && view === 'activity') {
         /*
          * Tab walks the stream's rows and nothing else: from anywhere on the screen the first
          * press lands on a row, the next ones step through them and wrap at the end. The header
@@ -466,8 +417,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         rows[next]!.focus()
         rows[next]!.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Escape') {
-        if (day !== null) setDay(null)
-        else if (query !== '') setQuery('')
+        if (query !== '') setQuery('')
         else if (view === 'recaps' && fellow !== null) setFellow(null)
         else if (view === 'activity' && filtered) reset()
       }
@@ -475,13 +425,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
-
-  /*
-   * The date the headline names. In the recaps it is the night at the top of the feed - the
-   * feed reports it as it scrolls, so the label walks with the reader - or the picked one; in
-   * the stream it is the picked day, else the week.
-   */
-  const whereDate = day ?? (view === 'recaps' ? visible : null)
 
   return (
     <div className="workspace">
@@ -494,79 +437,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
               <span className="gp-eyebrow">Add to vault</span>
             </div>
             <Dropzone legend={false} />
-          </div>
-        )}
-
-        {/* The week, for both views. A row is a night for the recaps and a day for the stream;
-            what it shows on the right is what the view in front would find there. Up and down
-            walk it, the two arrows step calendar weeks. */}
-        {(view === 'recaps' || detailEvent === null) && (
-          <div className="gp-sec">
-            <div className="gp-head">
-              <span className="gp-eyebrow">Days</span>
-              <span className="spacer" />
-              <span className="wknav">
-                <button className="up" aria-label="Previous week" title="Previous week · PageUp" disabled={shownWeek <= firstWeek} onClick={() => stepWeek(-1)}>
-                  <Icon name="chevron" />
-                </button>
-                <button className="down" aria-label="Next week" title="Next week · PageDown" disabled={shownWeek >= thisWeek} onClick={() => stepWeek(1)}>
-                  <Icon name="chevron" />
-                </button>
-              </span>
-            </div>
-            <div className="wk-label">{fmtWeek(shownWeek)}</div>
-            {/* The same rows as the type list: the day left, what the view finds there right,
-                the picked one outlined, the one at the top of the feed quietly raised. */}
-            <div className="pillrow stacked" role="radiogroup" aria-label="Days">
-              {daysDesc.map((date) => {
-                const row = recapOf(date)
-                const n = dayCount(date)
-                const future = date > today
-                const stop = isStop(date)
-                const idle = view === 'recaps' && row !== undefined && fellow !== null && !workedOn(row, fellow)
-                const undecided = row === undefined ? 0 : undecidedCount(row.model)
-                const picked = day === date
-                const current = day === null && view === 'recaps' && visible === date
-                return (
-                  <button
-                    key={date}
-                    className={`viewpill${date === today ? ' today' : ''}${idle ? ' idle' : ''}`}
-                    role="radio"
-                    aria-checked={picked}
-                    aria-current={current ? 'true' : undefined}
-                    disabled={!stop && !picked}
-                    title={
-                      !stop
-                        ? `${fmtDay(date)} · ${future ? 'to come' : 'nothing on this day'}`
-                        : idle
-                          ? `${fmtDay(date)} · ${fellow} did not work`
-                          : picked
-                            ? `${fmtDay(date)} · click again for the week`
-                            : `${fmtDay(date)} · only this day`
-                    }
-                    onClick={() => setDay(picked ? null : date)}
-                  >
-                    <span className="pl">
-                      <span className="dow">{dayLabel(date).dow}</span>
-                      {dayLabel(date).date}
-                    </span>
-                    {view === 'recaps' ? (
-                      row === undefined ? (
-                        <span className="pn">{future ? 'to come' : 'no recap'}</span>
-                      ) : idle ? (
-                        <span className="pn">idle</span>
-                      ) : undecided > 0 ? (
-                        <span className="pn due">{undecided}</span>
-                      ) : (
-                        <span className="pn">{row.quiet ? 'quiet' : 'done'}</span>
-                      )
-                    ) : (
-                      <span className="pn">{future ? 'to come' : n}</span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
           </div>
         )}
 
@@ -587,7 +457,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             </div>
             <div className="lib-deps">
               {fellows.map((f) => {
-                const n = runsInWeek(rows, shownWeek, f.agent.name)
+                const n = runsInWeek(rows, weekStartOf(day), f.agent.name)
                 const on = fellow === f.agent.name
                 return (
                   <button
@@ -595,10 +465,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                     className="lib-frow"
                     aria-pressed={on}
                     title={on ? 'Every Fellow again' : `Only ${f.agent.name}'s nights`}
-                    onClick={() => {
-                      setFellow(on ? null : f.agent.name)
-                      setDay(null)
-                    }}
+                    onClick={() => setFellow(on ? null : f.agent.name)}
                   >
                     <span className="d" style={{ background: domainColor(f.agent.homeDomain) }} aria-hidden />
                     <span className="who">
@@ -762,11 +629,10 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                 className="vzf"
                 onClick={() => {
                   setFilter(DEFAULT_FILTER)
-                  setWeek(thisWeek)
-                  setDay(null)
+                  go(today)
                   openView('activity')
                 }}
-                title="New wiki pages over the last 7 days, from the vault's own git history. Opens the stream on this week."
+                title="New wiki pages over the last 7 days, from the vault's own git history. Opens the stream on today."
               >
                 <b>{grew7 === null ? statPlaceholder : `+${grew7}`}</b>
                 <span>new pages in 7 days</span>
@@ -857,7 +723,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                    each of a fixed width, so switching the view or walking the days moves the
                    letters and nothing else. The list that moves it stands in the column. */
                 <span className="lib-open home-where">
-                  <b>{whereDate !== null ? fmtDay(whereDate) : fmtWeek(shownWeek)}</b>
+                  <b>{fmtDay(day)}</b>
                 </span>
               )}
             </div>
@@ -902,7 +768,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
 
           {view === 'recaps' ? (
             <div className="flow-view" id="flow-recaps" role="tabpanel">
-              <RecapFeed vaultName={vaultName} compact control={{ week: shownWeek, day, fellow, query, onVisible: setVisible }} />
+              <RecapFeed vaultName={vaultName} compact control={{ week: weekStartOf(day), day, fellow, query, onVisible: noop }} />
             </div>
           ) : (
             <>
@@ -941,8 +807,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   size="lead"
                   onOpen={() => {
                     setFilter({ ...DEFAULT_FILTER, kind: 'ingest' })
-                    setWeek(thisWeek)
-                    setDay(null)
+                    go(today)
                   }}
                 />
                 <Fact
@@ -1046,9 +911,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                                 <div className="empty">
                                   {filtered || query !== ''
                                     ? 'Nothing matches these filters.'
-                                    : day !== null
-                                      ? 'Nothing happened on this day. Esc shows the week.'
-                                      : 'Nothing happened this week - step back with the arrows, or drop a file on the left.'}
+                                    : 'Nothing happened on this day. Left and right step to the days that have something, or drop a file on the left.'}
                                 </div>
                               )}
                             </td>
@@ -1060,7 +923,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
 
                   <div className="box-foot">
                     <span>
-                      {shown.length} shown · {day !== null ? fmtDay(day) : `week of ${fmtWeek(shownWeek)}`} · {historyCount} stored
+                      {shown.length} shown · {fmtDay(day)} · {historyCount} stored
                       {allTime > historyCount ? ` · ${allTime} all-time` : ''}
                     </span>
                     <span className="spacer" />
