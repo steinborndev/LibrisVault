@@ -29,6 +29,7 @@ import { StatusBadge } from './StatusBadge.tsx'
 import { mainArticle, readerPages } from '../lib/homeArticle.ts'
 import { frontmatter } from '../lib/frontmatter.ts'
 import { duration, timeAgo, tokens } from '../lib/format.ts'
+import { catalogPageRoute, navigate } from '../lib/router.ts'
 
 /** Exact wall-clock timestamp; relative time is the table's job. */
 const exact = (iso: string | null | undefined): string =>
@@ -234,7 +235,18 @@ export function JobDetail({
           )}
         </span>
         <span className="spacer" />
-        {articlePath !== null && <PageLink vaultName={vaultName} path={articlePath} />}
+        {/* Two doors to the page it wrote: the graph with the node selected, or the Catalog
+            reading it. One pill that opened the viewer used to stand here. */}
+        {articlePath !== null && (
+          <>
+            <button className="btn sm" onClick={() => navigate(`/graph?focus=${encodeURIComponent(articlePath)}`)} title={`Open the graph with this page selected: ${articlePath}`}>
+              <Icon name="graph" /> Graph view
+            </button>
+            <button className="btn sm" onClick={() => navigate(catalogPageRoute(articlePath))} title={`Read this page in the Catalog: ${articlePath}`}>
+              <Icon name="book" /> Catalog view
+            </button>
+          </>
+        )}
         {canDelete && (
           <button
             className={`btn sm ghost${armedDelete ? ' danger' : ''}`}

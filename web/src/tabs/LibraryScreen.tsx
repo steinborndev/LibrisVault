@@ -378,7 +378,7 @@ export function LibraryScreen({
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [page, windowOpen])
-  const onKey = (e: React.KeyboardEvent): void => {
+  const onKey = (e: KeyboardEvent): void => {
     // Inside a window the arrows belong to it too; only Escape still reaches the room.
     if (windowOpen && e.key !== 'Escape') return
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') {
@@ -403,6 +403,23 @@ export function LibraryScreen({
       }
     }
   }
+  /*
+   * The keys, for the screen in front, wherever the focus is. They hung on the room's own
+   * element, which nothing focused: arriving from Home with a shelf already open, Escape did
+   * nothing until the room was clicked. Fields keep their keys, except that Escape still
+   * reaches a rename in progress; the command centre owns every key while it is open.
+   */
+  useEffect(() => {
+    if (!active || ccOpen) return
+    const handler = (e: KeyboardEvent): void => {
+      const t = e.target
+      const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable)
+      if (inField && !(e.key === 'Escape' && renaming !== null)) return
+      onKey(e)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  })
 
   /**
    * Left and right switch a department's two views. They are two sides of one thing - the same
@@ -812,7 +829,7 @@ export function LibraryScreen({
             )}
           </div>
         </div>
-        <div className={`lib-area${night ? ' night' : ''}`} ref={areaRef} tabIndex={0} onKeyDown={onKey}>
+        <div className={`lib-area${night ? ' night' : ''}`} ref={areaRef} tabIndex={0}>
           {state ?? (current === undefined ? null : (
             <RoomSvg
               room={current}

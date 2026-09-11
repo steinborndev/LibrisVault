@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
-import { navigate, pageRoute } from '../lib/router.ts'
+import { navigate, pageRoute, catalogPageRoute } from '../lib/router.ts'
+import { CatalogArticle } from '../components/CatalogArticle.tsx'
 import { openableRow } from '../lib/tableRow.ts'
 import { timeAgo } from '../lib/format.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
@@ -70,6 +71,7 @@ export function Catalog({
   vaultName,
   domainParam = '',
   active = true,
+  openPage = null,
 }: {
   vaultName: string
   /**
@@ -79,6 +81,8 @@ export function Catalog({
   domainParam?: string
   /** Whether this is the screen in front; the domain section's keys listen only then. */
   active?: boolean
+  /** The page the tab is reading (`/catalog/page/<path>`), or null for the list. */
+  openPage?: string | null
 }): React.ReactElement {
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   // Provenance rides its OWN query, not the graph payload: the canvas, Home and the Library
@@ -128,6 +132,20 @@ export function Catalog({
   }, [domainParam])
 
   const nodes = graph.data?.nodes
+
+  // Reading a page: Escape returns to the list, from anywhere on the screen but a field.
+  useEffect(() => {
+    if (!active || openPage === null) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      const t = e.target
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return
+      e.preventDefault()
+      navigate('/catalog')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, openPage])
 
   // System pages (index hubs, reports) are scaffolding - hidden unless asked for, same
   // default the graph uses.
@@ -377,6 +395,12 @@ export function Catalog({
       </aside>
 
       <div className="box">
+        {/* A page opened from a row (or from Home, or from the graph) is read here, over the
+            list's slot; Escape and the arrow return to the list. */}
+        {openPage !== null ? (
+          <CatalogArticle path={openPage} vaultName={vaultName} nodes={nodes ?? []} onBack={() => navigate('/catalog')} />
+        ) : (
+          <>
         {/* The scroll box is a DIV, not the table: a table set to `display: block` (the old
             way of making it scroll) shrinks to its content, so the columns moved every time
             a domain filter changed the longest title on screen. */}
@@ -388,7 +412,7 @@ export function Catalog({
             <div className="empty">Nothing matches the current filters.</div>
           </div>
         ) : (
-          <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} />
+          <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} onOpenPage={(p) => navigate(catalogPageRoute(p))} />
         )}
         </div>
         <div className="box-foot" hidden={state !== null}>
@@ -405,6 +429,8 @@ export function Catalog({
             </button>
           )}
         </div>
+          </>
+        )}
       </div>
       {deepening && domain !== null && domain !== 'none' && <DeepenDialog domain={domain} onClose={() => setDeepening(false)} />}
     </div>

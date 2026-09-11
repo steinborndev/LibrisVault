@@ -3535,12 +3535,35 @@ details.hot-cache[open] summary {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  /* One row: the title gives way (two lines, then an ellipsis) and the buttons keep their
+     place, whatever the title's length. */
+  flex-wrap: nowrap;
   margin-bottom: 14px;
 }
 .vault-page .page-head h1 {
   font-size: 22px;
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vault-page .page-head .btn,
+.vault-page .page-head .overflow-wrap,
+.vault-page .page-head .bucket,
+.vault-page .page-head .dirty-badge {
+  flex: none;
+}
+/* A page read inside the Catalog: a head of its own over the reading pane the shelves use. */
+.ca { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ca-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.ca-head .btn, .ca-head .bucket { flex: none; }
+.ca-title {
+  flex: 1 1 auto; min-width: 0; margin: 0; font-family: var(--display); font-size: 17px; font-weight: 600; line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 /*
  * The reader is bounded like the Library's drawing area (2026-09-08).

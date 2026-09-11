@@ -25,7 +25,7 @@ import { queryState } from '../components/QueryState.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
 import { Shortcuts } from '../components/Shortcuts.tsx'
 import { linkifyText } from '../lib/linkify.tsx'
-import { navigate, pageRoute, pageFromPath, originPath } from '../lib/router.ts'
+import { navigate, pageRoute, pageFromPath, originPath, catalogPageRoute } from '../lib/router.ts'
 import { detectClusters } from '../lib/communities.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
@@ -2212,15 +2212,15 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
         >
           <Icon name="back" />
         </button>
-        <h1>{pageQ.data?.title ?? node?.title ?? path.split('/').pop()?.replace(/\.md$/, '')}</h1>
+        {/* Two lines at most, then an ellipsis; the whole title is on hover. The buttons
+            keep their place whatever the title's length. */}
+        <h1 title={pageQ.data?.title ?? node?.title ?? path.split('/').pop()?.replace(/\.md$/, '')}>
+          {pageQ.data?.title ?? node?.title ?? path.split('/').pop()?.replace(/\.md$/, '')}
+        </h1>
         {node && <span className="bucket">{TYPE_LABELS[node.type] ?? node.type}</span>}
-        {dirty ? (
+        {dirty && (
           <span className="dirty-badge" role="status">
             <Icon name="edit" /> Unsaved changes
-          </span>
-        ) : (
-          <span className="key-hint" aria-hidden>
-            <kbd>Esc</kbd> {backLabel}
           </span>
         )}
         <span className="spacer" />
@@ -2234,14 +2234,21 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
         >
           <Icon name="graph" /> In graph
         </button>
+        <button
+          className="btn"
+          onClick={() => {
+            if (editing && !leaveEditor()) return
+            navigate(catalogPageRoute(path))
+          }}
+          title="Read this page in the Catalog"
+        >
+          <Icon name="book" /> In catalog
+        </button>
         {!editing && pageQ.data && (
           <button className="btn" onClick={startEdit} title="Edit page (every change becomes a git commit)">
             <Icon name="edit" /> Edit
           </button>
         )}
-        <a className="btn" href={obsidianUri(vaultName, path)} title="Open in Obsidian">
-          <Icon name="link" /> Obsidian
-        </a>
         {!editing && pageQ.data && (
           <span className="overflow-wrap" ref={menuRef}>
             <button
@@ -2255,6 +2262,10 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
             </button>
             {menuOpen && (
               <div className="omenu" role="menu">
+                {/* Obsidian stood in the head; it is the rarer door, so it lives here now. */}
+                <button role="menuitem" onClick={() => window.location.assign(obsidianUri(vaultName, path))} title="Open in Obsidian">
+                  <Icon name="link" /> Open in Obsidian
+                </button>
                 <button
                   role="menuitem"
                   onClick={() => {

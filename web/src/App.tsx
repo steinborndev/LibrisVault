@@ -14,7 +14,7 @@ import { Home } from './tabs/Home.tsx'
 import { Chat } from './tabs/Chat.tsx'
 import { Recap } from './tabs/Recap.tsx'
 import { Icon, type IconName } from './components/Icon.tsx'
-import { usePath, navigate, pageFromPath } from './lib/router.ts'
+import { usePath, navigate, pageFromPath, catalogPageFromPath } from './lib/router.ts'
 import { RUN_RUNNING_TITLES, isMaintenanceRun } from './lib/runLabels.ts'
 
 /*
@@ -419,6 +419,7 @@ export function App(): React.ReactElement {
                       vaultName={vaultName}
                       domainParam={screen === 'catalog' ? (query.get('domain') ?? '') : ''}
                       active={screen === 'catalog'}
+                      openPage={screen === 'catalog' ? catalogPageFromPath(path.split('?')[0]!) : null}
                     />
                   </Suspense>
                 </ErrorBoundary>

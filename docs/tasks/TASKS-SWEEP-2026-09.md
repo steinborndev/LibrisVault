@@ -158,3 +158,10 @@ A second list, split the same way and settled up front:
       keys line is centred on the foot in both views (same x), Build now and Clear history
       are 118px at the same x, an overflow row's count equals the record's list, and the
       commit trash arms and posts the dismissal.
+- [x] Chunk 2 (2026-09-11). Measured in the browser: the opened entry's foot offers "Graph
+      view" and "Catalog view"; the Catalog reads a page at `/catalog/page/<path>` (its rows
+      open there too, wikilinks stay in the tab, Escape returns to the list); the graph's
+      article head has "In catalog" beside "In graph", Obsidian in the ⋯ menu, no Esc hint,
+      and its buttons stand at the same x under a 4-character and a 218-character title
+      (the title takes two lines and an ellipsis); the Library closes a shelf on Escape
+      straight after arriving from Home, with nothing focused.
