@@ -190,6 +190,14 @@ export function RunRow({ run }: { run: MaintenanceRun }): React.ReactElement {
 
 /** A running or queued ingest, cancellable while it still waits. */
 export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): React.ReactElement {
+  const qc = useQueryClient()
+  const cancel = useMutation({
+    mutationFn: () => api.cancel(job.id),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+      void qc.invalidateQueries({ queryKey: ['library-scene'] })
+    },
+  })
   const phase = PHASES.indexOf(job.status)
   const name = job.original_name ?? job.url ?? job.id
   return (
@@ -218,12 +226,28 @@ export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): R
           ))}
         </span>
       </td>
-      <td className="num">-</td>
+      <td className="num">
+        {/* A waiting job says so with a Cancel of its own, at the trash's height so the row
+            keeps the column's rhythm; the trash at the edge cancels it too. */}
+        {job.status === 'queued' ? (
+          <button
+            className="btn ghost danger sm cancel"
+            disabled={cancel.isPending}
+            title={job.hold === 'night' ? 'Take it off tonight: the job is cancelled and stays in the history' : 'Cancel this job; it stays in the history as cancelled'}
+            onClick={(e) => {
+              e.stopPropagation()
+              cancel.mutate()
+            }}
+          >
+            Cancel
+          </button>
+        ) : (
+          '-'
+        )}
+      </td>
       <td className="faintc">{timeAgo(job.started_at ?? job.created_at)}</td>
       <td className="acts">
-        {/* The trash cancels while the job still waits; once it runs, it is left to finish.
-            It used to be a Cancel button in the cost cell, which made this row taller than
-            the rest and broke the column's rhythm. */}
+        {/* The trash cancels while the job still waits; once it runs, it is left to finish. */}
         {job.status === 'queued' ? (
           <RowDelete label={name} verb="cancel" remove={() => api.cancel(job.id)} />
         ) : (

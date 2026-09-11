@@ -4991,6 +4991,8 @@ tr:focus-within .rowacts {
 .btn.trash:hover:not(:disabled) { color: var(--err); background: var(--err-bg); }
 .btn.trash.danger { color: var(--err); width: auto; padding: 0 7px; font-size: 11px; }
 .btn.trash:disabled { opacity: 0.3; cursor: default; }
+/* The waiting job's Cancel, at the trash's height, so the row stays as tall as the rest. */
+.inbox-table td.num .btn.cancel { height: 22px; padding: 0 8px; font-size: 11.5px; }
 /* The overflow count under a row's chips: a fact in the faint ink, not a chip of its own. */
 .rowpages .chip-n { align-self: center; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
 
@@ -6122,8 +6124,10 @@ tr:focus-within .rowacts {
 .inbox-table th:nth-child(4),
 .inbox-table th:nth-child(5),
 .inbox-table th:nth-child(6) { width: 7%; }
+/* The When column, right-aligned by its class, not by position: a live row spans two
+   columns with one cell, so its sixth cell is the trash and its When text sat left. */
 .inbox-table th:nth-child(6),
-.inbox-table td:nth-child(6) { text-align: right; }
+.inbox-table td.faintc { text-align: right; }
 /* The name may take the whole column now - the fixed width is the limit, not a magic px. */
 .box-body > .dtable .hrow-name .nm {
   max-width: none;

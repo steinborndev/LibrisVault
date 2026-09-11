@@ -199,3 +199,7 @@ A second list, split the same way and settled up front:
       the night line says "57 min estimated" over 4 tasks and 3 held ingests, the spawn form
       from a shelf shows the domain fixed and four one-line lens options, the lede is one
       line at 913px.
+- [x] Follow-up (2026-09-11). The When column is right-aligned by its class, not by its
+      position: a live row spans two columns with one cell, so its sixth cell was the trash
+      and its When text sat left. A waiting job keeps a Cancel of its own in the cost cell,
+      at the trash's height, so the row stays as tall as the rest; the trash cancels it too.
