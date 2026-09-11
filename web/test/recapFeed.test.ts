@@ -74,8 +74,8 @@ const row = (date: string, over: Partial<RecapModel> = {}): RecapRow => ({
 
 describe('the week the rail shows', () => {
   it('formats a day and a week, and walks days across month ends', () => {
-    expect(fmtDay('2026-09-06')).toBe('06 Sep 26')
-    expect(fmtDay('2026-01-01')).toBe('01 Jan 26')
+    expect(fmtDay('2026-09-06')).toBe('06 Sep 2026')
+    expect(fmtDay('2026-01-01')).toBe('01 Jan 2026')
     expect(addDays('2026-08-31', 1)).toBe('2026-09-01')
     expect(addDays('2027-01-01', -1)).toBe('2026-12-31')
     expect(localDate(new Date(2026, 8, 6))).toBe('2026-09-06')
@@ -83,7 +83,7 @@ describe('the week the rail shows', () => {
     expect(weekStartOf('2026-09-06')).toBe('2026-08-31')
     expect(weekStartOf('2026-08-31')).toBe('2026-08-31')
     expect(weekDays('2026-08-31')).toEqual(['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06'])
-    expect(fmtWeek('2026-08-31')).toBe('31 Aug - 06 Sep 26')
+    expect(fmtWeek('2026-08-31')).toBe('31 Aug - 06 Sep 2026')
   })
 
   it('opens on the week that holds today, and falls back to the newest recap', () => {

@@ -15,7 +15,7 @@ import { queryState } from '../QueryState.tsx'
 import { Icon } from '../Icon.tsx'
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
-import { isReachable, reachLabel, readingView, type ReadingTab } from '../../lib/readingList.ts'
+import { isReachable, reachLabel, readingView, type ReadingReach, type ReadingTab } from '../../lib/readingList.ts'
 import { PageLink } from '../PageLink.tsx'
 
 const host = (url: string): string => {
@@ -40,11 +40,12 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
     mutationFn: ({ url, archived }: { url: string; archived: boolean }) => api.archiveReading(url, archived),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['reading-list'] }),
   })
-  // Off by default: a paywalled row's Ingest would fail the same way the run did.
-  const [showPaywalled, setShowPaywalled] = useState(false)
+  // Opens on what the service can fetch: a paywalled row's Ingest would fail the same way
+  // the run did, so those wait behind their own third of the toggle.
+  const [reach, setReach] = useState<ReadingReach>('open')
   const state = queryState(list, 'the reading list')
   const entries = list.data?.entries ?? []
-  const view = readingView(entries, showPaywalled, tab)
+  const view = readingView(entries, reach, tab)
 
   return (
     <div className="lib-window-body reading">
@@ -74,15 +75,22 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
                   </>
                 )}
               </p>
-              <button
-                className="chip"
-                aria-pressed={showPaywalled}
-                onClick={() => setShowPaywalled(!showPaywalled)}
-                title="Publications behind a subscription, or ones a run could not fetch. The service cannot get them either; the link and your own access can."
-              >
-                Show paywalled
-                {view.hidden > 0 && !showPaywalled ? ` · ${view.hidden}` : ''}
-              </button>
+              <div className="seg sm ink reading-reach" role="radiogroup" aria-label="Access">
+                <button role="radio" aria-checked={reach === 'open'} onClick={() => setReach('open')} title="Open access, and hosts the service knows nothing about: what Ingest can fetch">
+                  Open source
+                </button>
+                <button
+                  role="radio"
+                  aria-checked={reach === 'paywalled'}
+                  onClick={() => setReach('paywalled')}
+                  title="Behind a subscription, or a run could not fetch it. The service cannot get these either; the link and your own access can."
+                >
+                  Paywalled
+                </button>
+                <button role="radio" aria-checked={reach === 'both'} onClick={() => setReach('both')} title="Every entry, whatever its access">
+                  Both
+                </button>
+              </div>
             </div>
             <ul className="reading-rows">
               {view.shown.map((e) => (

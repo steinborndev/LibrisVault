@@ -596,7 +596,7 @@ export function CommandCentre({
     recaps.data?.recaps[0]?.model.fellows.find((x) => x.agentId === id)
 
   return (
-    <div className="lib-window cc" role="dialog" aria-label="Fellow command centre">
+    <div className="lib-window cc" role="dialog" aria-label="Night shift">
       {view === 'shelves' && (
         <>
           <NightLine

@@ -274,7 +274,7 @@ export function RecapFeed({
                   )
                 })}
                 {Array.from({ length: Math.max(0, FELLOW_SLOTS - fellows.length) }, (_, i) => (
-                  <button key={`slot-${i}`} className="fpill empty" onClick={() => navigate('/library?cc=1')} title="Opens Manage Fellows in the Library">
+                  <button key={`slot-${i}`} className="fpill empty" onClick={() => navigate('/library?cc=1')} title="Opens the night shift in the Library">
                     <span className="dot" aria-hidden />
                     <span className="who">Spawn a Fellow</span>
                   </button>

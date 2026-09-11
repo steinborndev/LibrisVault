@@ -1,11 +1,12 @@
 /**
- * The reading list board's paywalled toggle (docs/agents/SPEC.md section 10.6): a publication
+ * The reading list board's access toggle (docs/agents/SPEC.md section 10.6): a publication
  * the service cannot fetch is worth listing - the user's own access can often get it - but its
- * Ingest button would fail the same way the run did, so it sits behind a toggle.
+ * Ingest button would fail the same way the run did, so the board shows one side of the
+ * paywall at a time, or both.
  */
 
 import { describe, expect, it } from 'vitest'
-import { isReachable, reachLabel, readingView } from '../src/lib/readingList.ts'
+import { inReach, isReachable, reachLabel, readingView } from '../src/lib/readingList.ts'
 import type { ReadingItem } from '../src/api/types.ts'
 
 const item = (over: Partial<ReadingItem>): ReadingItem => ({
@@ -37,33 +38,46 @@ describe('the reading list view', () => {
     item({ title: 'unreachable', reach: 'unreachable', access: 'unreachable' }),
   ]
 
-  it('hides what the service cannot fetch until the toggle is set', () => {
-    const off = readingView(entries, false)
-    expect(off.shown.map((e) => e.title)).toEqual(['open', 'unknown host'])
-    expect(off.hidden).toBe(2)
-    expect(off.total).toBe(4)
+  it('shows one side of the paywall at a time: what the service can fetch, what only the user can, or both', () => {
+    // An unknown host is worth one attempt, so it stands with the open ones; what a run could
+    // not reach stands with the paywalled ones, because the service would fail the same way.
+    const open = readingView(entries, 'open')
+    expect(open.shown.map((e) => e.title)).toEqual(['open', 'unknown host'])
+    expect(open.hidden).toBe(2)
+    expect(open.total).toBe(4)
 
-    const on = readingView(entries, true)
-    expect(on.shown).toHaveLength(4)
-    expect(on.hidden).toBe(0)
+    const paywalled = readingView(entries, 'paywalled')
+    expect(paywalled.shown.map((e) => e.title)).toEqual(['paywalled', 'unreachable'])
+    expect(paywalled.hidden).toBe(2)
+
+    const both = readingView(entries, 'both')
+    expect(both.shown).toHaveLength(4)
+    expect(both.hidden).toBe(0)
+    expect(inReach(item({ reach: 'unknown' }), 'open')).toBe(true)
+    expect(inReach(item({ reach: 'unreachable' }), 'paywalled')).toBe(true)
+    expect(inReach(item({ reach: 'unreachable' }), 'open')).toBe(false)
   })
 
-  it('keeps a paywalled entry that was ingested anyway, and counts what still waits', () => {
+  it('counts what still waits on the side it shows', () => {
     const ingested = [...entries, item({ title: 'paywalled but filed', reach: 'paywalled', job: { id: 'j1', status: 'done', pages: 2 } })]
-    const off = readingView(ingested, false)
-    expect(off.shown.map((e) => e.title)).toEqual(['open', 'unknown host', 'paywalled but filed'])
-    expect(off.waiting).toBe(2)
+    expect(readingView(ingested, 'open').waiting).toBe(2)
+    // A paywalled paper that was ingested anyway stands with the paywalled ones, done.
+    const paywalled = readingView(ingested, 'paywalled')
+    expect(paywalled.shown.map((e) => e.title)).toEqual(['paywalled', 'unreachable', 'paywalled but filed'])
+    expect(paywalled.waiting).toBe(2)
     // A row matched by its identifier counts as done too, though no ingest ran for its url.
-    expect(readingView([item({ page: 'wiki/sources/X.md' })], false).waiting).toBe(0)
+    expect(readingView([item({ page: 'wiki/sources/X.md' })], 'open').waiting).toBe(0)
   })
 
-  it('an entry recognized in the vault stays visible even when nobody could fetch it', () => {
+  it('an entry the user fetched by hand stands with the paywalled ones, and says where it landed', () => {
     // The case the whole identity match exists for: the user got the paywalled paper by hand
-    // and dropped the PDF in, so no ingest ran for its url but its page carries its DOI.
+    // and dropped the PDF in, so no ingest ran for its url but its page carries its DOI. Its
+    // access did not change, so its side of the toggle does not either.
     const byHand = item({ title: 'fetched by hand', reach: 'paywalled', page: 'wiki/sources/X.md', via: 'ref' })
-    const off = readingView([byHand, item({ title: 'still out of reach', reach: 'paywalled' })], false)
-    expect(off.shown.map((e) => e.title)).toEqual(['fetched by hand'])
-    expect(off.hidden).toBe(1)
+    const rows = [byHand, item({ title: 'still out of reach', reach: 'paywalled' })]
+    expect(readingView(rows, 'open').shown).toEqual([])
+    expect(readingView(rows, 'paywalled').shown.map((e) => e.title)).toEqual(['fetched by hand', 'still out of reach'])
+    expect(readingView(rows, 'paywalled').waiting).toBe(1)
     // It is not reachable BY THE SERVICE, which is what the toggle is about; the row shows
     // where it landed regardless.
     expect(isReachable(byHand)).toBe(false)
@@ -75,22 +89,22 @@ describe('the reading list view', () => {
    * toggle then filters inside it. So an archived entry is never counted as held back by that
    * toggle - it is not hidden, it is somewhere else.
    */
-  it('splits the list in two, and the paywall toggle works inside each half', () => {
+  it('splits the list in two, and the access toggle works inside each half', () => {
     const withArchive: ReadingItem[] = [
       ...entries,
       item({ title: 'archived open', reach: 'open', archivedAt: '2026-09-08' }),
       item({ title: 'archived paywalled', reach: 'paywalled', access: 'paywalled', archivedAt: '2026-09-08' }),
     ]
-    const current = readingView(withArchive, false, 'current')
+    const current = readingView(withArchive, 'open', 'current')
     expect(current.shown.map((e) => e.title)).toEqual(['open', 'unknown host'])
     expect(current.hidden).toBe(2)
     // The count of what sits in the other list is the same from either side.
     expect(current.archived).toBe(2)
 
-    const archived = readingView(withArchive, false, 'archived')
+    const archived = readingView(withArchive, 'open', 'archived')
     expect(archived.shown.map((e) => e.title)).toEqual(['archived open'])
     expect(archived.hidden).toBe(1)
-    expect(readingView(withArchive, true, 'archived').shown.map((e) => e.title)).toEqual(['archived open', 'archived paywalled'])
+    expect(readingView(withArchive, 'both', 'archived').shown.map((e) => e.title)).toEqual(['archived open', 'archived paywalled'])
     // `total` is the list you are on, not the page.
     expect(archived.total).toBe(2)
   })
@@ -99,8 +113,8 @@ describe('the reading list view', () => {
     // An entry written before the field existed carries nothing there. A view that read that as
     // "archived" would empty the current list on the one input it is most likely to meet.
     const legacy = [{ ...item({ title: 'old' }), archivedAt: undefined } as unknown as ReadingItem]
-    expect(readingView(legacy, false, 'current').shown.map((e) => e.title)).toEqual(['old'])
-    expect(readingView(legacy, false, 'archived').shown).toEqual([])
+    expect(readingView(legacy, 'open', 'current').shown.map((e) => e.title)).toEqual(['old'])
+    expect(readingView(legacy, 'open', 'archived').shown).toEqual([])
   })
 
   it('an unknown host is still worth one attempt; a named blocker is spelled out', () => {

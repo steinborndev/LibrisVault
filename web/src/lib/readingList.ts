@@ -4,8 +4,9 @@
  * Most entries are open access and one click from being a source. The ones a run could not
  * get - behind a subscription, or an HTTP error, or a PDF with no extractable text - are the
  * ones the user's own access is worth using on, but they would fail the same way if the
- * service tried to fetch them, so they sit behind a toggle instead of cluttering the list
- * with rows whose button does not work.
+ * service tried to fetch them, so the board shows one kind at a time: what the service can
+ * fetch (open, and hosts it knows nothing about), what only the user can (paywalled, and
+ * what a run could not reach), or both.
  *
  * A second axis crosses that one: an entry the user has archived is out of the current view
  * entirely, whatever its access. Archiving is the answer to "I have dealt with this", which is
@@ -32,6 +33,12 @@ export interface ReadingView {
 
 export type ReadingTab = 'current' | 'archived'
 
+/** Which side of the paywall the board shows: what the service can fetch, what only the user can, or both. */
+export type ReadingReach = 'open' | 'paywalled' | 'both'
+
+/** Whether an entry belongs to the side the board shows. */
+export const inReach = (e: ReadingItem, reach: ReadingReach): boolean => reach === 'both' || (reach === 'open') === isReachable(e)
+
 /*
  * Absent counts as current. The field is newer than the page format, so an entry written before
  * it existed carries nothing there - and a view that hid every such entry would empty the list
@@ -39,14 +46,14 @@ export type ReadingTab = 'current' | 'archived'
  */
 export const isArchived = (e: ReadingItem): boolean => (e.archivedAt ?? null) !== null
 
-export function readingView(entries: readonly ReadingItem[], showPaywalled: boolean, tab: ReadingTab = 'current'): ReadingView {
-  // The archive is the outer cut: it decides which list you are looking at, and the paywall
+export function readingView(entries: readonly ReadingItem[], reach: ReadingReach, tab: ReadingTab = 'current'): ReadingView {
+  // The archive is the outer cut: it decides which list you are looking at, and the access
   // toggle then filters within it. An archived entry is never counted as held back by that
   // toggle - it is not hidden, it is somewhere else.
   const inTab = entries.filter((e) => (tab === 'archived' ? isArchived(e) : !isArchived(e)))
-  // Hidden means "neither reachable nor done". A publication already in the vault stays on the
-  // list whatever its access was: it is the answer to "did that paper ever arrive".
-  const shown = showPaywalled ? inTab : inTab.filter((e) => isReachable(e) || e.job !== null || e.page !== null)
+  // One side of the paywall at a time, by the entry's access alone: a paywalled paper the
+  // user fetched by hand stands with the paywalled ones, where it says it is in the vault.
+  const shown = inTab.filter((e) => inReach(e, reach))
   return {
     shown,
     hidden: inTab.length - shown.length,

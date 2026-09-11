@@ -20,13 +20,13 @@ function parse(date: string): Date {
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
 }
 
-/** `06 Sep 26` - short enough for the rail, unambiguous about the month. */
+/** `06 Sep 2026` - unambiguous about the month, and the year in full. */
 export function fmtDay(date: string): string {
   const d = parse(date)
-  return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`
+  return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
 }
 
-/** `31 Aug - 06 Sep 26` for a week given by its Monday. */
+/** `31 Aug - 06 Sep 2026` for a week given by its Monday. */
 export function fmtWeek(monday: string): string {
   const start = parse(monday)
   return `${String(start.getDate()).padStart(2, '0')} ${MONTHS[start.getMonth()]} - ${fmtDay(addDays(monday, 6))}`

@@ -114,7 +114,7 @@ export function LibraryScreen({
   const [room, setRoom] = useState<string>(roomParam !== '' ? roomParam : 'main')
   const [spawnOpen, setSpawnOpen] = useState(spawnParam !== '')
   /*
-   * The Fellow command centre (TASKS-A7), opened by "Manage Fellows" or `?cc=1`. Its shelf
+   * The Fellow command centre (TASKS-A7), opened by "Night shift" or `?cc=1`. Its shelf
    * rotation lives here rather than in the window, because the name it rotates through stands
    * in the HEADLINE - the same two-line shape a department gets, where the middle zone says
    * where you are and the window below it says what is there.
@@ -651,7 +651,7 @@ export function LibraryScreen({
             {/* The command centre always opens in focus: the room behind it is not what you
                 are looking at, so there is no mode to choose while it is open. */}
             {ccOpen ? null : board === 'reading' && shelf === null ? (
-              <div className="seg sm" role="radiogroup" aria-label="Reading list">
+              <div className="seg sm ink" role="radiogroup" aria-label="Reading list">
                 <button role="radio" aria-checked={readingTab === 'current'} onClick={() => setReadingTab('current')}>
                   Current
                 </button>
@@ -660,7 +660,7 @@ export function LibraryScreen({
                 </button>
               </div>
             ) : boardOpen ? null : (
-              <div className="seg sm" role="radiogroup" aria-label="Mode">
+              <div className="seg sm ink" role="radiogroup" aria-label="Mode">
                 <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
                   Focus
                 </button>
@@ -685,7 +685,7 @@ export function LibraryScreen({
                   aria-hidden
                 />
                 <b className={`cc-name${ccShelf === null ? ' dim' : ''}`}>
-                  {ccShelf === null ? 'Fellows' : ccFellow === null ? signText(ccShelf) : ccFellow.name}
+                  {ccShelf === null ? 'Night shift' : ccFellow === null ? signText(ccShelf) : ccFellow.name}
                   {ccShelf !== null && ccFellow !== null && <span className="cc-of">({signText(ccShelf)})</span>}
                 </b>
                 {/*
@@ -783,9 +783,11 @@ export function LibraryScreen({
                 </button>
               </div>
             )}
-            {/* One slot, two states. Outside the centre the door is "Manage Fellows" and the
+            {/* One slot, two states. Outside the centre the door is "Night shift" and the
                 count rides beside it; inside it, the door is gone and the count becomes the
-                way to the decisions - there is no sense offering to open what is open. */}
+                way to the decisions - there is no sense offering to open what is open. The
+                door explains itself on hover: the word alone does not say that the Fellows,
+                their decisions and their notebooks are behind it. */}
             {shelf === null && board === null && (
               ccOpen ? (
                 <button
@@ -800,9 +802,9 @@ export function LibraryScreen({
                 <button
                   className={`btn primary sm lib-manage${openDecisions > 0 ? ' due' : ''}`}
                   onClick={() => { setCcView('shelves'); setCcOpen(true) }}
-                  title={openDecisions > 0 ? `${openDecisions} proposal(s) up for review` : 'The Fellows, their nights and their notebooks'}
+                  title={`Tonight's plan: which Fellows work, in what order and at what cost, with the ingest queue ahead of them. Their decisions, notebooks and settings live here too.${openDecisions > 0 ? ` ${openDecisions} proposal(s) up for review.` : ''}`}
                 >
-                  Manage Fellows
+                  Night shift
                   {openDecisions > 0 && <span className="n">{openDecisions}</span>}
                 </button>
               )

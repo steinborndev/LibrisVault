@@ -8183,8 +8183,12 @@ tr:focus-within .rowacts {
   font-weight: 600;
   border-radius: var(--radius-sm);
 }
+/* The pill is 28px (`.rhead .seg`): 1px border and 2px padding a side leave 22px for the
+   buttons. They used to be 26px, which the pill clipped at the bottom, so the selected one
+   read as sitting higher than it was. */
+.rhead .seg { padding: 2px; }
 .rhead .seg button {
-  height: 26px;
+  height: 22px;
 }
 .rhead .rhead-cap {
   height: 26px;
@@ -8320,7 +8324,7 @@ tr:focus-within .rowacts {
 .lib-head-mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
 /*
  * While the command centre is open the middle sits in the row's true centre rather than in
- * what is left over: the right-hand slot swaps "Manage Fellows" for a decisions count, and a
+ * what is left over: the right-hand slot swaps "Night shift" for a decisions count, and a
  * middle centred on the remainder would slide sideways every time it did.
  */
 .lib-headline.cc .lib-head-left, .lib-headline.cc .lib-head-right { flex: 1 1 0; min-width: 0; }
@@ -9011,6 +9015,20 @@ tr:focus-within .rowacts {
 }
 /* The search box in the headline's right slot: the row's control height, a fixed width. */
 .home-headline .home-search { width: 224px; height: 28px; }
+/*
+ * The ink variant of the toggle, the one the Research tab and the Home headline wear: the
+ * selected half is a shade of the text, not the research violet. Colour on this chrome would
+ * say "state", and a view choice is not a state.
+ */
+.seg.ink button[aria-checked='true'],
+.seg.ink button[aria-selected='true'] {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg-elev));
+  box-shadow: none;
+  color: var(--text);
+}
+/* The reading list's access toggle: three equal thirds in the chip's old place. */
+.reading-head .seg.reading-reach { flex: none; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 282px; }
+.reading-head .seg.reading-reach button { justify-content: center; padding-inline: 0; min-width: 0; }
 /* The middle sits at the row's true centre whatever stands left and right of it (the command
    centre's rule), and what stands in it has two slots of fixed width - walking the days or
    switching the view moves the letters, not the label. */

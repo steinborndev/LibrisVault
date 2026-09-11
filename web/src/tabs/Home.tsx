@@ -605,9 +605,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   </button>
                 )
               })}
-              {/* Manage Fellows in the Library: its overview lists every shelf with the button
+              {/* The night shift in the Library: its overview lists every shelf with the button
                   that spawns one there, which is the choice a new Fellow starts with. */}
-              <button className="lib-frow spawn" onClick={() => navigate('/library?cc=1')} title="Opens Manage Fellows in the Library">
+              <button className="lib-frow spawn" onClick={() => navigate('/library?cc=1')} title="Opens the night shift in the Library">
                 <span className="d" aria-hidden />
                 <span className="who">
                   <b>Spawn a Fellow</b>
