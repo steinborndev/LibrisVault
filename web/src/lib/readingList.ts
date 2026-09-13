@@ -66,9 +66,24 @@ export function readingView(entries: readonly ReadingItem[], reach: ReadingReach
   }
 }
 
+/**
+ * The version of a copy, in words a reader knows (docs/sources/SPEC.md 6.3). The machine words
+ * are OpenAlex's; "submitted" is what everyone else calls a preprint, and "accepted" is the
+ * manuscript whose wording may differ from the published one, which is why it is named.
+ */
+export function copyVersionWords(version: string | null): string {
+  if (version === 'publishedVersion') return 'published version'
+  if (version === 'acceptedVersion') return 'accepted manuscript'
+  if (version === 'submittedVersion') return 'preprint'
+  return 'version not stated'
+}
+
 /** What the row says about reaching the document, or null when there is nothing to say. */
 export function reachLabel(e: ReadingItem): string | null {
-  if (e.reach === 'paywalled') return e.blocked !== null ? `paywalled · ${e.blocked}` : 'paywalled'
-  if (e.reach === 'unreachable') return e.blocked !== null ? `unreachable · ${e.blocked}` : 'unreachable'
-  return null
+  // An open copy is the one thing that changes what a paywalled row means: the service CAN read
+  // this one after all, through the copy, so the label says so beside the reach.
+  const copy = e.oa !== null ? ` · open copy · ${copyVersionWords(e.oa.version)}` : ''
+  if (e.reach === 'paywalled') return `${e.blocked !== null ? `paywalled · ${e.blocked}` : 'paywalled'}${copy}`
+  if (e.reach === 'unreachable') return `${e.blocked !== null ? `unreachable · ${e.blocked}` : 'unreachable'}${copy}`
+  return copy === '' ? null : copy.replace(/^ · /, '')
 }

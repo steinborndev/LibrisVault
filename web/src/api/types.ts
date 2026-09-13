@@ -1122,6 +1122,11 @@ export interface ReadingItem {
   filedAt: string | null
   /** When the user put it out of sight; null while it is current. A mark, not a removal. */
   archivedAt: string | null
+  /**
+   * A legal open-access copy of this publication, found by the nightly sweep or by the ingest
+   * that read one (docs/sources/SPEC.md sections 5.4 and 6.2). Null while none is known.
+   */
+  oa: { url: string; version: string | null; at: string | null } | null
   /** The ingest of this url, when the service has one. */
   job: { id: string; status: string; pages: number } | null
 }

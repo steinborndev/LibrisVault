@@ -15,7 +15,7 @@ import { queryState } from '../QueryState.tsx'
 import { Icon } from '../Icon.tsx'
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
-import { isReachable, reachLabel, readingView, type ReadingReach, type ReadingTab } from '../../lib/readingList.ts'
+import { copyVersionWords, isReachable, reachLabel, readingView, type ReadingReach, type ReadingTab } from '../../lib/readingList.ts'
 import { PageLink } from '../PageLink.tsx'
 
 const host = (url: string): string => {
@@ -124,6 +124,23 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
                       <span className="chip ok" title={`in the vault as ${e.page}`}>
                         in the vault
                       </span>
+                    ) : e.job === null && !isReachable(e) && e.oa !== null ? (
+                      /*
+                       * A copy was found for an entry nobody could read (docs/sources/SPEC.md
+                       * 6.3). The click is the ORDINARY ingest of the entry's own url: the job
+                       * meets the same wall the Fellow did and is rescued from the copy the
+                       * sweep already cached, with the full disclosure on the page. No second
+                       * door, and nothing here has to know the copy's address.
+                       */
+                      <button
+                        className="btn sm"
+                        disabled={ingest.isPending}
+                        title={`The requested address stays the source's own; the text comes from the open copy (${copyVersionWords(e.oa.version)}) at ${host(e.oa.url)}, and the page says so.`}
+                        onClick={() => ingest.mutate(e.url)}
+                      >
+                        <Icon name="upload" />
+                        Ingest via the open copy
+                      </button>
                     ) : e.job === null && !isReachable(e) ? (
                       <a
                         className="btn sm"

@@ -13,7 +13,8 @@ import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
 import { CommitDismissalStore } from './db/commit-dismissals.js'
 import { OaLookupStore } from './db/oa.js'
-import { oaCacheOver } from './pipeline/preprocess/oa.js'
+import { lookupOpenAccess, lookupSaysNothing, oaCacheOver } from './pipeline/preprocess/oa.js'
+import { detectTools } from './pipeline/preprocess/index.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
 import { SAMPLE_LIMIT } from './pipeline/run-duration.js'
@@ -117,6 +118,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     byRef: (ref) => queue.dedupeIndex.byRef(ref),
     byUrl: (url) => queue.dedupeIndex.byUrl(url),
   })
+  // One lookup table for both readers: the queue's recovery and the nightly sweep (5.5, 6.1).
+  const oaLookups = new OaLookupStore(db)
   const queue = new IngestQueue({
     store,
     vaultRoot: config.vaultRoot,
@@ -131,7 +134,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     doiDedupe: () => settings.effective(config).doiDedupe,
     // A blocked or abstract-thin page with a DOI is worth one look for an open copy (5.1).
     oaRecovery: () => settings.effective(config).oaRecovery,
-    oaLookups: oaCacheOver(new OaLookupStore(db)),
+    oaLookups: oaCacheOver(oaLookups),
     // Same pattern for the daily budget — evaluated through the shared budget module so the
     // queue's pause decision and the dashboard's display can never disagree (SPEC.md §11.3).
     budgetExceeded: () => budgetStatus(config, settings.effective(config), store).exceeded,
@@ -300,6 +303,31 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           judge: async (pairs) => {
             if (!settings.effective(config).dedupeJudgeEnabled) return pairs.map(() => ({ score: Number.NaN }))
             return judgePairs([...pairs], { vaultRoot: config.vaultRoot, auth: requireAuth(config) })
+          },
+          /*
+           * Before phase 0 (docs/sources/SPEC.md section 6.1): the entries the Fellows could not
+           * read are checked for a legal open copy and marked. Twenty lookups a night, no
+           * download and no ingest - the board offers that in the morning, the user decides.
+           * Off when the setting that governs the whole mechanism is off.
+           */
+          openCopies: async (today) => {
+            if (!settings.effective(config).oaRecovery) return { checked: 0, found: 0 }
+            const cache = oaCacheOver(oaLookups)
+            const { checked, found } = await readingList.markOpenCopies({
+              today,
+              // Only a round that named no copy at all stops the sweep asking; a round that
+              // named one is read from the row and marked without touching an API.
+              answeredRecently: (doi) => {
+                const row = cache.get(doi)
+                return row !== undefined && lookupSaysNothing(row, new Date())
+              },
+              lookup: async (doi) => {
+                const round = await lookupOpenAccess(doi, { jobDir: config.vaultRoot, tools: await detectTools(), cache })
+                const best = round.accepted ?? round.candidates[0]
+                return best === undefined ? undefined : { url: best.url, version: best.version, at: today }
+              },
+            })
+            return { checked, found: found.length }
           },
           // Phase 0: the ingests held for tonight run through the ordinary queue, first.
           ingests: {

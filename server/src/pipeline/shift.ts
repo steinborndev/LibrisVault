@@ -57,6 +57,12 @@ export interface NightShiftOptions {
   /** Waits; injectable so the tests run dry. */
   readonly sleep?: (ms: number) => Promise<void>
   /**
+   * The nightly reading-list sweep (docs/sources/SPEC.md section 6.1): entries a Fellow could
+   * not read are checked for an open copy and marked. Injected as a closure, so the shift does
+   * not have to know a resolver exists; absent = no sweep.
+   */
+  readonly openCopies?: (today: string) => Promise<{ readonly checked: number; readonly found: number }>
+  /**
    * Judges whether pairs of topics ask the same question, in one read-only run (section 6.6).
    * Injected so the tests never spawn one, and absent when the setting is off - in which case
    * the lexical passes carry on alone, which is what they did before this existed.
@@ -169,6 +175,8 @@ export class NightShift {
   private readonly sleep: (ms: number) => Promise<void>
   private readonly judge: ((pairs: readonly JudgePair[]) => Promise<readonly JudgeVerdict[]>) | undefined
   private readonly ingests: NightIngests | undefined
+  /** The nightly open-copy sweep over the reading list; absent = the service has none wired. */
+  private readonly openCopies: ((today: string) => Promise<{ checked: number; found: number }>) | undefined
   /**
    * Verdicts already obtained this shift, by unordered topic pair. The pass before the shift
    * judges every standing pair; the check before each run mostly asks about the same pairs
@@ -190,6 +198,7 @@ export class NightShift {
     this.sleep = opts.sleep ?? ((ms): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)))
     this.judge = opts.judge
     this.ingests = opts.ingests
+    this.openCopies = opts.openCopies
   }
 
   /**
@@ -504,6 +513,20 @@ export class NightShift {
       if (filed > 0) this.log('info', `shift: ${filed} reading list entr${filed === 1 ? 'y is' : 'ies are'} in the vault`)
     } catch (err) {
       this.log('warn', `shift: reading list not reconciled: ${(err as Error).message}`)
+    }
+
+    /*
+     * And the other side of that loop (docs/sources/SPEC.md section 6.1): entries nobody could
+     * read are checked for a legal open copy and marked, so the board can offer the ingest in
+     * the morning. A mark, never an ingest of its own - the user decides.
+     */
+    if (this.openCopies !== undefined) {
+      try {
+        const { checked, found } = await this.openCopies(cycleDate)
+        if (checked > 0) this.log('info', `shift: ${checked} reading list entr${checked === 1 ? 'y' : 'ies'} checked for an open copy, ${found} found`)
+      } catch (err) {
+        this.log('warn', `shift: the reading list was not checked for open copies: ${(err as Error).message}`)
+      }
     }
 
     /*

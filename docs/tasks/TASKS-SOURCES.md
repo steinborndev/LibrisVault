@@ -67,14 +67,14 @@ instance, nothing is written to the vault, no agent run is started except the tw
 
 ## Chunk 4: reading-list sweep and board
 
-- [ ] Unit tests: candidate selection (reach, identity, archive, filed, freshness), the
+- [x] Unit tests: candidate selection (reach, identity, archive, filed, freshness), the
       three-line block edit on a fixture page, the item's `oa` field
-- [ ] Playwright with injected data: the mark and the button text under the paywalled reach,
+- [x] Playwright with injected data: the mark and the button text under the paywalled reach,
       a click issues the existing ingest call
-- [ ] Measurement: `--dry-run` of the sweep over the live list, nothing written
-- [ ] Checks green in both workspaces
-- [ ] Doc line below, with "Measured:"
-- [ ] Commit, push, deploy (web build only with the restart right after)
+- [x] Measurement: dry run of the sweep over the live list, nothing written
+- [x] Checks green in both workspaces
+- [x] Doc line below, with "Measured:"
+- [x] Commit, push, deploy (web build only with the restart right after)
 
 ## Chunk 5: quote integrity in the validator
 
@@ -207,6 +207,34 @@ instance, nothing is written to the vault, no agent run is started except the tw
       in 3 seconds; `type: pdf`, `original: oa-copy.pdf`, and the job directory holds exactly
       `manifest.json`, `normalized.txt`, `oa-copy.pdf` and `raw.html` with no scratch directory
       left anywhere. Server 1,163 tests (9 new), web 475, `tsc` and `eslint` clean in both.
+
+- [x] **Chunk 4, the reading-list sweep and the board** (2026-09-14). `lookupOpenAccess` asks
+      the resolvers and fetches NO document, which is what twenty lookups a night can afford;
+      `openCopyCandidates` picks the entries worth asking about (current, not filed, not already
+      marked, reach `paywalled` or `unreachable` or a `blocked` reason, and carrying a DOI or an
+      arXiv id - which is a find by itself), and `ReadingListService.markOpenCopies` writes the
+      three lines into each find's own block, one commit for the night behind the shared mutex,
+      with `dryRun` for the CLI. The shift runs it before phase 0 and logs what it checked. On
+      the board, a paywalled row with a copy reads `paywalled · HTTP 403 · open copy · accepted
+      manuscript` and its action becomes "Ingest via the open copy", which posts the entry's OWN
+      url to the existing route: the job meets the same wall the Fellow did and is rescued from
+      the cached lookup, so there is no second door and the disclosure is the one from chunk 3.
+      An entry with a copy stays on the paywalled side of the toggle - it is still one the user
+      could not read.
+      One hazard found while measuring: a fresh lookup row that NAMES a copy would have made the
+      sweep skip that DOI for a week, so a dry run - or an ingest that failed after looking -
+      would have kept the mark off the board. Only a round that named nothing at all now stops
+      the sweep asking (`lookupSaysNothing`); a round that named one is read from the row and
+      marked without touching an API.
+      Measured: the UI probe (the Chromium in the Playwright cache, driven over CDP, the
+      reading-list answer and the ingest POST intercepted, no service and no job involved) shows
+      0 rows on the open side, then the two injected paywalled rows with exactly the label and
+      the button above, and the click posts `{"url":"https://publisher.example/articles/one"}` -
+      the entry's address, not the copy's. Dry run over the live list: 21 entries, 3 asked (the
+      paywalled ones with a DOI that nobody had answered), 1 with an open copy at a PMC mirror,
+      2 with none; the page was untouched afterwards (no `oa_url` line, clean `git status`) and
+      the three rounds are in `oa_lookups`, so tonight's sweep marks that find without asking
+      OpenAlex again. Server 1,168 tests (5 new), web 478 (3 new), `tsc` and `eslint` clean.
 
 ## Deviations from the spec
 

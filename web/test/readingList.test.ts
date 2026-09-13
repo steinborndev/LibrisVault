@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { inReach, isReachable, reachLabel, readingView } from '../src/lib/readingList.ts'
+import { copyVersionWords, inReach, isReachable, reachLabel, readingView } from '../src/lib/readingList.ts'
 import type { ReadingItem } from '../src/api/types.ts'
 
 const item = (over: Partial<ReadingItem>): ReadingItem => ({
@@ -26,6 +26,7 @@ const item = (over: Partial<ReadingItem>): ReadingItem => ({
   filed: null,
   filedAt: null,
   archivedAt: null,
+  oa: null,
   job: null,
   ...over,
 })
@@ -123,5 +124,34 @@ describe('the reading list view', () => {
     expect(reachLabel(item({ reach: 'open' }))).toBeNull()
     expect(reachLabel(item({ reach: 'paywalled', blocked: 'HTTP 403' }))).toBe('paywalled · HTTP 403')
     expect(reachLabel(item({ reach: 'unreachable' }))).toBe('unreachable')
+  })
+})
+
+describe('an entry with an open copy (docs/sources/SPEC.md 6.3)', () => {
+  it('says so beside the reach, in words rather than in OpenAlex\'s', () => {
+    const copy = { url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13' }
+    expect(reachLabel(item({ reach: 'paywalled', blocked: 'HTTP 403', oa: copy }))).toBe(
+      'paywalled · HTTP 403 · open copy · accepted manuscript',
+    )
+    expect(reachLabel(item({ reach: 'unreachable', oa: { ...copy, version: null } }))).toBe('unreachable · open copy · version not stated')
+    // Without a copy the label is exactly what it was.
+    expect(reachLabel(item({ reach: 'paywalled', blocked: 'subscription' }))).toBe('paywalled · subscription')
+    expect(reachLabel(item({ reach: 'open' }))).toBeNull()
+  })
+
+  it('names the version the way a reader would', () => {
+    expect(copyVersionWords('publishedVersion')).toBe('published version')
+    expect(copyVersionWords('acceptedVersion')).toBe('accepted manuscript')
+    expect(copyVersionWords('submittedVersion')).toBe('preprint')
+    expect(copyVersionWords(null)).toBe('version not stated')
+  })
+
+  it('stays on the paywalled side of the toggle: the copy does not make the entry open', () => {
+    // The entry is still one the user could not read; what changed is that the service can
+    // rescue the ingest. Moving it to the open side would hide it from the list it belongs on.
+    const e = item({ reach: 'paywalled', oa: { url: 'https://repository.example/x.pdf', version: 'publishedVersion', at: '2026-09-13' } })
+    expect(isReachable(e)).toBe(false)
+    expect(inReach(e, 'paywalled')).toBe(true)
+    expect(inReach(e, 'open')).toBe(false)
   })
 })

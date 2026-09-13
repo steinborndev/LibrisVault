@@ -15,6 +15,7 @@ import { doiFromHtml, doiFromUrl } from '../src/pipeline/identifiers.js'
 import {
   OA_MIN_FULL_TEXT_CHARS,
   lookupIsFresh,
+  lookupSaysNothing,
   oaBanner,
   oaCacheOver,
   orderCandidates,
@@ -297,7 +298,10 @@ describe('a URL job that cannot read its page (docs/sources/SPEC.md section 5)',
 
     await attempt('2026-09-13T22:00:00.000Z')
     expect(asked.filter((a) => a.includes('openalex'))).toHaveLength(1)
-    expect(rows.get(DOI)?.found).toBe(false)
+    // A copy exists (so the row counts as `found`), but none of them read as full text.
+    expect(rows.get(DOI)?.found).toBe(true)
+    expect((rows.get(DOI)?.result as { accepted: unknown; tried: unknown[] }).accepted).toBeNull()
+    expect((rows.get(DOI)?.result as { tried: unknown[] }).tried).toHaveLength(1)
     // One candidate was tried and remembered, so the next job goes straight past the resolvers.
     await attempt('2026-09-16T22:00:00.000Z')
     expect(asked.filter((a) => a.includes('openalex'))).toEqual([])
@@ -438,6 +442,7 @@ describe('the lookup table (5.5)', () => {
     doi: DOI,
     checkedAt: '2026-09-13T00:00:00.000Z',
     candidates: [],
+    tried: [],
     retracted: false,
     rateLimited: false,
     accepted: null,
@@ -452,6 +457,17 @@ describe('the lookup table (5.5)', () => {
     expect(lookupIsFresh(lookup(), new Date('2026-09-21T00:00:00.000Z'))).toBe(false)
   })
 
+  it('only a round that named no copy at all lets a sweep skip the DOI', () => {
+    const now = new Date('2026-09-13T01:00:00.000Z')
+    const candidate: OaCandidate = { url: 'https://repository.example/x.pdf', format: 'pdf', version: null, host: 'repository.example', license: null, source: 'openalex' }
+    expect(lookupSaysNothing(lookup(), now)).toBe(true)
+    // A dry run of the sweep leaves a row like this; the entry must still get its mark.
+    expect(lookupSaysNothing(lookup({ candidates: [candidate] }), now)).toBe(false)
+    expect(lookupSaysNothing(lookup({ accepted: candidate }), now)).toBe(false)
+    // An old blank is no answer either.
+    expect(lookupSaysNothing(lookup(), new Date('2026-09-25T00:00:00.000Z'))).toBe(false)
+  })
+
   it('never lets a rate-limited round stand as "nothing found"', () => {
     expect(lookupIsFresh(lookup({ rateLimited: true }), new Date('2026-09-13T01:00:00.000Z'))).toBe(false)
   })
@@ -460,7 +476,7 @@ describe('the lookup table (5.5)', () => {
     const store = memory()
     const cache = oaCacheOver(store)
     const accepted: OaCandidate = { url: 'https://repository.example/x.pdf', format: 'pdf', version: 'publishedVersion', host: 'repository.example', license: null, source: 'openalex' }
-    cache.put(lookup({ accepted, candidates: [accepted] }))
+    cache.put(lookup({ accepted, candidates: [accepted], tried: [] }))
     expect(store.rows.get(DOI)?.found).toBe(true)
     expect(cache.get(DOI)?.accepted).toEqual(accepted)
     // A row from an older build is no answer rather than a crash.

@@ -69,7 +69,14 @@ export interface OaCandidate {
 export interface OaLookup {
   readonly doi: string
   readonly checkedAt: string
+  /** Every copy a resolver named. A sweep fills this and fetches none of them (6.1). */
   readonly candidates: readonly OaCandidate[]
+  /**
+   * The ones that were actually fetched and did not clear the bars. Kept apart from
+   * `candidates` because the two answer different questions: a copy nobody has tried is worth
+   * trying, and a copy that came back as a record page is not worth fetching twice.
+   */
+  readonly tried: readonly OaCandidate[]
   readonly retracted: boolean
   /** True when a resolver answered 429 twice: NOT the same statement as "nothing found". */
   readonly rateLimited: boolean
@@ -165,7 +172,9 @@ export function oaCacheOver(store: {
       const row = store.get(doi)
       return row !== undefined && isOaLookup(row.result) ? row.result : undefined
     },
-    put: (lookup) => store.put(lookup.doi, lookup.accepted !== null, lookup),
+    // `found` is "a resolver named an open copy", which is what a sweep learns and what the
+    // counts are about; whether one of them read as full text is `accepted`.
+    put: (lookup) => store.put(lookup.doi, lookup.accepted !== null || lookup.candidates.length > 0, lookup),
   }
 }
 
@@ -217,6 +226,18 @@ export function lookupIsFresh(lookup: OaLookup, now: Date): boolean {
   if (lookup.rateLimited) return false
   const ageMs = now.getTime() - Date.parse(lookup.checkedAt)
   return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < OA_NEGATIVE_TTL_DAYS * 24 * 3600 * 1000
+}
+
+/**
+ * The ONE case a sweep may skip a DOI outright: a fresh round that named no copy at all.
+ *
+ * "Asked this week" is not enough on its own. A round that named copies but marked nothing - a
+ * dry run of the sweep, or a lookup by an ingest that then failed - must still reach the entry,
+ * or asking once would keep the mark off the board for a week. Reading the row is free; it is
+ * the three APIs that are not.
+ */
+export function lookupSaysNothing(lookup: OaLookup, now: Date): boolean {
+  return lookupIsFresh(lookup, now) && lookup.accepted === null && lookup.candidates.length === 0
 }
 
 /** The banner above the document, in the words section 5.4 fixes. */
@@ -479,6 +500,49 @@ async function readCandidate(candidate: OaCandidate, seq: number, ctx: ResolverC
   }
 }
 
+/**
+ * Asks the resolvers about one DOI and fetches NO document (docs/sources/SPEC.md 6.1).
+ *
+ * What the nightly reading-list sweep needs: twenty entries a night, each answered with "is
+ * there an open copy, and which is the best one", without twenty downloads. The round is cached
+ * like any other, so the ingest the user then starts from a find goes straight to the copy
+ * instead of asking the three APIs again minutes later (6.3).
+ */
+export async function lookupOpenAccess(doi: string, deps: OaDeps): Promise<OaLookup> {
+  const now = deps.now ?? ((): Date => new Date())
+  const ctx: ResolverContext = {
+    deps,
+    fetchOpts: {
+      ...(deps.resolve ? { resolve: deps.resolve } : {}),
+      ...(deps.request ? { request: deps.request } : {}),
+    },
+    timeoutMs: deps.timeoutMs ?? 30_000,
+    notes: [],
+    rateLimited: false,
+    retracted: false,
+  }
+  const cached = deps.cache?.get(doi)
+  if (cached !== undefined && lookupIsFresh(cached, now())) return cached
+
+  const candidates: OaCandidate[] = []
+  for (const resolver of RESOLVERS) {
+    candidates.push(...(await resolver.run(doi, ctx)))
+    // One find is enough for a mark on a reading-list entry; the ingest does the rest.
+    if (candidates.length > 0) break
+  }
+  const lookup: OaLookup = {
+    doi,
+    checkedAt: now().toISOString(),
+    candidates: orderCandidates(candidates),
+    tried: [],
+    retracted: ctx.retracted,
+    rateLimited: ctx.rateLimited,
+    accepted: null,
+  }
+  deps.cache?.put(lookup)
+  return lookup
+}
+
 // --- the recovery ------------------------------------------------------------
 
 /**
@@ -513,15 +577,22 @@ export async function recoverOpenAccess(args: {
 
   const cached = deps.cache?.get(doi)
   const fresh = cached !== undefined && lookupIsFresh(cached, now())
-  if (fresh && cached.accepted === null) {
-    // A fresh round without a usable copy is an answer: no API is asked again this week.
-    const tried = cached.candidates.length
+  /*
+   * What a fresh row is good for, in order: the copy that worked last time, then copies a sweep
+   * named but nobody has fetched yet (6.3 - this is what lets the ingest started from a find
+   * rescue itself at once), and otherwise nothing at all, which is an answer too and spares
+   * three APIs the same question for a week.
+   */
+  const fromCache = fresh
+    ? [...(cached.accepted === null ? [] : [cached.accepted]), ...cached.candidates.filter((c) => !cached.tried.some((t) => t.url === c.url))]
+    : []
+  if (fresh) ctx.retracted = cached.retracted
+  if (fresh && fromCache.length === 0) {
     ctx.notes.push(
-      `open access: nothing usable was found for this DOI when it was last asked (${cached.checkedAt}, tried ${tried})`,
+      `open access: nothing usable was found for this DOI when it was last asked (${cached.checkedAt}, tried ${cached.tried.length})`,
     )
     return { notes: ctx.notes }
   }
-  if (fresh) ctx.retracted = cached.retracted
 
   let attempts = 0
   const tried: OaCandidate[] = []
@@ -573,8 +644,8 @@ export async function recoverOpenAccess(args: {
     return undefined
   }
 
-  // A cached find is tried first: the resolvers already said this is the copy.
-  let recovery = fresh && cached.accepted !== null ? await tryAll([cached.accepted]) : undefined
+  // What the cache already knows comes first: no API is asked while an untried copy stands.
+  let recovery = fromCache.length > 0 ? await tryAll(fromCache) : undefined
   if (recovery === undefined) {
     for (const resolver of RESOLVERS) {
       if (attempts >= OA_MAX_ATTEMPTS) break
@@ -585,13 +656,17 @@ export async function recoverOpenAccess(args: {
     }
   }
 
+  const accepted = recovery === undefined ? null : (tried.find((t) => t.url === recovery?.disclosure.url) ?? null)
   deps.cache?.put({
     doi,
     checkedAt: now().toISOString(),
-    candidates: tried,
+    // Everything known about the DOI, and separately what this job actually fetched: a copy
+    // that came back as a record page must not be downloaded again next week.
+    candidates: [...new Map([...(fresh ? cached.candidates : []), ...tried].map((c) => [c.url, c])).values()],
+    tried: accepted === null ? tried : tried.filter((t) => t.url !== accepted.url),
     retracted: ctx.retracted,
     rateLimited: ctx.rateLimited,
-    accepted: recovery === undefined ? null : (tried.find((t) => t.url === recovery?.disclosure.url) ?? null),
+    accepted,
   })
 
   if (recovery === undefined) {

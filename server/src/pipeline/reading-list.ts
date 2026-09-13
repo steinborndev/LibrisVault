@@ -153,6 +153,57 @@ export function entryRef(entry: Pick<ReadingEntry, 'ref' | 'url'>): string | und
 /** Re-exported from the dedupe index, which needs the same normalization for its page urls. */
 export { urlKey } from './dedupe.js'
 
+/** How many DOIs one night's sweep may ask about (docs/sources/SPEC.md section 6.1). */
+export const SWEEP_MAX_LOOKUPS = 20
+
+/** An entry worth a look tonight, and the identity to look it up by. */
+export interface SweepCandidate {
+  readonly entry: ReadingEntry
+  /** The DOI the resolvers are asked about. */
+  readonly doi?: string
+  /**
+   * An arXiv id needs no resolver: the PDF beside the abstract IS the open copy, and it is a
+   * preprint unless a publisher's version was found some other way (6.1).
+   */
+  readonly arxivId?: string
+}
+
+/**
+ * The entries a nightly sweep should ask about (docs/sources/SPEC.md section 6.1).
+ *
+ * Exactly the ones the Fellows could not read and nobody has answered yet: current (not
+ * archived), not in the vault, not already marked with a copy, reach `paywalled` or
+ * `unreachable` - or a `blocked` reason, which says the run got nowhere whatever the host
+ * suggests - and carrying an identity to ask about. `answeredRecently` is the `oa_lookups`
+ * freshness: a DOI answered this week is not asked again, so twenty lookups a night are spent
+ * on entries nobody has looked at.
+ */
+export function openCopyCandidates(
+  entries: readonly ReadingEntry[],
+  opts: { readonly answeredRecently?: (doi: string) => boolean; readonly limit?: number } = {},
+): SweepCandidate[] {
+  const out: SweepCandidate[] = []
+  const limit = opts.limit ?? SWEEP_MAX_LOOKUPS
+  for (const entry of entries) {
+    if (out.length >= limit) break
+    if (entry.archivedAt !== null || entry.filed !== null || entry.oa !== null) continue
+    const reach = reachOf(entry)
+    if (reach !== 'paywalled' && reach !== 'unreachable' && entry.blocked === null) continue
+    const ref = entryRef(entry)
+    if (ref === undefined) continue
+    if (ref.startsWith('arxiv:')) {
+      out.push({ entry, arxivId: ref.slice('arxiv:'.length) })
+      continue
+    }
+    if (!ref.startsWith('doi:')) continue
+    const doi = ref.slice('doi:'.length)
+    // A DOI answered within the week is not asked again; the row already says what there is.
+    if (opts.answeredRecently?.(doi) === true) continue
+    out.push({ entry, doi })
+  }
+  return out
+}
+
 /**
  * The file a url points at, lowercased, or undefined when the url ends in something that is
  * not a filename.
@@ -521,6 +572,78 @@ export class ReadingListService {
   async attributeRun(actor: string, before: ReadonlySet<string>): Promise<ReadingAttribution[]> {
     const committed = await this.committedUrlKeys()
     return this.attribute(actor, (key) => !before.has(key) && !committed.has(key))
+  }
+
+  /**
+   * The nightly sweep (docs/sources/SPEC.md section 6): every entry a Fellow could not read is
+   * checked for a legal open copy, and a find is MARKED on the entry - never ingested by itself.
+   * The user decides, from the board, with one click that goes through the ordinary URL ingest.
+   *
+   * The write is the one the page already knows: three lines inside the entry's own block, one
+   * commit for the night behind the shared mutex. `dryRun` asks the same questions and writes
+   * nothing, which is what the CLI uses over the live list.
+   */
+  async markOpenCopies(args: {
+    readonly today: string
+    /** What the resolvers say about one DOI; undefined when they name no copy. */
+    readonly lookup: (doi: string) => Promise<ReadingOpenCopy | undefined>
+    readonly answeredRecently?: (doi: string) => boolean
+    readonly limit?: number
+    readonly dryRun?: boolean
+  }): Promise<{
+    readonly checked: number
+    readonly found: ReadonlyArray<{ readonly entry: ReadingEntry; readonly copy: ReadingOpenCopy }>
+  }> {
+    const file = path.join(this.vaultRoot, READING_LIST_PAGE)
+    let markdown: string
+    try {
+      markdown = fs.readFileSync(file, 'utf8')
+    } catch {
+      return { checked: 0, found: [] }
+    }
+    const candidates = openCopyCandidates(parseReadingList(markdown), {
+      ...(args.answeredRecently ? { answeredRecently: args.answeredRecently } : {}),
+      ...(args.limit !== undefined ? { limit: args.limit } : {}),
+    })
+    const found: Array<{ entry: ReadingEntry; copy: ReadingOpenCopy }> = []
+    let next = markdown
+    for (const candidate of candidates) {
+      const copy: ReadingOpenCopy | undefined =
+        candidate.arxivId !== undefined
+          ? { url: `https://arxiv.org/pdf/${candidate.arxivId}`, version: 'submittedVersion', at: args.today }
+          : candidate.doi === undefined
+            ? undefined
+            : await args.lookup(candidate.doi)
+      if (copy === undefined) continue
+      const marked: ReadingOpenCopy = { url: copy.url, version: copy.version, at: args.today }
+      found.push({ entry: { ...candidate.entry, oa: marked }, copy: marked })
+      if (args.dryRun === true) continue
+      // The entry's own block gains the three lines; nothing else on the page is touched. An
+      // unknown version leaves its LINE out rather than writing words into a field.
+      const block = new RegExp(`(^[ \t]*[-*][ \t]+title:[ \t]*${escapeRe(candidate.entry.title)}[ \t]*$)`, 'm')
+      if (!block.test(next)) continue
+      next = next.replace(
+        block,
+        `$1\n  oa_url: ${marked.url}${marked.version === null ? '' : `\n  oa_version: ${marked.version}`}\n  oa_at: ${args.today}`,
+      )
+    }
+    if (found.length === 0 || args.dryRun === true || next === markdown) return { checked: candidates.length, found }
+    const commit = this.write.commit ?? commitPaths
+    if (this.write.commitMutex === undefined) {
+      fs.writeFileSync(file, next, 'utf8')
+      return { checked: candidates.length, found }
+    }
+    await this.write.commitMutex.runExclusive(async () => {
+      fs.writeFileSync(file, next, 'utf8')
+      if (this.write.autoCommit?.() ?? true) {
+        await commit(
+          this.vaultRoot,
+          `fellows: ${found.length} reading list entr${found.length === 1 ? 'y has' : 'ies have'} an open copy`,
+          [READING_LIST_PAGE],
+        )
+      }
+    })
+    return { checked: candidates.length, found }
   }
 
   /**

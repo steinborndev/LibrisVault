@@ -20,7 +20,17 @@ import { execFileSync } from 'node:child_process'
 import type { AgentRunResult } from '../src/pipeline/agent-runner.js'
 import type { FellowRunContext } from '../src/pipeline/fellow-prompts.js'
 import { buildServer } from '../src/api/server.js'
-import { ReadingListService, parseReadingList, reachOf, urlKey, urlFileName, entryRef, READING_LIST_PAGE, type ReadingEntry } from '../src/pipeline/reading-list.js'
+import {
+  ReadingListService,
+  openCopyCandidates,
+  parseReadingList,
+  reachOf,
+  urlKey,
+  urlFileName,
+  entryRef,
+  READING_LIST_PAGE,
+  type ReadingEntry,
+} from '../src/pipeline/reading-list.js'
 import { refKey } from '../src/pipeline/dedupe.js'
 import type { Config } from '../src/config.js'
 
@@ -209,6 +219,124 @@ title: "Reading list"
     expect(await reading.reconcile('2026-09-09')).toHaveLength(0)
     // And the entry that is not in the vault is untouched.
     expect(parseReadingList(page)[1]).toMatchObject({ filed: null, filedAt: null })
+  })
+
+  /*
+   * The nightly sweep (docs/sources/SPEC.md section 6): the entries a Fellow could not read are
+   * the only ones worth asking about, a find is a MARK and never an ingest, and the page keeps
+   * everything else it says.
+   */
+  describe('the open-copy sweep', () => {
+    const SWEEP_PAGE = `# Reading list
+
+## Entries
+
+- title: A paper behind a subscription
+  url: https://publisher.example/articles/one
+  ref: doi:10.1234/example.2026.001
+  domain: materials-science
+  access: paywalled
+  blocked: HTTP 403
+  by: Jane
+  at: 2026-09-07
+
+- title: A preprint nobody could fetch
+  url: https://arxiv.org/abs/2506.20907
+  ref: arXiv:2506.20907
+  access: unreachable
+  blocked: no extractable text
+  by: Ada
+  at: 2026-09-07
+
+- title: An open paper that needs nothing
+  url: https://arxiv.org/abs/2506.11111
+  access: open
+  by: Ada
+  at: 2026-09-07
+
+- title: A paper already in the vault
+  url: https://publisher.example/articles/two
+  ref: doi:10.1234/example.2026.002
+  access: paywalled
+  filed: wiki/sources/Two.md
+  filedAt: 2026-09-08
+  by: Jane
+  at: 2026-09-07
+
+- title: A paper the user has dealt with
+  url: https://publisher.example/articles/three
+  ref: doi:10.1234/example.2026.003
+  access: paywalled
+  archivedAt: 2026-09-09
+  by: Jane
+  at: 2026-09-07
+
+- title: A paywalled paper with no identifier at all
+  url: https://publisher.example/articles/four
+  access: paywalled
+  by: Jane
+  at: 2026-09-07
+`
+
+    it('asks about what nobody could read and nothing else', () => {
+      const candidates = openCopyCandidates(parseReadingList(SWEEP_PAGE))
+      expect(candidates.map((c) => c.entry.title)).toEqual(['A paper behind a subscription', 'A preprint nobody could fetch'])
+      expect(candidates[0]).toMatchObject({ doi: '10.1234/example.2026.001' })
+      // An arXiv id needs no resolver: the PDF beside the abstract IS the copy.
+      expect(candidates[1]).toMatchObject({ arxivId: '2506.20907' })
+      expect(candidates[1]!.doi).toBeUndefined()
+    })
+
+    it('spends its lookups on DOIs nobody has asked about this week, up to the limit', () => {
+      const entries = parseReadingList(SWEEP_PAGE)
+      expect(openCopyCandidates(entries, { answeredRecently: (doi) => doi === '10.1234/example.2026.001' }).map((c) => c.entry.title)).toEqual([
+        'A preprint nobody could fetch',
+      ])
+      expect(openCopyCandidates(entries, { limit: 1 })).toHaveLength(1)
+    })
+
+    it('marks a find inside the entry block, once, and leaves the rest of the page alone', async () => {
+      fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), SWEEP_PAGE)
+      const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+      const asked: string[] = []
+      const out = await reading.markOpenCopies({
+        today: '2026-09-13',
+        lookup: async (doi) => {
+          asked.push(doi)
+          return { url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13' }
+        },
+      })
+      expect(asked).toEqual(['10.1234/example.2026.001'])
+      expect(out.checked).toBe(2)
+      expect(out.found.map((f) => f.copy.url)).toEqual(['https://repository.example/paper.pdf', 'https://arxiv.org/pdf/2506.20907'])
+
+      const marked = parseReadingList(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8'))
+      expect(marked[0]!.oa).toEqual({ url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13' })
+      expect(marked[1]!.oa).toEqual({ url: 'https://arxiv.org/pdf/2506.20907', version: 'submittedVersion', at: '2026-09-13' })
+      // Everything the Fellows wrote is still there, and nothing else gained a mark.
+      expect(marked).toHaveLength(6)
+      expect(marked[0]).toMatchObject({ blocked: 'HTTP 403', by: 'Jane', access: 'paywalled' })
+      expect(marked.slice(2).every((e) => e.oa === null)).toBe(true)
+      // A second night asks about neither: both entries carry a copy now.
+      const again = await reading.markOpenCopies({ today: '2026-09-14', lookup: async () => undefined })
+      expect(again.checked).toBe(0)
+    })
+
+    it('writes nothing on a dry run, and nothing at all when no copy is found', async () => {
+      fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), SWEEP_PAGE)
+      const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+      const dry = await reading.markOpenCopies({
+        today: '2026-09-13',
+        dryRun: true,
+        lookup: async () => ({ url: 'https://repository.example/paper.pdf', version: 'publishedVersion', at: '2026-09-13' }),
+      })
+      expect(dry.found).toHaveLength(2)
+      expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toBe(SWEEP_PAGE)
+
+      const nothing = await reading.markOpenCopies({ today: '2026-09-13', limit: 1, lookup: async () => undefined })
+      expect(nothing.found).toEqual([])
+      expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toBe(SWEEP_PAGE)
+    })
   })
 
   /*
