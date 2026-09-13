@@ -95,7 +95,9 @@ export async function preprocess(input: PreprocessInput): Promise<PreprocessResu
     notes: [
       ...(input.extraNotes ?? []),
       ...(input.notePrefix === undefined ? result.notes : result.notes.map((n) => `${input.notePrefix} ${n}`)),
+      ...(result.warnings ?? []),
     ],
+    ...(result.warnings !== undefined && result.warnings.length > 0 ? { warnings: result.warnings } : {}),
   }
 
   const manifestPath = path.join(input.jobDir, 'manifest.json')

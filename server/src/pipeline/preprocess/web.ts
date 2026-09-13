@@ -21,6 +21,7 @@ import { nowIso } from '../../db/index.js'
 import { arxivIdFromUrl } from '../identifiers.js'
 import type { Manifest, PreprocessPlugin, PreprocessResult, ToolAvailability } from './types.js'
 import { PreprocessError } from './types.js'
+import { fenceWithWarnings } from './fence.js'
 import { assessExtractedContent, htmlToText } from './html.js'
 import { preprocess } from './index.js'
 import { runConverter } from './sandbox.js'
@@ -462,9 +463,15 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
     }
   }
 
+  /*
+   * The fence goes on last (docs/sources/SPEC.md 4.1): the junk gate above ran on the document
+   * as it arrived, and so will the open-access decision - what the service wrapped around it is
+   * the service's own words and must not count as the page's text.
+   */
   const normalizedPath = path.join(input.jobDir, 'normalized.md')
-  const body = `# ${url.href}\n\n${markdown}\n`
-  fs.writeFileSync(normalizedPath, body, 'utf8')
+  const fenced = fenceWithWarnings({ title: url.href, source: url.href, kind: 'web', text: markdown })
+  fs.writeFileSync(normalizedPath, fenced.text, 'utf8')
+  notes.push(...fenced.warnings)
 
   const manifest: Manifest = {
     jobId: input.jobId,
@@ -480,6 +487,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
     passImageToAgent: false,
     deferred: false,
     notes,
+    ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
   }
   const manifestPath = path.join(input.jobDir, 'manifest.json')
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')

@@ -35,16 +35,16 @@ instance, nothing is written to the vault, no agent run is started except the tw
 
 ## Chunk 2: untrusted fence and injection warning
 
-- [ ] Unit tests: fencing with forged tags in three spellings, URL escaping, a passthrough
+- [x] Unit tests: fencing with forged tags in three spellings, URL escaping, a passthrough
       file left alone, the PDF and office outputs fenced
-- [ ] Unit tests: the injection pattern list on positive and negative samples, including a
+- [x] Unit tests: the injection pattern list on positive and negative samples, including a
       page that discusses prompt injection as its topic
-- [ ] `UNTRUSTED_CONTENT_RULES` on every writing run
-- [ ] Measurement: scratch `preprocessUrl` and a scratch saved-page run show the fence; a
+- [x] `UNTRUSTED_CONTENT_RULES` on every writing run
+- [x] Measurement: scratch `preprocessUrl` and a scratch saved-page run show the fence; a
       crafted sample produces the warning line
-- [ ] Checks green in both workspaces
-- [ ] Doc line below, with "Measured:"
-- [ ] Commit
+- [x] Checks green in both workspaces
+- [x] Doc line below, with "Measured:"
+- [x] Commit
 
 ## Chunk 3: open-access recovery inside a URL job
 
@@ -123,6 +123,29 @@ instance, nothing is written to the vault, no agent run is started except the tw
       address, 4,551,203 bytes fetched and 107,403 characters extracted by the real pdftotext
       inside its jail. `preprocprobe`: PASS (13 checks). Server 1,114 tests, web 475, `tsc`
       and `eslint` clean in both.
+
+- [x] **Chunk 2, the untrusted fence and the injection warning** (2026-09-13).
+      `preprocess/fence.ts` wraps every artifact the pipeline writes - a fetched page, a page
+      saved from a browser, a PDF extraction, an office conversion - in an `<untrusted-source
+      url kind>` tag with the four-line notice, under a heading and below any banner; a forged
+      opening or closing tag inside the document, in any case or spacing, becomes
+      `untrusted-source-inner` and stays visible, so a page can neither close the fence early
+      nor open a second one and speak as the service. `documentTextOf` takes the wrapper back
+      off, which is what the thin-page bar (chunk 3) and the quote check (chunk 5) read.
+      Passthrough originals are untouched and say `passthrough, unfenced` (D7). The fence is
+      the LAST thing written, so the junk gate still measures the document.
+      `preprocess/injection.ts` is the tripwire: four shapes (overriding earlier instructions,
+      a role asserted at an assistant, a request to keep something from the user, a command
+      about the system prompt) in English and German, each firing once with its offset,
+      recorded as a manifest note, in `manifest.warnings`, and logged by the queue at level
+      `warn` - the job runs on (D8). `UNTRUSTED_CONTENT_RULES` rides on every writing run
+      (single ingest, batch ingest, and every maintenance or Fellow run).
+      Measured, scratch runs outside the vault: a fetched encyclopedia article on prompt
+      injection produced one warning (`"Ignore the above directions"` at offset 1901) and
+      ingested normally, the fence costing 488 of 22,898 artifact characters; the same bytes
+      dropped as a saved page fenced as `kind="saved-page"` with `Saved from:` intact; a
+      crafted sample tripped three of the four rules and had one forged closing tag defused.
+      Server 1,134 tests (20 new), web 475, `tsc` and `eslint` clean in both.
 
 ## Deviations from the spec
 

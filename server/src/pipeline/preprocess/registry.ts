@@ -18,7 +18,8 @@ export const otherPlugin: PreprocessPlugin = {
   type: 'other',
   matches: (): boolean => true,
   normalize: async (): Promise<NormalizeResult> => ({
-    notes: ['unrecognised type — original passed through as-is'],
+    // Nothing was converted, so there is no artifact to fence (docs/sources/SPEC.md D7).
+    notes: ['unrecognised type — original passed through as-is', 'passthrough, unfenced'],
   }),
 }
 

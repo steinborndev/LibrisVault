@@ -14,6 +14,7 @@ import path from 'node:path'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { PreprocessError } from '../types.js'
 import { isPdf } from '../detect.js'
+import { fenceWithWarnings } from '../fence.js'
 import { runConverter } from '../sandbox.js'
 
 /** Below this many chars/page the text layer is assumed missing and OCR kicks in. */
@@ -127,11 +128,25 @@ export const pdfPlugin: PreprocessPlugin = {
       }
     }
 
+    /*
+     * The extraction is the document, written by whoever wrote the PDF, so the artifact the
+     * agent reads says so (docs/sources/SPEC.md section 4). The fence goes on LAST: the yield
+     * test above measures the document, not the service's own framing of it.
+     */
+    const fenced = fenceWithWarnings({
+      title: ctx.probe.originalName,
+      source: ctx.probe.originalName,
+      kind: 'pdf',
+      text,
+    })
+    fs.writeFileSync(outPath, fenced.text, 'utf8')
+
     return {
       normalizedPath: outPath,
       normalizedChars: text.trim().length,
       ocrApplied,
       notes,
+      ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
     }
   },
 }

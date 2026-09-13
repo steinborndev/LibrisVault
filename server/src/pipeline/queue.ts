@@ -52,7 +52,14 @@ import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { msUntilReset } from './budget.js'
 import { readDomainRegistry, domainSystemPrompt } from './domains.js'
-import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES, renderProvenance, renderReadingList } from './system-prompt.js'
+import {
+  ENTITY_NOTABILITY_RULES,
+  PAGE_HYGIENE_CHECKLIST,
+  TAG_HYGIENE_RULES,
+  UNTRUSTED_CONTENT_RULES,
+  renderProvenance,
+  renderReadingList,
+} from './system-prompt.js'
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
 import type { Validator } from './validator.js'
@@ -992,6 +999,7 @@ export class IngestQueue {
     }
 
     this.store.setType(job.id, pre.type)
+    this.logPreprocessWarnings(job.id, pre)
 
     if (pre.deferred) {
       this.deferJob(job, jobDir)
@@ -1010,6 +1018,15 @@ export class IngestQueue {
 
     this.store.transition(job.id, 'ingesting', { log: `preprocessed as ${pre.type}` })
     await this.ingestStep(job, pre)
+  }
+
+  /**
+   * What preprocessing found in the document itself and the reader should know about: text
+   * aimed at an assistant (docs/sources/SPEC.md section 4.3). A warning, never a failure - the
+   * job runs on, and the line is in its log when someone asks why a page reads oddly.
+   */
+  private logPreprocessWarnings(jobId: string, pre: PreprocessResult): void {
+    for (const warning of pre.manifest.warnings ?? []) this.store.log(jobId, 'warn', warning)
   }
 
   /** Runs preprocessing, skipping it when a prior attempt already produced a manifest. */
@@ -1063,6 +1080,7 @@ export class IngestQueue {
       systemPromptExtra: [
         domainSystemPrompt(readDomainRegistry(this.vaultRoot)),
         PAGE_HYGIENE_CHECKLIST,
+        UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
         renderReadingList(INGEST_ACTOR, localDate(new Date())),
@@ -1316,6 +1334,7 @@ export class IngestQueue {
         this.store.transition(id, 'preprocessing', { log: 'batch: preprocessing member' })
         const pre = await this.preprocessStep(job, jobDir)
         this.store.setType(id, pre.type)
+        this.logPreprocessWarnings(id, pre)
         if (pre.deferred) {
           this.deferJob(job, jobDir)
           this.store.transition(id, 'deferred', {
@@ -1365,6 +1384,7 @@ export class IngestQueue {
       systemPromptExtra: [
         domainSystemPrompt(readDomainRegistry(this.vaultRoot)),
         PAGE_HYGIENE_CHECKLIST,
+        UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
         renderReadingList(INGEST_ACTOR, localDate(new Date())),

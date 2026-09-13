@@ -44,6 +44,12 @@ export interface NormalizeResult {
   readonly url?: string
   /** Human-readable decisions worth recording in the manifest and job log. */
   readonly notes: readonly string[]
+  /**
+   * Notes that belong in the job log at level `warn` as well: text in the document aimed at an
+   * assistant (docs/sources/SPEC.md section 4.3). The chain copies them into `notes` too, so a
+   * plugin states one once and the manifest carries it beside the rest.
+   */
+  readonly warnings?: readonly string[]
 }
 
 export interface PreprocessPlugin {
@@ -86,6 +92,8 @@ export interface Manifest {
   readonly deferred: boolean
   readonly exif?: Record<string, unknown>
   readonly notes: readonly string[]
+  /** The subset of `notes` the job log carries at level `warn` (section 4.3). */
+  readonly warnings?: readonly string[]
 }
 
 export interface PreprocessResult {

@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { runConverter } from '../sandbox.js'
+import { fenceWithWarnings } from '../fence.js'
 import { assessExtractedContent, canonicalUrlOf, htmlToText } from '../html.js'
 
 /**
@@ -100,9 +101,22 @@ async function extractSavedPage({ probe, jobDir, tools }: NormalizeContext): Pro
     return { ...(url !== undefined ? { url } : {}), notes: [`saved web page: extraction looked like junk (${problem}) — original passed through as-is`] }
   }
   const normalizedPath = path.join(jobDir, 'normalized.md')
-  const header = `# ${probe.originalName}\n${url !== undefined ? `\nSaved from: ${url}\n` : ''}`
-  fs.writeFileSync(normalizedPath, `${header}\n${markdown}\n`, 'utf8')
-  return { normalizedPath, normalizedChars: markdown.length, ...(url !== undefined ? { url } : {}), notes }
+  // The extraction is a stranger's page, so it is fenced as data (docs/sources/SPEC.md 4.1).
+  const fenced = fenceWithWarnings({
+    title: probe.originalName,
+    ...(url !== undefined ? { savedFrom: url } : {}),
+    source: url ?? probe.originalName,
+    kind: 'saved-page',
+    text: markdown,
+  })
+  fs.writeFileSync(normalizedPath, fenced.text, 'utf8')
+  return {
+    normalizedPath,
+    normalizedChars: markdown.length,
+    ...(url !== undefined ? { url } : {}),
+    notes,
+    ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
+  }
 }
 
 export const textPlugin: PreprocessPlugin = {
@@ -110,5 +124,10 @@ export const textPlugin: PreprocessPlugin = {
   type: 'text',
   matches: (probe: Probe): boolean => TEXT_EXTS.has(probe.ext),
   normalize: async (ctx: NormalizeContext): Promise<NormalizeResult> =>
-    HTML_EXTS.has(ctx.probe.ext) ? extractSavedPage(ctx) : { notes: ['text passthrough — original ingested as-is'] },
+    HTML_EXTS.has(ctx.probe.ext)
+      ? extractSavedPage(ctx)
+      : // Passthrough originals are NOT rewritten (docs/sources/SPEC.md D7): a Markdown file the
+        // user wrote, or a clipper page with its own frontmatter, is read whole and a fence
+        // inserted into it would be an edit of the user's own file. The prompt rule covers them.
+        { notes: ['text passthrough — original ingested as-is', 'passthrough, unfenced'] },
 }

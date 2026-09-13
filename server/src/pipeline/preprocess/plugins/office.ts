@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { PreprocessError } from '../types.js'
 import { isOle, isRtf, isZip } from '../detect.js'
+import { fenceWithWarnings } from '../fence.js'
 import { runConverter } from '../sandbox.js'
 
 /*
@@ -61,7 +62,14 @@ export const officePlugin: PreprocessPlugin = {
       const outPath = path.join(ctx.jobDir, 'normalized.md')
       await runConverter('pandoc', [src, '-t', 'gfm', '-o', outPath], { reads: [src], writes: ctx.jobDir, timeoutMs: 120_000 })
       const text = fs.readFileSync(outPath, 'utf8')
-      return { normalizedPath: outPath, normalizedChars: text.trim().length, notes: ['converted via pandoc'] }
+      const fenced = fenceWithWarnings({ title: ctx.probe.originalName, source: ctx.probe.originalName, kind: 'office', text })
+      fs.writeFileSync(outPath, fenced.text, 'utf8')
+      return {
+        normalizedPath: outPath,
+        normalizedChars: text.trim().length,
+        notes: ['converted via pandoc'],
+        ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
+      }
     }
 
     // pptx / xlsx / ods / odp
@@ -73,11 +81,13 @@ export const officePlugin: PreprocessPlugin = {
     const outPath = path.join(ctx.jobDir, 'normalized.txt')
     // The extractor script is this repo's own; it is read-only in the jail like the input.
     const { stdout } = await runConverter('python3', [EXTRACT_SCRIPT, src], { reads: [src, EXTRACT_SCRIPT], timeoutMs: 120_000 })
-    fs.writeFileSync(outPath, stdout, 'utf8')
+    const fenced = fenceWithWarnings({ title: ctx.probe.originalName, source: ctx.probe.originalName, kind: 'office', text: stdout })
+    fs.writeFileSync(outPath, fenced.text, 'utf8')
     return {
       normalizedPath: outPath,
       normalizedChars: stdout.trim().length,
       notes: [`extracted via ${PY_EXTS.has(ext) ? 'python extractor' : 'extractor'}`],
+      ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
     }
   },
 }

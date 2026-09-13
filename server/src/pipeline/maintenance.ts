@@ -20,7 +20,13 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { runAgent, EMPTY_USAGE, type AgentAuth, type AgentRunResult, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
-import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES, renderReadingList } from './system-prompt.js'
+import {
+  ENTITY_NOTABILITY_RULES,
+  PAGE_HYGIENE_CHECKLIST,
+  TAG_HYGIENE_RULES,
+  UNTRUSTED_CONTENT_RULES,
+  renderReadingList,
+} from './system-prompt.js'
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
 import { formatMessage } from './format-message.js'
@@ -1267,6 +1273,7 @@ export class MaintenanceRunner {
         [
           domainSystemPrompt(readDomainRegistry(this.vaultRoot)),
           PAGE_HYGIENE_CHECKLIST,
+          UNTRUSTED_CONTENT_RULES,
           ENTITY_NOTABILITY_RULES,
           TAG_HYGIENE_RULES,
           renderReadingList(actor, localDate(this.now())),
