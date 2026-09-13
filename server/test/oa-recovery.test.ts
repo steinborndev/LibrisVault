@@ -37,7 +37,11 @@ vi.mock('../src/pipeline/preprocess/sandbox.js', async (importOriginal) => {
         return { stdout: '', stderr: '' }
       }
       if (bin === 'pandoc') {
-        fs.writeFileSync(args[args.indexOf('-o') + 1]!, converted, 'utf8')
+        // The JATS lane reads on stdout so a rejected candidate leaves nothing behind; the
+        // office lane still writes a file. Both shapes are answered here.
+        const at = args.indexOf('-o')
+        if (at === -1) return { stdout: converted, stderr: '' }
+        fs.writeFileSync(args[at + 1]!, converted, 'utf8')
         return { stdout: '', stderr: '' }
       }
       throw new Error(`the test did not expect ${bin}`)
@@ -112,7 +116,12 @@ describe('a URL job that cannot read its page (docs/sources/SPEC.md section 5)',
     body: JSON.stringify({ resultList: { result: [record] } }),
   })
 
-  const run = async (url: string, request: PinnedRequestFn, enabled = true): Promise<import('../src/pipeline/preprocess/types.js').PreprocessResult> =>
+  const run = async (
+    url: string,
+    request: PinnedRequestFn,
+    enabled = true,
+    tools: ToolAvailability = TOOLS,
+  ): Promise<import('../src/pipeline/preprocess/types.js').PreprocessResult> =>
     preprocessUrl({
       jobId: 'job-1',
       url,
@@ -120,7 +129,7 @@ describe('a URL job that cannot read its page (docs/sources/SPEC.md section 5)',
       jobDir: path.join(vaultRoot, '.raw', 'job-1'),
       resolve,
       request,
-      tools: TOOLS,
+      tools,
       oa: { enabled, courtesyMs: 0, env: {}, now: () => new Date('2026-09-13T22:00:00.000Z') },
     })
 
@@ -249,6 +258,165 @@ describe('a URL job that cannot read its page (docs/sources/SPEC.md section 5)',
     expect(res.type).toBe('pdf')
     expect(res.manifest.oa).toBeUndefined()
     expect(asked.filter((a) => a.includes('openalex'))).toEqual([])
+  })
+  /*
+   * A round that tried copies and found none usable is an ANSWER (5.5). Before this was fixed,
+   * `lookupIsFresh` called such a round fresh but the early return demanded an empty candidate
+   * list, so every job and every nightly sweep asked all three APIs again.
+   */
+  it('does not ask again within the week after a round that tried copies and found none', async () => {
+    const rows = new Map<string, { checkedAt: string; found: boolean; result: unknown }>()
+    const store = {
+      get: (doi: string) => rows.get(doi.toLowerCase()),
+      put: (doi: string, found: boolean, result: unknown) => rows.set(doi.toLowerCase(), { checkedAt: new Date().toISOString(), found, result }),
+    }
+    const cache = oaCacheOver(store)
+    converted = 'A record page with a title and two lines of summary.'
+    const request = routes({
+      [`https://doi.org/${DOI}`]: { status: 403 },
+      'https://api.openalex.org/': openalex([
+        { is_oa: true, pdf_url: 'https://repository.example/record.pdf', landing_page_url: null, version: 'publishedVersion', license: null, source: { display_name: 'Repository' } },
+      ]),
+      'https://repository.example/record.pdf': { contentType: 'application/pdf', body: PDF_BYTES },
+    })
+    const attempt = async (at: string): Promise<void> => {
+      asked = []
+      await expect(
+        preprocessUrl({
+          jobId: 'job-1',
+          url: `https://doi.org/${DOI}`,
+          vaultRoot,
+          jobDir: path.join(vaultRoot, '.raw', 'job-1'),
+          resolve,
+          request,
+          tools: TOOLS,
+          oa: { enabled: true, courtesyMs: 0, env: {}, cache, now: () => new Date(at) },
+        }),
+      ).rejects.toThrow(/HTTP 403/)
+    }
+
+    await attempt('2026-09-13T22:00:00.000Z')
+    expect(asked.filter((a) => a.includes('openalex'))).toHaveLength(1)
+    expect(rows.get(DOI)?.found).toBe(false)
+    // One candidate was tried and remembered, so the next job goes straight past the resolvers.
+    await attempt('2026-09-16T22:00:00.000Z')
+    expect(asked.filter((a) => a.includes('openalex'))).toEqual([])
+    expect(asked.filter((a) => a.includes('repository.example'))).toEqual([])
+    // Eight days on, the question is worth asking again: a copy may have been deposited.
+    await attempt('2026-09-21T22:00:00.000Z')
+    expect(asked.filter((a) => a.includes('openalex'))).toHaveLength(1)
+  })
+
+  it('records a rate-limited resolver as rate limited, and asks again next time', async () => {
+    const rows = new Map<string, { checkedAt: string; found: boolean; result: unknown }>()
+    const store = {
+      get: (doi: string) => rows.get(doi.toLowerCase()),
+      put: (doi: string, found: boolean, result: unknown) => rows.set(doi.toLowerCase(), { checkedAt: new Date().toISOString(), found, result }),
+    }
+    const cache = oaCacheOver(store)
+    const request = routes({ [`https://doi.org/${DOI}`]: { status: 403 }, 'https://api.openalex.org/': { status: 429 } })
+    const once = async (): Promise<void> => {
+      asked = []
+      await expect(
+        preprocessUrl({
+          jobId: 'job-1',
+          url: `https://doi.org/${DOI}`,
+          vaultRoot,
+          jobDir: path.join(vaultRoot, '.raw', 'job-1'),
+          resolve,
+          request,
+          tools: TOOLS,
+          oa: { enabled: true, courtesyMs: 0, env: {}, cache, now: () => new Date('2026-09-13T22:00:00.000Z') },
+        }),
+      ).rejects.toThrow(/HTTP 403/)
+    }
+    await once()
+    // Two retries, then the round is recorded as rate limited rather than as an absence.
+    expect(asked.filter((a) => a.includes('openalex'))).toHaveLength(3)
+    expect((rows.get(DOI)?.result as { rateLimited: boolean }).rateLimited).toBe(true)
+    // A rate limit is not an answer, so the next job asks again.
+    await once()
+    expect(asked.filter((a) => a.includes('openalex'))).toHaveLength(3)
+  })
+
+  it('leaves nothing in the job directory for a candidate it rejected', async () => {
+    converted = 'A record page with a title and two lines of summary.'
+    const res = await run(
+      'https://publisher.example/articles/one',
+      routes({
+        'https://publisher.example/articles/one': { body: abstractPage() },
+        'https://api.openalex.org/': openalex([
+          { is_oa: true, pdf_url: 'https://repository.example/record.pdf', landing_page_url: 'https://repository.example/record', version: 'publishedVersion', license: null, source: { display_name: 'Repository' } },
+        ]),
+        'https://repository.example/record.pdf': { contentType: 'application/pdf', body: PDF_BYTES },
+        'https://repository.example/record': { body: `<html><body><p>${converted}</p></body></html>` },
+      }),
+    )
+    expect(res.manifest.oa).toBeUndefined()
+    /*
+     * `.raw/<job-id>/` is committed with the job: a copy that turned out to be a record page
+     * must not ride into the vault beside the document, and two rejected formats must not leave
+     * two `oa-copy.*` files behind.
+     */
+    const left = fs.readdirSync(path.join(vaultRoot, '.raw', 'job-1'))
+    expect(left.filter((f) => f.startsWith('oa-'))).toEqual([])
+    expect(left.sort()).toEqual(['manifest.json', 'normalized.md', 'raw.html'])
+  })
+
+  it('rescues a document the PDF lane declined', async () => {
+    // A textless PDF over the OCR page limit: the lane defers it, as it does for a dropped file.
+    converted = `${'\f'.repeat(320)}`
+    // A publisher's document address that names the DOI, which is where a rescue gets one from:
+    // a PDF has no meta tags to read (5.1).
+    const res = await run(
+      `https://publisher.example/pdf/${DOI}`,
+      routes({
+        [`https://publisher.example/pdf/${DOI}`]: { contentType: 'application/pdf', body: PDF_BYTES },
+        'https://api.openalex.org/': openalex([
+          { is_oa: true, pdf_url: null, landing_page_url: 'https://repository.example/paper', version: 'publishedVersion', license: 'cc-by', source: { display_name: 'Repository' } },
+        ]),
+        'https://repository.example/paper': { body: `<html><body><article><p>${fullText()}</p></article></body></html>` },
+      }),
+      true,
+      { ...TOOLS, ocrmypdf: true },
+    )
+    expect(res.deferred).toBe(false)
+    expect(res.type).toBe('web')
+    expect(res.manifest.oa).toMatchObject({ kind: 'rescued', host: 'repository.example' })
+    expect(res.manifest.notes.join(' ')).toMatch(/deferred/)
+  })
+
+  it('keeps the contact address out of every line it writes (D15)', async () => {
+    const mail = 'someone@example.org'
+    asked = []
+    const notes: string[] = []
+    const headersSeen: Array<Readonly<Record<string, string>> | undefined> = []
+    const request: PinnedRequestFn = async (v, _t, _m, headers) => {
+      asked.push(v.url.href)
+      if (v.url.hostname === 'api.openalex.org') {
+        headersSeen.push(headers)
+        // A 404 is what a DOI OpenAlex does not know answers with, and its message is a note.
+        return { status: 404, contentType: 'application/json', body: Buffer.alloc(0) }
+      }
+      return { status: 403, contentType: 'text/html', body: Buffer.alloc(0) }
+    }
+    await expect(
+      preprocessUrl({
+        jobId: 'job-1',
+        url: `https://doi.org/${DOI}`,
+        vaultRoot,
+        jobDir: path.join(vaultRoot, '.raw', 'job-1'),
+        resolve,
+        request,
+        tools: TOOLS,
+        oa: { enabled: true, courtesyMs: 0, env: { CURIOUS_CONTACT_EMAIL: mail } },
+      }),
+    ).rejects.toThrow(/HTTP 403/)
+    // It reached OpenAlex as a User-Agent, which no error message repeats...
+    expect(headersSeen[0]?.['user-agent']).toBe(`vault-service/0.1 (mailto:${mail})`)
+    // ...and nowhere in the address, which every failure line quotes.
+    expect(asked.join(' ')).not.toContain('example.org')
+    expect(notes.join(' ')).not.toContain('example.org')
   })
 })
 

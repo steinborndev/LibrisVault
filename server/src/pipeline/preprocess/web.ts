@@ -365,6 +365,12 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
          * job stays deferred with the lane's own reason.
          */
         if (!result.deferred || !oaEnabled || addressDoi === undefined) return result
+        /*
+         * The lane's own reason comes along: if a copy is found, this manifest is replaced by the
+         * one below, and without its notes the job log would no longer say why the document it
+         * fetched first was declined.
+         */
+        notes.push(...result.manifest.notes)
         const rescue = await recover('rescued', 0, addressDoi)
         if (rescue.recovery === undefined) return withExtraNotes(result, rescue.notes)
         takeRecovery(rescue.recovery)

@@ -22,10 +22,12 @@
  */
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { PreprocessError, type ToolAvailability } from './types.js'
 import {
   DEFAULT_MAX_BYTES,
+  FetchStatusError,
   MAX_PDF_BYTES,
   fetchBytes,
   validateUrl,
@@ -201,9 +203,16 @@ export function orderCandidates(candidates: readonly OaCandidate[]): OaCandidate
   return [...candidates].sort((a, b) => rank(a) - rank(b))
 }
 
-/** Whether a lookup may be reused: a find always, a blank for a week (5.5). */
+/**
+ * Whether a lookup may be reused: a FIND always, everything else for a week (5.5).
+ *
+ * What counts as negative is "no candidate produced usable text", not "no candidate existed".
+ * A round that tried two repository copies and found both too thin is exactly the answer worth
+ * remembering: asking the three APIs again the same week gives the same two copies, and the
+ * nightly sweep would ask about the same entries every night.
+ */
 export function lookupIsFresh(lookup: OaLookup, now: Date): boolean {
-  if (lookup.accepted !== null || lookup.candidates.length > 0) return true
+  if (lookup.accepted !== null) return true
   // A rate-limited answer is not an answer; ask again next time.
   if (lookup.rateLimited) return false
   const ageMs = now.getTime() - Date.parse(lookup.checkedAt)
@@ -246,11 +255,12 @@ async function askApi(ctx: ResolverContext, url: string, headers?: Readonly<Reco
       return JSON.parse(answer.body.toString('utf8'))
     } catch (err) {
       const message = (err as Error).message
-      if (/HTTP 429/.test(message) && attempt < RATE_LIMIT_RETRIES) {
+      const tooManyRequests = err instanceof FetchStatusError && err.status === 429
+      if (tooManyRequests && attempt < RATE_LIMIT_RETRIES) {
         await new Promise((r) => setTimeout(r, gap * (attempt + 1)))
         continue
       }
-      if (/HTTP 429/.test(message)) {
+      if (tooManyRequests) {
         ctx.rateLimited = true
         ctx.notes.push(`open access: ${new URL(url).hostname} is rate limiting; not recorded as "nothing found"`)
         return undefined
@@ -272,12 +282,18 @@ const hostOf = (url: string): string => {
 
 /** Candidates OpenAlex knows about: the best location first, then every other open one. */
 async function openalex(doi: string, ctx: ResolverContext): Promise<OaCandidate[]> {
+  /*
+   * The polite pool wants a contact address, and OpenAlex takes it either as a `mailto`
+   * parameter or inside the User-Agent. It goes in the HEADER (D15): a query parameter ends up
+   * in every error message this module writes into the job log and the manifest, and an address
+   * that must never be logged cannot ride in a URL. The header is host-bound and is dropped on
+   * a redirect off api.openalex.org.
+   */
   const mail = (ctx.deps.env ?? process.env)['CURIOUS_CONTACT_EMAIL']?.trim()
   const select = 'id,title,open_access,best_oa_location,locations,is_retracted'
-  const url =
-    `https://api.openalex.org/works/https://doi.org/${encodeURIComponent(doi)}?select=${select}` +
-    (mail !== undefined && mail !== '' ? `&mailto=${encodeURIComponent(mail)}` : '')
-  const body = (await askApi(ctx, url)) as
+  const url = `https://api.openalex.org/works/https://doi.org/${encodeURIComponent(doi)}?select=${select}`
+  const headers = mail !== undefined && mail !== '' ? { 'user-agent': `vault-service/0.1 (mailto:${mail})` } : undefined
+  const body = (await askApi(ctx, url, headers)) as
     | {
         is_retracted?: boolean
         best_oa_location?: Record<string, unknown> | null
@@ -330,8 +346,12 @@ async function europepmc(doi: string, ctx: ResolverContext): Promise<OaCandidate
   const pmcid = typeof record['pmcid'] === 'string' ? record['pmcid'] : undefined
   const open = record['isOpenAccess'] === 'Y' || record['inEPMC'] === 'Y'
   if (pmcid === undefined || !open) return []
-  // The record's own version: a journal article in Europe PMC is the published one.
-  const version: OaVersion = record['pubType'] === 'preprint' ? 'submittedVersion' : 'publishedVersion'
+  /*
+   * The record's own version: a journal article in Europe PMC is the published one. A preprint
+   * is marked by its SOURCE (`PPR`); `pubType` is a comma-separated list of article types and
+   * never says "preprint" on its own.
+   */
+  const version: OaVersion = record['source'] === 'PPR' ? 'submittedVersion' : 'publishedVersion'
   return [
     {
       url: `https://www.ebi.ac.uk/europepmc/webservices/rest/${pmcid}/fullTextXML`,
@@ -359,7 +379,13 @@ async function core(doi: string, ctx: ResolverContext): Promise<OaCandidate[]> {
     out.push({
       url: download,
       format: /\.pdf($|\?)/i.test(download) ? 'pdf' : 'landing',
-      version: asVersion(record['documentType']) ?? 'acceptedVersion',
+      /*
+       * CORE states no version: its `documentType` says "research" or "thesis". Guessing
+       * `acceptedVersion` would make the run mark a quote from the version of record as an
+       * accepted manuscript, which is D14 pointed the wrong way - so the banner says
+       * "version not stated" and the run knows it does not know.
+       */
+      version: null,
       host: hostOf(download) || 'core.ac.uk',
       license: null,
       source: 'core',
@@ -376,20 +402,26 @@ const RESOLVERS: ReadonlyArray<{ readonly name: OaSource; readonly run: (doi: st
 
 // --- reading one candidate ---------------------------------------------------
 
-/** JATS full text through pandoc, in the converter jail like every other conversion (2.3). */
-async function jatsToMarkdown(xmlPath: string, jobDir: string, tools: ToolAvailability): Promise<string> {
-  if (!tools.pandoc) throw new PreprocessError('pandoc is not installed — the JATS full text cannot be converted')
-  const out = path.join(jobDir, 'oa-jats.md')
-  await runConverter('pandoc', ['-f', 'jats', '-t', 'gfm', xmlPath, '-o', out], {
+/**
+ * JATS full text through pandoc, in the converter jail like every other conversion (2.3).
+ * Answered on stdout rather than into a file: the conversion of a candidate that may be
+ * rejected should leave nothing behind at all.
+ */
+async function jatsToMarkdown(xmlPath: string, scratchDir: string, tools: ToolAvailability): Promise<string> {
+  if (!tools.pandoc) throw new PreprocessError('pandoc is not installed - the JATS full text cannot be converted')
+  const { stdout } = await runConverter('pandoc', ['-f', 'jats', '-t', 'gfm', xmlPath], {
     reads: [xmlPath],
-    writes: jobDir,
+    writes: scratchDir,
     timeoutMs: 120_000,
   })
-  return fs.readFileSync(out, 'utf8')
+  return stdout
 }
 
 interface CandidateText {
   readonly text: string
+  /** The candidate's own bytes, kept until it is accepted and nowhere else. */
+  readonly bytes: Buffer
+  /** The name the raw file would get IF this candidate clears the bars. */
   readonly original: string
   readonly isPdf: boolean
   readonly ocrApplied: boolean
@@ -399,13 +431,17 @@ interface CandidateText {
 /**
  * Fetches one candidate and turns it into text. THE one way out of this module: `validateUrl`
  * first, then {@link fetchBytes} under the format's cap, and only then a converter.
+ *
+ * WRITES NOTHING INTO THE JOB DIRECTORY. A candidate is judged before it is kept: the job's
+ * `.raw/<job-id>/` is committed with the job, so a copy that turns out to be a record page
+ * would otherwise ride into the vault beside the one that was accepted. Conversions happen in
+ * a scratch directory outside the vault, which goes away with the attempt.
  */
 async function readCandidate(candidate: OaCandidate, seq: number, ctx: ResolverContext): Promise<CandidateText> {
   const validated = await validateUrl(candidate.url, ctx.deps.resolve)
   await courtesyWait(validated.url.hostname, ctx.deps.courtesyMs ?? DEFAULT_COURTESY_MS)
   const cap = candidate.format === 'pdf' ? MAX_PDF_BYTES : DEFAULT_MAX_BYTES
   const answer = await fetchBytes(validated, cap, ctx.timeoutMs, ctx.fetchOpts)
-  const jobDir = ctx.deps.jobDir
 
   // Magic bytes decide, here as in the URL lane: a "landing page" that is a PDF is a PDF.
   const isPdf = candidate.format === 'pdf' || answer.body.subarray(0, 5).toString('latin1') === '%PDF-'
@@ -413,27 +449,34 @@ async function readCandidate(candidate: OaCandidate, seq: number, ctx: ResolverC
     if (ctx.deps.readPdf === undefined) throw new PreprocessError('no PDF reader available for an open-access PDF candidate')
     const read = await ctx.deps.readPdf(answer.body, seq)
     if (read.deferred) throw new PreprocessError(`the copy is a PDF the plugin declined: ${read.notes.join('; ')}`)
-    const original = 'oa-copy.pdf'
-    fs.writeFileSync(path.join(jobDir, original), answer.body)
-    return { text: read.text, original, isPdf: true, ocrApplied: read.ocrApplied, notes: read.notes }
+    return { text: read.text, bytes: answer.body, original: 'oa-copy.pdf', isPdf: true, ocrApplied: read.ocrApplied, notes: read.notes }
   }
 
-  if (candidate.format === 'jats') {
-    const original = 'oa-copy.xml'
-    const xmlPath = path.join(jobDir, original)
-    fs.writeFileSync(xmlPath, answer.body)
-    const text = await jatsToMarkdown(xmlPath, jobDir, ctx.deps.tools)
-    return { text, original, isPdf: false, ocrApplied: false, notes: ['open access: JATS full text converted with pandoc'] }
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), `oa-candidate-${seq}-`))
+  try {
+    if (candidate.format === 'jats') {
+      const xmlPath = path.join(scratch, 'candidate.xml')
+      fs.writeFileSync(xmlPath, answer.body)
+      const text = await jatsToMarkdown(xmlPath, scratch, ctx.deps.tools)
+      return {
+        text,
+        bytes: answer.body,
+        original: 'oa-copy.xml',
+        isPdf: false,
+        ocrApplied: false,
+        notes: ['open access: JATS full text converted with pandoc'],
+      }
+    }
+    const htmlPath = path.join(scratch, 'candidate.html')
+    const html = answer.body.toString('utf8')
+    fs.writeFileSync(htmlPath, html, 'utf8')
+    const extracted = await extractArticle({ filePath: htmlPath, html, tools: ctx.deps.tools, notePrefix: 'open access: ' })
+    const junk = assessExtractedContent(extracted.markdown)
+    if (junk !== null) throw new PreprocessError(`the copy is not readable either: ${junk}`)
+    return { text: extracted.markdown, bytes: answer.body, original: 'oa-copy.html', isPdf: false, ocrApplied: false, notes: extracted.notes }
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true })
   }
-
-  const original = 'oa-copy.html'
-  const htmlPath = path.join(jobDir, original)
-  const html = answer.body.toString('utf8')
-  fs.writeFileSync(htmlPath, html, 'utf8')
-  const extracted = await extractArticle({ filePath: htmlPath, html, tools: ctx.deps.tools, notePrefix: 'open access: ' })
-  const junk = assessExtractedContent(extracted.markdown)
-  if (junk !== null) throw new PreprocessError(`the copy is not readable either: ${junk}`)
-  return { text: extracted.markdown, original, isPdf: false, ocrApplied: false, notes: extracted.notes }
 }
 
 // --- the recovery ------------------------------------------------------------
@@ -470,8 +513,12 @@ export async function recoverOpenAccess(args: {
 
   const cached = deps.cache?.get(doi)
   const fresh = cached !== undefined && lookupIsFresh(cached, now())
-  if (fresh && cached.candidates.length === 0 && cached.accepted === null) {
-    ctx.notes.push(`open access: nothing found for this DOI when it was last asked (${cached.checkedAt})`)
+  if (fresh && cached.accepted === null) {
+    // A fresh round without a usable copy is an answer: no API is asked again this week.
+    const tried = cached.candidates.length
+    ctx.notes.push(
+      `open access: nothing usable was found for this DOI when it was last asked (${cached.checkedAt}, tried ${tried})`,
+    )
     return { notes: ctx.notes }
   }
   if (fresh) ctx.retracted = cached.retracted
@@ -501,6 +548,8 @@ export async function recoverOpenAccess(args: {
         ctx.notes.push(`open access: the copy at ${candidate.host} is ${chars} characters, not full text`)
         continue
       }
+      // Accepted: NOW the raw file is kept, in the job's own staging directory (5.4).
+      fs.writeFileSync(path.join(deps.jobDir, read.original), read.bytes)
       const disclosure: OaDisclosure = {
         doi,
         kind,

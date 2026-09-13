@@ -212,6 +212,62 @@ title: "Reading list"
   })
 
   /*
+   * The other half of the disclosure (docs/sources/SPEC.md 5.4): when what arrived was read from
+   * an open-access copy, the entry that asked for the publication says so too - otherwise the
+   * board can only say "in the vault" about a text that did not come from the address it names.
+   */
+  it('writes the copy into the entry that asked for it, and leaves an unknown version out', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
+    // The ingest of the entry's own url, with the manifest that ingest wrote.
+    const job = store.create({ source: 'url', type: 'web', url: 'https://acs.invalid/paper' })
+    store.transition(job.job.id, 'preprocessing')
+    store.transition(job.job.id, 'ingesting')
+    store.transition(job.job.id, 'done', { patch: { createdPages: ['wiki/sources/A Paper.md'] } })
+    const jobDir = path.join(vaultRoot, '.raw', job.job.id)
+    fs.mkdirSync(jobDir, { recursive: true })
+    const manifest = (oa: unknown): void =>
+      fs.writeFileSync(path.join(jobDir, 'manifest.json'), JSON.stringify({ jobId: job.job.id, oa }), 'utf8')
+    manifest({ url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', kind: 'rescued' })
+
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    expect(await reading.reconcile('2026-09-13')).toHaveLength(1)
+    const page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(page).toContain('  oa_url: https://repository.example/paper.pdf')
+    expect(page).toContain('  oa_version: acceptedVersion')
+    expect(page).toContain('  oa_at: 2026-09-13')
+    // And the parser reads it back as one field.
+    expect(parseReadingList(page).find((e) => e.url === 'https://acs.invalid/paper')?.oa).toEqual({
+      url: 'https://repository.example/paper.pdf',
+      version: 'acceptedVersion',
+      at: '2026-09-13',
+    })
+  })
+
+  it('leaves the version line out when the resolver stated none, rather than writing words into it', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITH_REFS)
+    const job = store.create({ source: 'url', type: 'web', url: 'https://acs.invalid/paper' })
+    store.transition(job.job.id, 'preprocessing')
+    store.transition(job.job.id, 'ingesting')
+    store.transition(job.job.id, 'done', { patch: { createdPages: ['wiki/sources/A Paper.md'] } })
+    const jobDir = path.join(vaultRoot, '.raw', job.job.id)
+    fs.mkdirSync(jobDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(jobDir, 'manifest.json'),
+      JSON.stringify({ oa: { url: 'https://repository.example/paper.pdf', version: null } }),
+      'utf8',
+    )
+    const reading = new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false })
+    await reading.reconcile('2026-09-13')
+    const page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(page).not.toContain('oa_version')
+    expect(parseReadingList(page).find((e) => e.url === 'https://acs.invalid/paper')?.oa).toEqual({
+      url: 'https://repository.example/paper.pdf',
+      version: null,
+      at: '2026-09-13',
+    })
+  })
+
+  /*
    * The case that started this: a Fellow asks for an article whose url names no DOI, the user
    * fetches the PDF and drops it in, and the entry and the source page have nothing in common
    * but the address the document came from. Before `byUrl` the entry stayed unfiled forever and

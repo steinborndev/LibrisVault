@@ -174,6 +174,40 @@ instance, nothing is written to the vault, no agent run is started except the tw
       with the new JATS case: PASS (14 checks). Server 1,154 tests (36 new), web 475, `tsc` and
       `eslint` clean in both.
 
+- [x] **Chunk 3, review fixes** (2026-09-13, separate review after the chunk commit). Seven
+      findings, six of them worth a behaviour change:
+      1. The negative cache never applied once candidates had been tried: `lookupIsFresh`
+         called such a round fresh, the early return demanded an empty candidate list, so every
+         job and every nightly sweep asked all three APIs again. A round without an ACCEPTED
+         candidate is now the negative answer that stands for seven days.
+      2. A rejected candidate left its raw file in `.raw/<job-id>/`, which is committed with the
+         job - a record page could ride into the vault beside the document, and two rejected
+         formats could leave two `oa-copy.*` behind. `readCandidate` keeps bytes in memory,
+         converts in a scratch directory outside the vault, and only the accepted candidate is
+         written; pandoc reads JATS on stdout, so there is no intermediate file at all.
+      3. CORE copies were labelled `acceptedVersion` although CORE states no version
+         (`documentType` is "research" or "thesis"): the run would have marked a quote from the
+         version of record as an accepted manuscript, D14 pointed the wrong way. Now `null`.
+      4. The contact address travelled in the OpenAlex query and so into every error line this
+         module writes (D15 says never logged). It goes as the `User-Agent` header OpenAlex
+         documents for the polite pool, host-bound and dropped on a redirect.
+      5. Five test gaps, all on paths the chunk claimed: the header dropped on a cross-host
+         redirect, the 429 path through to `rateLimited`, the rescue after the PDF lane declined,
+         the three `oa_*` lines of the reconcile step, and finding 1 itself.
+      6. One new em dash in `oa.ts`, now a hyphen.
+      7. Small ones: an unknown version leaves the `oa_version` LINE out rather than writing
+         "version not stated" into a field the parser reads back; the 429 check is a status, not
+         a regex over the message; a Europe PMC preprint is recognised by `source: 'PPR'`, not by
+         `pubType`. And a find of its own: after a rescue that followed a deferral, the PDF
+         lane's reason was lost with the manifest it replaced - its notes come along now.
+      Measured (the review's eighth point, the PDF-candidate path through the real jail rather
+      than a mocked converter): one paywalled publisher DOI link whose best open location is a
+      repository PDF - the publisher page was a shell of 0 extractable characters, the copy was
+      fetched (1,681,760 bytes) and `pdftotext` inside bubblewrap extracted 192,745 characters
+      in 3 seconds; `type: pdf`, `original: oa-copy.pdf`, and the job directory holds exactly
+      `manifest.json`, `normalized.txt`, `oa-copy.pdf` and `raw.html` with no scratch directory
+      left anywhere. Server 1,163 tests (9 new), web 475, `tsc` and `eslint` clean in both.
+
 ## Deviations from the spec
 
 - **`ReadingItem.oa` is `{ url, version, at }`, not `{ url, version, source }`** (spec 6.2).

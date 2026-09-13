@@ -639,10 +639,14 @@ export class ReadingListService {
        * arrived is a copy, and which one, belongs on the entry that asked.
        */
       const oa = job === null ? undefined : this.oaOfJob(job.id)
+      /*
+       * An unknown version leaves the LINE out rather than writing words into it: the parser
+       * reads this field back, and "version not stated" would come back as a version.
+       */
       const oaLines =
         oa === undefined || entry.oa !== null
           ? ''
-          : `\n  oa_url: ${oa.url}\n  oa_version: ${oa.version ?? 'version not stated'}\n  oa_at: ${today}`
+          : `\n  oa_url: ${oa.url}${oa.version === null ? '' : `\n  oa_version: ${oa.version}`}\n  oa_at: ${today}`
       next = next.replace(block, `$1\n  filed: ${page}\n  filedAt: ${today}${oaLines}`)
       found.push({ entry: { ...entry, filed: page, filedAt: today }, page })
     }

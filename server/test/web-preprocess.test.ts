@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   canonicalUrlOf,
+  fetchBytes,
   fetchFailureMessage,
   htmlToText,
   isPdfAnswer,
@@ -237,5 +238,47 @@ describe('preprocessUrl: the PDF lane (docs/sources/SPEC.md section 3)', () => {
         tools: { pdftotext: false, pdfinfo: false, ocrmypdf: false, pandoc: false, python3: false, exiftool: false, defuddle: false, ytDlp: false, deno: false },
       }),
     ).rejects.toThrow(/pdftotext \(poppler-utils\) is not installed/)
+  })
+})
+
+
+describe('fetchBytes: an extra header belongs to one host only', () => {
+  const resolve = async (): Promise<string[]> => ['93.184.216.34']
+
+  /** Records what each hop was asked, including the headers it carried. */
+  const hops = (): { seen: Array<{ href: string; headers?: Readonly<Record<string, string>> }>; request: PinnedRequestFn } => {
+    const seen: Array<{ href: string; headers?: Readonly<Record<string, string>> }> = []
+    const request: PinnedRequestFn = async (v, _t, _m, headers) => {
+      seen.push({ href: v.url.href, ...(headers ? { headers } : {}) })
+      if (v.url.pathname === '/off-host') return { status: 301, location: 'https://elsewhere.example/paper', contentType: '', body: Buffer.alloc(0) }
+      if (v.url.pathname === '/same-host') return { status: 301, location: 'https://api.example/final', contentType: '', body: Buffer.alloc(0) }
+      return { status: 200, contentType: 'text/plain', body: Buffer.from('body') }
+    }
+    return { seen, request }
+  }
+
+  it('drops the header on a redirect that leaves the host it was meant for', async () => {
+    const { seen, request } = hops()
+    await fetchBytes(await validateUrl('https://api.example/off-host', resolve), 1024, 1000, {
+      resolve,
+      request,
+      headers: { authorization: 'Bearer secret-key' },
+    })
+    expect(seen.map((h) => new URL(h.href).hostname)).toEqual(['api.example', 'elsewhere.example'])
+    expect(seen[0]!.headers).toEqual({ authorization: 'Bearer secret-key' })
+    // A credential follows a Location wherever it points; the host that answered is not
+    // necessarily the one the key belongs to.
+    expect(seen[1]!.headers).toBeUndefined()
+  })
+
+  it('keeps it across a redirect that stays on the host', async () => {
+    const { seen, request } = hops()
+    await fetchBytes(await validateUrl('https://api.example/same-host', resolve), 1024, 1000, {
+      resolve,
+      request,
+      headers: { authorization: 'Bearer secret-key' },
+    })
+    expect(seen).toHaveLength(2)
+    expect(seen[1]!.headers).toEqual({ authorization: 'Bearer secret-key' })
   })
 })
