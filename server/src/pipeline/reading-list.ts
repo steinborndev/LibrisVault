@@ -65,6 +65,21 @@ export interface ReadingEntry {
    * exactly the case the list had no answer for.
    */
   readonly archivedAt: string | null
+  /**
+   * An open-access copy of this publication, when the service found one (docs/sources/SPEC.md
+   * sections 5.4 and 6.2): the copy's address, its version, and the day it was found, from the
+   * `oa_url`, `oa_version` and `oa_at` lines the service writes into the entry's own block the
+   * way it writes `filed`. Null while no copy is known.
+   */
+  readonly oa: ReadingOpenCopy | null
+}
+
+/** The open copy an entry names. `at` is the third field the page carries; the resolver's own
+ * name lives in the job's manifest, not on the page. */
+export interface ReadingOpenCopy {
+  readonly url: string
+  readonly version: string | null
+  readonly at: string | null
 }
 
 /** One entry a run added under another name, as {@link ReadingListService.attribute} corrected it. */
@@ -90,7 +105,7 @@ export interface ReadingItem extends ReadingEntry {
   readonly via: 'job' | 'ref' | 'url' | 'file' | null
 }
 
-const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat|archivedat)\s*:\s*(.*)$/i
+const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat|archivedat|oa_url|oa_version|oa_at)\s*:\s*(.*)$/i
 
 /** Hosts that only ever serve the full text: an entry from one of them needs no toggle to be useful. */
 const OPEN_HOSTS = [
@@ -154,6 +169,13 @@ export function urlFileName(url: string): string | undefined {
 
 const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/** The three `oa_*` lines as one field, or null when the entry names no copy. */
+function oaOf(url: string | undefined, version: string | undefined, at: string | undefined): ReadingOpenCopy | null {
+  const href = url?.trim()
+  if (href === undefined || href === '' || !/^https?:\/\//i.test(href)) return null
+  return { url: href, version: version?.trim() || null, at: at?.trim() || null }
+}
+
 /** `Ada, 2026-09-06` - the shape the first version wrote, kept readable for the entries that carry it. */
 function splitFound(found: string | null): { by: string | null; at: string | null } {
   if (found === null) return { by: null, at: null }
@@ -188,6 +210,7 @@ export function parseReadingList(markdown: string): ReadingEntry[] {
         filed: cur['filed']?.trim() || null,
         filedAt: cur['filedat']?.trim() || null,
         archivedAt: cur['archivedat']?.trim() || null,
+        oa: oaOf(cur['oa_url'], cur['oa_version'], cur['oa_at']),
       })
     }
     cur = null
@@ -500,6 +523,23 @@ export class ReadingListService {
     return this.attribute(actor, (key) => !before.has(key) && !committed.has(key))
   }
 
+  /**
+   * The open-access copy an ingest read, out of its own manifest. Read from the job directory
+   * rather than kept in SQLite: the manifest is the record of what that job actually did.
+   */
+  private oaOfJob(jobId: string): { readonly url: string; readonly version: string | null } | undefined {
+    try {
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(this.vaultRoot, '.raw', jobId, 'manifest.json'), 'utf8'),
+      ) as { oa?: { url?: unknown; version?: unknown } }
+      const url = manifest.oa?.url
+      if (typeof url !== 'string' || url === '') return undefined
+      return { url, version: typeof manifest.oa?.version === 'string' ? manifest.oa.version : null }
+    } catch {
+      return undefined
+    }
+  }
+
   /** The first source page an ingest wrote, for the row's link into the vault. */
   private pageOfJob(jobId: string): string | undefined {
     const job = this.jobs.get(jobId)
@@ -527,7 +567,10 @@ export class ReadingListService {
       line('at', e.at) +
       line('filed', e.filed) +
       line('filedAt', e.filedAt) +
-      line('archivedAt', e.archivedAt)
+      line('archivedAt', e.archivedAt) +
+      line('oa_url', e.oa?.url ?? null) +
+      line('oa_version', e.oa?.version ?? null) +
+      line('oa_at', e.oa?.at ?? null)
     )
   }
 
@@ -585,12 +628,22 @@ export class ReadingListService {
       if (entry.filed !== null) continue
       // The same resolver the board uses, so what a row shows and what the Fellow is told
       // can never be two different answers again.
-      const page = this.locate(entry, jobs, files).page
+      const { page, job } = this.locate(entry, jobs, files)
       if (page === null) continue
       // The entry's own block gains two lines; nothing else on the page is touched.
       const block = new RegExp(`(^[ \t]*[-*][ \t]+title:[ \t]*${escapeRe(entry.title)}[ \t]*$)`, 'm')
       if (!block.test(next)) continue
-      next = next.replace(block, `$1\n  filed: ${page}\n  filedAt: ${today}`)
+      /*
+       * And three more when the text came from an open-access copy (docs/sources/SPEC.md 5.4):
+       * the entry asked for a publication the Fellow could not read, so the fact that what
+       * arrived is a copy, and which one, belongs on the entry that asked.
+       */
+      const oa = job === null ? undefined : this.oaOfJob(job.id)
+      const oaLines =
+        oa === undefined || entry.oa !== null
+          ? ''
+          : `\n  oa_url: ${oa.url}\n  oa_version: ${oa.version ?? 'version not stated'}\n  oa_at: ${today}`
+      next = next.replace(block, `$1\n  filed: ${page}\n  filedAt: ${today}${oaLines}`)
       found.push({ entry: { ...entry, filed: page, filedAt: today }, page })
     }
     if (found.length === 0 || this.write.commitMutex === undefined) return found.length > 0 ? found : []

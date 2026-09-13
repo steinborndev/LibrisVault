@@ -12,6 +12,8 @@ import { ChatStore } from './db/chat.js'
 import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
 import { CommitDismissalStore } from './db/commit-dismissals.js'
+import { OaLookupStore } from './db/oa.js'
+import { oaCacheOver } from './pipeline/preprocess/oa.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
 import { SAMPLE_LIMIT } from './pipeline/run-duration.js'
@@ -127,6 +129,9 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     // A provider, not a value: a settings change takes effect on the next commit, no restart.
     autoCommit: () => settings.effective(config).gitAutoCommit,
     doiDedupe: () => settings.effective(config).doiDedupe,
+    // A blocked or abstract-thin page with a DOI is worth one look for an open copy (5.1).
+    oaRecovery: () => settings.effective(config).oaRecovery,
+    oaLookups: oaCacheOver(new OaLookupStore(db)),
     // Same pattern for the daily budget — evaluated through the shared budget module so the
     // queue's pause decision and the dashboard's display can never disagree (SPEC.md §11.3).
     budgetExceeded: () => budgetStatus(config, settings.effective(config), store).exceeded,

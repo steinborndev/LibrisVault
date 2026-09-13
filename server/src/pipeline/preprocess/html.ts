@@ -7,6 +7,47 @@
  * re-exports everything here, so a call site that has always imported it from there still can.
  */
 
+import type { ToolAvailability } from './types.js'
+import { runConverter } from './sandbox.js'
+
+/** What an extraction produced, and what it had to say about how. */
+export interface ExtractedArticle {
+  readonly markdown: string
+  readonly notes: readonly string[]
+}
+
+/**
+ * The article out of a page: `defuddle` in its jail when installed, the built-in fallback
+ * otherwise (a missing optional tool must not fail a job).
+ *
+ * ONE implementation for the three callers that need it - a page the service fetched, a page the
+ * user saved from a browser, and an open-access landing page (docs/sources/SPEC.md 5.2). They
+ * had two copies of it and were about to have three; the notes keep their own prefix so a
+ * reader of the manifest can still tell which lane produced them.
+ */
+export async function extractArticle(args: {
+  /** The HTML on disk: defuddle reads a file, and it is the file the jail binds. */
+  readonly filePath: string
+  /** The same bytes in memory, for the fallback. */
+  readonly html: string
+  readonly tools: ToolAvailability
+  readonly notePrefix?: string
+}): Promise<ExtractedArticle> {
+  const prefix = args.notePrefix ?? ''
+  if (args.tools.defuddle) {
+    try {
+      const { stdout } = await runConverter('defuddle', ['parse', args.filePath, '--md'], {
+        reads: [args.filePath],
+        timeoutMs: 30_000,
+      })
+      return { markdown: stdout.trim(), notes: [`${prefix}extracted via defuddle`] }
+    } catch {
+      return { markdown: htmlToText(args.html), notes: [`${prefix}defuddle failed — used built-in HTML-to-text fallback`] }
+    }
+  }
+  return { markdown: htmlToText(args.html), notes: [`${prefix}defuddle not installed — used built-in HTML-to-text fallback`] }
+}
+
 /**
  * The address a saved page names for itself - its canonical link, else its Open Graph
  * URL - so a page dropped as a file still says where it came from (the manifest's `url`,

@@ -48,21 +48,22 @@ instance, nothing is written to the vault, no agent run is started except the tw
 
 ## Chunk 3: open-access recovery inside a URL job
 
-- [ ] Test first: every resolver address passes `validateUrl` and the byte caps (written
-      before the resolver exists)
-- [ ] Unit tests: DOI extraction from URL and meta tags, candidate ordering, the two
+- [x] Test first: every resolver address passes `validateUrl` and the byte caps (written
+      before the resolver exists) - `test/oa-guard.test.ts`, written and failing before
+      `preprocess/oa.ts` had a body
+- [x] Unit tests: DOI extraction from URL and meta tags, candidate ordering, the two
       acceptance bars, banner and prompt block, `oa_lookups` freshness
-- [ ] Pipeline tests with stubbed HTTP: rescue from a PDF candidate, substitute from JATS,
+- [x] Pipeline tests with stubbed HTTP: rescue from a PDF candidate, substitute from JATS,
       all-thinner candidates keep the thin text, no DOI fails as before, the retracted flag
       reaches manifest and banner
-- [ ] Schema v27 (`jobs.validation`, `oa_lookups`), setting `oaRecovery` in the System tab
-- [ ] `preprocprobe` PASS after the JATS converter case was added
-- [ ] Measurement: scratch `preprocessUrl` against one paywalled DOI link with a known open
+- [x] Schema v27 (`jobs.validation`, `oa_lookups`), setting `oaRecovery` in the System tab
+- [x] `preprocprobe` PASS after the JATS converter case was added
+- [x] Measurement: scratch `preprocessUrl` against one paywalled DOI link with a known open
       copy (named generically here)
-- [ ] Checks green in both workspaces
-- [ ] Doc line below, with "Measured:"
-- [ ] Commit, push, deploy (server build plus restart when nothing is in flight)
-- [ ] Review stop: report the commit and the riskiest files (resolver, SSRF path, migration)
+- [x] Checks green in both workspaces
+- [x] Doc line below, with "Measured:"
+- [x] Commit, push, deploy (server build plus restart when nothing is in flight)
+- [x] Review stop: report the commit and the riskiest files (resolver, SSRF path, migration)
 
 ## Chunk 4: reading-list sweep and board
 
@@ -147,8 +148,42 @@ instance, nothing is written to the vault, no agent run is started except the tw
       crafted sample tripped three of the four rules and had one forged closing tag defused.
       Server 1,134 tests (20 new), web 475, `tsc` and `eslint` clean in both.
 
+- [x] **Chunk 3, open-access recovery in the URL job** (2026-09-13). `preprocess/oa.ts` holds
+      the three resolvers (OpenAlex, then Europe PMC, then CORE only with a key), the candidate
+      order (version of record first, document before landing page), the two acceptance bars
+      (longer than what is in hand AND at least 6,000 characters) and the disclosure. It runs
+      for a URL job only, with the setting on, with a DOI, and never for an arXiv address: on a
+      refused fetch (401/403), on a junk-gate verdict, when the PDF lane declined the document,
+      or on a page under the bar. A rescued PDF becomes a `pdf` job through the ordinary plugin;
+      a rescued page or JATS full text stays `web`. Every copy is disclosed four times over: the
+      manifest's `oa` block, the banner as the artifact's first lines, `renderOaNotice` on the
+      run's prompt (with `url:` kept as the REQUESTED address), and the three `oa_*` lines the
+      reconcile step writes into a reading-list entry. `oa_lookups` (v27) keeps a round: a find
+      is reused at once, a blank for seven days, and a 429 is never recorded as "nothing found".
+      Two structural moves came first: `preprocess/fetch.ts` now holds the SSRF guard, the pin
+      and the caps (the resolver needs the same gate and must not import the URL lane), and the
+      DOI pattern moved into `pipeline/identifiers.ts` beside `arxivIdFromUrl`, with `doiFromUrl`
+      and `doiFromHtml` - the latter reads citation meta tags and a canonical DOI link, never a
+      DOI out of running text, which is most often a work the page cites.
+      Measured, scratch run outside the vault: one paywalled publisher DOI link (a 2021 journal
+      article with a green copy) served a JavaScript shell of 0 extractable characters, the
+      rescue asked OpenAlex, took the repository landing page it named, and extracted 87,408
+      characters in 4 seconds, `kind: rescued`, `submittedVersion`; the job log names the reason
+      it looked and the copy it took. A second DOI with no open location anywhere failed exactly
+      as its fetch failed, with `no open copy cleared the bar (tried 0)` appended. `preprocprobe`
+      with the new JATS case: PASS (14 checks). Server 1,154 tests (36 new), web 475, `tsc` and
+      `eslint` clean in both.
+
 ## Deviations from the spec
 
-none so far.
+- **`ReadingItem.oa` is `{ url, version, at }`, not `{ url, version, source }`** (spec 6.2).
+  The page carries `oa_url`, `oa_version` and `oa_at`, so the date is what can be read back;
+  the resolver's own name stays in the job's manifest, which is the record of what that job
+  did. A `source` field on the item would have had to be invented on every read.
+- **CORE's inline `fullText` is not used; only its `downloadUrl`** (spec 5.2). Every candidate
+  is an ADDRESS, which is what lets it pass `validateUrl` and the caps like any other fetch and
+  be reused from `oa_lookups` later. Text pasted into a resolver's JSON answer would be the one
+  document that reaches an agent without going through the fetch layer, and it cannot be cached
+  by address. CORE is the third resolver and only runs with a key, so no copy is lost today.
 
 ## Left open

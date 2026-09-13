@@ -19,6 +19,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { doisIn, normalizeDoi } from './identifiers.js'
 
 /** An original the vault already holds, by content hash. */
 export interface KnownSource {
@@ -38,22 +39,13 @@ export interface DoiMatch {
   readonly pageMtimeMs: number
 }
 
-/**
- * A DOI as it appears in running text or a URL. The prefix is fixed by the standard
- * (`10.` + a 4-9 digit registrant); the suffix is anything up to whitespace or a delimiter
- * that cannot be part of one in practice.
+/*
+ * The DOI pattern and its normalization live in `identifiers.ts` now (docs/sources/SPEC.md
+ * section 2.2): the dedupe index, the URL lane, the open-access resolver and the reading list
+ * all read DOIs, and a disagreement between any two of them shows up as a document ingested
+ * twice. Re-exported so this module's own callers keep importing it from here.
  */
-const DOI_RE = /\b10\.\d{4,9}\/[^\s"'<>()[\]{}]+/g
-
-/** Lowercases (DOIs are case-insensitive) and drops the punctuation a sentence appends. */
-export function normalizeDoi(raw: string): string {
-  return raw.replace(/[.,;:]+$/, '').toLowerCase()
-}
-
-/** Every DOI in `text`, normalized, in order of appearance. */
-function doisIn(text: string): string[] {
-  return (text.match(DOI_RE) ?? []).map(normalizeDoi)
-}
+export { normalizeDoi }
 
 /**
  * How much of a document the "own DOI" heuristic looks at, in whitespace-collapsed

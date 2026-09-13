@@ -36,6 +36,7 @@ import {
   type ToolAvailability,
 } from './preprocess/index.js'
 import { preprocessUrl } from './preprocess/web.js'
+import type { OaDisclosure, OaLookupCache } from './preprocess/oa.js'
 import { extensionOf } from './preprocess/detect.js'
 import {
   commitVault,
@@ -57,6 +58,7 @@ import {
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
+  renderOaNotice,
   renderProvenance,
   renderReadingList,
 } from './system-prompt.js'
@@ -170,6 +172,14 @@ export interface IngestQueueOptions {
    * restart - it is the escape hatch for a document wrongly matched to a source page.
    */
   readonly doiDedupe?: () => boolean
+  /**
+   * Whether a blocked or abstract-thin URL job looks for an open-access copy (settings
+   * `oaRecovery`, docs/sources/SPEC.md section 5). A provider, like `doiDedupe`: a settings
+   * change applies to the next job.
+   */
+  readonly oaRecovery?: () => boolean
+  /** The `oa_lookups` table, so three APIs are not asked the same DOI twice (5.5). */
+  readonly oaLookups?: OaLookupCache
 }
 
 /**
@@ -283,6 +293,8 @@ export class IngestQueue {
 
   private readonly discardStaging: (vaultRoot: string, relDir: string) => Promise<boolean>
   private readonly doiDedupe: () => boolean
+  private readonly oaRecovery: () => boolean
+  private readonly oaLookups: OaLookupCache | undefined
   private running = false
   private paused = false
   /**
@@ -336,6 +348,8 @@ export class IngestQueue {
     this.reading = opts.reading
     this.discardStaging = opts.discardStaging ?? discardUntrackedDir
     this.doiDedupe = opts.doiDedupe ?? ((): boolean => true)
+    this.oaRecovery = opts.oaRecovery ?? ((): boolean => false)
+    this.oaLookups = opts.oaLookups
   }
 
   /**
@@ -1043,7 +1057,17 @@ export class IngestQueue {
     // is still a web job. Keying off `source` here mis-routed it as a file (the M1 test's
     // one failure) — the presence of `url` is the correct discriminator.
     if (job.url) {
-      return this.preprocessUrlFn({ jobId: job.id, url: job.url, vaultRoot: this.vaultRoot, jobDir, tools: this.toolsCache })
+      return this.preprocessUrlFn({
+        jobId: job.id,
+        url: job.url,
+        vaultRoot: this.vaultRoot,
+        jobDir,
+        tools: this.toolsCache,
+        oa: {
+          enabled: this.oaRecovery(),
+          ...(this.oaLookups ? { cache: this.oaLookups } : {}),
+        },
+      })
     }
     if (!job.original_name) throw new Error('file job has no original_name')
     return this.preprocessFile({
@@ -1085,6 +1109,8 @@ export class IngestQueue {
         TAG_HYGIENE_RULES,
         renderReadingList(INGEST_ACTOR, localDate(new Date())),
         renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
+        // Where the text came from when it did not come from the address (5.4).
+        renderOaNotice(pre.manifest.oa === undefined ? [] : [{ artifact: pre.primaryArtifact, oa: pre.manifest.oa }]),
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -1322,7 +1348,7 @@ export class IngestQueue {
    * Deferred/failed members drop out but never sink the rest of the batch.
    */
   private async processBatch(unit: BatchUnit): Promise<void> {
-    const ready: Array<{ id: string; artifact: string; url: string | null }> = []
+    const ready: Array<{ id: string; artifact: string; url: string | null; oa?: OaDisclosure }> = []
     const names: string[] = []
 
     for (const id of unit.memberIds) {
@@ -1348,7 +1374,7 @@ export class IngestQueue {
           await this.settleContentDuplicate(job, dup)
           continue
         }
-        ready.push({ id, artifact: pre.primaryArtifact, url: job.url })
+        ready.push({ id, artifact: pre.primaryArtifact, url: job.url, ...(pre.manifest.oa ? { oa: pre.manifest.oa } : {}) })
         names.push(job.original_name ?? job.url ?? id)
       } catch (err) {
         this.store.transition(id, 'failed', {
@@ -1391,6 +1417,8 @@ export class IngestQueue {
         // Each member keeps its OWN origin: a batch is several documents, and one shared
         // address would file the wrong one on all but one of them.
         renderProvenance(ready.map((r) => ({ artifact: r.artifact, url: r.url }))),
+        // Same per member: two documents in one batch can have come from two different copies.
+        renderOaNotice(ready.flatMap((r) => (r.oa === undefined ? [] : [{ artifact: r.artifact, oa: r.oa }]))),
       ]
         .filter(Boolean)
         .join('\n\n'),

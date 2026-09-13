@@ -27,6 +27,18 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'preprocprobe-'))
 const input = path.join(dir, 'input.txt')
 fs.writeFileSync(input, 'a canary the converter is allowed to read\n')
 
+/*
+ * A minimal JATS article, for the converter the open-access lane added (docs/sources/SPEC.md
+ * 2.3): Europe PMC hands out full text as JATS, and pandoc reads it - inside the jail like
+ * every other converter, because it is a stranger's XML.
+ */
+const jats = path.join(dir, 'article.xml')
+fs.writeFileSync(
+  jats,
+  '<?xml version="1.0"?><article><front><article-meta><title-group><article-title>A paper</article-title>' +
+    '</title-group></article-meta></front><body><sec><p>One paragraph of the full text.</p></sec></body></article>\n',
+)
+
 let failures = 0
 const check = async (what: string, expected: 'blocked' | 'allowed', bin: string, args: string[]): Promise<void> => {
   const host = resolveTool(bin)
@@ -86,6 +98,8 @@ const run = async (): Promise<void> => {
 
   // And the converters themselves still work in there.
   await check('pandoc runs', 'allowed', 'pandoc', ['--version'])
+  // Not just "pandoc starts": the JATS reader is what the open-access lane depends on.
+  await check('pandoc converts JATS', 'allowed', 'pandoc', ['-f', 'jats', '-t', 'gfm', jats, '-o', path.join(dir, 'article.md')])
   await check('pdftotext runs', 'allowed', 'pdftotext', ['-v'])
   await check('python3 finds its packages', 'allowed', 'python3', ['-c', 'import pptx, openpyxl'])
   await check('defuddle runs', 'allowed', 'defuddle', ['--version'])

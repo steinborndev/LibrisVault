@@ -195,6 +195,13 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
         )}
 
         {row(
+          'oaRecovery',
+          'Open-access rescue',
+          'When a URL is refused (401/403), reads as a login or bot wall, or holds only an abstract, and it names a DOI: look for a legal open-access copy of the same work and ingest that instead. On by default. Every candidate address goes through the same checks as an address you type, and the page says which copy it came from. Off: the job fails or stays thin as before.',
+          <input type="checkbox" checked={draft.oaRecovery} onChange={(e) => setDraft({ ...draft, oaRecovery: e.target.checked })} />,
+        )}
+
+        {row(
           'doiDedupe',
           'DOI dedupe',
           'Skip a paper whose DOI a source page already declares, before any agent run. Off: ingest it anyway (switch off and drop the file again if a match was wrong).',

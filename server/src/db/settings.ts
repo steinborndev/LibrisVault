@@ -104,6 +104,13 @@ export const SETTINGS_SCHEMA = z
      * separates real duplicates from the follow-ups that must still run.
      */
     dedupeJudgeEnabled: z.boolean().nullable(),
+    /**
+     * Whether a URL job whose page is blocked or abstract-thin looks for a legal open-access
+     * copy of the same DOI (docs/sources/SPEC.md section 5). On by default: it turns a failed
+     * job into a read one, and every candidate goes through the same SSRF guard and caps as a
+     * user's own address. Off means the job fails or stays thin exactly as it did before.
+     */
+    oaRecovery: z.boolean().nullable(),
   })
   .partial()
   .strict()
@@ -153,7 +160,12 @@ export interface EffectiveSettings {
   readonly weekOverrideEnabled: boolean
   /** Whether the shift asks a model to judge duplicate topics (section 6.6). */
   readonly dedupeJudgeEnabled: boolean
+  /** Whether a blocked or thin URL job looks for an open-access copy (docs/sources/SPEC.md 5). */
+  readonly oaRecovery: boolean
 }
+
+/** On unless switched off: a blocked page with a DOI is worth one look for an open copy. */
+export const DEFAULT_OA_RECOVERY = true
 
 /** The plan-percent defaults (review decision OPEN-12) and the section 16 reference sizes. */
 export const DEFAULT_PLAN = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false, weekOverrideEnabled: false, dedupeJudgeEnabled: false } as const
@@ -171,6 +183,7 @@ export function baselineSettings(config: Config): EffectiveSettings {
     maxUploadBytes: config.server.maxUploadBytes,
     gitAutoCommit: DEFAULT_GIT_AUTO_COMMIT,
     doiDedupe: DEFAULT_DOI_DEDUPE,
+    oaRecovery: DEFAULT_OA_RECOVERY,
     // No env baseline: a budget is opt-in, so "unset" means unlimited. Clearing the override
     // therefore lands back on null, which reads the same as never having set one.
     dailyBudget: null,
@@ -191,6 +204,7 @@ export function effectiveSettings(config: Config, overrides: SettingsOverrides):
     maxUploadBytes: overrides.maxUploadBytes ?? base.maxUploadBytes,
     gitAutoCommit: overrides.gitAutoCommit ?? base.gitAutoCommit,
     doiDedupe: overrides.doiDedupe ?? base.doiDedupe,
+    oaRecovery: overrides.oaRecovery ?? base.oaRecovery,
     dailyBudget: overrides.dailyBudget ?? base.dailyBudget,
     nightWindowStart: overrides.nightWindowStart ?? base.nightWindowStart,
     nightWindowEnd: overrides.nightWindowEnd ?? base.nightWindowEnd,

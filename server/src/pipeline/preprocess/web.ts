@@ -11,252 +11,62 @@
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import http from 'node:http'
-import https from 'node:https'
+import os from 'node:os'
 import path from 'node:path'
-import dns from 'node:dns/promises'
-import net from 'node:net'
 import type { JobType } from '../../db/jobs.js'
 import { nowIso } from '../../db/index.js'
-import { arxivIdFromUrl } from '../identifiers.js'
+import { arxivIdFromUrl, doiFromHtml, doiFromUrl } from '../identifiers.js'
 import type { Manifest, PreprocessPlugin, PreprocessResult, ToolAvailability } from './types.js'
 import { PreprocessError } from './types.js'
-import { fenceWithWarnings } from './fence.js'
-import { assessExtractedContent, htmlToText } from './html.js'
+import { buildProbe } from './detect.js'
+import { documentTextOf, fenceWithWarnings } from './fence.js'
+import { pdfPlugin } from './plugins/pdf.js'
+import {
+  OA_MIN_FULL_TEXT_CHARS,
+  oaBanner,
+  recoverOpenAccess,
+  type OaDisclosure,
+  type OaKind,
+  type OaLookupCache,
+  type OaPdfReader,
+  type OaRecovery,
+} from './oa.js'
+import {
+  DEFAULT_MAX_BYTES,
+  FetchStatusError,
+  MAX_PDF_BYTES,
+  fetchBytes,
+  fetchCapped,
+  validateUrl,
+  type FetchedBytes,
+  type FetchOptions,
+  type PinnedRequestFn,
+} from './fetch.js'
+import { assessExtractedContent, extractArticle } from './html.js'
 import { preprocess } from './index.js'
-import { runConverter } from './sandbox.js'
 import { detectTools } from './tools.js'
 import { findUrlHandler } from './url-handlers.js'
 
-/** Default response cap. Web pages are larger than the 50 KB autoresearch fetch cap. */
-export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024
-/**
- * The cap for the PDF lane (docs/sources/SPEC.md section 2.1). A paper is one or two MB and a
- * scanned report can be twenty, so the HTML cap would refuse documents the PDF plugin handles
- * every day - and the plugin has its own limits beyond this one (page count, OCR budget).
+/*
+ * The SSRF guard, the pinned request and the caps live in `fetch.ts` and are re-exported here:
+ * the open-access resolver needs the same gate for the addresses an API hands it, and a module
+ * both lanes import cannot import one of them back.
  */
-export const MAX_PDF_BYTES = 25 * 1024 * 1024
-const MAX_REDIRECTS = 5
-
-/** True for addresses an outbound fetch must never reach (SSRF guard). */
-export function isPrivateAddress(ip: string): boolean {
-  const kind = net.isIP(ip)
-  if (kind === 4) {
-    const [a, b] = ip.split('.').map(Number) as [number, number, number, number]
-    if (a === 10 || a === 127 || a === 0) return true
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 192 && b === 168) return true
-    if (a === 169 && b === 254) return true // link-local
-    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
-    return false
-  }
-  if (kind === 6) {
-    const lower = ip.toLowerCase()
-    if (lower === '::1' || lower === '::') return true
-    if (lower.startsWith('fe80')) return true // link-local
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return true // ULA
-    // IPv4-mapped (::ffff:a.b.c.d) — check the embedded v4.
-    const mapped = lower.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-    if (mapped) return isPrivateAddress(mapped[1]!)
-    return false
-  }
-  return false
-}
-
-export interface ValidatedUrl {
-  readonly url: URL
-  readonly address: string
-}
-
-/** Validates scheme + resolves the host, refusing private/loopback targets. */
-export async function validateUrl(
-  raw: string,
-  resolve: (host: string) => Promise<string[]> = defaultResolve,
-): Promise<ValidatedUrl> {
-  let url: URL
-  try {
-    url = new URL(raw)
-  } catch {
-    throw new PreprocessError(`not a valid URL: ${raw}`, true)
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new PreprocessError(`refused URL scheme ${url.protocol} — only http/https are fetched`, true)
-  }
-  const addresses = await resolve(url.hostname)
-  if (addresses.length === 0) {
-    throw new PreprocessError(`could not resolve host: ${url.hostname}`, true)
-  }
-  for (const addr of addresses) {
-    if (isPrivateAddress(addr)) {
-      throw new PreprocessError(
-        `refused: ${url.hostname} resolves to a private/loopback address (${addr}) — SSRF guard`,
-        true,
-      )
-    }
-  }
-  return { url, address: addresses[0]! }
-}
-
-async function defaultResolve(host: string): Promise<string[]> {
-  if (net.isIP(host)) return [host]
-  const records = await dns.lookup(host, { all: true })
-  return records.map((r) => r.address)
-}
-
-/** One answer from the pinned request, as bytes: the caller decides whether it is text. */
-export interface PinnedResponse {
-  readonly status: number
-  readonly location?: string
-  /** The `Content-Type` header, lowercased, or '' when the answer carried none. */
-  readonly contentType: string
-  readonly body: Buffer
-}
-
-/**
- * The HTTP layer under the SSRF guard. A seam, not an abstraction: a test drives the lanes
- * through it without opening a socket, and nothing in the pipeline passes anything but
- * {@link pinnedRequest}.
- */
-export type PinnedRequestFn = (v: ValidatedUrl, timeoutMs: number, maxBytes: number) => Promise<PinnedResponse>
-
-/** What the fetch layer may be told: how to resolve a redirect hop, and who makes the request. */
-export interface FetchOptions {
-  readonly resolve?: (host: string) => Promise<string[]>
-  readonly request?: PinnedRequestFn
-}
-
-/** An answer that arrived, with the address it actually came from after every redirect hop. */
-export interface FetchedBytes {
-  readonly body: Buffer
-  readonly contentType: string
-  readonly url: URL
-}
-
-/**
- * Fetches with a byte cap, manual redirect handling (each hop re-validated), and a timeout.
- *
- * Every hop connects to the ADDRESS that passed the SSRF check, never to the hostname:
- * letting the HTTP client re-resolve the name would reopen the guard to DNS rebinding
- * (public answer during validation, private answer at connect time). TLS still verifies
- * against the hostname — only the socket target is pinned.
- *
- * Bytes, not a string (docs/sources/SPEC.md section 2.1): a PDF decoded as UTF-8 is corrupt
- * before anything can look at it, and whether an answer is a document or a page is decided
- * from its first bytes. {@link fetchCapped} keeps the string contract for the HTML lane.
- */
-export async function fetchBytes(
-  start: ValidatedUrl,
-  maxBytes: number,
-  timeoutMs: number,
-  opts: FetchOptions = {},
-): Promise<FetchedBytes> {
-  const request = opts.request ?? pinnedRequest
-  let current = start
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const res = await request(current, timeoutMs, maxBytes)
-    if (res.status >= 300 && res.status < 400) {
-      if (!res.location) throw new PreprocessError(`redirect with no Location from ${current.url.href}`)
-      const next = new URL(res.location, current.url)
-      // Re-validate every hop against the SSRF guard; the returned address is the pin.
-      current = opts.resolve ? await validateUrl(next.href, opts.resolve) : await validateUrl(next.href)
-      continue
-    }
-    if (res.status < 200 || res.status >= 300) {
-      throw new PreprocessError(fetchFailureMessage(res.status, current.url.href))
-    }
-    return { body: res.body, contentType: res.contentType, url: current.url }
-  }
-  throw new PreprocessError(`too many redirects (> ${MAX_REDIRECTS}) starting at ${start.url.href}`)
-}
-
-/** {@link fetchBytes} decoded as UTF-8, for the HTML lane and the domain handlers. */
-async function fetchCapped(
-  start: ValidatedUrl,
-  maxBytes: number,
-  timeoutMs: number,
-  opts: FetchOptions = {},
-): Promise<string> {
-  return (await fetchBytes(start, maxBytes, timeoutMs, opts)).body.toString('utf8')
-}
-
-/**
- * One HTTP(S) request to the validated address (exported for the pinning tests). The `lookup`
- * override is what makes the pin real: whatever DNS says now, the socket goes to `v.address`.
- * The body is read under the cap and the request destroyed the moment it exceeds it.
- */
-export function pinnedRequest(v: ValidatedUrl, timeoutMs: number, maxBytes: number): Promise<PinnedResponse> {
-  return new Promise((resolvePromise, reject) => {
-    const family = net.isIP(v.address)
-    const client = v.url.protocol === 'https:' ? https : http
-    const req = client.request(
-      v.url,
-      {
-        // Some sites (e.g. Wikipedia) return 403 to requests without a User-Agent.
-        headers: {
-          'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) vault-service/0.1 (+local ingestion)',
-          accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
-        },
-        lookup: (_hostname, options, callback) => {
-          if (options.all) {
-            callback(null, [{ address: v.address, family }])
-          } else {
-            ;(callback as (err: null, address: string, family: number) => void)(null, v.address, family)
-          }
-        },
-      },
-      (res) => {
-        const status = res.statusCode ?? 0
-        const declared = Number(res.headers['content-length'] ?? '0')
-        if (declared > maxBytes) {
-          res.destroy()
-          reject(new PreprocessError(`response too large: ${declared} bytes > cap ${maxBytes}`))
-          return
-        }
-        const chunks: Buffer[] = []
-        let total = 0
-        res.on('data', (chunk: Buffer) => {
-          total += chunk.byteLength
-          if (total > maxBytes) {
-            res.destroy()
-            reject(new PreprocessError(`response exceeded cap ${maxBytes} bytes mid-stream`))
-            return
-          }
-          chunks.push(chunk)
-        })
-        res.on('end', () => {
-          const result: { status: number; location?: string; contentType: string; body: Buffer } = {
-            status,
-            contentType: (res.headers['content-type'] ?? '').toLowerCase(),
-            body: Buffer.concat(chunks),
-          }
-          const location = res.headers['location']
-          if (typeof location === 'string') result.location = location
-          resolvePromise(result)
-        })
-        res.on('error', (err) => reject(new PreprocessError(`fetch failed for ${v.url.href}: ${err.message}`)))
-      },
-    )
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`timed out after ${timeoutMs} ms`))
-    })
-    req.on('error', (err) => reject(new PreprocessError(`fetch failed for ${v.url.href}: ${err.message}`)))
-    req.end()
-  })
-}
-
-/**
- * The line a non-2xx answer fails the job with. A 401 or 403 is nearly always a site
- * refusing automated fetches - bot protection in front of a public page - and the way
- * through is the browser: the line says so, because the job's error is the one thing the
- * user reads before deciding what to do next (2026-09-12: a night ingest of a blog post
- * ended this way, and the saved page was dropped by hand the same evening).
- */
-export function fetchFailureMessage(status: number, href: string): string {
-  const refused = status === 401 || status === 403
-  return `fetch failed: HTTP ${status} for ${href}${
-    refused ? ' - the site refuses automated fetches; save the page from your browser and drop the .html file instead, it is extracted the same way' : ''
-  }`
-}
+export {
+  DEFAULT_MAX_BYTES,
+  MAX_PDF_BYTES,
+  fetchBytes,
+  fetchFailureMessage,
+  isPrivateAddress,
+  pinnedRequest,
+  validateUrl,
+  FetchStatusError,
+  type FetchOptions,
+  type FetchedBytes,
+  type PinnedRequestFn,
+  type PinnedResponse,
+  type ValidatedUrl,
+} from './fetch.js'
 
 /*
  * The address of a saved page, the HTML-to-text fallback and the junk gate live in `html.ts`
@@ -288,6 +98,18 @@ export interface PreprocessUrlInput {
   readonly request?: PinnedRequestFn
   /** Injected for tests: the plugin chain the PDF lane hands its download to. */
   readonly registry?: readonly PreprocessPlugin[]
+  /**
+   * Open-access recovery (docs/sources/SPEC.md section 5). Absent or `enabled: false` means a
+   * blocked or thin page fails or stays thin exactly as it did before.
+   */
+  readonly oa?: {
+    readonly enabled: boolean
+    readonly cache?: OaLookupCache
+    /** The service environment, for `CORE_API_KEY` and `CURIOUS_CONTACT_EMAIL`. */
+    readonly env?: NodeJS.ProcessEnv
+    readonly courtesyMs?: number
+    readonly now?: () => Date
+  }
 }
 
 /**
@@ -386,6 +208,18 @@ async function pdfLane(args: {
   })
 }
 
+/**
+ * A helper for the one case a URL job can end in two manifests: the PDF lane wrote one, then the
+ * open-access attempt added something a reader of the job log should see. Rewrites the notes of
+ * the manifest already on disk and hands back the result with them.
+ */
+function withExtraNotes(result: PreprocessResult, extra: readonly string[]): PreprocessResult {
+  if (extra.length === 0) return result
+  const manifest: Manifest = { ...result.manifest, notes: [...result.manifest.notes, ...extra] }
+  fs.writeFileSync(result.manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+  return { ...result, manifest }
+}
+
 export async function preprocessUrl(input: PreprocessUrlInput): Promise<PreprocessResult> {
   fs.mkdirSync(input.jobDir, { recursive: true })
   const fetchOpts: FetchOptions = {
@@ -398,8 +232,82 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
   const timeoutMs = input.timeoutMs ?? 30_000
   const tools = input.tools ?? (await detectTools())
   const notes: string[] = []
-  let markdown: string
-  let original: string
+  /*
+   * What the job turns out to be. One mutable record rather than five locals, because an
+   * open-access copy replaces several of them at once and from inside a closure.
+   */
+  const out: {
+    markdown: string
+    /** Job-dir-relative name of the raw file the text came from. */
+    original: string
+    type: JobType
+    normalizedName: string
+    ocrApplied: boolean
+    /** Set only when the text did not come from the address the job names (5.4). */
+    oa?: OaDisclosure
+  } = { markdown: '', original: '', type: 'web', normalizedName: 'normalized.md', ocrApplied: false }
+
+  /*
+   * An arXiv address is never rescued (docs/sources/SPEC.md 5.1): the PDF lane above already
+   * reads the full text, so a resolver could only find the same document again.
+   */
+  const oaEnabled = input.oa?.enabled === true && arxivIdFromUrl(url) === undefined
+  const addressDoi = doiFromUrl(url)
+
+  /**
+   * How an open-access PDF candidate becomes text: the ordinary PDF plugin, in a scratch
+   * directory OUTSIDE the vault. A candidate that turns out to be too thin must leave nothing
+   * behind in the job's staging directory, which is committed with the job.
+   */
+  const readPdfCandidate: OaPdfReader = async (bytes, seq) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `oa-candidate-${seq}-`))
+    try {
+      const file = path.join(dir, 'candidate.pdf')
+      fs.writeFileSync(file, bytes)
+      const res = await pdfPlugin.normalize({ probe: buildProbe(file, 'candidate.pdf'), jobDir: dir, tools })
+      // The plugin fences its own output; the bars and the banner are about the document.
+      const text = res.normalizedPath === undefined ? '' : documentTextOf(fs.readFileSync(res.normalizedPath, 'utf8'))
+      return { text, notes: res.notes, ocrApplied: res.ocrApplied ?? false, deferred: res.deferred ?? false }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  /** One attempt at a copy. Collects its notes either way, so the job log says what was tried. */
+  const recover = async (kind: OaKind, haveChars: number, doi: string): Promise<{ recovery?: OaRecovery; notes: readonly string[] }> => {
+    const out = await recoverOpenAccess({
+      doi,
+      kind,
+      haveChars,
+      deps: {
+        jobDir: input.jobDir,
+        tools,
+        timeoutMs,
+        readPdf: readPdfCandidate,
+        ...(input.resolve ? { resolve: input.resolve } : {}),
+        ...(input.request ? { request: input.request } : {}),
+        ...(input.oa?.cache ? { cache: input.oa.cache } : {}),
+        ...(input.oa?.env ? { env: input.oa.env } : {}),
+        ...(input.oa?.courtesyMs !== undefined ? { courtesyMs: input.oa.courtesyMs } : {}),
+        ...(input.oa?.now ? { now: input.oa.now } : {}),
+      },
+    })
+    notes.push(...out.notes)
+    return out
+  }
+
+  /** What a recovered copy replaces: the document, its raw file, and the job's type. */
+  const takeRecovery = (recovery: OaRecovery): void => {
+    out.oa = recovery.disclosure
+    out.markdown = recovery.text
+    out.original = recovery.original
+    out.ocrApplied = recovery.ocrApplied
+    if (recovery.isPdf) {
+      // A rescued PDF is a PDF job, exactly as the dropped or the fetched one is (3.3).
+      out.type = 'pdf'
+      out.normalizedName = 'normalized.txt'
+    }
+  }
 
   /*
    * An address that names a PDF goes to the PDF lane before any domain handler sees it: the
@@ -418,74 +326,130 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
       tools,
       fetchText: async (raw: string) => fetchCapped(await validateUrl(raw, input.resolve), maxBytes, timeoutMs, fetchOpts),
     })
-    markdown = result.markdown
-    original = result.original
+    out.markdown = result.markdown
+    out.original = result.original
     notes.push(`handled by ${handler.name}`, ...result.notes)
   } else {
     const target = pdfAddress === undefined ? validated : await validateUrl(pdfAddress, input.resolve)
-    const answer = await fetchBytes(target, pdfAddress === undefined ? maxBytes : (input.maxBytes ?? MAX_PDF_BYTES), timeoutMs, fetchOpts)
-    if (isPdfAnswer(answer.body, answer.contentType)) {
-      const lane: string[] = []
-      if (target.url.href !== url.href) lane.push(`pdf url: read ${target.url.href} instead of the address given, which names the same document`)
-      else if (pdfAddress === undefined) lane.push(`pdf url: the answer is a PDF (${answer.contentType || 'no content type'}) though the address does not say so`)
-      lane.push(`pdf url: ${answer.body.byteLength} bytes fetched from ${answer.url.href}`)
-      return pdfLane({ input, requested: url, fetched: answer.url, body: answer.body, tools, notes: lane })
-    }
-    const html = answer.body.toString('utf8')
-    if (pdfAddress !== undefined) {
-      // A login page in front of a PDF looks exactly like this. The junk gate below is what
-      // says so, and this note is how the reader knows which lane was tried first.
-      notes.push(`pdf url: ${target.url.href} names a PDF but answered with ${answer.contentType || 'no content type'} - read as a page`)
-    }
-    const rawPath = path.join(input.jobDir, 'raw.html')
-    fs.writeFileSync(rawPath, html, 'utf8')
-    original = 'raw.html'
-
-    if (tools.defuddle) {
-      try {
-        const { stdout } = await runConverter('defuddle', ['parse', rawPath, '--md'], { reads: [rawPath], timeoutMs: 30_000 })
-        markdown = stdout.trim()
-        notes.push('extracted via defuddle')
-      } catch {
-        markdown = htmlToText(html)
-        notes.push('defuddle failed — used built-in HTML-to-text fallback')
+    const cap = pdfAddress === undefined ? maxBytes : (input.maxBytes ?? MAX_PDF_BYTES)
+    let answer: FetchedBytes
+    try {
+      answer = await fetchBytes(target, cap, timeoutMs, fetchOpts)
+    } catch (err) {
+      /*
+       * A 401 or a 403 is a site refusing an automated fetch, and the literature is often
+       * readable elsewhere (5.1). Everything else - a 404, a 500, a timeout - is not a case an
+       * open copy answers, and is raised as before.
+       */
+      const refused = err instanceof FetchStatusError && (err.status === 401 || err.status === 403)
+      if (!refused || !oaEnabled || addressDoi === undefined) throw err
+      const rescue = await recover('rescued', 0, addressDoi)
+      if (rescue.recovery === undefined) {
+        // A rescue fails exactly as the fetch failed, with the note appended (5.3).
+        throw new PreprocessError(`${(err as Error).message}. ${rescue.notes[rescue.notes.length - 1] ?? ''}`.trim())
       }
-    } else {
-      markdown = htmlToText(html)
-      notes.push('defuddle not installed — used built-in HTML-to-text fallback')
+      takeRecovery(rescue.recovery)
+      answer = undefined as unknown as FetchedBytes
     }
 
-    const problem = assessExtractedContent(markdown)
-    if (problem) {
-      throw new PreprocessError(
-        `web content sanity check failed for ${url.href}: ${problem}. Nothing was ingested — the page would only have produced a junk vault entry.`,
-      )
+    if (out.oa === undefined) {
+      if (isPdfAnswer(answer.body, answer.contentType)) {
+        const lane: string[] = []
+        if (target.url.href !== url.href) lane.push(`pdf url: read ${target.url.href} instead of the address given, which names the same document`)
+        else if (pdfAddress === undefined) lane.push(`pdf url: the answer is a PDF (${answer.contentType || 'no content type'}) though the address does not say so`)
+        lane.push(`pdf url: ${answer.body.byteLength} bytes fetched from ${answer.url.href}`)
+        const result = await pdfLane({ input, requested: url, fetched: answer.url, body: answer.body, tools, notes: lane })
+        /*
+         * The PDF lane declined the document (too large to OCR, no readable text): a copy of the
+         * same DOI may be a text PDF rather than a scan (5.1). Nothing is lost if it is not - the
+         * job stays deferred with the lane's own reason.
+         */
+        if (!result.deferred || !oaEnabled || addressDoi === undefined) return result
+        const rescue = await recover('rescued', 0, addressDoi)
+        if (rescue.recovery === undefined) return withExtraNotes(result, rescue.notes)
+        takeRecovery(rescue.recovery)
+      } else {
+        const html = answer.body.toString('utf8')
+        if (pdfAddress !== undefined) {
+          // A login page in front of a PDF looks exactly like this. The junk gate below is what
+          // says so, and this note is how the reader knows which lane was tried first.
+          notes.push(`pdf url: ${target.url.href} names a PDF but answered with ${answer.contentType || 'no content type'} - read as a page`)
+        }
+        const rawPath = path.join(input.jobDir, 'raw.html')
+        fs.writeFileSync(rawPath, html, 'utf8')
+        out.original = 'raw.html'
+
+        const extracted = await extractArticle({ filePath: rawPath, html, tools })
+        out.markdown = extracted.markdown
+        notes.push(...extracted.notes)
+
+        /*
+         * The page's OWN doi, from its citation meta tags - never one found in running text,
+         * which is most often a work it cites (2.2).
+         */
+        const pageDoi = doiFromHtml(html) ?? addressDoi
+        const problem = assessExtractedContent(out.markdown)
+        if (problem !== null) {
+          // A login wall, a bot wall, an empty shell: the page could not be read at all (5.1).
+          if (oaEnabled && pageDoi !== undefined) notes.push(`open access: the page did not read as an article (${problem})`)
+          const rescue: { recovery?: OaRecovery; notes: readonly string[] } =
+            oaEnabled && pageDoi !== undefined ? await recover('rescued', 0, pageDoi) : { notes: [] }
+          if (rescue.recovery === undefined) {
+            const appended = rescue.notes.length > 0 ? ` ${rescue.notes[rescue.notes.length - 1]}.` : ''
+            throw new PreprocessError(
+              `web content sanity check failed for ${url.href}: ${problem}. Nothing was ingested — the page would only have produced a junk vault entry.${appended}`,
+            )
+          }
+          takeRecovery(rescue.recovery)
+        } else if (out.markdown.trim().length < OA_MIN_FULL_TEXT_CHARS && oaEnabled && pageDoi !== undefined) {
+          /*
+           * The page was read, but an abstract is not the paper (5.1). A copy has to be BOTH
+           * longer than this and full text to replace it; otherwise the thin text stays, with
+           * the note saying what was tried (5.3).
+           */
+          notes.push(
+            `open access: the page holds ${out.markdown.trim().length} characters, under the ${OA_MIN_FULL_TEXT_CHARS} a paper needs`,
+          )
+          const thin = await recover('substituted', out.markdown.trim().length, pageDoi)
+          if (thin.recovery !== undefined) takeRecovery(thin.recovery)
+        }
+      }
     }
   }
 
   /*
    * The fence goes on last (docs/sources/SPEC.md 4.1): the junk gate above ran on the document
-   * as it arrived, and so will the open-access decision - what the service wrapped around it is
-   * the service's own words and must not count as the page's text.
+   * as it arrived, and so did the open-access decision - what the service wrapped around it is
+   * the service's own words and must not count as the page's text. The banner rides above it,
+   * so a reader of the artifact learns in its first line that the text is a copy (5.4).
    */
-  const normalizedPath = path.join(input.jobDir, 'normalized.md')
-  const fenced = fenceWithWarnings({ title: url.href, source: url.href, kind: 'web', text: markdown })
+  const normalizedPath = path.join(input.jobDir, out.normalizedName)
+  const fenced = fenceWithWarnings({
+    title: url.href,
+    ...(out.oa !== undefined ? { banner: oaBanner(out.oa) } : {}),
+    // Where the TEXT came from: the copy when there is one, the requested address otherwise.
+    source: out.oa?.url ?? url.href,
+    kind: out.type === 'pdf' ? 'pdf' : 'web',
+    text: out.markdown,
+  })
   fs.writeFileSync(normalizedPath, fenced.text, 'utf8')
   notes.push(...fenced.warnings)
 
   const manifest: Manifest = {
     jobId: input.jobId,
     source: 'url',
-    type: 'web' as JobType,
+    type: out.type,
     originalName: url.href,
+    // The requested address stays the job's own, whatever the text came from (5.4, D3).
     url: url.href,
     createdAt: nowIso(),
-    original,
-    normalized: 'normalized.md',
-    normalizedChars: markdown.length,
-    ocrApplied: false,
+    original: out.original,
+    normalized: out.normalizedName,
+    normalizedChars: out.markdown.length,
+    ocrApplied: out.ocrApplied,
     passImageToAgent: false,
     deferred: false,
+    ...(out.oa !== undefined ? { oa: out.oa } : {}),
     notes,
     ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
   }
@@ -493,7 +457,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
 
   return {
-    type: 'web',
+    type: out.type,
     deferred: false,
     manifestPath,
     primaryArtifact: path

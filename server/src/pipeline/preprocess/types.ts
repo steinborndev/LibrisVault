@@ -8,6 +8,7 @@
  */
 
 import type { JobType } from '../../db/jobs.js'
+import type { OaDisclosure } from './oa.js'
 
 /** What `detect` learns about an input before any plugin runs. */
 export interface Probe {
@@ -91,6 +92,11 @@ export interface Manifest {
   readonly passImageToAgent: boolean
   readonly deferred: boolean
   readonly exif?: Record<string, unknown>
+  /**
+   * Where the text came from when it did NOT come from the address the job names
+   * (docs/sources/SPEC.md section 5.4). `url` above stays the requested address.
+   */
+  readonly oa?: OaDisclosure
   readonly notes: readonly string[]
   /** The subset of `notes` the job log carries at level `warn` (section 4.3). */
   readonly warnings?: readonly string[]

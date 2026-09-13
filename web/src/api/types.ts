@@ -575,6 +575,8 @@ export interface EffectiveSettings {
   gitAutoCommit: boolean
   /** Settle a document whose DOI a source page already declares as a duplicate, before any run. */
   doiDedupe: boolean
+  /** Look for an open-access copy when a URL job is blocked or reads as an abstract only. */
+  oaRecovery: boolean
   /** null = no budget. Unit depends on authMode: ingests/day (oauth) or USD/day (api-key). */
   dailyBudget: number | null
   /**

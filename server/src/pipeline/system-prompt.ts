@@ -1,3 +1,5 @@
+import type { OaDisclosure } from './preprocess/oa.js'
+
 /**
  * System-prompt extension appended to the claude_code preset for every agent run.
  *
@@ -298,6 +300,52 @@ one. When it states none, leave the field empty (\`url: ""\`): never a guess, ne
 placeholder words \`unknown\` or \`null\`, and never the \`.raw/\` staging path, which is a
 location on this disk rather than an address.
 </provenance>
+`.trim()
+}
+
+/**
+ * Where the text came from when it did not come from the address the job names
+ * (docs/sources/SPEC.md section 5.4).
+ *
+ * The run must not write the copy's address as the source's own: `url:` is what the user asked
+ * for and what the dedupe index and the reading list match on. The copy belongs beside it, in
+ * three fields of its own and in one sentence of the body - and a quote out of a manuscript is
+ * marked as such, because the published wording may differ (D14). A retracted work says so in
+ * its first paragraph, which is the one thing a reader must not have to look for.
+ */
+export function renderOaNotice(
+  items: ReadonlyArray<{ readonly artifact: string; readonly oa: OaDisclosure }>,
+): string {
+  if (items.length === 0) return ''
+  const lines = items
+    .map((i) => {
+      const version = i.oa.version ?? 'version not stated'
+      return (
+        `- ${i.artifact}: the requested address ${
+          i.oa.kind === 'substituted' ? 'held an abstract only' : 'could not be read'
+        }; this text is an open-access copy (${version}, ${i.oa.license ?? 'license not stated'}) from ` +
+        `${i.oa.source} at ${i.oa.host}: ${i.oa.url}${i.oa.retracted ? ' - OpenAlex marks this work as RETRACTED' : ''}`
+      )
+    })
+    .join('\n')
+  return `
+<open_access_copy>
+The text of the document(s) below did not come from the address that was requested:
+
+${lines}
+
+Write the source page like this:
+
+- \`url:\` stays the REQUESTED address. It is what the user asked for and what the duplicate
+  check and the reading list match on; the copy's address does not belong in that field.
+- Add \`oa_url:\`, \`oa_version:\` and \`oa_source:\` to the frontmatter, with the values above.
+- Say it once in the body, in a sentence of your own: that the requested address could not be
+  read or held only an abstract, and that the text came from this copy at this host.
+- A quote taken from an accepted or submitted manuscript is marked as such where you quote it
+  ("accepted manuscript"), because the published wording may differ from it.
+- If the work is marked retracted, say so in the FIRST paragraph of the page and say it in
+  \`confidence:\` as well. A reader must not have to look for that.
+</open_access_copy>
 `.trim()
 }
 

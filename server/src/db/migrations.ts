@@ -650,6 +650,29 @@ const V26 = `
 ALTER TABLE jobs ADD COLUMN night_released_at TEXT;
 `
 
+/**
+ * v27 - what a run's own text was checked against, and what was asked about a DOI
+ * (docs/sources/SPEC.md sections 5.5 and 7.4).
+ *
+ * `jobs.validation` holds the post-run validation summary as JSON - today the quote counts,
+ * later whatever else the validator can summarise per job. A column rather than a table: it is
+ * one small object per job, read with the job and never queried across jobs.
+ *
+ * `oa_lookups` records what the open-access resolvers answered for a DOI, so the same question
+ * is not asked of three APIs twice: a negative answer is respected for a week, a positive one
+ * is reused at once (which is what lets the reading list's nightly sweep hand a find straight
+ * to an ingest). Operational state only - losing the table costs a lookup.
+ */
+const V27 = `
+ALTER TABLE jobs ADD COLUMN validation TEXT;
+CREATE TABLE oa_lookups (
+  doi        TEXT PRIMARY KEY,
+  checked_at TEXT NOT NULL,
+  found      INTEGER NOT NULL,
+  result     TEXT NOT NULL
+);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -677,4 +700,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 24, up: V24 },
   { version: 25, up: V25 },
   { version: 26, up: V26 },
+  { version: 27, up: V27 },
 ]

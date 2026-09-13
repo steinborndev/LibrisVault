@@ -10,9 +10,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
-import { runConverter } from '../sandbox.js'
 import { fenceWithWarnings } from '../fence.js'
-import { assessExtractedContent, canonicalUrlOf, htmlToText } from '../html.js'
+import { assessExtractedContent, canonicalUrlOf, extractArticle } from '../html.js'
 
 /**
  * Extensions treated as ingestible text with no normalization step.
@@ -79,21 +78,9 @@ const HTML_EXTS = new Set(['html', 'htm'])
 async function extractSavedPage({ probe, jobDir, tools }: NormalizeContext): Promise<NormalizeResult> {
   const html = fs.readFileSync(probe.filePath, 'utf8')
   const url = canonicalUrlOf(html)
-  const notes: string[] = []
-  let markdown: string
-  if (tools.defuddle) {
-    try {
-      const { stdout } = await runConverter('defuddle', ['parse', probe.filePath, '--md'], { reads: [probe.filePath], timeoutMs: 30_000 })
-      markdown = stdout.trim()
-      notes.push('saved web page: extracted via defuddle')
-    } catch {
-      markdown = htmlToText(html)
-      notes.push('saved web page: defuddle failed — used built-in HTML-to-text fallback')
-    }
-  } else {
-    markdown = htmlToText(html)
-    notes.push('saved web page: defuddle not installed — used built-in HTML-to-text fallback')
-  }
+  const extracted = await extractArticle({ filePath: probe.filePath, html, tools, notePrefix: 'saved web page: ' })
+  const markdown = extracted.markdown
+  const notes: string[] = [...extracted.notes]
   if (url !== undefined) notes.push(`saved web page: names ${url} as its address`)
 
   const problem = assessExtractedContent(markdown)

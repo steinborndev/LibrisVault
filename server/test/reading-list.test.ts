@@ -76,6 +76,7 @@ describe('parsing the page a Fellow writes', () => {
       domain: 'astronomy',
       why: 'The only campaign that pooled heterogeneous sites for a spectrum.',
       found: 'Ada, 2026-09-06',
+      oa: null,
       // The finder is split out of the legacy line, so a filter has something to work with.
       by: 'Ada',
       at: '2026-09-06',
@@ -105,6 +106,7 @@ describe('parsing the page a Fellow writes', () => {
       filed: null,
       filedAt: null,
       archivedAt: null,
+      oa: null,
       ...over,
     })
     // The Fellow's own word always wins.
@@ -418,6 +420,7 @@ describe('entries the service writes for the planner', () => {
     filed: null,
     filedAt: null,
     archivedAt: null,
+    oa: null,
     ...over,
   })
 
