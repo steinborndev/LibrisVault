@@ -36,6 +36,7 @@ import {
   type ToolAvailability,
 } from './preprocess/index.js'
 import { preprocessUrl } from './preprocess/web.js'
+import { checkQuotes, gitPageBefore } from './quotes.js'
 import type { OaDisclosure, OaLookupCache } from './preprocess/oa.js'
 import { extensionOf } from './preprocess/detect.js'
 import {
@@ -45,6 +46,7 @@ import {
   dirtyPaths,
   discardUntrackedDir,
   newWikiPaths,
+  readAtRevision,
   BOOKKEEPING_PATHS,
   type CommitResult,
   type CommitOptions,
@@ -64,7 +66,7 @@ import {
 } from './system-prompt.js'
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
-import type { Validator } from './validator.js'
+import type { ValidationFinding, Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
 
@@ -1140,7 +1142,7 @@ export class IngestQueue {
       })
       endRun()
       this.markNoChanges(job.id, committed.length)
-      this.validateStep(job.id, [...written, ...committed])
+      await this.validateStep(job.id, [...written, ...committed], [job.id])
       const note = await this.refreshHotCache(this.vaultRoot)
       this.store.log(job.id, 'info', note)
       return
@@ -1323,23 +1325,49 @@ export class IngestQueue {
    * run touched, logged as warnings while the job's context is still on screen. Advisory by
    * design — a finding never fails a `done` job, and a validator crash only logs.
    */
-  private validateStep(jobId: string, touched: readonly string[]): void {
-    if (this.validate === undefined) return
+  private async validateStep(jobId: string, touched: readonly string[], jobIds: readonly string[]): Promise<void> {
+    const findings: ValidationFinding[] = []
     try {
-      const findings = this.validate(touched)
-      if (findings.length === 0) {
-        this.store.log(jobId, 'info', 'post-run validation: no findings')
-        return
-      }
-      for (const f of findings) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
-      this.store.log(
-        jobId,
-        'warn',
-        `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`,
-      )
+      if (this.validate !== undefined) findings.push(...this.validate(touched))
     } catch (err) {
       this.store.log(jobId, 'warn', `post-run validation crashed (ignored): ${(err as Error).message}`)
     }
+    /*
+     * The quotes this run ADDED, against the text it read (docs/sources/SPEC.md section 7). Its
+     * own step because it needs two things the page rules do not: the job's artifacts, and the
+     * commit the run just made - without a before there is no telling this run's quotes from
+     * those of the runs before it.
+     */
+    try {
+      const hash = this.store.get(jobId)?.commit_hash ?? null
+      const quotes = await checkQuotes({
+        vaultRoot: this.vaultRoot,
+        jobIds,
+        pages: touched,
+        ...(hash === null ? {} : { before: gitPageBefore((rev, rel) => readAtRevision(this.vaultRoot, rev, rel), hash) }),
+      })
+      findings.push(...quotes.findings)
+      this.store.setValidation(jobId, { quotes: quotes.summary })
+      if (quotes.summary.checked > 0) {
+        this.store.log(
+          jobId,
+          quotes.summary.unverified > 0 ? 'warn' : 'info',
+          `quotes: ${quotes.summary.checked} checked, ${quotes.summary.unverified} not found in the source`,
+        )
+      }
+    } catch (err) {
+      this.store.log(jobId, 'warn', `quote check crashed (ignored): ${(err as Error).message}`)
+    }
+    if (findings.length === 0) {
+      this.store.log(jobId, 'info', 'post-run validation: no findings')
+      return
+    }
+    for (const f of findings) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+    this.store.log(
+      jobId,
+      'warn',
+      `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`,
+    )
   }
 
   /**
@@ -1453,7 +1481,8 @@ export class IngestQueue {
       })
       endRun()
       for (const r of ready) this.markNoChanges(r.id, committed.length)
-      this.validateStep(lead, [...written, ...committed])
+      // The corpus is the union over the batch: one combined run read all of their documents.
+      await this.validateStep(lead, [...written, ...committed], ready.map((r) => r.id))
       const note = await this.refreshHotCache(this.vaultRoot)
       this.store.log(lead, 'info', note)
       return

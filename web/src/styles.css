@@ -884,6 +884,9 @@ button {
 }
 .badge.deferred,
 .hrow-state.deferred,
+/* A quotation this run wrote that is not in the text it read: the warning tone, because it is
+   about a page's claim rather than about the run having failed (docs/sources/SPEC.md 7.5). */
+.hrow-state.quotes,
 .lt-flag.warn,
 .sev.due {
   color: var(--warn);

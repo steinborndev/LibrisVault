@@ -21,6 +21,7 @@ import { jobNote, type ActivityEvent, contentPages } from '../lib/activity.ts'
 import { RUN_RUNNING_TITLES, runTitle } from '../lib/runLabels.ts'
 import { navigate, pageRoute } from '../lib/router.ts'
 import { openableRow } from '../lib/tableRow.ts'
+import { parseQuoteSummary, quotesChip, quotesTitle } from '../lib/quotes.ts'
 
 /** Stable per-channel colour, so a row's origin reads without parsing the word. */
 export function channelColor(source: string): string {
@@ -309,6 +310,8 @@ export function HistoryJobRow({
   const showState = job.status !== 'done'
   const noChanges = job.status === 'done' && job.outcome === 'no-changes'
   const note = jobNote(job)
+  const quotes = parseQuoteSummary(job.validation)
+  const quoteChip = quotesChip(quotes)
   return (
     <tr {...openableRow(onOpen, `Open job detail: ${name}`)}>
       <td>
@@ -321,6 +324,15 @@ export function HistoryJobRow({
           {showState && <span className={`hrow-state ${job.status}`}>{job.status}</span>}
           {noChanges && <span className="hrow-state nochanges">no changes</span>}
           {job.reverted_at != null && <span className="hrow-state reverted">reverted</span>}
+          {/*
+           * A quotation this run added that is not in the text it read. Beside the badges rather
+           * than in the note line: it is about the pages, not about the run's outcome (7.5).
+           */}
+          {quoteChip !== null && (
+            <span className="hrow-state quotes" title={quotesTitle(quotes)}>
+              {quoteChip}
+            </span>
+          )}
         </span>
         {/* A failure's line is red; a duplicate's or a no-change run's is an explanation, not an alarm. */}
         {note !== undefined && <span className={job.status === 'failed' ? 'rowerr' : 'rownote'}>{note}</span>}

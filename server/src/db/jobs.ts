@@ -121,6 +121,12 @@ export interface JobRow {
    * the commit, and the queue is drawn until the commit is made.
    */
   night_released_at: string | null
+  /**
+   * What the post-run validation could say about this job in numbers (v27), as JSON: today the
+   * quote counts (docs/sources/SPEC.md section 7.4), extensible to other rules. Operational
+   * state; the findings themselves are in the job log.
+   */
+  validation: string | null
 }
 
 export type JobOutcome = 'no-changes'
@@ -699,6 +705,14 @@ export class JobStore {
   /** Corrects the provisional type once preprocessing has detected the real one. */
   setType(id: string, type: JobType): void {
     this.db.prepare('UPDATE jobs SET type = ? WHERE id = ?').run(type, id)
+  }
+
+  /**
+   * Records the post-run validation summary (v27). Written after the validation step; a job
+   * that was never validated keeps NULL, which reads as "nothing to say" rather than "clean".
+   */
+  setValidation(id: string, summary: unknown): void {
+    this.db.prepare('UPDATE jobs SET validation = ? WHERE id = ?').run(JSON.stringify(summary), id)
   }
 
   /** Records where the job's `.raw/<job-id>/` directory lives (vault-relative). */

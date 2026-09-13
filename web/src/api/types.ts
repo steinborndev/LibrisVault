@@ -53,6 +53,11 @@ export interface Job {
    * the agent finished cleanly but wrote no wiki page. Null for an ordinary run.
    */
   outcome?: 'no-changes' | null
+  /**
+   * What the post-run validation counted, as JSON (schema v27): `{"quotes":{"checked":12,
+   * "unverified":1}}`. Read with `parseQuoteSummary` (lib/quotes.ts); absent on older jobs.
+   */
+  validation?: string | null
 }
 
 export interface RevertResponse {

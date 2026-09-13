@@ -78,18 +78,62 @@ instance, nothing is written to the vault, no agent run is started except the tw
 
 ## Chunk 5: quote integrity in the validator
 
-- [ ] Unit tests: extraction across the four typographies and the callout, exclusions,
+- [x] Unit tests: extraction across the four typographies and the callout, exclusions,
       normalization cases, ellipsis segments, the five-word floor
-- [ ] Queue test: one held and one invented quote yield one finding, the summary and the log
+- [x] Queue test: one held and one invented quote yield one finding, the summary and the log
       line
-- [ ] Calibration: `quoteprobe` over the last twenty done ingests with artifacts, rate
+- [x] Calibration: `quoteprobe` over the last twenty done ingests with artifacts, rate
       recorded below; the check ships only with that record
-- [ ] Facts row and stream chip in the web app
-- [ ] Checks green in both workspaces
-- [ ] Doc line below, with "Measured:" and the calibration rate
-- [ ] Commit, push, deploy (web build plus restart)
-- [ ] Review stop: report the commit and the riskiest files (normalization, validator rule,
+- [x] Facts row and stream chip in the web app
+- [x] Checks green in both workspaces
+- [x] Doc line below, with "Measured:" and the calibration rate
+- [x] Commit, push, deploy (web build plus restart)
+- [x] Review stop: report the commit and the riskiest files (normalization, validator rule,
       calibration)
+
+## The calibration record (spec 7.6)
+
+`server/src/cli/quoteprobe.ts` over the last 19 finished ingests that still have their
+artifacts AND their commit, on 2026-09-14. Four rounds, each one a decision the numbers forced:
+
+| What was checked | Quotes | Unverified | Rate |
+|---|---|---|---|
+| Every quote on every page the job touched | 2,971 | 2,921 | 98.3 % |
+| Only the quotes the job ADDED (its commit against its parent) | 476 | 427 | 89.7 % |
+| ...and not on the vault's journals, indexes and `wiki/meta/` | 154 | 111 | 72.1 % |
+| ...and punctuation at a quotation's edge ignored | 154 | 100 | **64.9 %** |
+
+What each round says:
+
+1. **A page is written by many runs.** The journal, the indexes and a Fellow's synthesis page
+   carry every earlier run's quotations, and one job's document cannot possibly contain them.
+   So the check compares what stands on a page now against what stood there before the run's
+   commit; without a commit to compare against it checks nothing and says so.
+2. **A run narrates in quotation marks on the bookkeeping pages** - "fold this into an
+   overlapping page", the user's own question, a source's title. 292 of those 476 quotes stood
+   on such a page, 288 of them unverified. Those pages are out of scope, the same set the link
+   checks and the expand rules already exempt.
+3. **The comma inside the quotation marks is the quoting page's, not the source's.** 17 of 111
+   failures were edge punctuation, several with 19 of 20 words already matching.
+
+The residue, read line by line: of the 100 that remain, **8** have 60 % or more of their words
+in the document in order (the near misses, where normalization could still win: about 5 % of
+what is checked), 12 are partial, and **80 have fewer than three consecutive words in the
+document at all**. Those 80 are the finding, and three classes make them up:
+
+- a **paraphrase in quotation marks** - the same source quoted verbatim on one page and
+  condensed on another, which is how it was recognised;
+- a **coined slogan** the run formed out of the material and then quoted;
+- a **translated quote**: one job of 17 quotes read a German source and quoted it in English,
+  against the vault's own language rule (a verbatim quotation keeps its language with a note).
+  Verified by hand against the artifact: the source says „Stelle sicher, dass der Dienststart in
+  unter 800 ms abgeschlossen ist", the page quotes "make sure service startup finishes in under
+  800ms".
+
+So the rate ships as it is, and it is not noise: 64.9 % of the quotations these runs added are
+not in the text they read, word for word. The prevention side went in with chunk 2 (every
+writing run is now told to keep a quote verbatim, attributed and marked); this number is what
+it is up against, and the next twenty ingests can be measured against it with the same command.
 
 ## Chunk 6: expand lock
 
@@ -236,12 +280,37 @@ instance, nothing is written to the vault, no agent run is started except the tw
       the three rounds are in `oa_lookups`, so tonight's sweep marks that find without asking
       OpenAlex again. Server 1,168 tests (5 new), web 478 (3 new), `tsc` and `eslint` clean.
 
+- [x] **Chunk 5, quote integrity** (2026-09-14). `pipeline/quotes.ts` extracts a page's
+      quotations (four typographies, the `> [!quote]` callout, five words or more, no
+      frontmatter, code fence, inline code or callout header), normalizes both sides (NFKC,
+      hyphenation at a line end, soft hyphens, dashes, typographic quotes, citation markers,
+      whitespace) and looks each one up in the text the job read - the artifact in
+      `.raw/<job-id>/` with the fence and the banner taken off, the union over a batch, markup
+      stripped from an HTML passthrough. An ellipsis splits a quote into segments that must
+      occur in order. The queue runs it after the commit, logs one finding per unverified quote
+      at `warn`, and writes `{ quotes: { checked, unverified } }` into `jobs.validation`
+      (v27). The record shows `Quotes: 12 checked · 1 unverified` and a stream row with an
+      unverified quote wears a `1 quote` chip in the warning tone. Nothing is written to the
+      vault: advisory, like every other validator rule.
+      Measured: the calibration above (four rounds, 2,971 to 154 quotes checked, final rate
+      64.9 %, with the residue read line by line and one class verified by hand against its
+      German source). UI probe (Chromium over CDP, injected jobs): the chip reads `1 quote`
+      with its tooltip on the job that has one and is absent on the two that do not, and the
+      opened record's facts read `QUOTES 12 checked · 1 unverified`. Server 1,183 tests (15
+      new), web 482 (4 new), `tsc` and `eslint` clean in both.
+
 ## Deviations from the spec
 
 - **`ReadingItem.oa` is `{ url, version, at }`, not `{ url, version, source }`** (spec 6.2).
   The page carries `oa_url`, `oa_version` and `oa_at`, so the date is what can be read back;
   the resolver's own name stays in the job's manifest, which is the record of what that job
   did. A `source` field on the item would have had to be invented on every read.
+- **The quote check reads the quotes a run ADDED, not every quote on a page it touched**
+  (spec 7.1), and it needs the run's commit to know the difference; without one it checks
+  nothing and the record says so. Forced by the calibration: the spec's own wording reported
+  98.3 % of 2,971 quotes as unverified, nearly all of it about text the job never wrote (spec
+  7.6 exists to catch exactly this). The vault's journals, indexes and `wiki/meta/` pages are
+  out of scope for the same reason, measured in the record above.
 - **CORE's inline `fullText` is not used; only its `downloadUrl`** (spec 5.2). Every candidate
   is an ADDRESS, which is what lets it pass `validateUrl` and the caps like any other fetch and
   be reused from `oa_lookups` later. Text pasted into a resolver's JSON answer would be the one

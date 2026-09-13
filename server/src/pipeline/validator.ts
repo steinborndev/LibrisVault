@@ -40,6 +40,8 @@ export type ValidationRule =
   | 'source-url'
   | 'nested-page'
   | 'hot-cache-size'
+  /** A quotation that is not in the text the job read (docs/sources/SPEC.md section 7). */
+  | 'quote'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule

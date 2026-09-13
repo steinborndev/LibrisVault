@@ -27,6 +27,7 @@ import { Markdown } from './Markdown.tsx'
 import { JobLog } from './JobLog.tsx'
 import { StatusBadge } from './StatusBadge.tsx'
 import { mainArticle, readerPages } from '../lib/homeArticle.ts'
+import { parseQuoteSummary, quotesFact, quotesTitle } from '../lib/quotes.ts'
 import { frontmatter } from '../lib/frontmatter.ts'
 import { duration, timeAgo, tokens } from '../lib/format.ts'
 import { catalogPageRoute, navigate } from '../lib/router.ts'
@@ -68,6 +69,7 @@ export function JobDetail({
   const job = detail.data?.job
 
   const pages = readerPages(event.pages)
+  const quotes = parseQuoteSummary(job?.validation)
   const articlePath = mainArticle(event.pages)
   const [tabState, setTabState] = useState<'article' | 'log'>(articlePath === null ? 'log' : 'article')
   const tab = tabProp ?? tabState
@@ -190,6 +192,8 @@ export function JobDetail({
           }
         />
         <Fact k="Pages written" v={pages.length > 0 ? `+${pages.length}` : '-'} />
+        {/* What a run's quotations are worth: checked against the text it read (7.5). */}
+        <Fact k="Quotes" v={<span title={quotesTitle(quotes)}>{quotesFact(quotes)}</span>} />
         {/* The vault commit this record produced, where the other facts are (2026-09-11);
             the foot used to carry it, and says only when the record finished now. */}
         <Fact k="Commit" v={<span className="mono-meta">{event.commit !== null ? event.commit.slice(0, 10) : '-'}</span>} />
