@@ -1068,6 +1068,15 @@ export class IngestQueue {
         oa: {
           enabled: this.oaRecovery(),
           ...(this.oaLookups ? { cache: this.oaLookups } : {}),
+          /*
+           * A job started from the reading list carries the copy that list already names (6.3).
+           * Read here rather than stored on the job: the page is the record, a retry gets the
+           * same answer, and an entry marked after the job was queued is still honoured.
+           */
+          ...((): { hint?: { url: string; version?: string | null } } => {
+            const copy = job.url === null ? undefined : this.reading?.openCopyFor(job.url)
+            return copy === undefined ? {} : { hint: { url: copy.url, version: copy.version } }
+          })(),
         },
       })
     }

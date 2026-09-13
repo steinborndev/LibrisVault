@@ -234,7 +234,7 @@ title: "Reading list"
 - title: A paper behind a subscription
   url: https://publisher.example/articles/one
   ref: doi:10.1234/example.2026.001
-  domain: materials-science
+  domain: example-domain
   access: paywalled
   blocked: HTTP 403
   by: Jane

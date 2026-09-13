@@ -48,17 +48,28 @@ export function ocrTimeoutMs(pages: number): number {
   return Math.min(OCR_TIMEOUT_MAX_MS, OCR_TIMEOUT_BASE_MS + Math.max(0, pages) * OCR_TIMEOUT_PER_PAGE_MS)
 }
 
-async function pageCount(pdfPath: string, hasPdfinfo: boolean): Promise<number> {
+/**
+ * What `pdfinfo` knows that matters here: the page count (for the OCR decision) and the title.
+ *
+ * The title is kept for the quote check: a run that quotes the document's title is quoting the
+ * document, but `pdftotext` puts a title page's words wherever the layout had them, so the title
+ * as a phrase is often not in the extraction (docs/sources/SPEC.md 7.6).
+ */
+async function pdfFacts(pdfPath: string, hasPdfinfo: boolean): Promise<{ pages: number; title?: string }> {
   if (hasPdfinfo) {
     try {
       const { stdout } = await runConverter('pdfinfo', [pdfPath], { reads: [pdfPath], timeoutMs: 30_000 })
-      const m = stdout.match(/^Pages:\s+(\d+)/m)
-      if (m) return Math.max(1, Number(m[1]))
+      const pages = stdout.match(/^Pages:\s+(\d+)/m)
+      const title = stdout.match(/^Title:\s+(.+)$/m)?.[1]?.trim()
+      return {
+        pages: pages === null ? 1 : Math.max(1, Number(pages[1])),
+        ...(title !== undefined && title !== '' ? { title } : {}),
+      }
     } catch {
       // fall through to the form-feed estimate
     }
   }
-  return 1
+  return { pages: 1 }
 }
 
 async function extract(pdfPath: string, outPath: string): Promise<string> {
@@ -87,7 +98,8 @@ export const pdfPlugin: PreprocessPlugin = {
     const notes: string[] = []
 
     let text = await extract(src, outPath)
-    const pages = await pageCount(src, ctx.tools.pdfinfo)
+    const facts = await pdfFacts(src, ctx.tools.pdfinfo)
+    const pages = facts.pages
     // A form-feed per page is what pdftotext emits; use it when pdfinfo was unavailable.
     const estPages = ctx.tools.pdfinfo ? pages : Math.max(pages, (text.match(/\f/g)?.length ?? 0) + 1)
     const yieldPerPage = text.trim().length / estPages
@@ -145,6 +157,7 @@ export const pdfPlugin: PreprocessPlugin = {
       normalizedPath: outPath,
       normalizedChars: text.trim().length,
       ocrApplied,
+      ...(facts.title !== undefined ? { title: facts.title } : {}),
       notes,
       ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
     }

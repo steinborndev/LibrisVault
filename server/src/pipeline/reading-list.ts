@@ -103,6 +103,11 @@ export interface ReadingItem extends ReadingEntry {
    * as its url names it (`file`).
    */
   readonly via: 'job' | 'ref' | 'url' | 'file' | null
+  /**
+   * True when the copy this entry names was fetched and did not read as full text, and no other
+   * copy is known: the board then says so rather than offering the ingest again (6.3).
+   */
+  readonly oaExhausted: boolean
 }
 
 const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat|archivedat|oa_url|oa_version|oa_at)\s*:\s*(.*)$/i
@@ -305,6 +310,12 @@ export interface ReadingListWriteOptions {
    * no DOI, which is most articles outside the preprint servers.
    */
   readonly byUrl?: (url: string) => { readonly page: string } | undefined
+  /**
+   * Whether every open copy known for this DOI has been fetched and none was full text
+   * (docs/sources/SPEC.md 6.3). Without it a row keeps offering a click that would repeat the
+   * same failure; the mark itself is never revised, because the copy does exist.
+   */
+  readonly copyExhausted?: (doi: string) => boolean
 }
 
 export class ReadingListService {
@@ -338,7 +349,16 @@ export class ReadingListService {
     const files = this.filesFor(list)
     return list.map((e) => {
       const { job, page, via } = this.locate(e, jobs, files)
-      return { ...e, job, reach: reachOf(e), page, via }
+      const ref = e.oa === null ? undefined : entryRef(e)
+      const doi = ref?.startsWith('doi:') === true ? ref.slice('doi:'.length) : undefined
+      return {
+        ...e,
+        job,
+        reach: reachOf(e),
+        page,
+        via,
+        oaExhausted: doi !== undefined && (this.write.copyExhausted?.(doi) ?? false),
+      }
     })
   }
 
@@ -572,6 +592,26 @@ export class ReadingListService {
   async attributeRun(actor: string, before: ReadonlySet<string>): Promise<ReadingAttribution[]> {
     const committed = await this.committedUrlKeys()
     return this.attribute(actor, (key) => !before.has(key) && !committed.has(key))
+  }
+
+  /**
+   * The copy the entry for this url names, if any (docs/sources/SPEC.md 6.3).
+   *
+   * What lets the board's one click work without a second door: the ingest posts the entry's own
+   * address, the job meets the same wall the Fellow met, and the recovery is handed the copy the
+   * sweep already found - which matters most where there is no DOI to resolve, an arXiv id being
+   * the common case.
+   */
+  openCopyFor(url: string): ReadingOpenCopy | undefined {
+    const file = path.join(this.vaultRoot, READING_LIST_PAGE)
+    let markdown: string
+    try {
+      markdown = fs.readFileSync(file, 'utf8')
+    } catch {
+      return undefined
+    }
+    const wanted = urlKey(url)
+    return parseReadingList(markdown).find((e) => urlKey(e.url) === wanted)?.oa ?? undefined
   }
 
   /**

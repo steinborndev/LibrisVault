@@ -78,6 +78,38 @@ export function canonicalUrlOf(html: string): string | undefined {
   return undefined
 }
 
+/**
+ * The title a page gives itself: `<title>`, else Open Graph, else the citation meta tag.
+ *
+ * Needed because the artifact does not hold it - a fetched page's first line is its ADDRESS and
+ * defuddle drops the `<h1>` - and a run that quotes the document's title, which is an ordinary
+ * thing to do, was then reported as having invented it (docs/sources/SPEC.md 7.6, second
+ * calibration round). It goes into the manifest and from there into the quote corpus.
+ */
+export function htmlTitle(html: string): string | undefined {
+  const head = html.slice(0, 200_000)
+  const attr = (tag: RegExp, key: string): string | undefined => {
+    const m = head.match(tag)
+    if (m === null) return undefined
+    return new RegExp(`\\b${key}\\s*=\\s*["']([^"']+)["']`, 'i').exec(m[0])?.[1]
+  }
+  const raw =
+    /<title[^>]*>([\s\S]{1,400}?)<\/title>/i.exec(head)?.[1] ??
+    attr(/<meta\b[^>]*\bproperty\s*=\s*["']og:title["'][^>]*>/i, 'content') ??
+    attr(/<meta\b[^>]*\bname\s*=\s*["']citation_title["'][^>]*>/i, 'content')
+  if (raw === undefined) return undefined
+  const text = raw
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#3?9;/g, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text === '' ? undefined : text
+}
+
 /** Bare-minimum HTML→text when defuddle is unavailable — strips tags, collapses space. */
 export function htmlToText(html: string): string {
   return html

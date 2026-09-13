@@ -19,6 +19,9 @@ import {
   normalizeQuoteText,
   quotableBody,
   quoteHolds,
+  wordIndex,
+  wordsOf,
+  longestRun,
 } from '../src/pipeline/quotes.js'
 import { fenceArtifact, FENCE_NOTICE } from '../src/pipeline/preprocess/fence.js'
 
@@ -97,30 +100,77 @@ describe('normalization (7.3)', () => {
 })
 
 describe('matching (7.3)', () => {
-  const corpus = normalizeQuoteText(
+  const corpus = wordIndex(
     'The trial enrolled 412 adults. The measurement held across every site, and the residual scatter stayed under one per cent. A later section repeats the figure.',
   )
 
   it('takes a verbatim quote and refuses an invented one', () => {
-    expect(quoteHolds(normalizeQuoteText('the measurement held across every site'), corpus)).toBe(true)
-    expect(quoteHolds(normalizeQuoteText('the measurement failed at two of the sites'), corpus)).toBe(false)
+    expect(quoteHolds(('the measurement held across every site'), corpus)).toBe(true)
+    expect(quoteHolds(('the measurement failed at two of the sites'), corpus)).toBe(false)
   })
 
   it('takes an ellipsis quote in order and refuses one out of order', () => {
-    expect(quoteHolds(normalizeQuoteText('the trial enrolled 412 adults ... the residual scatter stayed under one per cent'), corpus)).toBe(true)
-    expect(quoteHolds(normalizeQuoteText('the trial enrolled 412 adults […] the residual scatter stayed under one per cent'), corpus)).toBe(true)
+    expect(quoteHolds(('the trial enrolled 412 adults ... the residual scatter stayed under one per cent'), corpus)).toBe(true)
+    expect(quoteHolds(('the trial enrolled 412 adults […] the residual scatter stayed under one per cent'), corpus)).toBe(true)
     // Backwards: the second half comes BEFORE the first in the document.
-    expect(quoteHolds(normalizeQuoteText('the residual scatter stayed under one per cent ... the trial enrolled 412 adults'), corpus)).toBe(false)
+    expect(quoteHolds(('the residual scatter stayed under one per cent ... the trial enrolled 412 adults'), corpus)).toBe(false)
   })
 
   it('skips a fragment of fewer than three words instead of failing on it', () => {
-    expect(quoteHolds(normalizeQuoteText('the measurement held across every site ... repeats'), corpus)).toBe(true)
+    expect(quoteHolds(('the measurement held across every site ... repeats'), corpus)).toBe(true)
   })
 
   it('ignores punctuation at the edges of a quotation, which belongs to the quoting page', () => {
-    // The comma inside the marks is the page's ("Scalable Diffusion Models with Transformers,").
-    expect(quoteHolds(normalizeQuoteText('the measurement held across every site,'), corpus)).toBe(true)
-    expect(quoteHolds(normalizeQuoteText('the trial enrolled 412 adults.'), corpus)).toBe(true)
+    // The comma inside the marks is the page's ("A Paper Title Someone Cited,").
+    expect(quoteHolds(('the measurement held across every site,'), corpus)).toBe(true)
+    expect(quoteHolds(('the trial enrolled 412 adults.'), corpus)).toBe(true)
+  })
+})
+
+describe('what the second calibration round found (7.6)', () => {
+  it('ignores the quotation marks the source puts around one word of the sentence', () => {
+    // The source marks a term mid-sentence; the page quotes the sentence without the marks.
+    const corpus = wordIndex('The trial called this the “index” event of the series.')
+    expect(quoteHolds('the index event of the series', corpus)).toBe(true)
+  })
+
+  it('ignores punctuation inside a quotation as well as at its edges', () => {
+    const corpus = wordIndex('It held everywhere - and the scatter stayed small.')
+    expect(quoteHolds('It held everywhere, and the scatter stayed small', corpus)).toBe(true)
+    expect(quoteHolds('"It held everywhere - and the scatter stayed small."', corpus)).toBe(true)
+  })
+
+  it('reads a word broken across a column, and a number the way both sides write it', () => {
+    const corpus = wordIndex('about 1,500 pull requests in one-tenth of the time')
+    expect(quoteHolds('about 1,500 pull requests in one tenth of the time', corpus)).toBe(true)
+  })
+
+  it('says how much of a failing quote IS there', () => {
+    const corpus = wordIndex('The measurement held across every site in the campaign.')
+    // One word wrong at the end: a misquote, and the number says so.
+    // Eight of nine: the corpus continues "in the campaign", so only the last word differs.
+    expect(longestRun('the measurement held across every site in the trial', corpus)).toBe(8)
+    // Not one word of it: an invention.
+    expect(longestRun('a completely different sentence nobody wrote', corpus)).toBe(0)
+    expect(wordsOf('the measurement held across every site in the trial')).toHaveLength(9)
+  })
+
+  it('does not let a German closing mark pair with an English one across a page', () => {
+    /*
+     * `„…“` closes with the character `“…”` opens with, so a German quotation followed later by
+     * an English closing mark could form one span over everything between them.
+     */
+    const page = [
+      'Er schrieb „die Messung hielt an jedem Standort“ dort.',
+      '',
+      'Much later the page writes “an English quotation of five words” as well.',
+    ].join('\n')
+    const found = extractQuotes('wiki/sources/A.md', page).map((q) => q.text)
+    expect(found).toContain('die Messung hielt an jedem Standort')
+    expect(found).toContain('an English quotation of five words')
+    // Nothing in between was swallowed: two quotations, neither reaching across the page.
+    expect(found).toHaveLength(2)
+    expect(found.some((q) => q.includes('Much later') || q.includes('as well'))).toBe(false)
   })
 })
 
@@ -167,7 +217,10 @@ describe('the check over a job (7.2, 7.4)', () => {
     expect(out.summary).toEqual({ checked: 2, unverified: 1 })
     expect(out.findings).toHaveLength(1)
     expect(out.findings[0]).toMatchObject({ rule: 'quote', path: rel })
-    expect(out.findings[0]!.message).toBe('quote not found in the source: "the funding came from three agencies"')
+    // The longest run rides along, so a misquote reads differently from an invention (7.4).
+    expect(out.findings[0]!.message).toBe(
+      'quote not found in the source: "the funding came from three agencies" (longest match 1 of 6 words)',
+    )
   })
 
   it('checks only what THIS run added to a page', async () => {
@@ -211,9 +264,9 @@ describe('the check over a job (7.2, 7.4)', () => {
     const out = await checkQuotes({ vaultRoot, jobIds: ['job-1', 'job-2'], pages: [rel], before: async () => null })
     expect(out.summary).toEqual({ checked: 2, unverified: 0 })
     // The service's own words inside the artifact are not part of the corpus.
-    const corpus = jobCorpus(vaultRoot, ['job-1']).text
-    expect(corpus).not.toContain(normalizeQuoteText(FENCE_NOTICE.slice(0, 60)))
-    expect(corpus).not.toMatch(/untrusted-source/)
+    const corpus = (await jobCorpus(vaultRoot, ['job-1'])).index
+    expect(corpus).not.toContain(wordIndex(FENCE_NOTICE.slice(0, 60)).trim())
+    expect(corpus).not.toMatch(/untrusted/)
     // Nor is the banner: the copy's address is the service's note, not the document's words.
     expect(corpus).not.toMatch(/open-access copy/)
   })

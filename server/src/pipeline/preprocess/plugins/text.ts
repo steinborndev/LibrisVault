@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { fenceWithWarnings } from '../fence.js'
-import { assessExtractedContent, canonicalUrlOf, extractArticle } from '../html.js'
+import { assessExtractedContent, canonicalUrlOf, extractArticle, htmlTitle } from '../html.js'
 
 /**
  * Extensions treated as ingestible text with no normalization step.
@@ -78,6 +78,7 @@ const HTML_EXTS = new Set(['html', 'htm'])
 async function extractSavedPage({ probe, jobDir, tools }: NormalizeContext): Promise<NormalizeResult> {
   const html = fs.readFileSync(probe.filePath, 'utf8')
   const url = canonicalUrlOf(html)
+  const title = htmlTitle(html)
   const extracted = await extractArticle({ filePath: probe.filePath, html, tools, notePrefix: 'saved web page: ' })
   const markdown = extracted.markdown
   const notes: string[] = [...extracted.notes]
@@ -101,6 +102,7 @@ async function extractSavedPage({ probe, jobDir, tools }: NormalizeContext): Pro
     normalizedPath,
     normalizedChars: markdown.length,
     ...(url !== undefined ? { url } : {}),
+    ...(title !== undefined ? { title } : {}),
     notes,
     ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
   }

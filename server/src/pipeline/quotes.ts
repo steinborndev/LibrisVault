@@ -18,8 +18,10 @@
  */
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { isExemptPath } from './expand.js'
+import { runConverter } from './preprocess/sandbox.js'
 import { documentTextOf } from './preprocess/fence.js'
 import { htmlToText } from './preprocess/html.js'
 import type { ValidationFinding } from './validator.js'
@@ -95,37 +97,76 @@ export function normalizeQuoteText(text: string): string {
     .trim()
 }
 
+/**
+ * The WORDS of a text: runs of letters and digits, and nothing else.
+ *
+ * Comparing characters was the mistake the second calibration round found (see the record in
+ * docs/tasks/TASKS-SOURCES.md). A quotation differs from its source in punctuation constantly and
+ * in words almost never: the source puts one word of the sentence in typographic quotes and the
+ * page quotes the sentence without them, the page writes a comma where the source has a dash, a
+ * bracket closes somewhere. None of that changes what was said. So both sides are reduced to
+ * their words, and the comparison is about those.
+ */
+export function wordsOf(text: string): string[] {
+  return normalizeQuoteText(text).match(/[\p{L}\p{N}]+/gu) ?? []
+}
+
+/**
+ * The corpus as one searchable line of space-delimited words, with a space at each end so a
+ * needle can be bounded on both sides and no match ever starts inside a word.
+ */
+export function wordIndex(text: string): string {
+  return ` ${wordsOf(text).join(' ')} `
+}
+
+/** One segment as a needle for {@link wordIndex}. */
+const needleOf = (words: readonly string[]): string => ` ${words.join(' ')} `
+
 /** The ellipsis shapes a quote uses to skip a passage (7.3). */
 const ELLIPSIS = /\s*(?:\[\s*(?:\.\.\.|…)\s*\]|\(\s*(?:\.\.\.|…)\s*\)|\.\.\.|…)\s*/
 
 /**
  * Whether a quote stands in the corpus: every segment of three words or more, in order, at
- * increasing positions. Both sides are already normalized.
+ * increasing positions. `corpusIndex` comes from {@link wordIndex}.
  *
  * The ORDER is what makes an ellipsis quote checkable: "A ... B" holds when A comes before B in
  * the document, and a quote that stitches two unrelated passages backwards does not.
  */
-export function quoteHolds(quote: string, corpus: string): boolean {
-  const segments = quote.split(ELLIPSIS).map(trimEdges).filter((s) => s !== '')
+export function quoteHolds(quote: string, corpusIndex: string): boolean {
   let from = 0
-  for (const segment of segments) {
-    if (segment.split(' ').filter(Boolean).length < MIN_SEGMENT_WORDS) continue
-    const at = corpus.indexOf(segment, from)
+  for (const segment of quote.split(ELLIPSIS)) {
+    const words = wordsOf(segment)
+    if (words.length < MIN_SEGMENT_WORDS) continue
+    const needle = needleOf(words)
+    const at = corpusIndex.indexOf(needle, from)
     if (at === -1) return false
-    from = at + segment.length
+    /*
+     * Minus one: two adjacent matches share the space between them, and advancing past it would
+     * make the next needle's leading space unfindable.
+     */
+    from = at + needle.length - 1
   }
   return true
 }
 
 /**
- * Punctuation at the EDGE of a quotation belongs to the quoting page, not to the source: a
- * title quoted with the comma inside the marks ("Scalable Diffusion Models with Transformers,")
- * and a sentence given a closing period are the two shapes, and both made the last word of the
- * quote unfindable. Measured: 17 of 111 failures in the calibration were exactly this, several
- * with 19 of 20 words already matching.
+ * The longest run of a quote's own words that DOES stand in the corpus.
+ *
+ * What tells a misquote from an invention, and the reason the finding says it: "19 of 20 words in
+ * a row" is a wrong pronoun or a dropped word, and "3 of 20" is a sentence nobody wrote. The
+ * second calibration round found a quarter of the failures were the first kind, which
+ * "not found in the source" describes badly.
  */
-function trimEdges(segment: string): string {
-  return segment.replace(/^[^\p{L}\p{N}]+/u, '').replace(/[^\p{L}\p{N}]+$/u, '')
+export function longestRun(quote: string, corpusIndex: string): number {
+  const words = wordsOf(quote)
+  let best = 0
+  for (let i = 0; i < words.length; i++) {
+    // Each start extends only while it is still found, so this stays linear per start.
+    let n = best
+    while (i + n < words.length && corpusIndex.includes(needleOf(words.slice(i, i + n + 1)))) n++
+    if (n > best) best = n
+  }
+  return best
 }
 
 // --- what counts as a quote on a page (7.1) ----------------------------------
@@ -150,30 +191,46 @@ export function quotableBody(markdown: string): string {
 /** The four typographies a quotation may wear (7.1). Single quotes are not considered. */
 const PAIRS: ReadonlyArray<{ readonly open: string; readonly close: string }> = [
   { open: '"', close: '"' },
-  { open: '“', close: '”' },
+  // German before English: `„…“` closes with the character `“…”` opens with, and the scan below
+  // must read a `„` as the start of a German quotation rather than wait for an English one.
   { open: '„', close: '“' },
+  { open: '“', close: '”' },
   { open: '«', close: '»' },
 ]
 
 /**
- * Quotations inside quotation marks, taken at the OUTERMOST pair and never across a paragraph
- * break: a quotation mark whose partner is two paragraphs away is prose, not a quotation (an
- * apostrophe in `the 90"s`, a stray mark from an extraction).
+ * Quotations inside quotation marks, never across a paragraph break: a quotation mark whose
+ * partner is two paragraphs away is prose, not a quotation (an apostrophe in `the 90"s`, a stray
+ * mark from an extraction).
+ *
+ * ONE left-to-right scan over all four typographies, not one pass per typography. The German
+ * closing mark IS the English opening mark, so a per-typography pass let a German quotation's
+ * closer pair with an English quotation's closer somewhere further down the page - a span over
+ * everything between them, which then hid the real quotation behind it. Scanning once takes the
+ * German quotation first, because its opener comes first, and the marks it used are gone.
  */
 function quotedSpans(text: string): string[] {
   const out: string[] = []
-  for (const { open, close } of PAIRS) {
-    let i = 0
-    while (i < text.length) {
-      const start = text.indexOf(open, i)
-      if (start === -1) break
-      const end = text.indexOf(close, start + open.length)
-      if (end === -1) break
-      const inner = text.slice(start + open.length, end)
-      i = end + close.length
-      if (inner.length > MAX_QUOTE_CHARS || /\n[ \t]*\r?\n/.test(inner)) continue
-      out.push(inner)
+  let i = 0
+  while (i < text.length) {
+    const pair = PAIRS.find((p) => text.startsWith(p.open, i))
+    if (pair === undefined) {
+      i++
+      continue
     }
+    const end = text.indexOf(pair.close, i + pair.open.length)
+    if (end === -1) {
+      i++
+      continue
+    }
+    const inner = text.slice(i + pair.open.length, end)
+    if (inner.length > MAX_QUOTE_CHARS || /\n[ \t]*\r?\n/.test(inner)) {
+      // Not a quotation: step over the mark, so a real opener further on is still found.
+      i += pair.open.length
+      continue
+    }
+    out.push(inner)
+    i = end + pair.close.length
   }
   return out
 }
@@ -223,6 +280,37 @@ interface CorpusManifest {
   readonly normalized?: string
   readonly original?: string
   readonly passImageToAgent?: boolean
+  /** The document's own title, which the extraction usually drops (see below). */
+  readonly title?: string
+}
+
+/**
+ * A second extraction of a PDF, in READING ORDER.
+ *
+ * The plugin extracts with `-layout`, which keeps a table readable and interleaves the lines of a
+ * two-column paper: a sentence that runs across the column break comes out with the neighbouring
+ * column's words in the middle of it, so a quotation that is verbatim in the paper is unfindable
+ * in the artifact. `pdftotext` without `-layout` follows the text's own order, which is what a
+ * quotation follows. Measured in the second calibration round; it costs one extraction per ingest
+ * with a PDF, after the commit, and it is the corpus only - the agent's artifact is untouched.
+ *
+ * Contained like every other conversion, into a scratch directory outside the vault.
+ */
+async function readingOrderText(dir: string, original: string): Promise<string | undefined> {
+  if (!/\.pdf$/i.test(original)) return undefined
+  const src = path.join(dir, original)
+  if (!fs.existsSync(src)) return undefined
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'quote-corpus-'))
+  try {
+    const txt = path.join(out, 'reading-order.txt')
+    await runConverter('pdftotext', ['-enc', 'UTF-8', src, txt], { reads: [src], writes: out, timeoutMs: 120_000 })
+    return fs.readFileSync(txt, 'utf8')
+  } catch {
+    // A missing tool or an unreadable PDF: the layout extraction stays the whole corpus.
+    return undefined
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true })
+  }
 }
 
 /**
@@ -230,7 +318,7 @@ interface CorpusManifest {
  * text drop, with the untrusted fence and the banner taken off (the service's own words are not
  * the document's). A job whose artifact is an image or an unreadable file has no corpus.
  */
-export function jobCorpusText(vaultRoot: string, jobId: string): string | undefined {
+export async function jobCorpusText(vaultRoot: string, jobId: string): Promise<string | undefined> {
   const dir = path.join(vaultRoot, '.raw', jobId)
   let manifest: CorpusManifest
   try {
@@ -244,6 +332,7 @@ export function jobCorpusText(vaultRoot: string, jobId: string): string | undefi
     // (an image, a deferred file) is not text at all.
     (manifest.passImageToAgent !== true && (manifest.type === 'text' || manifest.type === 'other') ? manifest.original : undefined)
   if (name === undefined) return undefined
+  let text: string
   try {
     const raw = documentTextOf(fs.readFileSync(path.join(dir, name), 'utf8'))
     /*
@@ -251,21 +340,32 @@ export function jobCorpusText(vaultRoot: string, jobId: string): string | undefi
      * in its text rather than between its tags. Jobs from before the saved-page extraction
      * (2026-09-12) are all of this shape, and the calibration reads them.
      */
-    return /\.html?$/i.test(name) || /^\s*<(?:!doctype|html)/i.test(raw.slice(0, 200)) ? htmlToText(raw) : raw
+    text = /\.html?$/i.test(name) || /^\s*<(?:!doctype|html)/i.test(raw.slice(0, 200)) ? htmlToText(raw) : raw
   } catch {
     return undefined
   }
+  /*
+   * And two things the artifact does not hold. The TITLE: a page's own heading is the address for
+   * a fetched document and defuddle drops the `<h1>`, so a run that quotes the document's title -
+   * which is a perfectly ordinary thing to do - was reported as inventing it. The READING ORDER:
+   * see above. Both were found in the second calibration round.
+   */
+  const extra = [manifest.title, manifest.original === undefined ? undefined : await readingOrderText(dir, manifest.original)]
+  return [text, ...extra.filter((t): t is string => t !== undefined && t.trim() !== '')].join('\n\n')
 }
 
 /** The corpus for a job or a whole batch: the union of its members' own texts (7.2). */
-export function jobCorpus(vaultRoot: string, jobIds: readonly string[]): { readonly text: string; readonly artifacts: number } {
+export async function jobCorpus(
+  vaultRoot: string,
+  jobIds: readonly string[],
+): Promise<{ readonly index: string; readonly artifacts: number }> {
   const parts: string[] = []
   for (const id of jobIds) {
-    const text = jobCorpusText(vaultRoot, id)
+    const text = await jobCorpusText(vaultRoot, id)
     if (text !== undefined && text.trim() !== '') parts.push(text)
   }
-  // Normalized once, here: every quote is then compared against the same string.
-  return { text: normalizeQuoteText(parts.join('\n\n')), artifacts: parts.length }
+  // Reduced to its words once, here: every quote is then compared against the same line.
+  return { index: wordIndex(parts.join('\n\n')), artifacts: parts.length }
 }
 
 // --- the check ---------------------------------------------------------------
@@ -323,18 +423,22 @@ export async function checkQuotes(args: {
   for (const rel of pages) quotes.push(...(await newQuotesOf(args.vaultRoot, rel, args.before)))
   if (quotes.length === 0) return { findings: [], summary: { checked: 0, unverified: 0 } }
 
-  const corpus = jobCorpus(args.vaultRoot, args.jobIds)
-  if (corpus.artifacts === 0 || corpus.text === '') {
+  const corpus = await jobCorpus(args.vaultRoot, args.jobIds)
+  if (corpus.artifacts === 0 || corpus.index.trim() === '') {
     return { findings: [], summary: { checked: 0, unverified: 0, note: 'no readable artifact for this job' } }
   }
 
   const findings: ValidationFinding[] = []
   for (const quote of quotes) {
-    if (quoteHolds(normalizeQuoteText(quote.text), corpus.text)) continue
+    if (quoteHolds(quote.text, corpus.index)) continue
+    // How much of it IS there, so a misquote reads as one and an invention as one (7.4).
+    const words = wordsOf(quote.text).length
     findings.push({
       rule: 'quote',
       path: quote.path,
-      message: `quote not found in the source: ${JSON.stringify(quote.text.slice(0, FINDING_CHARS))}`,
+      message:
+        `quote not found in the source: ${JSON.stringify(quote.text.slice(0, FINDING_CHARS))} ` +
+        `(longest match ${longestRun(quote.text, corpus.index)} of ${words} words)`,
     })
   }
   return { findings, summary: { checked: quotes.length, unverified: findings.length } }

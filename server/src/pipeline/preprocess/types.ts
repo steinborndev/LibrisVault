@@ -43,6 +43,11 @@ export interface NormalizeResult {
   readonly deferred?: boolean
   /** The address the material names for itself (a saved page's canonical link); the manifest's `url` when the job has none. */
   readonly url?: string
+  /**
+   * The document's own title, when it states one. Kept because the extraction usually drops it,
+   * and a quotation of the title is then unverifiable (docs/sources/SPEC.md 7.6).
+   */
+  readonly title?: string
   /** Human-readable decisions worth recording in the manifest and job log. */
   readonly notes: readonly string[]
   /**
@@ -82,6 +87,8 @@ export interface Manifest {
   readonly type: JobType
   readonly originalName: string
   readonly url?: string
+  /** The document's own title, when it states one (section 7.6); part of the quote corpus. */
+  readonly title?: string
   readonly sha256?: string
   readonly createdAt: string
   /** Names (relative to the job dir) of the original and normalized artifacts. */

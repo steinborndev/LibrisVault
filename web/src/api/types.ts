@@ -1132,6 +1132,12 @@ export interface ReadingItem {
    * that read one (docs/sources/SPEC.md sections 5.4 and 6.2). Null while none is known.
    */
   oa: { url: string; version: string | null; at: string | null } | null
+  /**
+   * True when the copy above was already fetched by an ingest and did not read as full text, and
+   * no other copy is known. The mark stays - a copy does exist at that address - but the board
+   * says so rather than offering a click that would repeat the same failure.
+   */
+  oaExhausted: boolean
   /** The ingest of this url, when the service has one. */
   job: { id: string; status: string; pages: number } | null
 }

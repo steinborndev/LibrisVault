@@ -14,6 +14,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { doiFromHtml, doiFromUrl } from '../src/pipeline/identifiers.js'
 import {
   OA_MIN_FULL_TEXT_CHARS,
+  bestUntriedCandidate,
+  lookupExhausted,
   lookupIsFresh,
   lookupSaysNothing,
   oaBanner,
@@ -242,6 +244,65 @@ describe('a URL job that cannot read its page (docs/sources/SPEC.md section 5)',
     expect(res.manifest.oa?.retracted).toBe(true)
     expect(artifactOf(res)).toContain('OpenAlex marks this work as retracted.')
     expect(res.manifest.notes.join(' ')).toMatch(/OpenAlex marks this work as retracted/)
+  })
+
+  it('takes the copy a reading-list entry names, before any resolver and without a DOI', async () => {
+    /*
+     * The board's one click (6.3): it posts the ENTRY's address, which here is a publisher page
+     * with no DOI anywhere - the entry's identity was an arXiv id. Without the hint the job would
+     * fail on the same wall the Fellow met.
+     */
+    const request = routes({
+      'https://publisher.example/articles/one': { status: 403 },
+      'https://arxiv.org/pdf/2506.20907': { contentType: 'application/pdf', body: PDF_BYTES },
+    })
+    const res = await preprocessUrl({
+      jobId: 'job-1',
+      url: 'https://publisher.example/articles/one',
+      vaultRoot,
+      jobDir: path.join(vaultRoot, '.raw', 'job-1'),
+      resolve,
+      request,
+      tools: TOOLS,
+      oa: { enabled: true, courtesyMs: 0, env: {}, hint: { url: 'https://arxiv.org/pdf/2506.20907', version: 'submittedVersion' } },
+    })
+    expect(res.type).toBe('pdf')
+    expect(res.manifest.oa).toMatchObject({
+      kind: 'rescued',
+      url: 'https://arxiv.org/pdf/2506.20907',
+      source: 'reading-list',
+      host: 'arxiv.org',
+      version: 'submittedVersion',
+    })
+    // No resolver was asked: the address was already known.
+    expect(asked.filter((a) => a.includes('openalex'))).toEqual([])
+    // And it is a candidate like any other - the same gate and the same bars.
+    expect(asked).toContain('https://arxiv.org/pdf/2506.20907')
+  })
+
+  it('falls back to the resolvers when the entry\'s copy does not work out', async () => {
+    const request = routes({
+      [`https://doi.org/${DOI}`]: { status: 403 },
+      // The hinted copy is a record page, under the full-text bar.
+      // A record page: long enough to pass the junk gate, too short to be the paper.
+      'https://repository.example/stale': { body: `<html><body><p>${'A record page with a title and two authors. '.repeat(10)}</p></body></html>` },
+      'https://api.openalex.org/': openalex([
+        { is_oa: true, pdf_url: null, landing_page_url: 'https://repository.example/paper', version: 'publishedVersion', license: null, source: { display_name: 'Repository' } },
+      ]),
+      'https://repository.example/paper': { body: `<html><body><article><p>${fullText()}</p></article></body></html>` },
+    })
+    const res = await preprocessUrl({
+      jobId: 'job-1',
+      url: `https://doi.org/${DOI}`,
+      vaultRoot,
+      jobDir: path.join(vaultRoot, '.raw', 'job-1'),
+      resolve,
+      request,
+      tools: TOOLS,
+      oa: { enabled: true, courtesyMs: 0, env: {}, hint: { url: 'https://repository.example/stale' } },
+    })
+    expect(res.manifest.oa).toMatchObject({ source: 'openalex', url: 'https://repository.example/paper' })
+    expect(res.manifest.notes.join(' ')).toMatch(/the copy at repository\.example is \d+ characters, not full text/)
   })
 
   it('does nothing at all when the setting is off', async () => {
@@ -482,6 +543,48 @@ describe('the lookup table (5.5)', () => {
     // A row from an older build is no answer rather than a crash.
     store.rows.set(DOI, { checkedAt: 'x', found: true, result: { nonsense: true } })
     expect(cache.get(DOI)).toBeUndefined()
+  })
+})
+
+describe('what may be marked on a reading-list entry, and what may not (6.3)', () => {
+  const candidate = (over: Partial<OaCandidate>): OaCandidate => ({
+    url: 'https://repository.example/paper.pdf',
+    format: 'pdf',
+    version: 'publishedVersion',
+    host: 'repository.example',
+    license: null,
+    source: 'openalex',
+    ...over,
+  })
+  const round = (over: Partial<OaLookup>): OaLookup => ({
+    doi: DOI,
+    checkedAt: '2026-09-13T00:00:00.000Z',
+    candidates: [],
+    tried: [],
+    retracted: false,
+    rateLimited: false,
+    accepted: null,
+    ...over,
+  })
+
+  it('takes the accepted copy, else the best copy nobody has fetched yet', () => {
+    const pdf = candidate({})
+    const landing = candidate({ url: 'https://repository.example/paper', format: 'landing' })
+    expect(bestUntriedCandidate(round({ accepted: landing, candidates: [pdf, landing] }))?.url).toBe(landing.url)
+    expect(bestUntriedCandidate(round({ candidates: [landing, pdf] }))?.url).toBe(pdf.url)
+    // A copy an ingest already pulled and threw away as a record page is not somewhere to send
+    // the user; the next one is.
+    expect(bestUntriedCandidate(round({ candidates: [pdf, landing], tried: [pdf] }))?.url).toBe(landing.url)
+    expect(bestUntriedCandidate(round({ candidates: [pdf, landing], tried: [pdf, landing] }))).toBeUndefined()
+  })
+
+  it('calls a DOI exhausted only when every copy it has was fetched and none held', () => {
+    const pdf = candidate({})
+    expect(lookupExhausted(round({ candidates: [pdf], tried: [pdf] }))).toBe(true)
+    expect(lookupExhausted(round({ candidates: [pdf] }))).toBe(false)
+    expect(lookupExhausted(round({ candidates: [pdf], tried: [pdf], accepted: pdf }))).toBe(false)
+    // Nothing was ever named: that is "nothing found", not "everything tried".
+    expect(lookupExhausted(round({}))).toBe(false)
   })
 })
 

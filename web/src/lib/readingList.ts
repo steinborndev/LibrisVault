@@ -78,11 +78,19 @@ export function copyVersionWords(version: string | null): string {
   return 'version not stated'
 }
 
+/** Whether the board may offer the one click: a copy is named and nobody has ruled it out yet. */
+export const hasUsableCopy = (e: ReadingItem): boolean => e.oa !== null && !e.oaExhausted
+
 /** What the row says about reaching the document, or null when there is nothing to say. */
 export function reachLabel(e: ReadingItem): string | null {
-  // An open copy is the one thing that changes what a paywalled row means: the service CAN read
-  // this one after all, through the copy, so the label says so beside the reach.
-  const copy = e.oa !== null ? ` · open copy · ${copyVersionWords(e.oa.version)}` : ''
+  /*
+   * An open copy is the one thing that changes what a paywalled row means: the service CAN read
+   * this one after all, through the copy, so the label says so beside the reach. Once an ingest
+   * has fetched that copy and found a record page rather than the paper, the label says THAT
+   * instead - the address is still real, it is just not the document (docs/sources/SPEC.md 6.3).
+   */
+  const copy =
+    e.oa === null ? '' : e.oaExhausted ? ' · copy named, not readable' : ` · open copy · ${copyVersionWords(e.oa.version)}`
   if (e.reach === 'paywalled') return `${e.blocked !== null ? `paywalled · ${e.blocked}` : 'paywalled'}${copy}`
   if (e.reach === 'unreachable') return `${e.blocked !== null ? `unreachable · ${e.blocked}` : 'unreachable'}${copy}`
   return copy === '' ? null : copy.replace(/^ · /, '')

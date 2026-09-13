@@ -13,7 +13,7 @@ import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
 import { CommitDismissalStore } from './db/commit-dismissals.js'
 import { OaLookupStore } from './db/oa.js'
-import { lookupOpenAccess, lookupSaysNothing, oaCacheOver } from './pipeline/preprocess/oa.js'
+import { bestUntriedCandidate, lookupExhausted, lookupOpenAccess, lookupSaysNothing, oaCacheOver } from './pipeline/preprocess/oa.js'
 import { detectTools } from './pipeline/preprocess/index.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
@@ -117,6 +117,15 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     autoCommit: () => settings.effective(config).gitAutoCommit,
     byRef: (ref) => queue.dedupeIndex.byRef(ref),
     byUrl: (url) => queue.dedupeIndex.byUrl(url),
+    /*
+     * Whether every copy this DOI has was already fetched and none was full text. The board then
+     * says so instead of offering a click that would repeat the same failure; the mark on the
+     * entry stays, because a copy does exist at that address (docs/sources/SPEC.md 6.3).
+     */
+    copyExhausted: (doi) => {
+      const row = oaCacheOver(oaLookups).get(doi)
+      return row !== undefined && lookupExhausted(row)
+    },
   })
   // One lookup table for both readers: the queue's recovery and the nightly sweep (5.5, 6.1).
   const oaLookups = new OaLookupStore(db)
@@ -323,7 +332,9 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
               },
               lookup: async (doi) => {
                 const round = await lookupOpenAccess(doi, { jobDir: config.vaultRoot, tools: await detectTools(), cache })
-                const best = round.accepted ?? round.candidates[0]
+                // Only a copy nobody has fetched yet: one an ingest already threw away as a
+                // record page is not somewhere to send the user.
+                const best = bestUntriedCandidate(round)
                 return best === undefined ? undefined : { url: best.url, version: best.version, at: today }
               },
             })

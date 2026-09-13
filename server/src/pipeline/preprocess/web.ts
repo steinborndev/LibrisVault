@@ -42,7 +42,7 @@ import {
   type FetchOptions,
   type PinnedRequestFn,
 } from './fetch.js'
-import { assessExtractedContent, extractArticle } from './html.js'
+import { assessExtractedContent, extractArticle, htmlTitle } from './html.js'
 import { preprocess } from './index.js'
 import { detectTools } from './tools.js'
 import { findUrlHandler } from './url-handlers.js'
@@ -109,6 +109,8 @@ export interface PreprocessUrlInput {
     readonly env?: NodeJS.ProcessEnv
     readonly courtesyMs?: number
     readonly now?: () => Date
+    /** A copy the service already knows of, tried before the resolvers (section 6.3). */
+    readonly hint?: { readonly url: string; readonly version?: string | null }
   }
 }
 
@@ -243,6 +245,8 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
     type: JobType
     normalizedName: string
     ocrApplied: boolean
+    /** The document's own title, for the manifest and the quote corpus (7.6). */
+    title?: string
     /** Set only when the text did not come from the address the job names (5.4). */
     oa?: OaDisclosure
   } = { markdown: '', original: '', type: 'web', normalizedName: 'normalized.md', ocrApplied: false }
@@ -273,10 +277,16 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
     }
   }
 
+  /**
+   * Whether there is anything to look for: a DOI to ask the resolvers about, or an address the
+   * reading list already named (6.3), which is what carries an entry identified by an arXiv id.
+   */
+  const recoverable = (doi: string | undefined): boolean => oaEnabled && (doi !== undefined || input.oa?.hint !== undefined)
+
   /** One attempt at a copy. Collects its notes either way, so the job log says what was tried. */
-  const recover = async (kind: OaKind, haveChars: number, doi: string): Promise<{ recovery?: OaRecovery; notes: readonly string[] }> => {
+  const recover = async (kind: OaKind, haveChars: number, doi: string | undefined): Promise<{ recovery?: OaRecovery; notes: readonly string[] }> => {
     const out = await recoverOpenAccess({
-      doi,
+      ...(doi === undefined ? {} : { doi }),
       kind,
       haveChars,
       deps: {
@@ -290,6 +300,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
         ...(input.oa?.env ? { env: input.oa.env } : {}),
         ...(input.oa?.courtesyMs !== undefined ? { courtesyMs: input.oa.courtesyMs } : {}),
         ...(input.oa?.now ? { now: input.oa.now } : {}),
+        ...(input.oa?.hint ? { hint: input.oa.hint } : {}),
       },
     })
     notes.push(...out.notes)
@@ -342,7 +353,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
        * open copy answers, and is raised as before.
        */
       const refused = err instanceof FetchStatusError && (err.status === 401 || err.status === 403)
-      if (!refused || !oaEnabled || addressDoi === undefined) throw err
+      if (!refused || !recoverable(addressDoi)) throw err
       const rescue = await recover('rescued', 0, addressDoi)
       if (rescue.recovery === undefined) {
         // A rescue fails exactly as the fetch failed, with the note appended (5.3).
@@ -364,7 +375,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
          * same DOI may be a text PDF rather than a scan (5.1). Nothing is lost if it is not - the
          * job stays deferred with the lane's own reason.
          */
-        if (!result.deferred || !oaEnabled || addressDoi === undefined) return result
+        if (!result.deferred || !recoverable(addressDoi)) return result
         /*
          * The lane's own reason comes along: if a copy is found, this manifest is replaced by the
          * one below, and without its notes the job log would no longer say why the document it
@@ -384,6 +395,10 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
         const rawPath = path.join(input.jobDir, 'raw.html')
         fs.writeFileSync(rawPath, html, 'utf8')
         out.original = 'raw.html'
+        // The page's own title: the artifact's first line is the address, and defuddle drops
+        // the heading, so a quotation of the title would be unverifiable without this (7.6).
+        const pageTitle = htmlTitle(html)
+        if (pageTitle !== undefined) out.title = pageTitle
 
         const extracted = await extractArticle({ filePath: rawPath, html, tools })
         out.markdown = extracted.markdown
@@ -397,9 +412,10 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
         const problem = assessExtractedContent(out.markdown)
         if (problem !== null) {
           // A login wall, a bot wall, an empty shell: the page could not be read at all (5.1).
-          if (oaEnabled && pageDoi !== undefined) notes.push(`open access: the page did not read as an article (${problem})`)
-          const rescue: { recovery?: OaRecovery; notes: readonly string[] } =
-            oaEnabled && pageDoi !== undefined ? await recover('rescued', 0, pageDoi) : { notes: [] }
+          if (recoverable(pageDoi)) notes.push(`open access: the page did not read as an article (${problem})`)
+          const rescue: { recovery?: OaRecovery; notes: readonly string[] } = recoverable(pageDoi)
+            ? await recover('rescued', 0, pageDoi)
+            : { notes: [] }
           if (rescue.recovery === undefined) {
             const appended = rescue.notes.length > 0 ? ` ${rescue.notes[rescue.notes.length - 1]}.` : ''
             throw new PreprocessError(
@@ -407,7 +423,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
             )
           }
           takeRecovery(rescue.recovery)
-        } else if (out.markdown.trim().length < OA_MIN_FULL_TEXT_CHARS && oaEnabled && pageDoi !== undefined) {
+        } else if (out.markdown.trim().length < OA_MIN_FULL_TEXT_CHARS && recoverable(pageDoi)) {
           /*
            * The page was read, but an abstract is not the paper (5.1). A copy has to be BOTH
            * longer than this and full text to replace it; otherwise the thin text stays, with
@@ -449,6 +465,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
     // The requested address stays the job's own, whatever the text came from (5.4, D3).
     url: url.href,
     createdAt: nowIso(),
+    ...(out.title !== undefined ? { title: out.title } : {}),
     original: out.original,
     normalized: out.normalizedName,
     normalizedChars: out.markdown.length,

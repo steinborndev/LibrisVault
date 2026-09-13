@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { copyVersionWords, inReach, isReachable, reachLabel, readingView } from '../src/lib/readingList.ts'
+import { copyVersionWords, hasUsableCopy, inReach, isReachable, reachLabel, readingView } from '../src/lib/readingList.ts'
 import type { ReadingItem } from '../src/api/types.ts'
 
 const item = (over: Partial<ReadingItem>): ReadingItem => ({
@@ -27,6 +27,7 @@ const item = (over: Partial<ReadingItem>): ReadingItem => ({
   filedAt: null,
   archivedAt: null,
   oa: null,
+  oaExhausted: false,
   job: null,
   ...over,
 })
@@ -144,6 +145,16 @@ describe('an entry with an open copy (docs/sources/SPEC.md 6.3)', () => {
     expect(copyVersionWords('acceptedVersion')).toBe('accepted manuscript')
     expect(copyVersionWords('submittedVersion')).toBe('preprint')
     expect(copyVersionWords(null)).toBe('version not stated')
+  })
+
+  it('says a copy was tried and found wanting, and offers no click for it', () => {
+    const copy = { url: 'https://repository.example/record.pdf', version: 'publishedVersion', at: '2026-09-13' }
+    const tried = item({ reach: 'paywalled', blocked: 'HTTP 403', oa: copy, oaExhausted: true })
+    // The address is real, so the mark stays; it is just not the paper.
+    expect(reachLabel(tried)).toBe('paywalled · HTTP 403 · copy named, not readable')
+    expect(hasUsableCopy(tried)).toBe(false)
+    expect(hasUsableCopy(item({ reach: 'paywalled', oa: copy }))).toBe(true)
+    expect(hasUsableCopy(item({ reach: 'paywalled' }))).toBe(false)
   })
 
   it('stays on the paywalled side of the toggle: the copy does not make the entry open', () => {

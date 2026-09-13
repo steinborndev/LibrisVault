@@ -93,15 +93,24 @@ instance, nothing is written to the vault, no agent run is started except the tw
 
 ## The calibration record (spec 7.6)
 
-`server/src/cli/quoteprobe.ts` over the last 19 finished ingests that still have their
-artifacts AND their commit, on 2026-09-14. Four rounds, each one a decision the numbers forced:
+`server/src/cli/quoteprobe.ts` over the last 19 finished ingests that still have their artifacts
+AND their commit. Two sessions: four rounds on 2026-09-14 before the check shipped, and four more
+the same day after a review read the residue and found the classification wrong.
 
 | What was checked | Quotes | Unverified | Rate |
 |---|---|---|---|
 | Every quote on every page the job touched | 2,971 | 2,921 | 98.3 % |
 | Only the quotes the job ADDED (its commit against its parent) | 476 | 427 | 89.7 % |
 | ...and not on the vault's journals, indexes and `wiki/meta/` | 154 | 111 | 72.1 % |
-| ...and punctuation at a quotation's edge ignored | 154 | 100 | **64.9 %** |
+| ...and punctuation at a quotation's edge ignored | 154 | 100 | 64.9 % |
+| ...and WORDS compared rather than characters | 154 | 98 | 63.6 % |
+| ...and the document's own title in the corpus | 154 | 98 | 63.6 % |
+| ...and a second PDF extraction in reading order in the corpus | 154 | 90 | **58.4 %** |
+
+Each row was measured on its own, by taking the later additions back out. The title row moves
+nothing HERE and is kept all the same: these nineteen jobs were preprocessed before the manifest
+carried a title, so there is none to read for them. It will count for what is ingested from now
+on, and the class it fixes was found in this sample by hand.
 
 What each round says:
 
@@ -109,31 +118,61 @@ What each round says:
    carry every earlier run's quotations, and one job's document cannot possibly contain them.
    So the check compares what stands on a page now against what stood there before the run's
    commit; without a commit to compare against it checks nothing and says so.
-2. **A run narrates in quotation marks on the bookkeeping pages** - "fold this into an
-   overlapping page", the user's own question, a source's title. 292 of those 476 quotes stood
-   on such a page, 288 of them unverified. Those pages are out of scope, the same set the link
-   checks and the expand rules already exempt.
-3. **The comma inside the quotation marks is the quoting page's, not the source's.** 17 of 111
-   failures were edge punctuation, several with 19 of 20 words already matching.
+2. **A run narrates in quotation marks on the bookkeeping pages** - the next step it plans, the
+   user's own question, a source's title. 292 of those 476 quotes stood on such a page, 288 of
+   them unverified. Those pages are out of scope, the same set the link checks and the expand
+   rules already exempt.
+3. **The comma inside the quotation marks is the quoting page's, not the source's.**
+4. **A quotation differs from its source in punctuation constantly and in words almost never.**
+   The source puts one word of the sentence in typographic quotes and the page quotes the
+   sentence without them; the page writes a comma where the source has a dash. Both sides are
+   reduced to their WORDS now (runs of letters and digits), and the comparison is over those.
+5. **The document's own title is not in the artifact.** A fetched page's artifact opens with its
+   ADDRESS and defuddle drops the `<h1>`; a PDF's title page lands wherever the layout had it. A
+   run quoting the title - an ordinary thing to do - was reported as inventing it. The title now
+   travels in the manifest (`<title>`, Open Graph, `citation_title`, `pdfinfo`) and joins the
+   corpus.
+6. **`pdftotext -layout` interleaves the columns of a two-column paper**, so a sentence that runs
+   across the column break comes out with the neighbouring column's words inside it. The check
+   adds a second extraction in reading order (no `-layout`, contained, into a scratch directory
+   outside the vault) to the corpus. It roughly doubles a PDF corpus - one job went from 51,867
+   to 97,853 words of index - and it is the corpus only: the agent's artifact is untouched.
 
-The residue, read line by line: of the 100 that remain, **8** have 60 % or more of their words
-in the document in order (the near misses, where normalization could still win: about 5 % of
-what is checked), 12 are partial, and **80 have fewer than three consecutive words in the
-document at all**. Those 80 are the finding, and three classes make them up:
+**A method error in the first record, corrected.** It claimed 80 of the 100 failures had "fewer
+than three consecutive words in the document". That number came from measuring the leading PREFIX
+of each quote, which is a different question: a quote whose first word is wrong and which is
+verbatim after it scores zero on a prefix and nearly everything on the real measure. The review
+of 2026-09-14 measured the longest RUN of a quote's own words instead and found a quarter of the
+residue was normalization rather than invention - which rounds 4 to 6 above then removed. The
+probe prints the distribution itself now, so the record below is one command away:
 
-- a **paraphrase in quotation marks** - the same source quoted verbatim on one page and
-  condensed on another, which is how it was recognised;
-- a **coined slogan** the run formed out of the material and then quoted;
-- a **translated quote**: one job of 17 quotes read a German source and quoted it in English,
-  against the vault's own language rule (a verbatim quotation keeps its language with a note).
-  Verified by hand against the artifact: the source says „Stelle sicher, dass der Dienststart in
-  unter 800 ms abgeschlossen ist", the page quotes "make sure service startup finishes in under
-  800ms".
+| How much of a failing quote IS in the document, in one run of words | Count | Share |
+|---|---|---|
+| All of it (a verbatim quote the check still refused) | 0 | 0 % |
+| 60 % up to all of it | 16 | 17.8 % |
+| 30 % up to 60 % | 21 | 23.3 % |
+| Under 30 % | 53 | 58.9 % |
+| (of all of them: fewer than three words in a row) | 60 | 66.7 % |
 
-So the rate ships as it is, and it is not noise: 64.9 % of the quotations these runs added are
-not in the text they read, word for word. The prevention side went in with chunk 2 (every
-writing run is now told to keep a quote verbatim, attributed and marked); this number is what
-it is up against, and the next twenty ingests can be measured against it with the same command.
+So: **no verbatim quotation is refused any more**, and the failures divide into two kinds the
+finding now names in its own text ("longest match 7 of 10 words"):
+
+- **16 misquotes**, most of them one word out - a pronoun, a tense, a figure written `1 million`
+  where the source writes it another way, a word dropped mid-sentence. Read individually: real
+  differences between what the page attributes and what the document says, not extraction noise.
+- **60 with fewer than three words in a row**, which is a sentence nobody wrote: a paraphrase in
+  quotation marks (the same source quoted verbatim on one page and condensed on another, which is
+  how it was recognised), a slogan the run coined out of the material, and one job of 17 quotes
+  that read a German source and quoted it in English - against the vault's own language rule,
+  which says a verbatim quotation keeps its language with a note. Verified by hand against that
+  job's artifact: the sentence exists in the document only in German.
+
+That is the rate the check ships with. It is a measurement of these runs' habits, not of the
+check: the prevention side went in with chunk 2 (every writing run is told to keep a quote
+verbatim, attributed and marked), and the same command measures the next twenty ingests against
+this record. One class is left open and noted below: a compound written `non-linearity` in the
+source and `nonlinearity` on the page is two words against one, and joining hyphenated tokens
+would fix it at the price of turning `10-20` into one number.
 
 ## Chunk 6: expand lock
 
@@ -299,12 +338,53 @@ it is up against, and the next twenty ingests can be measured against it with th
       opened record's facts read `QUOTES 12 checked · 1 unverified`. Server 1,183 tests (15
       new), web 482 (4 new), `tsc` and `eslint` clean in both.
 
+- [x] **Review fixes for chunks 4 and 5** (2026-09-14, second separate review). Hygiene first
+      (hard rule 7): the task file quoted a sentence from an ingested source verbatim in two
+      languages, a real paper title stood in two comments, and a real vault domain in a test
+      fixture - all three replaced by generic examples or by a description of the class.
+      Chunk 4, three findings:
+      1. The sweep marked `candidates[0]` without reading `tried`, so a copy an ingest had already
+         fetched and thrown away as a record page was still offered. `bestUntriedCandidate` is now
+         the one way to pick, in the shift and in the CLI; no untried copy means no mark.
+      2. An entry marked from an arXiv id has no DOI, so the board's click - which posts the
+         ENTRY's publisher address, by design - had nothing to resolve and failed on the same wall
+         the Fellow met. The entry's `oa_url` now travels to the job as a hint and is tried as the
+         FIRST candidate, through the same SSRF gate, the same caps and the same two bars; the
+         resolvers still run when it does not work out, and the recovery no longer needs a DOI at
+         all to try what is already known.
+      3. A mark was never revised: after an ingest that tried every copy and failed, the row kept
+         offering the click and the sweep skipped the entry for good. The board now reads the
+         lookup row - `lookupExhausted` - and says `copy named, not readable` with no button. The
+         mark itself stays true: a copy does exist at that address, it is just not the paper.
+      And `oasweep --write` is gone: marking belongs to the night shift behind the service's own
+      commit mutex, and a CLI with a second mutex could interleave a commit with it.
+      Chunk 5: the review reproduced the calibration, measured the residue by the longest RUN of a
+      quote's words rather than by its leading prefix, and found a quarter of it was normalization
+      rather than invention - my own classification was wrong, and the record above now says so
+      and carries the corrected method. Four changes followed (rounds 4 to 6 of the table, plus
+      the finding's wording): words are compared rather than characters, the document's own title
+      joins the corpus, a second PDF extraction in reading order joins it too, and every finding
+      names how much of the quote IS there ("longest match 7 of 10 words"). One scan over all four
+      typographies replaced one pass per typography, because `„…“` closes with the character
+      `“…”` opens with and a German quotation could pair with an English one across a page.
+      Measured: 154 quotes checked, 90 unverified (58.4 %, from 64.9 %), and NO verbatim quotation
+      refused any more (the review found three). `preprocprobe` PASS after the corpus gained a
+      `pdftotext` call. Server 1,192 tests (14 new), web 483 (1 new), `tsc` and `eslint` clean.
+
 ## Deviations from the spec
 
 - **`ReadingItem.oa` is `{ url, version, at }`, not `{ url, version, source }`** (spec 6.2).
   The page carries `oa_url`, `oa_version` and `oa_at`, so the date is what can be read back;
   the resolver's own name stays in the job's manifest, which is the record of what that job
   did. A `source` field on the item would have had to be invented on every read.
+- **A quotation is compared word by word, not character by character** (spec 7.3 lists the
+  normalizations). Same intent, one step further: both sides are reduced to runs of letters and
+  digits, so a mark the source puts around one word of the sentence, a comma where the source has
+  a dash, or a bracket the page adds cannot fail a quotation that is verbatim. Measured in the
+  second calibration round. Left open there: a compound the source hyphenates and the page does
+  not is still two words against one.
+- **A finding says how much of the quote was found** ("longest match 7 of 10 words") beyond the
+  wording spec 7.4 fixes, because "not found in the source" describes a one-word misquote badly.
 - **The quote check reads the quotes a run ADDED, not every quote on a page it touched**
   (spec 7.1), and it needs the run's commit to know the difference; without one it checks
   nothing and the record says so. Forced by the calibration: the spec's own wording reported

@@ -48,7 +48,12 @@ const DEFAULT_COURTESY_MS = 1000
 /** A 429 is retried this many times before the DOI is recorded as rate limited, never as absent. */
 const RATE_LIMIT_RETRIES = 2
 
-export type OaSource = 'openalex' | 'europepmc' | 'core'
+/**
+ * Where the address of a copy came from. `reading-list` is the entry's own `oa_url`, written
+ * there by an earlier round of the same three resolvers - naming it honestly beats reporting a
+ * resolver that was not asked this time.
+ */
+export type OaSource = 'openalex' | 'europepmc' | 'core' | 'reading-list'
 /** Version of record first, then the accepted and the submitted manuscript (D14). */
 export type OaVersion = 'publishedVersion' | 'acceptedVersion' | 'submittedVersion'
 /** What happened to the address the user gave: it was read but thin, or not read at all (2.4). */
@@ -114,11 +119,26 @@ export interface OaDeps {
   readonly now?: () => Date
   /** How a PDF candidate is turned into text; without it a PDF candidate is skipped. */
   readonly readPdf?: OaPdfReader
+  /**
+   * A copy the service already knows about, tried before any resolver: the `oa_url` of the
+   * reading-list entry this job came from (docs/sources/SPEC.md 6.3).
+   *
+   * It is what makes "Ingest via the open copy" work for an entry whose identity is an arXiv id
+   * rather than a DOI - the publisher page it posts has no DOI to resolve, and without the hint
+   * the job would fail on the same wall the Fellow met. It is a CANDIDATE like any other: the
+   * SSRF gate, the caps and the two acceptance bars all apply, and the resolvers still run when
+   * it does not work out.
+   */
+  readonly hint?: { readonly url: string; readonly version?: string | null }
 }
 
 /** What the manifest, the banner and the frontmatter say about the copy (5.4). */
 export interface OaDisclosure {
-  readonly doi: string
+  /**
+   * The DOI the copy was found by, or null when it was not found by one: the board's one click
+   * carries a copy's address from an entry whose identity is an arXiv id (6.3).
+   */
+  readonly doi: string | null
   readonly kind: OaKind
   readonly url: string
   readonly source: OaSource
@@ -226,6 +246,25 @@ export function lookupIsFresh(lookup: OaLookup, now: Date): boolean {
   if (lookup.rateLimited) return false
   const ageMs = now.getTime() - Date.parse(lookup.checkedAt)
   return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < OA_NEGATIVE_TTL_DAYS * 24 * 3600 * 1000
+}
+
+/**
+ * The best copy nobody has FETCHED yet, which is the only kind worth marking on a reading-list
+ * entry: a candidate an ingest already pulled and threw away as a record page is not an open copy
+ * the user can be sent to. Undefined when every named copy has been tried.
+ */
+export function bestUntriedCandidate(lookup: OaLookup): OaCandidate | undefined {
+  if (lookup.accepted !== null) return lookup.accepted
+  return orderCandidates(lookup.candidates).find((c) => !lookup.tried.some((t) => t.url === c.url))
+}
+
+/**
+ * Whether every copy this DOI has was fetched and none of them read as full text. The board says
+ * so instead of offering a button that would repeat the same failure, and the mark on the entry
+ * stays true either way: a copy exists at that address, it just is not the paper.
+ */
+export function lookupExhausted(lookup: OaLookup): boolean {
+  return lookup.accepted === null && lookup.candidates.length > 0 && bestUntriedCandidate(lookup) === undefined
 }
 
 /**
@@ -555,7 +594,8 @@ export async function lookupOpenAccess(doi: string, deps: OaDeps): Promise<OaLoo
  * substitute keeps the thin text (5.3).
  */
 export async function recoverOpenAccess(args: {
-  readonly doi: string
+  /** The DOI to ask the resolvers about. Absent = only what `deps.hint` names can be tried. */
+  readonly doi?: string
   readonly kind: OaKind
   /** How many characters the job already has: 0 for a rescue, the thin text's length otherwise. */
   readonly haveChars: number
@@ -575,7 +615,8 @@ export async function recoverOpenAccess(args: {
     retracted: false,
   }
 
-  const cached = deps.cache?.get(doi)
+  // No DOI, no lookup table: a row is keyed by one, and a hint is an address rather than an identity.
+  const cached = doi === undefined ? undefined : deps.cache?.get(doi)
   const fresh = cached !== undefined && lookupIsFresh(cached, now())
   /*
    * What a fresh row is good for, in order: the copy that worked last time, then copies a sweep
@@ -587,7 +628,7 @@ export async function recoverOpenAccess(args: {
     ? [...(cached.accepted === null ? [] : [cached.accepted]), ...cached.candidates.filter((c) => !cached.tried.some((t) => t.url === c.url))]
     : []
   if (fresh) ctx.retracted = cached.retracted
-  if (fresh && fromCache.length === 0) {
+  if (fresh && fromCache.length === 0 && deps.hint === undefined) {
     ctx.notes.push(
       `open access: nothing usable was found for this DOI when it was last asked (${cached.checkedAt}, tried ${cached.tried.length})`,
     )
@@ -622,7 +663,7 @@ export async function recoverOpenAccess(args: {
       // Accepted: NOW the raw file is kept, in the job's own staging directory (5.4).
       fs.writeFileSync(path.join(deps.jobDir, read.original), read.bytes)
       const disclosure: OaDisclosure = {
-        doi,
+        doi: doi ?? null,
         kind,
         url: candidate.url,
         source: candidate.source,
@@ -644,9 +685,26 @@ export async function recoverOpenAccess(args: {
     return undefined
   }
 
-  // What the cache already knows comes first: no API is asked while an untried copy stands.
-  let recovery = fromCache.length > 0 ? await tryAll(fromCache) : undefined
-  if (recovery === undefined) {
+  /*
+   * What is already known comes first, and no API is asked while an untried copy stands: the
+   * address the reading-list entry names, then the round in the lookup table.
+   */
+  const hinted: OaCandidate[] =
+    deps.hint === undefined
+      ? []
+      : [
+          {
+            url: deps.hint.url,
+            format: /\.pdf($|\?)/i.test(deps.hint.url) ? 'pdf' : 'landing',
+            version: asVersion(deps.hint.version),
+            host: hostOf(deps.hint.url) || 'unknown',
+            license: null,
+            source: 'reading-list',
+          },
+        ]
+  let recovery = hinted.length + fromCache.length > 0 ? await tryAll([...hinted, ...fromCache]) : undefined
+  // The resolvers are asked about a DOI; without one, the hint above was the whole chance.
+  if (recovery === undefined && doi !== undefined) {
     for (const resolver of RESOLVERS) {
       if (attempts >= OA_MAX_ATTEMPTS) break
       const candidates = await resolver.run(doi, ctx)
@@ -657,17 +715,20 @@ export async function recoverOpenAccess(args: {
   }
 
   const accepted = recovery === undefined ? null : (tried.find((t) => t.url === recovery?.disclosure.url) ?? null)
-  deps.cache?.put({
-    doi,
-    checkedAt: now().toISOString(),
-    // Everything known about the DOI, and separately what this job actually fetched: a copy
-    // that came back as a record page must not be downloaded again next week.
-    candidates: [...new Map([...(fresh ? cached.candidates : []), ...tried].map((c) => [c.url, c])).values()],
-    tried: accepted === null ? tried : tried.filter((t) => t.url !== accepted.url),
-    retracted: ctx.retracted,
-    rateLimited: ctx.rateLimited,
-    accepted,
-  })
+  // No DOI, nothing to key a row on: a hint is an address, not an identity.
+  if (doi !== undefined) {
+    deps.cache?.put({
+      doi,
+      checkedAt: now().toISOString(),
+      // Everything known about the DOI, and separately what this job actually fetched: a copy
+      // that came back as a record page must not be downloaded again next week.
+      candidates: [...new Map([...(fresh ? cached.candidates : []), ...tried].map((c) => [c.url, c])).values()],
+      tried: accepted === null ? tried : tried.filter((t) => t.url !== accepted.url),
+      retracted: ctx.retracted,
+      rateLimited: ctx.rateLimited,
+      accepted,
+    })
+  }
 
   if (recovery === undefined) {
     ctx.notes.push(`no open copy cleared the bar (tried ${tried.length})`)
