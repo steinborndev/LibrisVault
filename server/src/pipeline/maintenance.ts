@@ -35,7 +35,7 @@ import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
-import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit } from './expand.js'
+import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit, EXPAND_MAX_NEW } from './expand.js'
 import { deltaBetween, parseSdkUsage, type UsageMonitor } from './usage-monitor.js'
 import { restoreCommitPaths, headHash, commitFileStatus } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
@@ -1296,6 +1296,14 @@ export class MaintenanceRunner {
         auth: this.assertAuth(),
         profile,
         timeoutMs: opts.timeoutMs ?? this.timeoutMs,
+        /*
+         * The expand lock (docs/sources/SPEC.md section 8.2): the same page set the commit check
+         * validates against, handed to the tool-time hook as well. The prompt asks, the hook
+         * decides, and the commit check remains the backstop for what neither can see.
+         */
+        ...(kind === 'research-expand' && opts.expandPageSet !== undefined
+          ? { expand: { pageSet: opts.expandPageSet, maxNew: EXPAND_MAX_NEW } }
+          : {}),
         // A Fellow's run is pinned to its model, effort and budget cap (docs/agents/SPEC.md).
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.effort ? { effort: opts.effort } : {}),

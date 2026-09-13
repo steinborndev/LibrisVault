@@ -176,15 +176,15 @@ would fix it at the price of turning `10-20` into one number.
 
 ## Chunk 6: expand lock
 
-- [ ] Probe first: the four expand cases in `server/src/cli/permprobe.ts`
-- [ ] Unit tests on `decidePermission` for every rule, including the frontmatter exception
+- [x] Probe first: the four expand cases in `server/src/cli/permprobe.ts`
+- [x] Unit tests on `decidePermission` for every rule, including the frontmatter exception
       and `MultiEdit`
-- [ ] Implementation in `permissions.ts` and the runner
-- [ ] `permprobe` PASS (expect `canary outside vault: blocked`)
-- [ ] Checks green in both workspaces
-- [ ] Doc line below, with "Measured:"
-- [ ] Commit, push, deploy (server build plus restart)
-- [ ] Review stop: report the commit and the riskiest files (`permissions.ts`,
+- [x] Implementation in `permissions.ts` and the runner
+- [x] `permprobe` PASS (expect `canary outside vault: blocked`)
+- [x] Checks green in both workspaces
+- [x] Doc line below, with "Measured:"
+- [x] Commit, push, deploy (server build plus restart)
+- [x] Review stop: report the commit and the riskiest files (`permissions.ts`,
       `agent-runner.ts`, probe)
 
 ## Done
@@ -371,6 +371,33 @@ would fix it at the price of turning `10-20` into one number.
       refused any more (the review found three). `preprocprobe` PASS after the corpus gained a
       `pdftotext` call. Server 1,192 tests (14 new), web 483 (1 new), `tsc` and `eslint` clean.
 
+- [x] **Chunk 6, the expand lock** (2026-09-14). `PermissionContext.expand` carries the page set,
+      the cap, the run's own set of created pages and an `exists` predicate;
+      `RunAgentOptions.expand` builds it per run, and the maintenance runner passes it for
+      `research-expand` only - which is why an ordinary ingest may still rewrite a page.
+      `decidePermission` applies the rules after the confinement and the upstream guard: a
+      bookkeeping path is exempt as before, a listed page takes `Edit` (additive) and refuses
+      `Write` and `NotebookEdit`, a page outside the set refuses everything unless it does not
+      exist yet and the run has created fewer than three, and additivity is `isSubsequence` over
+      trimmed non-empty lines - the same function the commit check uses, so the hook cannot be
+      stricter or laxer than the check that reverts a run. `replace_all` is refused; an edit that
+      only changes `updated`, `related` or `tags` inside the frontmatter is allowed; a `MultiEdit`
+      is refused whole when one of its edits fails. The commit check and the revert are unchanged:
+      they remain the backstop for a page written through Bash, which no hook can see.
+      Written probe-first and test-first, as asked: the four cases went into `permprobe` and
+      fifteen cases into `test/permissions.test.ts` before `permissions.ts` had a rule.
+      Measured, `permprobe` on 2026-09-14: `canary outside vault: blocked`, `canary in skills/:
+      blocked`, and the expand run (a throwaway vault of its own, so an ALLOWED insertion can be
+      shown without writing into the real vault, which the reconciler would commit) reports
+      `Write over a page outside the set: the page is untouched`, `Edit that drops a line: the
+      line survived`, `Edit that inserts a line: the insertion landed`, `at most three new pages:
+      3 new page(s)` - three tool denials in the run. PASS. Server 1,206 tests (14 new), web 483,
+      `tsc` and `eslint` clean in both.
+      One correction from the probe itself: the first version expected a Write to a page outside
+      the set to be denied outright, and it was allowed - correctly, because the page did not
+      exist and rule 3 lets a deepening create up to three. The case now seeds a page that DOES
+      exist, which is what `outside-set` means.
+
 ## Deviations from the spec
 
 - **`ReadingItem.oa` is `{ url, version, at }`, not `{ url, version, source }`** (spec 6.2).
@@ -398,3 +425,28 @@ would fix it at the price of turning `10-20` into one number.
   by address. CORE is the third resolver and only runs with a key, so no copy is lost today.
 
 ## Left open
+
+From the spec's own section 12, untouched here by design: numeric consistency (numbers on a page
+traceable to the source), a standalone nightly retraction sweep over every source page with a DOI
+(the OpenAlex flag already reaches the manifest), quote integrity for research runs (which needs
+their fetched sources kept - a decision about storing third-party text in a run's job directory),
+and scholarly discovery as a tool for Fellows (`docs/agents/ideas.md`).
+
+Found while building, and left where it was found:
+
+- **A compound the source hyphenates and the page does not** (`non-linearity` against
+  `nonlinearity`) is two words against one, and the quote check reports it. Joining hyphenated
+  tokens would fix it and would turn `10-20` into one number; neither is obviously right.
+- **The agent reads the `-layout` extraction of a two-column PDF**, with the columns interleaved.
+  The quote check works around it with a second extraction in reading order; whether the PLUGIN
+  should hand the agent reading order instead is a question about every ingest, not about this
+  check, and it belongs with whoever measures what the agent actually misreads.
+- **The recap does not name the night's open-copy finds.** Spec 6.3 calls that optional and not
+  part of the first delivery; the log line and the board carry it today.
+- **The root `SPEC.md` has not been told.** Spec section 1 leaves its section 5 pointer to merge
+  preparation (`docs/agents/ideas.md`, "Still open: the root spec has not been told"), and this
+  work did not touch the root spec.
+- **The quote rate is a measurement of these runs' habits, not a target.** 58.4 % of the
+  quotations the last nineteen ingests added are not verbatim in the text they read. The
+  prevention side shipped with chunk 2; the second reading of the same twenty jobs, some nights
+  from now, is what says whether it moved.

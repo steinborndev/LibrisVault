@@ -16,12 +16,15 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { AUTOMATION_SYSTEM_PROMPT, QUERY_SYSTEM_PROMPT } from './system-prompt.js'
 import { createDetachedSpawn } from './agent-spawn.js'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   decidePermission,
   profileAllowsVaultWrite,
   profileAllowsWeb,
   WEB_TOOLS,
   WRITE_TOOLS,
+  type PermissionContext,
   type RunProfile,
 } from './permissions.js'
 import { createUpstreamGuard } from './upstream-guard.js'
@@ -121,6 +124,14 @@ export interface RunAgentOptions {
    * registry (SPEC.md §12.4). Ignored for `query`, which must stay read-only and minimal.
    */
   readonly systemPromptExtra?: string
+  /**
+   * The expand lock for a `research-expand` run (docs/sources/SPEC.md section 8.2): the pages it
+   * may edit and how many it may create. Absent for every other kind of run, which keeps an
+   * ordinary ingest free to rewrite a page - that is what an ingest does.
+   *
+   * The run's own set of created pages is built here, per run, so the cap counts THIS run.
+   */
+  readonly expand?: { readonly pageSet: readonly string[]; readonly maxNew: number }
   /**
    * Pins the run to one model (SDK model id such as `claude-sonnet-5`). A Fellow's model
    * applies to all of its runs (docs/agents/SPEC.md section 7); omitted = the CLI default.
@@ -246,12 +257,23 @@ export function buildOptions(
   spawnClaudeCodeProcess?: (options: SdkSpawnOptions) => SpawnedProcess,
 ): Options {
   const profile: RunProfile = opts.profile ?? 'ingest'
-  const ctx = {
+  const ctx: PermissionContext = {
     vaultRoot: opts.vaultRoot,
     profile,
     // Hard rule 5 at the tool level: plugin machinery and shipped doc pages are not
     // writable by any run. Constructed once per vault root (cached in the module).
     writeGuard: createUpstreamGuard(opts.vaultRoot).writeRefusalReason,
+    // A deepening run is additionally held to its page set and to insertions (section 8.2).
+    ...(opts.expand === undefined
+      ? {}
+      : {
+          expand: {
+            pageSet: opts.expand.pageSet,
+            maxNew: opts.expand.maxNew,
+            created: new Set<string>(),
+            exists: (rel: string) => fs.existsSync(path.join(opts.vaultRoot, rel)),
+          },
+        }),
   }
   // Web tools stay out of context unless this is a research run; a read-only query run
   // also drops the write tools so the model never even attempts a vault mutation.

@@ -186,3 +186,139 @@ describe('extractPaths', () => {
     expect(extractPaths({ file_path: '', path: 42 })).toEqual([])
   })
 })
+
+/**
+ * The expand lock (docs/sources/SPEC.md section 8): a `research-expand` run is confined at TOOL
+ * time to its page set and to insertions. The commit check and the revert stay the backstop for
+ * what a hook cannot see (a page written through Bash), so these rules are the first line and not
+ * the only one.
+ */
+describe('decidePermission - the expand lock (docs/sources/SPEC.md 8.2)', () => {
+  const LISTED = 'wiki/questions/A Listed Page.md'
+  const OTHER = 'wiki/concepts/Somebody Elses Page.md'
+
+  /** A policy with the pages that exist named, so the rules can be exercised without a disk. */
+  const policy = (over: { created?: string[]; maxNew?: number; onDisk?: string[] } = {}) => ({
+    pageSet: [LISTED, 'wiki/agents/Notebook.md'],
+    maxNew: over.maxNew ?? 3,
+    created: new Set(over.created ?? []),
+    exists: (rel: string) => (over.onDisk ?? [LISTED, OTHER, 'wiki/agents/Notebook.md']).includes(rel),
+  })
+  const expandCtx = (over: Parameters<typeof policy>[0] = {}) => ({ vaultRoot: VAULT, expand: policy(over) })
+
+  /** An edit that keeps every line it names, which is what "additive" means. */
+  const insertion = { file_path: LISTED, old_string: '## Findings\n\nThe first finding.', new_string: '## Findings\n\nA new finding.\n\nThe first finding.' }
+
+  it('allows an Edit that inserts into a listed page', () => {
+    expect(decidePermission(expandCtx(), 'Edit', insertion)).toMatchObject({ behavior: 'allow' })
+  })
+
+  it('refuses an Edit that drops a line of a listed page, and names the line', () => {
+    const result = decidePermission(expandCtx(), 'Edit', {
+      file_path: LISTED,
+      old_string: '## Findings\n\nThe first finding.',
+      new_string: '## Findings\n\nA replacement.',
+    })
+    expect(result).toMatchObject({ behavior: 'deny' })
+    expect((result as { message: string }).message).toContain('The first finding.')
+    expect((result as { message: string }).message).toContain('insert instead of replacing')
+  })
+
+  it('refuses Write on a listed page: a rewrite is not an insertion', () => {
+    const result = decidePermission(expandCtx(), 'Write', { file_path: LISTED, content: '# A Listed Page\n\nAll new.\n' })
+    expect(result).toMatchObject({ behavior: 'deny' })
+    expect((result as { message: string }).message).toMatch(/not additive|use Edit/)
+  })
+
+  it('refuses replace_all even when the replacement keeps the line', () => {
+    expect(decidePermission(expandCtx(), 'Edit', { ...insertion, replace_all: true })).toMatchObject({ behavior: 'deny' })
+  })
+
+  it('refuses NotebookEdit on a listed page', () => {
+    expect(decidePermission(expandCtx(), 'NotebookEdit', { notebook_path: LISTED })).toMatchObject({ behavior: 'deny' })
+  })
+
+  it('refuses an Edit to a page the proposal did not list', () => {
+    const result = decidePermission(expandCtx(), 'Edit', { file_path: OTHER, old_string: 'a', new_string: 'a b' })
+    expect(result).toMatchObject({ behavior: 'deny' })
+    expect((result as { message: string }).message).toContain('outside the page set')
+  })
+
+  it('allows a NEW page outside the set, up to the cap, and refuses the fourth', () => {
+    const fresh = 'wiki/sources/A New Source.md'
+    expect(decidePermission(expandCtx(), 'Write', { file_path: fresh, content: '# new' })).toMatchObject({ behavior: 'allow' })
+    // Three already created: the fourth is refused, and the message says why.
+    const full = decidePermission(expandCtx({ created: ['a.md', 'b.md', 'c.md'] }), 'Write', { file_path: fresh, content: '# new' })
+    expect(full).toMatchObject({ behavior: 'deny' })
+    expect((full as { message: string }).message).toContain('at most 3 new pages')
+  })
+
+  it('refuses a Write over a page that already exists and is not listed', () => {
+    const result = decidePermission(expandCtx(), 'Write', { file_path: OTHER, content: '# taken over' })
+    expect(result).toMatchObject({ behavior: 'deny' })
+    expect((result as { message: string }).message).toContain('outside the page set')
+  })
+
+  it('records what it allowed, so the cap counts this run and not the vault', () => {
+    const ctxWithSet = expandCtx()
+    decidePermission(ctxWithSet, 'Write', { file_path: 'wiki/sources/One.md', content: '# one' })
+    decidePermission(ctxWithSet, 'Write', { file_path: 'wiki/sources/Two.md', content: '# two' })
+    expect([...ctxWithSet.expand.created]).toEqual(['wiki/sources/One.md', 'wiki/sources/Two.md'])
+    // The same page twice is one page, not two of the three.
+    decidePermission(ctxWithSet, 'Write', { file_path: 'wiki/sources/Two.md', content: '# two again' })
+    expect(ctxWithSet.expand.created.size).toBe(2)
+  })
+
+  it('lets the frontmatter change in the three fields the rules allow, and nowhere else', () => {
+    const allowed = decidePermission(expandCtx(), 'Edit', {
+      file_path: LISTED,
+      old_string: 'updated: 2026-09-01\nrelated:\n  - "[[An Old Link]]"\ntags:\n  - one',
+      new_string: 'updated: 2026-09-14\nrelated:\n  - "[[A New Link]]"\ntags:\n  - one\n  - two',
+    })
+    expect(allowed).toMatchObject({ behavior: 'allow' })
+    // `status` is not one of the three: dropping its line is a rewrite like any other.
+    const refused = decidePermission(expandCtx(), 'Edit', {
+      file_path: LISTED,
+      old_string: 'status: settled\nupdated: 2026-09-01',
+      new_string: 'status: draft\nupdated: 2026-09-14',
+    })
+    expect(refused).toMatchObject({ behavior: 'deny' })
+  })
+
+  it('applies the rules to every edit of a MultiEdit and refuses the whole call when one fails', () => {
+    const ok = decidePermission(expandCtx(), 'MultiEdit', {
+      file_path: LISTED,
+      edits: [
+        { old_string: 'The first finding.', new_string: 'The first finding.\n\nAnd another.' },
+        { old_string: '## Findings', new_string: '## Findings\n\nA line.' },
+      ],
+    })
+    expect(ok).toMatchObject({ behavior: 'allow' })
+    const bad = decidePermission(expandCtx(), 'MultiEdit', {
+      file_path: LISTED,
+      edits: [
+        { old_string: 'The first finding.', new_string: 'The first finding.\n\nAnd another.' },
+        { old_string: '## Findings', new_string: '## Conclusions' },
+      ],
+    })
+    expect(bad).toMatchObject({ behavior: 'deny' })
+  })
+
+  it('leaves the vault bookkeeping and everything outside wiki/ alone, as the commit check does', () => {
+    for (const rel of ['wiki/index.md', 'wiki/hot.md', 'wiki/log.md', 'wiki/sources/_index.md', '.raw/x/manifest.json']) {
+      expect(decidePermission(expandCtx(), 'Write', { file_path: rel, content: 'x' }), rel).toMatchObject({ behavior: 'allow' })
+    }
+  })
+
+  it('changes nothing for a run without the policy: an ordinary ingest may still rewrite a page', () => {
+    expect(decidePermission(ctx, 'Write', { file_path: `${VAULT}/${LISTED}` })).toMatchObject({ behavior: 'allow' })
+    expect(decidePermission(ctx, 'Edit', { file_path: `${VAULT}/${OTHER}`, old_string: 'a', new_string: 'b' })).toMatchObject({
+      behavior: 'allow',
+    })
+  })
+
+  it('takes an absolute path the same way as a vault-relative one', () => {
+    expect(decidePermission(expandCtx(), 'Write', { file_path: `${VAULT}/${LISTED}` })).toMatchObject({ behavior: 'deny' })
+    expect(decidePermission(expandCtx(), 'Edit', { ...insertion, file_path: `${VAULT}/${LISTED}` })).toMatchObject({ behavior: 'allow' })
+  })
+})
