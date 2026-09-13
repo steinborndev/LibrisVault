@@ -558,6 +558,12 @@ validator would see the moved lines as deleted). Open, docs/tasks/TASKS-A7.md.
 **Caps on every run.** Timeout per kind, `maxBudgetUsd` per kind scaled by the model
 factor, the `research` profile's web hygiene, and the existing zero-token guard.
 
+**7b. The expand lock (specified 2026-09-13, not built).** The additive rules above are to
+be enforced at tool time as well: the PreToolUse hook confines a `research-expand` run to
+its page set, refuses a rewrite of a listed page, checks every Edit for additivity and
+allows at most three new pages; the commit check and the revert stay as the backstop.
+`docs/sources/SPEC.md`, section 8, is authoritative for it.
+
 ---
 
 ## 8. Scheduling and quota
@@ -1285,6 +1291,12 @@ every other write; the archive is the outer cut and the paywalled toggle filters
 entry with no mark at all is current, because the field is newer than the page format and a view
 that read a missing field as "archived" would empty the list on the input it is most likely to
 meet.
+
+**Open copies (specified 2026-09-13, not built).** An entry a Fellow could not read is
+checked each night for a legal open-access copy; a find is marked on the entry (`oa_url`,
+`oa_version`, `oa_at`) and the board offers the ingest with one click, which runs through
+the ordinary URL ingest and its open-access recovery. `docs/sources/SPEC.md`, sections 5
+and 6, are authoritative for it.
 
 ### 10.7 Working in the room (as built, 2026-09-06)
 

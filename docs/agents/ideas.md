@@ -856,3 +856,22 @@ the only check that sees whether the policy is applied rather than merely writte
 - As a LIBRARY it would move untrusted-document parsing INTO the service process, together with
   its dependency tree - the opposite direction from everything above. As a sandboxed CLI it is
   fine, and then it is also unnecessary.
+
+## Extension axis: scholarly discovery as a tool for Fellows (recorded 2026-09-13)
+
+Deferred on purpose; not part of `docs/sources/SPEC.md`. The review of an open-source research
+harness (jordan-gibbs/hyperresearch, MIT) showed one client layer over OpenAlex, Crossref,
+CORE, DOAB, ClinicalTrials.gov, SEC EDGAR and FRED: one query, every configured source,
+records merged by DOI first and by normalized title within one year second (two different
+DOIs never merge), the higher citation count and the longer abstract kept, a per-host
+courtesy limiter and one cache, a contact address for the polite pools, specialist records
+tagged by work type so a filing is never mistaken for a paper.
+
+What it would give us: canonical, citation-ranked works before the web search a research run
+does today, and books and chapters for the fields where the book is the unit of publication.
+What makes it a later axis: a Fellow researches inside the vault's own research skill, so a
+scholar search reaches it only as a tool the run can call (a thin wrapper skill or a CLI
+under `scripts/`, hard rule 5), and the planning run's candidates are vault-internal by design
+(section 6.1); wiring an external discovery source into planning is a decision about what a
+Fellow is allowed to want, not a feature. The open-access resolver in `docs/sources/SPEC.md`
+already builds the OpenAlex client and the courtesy limiter this axis would reuse.
