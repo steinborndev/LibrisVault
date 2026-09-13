@@ -9,6 +9,7 @@
  * fallback keeps the job moving rather than failing on a missing optional tool.
  */
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
@@ -17,14 +18,23 @@ import dns from 'node:dns/promises'
 import net from 'node:net'
 import type { JobType } from '../../db/jobs.js'
 import { nowIso } from '../../db/index.js'
-import type { Manifest, PreprocessResult, ToolAvailability } from './types.js'
+import { arxivIdFromUrl } from '../identifiers.js'
+import type { Manifest, PreprocessPlugin, PreprocessResult, ToolAvailability } from './types.js'
 import { PreprocessError } from './types.js'
+import { assessExtractedContent, htmlToText } from './html.js'
+import { preprocess } from './index.js'
 import { runConverter } from './sandbox.js'
 import { detectTools } from './tools.js'
 import { findUrlHandler } from './url-handlers.js'
 
 /** Default response cap. Web pages are larger than the 50 KB autoresearch fetch cap. */
 export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024
+/**
+ * The cap for the PDF lane (docs/sources/SPEC.md section 2.1). A paper is one or two MB and a
+ * scanned report can be twenty, so the HTML cap would refuse documents the PDF plugin handles
+ * every day - and the plugin has its own limits beyond this one (page count, OCR budget).
+ */
+export const MAX_PDF_BYTES = 25 * 1024 * 1024
 const MAX_REDIRECTS = 5
 
 /** True for addresses an outbound fetch must never reach (SSRF guard). */
@@ -92,6 +102,35 @@ async function defaultResolve(host: string): Promise<string[]> {
   return records.map((r) => r.address)
 }
 
+/** One answer from the pinned request, as bytes: the caller decides whether it is text. */
+export interface PinnedResponse {
+  readonly status: number
+  readonly location?: string
+  /** The `Content-Type` header, lowercased, or '' when the answer carried none. */
+  readonly contentType: string
+  readonly body: Buffer
+}
+
+/**
+ * The HTTP layer under the SSRF guard. A seam, not an abstraction: a test drives the lanes
+ * through it without opening a socket, and nothing in the pipeline passes anything but
+ * {@link pinnedRequest}.
+ */
+export type PinnedRequestFn = (v: ValidatedUrl, timeoutMs: number, maxBytes: number) => Promise<PinnedResponse>
+
+/** What the fetch layer may be told: how to resolve a redirect hop, and who makes the request. */
+export interface FetchOptions {
+  readonly resolve?: (host: string) => Promise<string[]>
+  readonly request?: PinnedRequestFn
+}
+
+/** An answer that arrived, with the address it actually came from after every redirect hop. */
+export interface FetchedBytes {
+  readonly body: Buffer
+  readonly contentType: string
+  readonly url: URL
+}
+
 /**
  * Fetches with a byte cap, manual redirect handling (each hop re-validated), and a timeout.
  *
@@ -99,29 +138,44 @@ async function defaultResolve(host: string): Promise<string[]> {
  * letting the HTTP client re-resolve the name would reopen the guard to DNS rebinding
  * (public answer during validation, private answer at connect time). TLS still verifies
  * against the hostname — only the socket target is pinned.
+ *
+ * Bytes, not a string (docs/sources/SPEC.md section 2.1): a PDF decoded as UTF-8 is corrupt
+ * before anything can look at it, and whether an answer is a document or a page is decided
+ * from its first bytes. {@link fetchCapped} keeps the string contract for the HTML lane.
  */
-async function fetchCapped(
+export async function fetchBytes(
   start: ValidatedUrl,
   maxBytes: number,
   timeoutMs: number,
-  resolve?: (host: string) => Promise<string[]>,
-): Promise<string> {
+  opts: FetchOptions = {},
+): Promise<FetchedBytes> {
+  const request = opts.request ?? pinnedRequest
   let current = start
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const res = await pinnedRequest(current, timeoutMs, maxBytes)
+    const res = await request(current, timeoutMs, maxBytes)
     if (res.status >= 300 && res.status < 400) {
       if (!res.location) throw new PreprocessError(`redirect with no Location from ${current.url.href}`)
       const next = new URL(res.location, current.url)
       // Re-validate every hop against the SSRF guard; the returned address is the pin.
-      current = resolve ? await validateUrl(next.href, resolve) : await validateUrl(next.href)
+      current = opts.resolve ? await validateUrl(next.href, opts.resolve) : await validateUrl(next.href)
       continue
     }
     if (res.status < 200 || res.status >= 300) {
       throw new PreprocessError(fetchFailureMessage(res.status, current.url.href))
     }
-    return res.body
+    return { body: res.body, contentType: res.contentType, url: current.url }
   }
   throw new PreprocessError(`too many redirects (> ${MAX_REDIRECTS}) starting at ${start.url.href}`)
+}
+
+/** {@link fetchBytes} decoded as UTF-8, for the HTML lane and the domain handlers. */
+async function fetchCapped(
+  start: ValidatedUrl,
+  maxBytes: number,
+  timeoutMs: number,
+  opts: FetchOptions = {},
+): Promise<string> {
+  return (await fetchBytes(start, maxBytes, timeoutMs, opts)).body.toString('utf8')
 }
 
 /**
@@ -129,11 +183,7 @@ async function fetchCapped(
  * override is what makes the pin real: whatever DNS says now, the socket goes to `v.address`.
  * The body is read under the cap and the request destroyed the moment it exceeds it.
  */
-export function pinnedRequest(
-  v: ValidatedUrl,
-  timeoutMs: number,
-  maxBytes: number,
-): Promise<{ status: number; location?: string; body: string }> {
+export function pinnedRequest(v: ValidatedUrl, timeoutMs: number, maxBytes: number): Promise<PinnedResponse> {
   return new Promise((resolvePromise, reject) => {
     const family = net.isIP(v.address)
     const client = v.url.protocol === 'https:' ? https : http
@@ -173,9 +223,10 @@ export function pinnedRequest(
           chunks.push(chunk)
         })
         res.on('end', () => {
-          const result: { status: number; location?: string; body: string } = {
+          const result: { status: number; location?: string; contentType: string; body: Buffer } = {
             status,
-            body: Buffer.concat(chunks).toString('utf8'),
+            contentType: (res.headers['content-type'] ?? '').toLowerCase(),
+            body: Buffer.concat(chunks),
           }
           const location = res.headers['location']
           if (typeof location === 'string') result.location = location
@@ -206,85 +257,17 @@ export function fetchFailureMessage(status: number, href: string): string {
   }`
 }
 
-/**
- * The address a saved page names for itself - its canonical link, else its Open Graph
- * URL - so a page dropped as a file still says where it came from (the manifest's `url`,
- * the source page's, the reading list's). Attribute order is not fixed in HTML, so both
- * orders are read; anything but an http(s) address is ignored.
+/*
+ * The address of a saved page, the HTML-to-text fallback and the junk gate live in `html.ts`
+ * and are re-exported here: they are shared with the text plugin, which reads a page saved
+ * from a browser, and a module the two lanes both import cannot import one of them back.
  */
-export function canonicalUrlOf(html: string): string | undefined {
-  const head = html.slice(0, 200_000)
-  const attr = (tag: RegExp, key: string): string | undefined => {
-    const m = head.match(tag)
-    if (m === null) return undefined
-    const v = m[0].match(new RegExp(`\\b${key}\\s*=\\s*["']([^"']+)["']`, 'i'))
-    return v?.[1]
-  }
-  const candidates = [
-    attr(/<link\b[^>]*\brel\s*=\s*["']canonical["'][^>]*>/i, 'href'),
-    attr(/<meta\b[^>]*\bproperty\s*=\s*["']og:url["'][^>]*>/i, 'content'),
-  ]
-  for (const c of candidates) {
-    if (c === undefined) continue
-    try {
-      const u = new URL(c.trim())
-      if (u.protocol === 'http:' || u.protocol === 'https:') return u.href
-    } catch {
-      /* not an address */
-    }
-  }
-  return undefined
-}
-
-/** Bare-minimum HTML→text when defuddle is unavailable — strips tags, collapses space. */
-export function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-/** Minimum characters the generic extraction must yield before a job proceeds to ingest. */
-export const MIN_WEB_CONTENT_CHARS = 300
-/**
- * Only short extractions are pattern-checked: a real article that merely QUOTES a login
- * prompt is long, so the length bound keeps the patterns from false-positive matching.
- */
-const GATE_PATTERN_MAX_CHARS = 5000
-
-const BLOCKED_PAGE_PATTERNS: ReadonlyArray<{ readonly re: RegExp; readonly reason: string }> = [
-  { re: /javascript is not available/i, reason: 'the site serves a JavaScript-only shell (X/Twitter login wall)' },
-  { re: /please (enable|turn on) javascript|(enable|activate) javascript and cookies/i, reason: 'the page requires JavaScript rendering' },
-  { re: /(log|sign) ?in to (continue|view|read)|sign ?up to (continue|view|read)/i, reason: 'login required' },
-  { re: /you (must|need to) be logged in|create an account to (continue|read|view)/i, reason: 'login required' },
-  { re: /subscribe (now )?to (continue|read|keep reading)|subscription required/i, reason: 'paywall' },
-  { re: /checking your browser|verify(ing)? (that )?you are (a )?human|just a moment\.\.\.|attention required.{0,5}cloudflare/i, reason: 'anti-bot interstitial (e.g. Cloudflare)' },
-  { re: /melde dich an|melden sie sich an|jetzt anmelden|jetzt registrieren/i, reason: 'login required (German)' },
-  { re: /abonnieren, um weiter ?zu ?lesen|jetzt abonnieren und weiterlesen/i, reason: 'paywall (German)' },
-]
-
-/**
- * Sanity gate for the generic fetch+extract path (SPEC.md §5): returns a human-readable
- * reason when the extraction is junk (app shell, login wall, anti-bot page), else null.
- * Failing here turns the job `failed` with that reason BEFORE an agent run burns tokens
- * on it and writes a garbage page into the vault.
- */
-export function assessExtractedContent(markdown: string): string | null {
-  const text = markdown.trim()
-  if (text.length < MIN_WEB_CONTENT_CHARS) {
-    return `only ${text.length} characters of extractable content — the page is likely a JavaScript app shell, empty, or blocked`
-  }
-  if (text.length <= GATE_PATTERN_MAX_CHARS) {
-    for (const p of BLOCKED_PAGE_PATTERNS) {
-      if (p.re.test(text)) return `page looks like a login/anti-bot/paywall shell: ${p.reason}`
-    }
-  }
-  return null
-}
+export {
+  assessExtractedContent,
+  canonicalUrlOf,
+  htmlToText,
+  MIN_WEB_CONTENT_CHARS,
+} from './html.js'
 
 export interface PreprocessUrlInput {
   readonly jobId: string
@@ -294,11 +277,121 @@ export interface PreprocessUrlInput {
   readonly maxBytes?: number
   readonly timeoutMs?: number
   readonly tools?: ToolAvailability
+  /** Injected for tests: DNS resolution behind the SSRF guard. Defaults to the real resolver. */
+  readonly resolve?: (host: string) => Promise<string[]>
+  /**
+   * Injected for tests: the pinned HTTP request. The service passes nothing here - the SSRF
+   * guard, the pin and the caps all live below this seam, so a test can exercise the lanes
+   * without ever opening a socket.
+   */
+  readonly request?: PinnedRequestFn
+  /** Injected for tests: the plugin chain the PDF lane hands its download to. */
+  readonly registry?: readonly PreprocessPlugin[]
+}
+
+/**
+ * The PDF address an address IS, or undefined when it is a page (docs/sources/SPEC.md 3.2).
+ *
+ * A URL that names a PDF is a document, not a web page: sending it through defuddle and the
+ * junk gate produced either a failed job or a vault page written from markup. The three shapes
+ * that say so are an arXiv abstract (which has a PDF beside it), a path ending in `.pdf`, and
+ * a `/pdf/` segment, which is how most publishers route the document behind a landing page.
+ */
+export function pdfUrlFor(url: URL): string | undefined {
+  const arxiv = arxivIdFromUrl(url)
+  // The abstract page and the PDF are the same publication; the PDF is the one that ingests.
+  if (arxiv !== undefined) return `https://arxiv.org/pdf/${arxiv}`
+  const p = url.pathname.toLowerCase()
+  return p.endsWith('.pdf') || p.includes('/pdf/') ? url.href : undefined
+}
+
+/** `%PDF-`, the only thing every PDF starts with. */
+const hasPdfMagic = (body: Buffer): boolean => body.subarray(0, 5).toString('latin1') === '%PDF-'
+
+/** The first bytes of an HTML answer, whatever a header claims: a doctype, a comment, or `<html`. */
+const looksLikeHtml = (body: Buffer): boolean =>
+  /^\s*(?:<!doctype\s+html|<html|<\?xml|<!--)/i.test(body.subarray(0, 200).toString('latin1'))
+
+/**
+ * Whether an answer is a PDF, whatever its address looked like (docs/sources/SPEC.md 3.2).
+ *
+ * MAGIC BYTES WIN OVER THE CONTENT TYPE IN BOTH DIRECTIONS. A site serving a paper as
+ * `text/html` is still serving a paper; and a `.pdf` address that answers with a login page is
+ * a page, which has to reach the junk gate so the job's error says why rather than handing
+ * `pdftotext` a document that is not one.
+ */
+export function isPdfAnswer(body: Buffer, contentType: string): boolean {
+  if (hasPdfMagic(body)) return true
+  if (looksLikeHtml(body)) return false
+  return /^\s*application\/(pdf|x-pdf)\b/.test(contentType)
+}
+
+/**
+ * What to call the document the job fetched. The last path segment when it is a file name, so
+ * the manifest and the source page can name the paper the way the publisher does; otherwise
+ * the arXiv id, and failing that the host with a short digest of the address, which keeps two
+ * documents from one host apart.
+ */
+export function pdfOriginalName(url: URL): string {
+  const last = (() => {
+    try {
+      return decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() ?? '')
+    } catch {
+      return url.pathname.split('/').filter(Boolean).pop() ?? ''
+    }
+  })()
+  // A name, never a path: a decoded segment can carry a separator, and the file on disk is
+  // `raw.pdf` either way - this string only ever names the document.
+  const safe = (name: string): string =>
+    [...name].map((c) => (c === '/' || c === '\\' || c.codePointAt(0)! < 0x20 ? '-' : c)).join('').slice(0, 120)
+  if (/\.pdf$/i.test(last)) return safe(last)
+  const arxiv = arxivIdFromUrl(url)
+  if (arxiv !== undefined) return `${safe(arxiv)}.pdf`
+  const digest = crypto.createHash('sha256').update(url.href).digest('hex').slice(0, 8)
+  return `${safe(url.hostname)}-${digest}.pdf`
+}
+
+/**
+ * The PDF lane (docs/sources/SPEC.md section 3.3): the bytes are written to the job directory
+ * and handed to the ordinary file chain, so every PDF rule applies unchanged - `pdfinfo`,
+ * `pdftotext`, the OCR path with its page and byte limits, and the deferral beyond them. The
+ * job's type becomes `pdf` because the chain says so, and the address rides along in the
+ * manifest so the source page can still name where the document came from.
+ */
+async function pdfLane(args: {
+  readonly input: PreprocessUrlInput
+  /** The address the job named; what the manifest and the source page call the document's own. */
+  readonly requested: URL
+  /** Where the bytes actually came from, after a rewrite and every redirect hop. */
+  readonly fetched: URL
+  readonly body: Buffer
+  readonly tools: ToolAvailability
+  readonly notes: readonly string[]
+}): Promise<PreprocessResult> {
+  const rawPath = path.join(args.input.jobDir, 'raw.pdf')
+  fs.writeFileSync(rawPath, args.body)
+  return preprocess({
+    jobId: args.input.jobId,
+    source: 'url',
+    sourcePath: rawPath,
+    originalName: pdfOriginalName(args.fetched),
+    vaultRoot: args.input.vaultRoot,
+    jobDir: args.input.jobDir,
+    url: args.requested.href,
+    tools: args.tools,
+    ...(args.input.registry ? { registry: args.input.registry } : {}),
+    notePrefix: 'pdf url:',
+    extraNotes: args.notes,
+  })
 }
 
 export async function preprocessUrl(input: PreprocessUrlInput): Promise<PreprocessResult> {
   fs.mkdirSync(input.jobDir, { recursive: true })
-  const validated = await validateUrl(input.url)
+  const fetchOpts: FetchOptions = {
+    ...(input.resolve ? { resolve: input.resolve } : {}),
+    ...(input.request ? { request: input.request } : {}),
+  }
+  const validated = await validateUrl(input.url, input.resolve)
   const { url } = validated
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_BYTES
   const timeoutMs = input.timeoutMs ?? 30_000
@@ -307,7 +400,13 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
   let markdown: string
   let original: string
 
-  const handler = findUrlHandler(url)
+  /*
+   * An address that names a PDF goes to the PDF lane before any domain handler sees it: the
+   * handlers exist for pages whose HTML cannot be read (a JavaScript shell, a video page), and
+   * a document is not one of those.
+   */
+  const pdfAddress = pdfUrlFor(url)
+  const handler = pdfAddress === undefined ? findUrlHandler(url) : undefined
   if (handler) {
     // Domain handler path: content comes from a structured channel (API / yt-dlp), which
     // does its own error handling — the generic junk gate below does not apply (a
@@ -316,13 +415,27 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
       url,
       jobDir: input.jobDir,
       tools,
-      fetchText: async (raw: string) => fetchCapped(await validateUrl(raw), maxBytes, timeoutMs),
+      fetchText: async (raw: string) => fetchCapped(await validateUrl(raw, input.resolve), maxBytes, timeoutMs, fetchOpts),
     })
     markdown = result.markdown
     original = result.original
     notes.push(`handled by ${handler.name}`, ...result.notes)
   } else {
-    const html = await fetchCapped(validated, maxBytes, timeoutMs)
+    const target = pdfAddress === undefined ? validated : await validateUrl(pdfAddress, input.resolve)
+    const answer = await fetchBytes(target, pdfAddress === undefined ? maxBytes : (input.maxBytes ?? MAX_PDF_BYTES), timeoutMs, fetchOpts)
+    if (isPdfAnswer(answer.body, answer.contentType)) {
+      const lane: string[] = []
+      if (target.url.href !== url.href) lane.push(`pdf url: read ${target.url.href} instead of the address given, which names the same document`)
+      else if (pdfAddress === undefined) lane.push(`pdf url: the answer is a PDF (${answer.contentType || 'no content type'}) though the address does not say so`)
+      lane.push(`pdf url: ${answer.body.byteLength} bytes fetched from ${answer.url.href}`)
+      return pdfLane({ input, requested: url, fetched: answer.url, body: answer.body, tools, notes: lane })
+    }
+    const html = answer.body.toString('utf8')
+    if (pdfAddress !== undefined) {
+      // A login page in front of a PDF looks exactly like this. The junk gate below is what
+      // says so, and this note is how the reader knows which lane was tried first.
+      notes.push(`pdf url: ${target.url.href} names a PDF but answered with ${answer.contentType || 'no content type'} - read as a page`)
+    }
     const rawPath = path.join(input.jobDir, 'raw.html')
     fs.writeFileSync(rawPath, html, 'utf8')
     original = 'raw.html'

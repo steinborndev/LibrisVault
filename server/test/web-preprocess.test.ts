@@ -1,6 +1,20 @@
-import { describe, it, expect } from 'vitest'
-import { isPrivateAddress, validateUrl, htmlToText, fetchFailureMessage, canonicalUrlOf } from '../src/pipeline/preprocess/web.js'
-import { PreprocessError } from '../src/pipeline/preprocess/index.js'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import {
+  canonicalUrlOf,
+  fetchFailureMessage,
+  htmlToText,
+  isPdfAnswer,
+  isPrivateAddress,
+  pdfOriginalName,
+  pdfUrlFor,
+  preprocessUrl,
+  validateUrl,
+  type PinnedRequestFn,
+} from '../src/pipeline/preprocess/web.js'
+import { PreprocessError, type PreprocessPlugin, type PreprocessResult } from '../src/pipeline/preprocess/index.js'
 
 describe('isPrivateAddress', () => {
   it('flags RFC1918, loopback and link-local v4', () => {
@@ -80,5 +94,148 @@ describe('canonicalUrlOf', () => {
     expect(canonicalUrlOf('<link rel="canonical" href="javascript:void(0)">')).toBeUndefined()
     expect(canonicalUrlOf('<link rel="stylesheet" href="https://publisher.example/x.css">')).toBeUndefined()
     expect(canonicalUrlOf('<p>no head at all</p>')).toBeUndefined()
+  })
+})
+
+describe('pdfUrlFor (docs/sources/SPEC.md 3.2)', () => {
+  const pdfFor = (href: string): string | undefined => pdfUrlFor(new URL(href))
+
+  it('rewrites an arXiv abstract to its PDF and keeps the version the address named', () => {
+    expect(pdfFor('https://arxiv.org/abs/2506.20907')).toBe('https://arxiv.org/pdf/2506.20907')
+    // A version is part of the identity: fetching the latest would ingest another document.
+    expect(pdfFor('https://arxiv.org/abs/2506.20907v2')).toBe('https://arxiv.org/pdf/2506.20907v2')
+    expect(pdfFor('https://arxiv.org/abs/astro-ph/0601001')).toBe('https://arxiv.org/pdf/astro-ph/0601001')
+    expect(pdfFor('https://arxiv.org/pdf/2506.20907')).toBe('https://arxiv.org/pdf/2506.20907')
+    expect(pdfFor('https://arxiv.org/pdf/2506.20907.pdf')).toBe('https://arxiv.org/pdf/2506.20907')
+  })
+
+  it('takes a .pdf path and a /pdf/ segment, and leaves every other address alone', () => {
+    expect(pdfFor('https://publisher.example/files/paper.PDF')).toBe('https://publisher.example/files/paper.PDF')
+    expect(pdfFor('https://publisher.example/content/pdf/10.1234/example.2026.001')).toBe(
+      'https://publisher.example/content/pdf/10.1234/example.2026.001',
+    )
+    expect(pdfFor('https://doi.org/10.1234/example.2026.001')).toBeUndefined()
+    expect(pdfFor('https://publisher.example/articles/an-article')).toBeUndefined()
+    // The word in a query string is not the path: only the path decides.
+    expect(pdfFor('https://publisher.example/download?format=pdf')).toBeUndefined()
+  })
+})
+
+describe('isPdfAnswer (magic bytes win over the content type, both ways)', () => {
+  it('takes %PDF- bytes served as text/html', () => {
+    expect(isPdfAnswer(Buffer.from('%PDF-1.7\nstuff'), 'text/html; charset=utf-8')).toBe(true)
+  })
+
+  it('refuses HTML served as application/pdf - a login page in front of a PDF', () => {
+    expect(isPdfAnswer(Buffer.from('<!DOCTYPE html><html><body>Log in to continue'), 'application/pdf')).toBe(false)
+  })
+
+  it('trusts the content type when the bytes say neither', () => {
+    expect(isPdfAnswer(Buffer.from('\x00\x01binary'), 'application/pdf')).toBe(true)
+    expect(isPdfAnswer(Buffer.from('plain words'), 'text/plain')).toBe(false)
+  })
+})
+
+describe('pdfOriginalName', () => {
+  it('uses the file name, else the arXiv id, else the host with a digest', () => {
+    expect(pdfOriginalName(new URL('https://publisher.example/files/paper.pdf'))).toBe('paper.pdf')
+    expect(pdfOriginalName(new URL('https://arxiv.org/pdf/2506.20907'))).toBe('2506.20907.pdf')
+    // The old arXiv scheme carries a slash, which a name may not.
+    expect(pdfOriginalName(new URL('https://arxiv.org/pdf/astro-ph/0601001'))).toBe('astro-ph-0601001.pdf')
+    const generic = pdfOriginalName(new URL('https://publisher.example/content/pdf/10.1234/example.2026.001'))
+    expect(generic).toMatch(/^publisher\.example-[0-9a-f]{8}\.pdf$/)
+  })
+})
+
+describe('preprocessUrl: the PDF lane (docs/sources/SPEC.md section 3)', () => {
+  const resolve = async (): Promise<string[]> => ['93.184.216.34']
+  /** A PDF whose text layer `pdftotext` would read; the plugin is stubbed, so bytes suffice. */
+  const pdfBytes = Buffer.from('%PDF-1.4\n% a document the plugin chain reads\n')
+  let dir: string
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-url-'))
+  })
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** Answers every request with the same body, and records which addresses were asked for. */
+  const stub = (body: Buffer, contentType: string, asked: string[] = []): PinnedRequestFn =>
+    async (v) => {
+      asked.push(v.url.href)
+      return { status: 200, contentType, body }
+    }
+
+  /** The PDF plugin with its converters replaced: the lane under test is the routing, not poppler. */
+  const fakePdfPlugin = {
+    name: 'pdf',
+    type: 'pdf' as const,
+    matches: (probe: { ext: string; head: Buffer }): boolean =>
+      probe.ext === 'pdf' || probe.head.subarray(0, 4).toString('latin1') === '%PDF',
+    normalize: async (ctx: { jobDir: string }): Promise<{ normalizedPath: string; normalizedChars: number; notes: string[] }> => {
+      const out = path.join(ctx.jobDir, 'normalized.txt')
+      fs.writeFileSync(out, 'the text of the document', 'utf8')
+      return { normalizedPath: out, normalizedChars: 24, notes: ['OCR applied (yield was 0 chars/page over 1 pages)'] }
+    },
+  }
+
+  const run = async (url: string, request: PinnedRequestFn): Promise<PreprocessResult> => {
+    const jobDir = path.join(dir, 'raw', 'job-1')
+    return preprocessUrl({
+      jobId: 'job-1',
+      url,
+      vaultRoot: dir,
+      jobDir,
+      resolve,
+      request,
+      tools: { pdftotext: true, pdfinfo: true, ocrmypdf: true, pandoc: true, python3: true, exiftool: true, defuddle: false, ytDlp: false, deno: false },
+      registry: [fakePdfPlugin as unknown as PreprocessPlugin],
+    })
+  }
+
+  it('ingests an arXiv abstract address as a pdf job, through the rewritten address', async () => {
+    const asked: string[] = []
+    const res = await run('https://arxiv.org/abs/2506.20907', stub(pdfBytes, 'application/pdf', asked))
+    expect(asked).toEqual(['https://arxiv.org/pdf/2506.20907'])
+    expect(res.type).toBe('pdf')
+    expect(res.manifest.url).toBe('https://arxiv.org/abs/2506.20907')
+    expect(res.manifest.originalName).toBe('2506.20907.pdf')
+    expect(res.manifest.original).toBe('raw.pdf')
+    expect(res.primaryArtifact).toBe('raw/job-1/normalized.txt')
+    // The plugin's own notes ride along, prefixed with the lane that produced them.
+    expect(res.manifest.notes).toContain('pdf url: OCR applied (yield was 0 chars/page over 1 pages)')
+    expect(res.manifest.notes.join(' ')).toMatch(/read https:\/\/arxiv\.org\/pdf\/2506\.20907 instead/)
+    expect(fs.readFileSync(path.join(dir, 'raw', 'job-1', 'raw.pdf'))).toEqual(pdfBytes)
+  })
+
+  it('takes a PDF served from an address that does not name one', async () => {
+    const res = await run('https://publisher.example/download/17', stub(pdfBytes, 'text/html'))
+    expect(res.type).toBe('pdf')
+    expect(res.manifest.notes.join(' ')).toMatch(/the answer is a PDF \(text\/html\) though the address does not say so/)
+  })
+
+  it('reads a .pdf address that answers with a login page as a page, and says why the job failed', async () => {
+    const wall = Buffer.from(
+      `<!DOCTYPE html><html><body><h1>Sign in to continue</h1><p>${'This article is available to subscribers. '.repeat(12)}</p></body></html>`,
+    )
+    await expect(run('https://publisher.example/files/paper.pdf', stub(wall, 'application/pdf'))).rejects.toThrow(
+      /login\/anti-bot\/paywall shell/,
+    )
+  })
+
+  it('fails the way a dropped PDF does when the tools are missing', async () => {
+    const jobDir = path.join(dir, 'raw', 'job-2')
+    await expect(
+      preprocessUrl({
+        jobId: 'job-2',
+        url: 'https://publisher.example/files/paper.pdf',
+        vaultRoot: dir,
+        jobDir,
+        resolve,
+        request: stub(pdfBytes, 'application/pdf'),
+        tools: { pdftotext: false, pdfinfo: false, ocrmypdf: false, pandoc: false, python3: false, exiftool: false, defuddle: false, ytDlp: false, deno: false },
+      }),
+    ).rejects.toThrow(/pdftotext \(poppler-utils\) is not installed/)
   })
 })

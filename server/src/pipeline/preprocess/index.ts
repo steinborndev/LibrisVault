@@ -37,6 +37,14 @@ export interface PreprocessInput {
   readonly registry?: readonly PreprocessPlugin[]
   /** Injected for tests / caching. Defaults to probing the toolchain. */
   readonly tools?: ToolAvailability
+  /**
+   * Prefix for the plugin's manifest notes, naming the lane that fed it - `pdf url:` when a
+   * URL job turned out to be a PDF and took the file chain (docs/sources/SPEC.md section 3.3).
+   * The chain core still never learns a type's name; it only relays what its caller says.
+   */
+  readonly notePrefix?: string
+  /** Notes the CALLER contributes, ahead of the plugin's. Unprefixed: they name their own lane. */
+  readonly extraNotes?: readonly string[]
 }
 
 /** POSIX, vault-relative — this string goes into the agent prompt as a vault path. */
@@ -84,7 +92,10 @@ export async function preprocess(input: PreprocessInput): Promise<PreprocessResu
     passImageToAgent: result.passImageToAgent ?? false,
     deferred: result.deferred ?? false,
     ...(result.exif ? { exif: result.exif } : {}),
-    notes: result.notes,
+    notes: [
+      ...(input.extraNotes ?? []),
+      ...(input.notePrefix === undefined ? result.notes : result.notes.map((n) => `${input.notePrefix} ${n}`)),
+    ],
   }
 
   const manifestPath = path.join(input.jobDir, 'manifest.json')

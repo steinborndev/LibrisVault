@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { runConverter } from '../sandbox.js'
-import { assessExtractedContent, canonicalUrlOf, htmlToText } from '../web.js'
+import { assessExtractedContent, canonicalUrlOf, htmlToText } from '../html.js'
 
 /**
  * Extensions treated as ingestible text with no normalization step.
