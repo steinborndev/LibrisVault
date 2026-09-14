@@ -38,7 +38,7 @@ const LENSES: Array<{ key: string; label: string; short: string }> = [
   { key: 'startups', label: 'Startups & funding', short: 'who builds it and who funds it' },
 ]
 
-export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Partial<SpawnBody>; plan?: PlanStatus | undefined; onDone: (agentId: string) => void; onCancel: () => void }): React.ReactElement {
+export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Partial<SpawnBody>; plan?: PlanStatus | undefined; onDone: (agentId: string, homeDomain: string) => void; onCancel: () => void }): React.ReactElement {
   const qc = useQueryClient()
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents })
@@ -84,7 +84,8 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['agents'] })
       void qc.invalidateQueries({ queryKey: ['library-scene'] })
-      onDone(res.agent.id)
+      // The domain travels with the id: the roster is a refetch behind, the answer is not.
+      onDone(res.agent.id, res.agent.homeDomain)
     },
   })
   const keys = (domains.data?.domains ?? []).map((d) => d.key).filter((k) => k !== 'meta')

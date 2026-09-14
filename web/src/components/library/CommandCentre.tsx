@@ -291,7 +291,28 @@ export function CommandCentre({
   )
   const empty = useMemo(() => wings.flatMap((w) => w.shelves), [wings])
   const roster = useMemo(() => staffed.flatMap((s) => s.fellows.map((f) => ({ shelf: s, fellow: f }))), [staffed])
+  /**
+   * The shelf a just-spawned Fellow belongs to, while the roster still knows nothing about it.
+   * Cleared the moment the shelf turns up, by the effect below.
+   */
+  const [pending, setPending] = useState<string | null>(null)
   const shelf = staffed[Math.min(stop, Math.max(0, staffed.length - 1))]
+
+  /*
+   * The ring follows the dossier once the data catches up. Two things can be late after a
+   * spawn: the Fellow (so `openFellow` could not find its shelf) and the shelf itself (a
+   * domain nobody worked before is not a stop until it has someone). Either way the refetch
+   * arrives a moment later, and this is where the stop is put right.
+   */
+  useEffect(() => {
+    if (view !== 'dossier') return
+    const byFellow = fellowId === null ? -1 : roster.findIndex((r) => r.fellow.agent.id === fellowId)
+    const want =
+      byFellow >= 0 ? staffed.indexOf(roster[byFellow]!.shelf) : pending === null ? -1 : staffed.findIndex((sh) => sh.key === pending)
+    if (want < 0) return
+    if (want !== stop) setStop(want)
+    if (pending !== null) setPending(null)
+  }, [view, fellowId, roster, staffed, pending, stop, setStop])
 
   // The headline needs the names; it does not need to know how they were derived.
   useEffect(() => onShelves(staffed.map((s) => s.key)), [staffed, onShelves])
@@ -454,10 +475,27 @@ export function CommandCentre({
     if (here !== undefined) setStop(Math.max(0, next.indexOf(here)))
   }
 
-  const openFellow = (id: string): void => {
-    // A Fellow spawned a moment ago is not in the roster yet; the shelf follows when it is.
+  /**
+   * Opens a Fellow's dossier and takes the ring with it.
+   *
+   * A Fellow spawned a moment ago is not in the roster yet - the list is refetched after the
+   * spawn, and until it answers the new one does not exist as far as this component knows. The
+   * stop was therefore left where it stood, and the promise in the old comment ("the shelf
+   * follows when it is") was never kept by anything: spawning into a shelf that had nobody
+   * opened the new Fellow's dossier with the ring still pointing at whoever was there before.
+   *
+   * Two halves, because the gap is real: the domain is known from the spawn's own answer, so
+   * the stop moves at once when that shelf already exists, and `pending` holds it for the case
+   * it does not - a shelf with nobody on it is not in `staffed` at all until the refetch.
+   */
+  const openFellow = (id: string, domain?: string): void => {
     const at = roster.findIndex((r) => r.fellow.agent.id === id)
     if (at >= 0) setStop(staffed.indexOf(roster[at]!.shelf))
+    else if (domain !== undefined) {
+      const known = staffed.findIndex((sh) => sh.key === domain)
+      if (known >= 0) setStop(known)
+      else setPending(domain)
+    }
     setFellowId(id)
     setPane('recap')
     setView('dossier')
@@ -2031,7 +2069,7 @@ function Spawn({
   durations: Readonly<Record<string, number | null>>
   plan: PlanStatus | undefined
   onBack: () => void
-  onDone: (id: string) => void
+  onDone: (id: string, homeDomain: string) => void
 }): React.ReactElement {
   const [shape, setShape] = useState<FellowRecord['art'] | null>(null)
   const picked = shape === null ? null : shapeOf(shape)
