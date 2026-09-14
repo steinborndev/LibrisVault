@@ -13,6 +13,7 @@
 
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import type { WingRecord } from '../../db/library.js'
 import type { LibraryService } from '../../pipeline/library.js'
 
 const nameSchema = z.string().trim().min(1).max(40)
@@ -45,11 +46,24 @@ export function registerLibraryRoute(app: FastifyInstance, library: LibraryServi
     return reply.send({ wings: library.reorderWings(parsed.data.ids) })
   })
 
+  /*
+   * One route for both things a wing carries: its name, and where each row's gap stands. A
+   * body may name either, and naming neither is a 400 rather than a silent success.
+   */
   app.patch('/api/v1/wings/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
-    const parsed = z.object({ name: nameSchema }).safeParse(req.body ?? {})
+    const aisle = z.number().int().min(0).max(6)
+    const parsed = z
+      .object({ name: nameSchema.optional(), wallAisle: aisle.optional(), midAisle: aisle.optional() })
+      .refine((b) => b.name !== undefined || b.wallAisle !== undefined || b.midAisle !== undefined, {
+        message: 'name, wallAisle or midAisle is required',
+      })
+      .safeParse(req.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: issues(parsed.error) })
-    const wing = library.renameWing(id, parsed.data.name)
+    let wing: WingRecord | undefined
+    if (parsed.data.name !== undefined) wing = library.renameWing(id, parsed.data.name)
+    if (parsed.data.wallAisle !== undefined) wing = library.setAisle(id, 'wall', parsed.data.wallAisle)
+    if (parsed.data.midAisle !== undefined) wing = library.setAisle(id, 'mid', parsed.data.midAisle)
     if (!wing) return reply.code(404).send({ error: 'no such wing' })
     return reply.send({ wing })
   })

@@ -673,6 +673,21 @@ CREATE TABLE oa_lookups (
 );
 `
 
+/**
+ * v28 - where a wing's passage stands (docs/agents/SPEC.md section 10.4).
+ *
+ * A wing is two rows of shelves with one gap in each: the gap in the back row is the doorway,
+ * the one in the front row is the aisle you walk through. Both sat at the middle of seven
+ * positions, which fixed every wing at three shelves, passage, three. They are now a column
+ * each, holding the position index 0 to 6, so a wing can be laid out one and five, two and
+ * four, or six in a row with the way through at either end. Default 3, which is what every
+ * wing looked like before.
+ */
+const V28 = `
+ALTER TABLE wings ADD COLUMN wall_aisle INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE wings ADD COLUMN mid_aisle INTEGER NOT NULL DEFAULT 3;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -701,4 +716,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 25, up: V25 },
   { version: 26, up: V26 },
   { version: 27, up: V27 },
+  { version: 28, up: V28 },
 ]

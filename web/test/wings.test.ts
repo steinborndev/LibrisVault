@@ -9,10 +9,10 @@ import type { SceneRoom } from '../src/api/types.ts'
 
 const shelf = (slot: number, domain: string): SceneRoom['shelves'][number] => ({ slot, domain, books: 1, volumes: 1, stubs: 0, placedBy: 'auto' })
 const rooms: SceneRoom[] = [
-  { id: 'w-b', name: 'Wing B', kind: 'wing', position: 1, capacity: 12, shelves: [shelf(1, 'chemistry'), shelf(0, 'physics')] },
-  { id: 'main', name: 'Main room', kind: 'main', position: -1, capacity: 4, shelves: [shelf(0, 'astronomy'), shelf(1, 'biology')] },
-  { id: 'w-a', name: 'Wing A', kind: 'wing', position: 0, capacity: 12, shelves: [shelf(0, 'ai-tooling')] },
-  { id: 'w-empty', name: 'Wing C', kind: 'wing', position: 2, capacity: 12, shelves: [shelf(0, 'nowhere')] },
+  { id: 'w-b', name: 'Wing B', kind: 'wing', position: 1, capacity: 12, wallAisle: 3, midAisle: 3, shelves: [shelf(1, 'chemistry'), shelf(0, 'physics')] },
+  { id: 'main', name: 'Main room', kind: 'main', position: -1, capacity: 4, wallAisle: 3, midAisle: 3, shelves: [shelf(0, 'astronomy'), shelf(1, 'biology')] },
+  { id: 'w-a', name: 'Wing A', kind: 'wing', position: 0, capacity: 12, wallAisle: 3, midAisle: 3, shelves: [shelf(0, 'ai-tooling')] },
+  { id: 'w-empty', name: 'Wing C', kind: 'wing', position: 2, capacity: 12, wallAisle: 3, midAisle: 3, shelves: [shelf(0, 'nowhere')] },
 ]
 const known = ['ai-tooling', 'astronomy', 'biology', 'chemistry', 'physics', 'stray', '']
 

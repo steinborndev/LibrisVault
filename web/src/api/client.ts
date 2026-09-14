@@ -442,6 +442,14 @@ export const api = {
   renameWing: (id: string, name: string): Promise<{ wing: Wing }> =>
     fetch(`${BASE}/wings/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }).then(json<{ wing: Wing }>),
 
+  /** Moves one row's gap in one wing: `wall` is the doorway, `mid` the aisle. */
+  moveAisle: (id: string, row: 'wall' | 'mid', at: number): Promise<{ wing: Wing }> =>
+    fetch(`${BASE}/wings/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(row === 'wall' ? { wallAisle: at } : { midAisle: at }),
+    }).then(json<{ wing: Wing }>),
+
   reorderWings: (ids: string[]): Promise<{ wings: Wing[] }> =>
     fetch(`${BASE}/wings/order`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) }).then(json<{ wings: Wing[] }>),
 

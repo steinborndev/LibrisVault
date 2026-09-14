@@ -17,6 +17,8 @@ import {
   type LibraryStore,
   type PlacementRecord,
   type WingRecord,
+  DEFAULT_AISLE,
+  isAisle,
 } from '../db/library.js'
 import type { VaultGraph } from './graph.js'
 import type { JobRow, JobHold } from '../db/jobs.js'
@@ -43,6 +45,9 @@ export interface SceneRoom {
   readonly kind: 'main' | 'wing'
   readonly position: number
   readonly capacity: number
+  /** Where each row's gap stands, 0 to 6: the back row's is the doorway, the front row's the aisle. */
+  readonly wallAisle: number
+  readonly midAisle: number
   readonly shelves: readonly SceneShelf[]
 }
 
@@ -212,8 +217,27 @@ export class LibraryService {
         .sort((a, b) => a.slot - b.slot)
         .map(shelfOf)
     const rooms: SceneRoom[] = [
-      { id: MAIN_ROOM, name: 'Main room', kind: 'main', position: -1, capacity: capacityOf(MAIN_ROOM), shelves: shelvesIn(MAIN_ROOM) },
-      ...placed.wings.map((w): SceneRoom => ({ id: w.id, name: w.name, kind: 'wing', position: w.position, capacity: capacityOf(w.id), shelves: shelvesIn(w.id) })),
+      {
+        id: MAIN_ROOM,
+        name: 'Main room',
+        kind: 'main',
+        position: -1,
+        capacity: capacityOf(MAIN_ROOM),
+        // The main room's door is part of its architecture, not something to be moved.
+        wallAisle: DEFAULT_AISLE,
+        midAisle: DEFAULT_AISLE,
+        shelves: shelvesIn(MAIN_ROOM),
+      },
+      ...placed.wings.map((w): SceneRoom => ({
+        id: w.id,
+        name: w.name,
+        kind: 'wing',
+        position: w.position,
+        capacity: capacityOf(w.id),
+        wallAisle: w.wallAisle,
+        midAisle: w.midAisle,
+        shelves: shelvesIn(w.id),
+      })),
     ]
     const departments: SceneDepartment[] = domains.map((domain) => {
       const c = counts.get(domain)!
@@ -310,9 +334,26 @@ export class LibraryService {
 
   createWing(name?: string): WingRecord {
     const wings = this.o.store.wings()
-    const wing: WingRecord = { id: randomUUID(), name: name?.trim() || nextWingName(wings), position: wings.length, createdAt: this.now().toISOString() }
+    const wing: WingRecord = {
+      id: randomUUID(),
+      name: name?.trim() || nextWingName(wings),
+      position: wings.length,
+      wallAisle: DEFAULT_AISLE,
+      midAisle: DEFAULT_AISLE,
+      createdAt: this.now().toISOString(),
+    }
     this.o.store.createWing(wing)
     return wing
+  }
+
+  /**
+   * Moves one row's gap in one wing. The index is a position, not a slot: the row has seven
+   * positions and six shelves, and whichever position is named becomes the way through while
+   * the shelves keep their slots and close the old gap.
+   */
+  setAisle(id: string, row: 'wall' | 'mid', at: number): WingRecord | undefined {
+    if (!isAisle(at)) return undefined
+    return this.o.store.setAisle(id, row, at)
   }
 
   renameWing(id: string, name: string): WingRecord | undefined {

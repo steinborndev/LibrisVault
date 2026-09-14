@@ -33,7 +33,7 @@ const graphOf = (nodes: GraphNode[]): VaultGraph => ({ nodes, edges: [], unresol
 
 describe('placement model', () => {
   it('names wings by letter and finds free slots', () => {
-    const w = (n: number): WingRecord[] => Array.from({ length: n }, (_, i) => ({ id: `w${i}`, name: `Wing ${i}`, position: i, createdAt: 'c' }))
+    const w = (n: number): WingRecord[] => Array.from({ length: n }, (_, i) => ({ id: `w${i}`, name: `Wing ${i}`, position: i, wallAisle: 3, midAisle: 3, createdAt: 'c' }))
     expect(nextWingName([])).toBe('Wing A')
     expect(nextWingName(w(1))).toBe('Wing B')
     expect(nextWingName(w(26))).toBe('Wing AA')
@@ -71,10 +71,15 @@ describe('library stores', () => {
     db.close()
   })
   const exercise = (store: LibraryStore): void => {
-    store.createWing({ id: 'a', name: 'Wing A', position: 0, createdAt: '1' })
-    store.createWing({ id: 'b', name: 'Wing B', position: 1, createdAt: '2' })
+    store.createWing({ id: 'a', name: 'Wing A', position: 0, wallAisle: 3, midAisle: 3, createdAt: '1' })
+    store.createWing({ id: 'b', name: 'Wing B', position: 1, wallAisle: 3, midAisle: 3, createdAt: '2' })
     expect(store.renameWing('b', 'Sciences')?.name).toBe('Sciences')
     expect(store.renameWing('zzz', 'x')).toBeUndefined()
+    // Each row's gap moves on its own, and a wing that does not exist moves nothing.
+    expect(store.setAisle('a', 'mid', 0)).toMatchObject({ wallAisle: 3, midAisle: 0 })
+    expect(store.setAisle('a', 'wall', 6)).toMatchObject({ wallAisle: 6, midAisle: 0 })
+    expect(store.wings().find((w) => w.id === 'b')).toMatchObject({ wallAisle: 3, midAisle: 3 })
+    expect(store.setAisle('zzz', 'mid', 1)).toBeUndefined()
     expect(store.reorderWings(['b']).map((w) => [w.id, w.position])).toEqual([
       ['b', 0],
       ['a', 1],
@@ -283,6 +288,11 @@ describe('LibraryService', () => {
     expect(wingB.name).toBe('Wing B')
     expect(service.createWing('  Humanities ').name).toBe('Humanities')
     expect(service.renameWing(wingB.id, 'Sciences')?.name).toBe('Sciences')
+    // A new wing starts in the middle, and only a position inside the row is accepted.
+    expect(wingB).toMatchObject({ wallAisle: 3, midAisle: 3 })
+    expect(service.setAisle(wingB.id, 'mid', 5)?.midAisle).toBe(5)
+    expect(service.setAisle(wingB.id, 'mid', 7)).toBeUndefined()
+    expect(service.setAisle(wingB.id, 'mid', -1)).toBeUndefined()
     expect(service.reorderWings([wingB.id]).map((w) => w.name)).toEqual(['Sciences', 'Wing A', 'Humanities'])
     expect(service.deleteWing(wingA.id)).toMatchObject({ status: 409 })
     expect(service.deleteWing('nope')).toMatchObject({ status: 404 })
@@ -365,6 +375,19 @@ describe('library routes', () => {
     expect((await app.inject({ method: 'PATCH', url: `/api/v1/wings/${wing.id}`, payload: { name: 'Humanities' } })).json()).toMatchObject({ wing: { name: 'Humanities' } })
     expect(((await app.inject({ method: 'PATCH', url: '/api/v1/wings/order', payload: { ids: [wing.id] } })).json() as { wings: Array<{ name: string }> }).wings.map((w) => w.name)).toEqual(['Humanities', 'Wing A'])
     expect(((await app.inject({ method: 'GET', url: '/api/v1/wings' })).json() as { wings: Array<{ name: string }> }).wings[0]!.name).toBe('Humanities')
+    /*
+     * One route carries both things a wing has: its name and where each row's gap stands. A
+     * body that names neither is refused rather than quietly succeeding, and a position
+     * outside the row is refused by the schema.
+     */
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/wings/${wing.id}`, payload: { midAisle: 0 } })).json()).toMatchObject({ wing: { midAisle: 0, wallAisle: 3 } })
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/wings/${wing.id}`, payload: { wallAisle: 6 } })).json()).toMatchObject({ wing: { midAisle: 0, wallAisle: 6 } })
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/wings/${wing.id}`, payload: { midAisle: 7 } })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/wings/${wing.id}`, payload: {} })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PATCH', url: '/api/v1/wings/nope', payload: { midAisle: 1 } })).statusCode).toBe(404)
+    // And the scene reports the arrangement, which is what the drawing reads.
+    const arranged = (await app.inject({ method: 'GET', url: '/api/v1/library/scene' })).json() as { rooms: Array<{ id: string; wallAisle: number; midAisle: number }> }
+    expect(arranged.rooms.find((r) => r.id === wing.id)).toMatchObject({ wallAisle: 6, midAisle: 0 })
     const moved = await app.inject({ method: 'POST', url: '/api/v1/library/move', payload: { domain: 'astronomy', room: 'main' } })
     expect(moved.statusCode).toBe(200)
     expect((moved.json() as { placements: Array<{ domain: string; room: string }> }).placements.find((p) => p.domain === 'astronomy')?.room).toBe('main')

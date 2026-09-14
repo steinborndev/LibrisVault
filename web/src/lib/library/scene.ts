@@ -12,7 +12,7 @@
 
 import type { LibraryScene, SceneFellow, SceneJob, SceneRun } from '../../api/types.ts'
 import { domainColor } from '../domains.ts'
-import { ANCHORS, shelfStand, type Tile } from './room.ts'
+import { ANCHORS, DEFAULT_AISLES, shelfStand, type Aisles, type Tile } from './room.ts'
 
 export type Pose = 'stand' | 'wait' | 'shelf' | 'desk' | 'shelve' | 'carry' | 'cart' | 'clipboard' | 'sit' | 'sleep' | 'think'
 export type Role = 'fellow' | 'researcher' | 'reader' | 'clerk' | 'inspector' | 'caretaker'
@@ -273,6 +273,12 @@ const fellowColor = (agentId: string): string => {
   return `hsl(${h % 360} 48% 46%)`
 }
 
+/** A room's two gaps, so a figure stands in front of the shelf as the room is arranged now. */
+const aislesOf = (scene: LibraryScene, room: string): Aisles => {
+  const r = scene.rooms.find((x) => x.id === room)
+  return r === undefined ? DEFAULT_AISLES : { wall: r.wallAisle, mid: r.midAisle }
+}
+
 function shelfOf(scene: LibraryScene, domain: string): { room: string; kind: 'main' | 'wing'; slot: number } | null {
   const d = scene.departments.find((x) => x.domain === domain)
   if (!d || d.room === null || d.slot === null) return null
@@ -283,13 +289,13 @@ function shelfOf(scene: LibraryScene, domain: string): { room: string; kind: 'ma
 function shelfPlace(scene: LibraryScene, domain: string | null): { room: string; tile: Tile } {
   const s = domain !== null ? shelfOf(scene, domain) : null
   if (s) {
-    const tile = shelfStand(s.kind, s.slot)
+    const tile = shelfStand(s.kind, s.slot, aislesOf(scene, s.room))
     if (tile) return { room: s.room, tile }
   }
   const main = scene.rooms.find((r) => r.kind === 'main')
   const first = main?.shelves[0]
   if (first) {
-    const tile = shelfStand('main', first.slot)
+    const tile = shelfStand('main', first.slot, aislesOf(scene, 'main'))
     if (tile) return { room: 'main', tile }
   }
   return { room: 'main', tile: ANCHORS.catalog }

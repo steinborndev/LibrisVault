@@ -7137,6 +7137,13 @@ tr:focus-within .rowacts {
 .lib-slot.free { opacity: 0.85; }
 .lib-slot.drop polygon { transition: opacity 200ms; }
 .lib-case.selected { filter: drop-shadow(0 0 4px var(--accent)); }
+/* The gap in a row: the doorway in the back one, the aisle in the front. It is floor until you
+   take hold of it, so it has no look of its own - what it needs is `touch-action`, or dragging
+   it on a touch screen scrolls the page instead. The one being dragged fades; every other
+   position of its row shows as a target while it is in hand. */
+.lib-aisle,
+.lib-aisle-target { touch-action: none; }
+.lib-aisle.held { cursor: grabbing; }
 
 .lib-corner { position: absolute; z-index: 2; }
 .lib-corner.top { left: 50%; top: 10px; transform: translateX(-50%); }

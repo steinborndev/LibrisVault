@@ -74,8 +74,8 @@ const scene = (over: Partial<LibraryScene> = {}): LibraryScene => ({
   night: false,
   window: { start: '01:00', end: '06:00' },
   rooms: [
-    { id: 'main', name: 'Main room', kind: 'main', position: -1, capacity: 4, shelves: [{ slot: 1, domain: 'computing', books: 10, volumes: 2, stubs: 0, placedBy: 'user' }] },
-    { id: 'w1', name: 'Wing A', kind: 'wing', position: 0, capacity: 12, shelves: [{ slot: 2, domain: 'astronomy', books: 30, volumes: 5, stubs: 1, placedBy: 'auto' }] },
+    { id: 'main', name: 'Main room', kind: 'main', position: -1, capacity: 4, wallAisle: 3, midAisle: 3, shelves: [{ slot: 1, domain: 'computing', books: 10, volumes: 2, stubs: 0, placedBy: 'user' }] },
+    { id: 'w1', name: 'Wing A', kind: 'wing', position: 0, capacity: 12, wallAisle: 3, midAisle: 3, shelves: [{ slot: 2, domain: 'astronomy', books: 30, volumes: 5, stubs: 1, placedBy: 'auto' }] },
   ],
   departments: [
     { domain: 'computing', books: 10, volumes: 2, stubs: 0, room: 'main', slot: 1 },
@@ -378,7 +378,7 @@ describe('a run reads only its own lines', () => {
       generatedAt: '2026-09-10T00:00:00.000Z',
       night: true,
       window: { start: '23:00', end: '02:00' },
-      rooms: [{ id: 'main', name: 'Main room', kind: 'main', position: 0, capacity: 8, shelves: [] }],
+      rooms: [{ id: 'main', name: 'Main room', kind: 'main', position: 0, capacity: 8, wallAisle: 3, midAisle: 3, shelves: [] }],
       departments: [],
       unfiled: 0,
       gaps: 0,

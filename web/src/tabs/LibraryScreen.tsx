@@ -532,6 +532,10 @@ export function LibraryScreen({
   } })
   const renameWing = useMutation({ mutationFn: (b: { id: string; name: string }) => api.renameWing(b.id, b.name), onSuccess: invalidate })
   const reorder = useMutation({ mutationFn: (ids: string[]) => api.reorderWings(ids), onSuccess: invalidate })
+  const moveAisle = useMutation({
+    mutationFn: (b: { id: string; row: 'wall' | 'mid'; at: number }) => api.moveAisle(b.id, b.row, b.at),
+    onSuccess: invalidate,
+  })
   const deleteWing = useMutation({ mutationFn: (id: string) => api.deleteWing(id), onSuccess: () => {
     invalidate()
     pickRoom('main')
@@ -568,6 +572,39 @@ export function LibraryScreen({
         }
         return null
       })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  /**
+   * Dragging a gap along its row (2026-09-14). The same gesture the shelves have, with one
+   * difference: a gap has no owner to move, so what travels is a position. The drop is read
+   * from the element under the pointer, which is why the room draws a target over every other
+   * position of the row while one is in hand.
+   */
+  const [aisleDrag, setAisleDrag] = useState<{ row: 'wall' | 'mid'; at: number } | null>(null)
+  const onAislePointerDown = (row: 'wall' | 'mid', at: number, e: React.PointerEvent): void => {
+    if (e.button !== 0 || current === undefined || current.kind !== 'wing') return
+    e.stopPropagation()
+    const wing = current.id
+    const startX = e.clientX
+    const startY = e.clientY
+    let started = false
+    let target: number | null = null
+    const onMove = (ev: PointerEvent): void => {
+      if (!started && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return
+      if (!started) setAisleDrag({ row, at })
+      started = true
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)
+      const raw = el?.closest<SVGElement>('[data-aisle-target]')?.getAttribute('data-aisle-target')
+      target = raw !== null && raw !== undefined && raw !== '' ? Number(raw) : null
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setAisleDrag(null)
+      if (started && target !== null && target !== at) moveAisle.mutate({ id: wing, row, at: target })
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -930,6 +967,8 @@ export function LibraryScreen({
               onEmptySlotClick={(slot) => setNewSlot(slot)}
               {...(current.kind === 'wing' ? { onBannerClick: () => setRenaming({ id: current.id, name: current.name }) } : {})}
               onShelfPointerDown={onShelfPointerDown}
+              onAislePointerDown={onAislePointerDown}
+              draggingAisle={aisleDrag}
               onActorClick={onActorClick}
               onBoardClick={current.kind === 'main' ? openBoard : undefined}
               onPassageClick={rooms.length > 1 ? nextRoom : undefined}

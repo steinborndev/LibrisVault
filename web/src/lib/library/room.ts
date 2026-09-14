@@ -12,9 +12,25 @@ export const CASE_W = 2.8
 export const CASE_D = 0.72
 export const WALL_J = 0.3
 export const MID_J = 6.4
+/** The doorway when it stands in the middle position, which is where every room starts. */
 export const DOOR = { from: 10, to: 13 } as const
-export const WALL_SLOTS = [0, 1, 2, 4, 5, 6] as const
-export const MID_SLOTS = [0, 1, 2, 4, 5, 6] as const
+/** How wide the doorway is, in tiles: one slot's position plus the reach of a case. */
+const DOOR_W = DOOR.to - DOOR.from
+/** Where each row's gap stands by default: the middle of seven positions. */
+export const DEFAULT_AISLE = 3
+
+/** Both gaps of one room, as the scene reports them. */
+export interface Aisles {
+  readonly wall: number
+  readonly mid: number
+}
+export const DEFAULT_AISLES: Aisles = { wall: DEFAULT_AISLE, mid: DEFAULT_AISLE }
+
+/** The six shelf positions of a row: every position but the one the gap stands in. */
+export const rowSlots = (aisle: number): number[] => [0, 1, 2, 3, 4, 5, 6].filter((k) => k !== aisle)
+
+/** Where the doorway stands when the back row's gap is at `aisle`. */
+export const doorAt = (aisle: number): { from: number; to: number } => ({ from: SLOTS[aisle] ?? DOOR.from, to: (SLOTS[aisle] ?? DOOR.from) + DOOR_W })
 export const WING_CAPACITY = 12
 export const FAVORITE_SLOTS = 4
 /** The favorite pairs, each centred in its wall section beside the door. */
@@ -25,9 +41,18 @@ export interface Tile {
   readonly j: number
 }
 
-/** Where the twelve shelves of a wing stand, by slot: the wall row first, then the middle row. */
-export function wingSlotPositions(): Tile[] {
-  return [...WALL_SLOTS.map((k) => ({ i: SLOTS[k], j: WALL_J })), ...MID_SLOTS.map((k) => ({ i: SLOTS[k], j: MID_J }))]
+/**
+ * Where the twelve shelves of a wing stand, by slot: the wall row first, then the middle row.
+ *
+ * The slots keep their numbers whatever the gaps do. Moving a gap therefore never re-places a
+ * department - the row simply closes up behind the gap and opens where it went, and the
+ * shelves between the old position and the new one step over by one.
+ */
+export function wingSlotPositions(aisles: Aisles = DEFAULT_AISLES): Tile[] {
+  return [
+    ...rowSlots(aisles.wall).map((k) => ({ i: SLOTS[k]!, j: WALL_J })),
+    ...rowSlots(aisles.mid).map((k) => ({ i: SLOTS[k]!, j: MID_J })),
+  ]
 }
 
 /** Where the four favorite shelves of the main room stand, by slot. */
@@ -35,13 +60,13 @@ export function mainSlotPositions(): Tile[] {
   return FAV_I.map((i) => ({ i, j: WALL_J }))
 }
 
-export function slotPosition(kind: 'main' | 'wing', slot: number): Tile | undefined {
-  return (kind === 'main' ? mainSlotPositions() : wingSlotPositions())[slot]
+export function slotPosition(kind: 'main' | 'wing', slot: number, aisles: Aisles = DEFAULT_AISLES): Tile | undefined {
+  return (kind === 'main' ? mainSlotPositions() : wingSlotPositions(aisles))[slot]
 }
 
 /** Where a figure stands to read at a shelf: in front of the case's middle. */
-export function shelfStand(kind: 'main' | 'wing', slot: number): Tile | undefined {
-  const p = slotPosition(kind, slot)
+export function shelfStand(kind: 'main' | 'wing', slot: number, aisles: Aisles = DEFAULT_AISLES): Tile | undefined {
+  const p = slotPosition(kind, slot, aisles)
   return p ? { i: p.i + CASE_W / 2 - 0.3, j: p.j + 1.55 } : undefined
 }
 

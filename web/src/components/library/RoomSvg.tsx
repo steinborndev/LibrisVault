@@ -9,7 +9,7 @@ import { useMemo } from 'react'
 import type { SceneRoom, SceneShelf } from '../../api/types.ts'
 import { domainHue } from '../../lib/domains.ts'
 import { boxFaces, depthOf, fitRoom, hsl, makeProj, mix, pts, seeded, type Proj, type Pt } from '../../lib/library/iso.ts'
-import { CASE_D, CASE_W, DOOR, FAV_I, ROOM, WALL_H, WALL_J, breakSign, signText, wingSlotPositions } from '../../lib/library/room.ts'
+import { CASE_D, CASE_W, DEFAULT_AISLE, DOOR, FAV_I, MID_J, ROOM, SLOTS, WALL_H, WALL_J, breakSign, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
 
 /** The case dimensions under the short names the geometry below reads in. */
 const a = CASE_W
@@ -289,11 +289,24 @@ export interface RoomSvgProps {
   readonly onBannerClick?: (() => void) | undefined
   /** A free shelf was clicked; the screen offers a new department for that slot. */
   readonly onEmptySlotClick?: ((slot: number) => void) | undefined
+  /**
+   * A gap was taken hold of: which row, and where it stands now. The screen drags it along
+   * the row and drops it on another position - see `aisleDrop`.
+   */
+  readonly onAislePointerDown?: ((row: 'wall' | 'mid', at: number, e: React.PointerEvent) => void) | undefined
+  /** While a gap is being dragged: which row it belongs to, and the position under the pointer. */
+  readonly draggingAisle?: { row: 'wall' | 'mid'; at: number } | null
   readonly idp?: string
 }
 
 export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   const { room, night, actors, width: W, height: H } = props
+  /*
+   * Where this room's two gaps stand. A wing's are the user's arrangement; the main room
+   * reports the middle and keeps it, its door being part of the architecture.
+   */
+  const aisles: Aisles = { wall: room.wallAisle ?? DEFAULT_AISLE, mid: room.midAisle ?? DEFAULT_AISLE }
+  const door = room.kind === 'wing' ? doorAt(aisles.wall) : DOOR
   const idp = props.idp ?? 'lib'
   const mode = night ? 'night' : 'day'
   const { TW, ox, oy } = useMemo(() => fitRoom(ROOM.NI, ROOM.NJ, W, H, WALL_H), [W, H])
@@ -324,9 +337,9 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
 
   // Walls as one-tile segments so figures behind them sort correctly; the door is a gap with a lintel.
   for (let kk = 0; kk < ROOM.NI; kk++) {
-    if (kk >= DOOR.from && kk < DOOR.to) continue
+    if (kk >= door.from && kk < door.to) continue
     // A hair into the next tile: without it the seams show as hairlines of the page behind.
-    const wide = kk + 1 + (kk + 1 === DOOR.from || kk + 1 >= ROOM.NI ? 0 : SEAM)
+    const wide = kk + 1 + (kk + 1 === door.from || kk + 1 >= ROOM.NI ? 0 : SEAM)
     add(kk + 0.5 - 0.45, `wl${kk}`, (
       <g>
         <polygon points={pts([P(kk, 0, 0), P(wide, 0, 0), P(wide, 0, wallH), P(kk, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
@@ -338,20 +351,20 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   // The passage: a wooden frame around the opening, and the way into the next room.
   const doorZ = wallH * 0.62
   const frameC = { frame: night ? '#5b4630' : '#8a6a43', edge: night ? '#3d2f1f' : '#6f5335' }
-  add((DOOR.from + DOOR.to) / 2 - 0.45, 'door', (
+  add((door.from + door.to) / 2 - 0.45, 'door', (
     <g
       className="lib-passage"
       onClick={props.onPassageClick}
       style={{ cursor: props.onPassageClick ? 'pointer' : 'default' }}
     >
       <title>{props.passageTitle ?? 'the next room'}</title>
-      <polygon points={pts([P(DOOR.from - SEAM, 0, doorZ), P(DOOR.to + SEAM, 0, doorZ), P(DOOR.to + SEAM, 0, wallH), P(DOOR.from - SEAM, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
-      <polygon points={pts([P(DOOR.from - SEAM, 0, wallH - 4), P(DOOR.to + SEAM, 0, wallH - 4), P(DOOR.to + SEAM, 0, wallH), P(DOOR.from - SEAM, 0, wallH)])} fill={w.cornice} />
+      <polygon points={pts([P(door.from - SEAM, 0, doorZ), P(door.to + SEAM, 0, doorZ), P(door.to + SEAM, 0, wallH), P(door.from - SEAM, 0, wallH)])} fill={`url(#${idp}-wallL)`} />
+      <polygon points={pts([P(door.from - SEAM, 0, wallH - 4), P(door.to + SEAM, 0, wallH - 4), P(door.to + SEAM, 0, wallH), P(door.from - SEAM, 0, wallH)])} fill={w.cornice} />
       {/* the corridor behind it */}
-      <polygon points={pts([P(DOOR.from, 0, 0), P(DOOR.to, 0, 0), P(DOOR.to, 0, doorZ), P(DOOR.from, 0, doorZ)])} fill={night ? '#080b12' : '#5d6474'} opacity={night ? 0.85 : 0.55} />
+      <polygon points={pts([P(door.from, 0, 0), P(door.to, 0, 0), P(door.to, 0, doorZ), P(door.from, 0, doorZ)])} fill={night ? '#080b12' : '#5d6474'} opacity={night ? 0.85 : 0.55} />
       {/* posts and lintel */}
-      <polygon points={pts([P(DOOR.from - 0.22, 0, 0), P(DOOR.from, 0, 0), P(DOOR.from, 0, doorZ + 9), P(DOOR.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
-      <polygon points={pts([P(DOOR.from - 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ), P(DOOR.to + 0.22, 0, doorZ + 9), P(DOOR.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
+      <polygon points={pts([P(door.from - 0.22, 0, 0), P(door.from, 0, 0), P(door.from, 0, doorZ + 9), P(door.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
+      <polygon points={pts([P(door.from - 0.22, 0, doorZ), P(door.to + 0.22, 0, doorZ), P(door.to + 0.22, 0, doorZ + 9), P(door.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
     </g>
   ))
   /*
@@ -375,13 +388,13 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     const sBottom = lintelTop + gap
     const sTop = sBottom + sHeight
     const backFace = (a: number, b: number, z0: number, z1: number): string => pts([P(a, 0, z0), P(b, 0, z0), P(b, 0, z1), P(a, 0, z1)])
-    const [sx, sy] = P((DOOR.from + DOOR.to) / 2, 0, (sTop + sBottom) / 2 - 5)
-    add((DOOR.from + DOOR.to) / 2 - 0.44, 'passage-sign', (
+    const [sx, sy] = P((door.from + door.to) / 2, 0, (sTop + sBottom) / 2 - 5)
+    add((door.from + door.to) / 2 - 0.44, 'passage-sign', (
       <g className="lib-passage-sign" onClick={props.onPassageClick} style={{ cursor: props.onPassageClick ? 'pointer' : 'default' }}>
         <title>{props.passageTitle ?? 'the next room'}</title>
-        <polygon points={backFace(DOOR.from + 0.08, DOOR.to + 0.08, sBottom - 4, sBottom)} fill={night ? '#0b1610' : '#22382e'} opacity={0.35} />
-        <polygon points={backFace(DOOR.from, DOOR.to, sBottom, sTop)} fill={night ? '#1f3329' : '#37564a'} stroke={night ? '#132119' : '#283f36'} strokeWidth={0.8} />
-        <polygon points={backFace(DOOR.from - 0.12, DOOR.to + 0.12, sTop - 5, sTop)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.7} />
+        <polygon points={backFace(door.from + 0.08, door.to + 0.08, sBottom - 4, sBottom)} fill={night ? '#0b1610' : '#22382e'} opacity={0.35} />
+        <polygon points={backFace(door.from, door.to, sBottom, sTop)} fill={night ? '#1f3329' : '#37564a'} stroke={night ? '#132119' : '#283f36'} strokeWidth={0.8} />
+        <polygon points={backFace(door.from - 0.12, door.to + 0.12, sTop - 5, sTop)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.7} />
         <text
           transform={`matrix(1 0.5 0 1 ${sx.toFixed(1)} ${sy.toFixed(1)})`}
           textAnchor="middle"
@@ -398,9 +411,9 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   }
 
   // The right post sorts after the wall tile beside it, which would otherwise paint over it.
-  add(DOOR.to + 0.6, 'doorpost-r', (
+  add(door.to + 0.6, 'doorpost-r', (
     <polygon
-      points={pts([P(DOOR.to, 0, 0), P(DOOR.to + 0.22, 0, 0), P(DOOR.to + 0.22, 0, WALL_H * 0.62 + 9), P(DOOR.to, 0, WALL_H * 0.62 + 9)])}
+      points={pts([P(door.to, 0, 0), P(door.to + 0.22, 0, 0), P(door.to + 0.22, 0, WALL_H * 0.62 + 9), P(door.to, 0, WALL_H * 0.62 + 9)])}
       fill={night ? '#5b4630' : '#8a6a43'}
       stroke={night ? '#3d2f1f' : '#6f5335'}
       strokeWidth={0.8}
@@ -444,6 +457,38 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         <title>{shelf ? `${signText(shelf.domain)}: ${shelf.books} books, ${shelf.volumes} sources${shelf.stubs > 0 ? `, ${shelf.stubs} stubs` : ''}. Click to open the department, drag to move.` : `Free slot ${slot + 1}. Click to start a department here.`}</title>
         {isDrop && <polygon points={pts([P(i - 0.15, j - 0.15), P(i + CASE_W + 0.15, j - 0.15), P(i + CASE_W + 0.15, j + CASE_D + 0.15), P(i - 0.15, j + CASE_D + 0.15)])} fill={TOK.accentSoft} stroke={TOK.accent} strokeWidth={1.5} strokeDasharray="5 4" />}
         {shelf ? <Bookcase P={P} i0={i} j0={j} shelf={shelf} night={night} /> : <Bookcase P={P} i0={i} j0={j} shelf={null} night={night} spare={spareLabel} />}
+      </g>
+    ))
+  }
+
+  /**
+   * The gap in a row, drawn as a patch of floor you can take hold of (2026-09-14). A row has
+   * seven positions and six cases; the one without a case is the way through, and moving it is
+   * what lets a wing be three and three, one and five, or six in a row with the passage at an
+   * end. It is only a target while one is being dragged - the rest of the time it is floor,
+   * and floor with a handle on it would read as a thing.
+   */
+  const placeAisle = (row: 'wall' | 'mid', at: number, j: number): void => {
+    if (room.kind !== 'wing') return
+    const i = SLOTS[at]!
+    const held = props.draggingAisle ?? null
+    const isSource = held !== null && held.row === row && held.at === at
+    add(caseDepth(i, j) - 0.01, `aisle-${row}`, (
+      <g
+        className={`lib-aisle${isSource ? ' held' : ''}`}
+        data-aisle={row}
+        data-aisle-at={at}
+        onPointerDown={props.onAislePointerDown ? (e) => props.onAislePointerDown!(row, at, e) : undefined}
+        style={{ cursor: props.onAislePointerDown ? 'grab' : 'default', opacity: isSource ? 0.4 : 1 }}
+      >
+        <title>{row === 'wall' ? 'The doorway. Drag it along the wall to rearrange the shelves.' : 'The aisle. Drag it along the row to rearrange the shelves.'}</title>
+        <polygon
+          points={pts([P(i, j), P(i + CASE_W, j), P(i + CASE_W, j + CASE_D), P(i, j + CASE_D)])}
+          fill={held !== null && held.row === row ? TOK.accentSoft : 'transparent'}
+          stroke={held !== null && held.row === row ? TOK.accent : 'transparent'}
+          strokeWidth={1.2}
+          strokeDasharray="4 4"
+        />
       </g>
     ))
   }
@@ -571,7 +616,34 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       </g>
     ))
   } else {
-    wingSlotPositions().forEach((p, idx) => placeCase(p.i, p.j, idx, 'free'))
+    wingSlotPositions(aisles).forEach((p, idx) => placeCase(p.i, p.j, idx, 'free'))
+    /*
+     * The two gaps, and - while one is in hand - every position of its row as a target, drawn
+     * over the cases that stand there. Dropping on an occupied position is the ordinary case:
+     * six shelves move over by one and the gap takes the place.
+     */
+    placeAisle('wall', aisles.wall, WALL_J)
+    placeAisle('mid', aisles.mid, MID_J)
+    const held = props.draggingAisle ?? null
+    if (held !== null) {
+      const j = held.row === 'wall' ? WALL_J : MID_J
+      for (const at of [0, 1, 2, 3, 4, 5, 6]) {
+        if (at === held.at) continue
+        const i = SLOTS[at]!
+        add(caseDepth(i, j) + 0.02, `aisle-target-${at}`, (
+          <g className="lib-aisle-target" data-aisle-target={at} style={{ cursor: 'grabbing' }}>
+            <polygon
+              points={pts([P(i - 0.1, j - 0.1), P(i + CASE_W + 0.1, j - 0.1), P(i + CASE_W + 0.1, j + CASE_D + 0.1), P(i - 0.1, j + CASE_D + 0.1)])}
+              fill={TOK.accentSoft}
+              opacity={0.35}
+              stroke={TOK.accent}
+              strokeWidth={1.2}
+              strokeDasharray="5 4"
+            />
+          </g>
+        ))
+      }
+    }
     // The wing's name on a banner, on the wall the main room hangs its boards on.
     const bj0 = 1.6
     const bj1 = 9.4

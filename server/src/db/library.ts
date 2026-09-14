@@ -20,8 +20,21 @@ export interface WingRecord {
   readonly name: string
   /** Order in the room sequence after the main room, 0 first. */
   readonly position: number
+  /**
+   * Where each row's gap stands, as a position index 0 to 6 (schema v28). A row has seven
+   * positions and six shelves, so one position is always the way through: the back row's gap
+   * is the doorway, the front row's the aisle. 3 is the middle, which is what every wing was
+   * fixed at before - three shelves, passage, three.
+   */
+  readonly wallAisle: number
+  readonly midAisle: number
   readonly createdAt: string
 }
+
+/** The seven positions a row has, so a gap index can be checked wherever one arrives. */
+export const ROW_POSITIONS = 7
+export const DEFAULT_AISLE = 3
+export const isAisle = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < ROW_POSITIONS
 
 export interface PlacementRecord {
   readonly domain: string
@@ -37,6 +50,8 @@ export interface LibraryStore {
   wings(): WingRecord[]
   createWing(wing: WingRecord): void
   renameWing(id: string, name: string): WingRecord | undefined
+  /** Moves one row's gap. Undefined when the wing is unknown; the index is validated by the caller. */
+  setAisle(id: string, row: 'wall' | 'mid', at: number): WingRecord | undefined
   /** Positions follow the order of `ids`; wings not named keep their relative order after them. */
   reorderWings(ids: readonly string[]): WingRecord[]
   deleteWing(id: string): boolean
@@ -97,7 +112,7 @@ export function autoPlace(
     let wing = allWings[allWings.length - 1]
     let slot = wing ? freeSlot(wing.id, all) : -1
     if (!wing || slot < 0) {
-      wing = { id: newId(), name: nextWingName(allWings), position: allWings.length, createdAt: now }
+      wing = { id: newId(), name: nextWingName(allWings), position: allWings.length, wallAisle: DEFAULT_AISLE, midAisle: DEFAULT_AISLE, createdAt: now }
       allWings.push(wing)
       newWings.push(wing)
       slot = 0
@@ -131,6 +146,13 @@ export class MemoryLibraryStore implements LibraryStore {
     ordered.forEach((w, i) => this.wingRows.set(w.id, { ...w, position: i }))
     return this.wings()
   }
+  setAisle(id: string, row: 'wall' | 'mid', at: number): WingRecord | undefined {
+    const w = this.wingRows.get(id)
+    if (w === undefined) return undefined
+    const next = row === 'wall' ? { ...w, wallAisle: at } : { ...w, midAisle: at }
+    this.wingRows.set(id, next)
+    return next
+  }
   deleteWing(id: string): boolean {
     return this.wingRows.delete(id)
   }
@@ -149,6 +171,8 @@ interface WingRow {
   id: string
   name: string
   position: number
+  wall_aisle: number
+  mid_aisle: number
   created_at: string
 }
 interface PlacementRow {
@@ -166,11 +190,27 @@ export class SqliteLibraryStore implements LibraryStore {
   ) {}
 
   wings(): WingRecord[] {
-    const rows = this.db.prepare('SELECT id, name, position, created_at FROM wings WHERE user_id = ? ORDER BY position, created_at').all(this.userId) as WingRow[]
-    return rows.map((r) => ({ id: r.id, name: r.name, position: r.position, createdAt: r.created_at }))
+    const rows = this.db
+      .prepare('SELECT id, name, position, wall_aisle, mid_aisle, created_at FROM wings WHERE user_id = ? ORDER BY position, created_at')
+      .all(this.userId) as WingRow[]
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      position: r.position,
+      wallAisle: isAisle(r.wall_aisle) ? r.wall_aisle : DEFAULT_AISLE,
+      midAisle: isAisle(r.mid_aisle) ? r.mid_aisle : DEFAULT_AISLE,
+      createdAt: r.created_at,
+    }))
   }
   createWing(w: WingRecord): void {
-    this.db.prepare('INSERT INTO wings (id, user_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(w.id, this.userId, w.name, w.position, w.createdAt)
+    this.db
+      .prepare('INSERT INTO wings (id, user_id, name, position, wall_aisle, mid_aisle, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(w.id, this.userId, w.name, w.position, w.wallAisle, w.midAisle, w.createdAt)
+  }
+  setAisle(id: string, row: 'wall' | 'mid', at: number): WingRecord | undefined {
+    const column = row === 'wall' ? 'wall_aisle' : 'mid_aisle'
+    const changed = this.db.prepare(`UPDATE wings SET ${column} = ? WHERE id = ? AND user_id = ?`).run(at, id, this.userId).changes
+    return changed > 0 ? this.wings().find((w) => w.id === id) : undefined
   }
   renameWing(id: string, name: string): WingRecord | undefined {
     const changed = this.db.prepare('UPDATE wings SET name = ? WHERE id = ? AND user_id = ?').run(name, id, this.userId).changes

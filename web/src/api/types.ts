@@ -846,6 +846,15 @@ export interface SceneRoom {
   kind: 'main' | 'wing'
   position: number
   capacity: number
+  /**
+   * Where each row's gap stands, as a position index 0 to 6 (2026-09-14). A row has seven
+   * positions and six shelves, so one is always the way through: the back row's gap is the
+   * doorway, the front row's the aisle. A wing can be arranged one and five, two and four, or
+   * six in a row with the way through at an end. The main room always reports 3, its door
+   * being part of the architecture.
+   */
+  wallAisle: number
+  midAisle: number
   shelves: SceneShelf[]
 }
 
