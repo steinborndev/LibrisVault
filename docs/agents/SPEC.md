@@ -230,9 +230,20 @@ to recap line (next morning) to card (any time).
 **Spawn.** The dialog shows the projected cost per month in USD and, once calibrated, in
 percent of the week, computed from the model factor and the step size. Spawning starts
 the **first full research run on the intent immediately** (a checkbox, on by default,
-subject to the quota gate); the first planning run follows in the next night shift. With
-the checkbox off, the Fellow's first activity is that planning run, and its first step
-appears in the next recap.
+subject to the quota gate), and **a planning run straight after it** (2026-09-14), in that
+order: the plan's candidates are what the run just wrote down, so planning first would
+leave it the task's own name and the vault as it already stood. What that buys is a night.
+Without the chained plan the first night is a bare planning run, the decisions arrive the
+next morning and the first steered step the night after; with it the proposals stand within
+the hour, there is an evening to decide in, and the coming shift runs what was chosen. The
+chained plan is a courtesy and not a promise: a refusal at the gate is swallowed, because a
+shut gate would otherwise put a Fellow to sleep in the minute it was created, and the night
+shift plans for it anyway. With the checkbox off, the Fellow's first activity is the shift's
+planning run, and its first step appears in the next recap.
+
+A plan started outside a shift - the card's own button, the one that follows a spawn -
+belongs to the **night ahead**, not to the calendar day it was started on: the shift names
+its cycle, and everything else takes the cycle of the window that is running or about to.
 
 ### 5.2 States
 

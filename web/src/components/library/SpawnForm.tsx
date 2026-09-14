@@ -288,8 +288,8 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         </label>
       </div>
       <label className="lib-spawn-check">
-        <input type="checkbox" checked={form.runFirstStep !== false} onChange={(e) => setForm({ ...form, runFirstStep: e.target.checked })} /> Start the first run now
-        <Tip text="Runs the first task straight away instead of waiting for tonight's shift. Off means the Fellow is created and stands ready; the planner picks it up in the next night shift." />
+        <input type="checkbox" checked={form.runFirstStep !== false} onChange={(e) => setForm({ ...form, runFirstStep: e.target.checked })} /> Run and plan now
+        <Tip text="Runs the first task straight away and then plans what comes next, from what that run just found. The proposals stand within the hour, so there is an evening to decide in and tonight's shift already has something to run. Off means the Fellow is created and stands ready; the planner picks it up in the next night shift, and its first step follows the night after." />
       </label>
       <p className="mono-meta">
         About {monthly.toFixed(0)} USD a month at this pace (list price, estimate)

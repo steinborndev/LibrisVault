@@ -17,6 +17,8 @@ import { MemoryAgentRunStore, SqliteAgentRunStore, type AgentRunRecord } from '.
 import { MemoryProposalStore, SqliteProposalStore } from '../src/db/proposals.js'
 import { renderNotebook, parseNotebook, readBackNotebook, notebookPath, NotebookWriter } from '../src/pipeline/notebook.js'
 import { FellowService, localDate } from '../src/pipeline/fellows.js'
+import { windowAt } from '../src/pipeline/clock.js'
+import { DEFAULT_NIGHT_WINDOW } from '../src/db/settings.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { EventBus } from '../src/pipeline/events.js'
 import { Mutex } from '../src/util/mutex.js'
@@ -67,6 +69,12 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   retiredAt: null,
   ...over,
 })
+
+/** The cycle date of the night a plan started now belongs to: the window's own morning after. */
+const nightAheadDate = (): string => {
+  const at = windowAt(new Date(), DEFAULT_NIGHT_WINDOW)
+  return (at.current ?? at.next).cycleDate
+}
 
 const runRecord = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
   id: 'r1',
@@ -249,6 +257,48 @@ describe('FellowService against a git vault', () => {
     const notebook = fs.readFileSync(path.join(vaultRoot, 'wiki/meta/agents/ada.md'), 'utf8')
     expect(notebook).toContain('research · ' + agentRecord().intent)
     expect(notebook).toContain('1 page(s) · 0.50 USD')
+  })
+
+  /*
+   * Run first, then plan (2026-09-14). The plan is only worth having once the run has been -
+   * its candidates are what the run just wrote down - and having it before the night opens is
+   * what buys the Fellow a night: the proposals stand while there is still an evening to
+   * decide in, and the shift runs what was chosen instead of only planning.
+   */
+  it('plans straight after the first run, so the decisions stand before the night opens', async () => {
+    // Its own service over the same stores: the shared one has no candidate sources, and a
+    // planning run with nothing to plan from is skipped before it starts.
+    const planner = new FellowService({
+      agents: new SqliteAgentStore(db),
+      runs: new SqliteAgentRunStore(db),
+      proposals: new SqliteProposalStore(db),
+      maintenance: runner,
+      notebook: new NotebookWriter({ vaultRoot, commitMutex: new Mutex() }),
+      candidates: () => [{ id: 'C1', kind: 'sweep', text: 'Harness engineering', sourcePages: [], weight: 3 }],
+    })
+    const { agent, run } = await planner.spawn({
+      name: 'Ida',
+      intent: 'Harness engineering',
+      homeDomain: 'ai-tooling',
+      tasks: [{ text: 'Harness engineering', kind: 'watch' }],
+    })
+    expect(run).toMatchObject({ kind: 'research', label: 'Harness engineering' })
+
+    await waitSettled(run!.id)
+    await planner.flush()
+    const kinds = planner.card(agent!.id)!.runs.map((r) => r.kind)
+    expect(kinds).toContain('research')
+    expect(kinds).toContain('plan')
+    // And the plan is for the night AHEAD, not for the calendar day it was started on: read
+    // against the day, proposals made in the evening belong to a cycle the night is not.
+    for (const p of planner.card(agent!.id)!.proposals) expect(p.cycleDate).toBe(nightAheadDate())
+  })
+
+  it('leaves the plan to the night shift when the first run is not taken', async () => {
+    const { agent } = await service.spawn({ name: 'Ines', intent: 'Nothing yet', homeDomain: 'ai-tooling', runFirstStep: false })
+    await service.flush()
+    expect(calls).toHaveLength(0)
+    expect(service.card(agent!.id)!.runs).toEqual([])
   })
 
   it('a manual step is a research-step with tightened caps, and the daily quota gates the next one', async () => {

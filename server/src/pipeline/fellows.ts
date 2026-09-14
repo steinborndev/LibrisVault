@@ -732,8 +732,40 @@ export class FellowService {
     if (outcome.run) {
       const next = taskForTonight(agent.tasks, 0)
       if (next) this.agents.update(agent.id, { taskCursor: next.nextCursor }, this.now().toISOString())
+      this.enqueue(this.planAfterFirst(agent.id, outcome.run.id))
     }
     return { agent: this.agents.get(agent.id) ?? agent, ...(outcome.run ? { run: outcome.run } : {}), ...(outcome.refusal ? { refusal: outcome.refusal } : {}) }
+  }
+
+  /**
+   * The planning run that follows a spawn's first run (2026-09-14).
+   *
+   * Run first, then plan - in that order, because the plan is only worth having once the run
+   * has been: a Fellow spawned at eight in the evening wrote eighteen pages and ten open
+   * questions in its first run, and those ten questions are what its planner then had to work
+   * from. Planned the other way round it would have had its own task's name and the vault as
+   * it already stood.
+   *
+   * What it buys is a night. Without it the first night is a bare planning run, the decisions
+   * arrive the next morning and the first steered work the night after; with it the proposals
+   * stand before the shift opens, there is an evening to decide in, and tonight already runs
+   * what you chose.
+   *
+   * A refusal is swallowed on purpose. The chained plan is a courtesy and not a promise: a
+   * gate that is shut would otherwise put a Fellow to sleep in the minute it was created, and
+   * tonight's shift plans for it anyway.
+   */
+  private async planAfterFirst(agentId: string, runId: string): Promise<void> {
+    const settled = await this.settled(runId)
+    if (settled.status !== 'done') return
+    const agent = this.agents.get(agentId)
+    if (!agent || agent.state === 'retired' || agent.state === 'paused') return
+    const outcome = this.plan(agentId)
+    if (outcome.refusal) {
+      this.log('info', `fellows: no plan for ${agent.name} yet - ${outcome.refusal.error}; the night shift plans for it`)
+      return
+    }
+    if (outcome.run) await this.settled(outcome.run.id)
   }
 
   /**
@@ -1052,7 +1084,15 @@ export class FellowService {
     const refusal = this.gateFor(agent, 'plan')
     if (refusal) return { refusal }
     const now = this.now()
-    const cycleDate = opts.cycleDate ?? localDate(now)
+    /*
+     * The night it is FOR, not the calendar day it is started on (2026-09-14). The shift always
+     * says which cycle it is planning; everything else - the card's "plan now", the run that
+     * follows a spawn - is a plan for the night ahead, and a window of 23:30 to 04:00 carries
+     * the cycle date of the morning after. Read against the calendar day, proposals made in
+     * the evening belonged to a cycle the coming night is not, so the board would not count
+     * them and they would expire a night early.
+     */
+    const cycleDate = opts.cycleDate ?? this.nightAhead().cycleDate
     // Pending proposals from three cycles ago had their two nights (section 6.5).
     const expired = this.proposals.expire(agent.id, addDays(cycleDate, -2))
     if (expired > 0) this.log('info', `fellows: ${expired} proposal(s) of ${agent.name} expired`)
