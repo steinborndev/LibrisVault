@@ -46,6 +46,8 @@ import {
   scheduleFrom,
   runCount,
   plannedOnly,
+  taskBands,
+  type TaskBand,
   shelfOrder,
   shelvesFrom,
   tasksTonight,
@@ -387,6 +389,9 @@ export function CommandCentre({
    * is one line for everyone, so what pushes your work past the window may not be yours.
    */
   const planOnly = plannedOnly(mine)
+  // The queue draws every shelf, so the "no run of its own" set has to cover every shelf too;
+  // `planOnly` above is this shelf's share of it, which is what the note under the bar counts.
+  const unrun = useMemo(() => new Set(plannedOnly(blocks)), [blocks])
   /*
    * Whether the plan's own reserves will refuse the night. The schedule above knows tasks and
    * durations; this is the gate every run meets first, and without it the window draws work
@@ -753,12 +758,12 @@ export function CommandCentre({
                   * a shelf's tasks are one block rather than one each; the queue below draws
                   * them task by task on the window's own scale.
                   */}
-                {bandsOf(blocks).map((g) => (
+                {taskBands(blocks).map((t) => (
                   <span
-                    key={`${g.shelf}-${g.from}`}
+                    key={`${t.fellowId}-${t.text}-${t.from}`}
                     className="cc-work"
-                    style={{ left: `${pctIn(NIGHT, g.from)}%`, width: `${((g.to - g.from) / (NIGHT.to - NIGHT.from)) * 100}%`, ['--dc' as string]: domainColor(g.shelf) }}
-                    title={`${g.shelf}: ${runCount(g.parts)}, ${dur(g.to - g.from)}`}
+                    style={{ left: `${pctIn(NIGHT, t.from)}%`, width: `${((t.to - t.from) / (NIGHT.to - NIGHT.from)) * 100}%`, ['--dc' as string]: domainColor(t.shelf) }}
+                    title={taskTitle(t)}
                   />
                 ))}
               </div>
@@ -852,23 +857,15 @@ export function CommandCentre({
                     key={`${g.shelf}-${g.from}`}
                     className={`cc-band ${g.shelf === shelf.key ? 'here' : ''}`}
                     style={{ left: `${pctIn(live, g.from)}%`, width: `${((g.to - g.from) / (live.to - live.from)) * 100}%`, ['--dc' as string]: domainColor(g.shelf) }}
-                    title={`${g.shelf}: ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
+                    title={`${g.shelf}: ${runCount(g.parts)}, ${dur(g.to - g.from)}`}
                   >
                     <span className="cc-parts">
                       {g.parts.map((b, i) => (
                         <span
-                          key={`${b.fellowId}-${b.text}`}
+                          key={`${b.fellowId}-${b.text}-${b.phase}-${b.from}`}
                           className={`cc-part ${b.phase === 'run' ? '' : 'plan'}`}
                           style={{ width: `${(b.minutes / (g.to - g.from)) * 100}%`, borderLeft: i > 0 ? '1px solid rgba(255,255,255,.55)' : undefined }}
-                          title={
-                            b.outcome === 'ran'
-                              ? `${b.fellowName} · ${b.kind}: ${b.text} · done, a run carried it out tonight`
-                              : b.outcome === 'vetoed'
-                                ? `${b.fellowName} · ${b.kind}: ${b.text} · nothing runs: you vetoed every option it proposed`
-                                : b.phase === 'run'
-                                  ? `${b.fellowName} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`
-                                  : `${b.fellowName} · ${b.kind}: ${b.text} · planned only tonight (${dur(b.minutes)}); the daily quota is spent, so it is carried out on a later night`
-                          }
+                          title={blockTitle(b, unrun.has(b))}
                         >
                           {/* The mark is the record of what happened, not part of the forecast:
                               it appears only once the night has made something of the task. */}
@@ -1083,6 +1080,33 @@ export function CommandCentre({
 }
 
 /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
+/**
+ * What one block of the queue says about itself: whose it is, which task, and what the night
+ * does with it. Every section carries its own, because a Fellow with three tasks is three
+ * different answers and one tooltip for the band would name none of them.
+ */
+function blockTitle(b: Block, unrun: boolean): string {
+  const who = `${b.fellowName} · ${b.kind}: ${b.text}`
+  if (b.outcome === 'ran') return `${who} · done, a run carried it out tonight`
+  if (b.outcome === 'vetoed') return `${who} · nothing runs: you vetoed every option it proposed`
+  if (b.phase === 'run') return `${who} · a research run, about ${dur(b.minutes)}`
+  return unrun
+    ? `${who} · the planning run (${dur(b.minutes)}). Its own run does not fit tonight: the quota is spent on the tasks ahead of it, so what it proposes stands for a later night.`
+    : `${who} · the planning run (${dur(b.minutes)}): what to do about this task tonight. It never counts against the quota.`
+}
+
+/** The same for one whole task, which is what the overview above draws. */
+function taskTitle(t: TaskBand): string {
+  const who = `${t.fellowName} · ${t.kind}: ${t.text}`
+  const work =
+    t.runs === 0
+      ? 'planned tonight, no run of its own'
+      : `${t.plans} plan and ${t.runs} run${t.runs === 1 ? '' : 's'}, ${dur(t.to - t.from)}`
+  if (t.outcome === 'ran') return `${who} · ${work} · done, a run carried it out tonight`
+  if (t.outcome === 'vetoed') return `${who} · nothing runs: you vetoed every option it proposed`
+  return `${who} · ${work}`
+}
+
 function bandsOf(blocks: readonly Block[]): Array<{ shelf: string; from: number; to: number; parts: Block[] }> {
   const out: Array<{ shelf: string; from: number; to: number; parts: Block[] }> = []
   for (const b of blocks) {

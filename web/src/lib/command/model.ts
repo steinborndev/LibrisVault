@@ -206,15 +206,38 @@ export function runsTonight(f: FellowSummary): number {
   return done + Math.min(left, standing + fresh)
 }
 
+/**
+ * How the night's runs fall across a Fellow's tasks: round robin over the ones that can still
+ * run, so with fewer runs than tasks the ones at the front of the list get them and with more
+ * the list comes round again.
+ *
+ * A task every proposal of which was vetoed is out of the round: the shift will not run one, so
+ * booking time for it would forecast work that cannot happen - and the bar would say "nothing
+ * runs" and draw a run in the same breath. Before a night has planned anything there are no
+ * proposals and so no vetoes, which is why this only bites once a night is under way.
+ */
+export function runsByTask(f: FellowSummary): Map<string, number> {
+  const vetoed = new Set((f.tonight ?? []).filter((o) => o.outcome === 'vetoed').map((o) => o.id))
+  const open = tasksTonight(f.agent).filter((t) => !vetoed.has(t.id))
+  const out = new Map<string, number>()
+  if (open.length === 0) return out
+  const runs = runsTonight(f)
+  for (let i = 0; i < runs; i++) {
+    const t = open[i % open.length]!
+    out.set(t.id, (out.get(t.id) ?? 0) + 1)
+  }
+  return out
+}
+
 /** What one Fellow costs the night: one planning run per standing task, plus its research runs. */
 export function fellowMinutes(f: FellowSummary, durations: Readonly<Record<string, number | null>>): number {
   const tasks = tasksTonight(f.agent)
-  const runs = runsTonight(f)
+  const runs = runsByTask(f)
   const plans = tasks.length * planMinutes(durations)
-  // Round robin over the tasks, so a Fellow whose tasks are of different arts is priced by the
-  // ones its runs actually reach.
+  // Priced by the tasks the runs actually reach, so a Fellow whose tasks are of different arts
+  // is not charged for an art the night never gets to.
   let n = 0
-  for (let i = 0; i < runs; i++) n += runMinutes(tasks[i % Math.max(1, tasks.length)]?.kind ?? 'watch', durations)
+  for (const t of tasks) n += (runs.get(t.id) ?? 0) * runMinutes(t.kind, durations)
   return plans + n
 }
 
@@ -307,24 +330,78 @@ export function scheduleFrom(
         })
         cur += minutes
       }
-      // One planning run per standing task. A vetoed task is marked here: it is the plan that
-      // produced the proposals nothing survived.
-      for (const t of tasks) {
-        const outcome = outcomes.get(t.id)
-        push(t, 'plan', planMinutes(durations), outcome === 'vetoed' ? 'vetoed' : 'open')
-      }
-      /*
-       * Then the research runs, round robin over the tasks. The ones this night has already
-       * carried out come first and wear the mark; the rest are the forecast.
-       */
-      const runs = runsTonight(f)
+      // The runs this night has already carried out come first and wear the mark; the rest are
+      // the forecast.
+      const runsFor = runsByTask(f)
       const done = Math.max(0, f.runsTonight)
-      for (let i = 0; i < runs; i++) {
-        const t = tasks[i % Math.max(1, tasks.length)]
-        if (t === undefined) break
-        push(t, 'run', runMinutes(t.kind, durations), i < done ? 'ran' : 'open')
+      /*
+       * Laid out task by task, each with its planning run in front of its own runs. The shift
+       * really does all the plans before any of the runs, and across every Fellow rather than
+       * within one - but the bar is read task by task, and a task whose blocks are scattered
+       * over the night cannot be pointed at, hovered, or grouped in the overview above.
+       */
+      let ran = 0
+      for (const t of tasks) {
+        // A vetoed task is marked on its plan: that is the run that produced the proposals
+        // nothing survived.
+        push(t, 'plan', planMinutes(durations), outcomes.get(t.id) === 'vetoed' ? 'vetoed' : 'open')
+        for (let i = 0; i < (runsFor.get(t.id) ?? 0); i++) {
+          push(t, 'run', runMinutes(t.kind, durations), ran++ < done ? 'ran' : 'open')
+        }
       }
     }
+  }
+  return out
+}
+
+/**
+ * One task's share of the night: its planning run and the runs that came of it, as one span.
+ *
+ * What the overview bar draws, where twelve hours of scale leave a single run about ten pixels
+ * wide and the block a reader points at has to be the whole task. The shelf's own queue draws
+ * the blocks themselves, on the window's scale, where they are wide enough to tell apart.
+ */
+export interface TaskBand {
+  readonly shelf: string
+  readonly fellowId: string
+  readonly fellowName: string
+  readonly kind: TaskKind
+  readonly text: string
+  readonly from: number
+  readonly to: number
+  readonly plans: number
+  readonly runs: number
+  readonly outcome: TaskOutcome
+}
+
+/** The blocks grouped into one band per task, in the order the night takes them. */
+export function taskBands(blocks: readonly Block[]): TaskBand[] {
+  const out: TaskBand[] = []
+  for (const b of blocks) {
+    const last = out[out.length - 1]
+    if (last !== undefined && last.fellowId === b.fellowId && last.text === b.text) {
+      out[out.length - 1] = {
+        ...last,
+        to: b.to,
+        plans: last.plans + (b.phase === 'plan' ? 1 : 0),
+        runs: last.runs + (b.phase === 'run' ? 1 : 0),
+        // A run that happened outranks the plan's verdict: the pages exist.
+        outcome: b.outcome === 'ran' ? 'ran' : last.outcome,
+      }
+      continue
+    }
+    out.push({
+      shelf: b.shelf,
+      fellowId: b.fellowId,
+      fellowName: b.fellowName,
+      kind: b.kind,
+      text: b.text,
+      from: b.from,
+      to: b.to,
+      plans: b.phase === 'plan' ? 1 : 0,
+      runs: b.phase === 'run' ? 1 : 0,
+      outcome: b.outcome,
+    })
   }
   return out
 }

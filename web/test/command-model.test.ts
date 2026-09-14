@@ -21,6 +21,7 @@ import {
   shelvesFrom,
   runCount,
   plannedOnly,
+  taskBands,
   tasksTonight,
   ticksIn,
   toMinutes,
@@ -321,6 +322,47 @@ describe('isSystemPage', () => {
 describe('scheduleFrom', () => {
   const durations = { 'research-step': 318_000, 'research-expand': 311_000, plan: 86_000, research: 614_000 }
 
+  /*
+   * What the overview bar points at (2026-09-14). Twelve hours of scale leave one run about ten
+   * pixels wide, so the block a reader hovers there is the whole task - which only works
+   * because a task's plan and its runs are laid out together.
+   */
+  it('groups a night into one band per task, with the fellow and the task on each', () => {
+    const a = agent({ id: 'b', name: 'B', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 3, tasks: [task('watch', 'a'), task('deepen', 'b')] })
+    const bands = taskBands(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations))
+    // Round robin over two tasks with three runs: the first comes round twice.
+    expect(bands.map((t) => `${t.text}:${t.plans}p${t.runs}r`)).toEqual(['a:1p2r', 'b:1p1r'])
+    expect(bands.map((t) => t.fellowName)).toEqual(['B', 'B'])
+    // Each band is the span of its own blocks, and they follow one another without a gap.
+    expect(bands[0]!.from).toBe(1500)
+    expect(bands[0]!.to).toBe(bands[1]!.from)
+    expect(bands[1]!.to - bands[0]!.from).toBe(fellowMinutes(summary(a), durations))
+  })
+
+  it('a band reports the run that happened, over the plan that only forecast it', () => {
+    // The band spans a plan and its runs, and the plan carries no verdict of its own until the
+    // night gives it one. What the reader wants from the band is the strongest thing about it.
+    const a = agent({ id: 'v', name: 'V', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
+    const f = { ...summary(a), runsTonight: 1, tonight: [{ id: 'a', outcome: 'ran' as const }] } as FellowSummary
+    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [f] }], 1500, durations)
+    expect(blocks.map((b) => `${b.phase}:${b.outcome}`)).toEqual(['plan:open', 'run:ran'])
+    expect(taskBands(blocks).map((t) => t.outcome)).toEqual(['ran'])
+  })
+
+  /*
+   * A task nothing survived the veto on gets no run booked for it (2026-09-14). The shift will
+   * not run a vetoed proposal, so a forecast that gave the task one would say "nothing runs"
+   * and draw a run in the same breath - and would book minutes the night never spends.
+   */
+  it('keeps a vetoed task out of the round, and gives its runs to the tasks that can use them', () => {
+    const a = agent({ id: 'x', name: 'X', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 2, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] })
+    const f = { ...summary(a), tonight: [{ id: 'a', outcome: 'open' as const }, { id: 'b', outcome: 'vetoed' as const }, { id: 'c', outcome: 'open' as const }] } as FellowSummary
+    const bands = taskBands(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [f] }], 1500, durations))
+    expect(bands.map((t) => `${t.text}:${t.plans}p${t.runs}r`)).toEqual(['a:1p1r', 'b:1p0r', 'c:1p1r'])
+    // Every task is still planned, so the minutes hold three plans and the two runs that fit.
+    expect(fellowMinutes(f, durations)).toBe(3 * 1 + 2 * 5)
+  })
+
   it('lays the night end to end, because the runs are serialized', () => {
     const shelves = [
       { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withStanding(agent({ id: 'c', name: 'Clara', tasks: [task('watch', 'a')] }), 1)] },
@@ -378,8 +420,10 @@ describe('scheduleFrom', () => {
      */
     const a = agent({ id: 's', name: 'S', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 1, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] })
     const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations)
-    expect(blocks.map((b) => b.phase)).toEqual(['plan', 'plan', 'plan', 'run'])
-    expect(blocks.map((b) => b.minutes)).toEqual([1, 1, 1, 5])
+    // Task by task, each plan in front of its own runs: the first task gets the one run there
+    // is, the other two are planned and stand for a later night.
+    expect(blocks.map((b) => `${b.phase}:${b.text}`)).toEqual(['plan:a', 'run:a', 'plan:b', 'plan:c'])
+    expect(blocks.map((b) => b.minutes)).toEqual([1, 5, 1, 1])
     // And the whole Fellow costs the same as its blocks, because it is the same arithmetic.
     expect(fellowMinutes(summary(a), durations)).toBe(8)
     expect(runsTonight(summary(a))).toBe(1)
@@ -448,7 +492,16 @@ describe('scheduleFrom', () => {
     const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withOutcomes] }], 1500, durations)
     // The veto is a verdict on the TASK, so it marks the plan that produced the proposals; the
     // run that happened marks the first run block, which is the one the night already made.
-    expect(blocks.map((b) => `${b.phase}:${b.outcome}`)).toEqual(['plan:open', 'plan:vetoed', 'plan:open', 'run:ran', 'run:open', 'run:open'])
+    // The vetoed task keeps its plan and its mark, and its share of the runs goes to the two
+    // tasks that can still use them.
+    expect(blocks.map((b) => `${b.phase}:${b.text}:${b.outcome}`)).toEqual([
+      'plan:a:open',
+      'run:a:ran',
+      'run:a:open',
+      'plan:b:vetoed',
+      'plan:c:open',
+      'run:c:open',
+    ])
   })
 
   it('calls a task open when the service says nothing about it', () => {
