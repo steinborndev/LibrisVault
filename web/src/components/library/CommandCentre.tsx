@@ -994,12 +994,15 @@ export function CommandCentre({
               * own order, with the sentence each run will work from. The room under the Fellows
               * is where it belongs - you read who is on the shelf, then what they will do.
               */}
-            <section className="cc-block">
-              <h3 className="cc-sec">
+            <section className="cc-block apart">
+              {/*
+                * The rules of the list, on the one thing that is always there to point at. They
+                * are read once and then known, and three standing paragraphs under a list you
+                * consult every night is three paragraphs you scroll past every night.
+                */}
+              <h3 className="cc-sec" title={ACTS_HELP}>
                 Scheduled activities
                 <span className="c">{rows.length}</span>
-                <span className="grow" />
-                <span className="mono-meta">{nightBill(rows)}</span>
               </h3>
               {rows.length === 0 ? (
                 <p className="cc-note dim">Nothing is scheduled for this shelf tonight.</p>
@@ -1010,23 +1013,16 @@ export function CommandCentre({
                   ))}
                 </div>
               )}
-              <p className="cc-note dim">
-                In the order the shift takes them: what you have already approved, a planning run for every standing
-                task, then what the night’s own plans put up. Proposals waiting on a decision are not here - they are
-                under <b>Decisions</b>, with their alternatives beside them.
-              </p>
             </section>
 
             {/*
-              * Below the list, not above it. These notes appear and disappear with the night's
-              * state, and every line of them used to push the Fellows down the page: walking
-              * from shelf to shelf moved the one thing you walked there to read.
+              * Below the list, not above it, and only when there is something to say. These
+              * notes appear and disappear with the night's state, and every line of them used
+              * to push the Fellows down the page: walking from shelf to shelf moved the one
+              * thing you walked there to read. What is always true moved into the heading's
+              * tooltip; what is left is about tonight in particular.
               */}
-            <section className="cc-block">
-              <p className="cc-note dim">
-                The order the shift walks the shelves in, and the arrows change it. Inside a shelf its Fellows keep their
-                own order: priority first, then age. Moving a shelf does not move you off it.
-              </p>
+            <section className="cc-block" hidden={planOnly.length === 0 && overflow.length === 0 && !blocks.some((b) => b.waits)}>
               {planOnly.length > 0 && (
                 <p className="cc-note">
                   <b>
@@ -1050,11 +1046,7 @@ export function CommandCentre({
                   {blocks.filter((b) => b.waits).length} of tonight’s {blocks.length} tasks belong to a Fellow set to{' '}
                   <b>ask me every time</b>, and those wait for you. The rest run unless you veto them during the day.
                 </p>
-              ) : (
-                <p className="cc-note">
-                  Everything here runs on its own. What a Fellow proposes tonight runs tomorrow night unless you veto it.
-                </p>
-              )}
+              ) : null}
             </section>
           </div>
         </>
@@ -1123,21 +1115,17 @@ export function CommandCentre({
 }
 
 /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
-/** The night's own arithmetic for one shelf: what it spends and how long it takes.
- *
- * Points where every line has them, USD otherwise. Never a sum of both - the two are the same
- * estimate in different currencies, and adding one to the other would be a number for nothing.
+/**
+ * What the list is, what it leaves out, and what the order of the shelves means: the standing
+ * rules, on the heading. They are read once and then known, where the night's own state - a
+ * task the quota held back, a queue that overruns the window - is news every time and keeps
+ * its place under the list.
  */
-function nightBill(rows: readonly NightRow[]): string {
-  const work = rows.filter((r) => r.kind === 'run' || r.kind === 'open')
-  const minutes = rows.reduce((n, r) => n + r.minutes, 0)
-  if (work.length === 0) return `${dur(minutes)} · planning only`
-  const priced = work.every((r) => r.estPct !== null)
-  const total = priced
-    ? `${work.reduce((n, r) => n + (r.estPct ?? 0), 0).toFixed(2)} points`
-    : usd(work.reduce((n, r) => n + (r.estUsd ?? 0), 0))
-  return `${dur(minutes)} · about ${total}`
-}
+const ACTS_HELP = [
+  'In the order the shift takes them: what you have already approved, a planning run for every standing task, then what the night’s own plans put up. Proposals waiting on a decision are not here - they are under Decisions, with their alternatives beside them.',
+  'The order the shift walks the shelves in, and the arrows change it. Inside a shelf its Fellows keep their own order: priority first, then age. Moving a shelf does not move you off it.',
+  'Everything here runs on its own. What a Fellow proposes tonight runs tomorrow night unless you veto it.',
+].join('\n\n')
 
 /**
  * One scheduled activity.

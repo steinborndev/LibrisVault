@@ -9159,6 +9159,9 @@ tr:focus-within .rowacts {
  * here is settled work on one shelf, so there is no status and no domain to tell apart, and
  * the only accent left in a row is the one thing that is actually a link.
  */
+/* One line of air above it: the Fellows and their night are two readings of the same shelf,
+   and the list starts far enough below the roster to read as the answer to it. */
+.cc-block.apart { margin-top: 20px; }
 .cc-acts { display: flex; flex-direction: column; gap: 6px; }
 .cc-act {
   display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start;
