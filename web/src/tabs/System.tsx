@@ -280,7 +280,9 @@ function PlanPanel({ plan }: { plan: PlanStatus }): React.ReactElement {
         {plan.gate && <p className="tab-hint">Steps wait: {plan.gate.reason}.</p>}
         <p className="mono-meta">
           {models.length > 0
-            ? `Calibrated: ${models.map(([m, c]) => `${m} ${(c.sevenDay! * 1).toFixed(2)} points/USD over ${c.n} run(s)`).join(', ')}. A week of the plan costs about ${plan.planUsd.week.toFixed(0)} USD to fill at that rate${plan.planUsd.measured ? '' : ' (the configured size; no model is calibrated yet)'}.`
+            ? `Calibrated: ${models
+                .map(([m, c]) => `${m} ${c.sevenDay!.toFixed(4)} points/USD from ${c.n} run(s) that moved the week by ${c.points.sevenDay} point(s)`)
+                .join(', ')}. A week of the plan costs about ${plan.planUsd.week.toFixed(0)} USD to fill at that rate${plan.planUsd.measured ? '' : ' (the configured size; no model is calibrated yet)'}. The plan reports whole percent, so few points behind a rate means a wide rate.`
             : `Not calibrated yet: the points per USD come from the first 3 measured runs per model. Runs measured so far: ${Object.values(plan.calibration.perModel).reduce((a, c) => a + c.n, 0)}.`}
         </p>
       </div>

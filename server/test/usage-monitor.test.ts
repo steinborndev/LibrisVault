@@ -149,9 +149,19 @@ describe('the monitor', () => {
     expect(m.latest()).toMatchObject({ available: true, source: 'event', sampledAt: NOW.toISOString() })
     expect(m.latest().windows.find((w) => w.window === 'five_hour')).toEqual({ window: 'five_hour', utilization: 11, resetsAt: null })
 
-    // The ingest run is not a Fellow run: it never enters the calibration.
+    /*
+     * The ingest run is not a Fellow run: it never enters the calibration. The three that do
+     * cost 2 USD each and moved the windows by 2 and 0.4 points, so the rate is the total
+     * points over the total USD - 6 of 6 and 1.2 of 6 - and `points` says how much signal
+     * that rate rests on.
+     */
     const cal = m.calibration()
-    expect(cal).toEqual({ perModel: { 'sonnet-5': { fiveHour: 1, sevenDay: 0.2, n: 3 } }, ready: true })
+    expect(cal.ready).toBe(true)
+    expect(cal.perModel['sonnet-5']!.n).toBe(3)
+    expect(cal.perModel['sonnet-5']!.fiveHour).toBeCloseTo(1, 6)
+    expect(cal.perModel['sonnet-5']!.sevenDay).toBeCloseTo(0.2, 6)
+    expect(cal.perModel['sonnet-5']!.points.fiveHour).toBeCloseTo(6, 6)
+    expect(cal.perModel['sonnet-5']!.points.sevenDay).toBeCloseTo(1.2, 6)
     expect(CALIBRATION_MIN).toBe(3)
     expect(m.estimatePct(2, 'sonnet-5')).toEqual({ fiveHour: 2, sevenDay: 0.4 })
     expect(m.estimatePct(2, 'claude-sonnet-5')).toEqual({ fiveHour: 2, sevenDay: 0.4 })
@@ -259,6 +269,37 @@ describe('the monitor', () => {
     expect(store.ofRun('r1').map((s) => s.phase)).toEqual(['before', 'after'])
     expect(store.list(2).map((s) => s.ts)).toEqual(['2026-09-07T09:10:00.000Z', '2026-09-07T09:05:00.000Z'])
     db.close()
+  })
+})
+
+describe('the calibration over a counter that reports whole percent', () => {
+  it('lets the rounding average out instead of keeping only the jumps', () => {
+    /*
+     * The shape of the real data: most runs move the week by nothing, because the plan reports
+     * utilization in whole percent and a run takes a fraction of one. Nine runs at 2 USD, one
+     * of which happens to tip the counter by 1: the honest rate is 1 point per 18 USD.
+     * Keeping only the jump - the old method - would have read 0.5 points per USD, nine times
+     * too dear, and priced the week at 200 USD instead of 1800.
+     */
+    const runs = [
+      run({ id: 'jump', costUsd: 2, planPctDelta: { five_hour: 1, seven_day: 1 } }),
+      ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => run({ id: `flat${i}`, costUsd: 2, planPctDelta: { five_hour: 0, seven_day: 0 } })),
+    ]
+    const { m } = monitorWith(runs)
+    const cal = m.calibration().perModel['sonnet-5']!
+    expect(cal.n).toBe(9)
+    expect(cal.points.sevenDay).toBe(1)
+    expect(cal.sevenDay).toBeCloseTo(1 / 18, 6)
+    expect(m.planUsd().week).toBeCloseTo(1800, 0)
+  })
+
+  it('has no rate for a window nothing ever moved', () => {
+    const { m } = monitorWith([0, 1, 2].map((i) => run({ id: `f${i}`, planPctDelta: { five_hour: 2, seven_day: 0 } })))
+    const cal = m.calibration().perModel['sonnet-5']!
+    expect(cal.sevenDay).toBeNull()
+    expect(cal.fiveHour).not.toBeNull()
+    // Without a week rate the window falls back to the setting, and nothing claims otherwise.
+    expect(m.planUsd()).toMatchObject({ week: 1000, measured: false })
   })
 })
 

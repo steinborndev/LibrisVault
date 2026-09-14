@@ -1107,7 +1107,15 @@ export interface PlanStatus {
   windows: PlanWindow[]
   /** When each window resets, as far as the samples or the rate-limit events told. */
   resets: Record<string, string>
-  calibration: { perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number }>; ready: boolean }
+  /**
+   * Points per USD per model, measured as total points moved over total USD spent. `points`
+   * is how many percent points of each window those runs actually moved: the plan reports
+   * utilization in whole percent, so a rate resting on two of them is a rate and not a fact.
+   */
+  calibration: {
+    perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } }>
+    ready: boolean
+  }
   /**
    * What one plan window costs to fill, in USD, and whether that is measured or the setting's
    * guess. A window is 100 points, so the calibration gives it directly; `planWeekUsd` is only

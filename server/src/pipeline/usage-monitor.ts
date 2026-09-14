@@ -68,8 +68,24 @@ export interface GateVerdict {
 }
 
 export interface Calibration {
-  readonly perModel: Readonly<Record<string, { readonly fiveHour: number | null; readonly sevenDay: number | null; readonly n: number }>>
-  /** True once any model has at least CALIBRATION_MIN runs with a week delta. */
+  readonly perModel: Readonly<
+    Record<
+      string,
+      {
+        readonly fiveHour: number | null
+        readonly sevenDay: number | null
+        /** Runs behind the rates: every measured run, including the ones that moved nothing. */
+        readonly n: number
+        /**
+         * How many percent points those runs actually moved each window. This is the honest
+         * measure of how much the rate can be trusted - `n` counts runs, and a hundred runs
+         * that moved the week by two points still know very little about the week.
+         */
+        readonly points: { readonly fiveHour: number; readonly sevenDay: number }
+      }
+    >
+  >
+  /** True once any model has at least CALIBRATION_MIN measured runs and the week moved at all. */
   readonly ready: boolean
 }
 
@@ -458,25 +474,43 @@ export class UsageMonitor {
     return stamp !== null && Date.parse(stamp) > this.now().getTime() ? stamp : null
   }
 
-  /** Points per USD per model and window, medians over the last runs that carry both (D2). */
+  /**
+   * Points per USD per model and window: total points moved over total USD spent (D2, method
+   * corrected 2026-09-14).
+   *
+   * It used to be the median of the per-run quotients over the runs whose delta was ABOVE
+   * ZERO, and that is not a measurement of anything. The plan reports window utilization in
+   * whole percent, so a run that takes a third of a point reports 0, and the counter jumps by
+   * a whole one every third run. Dropping the zeros keeps exactly the jumps and reads each as
+   * one run's own cost: on this instance 53 runs moved the week by 3 points, and the median of
+   * the three jumps priced a week at 351 USD - by which reckoning the 50 discarded runs, 68
+   * USD of them, should have moved the week by 19 points. They moved it by none.
+   *
+   * Summing both sides over every measured run lets the rounding average out instead of
+   * accumulating: the same data then prices a week near 2900 USD. The quantisation is still
+   * there, which is why `points` is published beside the rate - two points of signal is a
+   * rate, not a certainty.
+   */
   calibration(): Calibration {
-    const runs = this.o.runs.list({ limit: 400 }).filter((r) => isFellowRun(r) && r.planPctDelta && r.costUsd !== null && r.costUsd > 0.05)
-    const byModel = new Map<string, { five: number[]; seven: number[] }>()
+    const runs = this.o.runs.list({ limit: 400 }).filter((r) => isFellowRun(r) && r.planPctDelta && r.costUsd !== null && r.costUsd > 0)
+    const byModel = new Map<string, { cost: number; five: number; seven: number; n: number }>()
     for (const r of runs) {
       const model = modelKey(r.model)
-      const bucket = byModel.get(model) ?? { five: [], seven: [] }
-      if (bucket.five.length >= CALIBRATION_RUNS) continue
+      const bucket = byModel.get(model) ?? { cost: 0, five: 0, seven: 0, n: 0 }
+      if (bucket.n >= CALIBRATION_RUNS) continue
       const d = r.planPctDelta!
-      if (d['five_hour'] !== undefined && d['five_hour'] > 0) bucket.five.push(d['five_hour'] / r.costUsd!)
-      if (d['seven_day'] !== undefined && d['seven_day'] > 0) bucket.seven.push(d['seven_day'] / r.costUsd!)
+      bucket.cost += r.costUsd!
+      bucket.n += 1
+      if (d['five_hour'] !== undefined && d['five_hour'] > 0) bucket.five += d['five_hour']
+      if (d['seven_day'] !== undefined && d['seven_day'] > 0) bucket.seven += d['seven_day']
       byModel.set(model, bucket)
     }
-    const perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number }> = {}
+    const perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } }> = {}
     let ready = false
     for (const [model, b] of byModel) {
-      const n = Math.max(b.five.length, b.seven.length)
-      perModel[model] = { fiveHour: median(b.five), sevenDay: median(b.seven), n }
-      if (b.seven.length >= CALIBRATION_MIN) ready = true
+      const rate = (points: number): number | null => (b.cost > 0 && points > 0 ? points / b.cost : null)
+      perModel[model] = { fiveHour: rate(b.five), sevenDay: rate(b.seven), n: b.n, points: { fiveHour: b.five, sevenDay: b.seven } }
+      if (b.n >= CALIBRATION_MIN && b.seven > 0) ready = true
     }
     return { perModel, ready }
   }
@@ -512,9 +546,10 @@ export class UsageMonitor {
   planUsd(): { week: number; fiveHour: number; measured: boolean } {
     const s = this.o.settings()
     const m = this.measuredPlanUsd()
+    const cents = (v: number): number => Math.round(v * 100) / 100
     return {
-      week: m.week ?? s.planWeekUsd,
-      fiveHour: m.fiveHour ?? s.plan5hUsd,
+      week: cents(m.week ?? s.planWeekUsd),
+      fiveHour: cents(m.fiveHour ?? s.plan5hUsd),
       measured: m.week !== null,
     }
   }

@@ -14,7 +14,13 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus => ({
   sampledAt: 's',
   windows: [{ window: 'five_hour', utilization: 12, resetsAt: null }],
   resets: {},
-  calibration: { perModel: { 'sonnet-5': { fiveHour: 1.2, sevenDay: 0.1, n: 3 }, 'opus-5': { fiveHour: null, sevenDay: 0.3, n: 1 } }, ready: true },
+  calibration: {
+    perModel: {
+      'sonnet-5': { fiveHour: 1.2, sevenDay: 0.1, n: 3, points: { fiveHour: 12, sevenDay: 1 } },
+      'opus-5': { fiveHour: null, sevenDay: 0.3, n: 1, points: { fiveHour: 0, sevenDay: 1 } },
+    },
+    ready: true,
+  },
   planUsd: { week: 1000, fiveHour: 83.33, measured: false },
   consumption: { weekPct: 3.2, fiveHourPct: 1, weekUsd: 41.2, fiveHourUsd: 2, weekRuns: 5, fiveHourRuns: 1 },
   settings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '5x max' },
