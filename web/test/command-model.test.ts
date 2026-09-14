@@ -599,9 +599,10 @@ describe('nightRows', () => {
   it('puts a Fellow that waits a night before the plans, and one that decides for itself after', () => {
     const waits = agent({ id: 'w', name: 'W', autonomy: 'veto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
     const decides = agent({ id: 'd', name: 'D', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'b')] })
+    const stands = (t: string) => proposal({ status: 'approved', provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: t } })
     const rows = rowsOf([
-      { ...summary(waits), queue: [proposal({ provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'a' } })] } as FellowSummary,
-      { ...summary(decides), queue: [proposal({ provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'b' } })] } as FellowSummary,
+      { ...summary(waits), queue: [stands('a')] } as FellowSummary,
+      { ...summary(decides), queue: [stands('b')] } as FellowSummary,
     ])
     expect(rows.map((r) => `${r.phase}${r.kind[0]}:${r.fellowName}`)).toEqual(['1r:W', '2p:W', '2p:D', '3r:D'])
   })
@@ -609,7 +610,7 @@ describe('nightRows', () => {
   it('draws a slot with no proposal yet as the open room it is', () => {
     // Quota of two against one standing proposal: the second run is real, its subject is not.
     const a = agent({ id: 'b', name: 'B', autonomy: 'auto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
-    const rows = rowsOf([{ ...summary(a), queue: [proposal({ provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'a' } })] } as FellowSummary])
+    const rows = rowsOf([{ ...summary(a), queue: [proposal({ status: 'approved', provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'a' } })] } as FellowSummary])
     expect(rows.map((r) => r.kind)).toEqual(['plan', 'run', 'open'])
     const open = rows.find((r) => r.kind === 'open')!
     expect(open.proposal).toBeNull()
@@ -625,34 +626,29 @@ describe('nightRows', () => {
     expect(priced.find((r) => r.kind === 'open')!.estPct).toBeCloseTo(0.18, 5)
   })
 
-  it('says what will NOT happen, in the words the shift would use', () => {
-    const paused = agent({ id: 'p', name: 'P', state: 'paused', tasks: [task('watch', 'a')] })
-    expect(rowsOf([summary(paused)]).map((r) => r.kind)).toEqual(['held'])
-    expect(rowsOf([summary(paused)])[0]!.why).toContain('paused')
+  /*
+   * The line the section is drawn along (2026-09-14): a proposal is settled or it is not. An
+   * undecided one WILL run for a Fellow that decides for itself, but naming it here would put
+   * a decision in front of a reader who came to see what the night does - and Decisions is a
+   * whole screen for exactly that, with the rationale, the fit and the two buttons.
+   */
+  it('shows only what is settled: an undecided proposal is a slot, not a subject', () => {
+    const a = agent({ id: 'v', name: 'V', autonomy: 'veto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
+    const pending = proposal({ status: 'proposed', topic: 'Something nobody has decided on', provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'a' } })
+    const rows = rowsOf([{ ...summary(a), queue: [pending] } as FellowSummary])
+    expect(rows.map((r) => r.kind)).toEqual(['plan', 'open'])
+    const slot = rows.find((r) => r.kind === 'open')!
+    // The row keeps the slot's minutes and price - the night still spends them - and says why
+    // it has no subject, without repeating the topic or offering a decision.
+    expect(slot.proposal).toBeNull()
+    expect(slot.why).toContain('waiting on your decision')
+    expect(JSON.stringify(rows)).not.toContain('Something nobody has decided on')
 
-    /*
-     * Skipping stops the runs and not the plans, so the line stands beside a planning row
-     * rather than in place of the Fellow. Whether the mark covers the night ahead is the
-     * service's answer, which is why it arrives as a flag and not as a date to compare.
-     */
-    const skipped = agent({ id: 's', name: 'S', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
-    const off = rowsOf([{ ...summary(skipped), skipsTonight: true } as FellowSummary])
-    expect(off.map((r) => r.kind)).toEqual(['plan', 'held'])
-    expect(off[1]!.why).toContain('skipped tonight')
-    // Without the mark the same Fellow plans and runs.
-    expect(rowsOf([summary(skipped)]).map((r) => r.kind)).toEqual(['plan', 'open'])
-
-    // A task nothing survived the veto on is named, not merely counted.
-    const vetoed = agent({ id: 'v', name: 'V', autonomy: 'auto', tasks: [task('watch', 'a'), task('watch', 'b')] })
-    const f = { ...summary(vetoed), tonight: [{ id: 'a', outcome: 'vetoed' as const }, { id: 'b', outcome: 'open' as const }] } as FellowSummary
-    const held = rowsOf([f]).filter((r) => r.kind === 'held')
-    expect(held.map((r) => r.task)).toEqual(['a'])
-    expect(held[0]!.why).toContain('vetoed')
-
-    // And a Fellow that asks first says how many decisions are waiting on you.
-    const asks = agent({ id: 'm', name: 'M', autonomy: 'manual', tasks: [task('watch', 'a')] })
-    const waiting = { ...summary(asks), pendingProposals: 2, undecidedProposals: 2, queue: [] } as FellowSummary
-    expect(rowsOf([waiting]).find((r) => r.kind === 'held')!.why).toContain('2 proposals wait')
+    // Approve the same proposal and the row becomes the run it always was - and moves ahead of
+    // the planning run, because a Fellow that waits a night runs what stands before it plans.
+    const approved = rowsOf([{ ...summary(a), queue: [{ ...pending, status: 'approved' }] } as FellowSummary])
+    expect(approved.map((r) => r.kind)).toEqual(['run', 'plan'])
+    expect(approved.find((r) => r.kind === 'run')!.proposal?.topic).toBe('Something nobody has decided on')
   })
 })
 

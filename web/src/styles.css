@@ -9150,38 +9150,40 @@ tr:focus-within .rowacts {
   font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); pointer-events: none; white-space: nowrap;
 }
 /*
- * The night as a list, under the Fellows of a shelf. Rows, not cards: the reader walks them in
- * order, and a card's frame at every step would make the order the last thing you see.
+ * Scheduled activities: what the night will actually do on this shelf, under the Fellows that
+ * do it. The same row frame the Fellows above use, so the two read as one page: a rank where a
+ * Fellow carries its state, the subject where it carries its intent, the estimate where it
+ * carries its minutes. Everything else is a class the command centre already had.
+ *
+ * Colour follows the Library's rule - it carries a distinction or it is not spent. Every line
+ * here is settled work on one shelf, so there is no status and no domain to tell apart, and
+ * the only accent left in a row is the one thing that is actually a link.
  */
-.cc-phase { margin-top: 10px; }
-.cc-phase h6 {
-  margin: 0 0 4px; font-family: ui-monospace, monospace; font-size: 10.5px; font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint);
+.cc-acts { display: flex; flex-direction: column; gap: 6px; }
+.cc-act {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start;
+  padding: 10px 13px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elev); cursor: pointer;
 }
-.cc-pl {
-  display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border-radius: 7px;
-  border: 1px solid transparent; cursor: pointer;
+.cc-act:hover { border-color: var(--border-strong); }
+.cc-act .cc-rank { margin-top: 1px; }
+/* A slot with nothing settled in it: the number is a place in the order, not a piece of work. */
+.cc-act.open .cc-rank { background: transparent; color: var(--text-faint); box-shadow: inset 0 0 0 1px var(--border); }
+/*
+ * The subject, clamped to two lines. A planner writes a sentence and the sentence is the
+ * point, but rows of one height are what make a list of five scannable, and the whole of it is
+ * one hover - or one click into the Fellow - away.
+ */
+.cc-act-t {
+  margin: 5px 0 0; font-size: 13px; line-height: 1.45;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
 }
-.cc-pl:hover { background: var(--muted-bg); border-color: var(--border); }
-.cc-pl-mark { font-size: 10px; line-height: 20px; color: var(--text-faint); width: 12px; text-align: center; }
-.cc-pl.run .cc-pl-mark { color: var(--accent); }
-.cc-pl-main { flex: 1; min-width: 0; }
-.cc-pl-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.cc-pl-head b { font-size: 13px; }
-.cc-pl-t { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text); }
-.cc-pl-why { margin: 2px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-dim); }
-/* An open slot has no subject yet and a held line has none at all: both say so in the tone of
-   something absent, so a glance down the list separates work from the lack of it. */
-.cc-pl.open .cc-pl-t, .cc-pl.held .cc-pl-t { color: var(--text-faint); font-style: italic; }
-.cc-pl.held { opacity: 0.72; }
-.cc-pl-veto { align-self: center; }
-/* A page reference inside a sentence, not a call to action: underlined where the sentence runs,
-   not a pill lifted out of it. */
-.cc-pl-src {
-  border: 0; background: none; padding: 0; font: inherit; color: var(--text-dim);
-  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
-}
-.cc-pl-src:hover { color: var(--accent); }
+.cc-act.plan .cc-act-t, .cc-act.open .cc-act-t { color: var(--text-dim); -webkit-line-clamp: 1; font-size: 12.5px; }
+.cc-act .cc-prov { margin: 4px 0 0; }
+.cc-act-right { display: flex; align-items: center; gap: 9px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The bill sits in the section heading, where `.c` already showed that a number there keeps its
+   own case: an uppercase, letter-spaced "21 MIN" reads as a shout, not as a figure. */
+.cc-sec .mono-meta { text-transform: none; letter-spacing: 0; }
 .cc-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 7px; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); }
 /* The queue's order lives here rather than on the bands: a seven-minute task is a few pixels
    wide, which is not a drag target. A chip is. */

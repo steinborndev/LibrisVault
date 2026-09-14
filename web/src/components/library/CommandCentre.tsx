@@ -990,39 +990,31 @@ export function CommandCentre({
             </section>
 
             {/*
-              * What the bar can only shade: the night as a list, in the shift's own order,
-              * with the sentence each run will work from. The room under the Fellows is where
-              * it belongs - you read who is on the shelf, then what they will do.
+              * What the bar can only shade: the night's settled work as a list, in the shift's
+              * own order, with the sentence each run will work from. The room under the Fellows
+              * is where it belongs - you read who is on the shelf, then what they will do.
               */}
             <section className="cc-block">
               <h3 className="cc-sec">
-                Tonight, in order
-                <span className="c">{rows.filter((r) => r.kind === 'run' || r.kind === 'open').length}</span>
+                Scheduled activities
+                <span className="c">{rows.length}</span>
                 <span className="grow" />
                 <span className="mono-meta">{nightBill(rows)}</span>
               </h3>
               {rows.length === 0 ? (
                 <p className="cc-note dim">Nothing is scheduled for this shelf tonight.</p>
               ) : (
-                PHASES.filter(([phase]) => rows.some((r) => r.phase === phase)).map(([phase, lead], at, shown) => {
-                  const here = rows.filter((r) => r.phase === phase)
-                  return (
-                    <div key={phase} className="cc-phase">
-                      <h6>{phaseLead(lead, at, shown.length)}</h6>
-                      {here.map((r, i) => (
-                        <PlanRow
-                          key={`${r.fellowId}-${r.kind}-${r.proposal?.id ?? r.task ?? ''}-${i}`}
-                          row={r}
-                          onPage={openPage}
-                          busy={decide.isPending}
-                          onOpen={() => openFellow(r.fellowId)}
-                          {...(r.proposal === null ? {} : { onVeto: (): void => decide.mutate({ id: r.proposal!.id, status: 'vetoed' }) })}
-                        />
-                      ))}
-                    </div>
-                  )
-                })
+                <div className="cc-acts">
+                  {rows.map((r, i) => (
+                    <ActRow key={`${r.fellowId}-${r.kind}-${r.proposal?.id ?? r.task ?? ''}-${i}`} row={r} rank={i + 1} onPage={openPage} onOpen={() => openFellow(r.fellowId)} />
+                  ))}
+                </div>
               )}
+              <p className="cc-note dim">
+                In the order the shift takes them: what you have already approved, a planning run for every standing
+                task, then what the night’s own plans put up. Proposals waiting on a decision are not here - they are
+                under <b>Decisions</b>, with their alternatives beside them.
+              </p>
             </section>
 
             {/*
@@ -1131,26 +1123,7 @@ export function CommandCentre({
 }
 
 /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
-/**
- * The three phases of a night, in the order the shift takes them (`pipeline/shift.ts`).
- *
- * Not the order the bar draws: the bar groups a Fellow's work together because the shelf order
- * is what the arrows set and a task scattered over the night cannot be pointed at. The list is
- * where the true order belongs, and these headings are how it says so without inventing clock
- * times the bar would then contradict.
- */
-const PHASES: ReadonlyArray<readonly [1 | 2 | 3, string]> = [
-  [1, 'what already stands'],
-  [2, 'the planning runs'],
-  [3, 'what the night decides for itself'],
-]
-
-/** The heading, with the connector the reader needs: "then" only when something came before. */
-const phaseLead = (lead: string, at: number, of: number): string =>
-  of === 1 ? lead[0]!.toUpperCase() + lead.slice(1) : `${at === 0 ? 'First' : 'Then'}, ${lead}`
-
-/**
- * The night's own arithmetic for one shelf: what it spends and how long it takes.
+/** The night's own arithmetic for one shelf: what it spends and how long it takes.
  *
  * Points where every line has them, USD otherwise. Never a sum of both - the two are the same
  * estimate in different currencies, and adding one to the other would be a number for nothing.
@@ -1167,94 +1140,74 @@ function nightBill(rows: readonly NightRow[]): string {
 }
 
 /**
- * One line of the night. Four kinds, and the difference between them is what the reader is
- * being told: a run names its subject, a plan names the task it will think about, an open slot
- * names the room it has, and a held line names what will not happen and why.
+ * One scheduled activity.
+ *
+ * The Fellow row from the section above, with a rank where a Fellow carries its state and the
+ * subject where it carries its intent - the two lists are one page, not two designs. Colour
+ * follows the Library's rule, which is that it carries a distinction or it is not spent: every
+ * line here is settled work on one shelf, so there is no status and no domain to tell apart,
+ * and the only accent left is the one thing that is actually a link.
  */
-function PlanRow({
+function ActRow({
   row: r,
-  busy,
+  rank,
   onOpen,
-  onVeto,
   onPage,
 }: {
   row: NightRow
-  busy: boolean
+  rank: number
   onOpen: () => void
-  onVeto?: () => void
   onPage: (page: string) => void
 }): React.ReactElement {
   const p = r.proposal
   const source = p?.provenance.sourcePages[0]
   return (
-    <div className={`cc-pl ${r.kind}`} onClick={onOpen}>
-      <span className="cc-pl-mark" aria-hidden>
-        {r.kind === 'run' ? '▶' : r.kind === 'plan' ? '◇' : r.kind === 'open' ? '◌' : '✕'}
-      </span>
-      <div className="cc-pl-main">
-        <div className="cc-pl-head">
+    <div className={`cc-act ${r.kind}`} title={r.why} onClick={onOpen}>
+      <span className="cc-rank">{rank}</span>
+      <span className="cc-id">
+        <span className="cc-idline">
           <b>{r.fellowName}</b>
-          {p !== null ? (
+          {/* One mark, and it names what the activity IS: the planning run wears the dashed
+              chip the dossier's own chain gives it, a run its kind, a slot nothing. */}
+          {r.kind === 'plan' ? (
+            <>
+              <span className="cc-art a-plan">plan</span>
+              {r.art !== null && <span className="mono-meta">{r.art}</span>}
+            </>
+          ) : p !== null ? (
             <>
               <span className="sev mut">{p.kind}</span>
-              <span className="sev mut">{p.pageSet.length > 0 ? `extends ${p.pageSet.length} pages` : p.lens}</span>
-              {p.status === 'approved' ? <span className="sev ok">approved</span> : <span className="sev due">undecided</span>}
+              <span className="mono-meta">{p.pageSet.length > 0 ? `extends ${p.pageSet.length} pages` : p.lens}</span>
             </>
-          ) : r.art !== null ? (
-            <span className={`cc-art a-${r.art}`}>{r.art}</span>
-          ) : null}
-          <span className="grow" />
-          {r.minutes > 0 && (
-            <span className="mono-meta">
-              {dur(r.minutes)}
-              {r.estPct !== null ? ` · ${r.estPct} points` : r.estUsd !== null ? ` · ${usd(r.estUsd)}` : ''}
-            </span>
+          ) : (
+            <span className="mono-meta">open slot</span>
           )}
-          {p !== null && (
-            <span className="cc-scope" title="token overlap with what you asked this Fellow to follow">
-              <span className="mono-meta">· fit</span>
-              <span className="cc-bar"><i style={{ width: `${Math.round(p.scopeScore * 100)}%` }} /></span>
-              <span className="mono-meta">{Math.round(p.scopeScore * 100)}%</span>
-            </span>
-          )}
-        </div>
-        {/* The subject, in the planner's own sentence where there is one - that is the whole
-            point of the list, and shortening it would leave the reader guessing again. */}
-        <p className="cc-pl-t">{p !== null ? p.topic : (r.task ?? r.fellowName)}</p>
-        <p className="cc-pl-why">
-          {r.why}
-          {p !== null && (
-            <>
-              {' · from '}
-              {CANDIDATE_TEXT[p.provenance.candidate] ?? p.provenance.candidate}
-              {source !== undefined && (
-                <>
-                  {', '}
-                  <button
-                    className="cc-pl-src"
-                    onClick={(e) => { e.stopPropagation(); onPage(source) }}
-                    title={source}
-                  >
-                    {source.replace(/^wiki\//, '').replace(/\.md$/, '')}
-                  </button>
-                </>
-              )}
-            </>
-          )}
+        </span>
+        {/* The planner's own sentence where there is one: shortening it would leave the reader
+            guessing, and the clamp in CSS keeps the rows one height either way. */}
+        <p className="cc-act-t" title={p !== null ? p.topic : (r.task ?? '')}>
+          {p !== null ? p.topic : `${r.task ?? 'The night’s own pick'} · ${r.why}`}
         </p>
-      </div>
-      {onVeto !== undefined && (
-        /* The one decision worth having here. Approving is a ranking choice and belongs in
-           Decisions with the alternatives beside it; stopping something does not. */
-        <button
-          className="btn ghost sm danger cc-pl-veto"
-          disabled={busy}
-          title={`Veto "${p?.topic ?? ''}". It will not run, tonight or later.`}
-          onClick={(e) => { e.stopPropagation(); onVeto() }}
-        >
-          Veto
-        </button>
-      )}
+        {p !== null && (
+          <div className="cc-prov">
+            <span className="lbl">from</span>
+            <span>{CANDIDATE_TEXT[p.provenance.candidate] ?? p.provenance.candidate}</span>
+            {source !== undefined && (
+              <a onClick={(e) => { e.stopPropagation(); onPage(source) }} title={source}>
+                {source.split('/').pop()?.replace(/\.md$/, '')}
+              </a>
+            )}
+          </div>
+        )}
+      </span>
+      <span className="cc-act-right">
+        {r.minutes > 0 && (
+          <span className="mono-meta">
+            {dur(r.minutes)}
+            {r.estPct !== null ? ` · ${r.estPct} points` : r.estUsd !== null ? ` · ${usd(r.estUsd)}` : ''}
+          </span>
+        )}
+      </span>
     </div>
   )
 }

@@ -614,20 +614,23 @@ export function windowMinutes(start: string, end: string): { readonly from: numb
 }
 
 /**
- * Tonight's work as a list, in the order the shift will take it (2026-09-14).
+ * Tonight's SETTLED work as a list, in the order the shift will take it (2026-09-14).
  *
  * The bar answers how long and whose; this answers WHAT, which is the question the queue over
- * it cannot draw. Four kinds of line, because a night is four different statements:
+ * it cannot draw. Only work that is decided, in three kinds of line:
  *
- *   `run`   a proposal that already stands and will be carried out. Its subject is known,
- *           down to the sentence the planner wrote and the vault page it came from.
+ *   `run`   a proposal you approved. Its subject is known, down to the sentence the planner
+ *           wrote and the vault page the idea came from.
  *   `plan`  a planning run: the Fellow works out what to do about one standing task. What it
  *           decides runs tonight for a Fellow that decides for itself, tomorrow for one that
  *           waits a night.
- *   `open`  a run the quota leaves room for and tonight's planning has yet to fill. The slot
- *           is real; its subject is not decided.
- *   `held`  something that will NOT happen, and why. The reasons are the ones the shift itself
- *           uses when it skips a Fellow.
+ *   `open`  a run the quota leaves room for whose subject is not settled - either nothing is
+ *           planned for it yet, or what stands there is still up for a decision.
+ *
+ * Nothing here is up for review, and that is the point: a proposal is weighed against its
+ * alternatives under Decisions, which has the rationale, the fit and the two buttons. A list
+ * that ALSO asked for decisions would be a second, smaller version of that screen - and a
+ * reader who wants to know what the night does would have to read past it every time.
  *
  * Ordered by the shift's own phases (`pipeline/shift.ts`), which is not the order the bar
  * draws: the bar groups by shelf because the shelf order is what the arrows set, while the
@@ -635,7 +638,7 @@ export function windowMinutes(start: string, end: string): { readonly from: numb
  * planning run, then what the Fellows that decide for themselves have.
  */
 export interface NightRow {
-  readonly kind: 'run' | 'plan' | 'open' | 'held'
+  readonly kind: 'run' | 'plan' | 'open'
   /** 1: standing proposals of the Fellows that wait. 2: the plans. 3: the auto Fellows' runs. */
   readonly phase: 1 | 2 | 3
   readonly shelf: string
@@ -646,7 +649,7 @@ export interface NightRow {
   readonly art: TaskKind | null
   readonly proposal: ProposalRecord | null
   readonly minutes: number
-  /** Why it runs, or why it does not. One sentence, in the words the shift would use. */
+  /** What the line is, in one clause and in the words the shift would use. */
   readonly why: string
   /** What the run is expected to cost: the proposal's own estimate, else the Fellow's price. */
   readonly estUsd: number | null
@@ -672,39 +675,6 @@ export const CANDIDATE_TEXT: Record<string, string> = {
 
 /** Where a Fellow's own runs sit in the night: a Fellow that waits runs before the plans. */
 const phaseOf = (f: FellowSummary): 1 | 3 => (f.agent.autonomy === 'auto' ? 3 : 1)
-
-/** Why a standing proposal will be carried out, in one clause. */
-function whyItRuns(f: FellowSummary, p: ProposalRecord): string {
-  if (p.status === 'approved') return 'you approved it, so it runs ahead of the others'
-  if (f.agent.autonomy === 'manual') return 'waiting for you: nothing runs unless you approve it'
-  return 'the top of its plan, and it runs unless you veto it during the day'
-}
-
-/** What a Fellow will not do tonight, and the reason the shift would give for it. */
-function heldRows(f: FellowSummary, shelf: string): NightRow[] {
-  const base = { shelf, fellowId: f.agent.id, fellowName: f.agent.name, task: null, art: null, proposal: null, minutes: 0, estUsd: null, estPct: null } as const
-  const row = (why: string): NightRow => ({ ...base, kind: 'held', phase: 2, why })
-  const a = f.agent
-  if (a.state === 'paused') return [row('paused: nothing runs and nothing is planned until you resume it')]
-  if (a.state === 'blocked') return [row('blocked after a failed run; resume it from its card')]
-  // Skipping stops the runs, not the plans, so this line stands BESIDE the planning rows.
-  if (f.skipsTonight === true) return [row('skipped tonight at your request: it still plans, and nothing of it runs')]
-  const out: NightRow[] = []
-  if (a.state === 'sleeping' && (a.sleepCode === 'covered' || a.sleepCode === 'stalled')) {
-    out.push(row(`sleeping (${a.sleepCode}): it plans again when something new arrives in its domains`))
-  }
-  // Every option of a task was vetoed: the task is planned and nothing it proposed may run.
-  const vetoed = (f.tonight ?? []).filter((o) => o.outcome === 'vetoed')
-  for (const o of vetoed) {
-    const t = a.tasks.find((x) => x.id === o.id)
-    if (t !== undefined) out.push({ ...base, kind: 'held', phase: 2, task: t.text, art: t.kind, why: 'every option it proposed was vetoed, so nothing runs for this task tonight' })
-  }
-  // Undecided proposals a Fellow that asks first is holding: these are the ones waiting on you.
-  if (a.autonomy === 'manual' && f.undecidedProposals > 0) {
-    out.push(row(`asks every time: ${f.undecidedProposals} proposal${f.undecidedProposals === 1 ? '' : 's'} wait for your decision`))
-  }
-  return out
-}
 
 /**
  * The list for one shelf, with the rest of the night as the order it sits in.
@@ -758,13 +728,27 @@ export function nightRows(
         })
         continue
       }
-      if (b.proposal !== null) {
-        out.push({ ...common, kind: 'run', phase: phaseOf(f), proposal: b.proposal, why: whyItRuns(f, b.proposal) })
+      /*
+       * Approved is what makes a run's subject settled enough to print. A proposal that is
+       * still undecided WILL run for a Fellow that decides for itself, but naming it here
+       * would put a decision in front of a reader who came to see what the night does - so
+       * the slot says it is waiting, and Decisions is where it is answered.
+       */
+      if (b.proposal?.status === 'approved') {
+        out.push({ ...common, kind: 'run', phase: phaseOf(f), proposal: b.proposal, why: 'you approved it, so it runs ahead of the others' })
         continue
       }
-      out.push({ ...common, kind: 'open', phase: 3, proposal: null, why: 'a run the quota leaves room for, on whatever tonight’s planning puts up first' })
+      out.push({
+        ...common,
+        kind: 'open',
+        phase: 3,
+        proposal: null,
+        why:
+          b.proposal === null
+            ? 'a run the quota leaves room for, on whatever tonight’s planning puts up first'
+            : 'a run the quota leaves room for; what stands here is waiting on your decision',
+      })
     }
-    out.push(...heldRows(f, shelf.key))
   }
   // Stable inside a phase: the blocks are already in the order the bar lays them out.
   return out.map((r, i) => ({ r, i })).sort((a, b) => a.r.phase - b.r.phase || a.i - b.i).map((x) => x.r)
