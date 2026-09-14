@@ -292,7 +292,7 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
       {/* Cancel left, Spawn right: the commit sits where a form's commit sits, at the end of
           the row, and the way out is passed on the way there. */}
       <div className="gx-actions">
-        <button className="btn ghost sm" type="button" onClick={onCancel}>
+        <button className="btn ghost sm outline-err" type="button" onClick={onCancel}>
           Cancel
         </button>
         <button className="btn primary sm" type="submit" disabled={spawn.isPending}>

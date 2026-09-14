@@ -970,6 +970,10 @@ button {
 /* A ghost button with the accent's ring: for the one action in a foot that costs a run. */
 .btn.ghost.outline { border-color: var(--accent); color: var(--accent); }
 .btn.ghost.outline:hover { background: var(--accent-soft); color: var(--accent); }
+/* The same ring in the warning tone, for the way OUT of a form: the spawn dialog's Cancel,
+   which discards what you typed beside a button that creates something that costs money. */
+.btn.ghost.outline-err { border-color: var(--err); }
+.btn.ghost.outline-err:hover { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
 .btn.danger:hover {
   border-color: var(--err);
   color: var(--err);
