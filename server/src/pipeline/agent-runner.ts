@@ -272,6 +272,14 @@ export function buildOptions(
             maxNew: opts.expand.maxNew,
             created: new Set<string>(),
             exists: (rel: string) => fs.existsSync(path.join(opts.vaultRoot, rel)),
+            // For the frontmatter exception: the page as it stands before the edit.
+            read: (rel: string): string | undefined => {
+              try {
+                return fs.readFileSync(path.join(opts.vaultRoot, rel), 'utf8')
+              } catch {
+                return undefined
+              }
+            },
           },
         }),
   }

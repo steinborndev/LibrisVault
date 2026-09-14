@@ -203,6 +203,8 @@ describe('decidePermission - the expand lock (docs/sources/SPEC.md 8.2)', () => 
     maxNew: over.maxNew ?? 3,
     created: new Set(over.created ?? []),
     exists: (rel: string) => (over.onDisk ?? [LISTED, OTHER, 'wiki/agents/Notebook.md']).includes(rel),
+    /** The page as it stands, for the frontmatter exception; undefined = fall back to the shape. */
+    read: (): string | undefined => undefined,
   })
   const expandCtx = (over: Parameters<typeof policy>[0] = {}) => ({ vaultRoot: VAULT, expand: policy(over) })
 
@@ -302,6 +304,72 @@ describe('decidePermission - the expand lock (docs/sources/SPEC.md 8.2)', () => 
       ],
     })
     expect(bad).toMatchObject({ behavior: 'deny' })
+  })
+
+  it('lets the run work on a page it created itself, which the commit check never minds', () => {
+    /*
+     * The run files a source it cites and then wants to put a wikilink in it. Refusing that made
+     * the hook stricter than the check that reverts - the commit check asks nothing of a new
+     * page's content - and a refusal a run cannot satisfy pushes it to Bash, the one write no
+     * hook sees.
+     */
+    const ctxWithSet = expandCtx()
+    const fresh = 'wiki/sources/A New Source.md'
+    expect(decidePermission(ctxWithSet, 'Write', { file_path: fresh, content: '# new' })).toMatchObject({ behavior: 'allow' })
+    expect(
+      decidePermission(ctxWithSet, 'Edit', { file_path: fresh, old_string: '# new', new_string: '# new\n\nSee [[Another Page]].' }),
+    ).toMatchObject({ behavior: 'allow' })
+    // Even an edit that replaces its own line: the page is this run's own work.
+    expect(decidePermission(ctxWithSet, 'Edit', { file_path: fresh, old_string: '# new', new_string: '# A New Source' })).toMatchObject({
+      behavior: 'allow',
+    })
+    expect(decidePermission(ctxWithSet, 'Write', { file_path: fresh, content: '# rewritten' })).toMatchObject({ behavior: 'allow' })
+    // And it still counts as ONE of the three.
+    expect(ctxWithSet.expand.created.size).toBe(1)
+  })
+
+  it('lets the related: footer gain links, which the prompt asks for and the commit check allows', () => {
+    // `bodyLines` drops a `related:` line before the commit check compares; the hook has to
+    // ignore the same line, or it refuses exactly what the rules block tells the run to do.
+    expect(
+      decidePermission(expandCtx(), 'Edit', {
+        file_path: LISTED,
+        old_string: 'The last paragraph.\n\nrelated: [[One]], [[Two]]',
+        new_string: 'The last paragraph.\n\nA sentence this run adds.\n\nrelated: [[One]], [[Two]], [[Three]]',
+      }),
+    ).toMatchObject({ behavior: 'allow' })
+  })
+
+  it('binds the frontmatter exception to the frontmatter, when the page can be read', () => {
+    const page = [
+      '---',
+      'type: question',
+      'status: open',
+      'updated: 2026-09-01',
+      'tags:',
+      '  - one',
+      '---',
+      '',
+      '# A Listed Page',
+      '',
+      'tags:',
+      '  - a body passage that merely looks like frontmatter',
+      '  - and a second line of it',
+      '',
+    ].join('\n')
+    const withPage = { vaultRoot: VAULT, expand: { ...policy(), read: () => page } }
+    // The real frontmatter: allowed.
+    expect(
+      decidePermission(withPage, 'Edit', { file_path: LISTED, old_string: 'updated: 2026-09-01', new_string: 'updated: 2026-09-14' }),
+    ).toMatchObject({ behavior: 'allow' })
+    // The same shape in the body is body text, and losing a line of it is a rewrite.
+    expect(
+      decidePermission(withPage, 'Edit', {
+        file_path: LISTED,
+        old_string: 'tags:\n  - a body passage that merely looks like frontmatter\n  - and a second line of it',
+        new_string: 'tags:\n  - and a second line of it',
+      }),
+    ).toMatchObject({ behavior: 'deny' })
   })
 
   it('leaves the vault bookkeeping and everything outside wiki/ alone, as the commit check does', () => {

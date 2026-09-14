@@ -398,6 +398,36 @@ would fix it at the price of turning `10-20` into one number.
       exist and rule 3 lets a deepening create up to three. The case now seeds a page that DOES
       exist, which is what `outside-set` means.
 
+- [x] **Review fixes for chunk 6** (2026-09-14, third separate review). Four findings, three of
+      them behaviour:
+      1. **A run could not touch the page it had just created.** `policy.exists` caught it before
+         the cap check, so the second Write or the first Edit on its own new page was refused as
+         "outside the page set" - a refusal the run cannot satisfy, which leaves it Bash, the one
+         write no hook sees. It also made the hook STRICTER than the commit check, which asks
+         nothing of a new page's content and only counts them; the module's own promise is that
+         the two cannot drift. A page in `created` is now the run's own: Write, Edit, whatever it
+         needs to finish it, and it still counts as one of the three.
+      2. **The `related:` footer.** The prompt tells a run that footer may gain links and move
+         below what it adds, `bodyLines` filters `^related:` before the commit check compares, and
+         the hook did not - so it refused exactly what the rules ask for. Both sides of the
+         additivity check drop those lines now.
+      3. **The frontmatter exception was reachable from the body.** A passage shaped like
+         `tags:` plus bullets could lose lines. The exception is bound to the page's real
+         frontmatter block when the page can be read (the policy gained a `read`), and an editable
+         key may change its value but never disappear. Without the page the shape is all there is,
+         and the commit check still sees the body line and reverts - the safe way round.
+      4. Smaller: the probe cleans up its throwaway vault when a run fails, says in its own words
+         that it runs the `ingest` profile while a real deepening runs `research` (the write rules
+         are the same; this is not coverage of a research run), and the note that `created` is
+         filled as a side effect of a decision a hook is never told the outcome of - an allowed
+         Write that then fails still spends one of the three. The cap is a ceiling, not an
+         accountant.
+      Measured: three new unit cases (57 in the file), and `permprobe` re-run with a fifth case
+      for finding 1 - `Write over a page outside the set: the page is untouched`, `Edit that
+      drops a line: the line survived`, `Edit that inserts a line: the insertion landed`, `at most
+      three new pages: 3`, `Edit on a page the run created: the run may finish its own page`.
+      PASS. Server 1,209 tests, web 483, `tsc` and `eslint` clean.
+
 ## Deviations from the spec
 
 - **`ReadingItem.oa` is `{ url, version, at }`, not `{ url, version, source }`** (spec 6.2).

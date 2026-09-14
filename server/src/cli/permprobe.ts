@@ -90,6 +90,11 @@ async function expandProbe(): Promise<number> {
       vaultRoot: root,
       prompt: '',
       auth: requireAuth(config),
+      /*
+       * A real deepening runs the `research` profile; this one runs `ingest` so the probe needs no
+       * web egress. The write rules are the same in both - the profile decides web and vault-write
+       * access, not what the expand policy allows - but this is not coverage of a research run.
+       */
       profile: 'ingest',
       expand: { pageSet: [LISTED], maxNew: 3 },
     },
@@ -101,18 +106,26 @@ async function expandProbe(): Promise<number> {
     `2. Use Edit on ${LISTED} to replace the line "The first finding stands here." with "A different sentence entirely.".\n` +
     `3. Use Edit on ${LISTED} to insert a new line "A third finding stands here." after the line "The second finding stands here." (keep every existing line).\n` +
     `4. Use Write to create wiki/concepts/New One.md with "# One".\n` +
-    `5. Use Write to create wiki/concepts/New Two.md with "# Two".\n` +
-    `6. Use Write to create wiki/concepts/New Three.md with "# Three", then wiki/concepts/New Four.md with "# Four".\n` +
+    `5. Use Edit on wiki/concepts/New One.md to replace "# One" with "# One\n\nA line added afterwards.".\n` +
+    `6. Use Write to create wiki/concepts/New Two.md with "# Two".\n` +
+    `7. Use Write to create wiki/concepts/New Three.md with "# Three", then wiki/concepts/New Four.md with "# Four".\n` +
     `Do not use Bash for any of this.`
   let denials = 0
-  for await (const message of query({ prompt, options })) {
-    if (message.type === 'user') {
-      const content = (message.message as { content?: unknown }).content
-      if (Array.isArray(content)) {
-        for (const b of content as Array<Record<string, unknown>>) if (b['type'] === 'tool_result' && b['is_error'] === true) denials++
+  try {
+    for await (const message of query({ prompt, options })) {
+      if (message.type === 'user') {
+        const content = (message.message as { content?: unknown }).content
+        if (Array.isArray(content)) {
+          for (const b of content as Array<Record<string, unknown>>) if (b['type'] === 'tool_result' && b['is_error'] === true) denials++
+        }
       }
+      if (message.type === 'result') break
     }
-    if (message.type === 'result') break
+  } catch (err) {
+    // A run that dies must not leave its throwaway vault in /tmp.
+    console.error(`expand probe: the run failed (${(err as Error).message})`)
+    fs.rmSync(root, { recursive: true, force: true })
+    return 1
   }
   const body = ((): string => {
     try {
@@ -133,6 +146,13 @@ async function expandProbe(): Promise<number> {
       return ''
     }
   })()
+  const newPage = ((): string => {
+    try {
+      return fs.readFileSync(path.join(root, 'wiki', 'concepts', 'New One.md'), 'utf8')
+    } catch {
+      return ''
+    }
+  })()
   const checks: Array<{ readonly what: string; readonly ok: boolean; readonly got: string }> = [
     {
       what: 'Write over a page outside the set',
@@ -142,6 +162,13 @@ async function expandProbe(): Promise<number> {
     { what: 'Edit that drops a line', ok: body.includes('The first finding stands here.'), got: body.includes('The first finding stands here.') ? 'the line survived' : 'THE LINE IS GONE' },
     { what: 'Edit that inserts a line', ok: body.includes('A third finding stands here.'), got: body.includes('A third finding stands here.') ? 'the insertion landed' : 'nothing was inserted' },
     { what: 'at most three new pages', ok: created.size <= 3, got: `${created.size} new page(s): ${[...created].join(', ') || 'none'}` },
+    {
+      // A run that files a source it cites must be able to finish it; refusing that would push
+      // it to Bash, the one write no hook sees.
+      what: 'Edit on a page the run created',
+      ok: newPage.includes('A line added afterwards.'),
+      got: newPage.includes('A line added afterwards.') ? 'the run may finish its own page' : 'REFUSED ON ITS OWN PAGE',
+    },
   ]
   console.log('\n=========== EXPAND PROBE (docs/sources/SPEC.md 8.3) ===========')
   console.log(`throwaway vault:      ${root}`)

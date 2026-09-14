@@ -108,6 +108,12 @@ export interface ExpandPolicy {
   readonly created: Set<string>
   /** Whether a vault-relative path exists; injected, so the decision stays testable. */
   readonly exists: (rel: string) => boolean
+  /**
+   * The page as it stands right now, for the frontmatter exception: an edit is only frontmatter
+   * when its `old_string` really lies in the page's frontmatter block. Optional - without it the
+   * exception falls back to the SHAPE of the edit, which a body passage can imitate.
+   */
+  readonly read?: (rel: string) => string | undefined
 }
 
 export interface PermissionContext {
@@ -136,11 +142,33 @@ const FRONTMATTER_EDITABLE = new Set(['updated', 'related', 'tags'])
 const editLines = (text: string): string[] => text.split('\n').map((l) => l.trim()).filter((l) => l !== '')
 
 /**
- * Whether an edit that drops lines is nevertheless only changing the frontmatter fields the rules
- * allow. Read off the strings rather than the file: a key line (`updated: ...`) or a list item
- * under one, and every line that disappears has to belong to `updated`, `related` or `tags`.
+ * The vault's `related:` footer, which the commit check does not compare (`bodyLines` filters it)
+ * and the prompt explicitly lets a run rewrite: the skill keeps it at the end of a page and
+ * rewrites it as links are added. The hook has to ignore the same line, or it refuses exactly
+ * what the rules block asks for.
  */
-function frontmatterOnly(oldLines: readonly string[], newLines: readonly string[]): boolean {
+const isRelatedLine = (line: string): boolean => /^related:\s/i.test(line)
+
+/** The frontmatter block of a page, or undefined when it has none. */
+function frontmatterBlock(page: string): string | undefined {
+  if (!page.startsWith('---')) return undefined
+  const end = page.indexOf('\n---', 3)
+  return end === -1 ? undefined : page.slice(3, end)
+}
+
+/**
+ * Whether an edit that drops lines is nevertheless only changing the frontmatter fields the rules
+ * allow: a key line (`updated: ...`) or a list item under one, with every line that disappears
+ * belonging to `updated`, `related` or `tags`.
+ *
+ * `frontmatter` is the page's own block when it could be read, and then the edit has to lie
+ * INSIDE it - a passage of body text shaped like frontmatter (a `tags:` line and some bullets)
+ * is body text, and losing a line of it is the rewrite this rule exists to stop. Without the page
+ * the shape is all there is; the commit check still sees the body line and reverts, which is the
+ * safe way round for a hook to be imprecise.
+ */
+function frontmatterOnly(oldText: string, oldLines: readonly string[], newLines: readonly string[], frontmatter: string | undefined): boolean {
+  if (frontmatter !== undefined && !frontmatter.includes(oldText.trim())) return false
   let key: string | undefined
   for (const line of oldLines) {
     const m = /^([A-Za-z_][\w-]*):/.exec(line)
@@ -148,6 +176,8 @@ function frontmatterOnly(oldLines: readonly string[], newLines: readonly string[
     else if (!/^-\s/.test(line)) return false
     if (newLines.includes(line)) continue
     if (key === undefined || !FRONTMATTER_EDITABLE.has(key)) return false
+    // A key may change its value, never disappear: `updated:` has to still be there afterwards.
+    if (m !== null && !newLines.some((l) => l.toLowerCase().startsWith(`${key}:`))) return false
   }
   return true
 }
@@ -157,7 +187,7 @@ function frontmatterOnly(oldLines: readonly string[], newLines: readonly string[
  * afterwards. `isSubsequence` is the same function the commit check uses, over the same shape, so
  * the hook cannot be stricter or laxer than the check that reverts a run.
  */
-function additivityRefusal(edit: Record<string, unknown>): string | undefined {
+function additivityRefusal(edit: Record<string, unknown>, frontmatter: string | undefined): string | undefined {
   if (edit['replace_all'] === true) {
     return 'replace_all rewrites every occurrence of the text; insert instead, once, where it belongs'
   }
@@ -166,9 +196,10 @@ function additivityRefusal(edit: Record<string, unknown>): string | undefined {
   if (typeof before !== 'string' || typeof after !== 'string') return 'an edit without old_string/new_string cannot be checked for additivity'
   const oldLines = editLines(before)
   const newLines = editLines(after)
-  const check = isSubsequence(oldLines, newLines)
+  // The `related:` footer is compared by neither side (see {@link isRelatedLine}).
+  const check = isSubsequence(oldLines.filter((l) => !isRelatedLine(l)), newLines.filter((l) => !isRelatedLine(l)))
   if (check.ok) return undefined
-  if (frontmatterOnly(oldLines, newLines)) return undefined
+  if (frontmatterOnly(before, oldLines, newLines, frontmatter)) return undefined
   return (
     `this edit would remove "${check.missing.slice(0, 120)}" from the page. ` +
     'insert instead of replacing; every existing line must survive (only `updated`, `related` and `tags` may change)'
@@ -182,29 +213,44 @@ function additivityRefusal(edit: Record<string, unknown>): string | undefined {
  */
 function expandRefusal(policy: ExpandPolicy, rel: string, toolName: string, input: Record<string, unknown>): string | undefined {
   if (isExemptPath(rel)) return undefined
+  /*
+   * A page THIS run created is its own: it may finish it, link into it, rewrite it. The commit
+   * check asks nothing of a new page's content either - it only counts them - and a hook stricter
+   * than the check that reverts is a refusal the run cannot satisfy, which leaves it Bash, the one
+   * write nothing here can see. Measured in review: a run that filed a source it cited could not
+   * then put a wikilink in it.
+   */
+  if (policy.created.has(rel)) return undefined
   if (policy.pageSet.includes(rel)) {
     if (toolName === 'Write') {
       return `rewriting a listed page is not additive; use Edit and insert (${rel})`
     }
     if (toolName === 'NotebookEdit') return `a notebook edit cannot be checked for additivity (${rel})`
     // MultiEdit carries several edits; one that fails refuses the whole call.
+    const page = policy.read?.(rel)
+    const frontmatter = page === undefined ? undefined : frontmatterBlock(page)
     const edits = input['edits']
     if (Array.isArray(edits)) {
       for (const edit of edits) {
-        const reason = additivityRefusal((edit ?? {}) as Record<string, unknown>)
+        const reason = additivityRefusal((edit ?? {}) as Record<string, unknown>, frontmatter)
         if (reason !== undefined) return reason
       }
       return undefined
     }
-    return additivityRefusal(input)
+    return additivityRefusal(input, frontmatter)
   }
-  // Not listed: a NEW page is the one thing allowed here, up to the cap.
+  // Not listed and not this run's own: a NEW page is the one thing allowed here, up to the cap.
   if (toolName !== 'Write' || policy.exists(rel)) {
     return `${rel} is outside the page set this run was given; leave a note in your notebook instead`
   }
-  if (!policy.created.has(rel) && policy.created.size >= policy.maxNew) {
+  if (policy.created.size >= policy.maxNew) {
     return `the run may create at most ${policy.maxNew} new pages, and has already created ${policy.created.size}`
   }
+  /*
+   * Recorded here, as a side effect of the decision: a hook is asked BEFORE the tool runs and is
+   * never told how it went, so a Write that is allowed and then fails still spends one of the
+   * three. The cap is a ceiling, not an accountant.
+   */
   policy.created.add(rel)
   return undefined
 }
