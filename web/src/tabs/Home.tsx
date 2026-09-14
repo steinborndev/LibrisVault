@@ -130,7 +130,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   /** Which of the record's two views shows; the headline switches it. */
   const [detailTab, setDetailTab] = useState<'article' | 'log'>('article')
   /** Which of the box's two views is on show. Recaps by default, activity on click or arrow. */
-  const [flow, setFlow] = useState<FlowView>('recaps')
+  const [flow, setFlow] = useState<FlowView>('activity')
   /**
    * The time axis, shared by both views: one day, and the Fellow the recaps are narrowed to.
    * It opens on TODAY: the morning's recap and the day's stream are what the screen is opened
@@ -747,12 +747,14 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
           <div className="graph-controls lib-headline home-headline">
             <div className="lib-head-left">
               {fellowsOn ? (
+                /* Activity first, and first by default: it is what the box shows about right
+                   now, and the night is a thing you go and read. */
                 <div className="seg sm" role="tablist" aria-label="View">
-                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title={`Night shift${waiting > 0 ? ` · ${waiting} undecided` : ''}`}>
-                    Night shift
-                  </button>
                   <button role="tab" aria-selected={view === 'activity'} onClick={() => openView('activity')} title="Activity">
                     Activity
+                  </button>
+                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title={`Night shift${waiting > 0 ? ` · ${waiting} undecided` : ''}`}>
+                    Night shift
                   </button>
                 </div>
               ) : (
