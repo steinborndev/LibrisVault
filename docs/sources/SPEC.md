@@ -132,6 +132,23 @@ Before the fetch, `pdfUrlFor(url)`:
   PDF address;
 - leaves every other URL to the ordinary path, domain handlers first (X, YouTube).
 
+**And then the page is asked** (2026-09-15). An address only says "PDF" in those three shapes,
+and a journal that routes its document to a sibling of the article path - the HighWire and
+Silverchair families, which is most of the literature - matches none of them, so an
+open-access paper was filed as the web page in front of it. On the ordinary path, a fetched
+page that carries `<meta name="citation_pdf_url">` - the tag publishers set for Google Scholar
+- names its own document, and that address is tried before the page is filed. Only from the
+ordinary path: an address that already named a PDF and answered with markup is a login page,
+and the page behind a login does not name a document you may have.
+
+The named address is a candidate and nothing more. It resolves against the page it was read
+from, it must sit on the **same host** as that page (a meta tag is content, so a fetch aimed by
+it is a fetch aimed by a stranger; `validateUrl` refuses the private ranges and the host check
+keeps the rest of the internet out of a redirect nobody asked for), it is fetched under the PDF
+cap, and the magic bytes decide whether what came back is a document. Every failure is a shrug:
+the note says what was tried and the page is filed as a page, which is what would have happened
+anyway. The manifest's `url` stays the address the job named, as on every other lane.
+
 After any fetch on the ordinary path, the answer is sniffed: a body starting with `%PDF-`
 or a `Content-Type` of `application/pdf` routes to the PDF lane whatever the URL looked
 like. Magic bytes win over the content type in both directions: a `.pdf` address that
@@ -156,7 +173,13 @@ open-access PDF (section 5) takes this same lane.
 ### 3.4 Tests and measurement
 
 - Unit: `pdfUrlFor` on arXiv abs with and without version, `.pdf`, `/pdf/`, a DOI link (not
-  a PDF address); sniffing on `%PDF-` bytes with a `text/html` content type and the reverse.
+  a PDF address); sniffing on `%PDF-` bytes with a `text/html` content type and the reverse;
+  `citationPdfUrl` on either attribute, on an entity in a query string, and on a page without
+  the tag.
+- Pipeline: an article page whose tag names a sibling PDF ingests as `type: 'pdf'` through two
+  fetches, keeping the job's own address in the manifest; a relative tag resolves against the
+  page; a tag pointing off the host is not followed; a tag whose address answers with markup,
+  and one whose address cannot be fetched, both file the page and say why.
 - Pipeline test with a stubbed fetch: a URL job with PDF bytes yields `type: 'pdf'`, a
   manifest with the URL, and the PDF plugin's notes; with the tools absent it fails the way
   a dropped PDF does.

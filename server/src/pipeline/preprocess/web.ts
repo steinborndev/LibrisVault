@@ -42,7 +42,7 @@ import {
   type FetchOptions,
   type PinnedRequestFn,
 } from './fetch.js'
-import { assessExtractedContent, extractArticle, htmlTitle } from './html.js'
+import { assessExtractedContent, citationPdfUrl, extractArticle, htmlTitle } from './html.js'
 import { preprocess } from './index.js'
 import { detectTools } from './tools.js'
 import { findUrlHandler } from './url-handlers.js'
@@ -183,6 +183,48 @@ export function pdfOriginalName(url: URL): string {
  * job's type becomes `pdf` because the chain says so, and the address rides along in the
  * manifest so the source page can still name where the document came from.
  */
+/**
+ * The document a page named in `citation_pdf_url`, if it really is one (3.2, 2026-09-15).
+ *
+ * Every guard the ordinary fetch has, and one more: the address has to sit on the SAME HOST as
+ * the page that named it. A meta tag is content, written by whoever wrote the page, and a
+ * fetch aimed by it is a fetch aimed by a stranger - `validateUrl` already refuses the private
+ * ranges, and the host check keeps the rest of the internet out of a redirect the reader never
+ * asked for. A publisher hosting its own PDFs, which is all of them, is unaffected.
+ *
+ * Every failure is a shrug: the note says what was tried and the page is filed as a page,
+ * which is what would have happened anyway.
+ */
+async function pdfBehindPage(
+  named: string,
+  page: URL,
+  input: PreprocessUrlInput,
+  timeoutMs: number,
+  fetchOpts: FetchOptions,
+  notes: string[],
+): Promise<FetchedBytes | undefined> {
+  let candidate: string
+  try {
+    candidate = new URL(named, page).href
+  } catch {
+    notes.push(`pdf url: citation_pdf_url is not an address (${named.slice(0, 80)})`)
+    return undefined
+  }
+  if (new URL(candidate).host !== page.host) {
+    notes.push(`pdf url: citation_pdf_url points at ${new URL(candidate).host}, off the page's own host - not followed`)
+    return undefined
+  }
+  try {
+    const target = await validateUrl(candidate, input.resolve)
+    const answer = await fetchBytes(target, input.maxBytes ?? MAX_PDF_BYTES, timeoutMs, fetchOpts)
+    if (isPdfAnswer(answer.body, answer.contentType)) return answer
+    notes.push(`pdf url: citation_pdf_url named ${candidate} but it answered with ${answer.contentType || 'no content type'} - read the page instead`)
+  } catch (err) {
+    notes.push(`pdf url: citation_pdf_url named ${candidate} but it could not be fetched (${(err as Error).message}) - read the page instead`)
+  }
+  return undefined
+}
+
 async function pdfLane(args: {
   readonly input: PreprocessUrlInput
   /** The address the job named; what the manifest and the source page call the document's own. */
@@ -387,6 +429,34 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
         takeRecovery(rescue.recovery)
       } else {
         const html = answer.body.toString('utf8')
+        /*
+         * The page may say where its own PDF is (3.2). `pdfUrlFor` reads the ADDRESS, and an
+         * address only says "PDF" in three shapes; a journal that routes its document to a
+         * sibling of the article path matches none of them, so an open-access paper was filed
+         * as the web page in front of it. `citation_pdf_url` is the publisher's own answer.
+         *
+         * Only from the ordinary path: an address that already named a PDF and answered with
+         * markup is a login page, and the page behind a login does not name a document you
+         * may have. And only a candidate - it is validated like any other address, fetched
+         * under the PDF cap, and the magic bytes decide whether it was one.
+         */
+        if (pdfAddress === undefined) {
+          const named = citationPdfUrl(html)
+          const found = named === undefined ? undefined : await pdfBehindPage(named, answer.url, input, timeoutMs, fetchOpts, notes)
+          if (found !== undefined) {
+            return pdfLane({
+              input,
+              requested: url,
+              fetched: found.url,
+              body: found.body,
+              tools,
+              notes: [
+                `pdf url: the page names its own document in citation_pdf_url`,
+                `pdf url: ${found.body.byteLength} bytes fetched from ${found.url.href}`,
+              ],
+            })
+          }
+        }
         if (pdfAddress !== undefined) {
           // A login page in front of a PDF looks exactly like this. The junk gate below is what
           // says so, and this note is how the reader knows which lane was tried first.

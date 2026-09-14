@@ -79,6 +79,30 @@ export function canonicalUrlOf(html: string): string | undefined {
 }
 
 /**
+ * The PDF a page says it HAS: `citation_pdf_url`, the tag publishers set for Google Scholar
+ * (docs/sources/SPEC.md 3.2, added 2026-09-15).
+ *
+ * `pdfUrlFor` reads the address, and an address only says "PDF" in three shapes: an arXiv
+ * abstract, a path ending in `.pdf`, and a `/pdf/` segment. A journal that routes its document
+ * to a sibling of the article path - the HighWire and Silverchair families, which is most of
+ * the literature - matches none of them, so an open-access paper was filed as the web page in
+ * front of it. The page itself knows the answer and has been publishing it for years; this
+ * reads it rather than guessing a URL per publisher.
+ *
+ * The answer is still only a candidate: the caller validates it like any other address, fetches
+ * it under the same cap, and the magic bytes decide whether what came back is a document.
+ */
+export function citationPdfUrl(html: string): string | undefined {
+  const head = html.slice(0, 200_000)
+  const tag = /<meta\b[^>]*\b(?:name|property)\s*=\s*["']citation_pdf_url["'][^>]*>/i.exec(head)?.[0]
+  if (tag === undefined) return undefined
+  const raw = /\bcontent\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]?.trim()
+  // `&amp;` is the one entity an address routinely carries, and a query string that keeps it
+  // literally is a different address from the one the page meant.
+  return raw === undefined || raw === '' ? undefined : raw.replace(/&amp;/gi, '&')
+}
+
+/**
  * The title a page gives itself: `<title>`, else Open Graph, else the citation meta tag.
  *
  * Needed because the artifact does not hold it - a fetched page's first line is its ADDRESS and

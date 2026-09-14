@@ -15,6 +15,7 @@ import {
   validateUrl,
   type PinnedRequestFn,
 } from '../src/pipeline/preprocess/web.js'
+import { citationPdfUrl } from '../src/pipeline/preprocess/html.js'
 import { PreprocessError, type PreprocessPlugin, type PreprocessResult } from '../src/pipeline/preprocess/index.js'
 
 describe('isPrivateAddress', () => {
@@ -122,6 +123,20 @@ describe('pdfUrlFor (docs/sources/SPEC.md 3.2)', () => {
   })
 })
 
+describe('citationPdfUrl (docs/sources/SPEC.md 3.2)', () => {
+  it('reads the tag whichever attribute names it, and resolves the one entity an address carries', () => {
+    expect(citationPdfUrl('<meta name="citation_pdf_url" content="https://p.example/a.pdf">')).toBe('https://p.example/a.pdf')
+    expect(citationPdfUrl("<META PROPERTY='citation_pdf_url' CONTENT='/a/b.pdf'>")).toBe('/a/b.pdf')
+    expect(citationPdfUrl('<meta name="citation_pdf_url" content="https://p.example/a?x=1&amp;y=2">')).toBe('https://p.example/a?x=1&y=2')
+  })
+
+  it('says nothing when the page does not', () => {
+    expect(citationPdfUrl('<html><head><title>No tag</title></head></html>')).toBeUndefined()
+    expect(citationPdfUrl('<meta name="citation_title" content="A paper">')).toBeUndefined()
+    expect(citationPdfUrl('<meta name="citation_pdf_url" content="">')).toBeUndefined()
+  })
+})
+
 describe('isPdfAnswer (magic bytes win over the content type, both ways)', () => {
   it('takes %PDF- bytes served as text/html', () => {
     expect(isPdfAnswer(Buffer.from('%PDF-1.7\nstuff'), 'text/html; charset=utf-8')).toBe(true)
@@ -223,6 +238,90 @@ describe('preprocessUrl: the PDF lane (docs/sources/SPEC.md section 3)', () => {
     await expect(run('https://publisher.example/files/paper.pdf', stub(wall, 'application/pdf'))).rejects.toThrow(
       /login\/anti-bot\/paywall shell/,
     )
+  })
+
+  /*
+   * The gap this closes (3.2, 2026-09-15): `pdfUrlFor` reads the ADDRESS, and an address only
+   * says "PDF" in three shapes. A journal that routes its document to a sibling of the article
+   * path matches none of them, so an open-access paper was filed as the page in front of it.
+   * The page names its own document in `citation_pdf_url` and has done for years.
+   */
+  describe('citation_pdf_url: the page names its own document', () => {
+    const article = (pdf: string): Buffer =>
+      Buffer.from(
+        `<!DOCTYPE html><html><head><title>A paper</title>` +
+          `<meta name="citation_pdf_url" content="${pdf}">` +
+          `</head><body><p>${'The landing page in front of the document. '.repeat(12)}</p></body></html>`,
+      )
+
+    /** HTML first, then the PDF: the second answer is for whatever address the page named. */
+    const then = (page: Buffer, pdf: Buffer, asked: string[] = []): PinnedRequestFn =>
+      async (v) => {
+        asked.push(v.url.href)
+        return asked.length === 1
+          ? { status: 200, contentType: 'text/html', body: page }
+          : { status: 200, contentType: 'application/pdf', body: pdf }
+      }
+
+    it('follows the tag and ingests the document the article page points at', async () => {
+      const asked: string[] = []
+      const res = await run(
+        'https://publisher.example/content/early/2026/04/06/j.issn.2095-3941',
+        then(article('https://publisher.example/content/early/2026/04/06/j.issn.2095-3941.full.pdf'), pdfBytes, asked),
+      )
+      expect(asked).toEqual([
+        'https://publisher.example/content/early/2026/04/06/j.issn.2095-3941',
+        'https://publisher.example/content/early/2026/04/06/j.issn.2095-3941.full.pdf',
+      ])
+      expect(res.type).toBe('pdf')
+      // The address the job named stays the document's own, as it does on every other lane.
+      expect(res.manifest.url).toBe('https://publisher.example/content/early/2026/04/06/j.issn.2095-3941')
+      expect(res.manifest.notes.join(' ')).toMatch(/the page names its own document in citation_pdf_url/)
+    })
+
+    it('resolves a relative tag against the page it was read from', async () => {
+      const asked: string[] = []
+      await run('https://publisher.example/articles/17', then(article('/articles/17/pdf'), pdfBytes, asked))
+      expect(asked[1]).toBe('https://publisher.example/articles/17/pdf')
+    })
+
+    it('will not be aimed off the page own host', async () => {
+      /*
+       * A meta tag is content, written by whoever wrote the page, so a fetch aimed by it is a
+       * fetch aimed by a stranger. `validateUrl` already refuses the private ranges; the host
+       * check keeps the rest of the internet out of a redirect the reader never asked for.
+       */
+      const asked: string[] = []
+      const res = await run('https://publisher.example/articles/17', then(article('https://elsewhere.example/x.pdf'), pdfBytes, asked))
+      expect(asked).toEqual(['https://publisher.example/articles/17'])
+      expect(res.type).toBe('web')
+      expect(res.manifest.notes.join(' ')).toMatch(/off the page's own host - not followed/)
+    })
+
+    it('files the page when what the tag names is not a document', async () => {
+      const asked: string[] = []
+      const res = await run(
+        'https://publisher.example/articles/17',
+        async (v) => {
+          asked.push(v.url.href)
+          return { status: 200, contentType: 'text/html', body: article('https://publisher.example/articles/17.pdf') }
+        },
+      )
+      expect(asked).toHaveLength(2)
+      expect(res.type).toBe('web')
+      expect(res.manifest.notes.join(' ')).toMatch(/answered with text\/html - read the page instead/)
+    })
+
+    it('shrugs when the named address cannot be fetched at all', async () => {
+      let n = 0
+      const res = await run('https://publisher.example/articles/17', async () => {
+        n++
+        if (n === 1) return { status: 200, contentType: 'text/html', body: article('https://publisher.example/gone.pdf') }
+        throw new Error('connect ECONNREFUSED')
+      })
+      expect(res.type).toBe('web')
+      expect(res.manifest.notes.join(' ')).toMatch(/could not be fetched .* - read the page instead/)
+    })
   })
 
   it('fails the way a dropped PDF does when the tools are missing', async () => {
