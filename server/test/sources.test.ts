@@ -140,6 +140,68 @@ describe('buildSourceIndex', () => {
     expect(pages['wiki/concepts/Alpha.md']?.file).toBe('paper.pdf')
   })
 
+  /*
+   * The order of events the created-only rule could not see (2026-09-15): a Fellow reads a
+   * publication on the web and writes its source page, and the ingest of the paper comes
+   * later, so it can only UPDATE that page. Without this the document and the page it is
+   * about never found each other - the Catalog kept offering the web address and the
+   * reading-list entry stayed unanswered with the paper sitting in `.raw/` beside it.
+   */
+  it('gives a page the document it is about, even when the ingest only updated it', () => {
+    write('wiki/sources/Review.md', '---\ntype: source\nurl: "https://journal.example/articles/17"\n---\n# Review\n')
+    // Touched on the way past by the same ingest, and about nothing in particular.
+    write('wiki/hot.md', '# hot\n')
+    write('.raw/job-late/raw.pdf', '%PDF-1.4 the paper\n')
+    write('.raw/job-late/manifest.json', JSON.stringify({ jobId: 'job-late', type: 'pdf', original: 'raw.pdf', url: 'https://journal.example/articles/17' }))
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        version: 1,
+        sources: {
+          '.raw/job-late/normalized.txt': {
+            ingested_at: '2026-09-15',
+            pages_created: [],
+            pages_updated: ['wiki/sources/Review.md', 'wiki/hot.md'],
+          },
+        },
+      }),
+    )
+    const { pages } = buildSourceIndex(vaultRoot)
+    expect(pages['wiki/sources/Review.md']).toMatchObject({ dir: '.raw/job-late', file: 'raw.pdf', type: 'pdf' })
+    // And the hub page it passed through keeps no source, which is what created-only was for.
+    expect(pages['wiki/hot.md']).toBeUndefined()
+  })
+
+  it('will not let an updated page claim a document that is not its own', () => {
+    // Same ingest, but the page records a different address: it is a page the run touched.
+    write('wiki/sources/Other.md', '---\ntype: source\nurl: "https://journal.example/articles/99"\n---\n# Other\n')
+    write('.raw/job-late/raw.pdf', '%PDF-1.4 the paper\n')
+    write('.raw/job-late/manifest.json', JSON.stringify({ jobId: 'job-late', type: 'pdf', original: 'raw.pdf', url: 'https://journal.example/articles/17' }))
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        version: 1,
+        sources: { '.raw/job-late/normalized.txt': { ingested_at: '2026-09-15', pages_created: [], pages_updated: ['wiki/sources/Other.md'] } },
+      }),
+    )
+    expect(buildSourceIndex(vaultRoot).pages['wiki/sources/Other.md']).toBeUndefined()
+  })
+
+  it('matches the address the way the dedupe index does, not character for character', () => {
+    // A trailing slash and a tracking parameter are the same document.
+    write('wiki/sources/Same.md', '---\ntype: source\nurl: "https://journal.example/articles/17/"\n---\n# Same\n')
+    write('.raw/job-late/raw.pdf', '%PDF-1.4 the paper\n')
+    write('.raw/job-late/manifest.json', JSON.stringify({ jobId: 'job-late', type: 'pdf', original: 'raw.pdf', url: 'https://journal.example/articles/17?utm_source=x' }))
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        version: 1,
+        sources: { '.raw/job-late/normalized.txt': { ingested_at: '2026-09-15', pages_created: [], pages_updated: ['wiki/sources/Same.md'] } },
+      }),
+    )
+    expect(buildSourceIndex(vaultRoot).pages['wiki/sources/Same.md']?.file).toBe('raw.pdf')
+  })
+
   it('carries the origin URL of a web ingest', () => {
     const { pages } = buildSourceIndex(vaultRoot)
     expect(pages['wiki/sources/Post.md']).toEqual({
