@@ -9159,9 +9159,18 @@ tr:focus-within .rowacts {
  * here is settled work on one shelf, so there is no status and no domain to tell apart, and
  * the only accent left in a row is the one thing that is actually a link.
  */
-/* One line of air above it: the Fellows and their night are two readings of the same shelf,
-   and the list starts far enough below the roster to read as the answer to it. */
-.cc-block.apart { margin-top: 20px; }
+/*
+ * One line of air above a section, the same above each: the queue, the Fellows and their night
+ * are three readings of one shelf, and an even step between them is what lets the eye take
+ * them as three rather than as one long block.
+ *
+ * Big enough to WIN the collapse, which is the whole reason for the number. A section's
+ * heading already carries 20px of its own and the block below it 26px of bottom margin, and
+ * adjacent margins collapse to the largest: anything under 26 here changes the gap after the
+ * queue and leaves the gap between the blocks exactly as it was, which is how the two ended up
+ * a step apart in the first place.
+ */
+.cc-block.apart { margin-top: 42px; }
 .cc-acts { display: flex; flex-direction: column; gap: 6px; }
 .cc-act {
   display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start;

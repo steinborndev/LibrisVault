@@ -174,14 +174,12 @@ export function LibraryScreen({
   const ccFellow = ccView === 'dossier' ? (ccRoster.find((r) => r.id === ccFellowId) ?? null) : null
   const ccShelf = ccView === 'shelves' ? null : (ccFellow?.domain ?? ccShelves[ccStop] ?? null)
   /**
-   * One step around whatever ring the dots are showing, for the wheel over the name.
+   * One step around whatever ring the dots are showing, for the wheel anywhere in the window.
    *
    * The same ring the arrow keys walk, and it wraps for the same reason the rooms do: the
    * stops ARE a ring, and clamping makes the last one a wall you scroll against with nothing
-   * happening. It hangs on the name and its dots rather than on the window, because the window
-   * scrolls - a wheel that changed the shelf from anywhere would cost you the list.
+   * happening.
    */
-  const ccRing = useRef<HTMLSpanElement | null>(null)
   const stepCc = useCallback(
     (delta: number): void => {
       if (ccView === 'dossier') {
@@ -204,22 +202,41 @@ export function LibraryScreen({
     },
     [ccView, ccRoster, ccFellowId, ccShelves.length, ccStop],
   )
+  /*
+   * The wheel walks the stops from anywhere in the night shift - EXCEPT where there is still
+   * something to scroll under the pointer, which keeps its wheel.
+   *
+   * The window is one long page on a shelf with a few Fellows, so a wheel that always paged
+   * would cost you the list you were reading; one that only worked over the headline is a
+   * target you have to find. Scroll chaining is the answer both halves want: the list scrolls
+   * while it has room, and the gesture that runs off its end walks to the next shelf. Nothing
+   * pages while a form is open - the spawn view is the one place a stray flick would lose
+   * typing rather than a scroll position.
+   */
   useEffect(() => {
-    const el = ccRing.current
-    if (el === null) return
+    if (!active || !ccOpen || ccView === 'spawn') return
     let last = 0
+    const scrollable = (from: Element | null, delta: number): boolean => {
+      for (let el = from; el !== null && el !== document.body; el = el.parentElement) {
+        const max = el.scrollHeight - el.clientHeight
+        if (max <= 1 || !/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue
+        if (delta > 0 ? el.scrollTop < max - 1 : el.scrollTop > 1) return true
+      }
+      return false
+    }
     const onWheel = (e: WheelEvent): void => {
       const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
       if (Math.abs(d) < 20) return
+      if (scrollable(e.target instanceof Element ? e.target : null, d)) return
       const now = Date.now()
       if (now - last < 450) return
       last = now
       e.preventDefault()
       stepCc(d > 0 ? 1 : -1)
     }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [stepCc, ccOpen])
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [stepCc, active, ccOpen, ccView])
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
@@ -848,7 +865,7 @@ export function LibraryScreen({
             {ccOpen && (
               /* Just where you are. Escape steps back, the dots jump, and the shelves view is
                  the map - so the name needs no arrows around it. */
-              <span className="lib-open cc-rot" ref={ccRing} title="Scroll here to walk the stops, or use the arrow keys">
+              <span className="lib-open cc-rot" title="The arrow keys walk the stops, and so does the wheel wherever there is nothing left to scroll">
                 {/* Dot, name, dots: the same three slots at every stop, and the name's slot is
                     wide enough for the longest domain, so walking the ring moves nothing but
                     the letters. The overview takes the accent for its dot because it is not a

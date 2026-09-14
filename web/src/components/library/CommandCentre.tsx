@@ -918,7 +918,7 @@ export function CommandCentre({
               </div>
             </section>
 
-            <section className="cc-block">
+            <section className="cc-block apart">
               <h3 className="cc-sec">Fellows of this shelf <span className="c">{shelf.fellows.length}</span></h3>
               <div className="cc-rows">
                 {shelf.fellows.map((f, i) => {
