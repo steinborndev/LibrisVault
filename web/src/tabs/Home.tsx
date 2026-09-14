@@ -818,7 +818,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
 
           {view === 'recaps' ? (
             <div className="flow-view" id="flow-recaps" role="tabpanel">
-              <RecapFeed vaultName={vaultName} compact control={{ week: weekStartOf(day), day, fellow, query, onVisible: noop }} />
+              <RecapFeed vaultName={vaultName} compact control={{ week: weekStartOf(day), day, fellows: fellow === null ? [] : [fellow], query, onVisible: noop }} />
             </div>
           ) : (
             <>

@@ -19,7 +19,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { RecapAnswer, RecapAnswerResult } from '../api/types.ts'
 import { RecapBody, RecapFacts } from '../tabs/Recap.tsx'
-import { Icon } from './Icon.tsx'
 import { FootKeys } from './FootKeys.tsx'
 import { queryState } from './QueryState.tsx'
 import { navigate } from '../lib/router.ts'
@@ -28,15 +27,12 @@ import { nightLine, undecidedCount } from '../lib/recap.ts'
 import {
   absenceOf,
   recapMatches,
-  addDays,
-  earliestWeek,
   feedRows,
   fmtDay,
   fmtWeek,
   localDate,
   openingWeek,
   runsInWeek,
-  weekDays,
   weekStartOf,
   workedOn,
 } from '../lib/recapFeed.ts'
@@ -55,7 +51,8 @@ export interface FeedControl {
   /** Monday of the week on show. */
   readonly week: string
   readonly day: string | null
-  readonly fellow: string | null
+  /** The Fellows on show, by name; empty is all of them. */
+  readonly fellows: readonly string[]
   /** The day at the top of the feed, as it scrolls. */
   readonly onVisible: (date: string | null) => void
   /** The search box's text; the feed keeps the days and sections that say it. */
@@ -66,11 +63,18 @@ export function RecapFeed({
   vaultName,
   control,
   compact = false,
+  day: pinnedDay,
 }: {
   vaultName: string
   control?: FeedControl
   /** Without the day bars and the per-Fellow settings row: Home's headline and the dossier hold those. */
   compact?: boolean
+  /**
+   * One night, chosen by the screen around the feed. The Library's board steps through the
+   * nights from its headline, the way Home does, so the feed no longer carries a week of days
+   * in its rail - what is left there is the Fellow filter, which is about WHO and not WHEN.
+   */
+  day?: string | null
 }): React.ReactElement {
   const qc = useQueryClient()
   const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, staleTime: 30_000, refetchInterval: 60_000 })
@@ -78,19 +82,21 @@ export function RecapFeed({
   const rows = useMemo(() => recaps.data?.recaps ?? [], [recaps.data])
   const today = localDate(new Date())
 
-  const [weekState, setWeek] = useState<string | null>(null)
-  const [dayState, setDay] = useState<string | null>(null)
-  const [fellowState, setFellow] = useState<string | null>(null)
+  const [weekState] = useState<string | null>(null)
+  const [dayState] = useState<string | null>(null)
+  /** Picked in the rail, ORed: two names show the nights either of them worked. */
+  const [fellowState, setFellows] = useState<readonly string[]>([])
   const [toasts, setToasts] = useState<RecapAnswerResult[]>([])
   const [visible, setVisible] = useState<string | null>(null)
   const feedRef = useRef<HTMLDivElement>(null)
 
-  // The rail opens on this week; a Monday before the first build falls back to the newest.
-  const shownWeek = control !== undefined ? control.week : (weekState ?? openingWeek(rows, today))
-  const day = control !== undefined ? control.day : dayState
-  const fellow = control !== undefined ? control.fellow : fellowState
+  // The week only matters when nobody outside names a day: Home controls both, the Library
+  // pins one night, and a feed left entirely to itself opens on the week that has something.
+  const shownWeek = control !== undefined ? control.week : pinnedDay !== undefined && pinnedDay !== null ? weekStartOf(pinnedDay) : (weekState ?? openingWeek(rows, today))
+  const day = control !== undefined ? control.day : (pinnedDay ?? dayState)
+  const picked = control !== undefined ? control.fellows : fellowState
   const query = control?.query ?? ''
-  const shown = useMemo(() => feedRows(rows, { week: shownWeek, day, fellow }).filter((r) => recapMatches(r, query)), [rows, shownWeek, day, fellow, query])
+  const shown = useMemo(() => feedRows(rows, { week: shownWeek, day, fellows: picked }).filter((r) => recapMatches(r, query)), [rows, shownWeek, day, picked, query])
 
   const answer = useMutation({
     mutationFn: (input: { date: string; answers: RecapAnswer[] }) => api.answerRecap(input.date, { answers: input.answers }),
@@ -140,8 +146,6 @@ export function RecapFeed({
   const fellows = (agents.data?.fellows ?? []).filter((f) => f.agent.state !== 'retired')
   /** Every Fellow the service knows, retired ones too: a name in an old recap still opens its dossier. */
   const agentIdOf = (name: string): string | undefined => agents.data?.fellows.find((f) => f.agent.name === name)?.agent.id
-  const firstWeek = earliestWeek(rows, today)
-  const thisWeek = weekStartOf(today)
 
   const pick = (a: RecapAnswer, date: string): void => answer.mutate({ date, answers: [a] })
   const followed = (page: string, agentId: string): void => api.valueEvent({ kind: 'recap_link', page, agentId })
@@ -193,9 +197,9 @@ export function RecapFeed({
                         ? 'No recap in this week says that. Esc clears the search.'
                         : day !== null
                           ? `The next one is built at ${status?.recapTime ?? '07:00'}. Press ↓ for the last one, or Esc for the week.`
-                          : fellow !== null
-                        ? `${fellow} did not work in this week. Open a dimmed day to see why.`
-                        : 'No recap was stored for these days. Step back a week.'}
+                          : picked.length > 0
+                        ? `${picked.join(' and ')} did not work in this week. Clear the filter to see who did.`
+                        : 'No recap was stored for these days. Step back a night.'}
                   </p>
                 </>
               )}
@@ -221,11 +225,13 @@ export function RecapFeed({
                   </button>
                 </div>
                 )}
-                {fellow !== null && !workedOn(row, fellow) && (
-                  <p className="recap-absent">
-                    <b>{fellow} did not work this night:</b> {absenceOf(row, fellow)}
-                  </p>
-                )}
+                {picked
+                  .filter((name) => !workedOn(row, name))
+                  .map((name) => (
+                    <p className="recap-absent" key={name}>
+                      <b>{name} did not work this night:</b> {absenceOf(row, name)}
+                    </p>
+                  ))}
                 <RecapBody
                   row={row}
                   vaultName={vaultName}
@@ -238,7 +244,7 @@ export function RecapFeed({
                   decidable={row.cycleDate === newest}
                   results={toasts}
                   agentIdOf={agentIdOf}
-                  {...(fellow !== null ? { only: fellow } : {})}
+                  {...(picked.length > 0 ? { only: picked } : {})}
                 />
               </section>
             ))
@@ -252,17 +258,16 @@ export function RecapFeed({
               <div className="rrail-pills">
                 {fellows.slice(0, FELLOW_SLOTS).map((f) => {
                   const runs = runsInWeek(rows, shownWeek, f.agent.name)
-                  const on = fellow === f.agent.name
+                  const on = picked.includes(f.agent.name)
                   return (
                     <button
                       key={f.agent.id}
                       className="fpill"
                       aria-pressed={on}
-                      title={`${f.agent.name} · ${f.agent.homeDomain}`}
-                      onClick={() => {
-                        setFellow(on ? null : f.agent.name)
-                        setDay(null)
-                      }}
+                      title={on ? `Stop showing ${f.agent.name} only` : `${f.agent.name} · ${f.agent.homeDomain}`}
+                      /* Several at a time: each pill is its own switch, and none picked means
+                         every Fellow, which is where you start. */
+                      onClick={() => setFellows((cur) => (cur.includes(f.agent.name) ? cur.filter((n) => n !== f.agent.name) : [...cur, f.agent.name]))}
                     >
                       <span className="dot" style={{ background: domainColor(f.agent.homeDomain) }} aria-hidden />
                       <span className="who">
@@ -283,74 +288,11 @@ export function RecapFeed({
               </div>
             </div>
 
-            <div className="rrail-sec">
-              <div className="rrail-k">
-                Days
-                <span className="wknav">
-                  <button
-                    className="up"
-                    aria-label="Previous week"
-                    title="Previous week"
-                    disabled={shownWeek <= firstWeek}
-                    onClick={() => {
-                      setWeek(addDays(shownWeek, -7))
-                      setDay(null)
-                    }}
-                  >
-                    <Icon name="chevron" />
-                  </button>
-                  <button
-                    className="down"
-                    aria-label="Next week"
-                    title="Next week"
-                    disabled={shownWeek >= thisWeek}
-                    onClick={() => {
-                      setWeek(addDays(shownWeek, 7))
-                      setDay(null)
-                    }}
-                  >
-                    <Icon name="chevron" />
-                  </button>
-                </span>
-              </div>
-              <div className="wk-label">{fmtWeek(shownWeek)}</div>
-              <div className="daylist">
-                {[...weekDays(shownWeek)].reverse().map((date) => {
-                  const row = rows.find((r) => r.cycleDate === date)
-                  const idle = row !== undefined && fellow !== null && !workedOn(row, fellow)
-                  const n = row === undefined ? 0 : undecidedCount(row.model)
-                  return (
-                    <button
-                      key={date}
-                      className={`day-row${date === today ? ' today' : ''}${idle ? ' idle' : ''}`}
-                      disabled={row === undefined}
-                      aria-pressed={day === date}
-                      aria-current={day === null && visible === date ? 'true' : undefined}
-                      title={idle ? `${fellow} did not work on ${fmtDay(date)}` : undefined}
-                      onClick={() => setDay(day === date ? null : date)}
-                    >
-                      <span className="d">{fmtDay(date)}</span>
-                      {row === undefined ? (
-                        <span className="rq">{date > today ? 'to come' : 'no recap'}</span>
-                      ) : idle ? (
-                        <span className="rq idle">idle</span>
-                      ) : n > 0 ? (
-                        <span className="rn">{n}</span>
-                      ) : (
-                        <span className="rq">{row.quiet ? 'quiet' : 'done'}</span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="rrail-hint">
-                {day !== null
-                  ? 'Showing one day. Click it again for the whole week.'
-                  : fellow !== null
-                    ? `Dimmed days are nights ${fellow} did not work. Open one to see why.`
-                    : 'Scroll the feed to walk back through the week.'}
-              </p>
-            </div>
+            <p className="rrail-hint">
+              {picked.length === 0
+                ? 'Every Fellow. Pick one or more to see only their work.'
+                : `${picked.join(' and ')} only. Click again to let the others back in.`}
+            </p>
           </aside>
         )}
       </div>
@@ -360,7 +302,7 @@ export function RecapFeed({
           <span>
             {shown.length} of {rows.length} recap(s)
             {day !== null ? ` · ${fmtDay(day)}` : ` · week of ${fmtWeek(shownWeek)}`}
-            {fellow !== null ? ` · ${fellow} only` : ''}
+            {picked.length > 0 ? ` · ${picked.join(' and ')} only` : ''}
           </span>
         </span>
         {/* Home's foot says how to move, in the same slot as the stream's; the Library's

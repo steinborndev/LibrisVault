@@ -7789,7 +7789,10 @@ tr:focus-within .rowacts {
   scrollbar-gutter: stable;
   padding: 16px 20px 24px;
 }
-.shelf-page .page-body { max-width: 88ch; }
+/* No measure here (2026-09-14). The window is already narrower than a screen, and inside it
+   the column was narrower still: a page opened from the department graph left a third of the
+   window empty while its own tables and code lines wrapped. */
+.shelf-page .page-body { max-width: none; }
 .shelf-page .page-body h1 { margin: 0 0 8px; font-family: var(--display); font-size: 20px; font-weight: 600; }
 .shelf-page .page-body h2 { margin: 18px 0 5px; font-family: var(--display); font-size: 15px; font-weight: 600; }
 .shelf-page .page-body h3 { margin: 14px 0 4px; font-family: var(--display); font-size: 13px; font-weight: 600; }

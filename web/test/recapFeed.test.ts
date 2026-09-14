@@ -106,18 +106,34 @@ describe('what the feed shows', () => {
   ]
 
   it('renders the week newest first, and one day when one is picked', () => {
-    const week = feedRows(rows, { week: '2026-08-31', day: null, fellow: null })
+    const week = feedRows(rows, { week: '2026-08-31', day: null, fellows: [] })
     expect(week.map((r) => r.cycleDate)).toEqual(['2026-09-06', '2026-09-05', '2026-09-04'])
-    expect(feedRows(rows, { week: '2026-08-31', day: '2026-09-04', fellow: null }).map((r) => r.cycleDate)).toEqual(['2026-09-04'])
-    expect(feedRows(rows, { week: '2026-08-24', day: null, fellow: null }).map((r) => r.cycleDate)).toEqual(['2026-08-28'])
+    expect(feedRows(rows, { week: '2026-08-31', day: '2026-09-04', fellows: [] }).map((r) => r.cycleDate)).toEqual(['2026-09-04'])
+    expect(feedRows(rows, { week: '2026-08-24', day: null, fellows: [] }).map((r) => r.cycleDate)).toEqual(['2026-08-28'])
+  })
+
+  it('two Fellows are an OR: a night either of them worked stays', () => {
+    // Its own rows: Ada works one night, Cleo the next, and nobody the third.
+    const ada = fellow({ runs: [run] })
+    const cleo = fellow({ index: 2, agentId: 'a2', name: 'Cleo', homeDomain: 'climate-science', runs: [run] })
+    const nights = [
+      row('2026-09-06', { fellows: [ada] }),
+      row('2026-09-05', { fellows: [cleo] }),
+      row('2026-09-04', { quiet: true, fellows: [] }),
+    ]
+    const on = (fellows: string[]): string[] => feedRows(nights, { week: '2026-08-31', day: null, fellows }).map((r) => r.cycleDate)
+    expect(on(['Ada', 'Cleo'])).toEqual(['2026-09-06', '2026-09-05'])
+    expect(on(['Cleo'])).toEqual(['2026-09-05'])
+    // Nobody picked is every Fellow, the quiet night included.
+    expect(on([])).toEqual(['2026-09-06', '2026-09-05', '2026-09-04'])
   })
 
   it('a picked Fellow leaves the nights it worked, and a picked day opens even when it did not', () => {
-    expect(feedRows(rows, { week: '2026-08-31', day: null, fellow: 'Ada' }).map((r) => r.cycleDate)).toEqual(['2026-09-06', '2026-09-05'])
+    expect(feedRows(rows, { week: '2026-08-31', day: null, fellows: ['Ada'] }).map((r) => r.cycleDate)).toEqual(['2026-09-06', '2026-09-05'])
     // Cleo is in the 05 Sep recap but ran nothing, so the week hides it.
-    expect(feedRows(rows, { week: '2026-08-31', day: null, fellow: 'Cleo' })).toEqual([])
+    expect(feedRows(rows, { week: '2026-08-31', day: null, fellows: ['Cleo'] })).toEqual([])
     // Picking that day still opens it: the reason is what you came for.
-    expect(feedRows(rows, { week: '2026-08-31', day: '2026-09-05', fellow: 'Cleo' }).map((r) => r.cycleDate)).toEqual(['2026-09-05'])
+    expect(feedRows(rows, { week: '2026-08-31', day: '2026-09-05', fellows: ['Cleo'] }).map((r) => r.cycleDate)).toEqual(['2026-09-05'])
     expect(workedOn(rows[1]!, 'Ada')).toBe(true)
     expect(workedOn(rows[1]!, 'Cleo')).toBe(false)
     expect(runsInWeek(rows, '2026-08-31', 'Ada')).toBe(2)

@@ -49,8 +49,9 @@ export function ShelfPanel({
   const paths = useMemo(() => new Set(pages.map((n) => n.path)), [pages])
   const stubs = pages.filter((n) => (n.size ?? 0) < STUB_BYTES).length
   const gaps = useMemo(() => gapsOf(graph.data, paths), [graph.data, paths])
+  /** Five, and a section of their own: what changed here is a question, not a footnote. */
   const recent = useMemo(
-    () => [...pages].filter((n) => n.mtimeMs !== undefined).sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0)).slice(0, 3),
+    () => [...pages].filter((n) => n.mtimeMs !== undefined).sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0)).slice(0, 5),
     [pages],
   )
   const fellows = (scene.data?.fellows ?? []).filter((f) => f.homeDomain === domain && f.state !== 'retired')
@@ -104,7 +105,13 @@ export function ShelfPanel({
             <b>{provenance === null ? '-' : provenance.sourced}</b> sourced
           </div>
         </div>
-        {recent.length > 0 && (
+      </div>
+
+      {recent.length > 0 && (
+        <div className="gp-sec">
+          <div className="gp-head">
+            <span className="gp-eyebrow">Last edits</span>
+          </div>
           <ul className="shelf-list">
             {recent.map((n) => (
               <li key={n.path}>
@@ -115,8 +122,8 @@ export function ShelfPanel({
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="gp-sec">
         <div className="gp-head">

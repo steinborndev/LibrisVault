@@ -75,8 +75,11 @@ export interface FeedFilter {
   readonly week: string
   /** A single day, or null for the whole week. */
   readonly day: string | null
-  /** A Fellow's name, or null for all of them. */
-  readonly fellow: string | null
+  /**
+   * The Fellows on show, by name. Empty is every Fellow rather than none: the filter exists to
+   * narrow, and "nothing picked" is the state you start in.
+   */
+  readonly fellows: readonly string[]
 }
 
 /**
@@ -90,7 +93,7 @@ export function feedRows(rows: readonly RecapRow[], filter: FeedFilter): RecapRo
   const days = new Set(weekDays(filter.week))
   return sorted
     .filter((r) => days.has(r.cycleDate))
-    .filter((r) => filter.fellow === null || workedOn(r, filter.fellow))
+    .filter((r) => filter.fellows.length === 0 || filter.fellows.some((name) => workedOn(r, name)))
 }
 
 /** Runs a Fellow settled in the shown week - what its pill counts. */

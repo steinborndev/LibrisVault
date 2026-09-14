@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
+import { fmtDay } from '../lib/recapFeed.ts'
 import type { LibraryScene, SceneFellow, SceneRoom } from '../api/types.ts'
 import { RoomSvg } from '../components/library/RoomSvg.tsx'
 import { RoomStrip } from '../components/library/RoomStrip.tsx'
@@ -57,9 +58,11 @@ type Mode = 'full' | 'focus'
  * the same feed is "Night shift" there.
  */
 const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Last night', reading: 'Reading list' }
+/* Empty is a value here: the night shift board carries a date stepper in this slot, and a
+   line about where else the feed appears described a screen you are not looking at. */
 const BOARD_SUBS: Record<BoardId, string> = {
   hot: "the vault's digest, refreshed after every run",
-  recap: 'the same view Home opens on',
+  recap: '',
   reading: 'what the Fellows read on the web; ingesting one is your call',
 }
 
@@ -126,6 +129,13 @@ export function LibraryScreen({
    * in the HEADLINE - the same two-line shape a department gets, where the middle zone says
    * where you are and the window below it says what is there.
    */
+  /*
+   * Walking the nights, from the headline (2026-09-14). The board used to carry a week of days
+   * in its own rail; a report is read one night at a time, so the stepper moved up beside the
+   * title, where Home already keeps it. Null is the newest night, which is what "Last night"
+   * means - not a date that goes stale the moment a new recap is built.
+   */
+  const [recapDay, setRecapDay] = useState<string | null>(null)
   const [ccOpen, setCcOpen] = useState(ccParam !== '')
   const [ccStop, setCcStop] = useState(0)
   /*
@@ -154,6 +164,11 @@ export function LibraryScreen({
    * whatever is relevant to what you have open.
    */
   const [readingTab, setReadingTab] = useState<ReadingTab>('current')
+  /** Every visit opens on the newest night, whatever night the last visit ended on. */
+  const openBoard = (id: BoardId): void => {
+    setRecapDay(null)
+    setBoard(id)
+  }
   /** A board on the main room's wall, opened as a window over the room. Escape closes it. */
   const [board, setBoard] = useState<BoardId | null>(boardParam === 'hot' || boardParam === 'recap' || boardParam === 'reading' ? boardParam : null)
   /** A department opened over the room: its graph and its catalog, filtered (section 10.5). */
@@ -205,6 +220,13 @@ export function LibraryScreen({
   useEffect(() => {
     if (ccParam === '') return
     setCcOpen(true)
+    /*
+     * And close whatever window stands in front of it. A board opened from the wall is state,
+     * not a URL, so `?cc=1` used to leave it up: the headline changed to the centre's and the
+     * board went on covering it, which read as a dead link ("Spawn a Fellow" from the night
+     * shift board did exactly this).
+     */
+    setBoard(null)
     if (ccFellowIdParam !== '') {
       setCcFellowId(ccFellowIdParam)
       setCcView('dossier')
@@ -361,6 +383,24 @@ export function LibraryScreen({
     },
     [rooms, current, pickRoom],
   )
+  const recapsQ = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, enabled: board === 'recap', staleTime: 30_000 })
+  /** Newest first: the order the arrows walk. */
+  const nights = useMemo(
+    () => [...(recapsQ.data?.recaps ?? [])].map((r) => r.cycleDate).sort((a, b) => b.localeCompare(a)),
+    [recapsQ.data],
+  )
+  const shownNight = recapDay ?? nights[0] ?? null
+  const olderNight = shownNight === null ? undefined : nights.find((d) => d < shownNight)
+  const newerNight = shownNight === null ? undefined : [...nights].reverse().find((d) => d > shownNight)
+  /** Left is back in time, right is forward, and forward is dead until you have gone back. */
+  const stepNight = useCallback(
+    (toward: 'older' | 'newer'): void => {
+      const next = toward === 'older' ? nights.find((d) => d < (recapDay ?? nights[0] ?? '')) : [...nights].reverse().find((d) => d > (recapDay ?? nights[0] ?? ''))
+      if (next !== undefined) setRecapDay(next)
+    },
+    [nights, recapDay],
+  )
+
   const windowOpen = shelf !== null || board !== null || ccOpen
   /*
    * The centre is somewhere you went, not a setting. Leaving the Library for another screen
@@ -385,6 +425,16 @@ export function LibraryScreen({
     return () => el.removeEventListener('wheel', onWheel)
   }, [page, windowOpen])
   const onKey = (e: KeyboardEvent): void => {
+    /*
+     * The night shift board is the one window that wants the arrows: left walks back through
+     * the nights, right forward, the same keys and the same direction as Home's date. Checked
+     * before the guard below, which otherwise hands every key but Escape to the room.
+     */
+    if (board === 'recap' && !ccOpen && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault()
+      stepNight(e.key === 'ArrowLeft' ? 'older' : 'newer')
+      return
+    }
     // Inside a window the arrows belong to it too; only Escape still reaches the room.
     if (windowOpen && e.key !== 'Escape') return
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') {
@@ -767,9 +817,38 @@ export function LibraryScreen({
               />
             )}
             {!ccOpen && shelf === null && board !== null && (
-              <span className="lib-open">
-                <b>{BOARD_TITLES[board]}</b>
-                <span className="box-sub">{BOARD_SUBS[board]}</span>
+              <span className={`lib-open${board === 'recap' ? ' home-where' : ''}`}>
+                {board === 'recap' ? (
+                  <>
+                    {/* The same two arrows Home puts beside its date, and the same keys. The
+                        title stays "Last night" while you are on the newest one, because that
+                        is what it is; step back and it names the night you are reading. */}
+                    <button
+                      className="wh-step prev"
+                      aria-label="The night before"
+                      title="The night before this one · ←"
+                      disabled={olderNight === undefined}
+                      onClick={() => stepNight('older')}
+                    >
+                      <Icon name="chevron" />
+                    </button>
+                    <b>{shownNight === null || shownNight === nights[0] ? 'Last night' : fmtDay(shownNight)}</b>
+                    <button
+                      className="wh-step next"
+                      aria-label="The night after"
+                      title="The night after this one · →"
+                      disabled={newerNight === undefined}
+                      onClick={() => stepNight('newer')}
+                    >
+                      <Icon name="chevron" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <b>{BOARD_TITLES[board]}</b>
+                    {BOARD_SUBS[board] !== '' && <span className="box-sub">{BOARD_SUBS[board]}</span>}
+                  </>
+                )}
               </span>
             )}
             {!ccOpen && shelf !== null && (
@@ -853,7 +932,7 @@ export function LibraryScreen({
               {...(current.kind === 'wing' ? { onBannerClick: () => setRenaming({ id: current.id, name: current.name }) } : {})}
               onShelfPointerDown={onShelfPointerDown}
               onActorClick={onActorClick}
-              onBoardClick={current.kind === 'main' ? setBoard : undefined}
+              onBoardClick={current.kind === 'main' ? openBoard : undefined}
               onPassageClick={rooms.length > 1 ? nextRoom : undefined}
               {...(rooms.length > 1 ? { nextRoomName: rooms[(rooms.findIndex((r) => r.id === current.id) + 1) % rooms.length]?.name } : {})}
               passageTitle={
@@ -928,7 +1007,7 @@ export function LibraryScreen({
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
           {shelf === null && board !== null && (
             <div className="lib-window" role="dialog" aria-label={BOARD_TITLES[board]}>
-              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} /> : <ReadingList vaultName={vaultName} tab={readingTab} />}
+              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} day={shownNight} /> : <ReadingList vaultName={vaultName} tab={readingTab} />}
             </div>
           )}
           {(() => {

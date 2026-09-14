@@ -153,8 +153,11 @@ export function RecapBody({
   busy: boolean
   /** The five lead figures. Home's feed shows them once, in the box, for the day in view. */
   facts?: boolean
-  /** Only this Fellow's section, by name. Home's feed uses it for the Fellow filter. */
-  only?: string
+  /**
+   * Only these Fellows' sections, by name. Empty or absent is all of them. The feeds use it for
+   * their Fellow filter, which takes more than one.
+   */
+  only?: readonly string[]
   /** The pause, model and step controls. Home's feed leaves them to the dossier (mockup 2026-09-11). */
   settings?: boolean
   /** The search box's text: only the Fellow sections and requests that say it. */
@@ -278,7 +281,7 @@ export function RecapBody({
       )}
       {!m.quiet &&
         m.fellows
-          .filter((f) => (only === undefined || f.name === only) && (q === '' || fellowText(f).includes(q)))
+          .filter((f) => (only === undefined || only.length === 0 || only.includes(f.name)) && (q === '' || fellowText(f).includes(q)))
           .map((f) => (
             <FellowSection
               key={f.agentId}
@@ -292,7 +295,7 @@ export function RecapBody({
               results={results.filter((r) => r.answer.action !== 'spawn' && r.answer.fellow === f.index)}
             />
           ))}
-      {only === undefined &&
+      {(only === undefined || only.length === 0) &&
         m.unclaimed.filter((u) => q === '' || `${u.question} ${u.domain} ${u.fromName}`.toLowerCase().includes(q)).map((u) => <UnclaimedSection key={u.handoffId} u={u} vaultName={vaultName} onAnswer={onAnswer} busy={busy} decidable={decidable} />)}
       {row.path && (
         <div className="rf-grid day foot">
