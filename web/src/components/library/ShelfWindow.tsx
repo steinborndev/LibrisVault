@@ -23,6 +23,7 @@ import { PageLink } from '../PageLink.tsx'
 import { GraphCanvas, TYPE_VARS } from '../GraphCanvas.tsx'
 import { queryState } from '../QueryState.tsx'
 import { signText } from '../../lib/library/room.ts'
+import { hasSource } from '../../lib/catalogSourceFilter.ts'
 
 type Pane = 'graph' | 'catalog'
 
@@ -127,7 +128,13 @@ export function ShelfWindow({
     for (const n of sub.nodes) counts.set(n.type, (counts.get(n.type) ?? 0) + 1)
     return [...counts].sort((a, b) => b[1] - a[1])
   }, [sub.nodes])
-  const withSource = useMemo(() => (refs === undefined ? 0 : sub.nodes.filter((n) => refs[n.path] !== undefined).length), [sub.nodes, refs])
+  /*
+   * "Has a source" means what the Source column in this very table draws a link for: the
+   * ingested document, or the address the page states for itself. Counting only the ingest
+   * index called 44 pages of one department sourceless while the column beside them showed
+   * their link.
+   */
+  const withSource = useMemo(() => (refs === undefined ? 0 : sub.nodes.filter((n) => hasSource(n, refs)).length), [sub.nodes, refs])
 
   /**
    * What the band keeps - one predicate, used by both views, so a chip narrows the map and the
@@ -139,7 +146,7 @@ export function ShelfWindow({
     if (type === null && !srcOnly && q === '') return null
     return (n: GraphNode): boolean =>
       (type === null || n.type === type) &&
-      (!srcOnly || (refs !== undefined && refs[n.path] !== undefined)) &&
+      (!srcOnly || hasSource(n, refs)) &&
       (q === '' || n.title.toLowerCase().includes(q) || (n.names ?? []).some((x) => x.toLowerCase().includes(q)))
   }, [query, type, srcOnly, refs])
 
@@ -179,7 +186,7 @@ export function ShelfWindow({
                 {kind} {n}
               </button>
             ))}
-            <button className="chip" aria-pressed={srcOnly} onClick={() => setSrcOnly(!srcOnly)} title="Only pages written from an ingested document">
+            <button className="chip" aria-pressed={srcOnly} onClick={() => setSrcOnly(!srcOnly)} title="Only pages that name a source: an ingested document, or the address the page states">
               has a source {withSource}
             </button>
           </div>

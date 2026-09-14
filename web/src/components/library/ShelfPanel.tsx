@@ -14,6 +14,7 @@ import type { GraphNode, SceneDepartment, SceneRoom, VaultGraph } from '../../ap
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
 import { sourceLink } from '../../lib/sources.ts'
+import { hasSource } from '../../lib/catalogSourceFilter.ts'
 import { STUB_BYTES } from '../../lib/domains.ts'
 import { timeAgo } from '../../lib/format.ts'
 
@@ -55,23 +56,29 @@ export function ShelfPanel({
   const fellows = (scene.data?.fellows ?? []).filter((f) => f.homeDomain === domain && f.state !== 'retired')
 
   /**
-   * The documents this department was written from. The list of them is gone from this column;
-   * what is left is the count in the facts above, which is why this still walks every page.
+   * What stands behind this department: how many of its pages name a source, and how many
+   * distinct documents that is.
+   *
+   * The page count is the SAME rule the Source column draws by (`hasSource`) - an ingested
+   * document, or the address the page states for itself - so this figure, the window's "has a
+   * source" pill and the Catalog cannot say three different things about one vault. It used to
+   * be the sum over the five most-cited documents, a leftover from the list that stood in this
+   * column: for one department it read 63 where the pill beside it read 370.
+   *
+   * Null while the index is in flight: 0 would be a claim, and there is none to make yet.
    */
-  const documents = useMemo(() => {
+  const provenance = useMemo(() => {
     const refs = sources.data?.pages
-    if (refs === undefined) return []
-    const counts = new Map<string, { ref: NonNullable<ReturnType<typeof sourceLink>>; n: number }>()
-    for (const p of paths) {
-      const link = sourceLink(refs[p])
-      if (link === null) continue
-      const key = link.href
-      const seen = counts.get(key)
-      if (seen) seen.n += 1
-      else counts.set(key, { ref: link, n: 1 })
+    if (refs === undefined) return null
+    const docs = new Set<string>()
+    let sourced = 0
+    for (const n of pages) {
+      if (hasSource(n, refs)) sourced += 1
+      const link = sourceLink(refs[n.path])
+      if (link !== null) docs.add(link.href)
     }
-    return [...counts.values()].sort((a, b) => b.n - a.n).slice(0, 5)
-  }, [sources.data, paths])
+    return { sourced, documents: docs.size }
+  }, [sources.data, pages])
 
 
   const byRoom = (id: string): SceneDepartment[] => departments.filter((d) => d.room === id).sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
@@ -93,8 +100,8 @@ export function ShelfPanel({
           <div>
             <b>{gaps}</b> gaps
           </div>
-          <div>
-            <b>{documents.reduce((n, d) => n + d.n, 0)}</b> sourced
+          <div title={provenance === null ? undefined : `${provenance.sourced} of ${pages.length} pages name a source, from ${provenance.documents} distinct documents`}>
+            <b>{provenance === null ? '-' : provenance.sourced}</b> sourced
           </div>
         </div>
         {recent.length > 0 && (
