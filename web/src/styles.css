@@ -8628,15 +8628,22 @@ tr:focus-within .rowacts {
 .lib-head-left, .lib-head-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .lib-head-mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
 /*
- * The room strip starts at one x and only ever grows to the right (2026-09-14). Centred, it
- * slid sideways every time a wing was added - the one control you aim at by memory, moving
- * because something else got longer. So the middle is packed from the left, and the clock
- * beside it keeps a fixed width whatever its sentence says.
+ * The room strip stays in the middle and stays put (2026-09-14). Three columns rather than a
+ * centred row: the strip is the middle one, so it is centred on the headline's middle zone,
+ * and the clock lives in the column to its left and grows into it. A flex row would have
+ * pushed the strip aside every time the clock had more to say - "quiet" in an empty library,
+ * "2 Fellows at work, 1 visitor" in a busy one - and the one control you aim at by memory
+ * must not move because something beside it got longer. The column clips instead.
  */
-.lib-headline:has(> .lib-head-mid > .lib-strip) .lib-head-mid { justify-content: flex-start; }
+.lib-headline:has(> .lib-head-mid > .lib-strip) .lib-head-mid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  justify-content: unset;
+}
 .lib-when {
-  flex: none;
-  width: 224px;
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
   justify-content: flex-start;
   overflow: hidden;
   white-space: nowrap;
