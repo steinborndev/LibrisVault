@@ -22,7 +22,14 @@ export interface SourceFilterSpec {
   readonly key: string
   /** The label the Source column uses for this kind, so one thing has one name. */
   readonly label: string
-  /** What the sidebar's hint line reads while the pointer is on the pill. */
+  /**
+   * What the sidebar's hint line reads while the pointer is on the pill, and its tooltip.
+   *
+   * Every one of these says "pages written from …" because that is what the count beside the
+   * label IS: wiki pages, not documents. Naming the documents read as a statement about how
+   * much of each KIND was ingested, which is a different and much smaller number - 426 pages
+   * came out of 84 PDFs here. One line, about 41 characters; see CatalogSortSpec.
+   */
   readonly desc: string
 }
 
@@ -31,13 +38,13 @@ export interface SourceFilterSpec {
  * the source sort groups by), then the address property, which is the odd one out.
  */
 export const SOURCE_FILTERS: readonly SourceFilterSpec[] = [
-  { key: 'pdf', label: KIND_LABELS['pdf']!, desc: 'papers and reports dropped in as PDF' },
-  { key: 'office', label: KIND_LABELS['office']!, desc: 'word processor and spreadsheet files' },
-  { key: 'text', label: KIND_LABELS['text']!, desc: 'plain text and markdown dropped in' },
-  { key: 'web', label: KIND_LABELS['web']!, desc: 'pages ingested from an address' },
-  { key: 'image', label: KIND_LABELS['image']!, desc: 'pictures read for what they show' },
-  { key: 'av', label: KIND_LABELS['av']!, desc: 'audio and video that was ingested' },
-  { key: 'other', label: KIND_LABELS['other']!, desc: 'files of a kind of their own' },
+  { key: 'pdf', label: KIND_LABELS['pdf']!, desc: 'pages written from PDF sources' },
+  { key: 'office', label: KIND_LABELS['office']!, desc: 'pages written from office documents' },
+  { key: 'text', label: KIND_LABELS['text']!, desc: 'pages written from plain text drops' },
+  { key: 'web', label: KIND_LABELS['web']!, desc: 'pages written from web sources' },
+  { key: 'image', label: KIND_LABELS['image']!, desc: 'pages written from images' },
+  { key: 'av', label: KIND_LABELS['av']!, desc: 'pages written from audio or video' },
+  { key: 'other', label: KIND_LABELS['other']!, desc: 'pages written from files of other kinds' },
   { key: PUBLICATION, label: 'Publication', desc: 'pages whose address carries a DOI' },
 ]
 
