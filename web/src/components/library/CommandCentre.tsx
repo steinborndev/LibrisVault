@@ -559,6 +559,81 @@ export function CommandCentre({
     setStop(staffed.indexOf(next.shelf))
   }
   /**
+   * One step around the ring the view you are on is drawn from, whatever that ring is: the
+   * shelves over the overview, the roster in a dossier, the Fellows up for review under
+   * Decisions. The arrow keys and the wheel both come here, so the two can never walk a
+   * different ring from one another - which is what made the wheel take the shelves along
+   * while Decisions was open, a screen the shelves are not a ring of.
+   */
+  const stepRing = (delta: 1 | -1): void => {
+    if (view === 'spawn') return
+    if (view === 'dossier') {
+      stepFellow(delta)
+      return
+    }
+    if (view === 'decisions') {
+      if (deciders.length === 0) return
+      setDecIndex((i) => (i + delta + deciders.length) % deciders.length)
+      setOptIndex(0)
+      return
+    }
+    /*
+     * A ring of one has nowhere to go. With every Fellow retired there are no staffed
+     * shelves, so the only stop is the overview - and stepping off it landed on `tonight`
+     * with no shelf to draw, which renders nothing at all. The dots agree: they draw one
+     * stop, and the arrows must not offer a second.
+     */
+    if (staffed.length === 0) {
+      if (view !== 'shelves') setView('shelves')
+      return
+    }
+    setRow(0)
+    if (view === 'shelves') {
+      setStop(delta > 0 ? 0 : Math.max(0, staffed.length - 1))
+      setView('tonight')
+      return
+    }
+    const next = stop + delta
+    if (next < 0 || next > staffed.length - 1) setView('shelves')
+    else setStop(next)
+  }
+
+  /*
+   * The wheel walks that ring from anywhere in the window - EXCEPT where there is still
+   * something to scroll under the pointer, which keeps its wheel.
+   *
+   * The window is one long page on a shelf with a few Fellows and a long list of options under
+   * Decisions, so a wheel that always paged would cost you whatever you were reading; one that
+   * only worked over the headline is a target you have to find. Scroll chaining is the answer
+   * both halves want: what is under the pointer scrolls while it has room, and the gesture
+   * that runs off its end walks to the next stop.
+   */
+  useEffect(() => {
+    if (view === 'spawn') return
+    let last = 0
+    const scrollable = (from: Element | null, delta: number): boolean => {
+      for (let el = from; el !== null && el !== document.body; el = el.parentElement) {
+        const max = el.scrollHeight - el.clientHeight
+        if (max <= 1 || !/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue
+        if (delta > 0 ? el.scrollTop < max - 1 : el.scrollTop > 1) return true
+      }
+      return false
+    }
+    const onWheel = (e: WheelEvent): void => {
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (Math.abs(d) < 20) return
+      if (scrollable(e.target instanceof Element ? e.target : null, d)) return
+      const now = Date.now()
+      if (now - last < 450) return
+      last = now
+      e.preventDefault()
+      stepRing(d > 0 ? 1 : -1)
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  })
+
+  /**
    * Opens a vault page from inside a dossier and leaves a return ticket behind it.
    *
    * `originPath()` in the router is the last NON-page route, and Escape on a page goes there.
@@ -597,10 +672,10 @@ export function CommandCentre({
         if (n >= 1 && n <= 5) setPane(order[n - 1]!)
         else if (e.key === 'ArrowRight') {
           e.preventDefault()
-          stepFellow(1)
+          stepRing(1)
         } else if (e.key === 'ArrowLeft') {
           e.preventDefault()
-          stepFellow(-1)
+          stepRing(-1)
         }
         return
       }

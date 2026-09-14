@@ -173,70 +173,6 @@ export function LibraryScreen({
    */
   const ccFellow = ccView === 'dossier' ? (ccRoster.find((r) => r.id === ccFellowId) ?? null) : null
   const ccShelf = ccView === 'shelves' ? null : (ccFellow?.domain ?? ccShelves[ccStop] ?? null)
-  /**
-   * One step around whatever ring the dots are showing, for the wheel anywhere in the window.
-   *
-   * The same ring the arrow keys walk, and it wraps for the same reason the rooms do: the
-   * stops ARE a ring, and clamping makes the last one a wall you scroll against with nothing
-   * happening.
-   */
-  const stepCc = useCallback(
-    (delta: number): void => {
-      if (ccView === 'dossier') {
-        if (ccRoster.length < 2) return
-        const at = ccRoster.findIndex((r) => r.id === ccFellowId)
-        const next = ccRoster[(((at < 0 ? 0 : at) + delta) % ccRoster.length + ccRoster.length) % ccRoster.length]
-        if (next) setCcFellowId(next.id)
-        return
-      }
-      if (ccShelves.length === 0) return
-      // The overview is the ring's first stop, each staffed shelf one of the rest.
-      const n = ccShelves.length + 1
-      const at = ccView === 'shelves' ? 0 : ccStop + 1
-      const next = ((at + delta) % n + n) % n
-      if (next === 0) setCcView('shelves')
-      else {
-        setCcStop(next - 1)
-        setCcView('tonight')
-      }
-    },
-    [ccView, ccRoster, ccFellowId, ccShelves.length, ccStop],
-  )
-  /*
-   * The wheel walks the stops from anywhere in the night shift - EXCEPT where there is still
-   * something to scroll under the pointer, which keeps its wheel.
-   *
-   * The window is one long page on a shelf with a few Fellows, so a wheel that always paged
-   * would cost you the list you were reading; one that only worked over the headline is a
-   * target you have to find. Scroll chaining is the answer both halves want: the list scrolls
-   * while it has room, and the gesture that runs off its end walks to the next shelf. Nothing
-   * pages while a form is open - the spawn view is the one place a stray flick would lose
-   * typing rather than a scroll position.
-   */
-  useEffect(() => {
-    if (!active || !ccOpen || ccView === 'spawn') return
-    let last = 0
-    const scrollable = (from: Element | null, delta: number): boolean => {
-      for (let el = from; el !== null && el !== document.body; el = el.parentElement) {
-        const max = el.scrollHeight - el.clientHeight
-        if (max <= 1 || !/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue
-        if (delta > 0 ? el.scrollTop < max - 1 : el.scrollTop > 1) return true
-      }
-      return false
-    }
-    const onWheel = (e: WheelEvent): void => {
-      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-      if (Math.abs(d) < 20) return
-      if (scrollable(e.target instanceof Element ? e.target : null, d)) return
-      const now = Date.now()
-      if (now - last < 450) return
-      last = now
-      e.preventDefault()
-      stepCc(d > 0 ? 1 : -1)
-    }
-    window.addEventListener('wheel', onWheel, { passive: false })
-    return () => window.removeEventListener('wheel', onWheel)
-  }, [stepCc, active, ccOpen, ccView])
   const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
@@ -865,7 +801,7 @@ export function LibraryScreen({
             {ccOpen && (
               /* Just where you are. Escape steps back, the dots jump, and the shelves view is
                  the map - so the name needs no arrows around it. */
-              <span className="lib-open cc-rot" title="The arrow keys walk the stops, and so does the wheel wherever there is nothing left to scroll">
+              <span className="lib-open cc-rot" title="The arrow keys walk this screen's own ring - the shelves, a Fellow's roster, the ones up for review - and so does the wheel wherever there is nothing left to scroll">
                 {/* Dot, name, dots: the same three slots at every stop, and the name's slot is
                     wide enough for the longest domain, so walking the ring moves nothing but
                     the letters. The overview takes the accent for its dot because it is not a
@@ -888,7 +824,10 @@ export function LibraryScreen({
                   * A ring of one gets no dots. With every Fellow retired the only stop is the
                   * overview, and a lone dot reads as an invitation to walk somewhere.
                   */}
-                <span className="cc-dots" hidden={ccView === 'dossier' ? ccRoster.length < 2 : ccShelves.length === 0}>
+                {/* Decisions walks its own ring - the Fellows up for review, drawn as the rail
+                    down its left side - so shelf dots there would mark a ring the arrows and
+                    the wheel do not take. */}
+                <span className="cc-dots" hidden={ccView === 'decisions' || (ccView === 'dossier' ? ccRoster.length < 2 : ccShelves.length === 0)}>
                   {ccView === 'dossier' ? (
                     ccRoster.map((r) => (
                       <i
