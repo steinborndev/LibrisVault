@@ -35,6 +35,7 @@ import { registerSettingsRoute } from './routes/settings.js'
 import { registerPagesRoute } from './routes/pages.js'
 import { registerGraphRoute } from './routes/graph.js'
 import { registerSourcesRoute } from './routes/sources.js'
+import type { SourceIndexBuilder } from '../pipeline/sources.js'
 import { registerDomainsRoute } from './routes/domains.js'
 import { registerAgentsRoute } from './routes/agents.js'
 import type { FellowService } from '../pipeline/fellows.js'
@@ -94,6 +95,12 @@ export interface AppContext {
    * the graph cache is warmed once; when omitted (tests) the server builds its own.
    */
   readonly graph?: GraphBuilder
+  /**
+   * Shared page-to-source index. main.ts passes the instance the reading list already asks
+   * whether a document stands behind a page, so the Source column and the board read one
+   * cache; when omitted (tests) the route builds its own.
+   */
+  readonly sources?: SourceIndexBuilder
   /** Fellows (docs/agents/SPEC.md); present only with `AGENTS_ENABLED`, which registers the routes. */
   readonly fellows?: FellowService
   /** The Fellows' night shift; absent in tests that do not need it (the shift routes then 503). */
@@ -167,7 +174,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerMaintenanceRoute(app, ctx, graphBuilder, dismissals, ctx.maintenanceState, ctx.agentRuns)
   registerPagesRoute(app, ctx, graphBuilder)
   registerGraphRoute(app, ctx, graphBuilder)
-  registerSourcesRoute(app, ctx)
+  registerSourcesRoute(app, ctx, ctx.sources)
   registerDomainsRoute(app, ctx, graphBuilder, dismissals)
   if (ctx.fellows !== undefined) registerAgentsRoute(app, ctx, ctx.fellows)
   if (ctx.fellows !== undefined && ctx.recaps !== undefined) registerRecapsRoute(app, ctx, ctx.recaps, ctx.fellows)

@@ -22,6 +22,7 @@ const item = (over: Partial<ReadingItem>): ReadingItem => ({
   blocked: null,
   reach: 'unknown',
   page: null,
+  held: false,
   via: null,
   filed: null,
   filedAt: null,
@@ -62,21 +63,33 @@ describe('the reading list view', () => {
   })
 
   it('counts what still waits on the side it shows', () => {
-    const ingested = [...entries, item({ title: 'paywalled but filed', reach: 'paywalled', job: { id: 'j1', status: 'done', pages: 2 } })]
+    const ingested = [...entries, item({ title: 'paywalled but filed', reach: 'paywalled', held: true, job: { id: 'j1', status: 'done', pages: 2 } })]
     expect(readingView(ingested, 'open').waiting).toBe(2)
     // A paywalled paper that was ingested anyway stands with the paywalled ones, done.
     const paywalled = readingView(ingested, 'paywalled')
     expect(paywalled.shown.map((e) => e.title)).toEqual(['paywalled', 'unreachable', 'paywalled but filed'])
     expect(paywalled.waiting).toBe(2)
     // A row matched by its identifier counts as done too, though no ingest ran for its url.
-    expect(readingView([item({ page: 'wiki/sources/X.md' })], 'open').waiting).toBe(0)
+    expect(readingView([item({ page: 'wiki/sources/X.md', held: true })], 'open').waiting).toBe(0)
+  })
+
+  it('a publication written up from a web read is still waiting: the page is here, the paper is not', () => {
+    /*
+     * The case that forced `held` apart from `page` (2026-09-14): a research step read a paper
+     * on the web and wrote a source page carrying its DOI and url, and the entry that had asked
+     * for the paper then matched the write-up its own request produced. The row must not count
+     * as done - the document was never fetched, and the ingest is exactly what is left to do.
+     */
+    const writtenUp = item({ title: 'summarized, not fetched', reach: 'open', page: 'wiki/sources/Y.md', via: 'url', held: false })
+    expect(readingView([writtenUp], 'open').waiting).toBe(1)
+    expect(readingView([writtenUp, item({ title: 'held', held: true, page: 'wiki/sources/Z.md' })], 'open').waiting).toBe(1)
   })
 
   it('an entry the user fetched by hand stands with the paywalled ones, and says where it landed', () => {
     // The case the whole identity match exists for: the user got the paywalled paper by hand
     // and dropped the PDF in, so no ingest ran for its url but its page carries its DOI. Its
     // access did not change, so its side of the toggle does not either.
-    const byHand = item({ title: 'fetched by hand', reach: 'paywalled', page: 'wiki/sources/X.md', via: 'ref' })
+    const byHand = item({ title: 'fetched by hand', reach: 'paywalled', page: 'wiki/sources/X.md', via: 'ref', held: true })
     const rows = [byHand, item({ title: 'still out of reach', reach: 'paywalled' })]
     expect(readingView(rows, 'open').shown).toEqual([])
     expect(readingView(rows, 'paywalled').shown.map((e) => e.title)).toEqual(['fetched by hand', 'still out of reach'])

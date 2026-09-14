@@ -122,6 +122,15 @@ export interface ReadingItem extends ReadingEntry {
    * found by. Decided HERE and not in the board, so one rule answers for every reader.
    */
   readonly oaEligible: boolean
+  /**
+   * Whether the vault holds the DOCUMENT, not merely a page about it (2026-09-14).
+   *
+   * `page` answers "is this publication written up somewhere", which a research step satisfies
+   * by writing a source page from a web read. Only an ingest puts the paper itself into
+   * `.raw/`, and only then is the entry's request actually met - so the arrival mark, the
+   * Fellow's notebook line and the board's chip all hang off THIS field, never off `page`.
+   */
+  readonly held: boolean
 }
 
 /**
@@ -382,6 +391,19 @@ export interface ReadingListWriteOptions {
    */
   readonly copyExhausted?: (doi: string) => boolean
   /**
+   * Whether the source index holds an ingested document for this page - the SAME index the
+   * Catalog's Source column reads (pipeline/sources.ts), so the two surfaces cannot say
+   * different things about one publication again.
+   *
+   * This is what separates "the paper is here" from "a page mentions the paper". `byRef` and
+   * `byUrl` find a source page by the identity it records, and a research step writes such a
+   * page from what it read on the web - so a match alone proves only that a page exists.
+   * Without the lookup nothing is known to be held, which shows an entry as written-up and
+   * offers the ingest: a conservative wrong answer, where the other one claims a document the
+   * vault does not have.
+   */
+  readonly held?: (page: string) => boolean
+  /**
    * Whether the open-access mechanism is on at all (the `oaRecovery` setting). With it off the
    * board must not offer a search whose result the ingest would then ignore.
    */
@@ -399,12 +421,15 @@ export class ReadingListService {
     this.write = write
     this.byRef = write.byRef ?? ((): undefined => undefined)
     this.byUrl = write.byUrl ?? ((): undefined => undefined)
+    this.holds = write.held ?? ((): boolean => false)
   }
 
   /** Looks a publication up by its DOI or arXiv id; wired to the dedupe index in the service. */
   private readonly byRef: (ref: string) => { readonly page: string } | undefined
   /** The same, by the url a source page records; the fallback when there is no identifier. */
   private readonly byUrl: (url: string) => { readonly page: string } | undefined
+  /** Whether an ingested document stands behind a page; see {@link ReadingListWriteOptions.held}. */
+  private readonly holds: (page: string) => boolean
 
   entries(): ReadingItem[] {
     const file = path.join(this.vaultRoot, READING_LIST_PAGE)
@@ -418,7 +443,7 @@ export class ReadingListService {
     const jobs = this.jobsByUrl()
     const files = this.filesFor(list)
     return list.map((e) => {
-      const { job, page, via } = this.locate(e, jobs, files)
+      const { job, page, via, held } = this.locate(e, jobs, files)
       const ref = e.oa === null ? undefined : entryRef(e)
       const doi = ref?.startsWith('doi:') === true ? ref.slice('doi:'.length) : undefined
       const exhausted = doi !== undefined && (this.write.copyExhausted?.(doi) ?? false)
@@ -428,6 +453,7 @@ export class ReadingListService {
         reach: reachOf(e),
         page,
         via,
+        held,
         oaExhausted: exhausted,
         // A copy that was tried and found wanting is not worth looking for again this week.
         oaEligible: canFindOpenCopy(e) && !exhausted && (this.write.openCopyEnabled?.() ?? true),
@@ -507,25 +533,36 @@ export class ReadingListService {
    *   4. an ingest ran for its url and finished
    *   5. an ingest of a file named exactly as the entry's url names it (weakest, guarded by
    *      {@link filesFor}: the download the user made from the link on the board)
+   *
+   * `held` crosses all five: finding a page is not the same as holding the document
+   * (2026-09-14). Routes 4 and 5 start FROM a finished ingest, so they hold it by
+   * construction; routes 1 to 3 start from a page, which a research step can write from a web
+   * read alone, and so they have to ask the source index whether a document stands behind it.
+   * The case that forced the distinction: a Fellow reads a paper on the web, writes a source
+   * page carrying its DOI and url, and the entry that asked for the paper then matched the
+   * page its own request had produced.
    */
   private locate(
     e: ReadingEntry,
     jobs: Map<string, { id: string; status: string; pages: number }>,
     files: Map<string, { id: string; status: string }>,
-  ): { job: { id: string; status: string; pages: number } | null; page: string | null; via: 'job' | 'ref' | 'url' | 'file' | null } {
+  ): { job: { id: string; status: string; pages: number } | null; page: string | null; via: 'job' | 'ref' | 'url' | 'file' | null; held: boolean } {
     const job = jobs.get(urlKey(e.url)) ?? null
-    if (e.filed !== null) return { job, page: e.filed, via: 'ref' }
+    // A page found by identity: only the source index can say whether a document is behind it.
+    const found = (page: string, via: 'ref' | 'url'): { job: typeof job; page: string; via: 'ref' | 'url'; held: boolean } => ({ job, page, via, held: this.holds(page) })
+    if (e.filed !== null) return found(e.filed, 'ref')
     const ref = entryRef(e)
     const byRef = ref !== undefined ? (this.byRef(ref)?.page ?? null) : null
-    if (byRef !== null) return { job, page: byRef, via: 'ref' }
+    if (byRef !== null) return found(byRef, 'ref')
     const byUrl = this.byUrl(e.url)?.page ?? null
-    if (byUrl !== null) return { job, page: byUrl, via: 'url' }
+    if (byUrl !== null) return found(byUrl, 'url')
+    // From here on the ingest itself is the witness: the job log names the pages it wrote.
     const fromJob = job?.status === 'done' ? (this.pageOfJob(job.id) ?? null) : null
-    if (fromJob !== null) return { job, page: fromJob, via: 'job' }
+    if (fromJob !== null) return { job, page: fromJob, via: 'job', held: true }
     const name = urlFileName(e.url)
     const dropped = name !== undefined ? files.get(name) : undefined
     const fromFile = dropped?.status === 'done' ? (this.pageOfJob(dropped.id) ?? null) : null
-    return { job, page: fromFile, via: fromFile === null ? null : 'file' }
+    return { job, page: fromFile, via: fromFile === null ? null : 'file', held: fromFile !== null }
   }
 
   /**
@@ -878,6 +915,8 @@ export class ReadingListService {
    * arXiv id the entry names. Writing `filed` into the entry does two things at once - it is
    * the link the row shows, and it is the record that the Fellow has been told, so the note is
    * written once and not on every read.
+   *
+   * ARRIVED means the document, not a page about it. See {@link locate}'s `held`.
    */
   async reconcile(today: string): Promise<ReadonlyArray<{ readonly entry: ReadingEntry; readonly page: string }>> {
     const file = path.join(this.vaultRoot, READING_LIST_PAGE)
@@ -896,8 +935,16 @@ export class ReadingListService {
       if (entry.filed !== null) continue
       // The same resolver the board uses, so what a row shows and what the Fellow is told
       // can never be two different answers again.
-      const { page, job } = this.locate(entry, jobs, files)
+      const { page, job, held } = this.locate(entry, jobs, files)
       if (page === null) continue
+      /*
+       * A page about the publication is not the publication (2026-09-14). The mark is what
+       * tells the Fellow its request was met, and what stops the board offering the ingest, so
+       * it waits for the document itself - otherwise a Fellow's own write-up would close the
+       * entry that asked for the paper, and the next planning run would be sent to read
+       * something that is not there.
+       */
+      if (!held) continue
       // The entry's own block gains two lines; nothing else on the page is touched.
       const block = new RegExp(`(^[ \t]*[-*][ \t]+title:[ \t]*${escapeRe(entry.title)}[ \t]*$)`, 'm')
       if (!block.test(next)) continue

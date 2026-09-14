@@ -206,6 +206,8 @@ title: "Reading list"
       commitMutex: new Mutex(),
       autoCommit: () => false,
       byRef: (ref) => (refKey(ref) === 'arxiv:2506.20907' ? { page: 'wiki/sources/Transit Campaign.md' } : undefined),
+      // The user dropped the PDF in, so a document stands behind that page: this is arrival.
+      held: (page) => page === 'wiki/sources/Transit Campaign.md',
     })
     const filed = await reading.reconcile('2026-09-08')
     expect(filed).toHaveLength(1)
@@ -429,14 +431,46 @@ title: "Reading list"
       // A tracking parameter and a trailing slash are the same address.
       byUrl: (url: string) =>
         urlKey(url) === 'https://journal.invalid/abt/article/9/3/332/8697373' ? { page: 'wiki/sources/Approved Antibodies.md' } : undefined,
+      // The PDF was dropped in and ingested; that page is what the ingest wrote.
+      held: (page: string) => page === 'wiki/sources/Approved Antibodies.md',
     }
     const reading = new ReadingListService(vaultRoot, store, opts)
-    expect(reading.entries()[0]).toMatchObject({ page: 'wiki/sources/Approved Antibodies.md', via: 'url', job: null })
+    expect(reading.entries()[0]).toMatchObject({ page: 'wiki/sources/Approved Antibodies.md', via: 'url', job: null, held: true })
 
     const filed = await reading.reconcile('2026-09-08')
     expect(filed).toHaveLength(1)
     expect(filed[0]!.entry).toMatchObject({ title: 'An article whose url carries no identifier', by: 'Beatrice' })
     expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toContain('  filed: wiki/sources/Approved Antibodies.md')
+  })
+
+  /*
+   * The same match, and the opposite answer (2026-09-14).
+   *
+   * A research step reads a publication on the web and writes a source page from it, and that
+   * page carries the publication's url and DOI - which is exactly what `byUrl` and `byRef`
+   * match on. So an entry could find the write-up its own request had produced and be marked
+   * as arrived: the board said "in the vault", the ingest button disappeared, and the Fellow
+   * that asked was told to go read a document the vault does not have. Finding a page and
+   * holding the document are two questions, and only the source index answers the second.
+   */
+  it('a page written ABOUT the publication is not the publication, and does not close the entry', async () => {
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE_WITHOUT_A_REF)
+    const reading = new ReadingListService(vaultRoot, store, {
+      commitMutex: new Mutex(),
+      autoCommit: () => false,
+      byUrl: (url: string) =>
+        urlKey(url) === 'https://journal.invalid/abt/article/9/3/332/8697373' ? { page: 'wiki/sources/Approved Antibodies.md' } : undefined,
+      // No ingest ever ran: the page exists because a run read the paper on the web.
+      held: () => false,
+    })
+    // The row still says where it is written up - that is worth seeing - but not that it arrived.
+    expect(reading.entries()[0]).toMatchObject({ page: 'wiki/sources/Approved Antibodies.md', via: 'url', held: false })
+
+    expect(await reading.reconcile('2026-09-08')).toHaveLength(0)
+    const page = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+    expect(page).not.toContain('  filed:')
+    expect(page).not.toContain('  filedAt:')
+    expect(parseReadingList(page)[0]).toMatchObject({ filed: null, filedAt: null })
   })
 
   /*

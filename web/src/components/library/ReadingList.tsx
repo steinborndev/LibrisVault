@@ -148,16 +148,33 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
                       )}
                     </p>
                     {e.page !== null && (
-                      <p className="rl-filed">
-                        In the vault as <PageLink vaultName={vaultName} path={e.page} />
-                        {e.job === null ? (e.via === 'ref' ? ' · matched by its identifier' : e.via === 'url' ? ' · matched by its source url' : e.via === 'file' ? ' · matched by the file name it was downloaded as' : '') : ''}
+                      /*
+                       * Two different statements, and the row makes the difference plain: the
+                       * vault holds the DOCUMENT, or it holds a page written about it. A
+                       * research step writes such a page from what it read on the web, so a
+                       * publication can be written up here and still not be here.
+                       */
+                      <p className={e.held ? 'rl-filed' : 'rl-filed rl-summary'}>
+                        {e.held ? 'In the vault as ' : 'Written up in '}
+                        <PageLink vaultName={vaultName} path={e.page} />
+                        {!e.held ? (
+                          <span title="A run read this publication and wrote a page from it. The publication itself was never ingested, so there is no copy of it here - Ingest fetches the document.">
+                            {' · the document itself is not here'}
+                          </span>
+                        ) : e.job === null ? (
+                          e.via === 'ref' ? ' · matched by its identifier' : e.via === 'url' ? ' · matched by its source url' : e.via === 'file' ? ' · matched by the file name it was downloaded as' : ''
+                        ) : (
+                          ''
+                        )}
                       </p>
                     )}
                   </div>
                   <div className="rl-act">
-                    {e.page !== null && e.job === null ? (
+                    {e.held && e.job === null ? (
                       // Recognized by its DOI or arXiv id: the document is in the vault even
                       // though no ingest ever ran for this url - the user fetched it by hand.
+                      // `held`, not `page`: a page ABOUT the publication is not the publication,
+                      // and an entry whose write-up is all that exists still wants the ingest.
                       <span className="chip ok" title={`in the vault as ${e.page}`}>
                         in the vault
                       </span>

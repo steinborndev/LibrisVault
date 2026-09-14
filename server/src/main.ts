@@ -45,6 +45,7 @@ import { LibraryService } from './pipeline/library.js'
 import { SqliteUsageSampleStore, SqlitePlanOverrideStore } from './db/usage-samples.js'
 import { ReadingListService } from './pipeline/reading-list.js'
 import { refKey } from './pipeline/dedupe.js'
+import { SourceIndexBuilder } from './pipeline/sources.js'
 import { UsageMonitor, type EndpointResult } from './pipeline/usage-monitor.js'
 import { indexWikiPages } from './pipeline/citations.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
@@ -136,6 +137,9 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // One graph builder for the whole service (its per-file cache makes rebuilds cheap): the
   // graph/pages/domains routes serve it, and the post-run validator reads in-degrees off it.
   const graph = new GraphBuilder(config.vaultRoot)
+  // One source index too, for the same reason: the Catalog's Source column and the reading
+  // list's "in the vault" both read it, and one instance means one cache and one answer.
+  const sources = new SourceIndexBuilder(config.vaultRoot)
   // Deterministic post-run checks (validator.ts) shared by ingest and maintenance runs —
   // findings land as warnings in the job/run log the moment a run introduces them.
   const validate = createValidator(config.vaultRoot, graph)
@@ -150,6 +154,14 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     autoCommit: () => settings.effective(config).gitAutoCommit,
     byRef: (ref) => queue.dedupeIndex.byRef(ref),
     byUrl: (url) => queue.dedupeIndex.byUrl(url),
+    /*
+     * And whether a DOCUMENT stands behind the page those two find - the same index the
+     * Catalog's Source column reads, so the board and the column answer as one. A research
+     * step writes a source page from what it read on the web, and such a page carries the
+     * publication's DOI and url: without this the entry that asked for the paper would match
+     * the write-up its own request produced and call it arrived.
+     */
+    held: (page) => sources.build().pages[page] !== undefined,
     /*
      * Whether every copy this DOI has was already fetched and none was full text. The board then
      * says so instead of offering a click that would repeat the same failure; the mark on the
@@ -486,6 +498,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     agentRuns,
     telegramDrops,
     graph,
+    sources,
     ...(fellows !== undefined ? { fellows } : {}),
     ...(shift !== undefined ? { shift } : {}),
     ...(recaps !== undefined ? { recaps } : {}),

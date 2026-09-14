@@ -854,7 +854,7 @@ export interface RecapServiceOptions {
   /** The plan status for the header (A5); absent = no plan lines. */
   readonly plan?: () => PlanStatus | null
   /** The reading list, for the publications that arrived since the last recap (10.6). */
-  readonly reading?: { entries(): ReadonlyArray<{ title: string; filed: string | null; filedAt: string | null; by: string | null; url?: string; at?: string | null }> }
+  readonly reading?: { entries(): ReadonlyArray<{ title: string; filed: string | null; filedAt: string | null; held: boolean; by: string | null; url?: string; at?: string | null }> }
   readonly maintenance: MaintenanceRunner
   readonly jobs: Pick<JobStore, 'usageSince'>
   readonly commitMutex: Mutex
@@ -1054,7 +1054,8 @@ export class RecapService {
   private filedSince(since: string): Array<{ title: string; page: string; by: string | null }> {
     try {
       return (this.o.reading?.entries() ?? [])
-        .filter((e) => e.filed !== null && (e.filedAt === null || e.filedAt >= since.slice(0, 10)))
+        // Held, not merely written up: the recap reports arrivals, and only a document arrives.
+        .filter((e) => e.filed !== null && e.held && (e.filedAt === null || e.filedAt >= since.slice(0, 10)))
         .map((e) => ({ title: e.title, page: e.filed!, by: e.by }))
         .slice(0, 10)
     } catch {

@@ -57,9 +57,10 @@ export function readingView(entries: readonly ReadingItem[], reach: ReadingReach
   return {
     shown,
     hidden: inTab.length - shown.length,
-    // Not ingested means not in the vault at all - an entry matched by its identifier is done,
-    // even though no ingest ever ran for its url.
-    waiting: shown.filter((e) => e.job === null && e.page === null).length,
+    // Not ingested means the DOCUMENT is not here. An entry matched by its identifier is done
+    // even though no ingest ever ran for its url; an entry that only has a page written ABOUT
+    // it is not, however completely that page reads - the lede offers to fetch the original.
+    waiting: shown.filter((e) => !e.held).length,
     total: inTab.length,
     /** How many sit in the other tab, for the toggle's own count. */
     archived: entries.filter(isArchived).length,

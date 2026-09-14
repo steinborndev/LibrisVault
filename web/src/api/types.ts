@@ -1166,6 +1166,12 @@ export interface ReadingItem {
   reach: 'open' | 'paywalled' | 'unreachable' | 'unknown'
   /** The source page this publication became, whatever route it took into the vault. */
   page: string | null
+  /**
+   * Whether the vault holds the DOCUMENT, and not only a page about it: a research step can
+   * write a source page from a web read, and that page carries the publication's identity.
+   * `page` says a write-up exists, `held` says the paper is here - the board says which.
+   */
+  held: boolean
   /** How it was recognized: the ingest that ran for its url, or its DOI / arXiv id. */
   via: 'job' | 'ref' | 'url' | 'file' | null
   filed: string | null

@@ -306,7 +306,7 @@ export interface FellowServiceOptions {
     add(entries: readonly ReadingEntryInput[]): Promise<{ readonly added: number }>
     /** Marks entries whose publication arrived in the vault and reports them (section 10.6). */
     reconcile(today: string): Promise<ReadonlyArray<{ readonly entry: ReadingEntryInput; readonly page: string }>>
-    entries(): ReadonlyArray<ReadingEntryInput & { readonly page: string | null }>
+    entries(): ReadonlyArray<ReadingEntryInput & { readonly page: string | null; readonly held: boolean }>
   }
   readonly now?: () => Date
   /** Candidate computation; the default reads the vault, the graph and the job store. */
@@ -1258,7 +1258,9 @@ export class FellowService {
     try {
       return this.reading
         .entries()
-        .filter((e) => e.filed !== null && (e.by === null || e.by.toLowerCase() === agent.name.toLowerCase()))
+        // `held` as well as the mark: a page about the publication is not the publication, and
+        // a candidate that says "go read it" has to be about something the vault actually has.
+        .filter((e) => e.filed !== null && e.held && (e.by === null || e.by.toLowerCase() === agent.name.toLowerCase()))
         .map((e) => ({ title: e.title, page: e.filed!, why: e.why, filedAt: e.filedAt }))
     } catch {
       return []

@@ -1243,6 +1243,18 @@ the vault, and the Fellow that asked for it never learned it had arrived.
   reconcile only the identifier - so an entry without a DOI was shown as "in the vault" while
   it stayed unfiled and the Fellow that had asked was never told. Two call sites cannot drift
   apart if there is only one.
+- **Finding a page is not holding the document** (2026-09-14). All four routes end at a source
+  page, and a research step writes such a page from what it read on the web - carrying the
+  publication's DOI and its url, which is exactly what the identifier and url routes match on.
+  So an entry could find the write-up its own request had produced, be marked as arrived, and
+  send the Fellow that asked to go read a paper the vault does not have. `locate` answers both
+  questions now: `page` says a write-up exists, `held` says a document stands behind it. The
+  routes that start FROM a finished ingest hold it by construction; the ones that start from a
+  page - the entry's own `filed`, the identifier, the url - ask the source index
+  (`pipeline/sources.ts`), the same one the Catalog's Source column reads, so the two surfaces
+  cannot disagree about one publication. Only `held` closes an entry: the mark, the notebook
+  line, the recap and the candidate all hang off it. The board still shows a write-up ("written
+  up in X, the document itself is not here") and keeps offering the ingest.
 - **The night shift reconciles first.** Entries whose publication has arrived get `filed` and
   `filedAt` written into them - the link the row shows and the record that the Fellow has been
   told, so the note goes out once. The Fellow that asked gets one line in its notebook: the
