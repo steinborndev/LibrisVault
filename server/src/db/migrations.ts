@@ -688,6 +688,19 @@ ALTER TABLE wings ADD COLUMN wall_aisle INTEGER NOT NULL DEFAULT 3;
 ALTER TABLE wings ADD COLUMN mid_aisle INTEGER NOT NULL DEFAULT 3;
 `
 
+/**
+ * v29 - a cancelled job gives up its content hash (SPEC.md section 3.2).
+ *
+ * The hash is what dedupe looks up, so whoever holds it owns that content. A cancelled job
+ * owns nothing: it wrote nothing and, being terminal, will write nothing. Holding on to it
+ * meant a file queued for the night shift, taken out again and then dropped in with Add now
+ * came back as a duplicate of the job that had just been cancelled. New cancellations release
+ * it as they happen; this frees the ones already in the history.
+ */
+const V29 = `
+UPDATE jobs SET sha256 = NULL WHERE status = 'cancelled' AND sha256 IS NOT NULL;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -717,4 +730,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 26, up: V26 },
   { version: 27, up: V27 },
   { version: 28, up: V28 },
+  { version: 29, up: V29 },
 ]

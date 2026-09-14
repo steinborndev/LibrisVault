@@ -609,6 +609,20 @@ export class JobStore {
    * transaction. Throws `JobStateError` on an illegal move. `started_at` is stamped the
    * first time a job leaves `queued`; `finished_at` when it reaches a terminal state.
    */
+  /**
+   * Moves a job to another state, logging the step.
+   *
+   * A CANCELLED job also gives up its content hash (2026-09-14). The hash is what dedupe looks
+   * up, so whoever holds it owns that content - and a cancelled job owns nothing: it wrote
+   * nothing, and it will write nothing, cancelled being terminal. Holding on to it turned
+   * "take this out of my way" into "and never let it back in": a paper queued for the night,
+   * taken out of the night again, then dropped in with Add now came back as a duplicate of the
+   * job that had just been cancelled - of a run that never happened.
+   *
+   * Cleared here rather than filtered in the lookup because the column is UNIQUE: a lookup
+   * that skipped the row would collide with it on the insert instead. Failed and deferred jobs
+   * keep theirs, both being one retry away from a run.
+   */
   transition(
     id: string,
     to: JobStatus,
@@ -650,7 +664,9 @@ export class JobStore {
              finished_at = CASE WHEN @set_finished = 1 THEN @now ELSE NULL END,
              -- A cancelled job leaves tonight's ingest queue (v26); every other move keeps
              -- its place until the queue says it is through.
-             night_released_at = CASE WHEN @status = 'cancelled' THEN NULL ELSE night_released_at END
+             night_released_at = CASE WHEN @status = 'cancelled' THEN NULL ELSE night_released_at END,
+             -- ...and gives up its content hash with it; see the note above the method.
+             sha256 = CASE WHEN @status = 'cancelled' THEN NULL ELSE sha256 END
            WHERE id = @id`,
         )
         .run({

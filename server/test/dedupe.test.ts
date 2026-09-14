@@ -285,13 +285,40 @@ describe('stage 1: the vault remembers a hash the history forgot', () => {
     // The same hash is ALSO still in the history, under a different job id: that row is
     // the one the dashboard can open, so it is the one the duplicate points at.
     const inDb = store.create({ source: 'drop', type: 'pdf', originalName: 'x.pdf', sha256: await sha256File(src) })
-    store.transition(inDb.job.id, 'cancelled')
+    // Failed, not cancelled: a failed job is one retry away from a run and keeps its content.
+    store.transition(inDb.job.id, 'failed')
     const q = makeQueue()
     q.start()
     const again = await q.enqueueFile({ sourcePath: src, source: 'drop' })
     await q.onIdle()
     expect(again.duplicateOf).toBe(inDb.job.id)
     expect(store.getOrThrow(again.job.id).error).toMatch(/still in the history/)
+  })
+
+  it('lets a cancelled job go: what was taken out of the way can be added again', async () => {
+    /*
+     * The reported case, in order: a file queued for the night shift, taken out of the night
+     * again, then dropped in with Add now. The cancelled job had written nothing and, being
+     * terminal, would write nothing - but it still held the hash, so the new job was refused
+     * as a duplicate of a run that never happened.
+     */
+    const src = writeSource('night.pdf', 'held for tonight')
+    const { sha256File } = await import('../src/pipeline/hash.js')
+    const sha = await sha256File(src)
+    const held = store.create({ source: 'drop', type: 'pdf', originalName: 'night.pdf', sha256: sha, hold: 'night' })
+    expect(held.job.status).toBe('queued')
+    store.transition(held.job.id, 'cancelled')
+    expect(store.getOrThrow(held.job.id).sha256).toBeNull()
+
+    const again = store.create({ source: 'drop', type: 'pdf', originalName: 'night.pdf', sha256: sha })
+    expect(again.job.status).toBe('queued')
+    expect(again.duplicateOf).toBeUndefined()
+    expect(again.job.sha256).toBe(sha)
+
+    // And the second one still guards the content while IT is the live job.
+    const third = store.create({ source: 'drop', type: 'pdf', originalName: 'night.pdf', sha256: sha })
+    expect(third.job.status).toBe('duplicate')
+    expect(third.duplicateOf).toBe(again.job.id)
   })
 })
 
