@@ -640,7 +640,15 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             </div>
           </div>
           <div className="vz-hero">
-            <div className="vz-n">{stats.data?.pages.total ?? statPlaceholder}</div>
+            {/* The KNOWLEDGE pages, which is what the Catalog lists and what every fact
+                beside this one is computed over (lib/vaultShape.ts). It used to read
+                `stats.pages.total`, the count of files in `wiki/`, and so stood 32 higher
+                than the same vault counted anywhere else: index hubs, MOCs and lint reports
+                are scaffolding, not pages someone wrote. The System tab still reports the
+                file count, where that is the question being asked. */}
+            <div className="vz-n" title="Knowledge pages. Index hubs, MOCs and maintenance reports are not counted.">
+              {shape !== null ? shape.pages.toLocaleString('en-US') : statPlaceholder}
+            </div>
             <div className="vz-k">pages in the wiki</div>
             <div className="vz-facts">
               <button className="vzf" onClick={() => navigate('/graph')}>
@@ -669,7 +677,10 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                 }
               >
                 <b>{shape !== null ? shape.gaps : statPlaceholder}</b>
-                <span>pages linked but not written</span>
+                {/* Two words, because the label sits in a fixed tile: the longer sentence
+                    wrapped onto a second line and pushed the tile out of the row. The title
+                    above carries what it means. */}
+                <span>unwritten pages</span>
               </button>
               {/* Growth as two doors: the week opens the stream on this week, the month opens
                   the chart it was read off. */}

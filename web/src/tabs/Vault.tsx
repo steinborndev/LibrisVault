@@ -827,6 +827,13 @@ function GraphView({
 
   /** What the "System pages" toggle would add - the number it shows has to be that. */
   const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
+  /*
+   * What "of N" counts. The scaffolding is only part of the vault while the switch that draws
+   * it is on: with it off those pages are not drawn, not searched and not in any list here, so
+   * counting them in the denominator made the graph disagree with the Catalog about how big the
+   * same vault is - and left a remainder that could never be reached by turning a filter off.
+   */
+  const pagePool = showSystem ? graph.nodes.length : graph.nodes.length - systemCount
 
   /**
    * The bar's middle: which domain the drawing shows, said once and prominently, with the
@@ -1156,7 +1163,7 @@ function GraphView({
             <span className="scopeline">
               Showing{' '}
               <strong>
-                {realCount} of {graph.nodes.length}
+                {realCount} of {pagePool}
               </strong>{' '}
               pages and <strong>{realEdgeCount}</strong> links
             </span>
