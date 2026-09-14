@@ -237,6 +237,17 @@ export interface FellowSummary {
    * so the drawing of a night and the record of it cannot disagree.
    */
   readonly tonight: readonly TaskOutcome[]
+  /**
+   * What the next shift would run for this Fellow, in order and capped by the quota. `next` is
+   * its first entry; this is the whole night, which a Fellow with room for two runs needs.
+   */
+  readonly queue: readonly ProposalRecord[]
+  /**
+   * Whether "skip tonight" covers the night ahead: the shift still PLANS for such a Fellow and
+   * runs nothing of it. Resolved here rather than shipped as a date, because deciding it means
+   * knowing which night is ahead, and that is this service's question and not the board's.
+   */
+  readonly skipsTonight: boolean
   /** The proposal the next shift would run, if any. */
   readonly next: ProposalRecord | null
 }
@@ -491,6 +502,8 @@ export class FellowService {
       undecidedProposals: this.pendingProposals(agent.id).filter((p) => p.status === 'proposed').length,
       tonight: this.taskOutcomes(agent),
       next: this.runnable(agent.id) ?? null,
+      queue: this.queue(agent.id),
+      skipsTonight: this.skipsTonight(agent),
     }
   }
 
@@ -923,6 +936,37 @@ export class FellowService {
   }
 
   /**
+   * Every proposal the next shift would run for this Fellow, in the order it would take them
+   * and no further than the quota reaches (2026-09-14).
+   *
+   * {@link runnable} answers the shift's question, which is "what next" - it is asked again
+   * after every run. This answers the dashboard's, which is "what tonight", and it has to be
+   * the same order or the board would promise work the night does differently. So the two read
+   * one list: approved first, whatever the mode, then the undecided ones a Fellow that decides
+   * for itself would take. What is NOT here is what tonight's own planning will add, because
+   * it does not exist yet; the board draws those as the open slots they are.
+   */
+  queue(agentId: string): ProposalRecord[] {
+    const agent = this.agents.get(agentId)
+    if (!agent) return []
+    if (this.skipsTonight(agent)) return []
+    const room = Math.max(0, agent.quotaRunsPerDay - this.runsTonight(agentId))
+    if (room === 0) return []
+    const pending = this.pendingProposals(agentId)
+    const done = this.tasksRunSince(agentId, this.nightAhead().start)
+    const byTask = (a: ProposalRecord, b: ProposalRecord): number => {
+      const ad = done.has(a.provenance.task ?? '') ? 1 : 0
+      const bd = done.has(b.provenance.task ?? '') ? 1 : 0
+      return ad - bd || a.rank - b.rank
+    }
+    const approved = pending.filter((p) => p.status === 'approved').sort(byTask)
+    const asks = agent.autonomy === 'manual'
+    const resting = agent.state === 'sleeping' && (agent.sleepCode === 'covered' || agent.sleepCode === 'stalled')
+    const undecided = asks || resting ? [] : pending.filter((p) => p.status === 'proposed' && !isDrift(p.scopeScore)).sort(byTask)
+    return [...approved, ...undecided].slice(0, room)
+  }
+
+  /**
    * The night the Fellows are read against: the one running now, else the one that has not
    * opened yet (2026-09-14).
    *
@@ -939,6 +983,11 @@ export class FellowService {
   private nightAhead(): WindowSpan {
     const at = windowAt(this.now(), this.settings().window)
     return at.current ?? at.next
+  }
+
+  /** Whether the Fellow's skip mark covers the night ahead. It still plans; nothing of it runs. */
+  private skipsTonight(agent: AgentRecord): boolean {
+    return agent.skipUntil !== null && agent.skipUntil >= this.nightAhead().cycleDate
   }
 
   /** The cycle in force at this instant, which the quota is counted in. See {@link cycleAt}. */

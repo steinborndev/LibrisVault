@@ -9149,6 +9149,39 @@ tr:focus-within .rowacts {
   position: absolute; inset: 0; display: flex; align-items: center; padding-left: 7px; font-size: 10.5px;
   font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); pointer-events: none; white-space: nowrap;
 }
+/*
+ * The night as a list, under the Fellows of a shelf. Rows, not cards: the reader walks them in
+ * order, and a card's frame at every step would make the order the last thing you see.
+ */
+.cc-phase { margin-top: 10px; }
+.cc-phase h6 {
+  margin: 0 0 4px; font-family: ui-monospace, monospace; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint);
+}
+.cc-pl {
+  display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border-radius: 7px;
+  border: 1px solid transparent; cursor: pointer;
+}
+.cc-pl:hover { background: var(--muted-bg); border-color: var(--border); }
+.cc-pl-mark { font-size: 10px; line-height: 20px; color: var(--text-faint); width: 12px; text-align: center; }
+.cc-pl.run .cc-pl-mark { color: var(--accent); }
+.cc-pl-main { flex: 1; min-width: 0; }
+.cc-pl-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.cc-pl-head b { font-size: 13px; }
+.cc-pl-t { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text); }
+.cc-pl-why { margin: 2px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-dim); }
+/* An open slot has no subject yet and a held line has none at all: both say so in the tone of
+   something absent, so a glance down the list separates work from the lack of it. */
+.cc-pl.open .cc-pl-t, .cc-pl.held .cc-pl-t { color: var(--text-faint); font-style: italic; }
+.cc-pl.held { opacity: 0.72; }
+.cc-pl-veto { align-self: center; }
+/* A page reference inside a sentence, not a call to action: underlined where the sentence runs,
+   not a pill lifted out of it. */
+.cc-pl-src {
+  border: 0; background: none; padding: 0; font: inherit; color: var(--text-dim);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.cc-pl-src:hover { color: var(--accent); }
 .cc-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 7px; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); }
 /* The queue's order lives here rather than on the bands: a seven-minute task is a few pixels
    wide, which is not a drag target. A chip is. */

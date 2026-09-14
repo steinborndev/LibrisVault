@@ -22,6 +22,8 @@ import {
   runCount,
   plannedOnly,
   taskBands,
+  nightRows,
+  type NightRow,
   tasksTonight,
   ticksIn,
   toMinutes,
@@ -29,7 +31,7 @@ import {
   ingestSchedule,
   INGEST_FALLBACK_MS,
 } from '../src/lib/command/model.ts'
-import type { AgentTask, FellowRecord, FellowSummary, GraphNode } from '../src/api/types.ts'
+import type { AgentTask, FellowRecord, FellowSummary, GraphNode, ProposalRecord } from '../src/api/types.ts'
 
 const task = (kind: AgentTask['kind'], text: string, state: AgentTask['state'] = 'active'): AgentTask => ({
   id: text.slice(0, 4),
@@ -69,11 +71,42 @@ const agent = (over: Partial<FellowRecord> & Pick<FellowRecord, 'id' | 'name'>):
   }) as FellowRecord
 
 const summary = (a: FellowRecord): FellowSummary =>
-  ({ agent: a, currentRun: null, lastRun: null, runsTonight: 0, pendingProposals: 0, undecidedProposals: 0, next: null }) as FellowSummary
+  ({ agent: a, currentRun: null, lastRun: null, runsTonight: 0, pendingProposals: 0, undecidedProposals: 0, queue: [], skipsTonight: false, tonight: [], next: null }) as FellowSummary
+
+/** One standing proposal, as the service reports it in a Fellow's queue. */
+const proposal = (over: Partial<ProposalRecord> = {}): ProposalRecord =>
+  ({
+    id: `p${Math.random().toString(36).slice(2, 8)}`,
+    agentId: 'a',
+    createdAt: '2026-09-13T23:40:00.000Z',
+    cycleDate: '2026-09-14',
+    kind: 'research-step',
+    topic: 'a topic',
+    lens: 'broad',
+    rationale: '',
+    provenance: { candidate: 'sweep', text: 'a', sourcePages: [], task: 'a' },
+    pageSet: [],
+    estCostUsd: 2,
+    estPlanPct: 0.06,
+    scopeScore: 0.8,
+    rank: 1,
+    status: 'proposed',
+    decidedAt: null,
+    decidedVia: null,
+    userNote: null,
+    runId: null,
+    ...over,
+  }) as ProposalRecord
 
 /** A Fellow with proposals standing from an earlier night, which is what phase 1 runs. */
 const withStanding = (a: FellowRecord, pending: number, over: Partial<FellowSummary> = {}): FellowSummary =>
-  ({ ...summary(a), pendingProposals: pending, undecidedProposals: pending, ...over }) as FellowSummary
+  ({
+    ...summary(a),
+    pendingProposals: pending,
+    undecidedProposals: pending,
+    queue: Array.from({ length: pending }, () => proposal({ provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: a.tasks[0]?.text ?? 'a' } })),
+    ...over,
+  }) as FellowSummary
 
 const node = (over: Partial<GraphNode>): GraphNode =>
   ({ path: 'wiki/concepts/X.md', title: 'X', type: 'concepts', tags: [], domain: null, kind: 'knowledge', out: 0, in: 0, mtimeMs: 0, size: 100, ...over }) as GraphNode
@@ -395,9 +428,14 @@ describe('scheduleFrom', () => {
     const a = agent({ id: 'v', name: 'V', autonomy: 'veto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
     expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations).map((b) => b.phase)).toEqual(['plan'])
     expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withStanding(a, 1)] }], 1500, durations).map((b) => b.phase)).toEqual(['plan', 'run'])
-    // Asking first means nothing undecided runs: only what the user approved.
+    /*
+     * Which of the two it is, is the service's answer and not the board's: the queue is built
+     * from the rule the shift runs by, so a Fellow that asks first simply has no undecided
+     * proposal in it. The board counts what it is given.
+     */
     const asks = agent({ ...a, id: 'm', autonomy: 'manual' })
-    expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withStanding(asks, 1)] }], 1500, durations).map((b) => b.phase)).toEqual(['plan'])
+    const holding = { ...summary(asks), pendingProposals: 1, undecidedProposals: 1, queue: [] } as FellowSummary
+    expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [holding] }], 1500, durations).map((b) => b.phase)).toEqual(['plan'])
   })
 
   it('counts the runs this night already made, so the bar does not shrink as the night works', () => {
@@ -530,6 +568,91 @@ describe('scheduleFrom', () => {
 
   it('falls back to the measured medians when the service has no history yet', () => {
     expect(minutesFor('watch', {})).toBe(7)
+  })
+})
+
+/*
+ * The night as a list (2026-09-14). The bar says how long and whose; this says WHAT, which is
+ * the question shading cannot answer, and it says it in the shift's own order rather than the
+ * bar's - the bar groups a Fellow's work together so a task can be pointed at, while the night
+ * really runs what already stands, then plans, then what its auto Fellows just planned.
+ */
+describe('nightRows', () => {
+  const durations = { 'research-step': 318_000, 'research-expand': 311_000, plan: 86_000, research: 614_000 }
+  const rowsOf = (fellows: FellowSummary[]): NightRow[] => {
+    const shelf = { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows }
+    return nightRows(shelf, scheduleFrom([shelf], 1500, durations))
+  }
+
+  it('names what a standing proposal will do, and prices it by the proposal', () => {
+    const a = agent({ id: 'b', name: 'B', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'ADCs')] })
+    const p = proposal({ status: 'approved', kind: 'research', topic: 'Sweep the patent filings', estCostUsd: 6, estPlanPct: 0.19, provenance: { candidate: 'reading', text: 'x', sourcePages: ['wiki/sources/A.md'], task: 'ADCs' } })
+    const rows = rowsOf([{ ...summary(a), queue: [p] } as FellowSummary])
+    const run = rows.find((r) => r.kind === 'run')!
+    expect(run).toMatchObject({ phase: 3, fellowName: 'B', task: 'ADCs', estUsd: 6, estPct: 0.19 })
+    expect(run.proposal?.topic).toBe('Sweep the patent filings')
+    // A ten-minute sweep, not the five-minute step the task's art would have priced it at.
+    expect(run.minutes).toBe(10)
+    expect(run.why).toContain('approved')
+  })
+
+  it('puts a Fellow that waits a night before the plans, and one that decides for itself after', () => {
+    const waits = agent({ id: 'w', name: 'W', autonomy: 'veto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
+    const decides = agent({ id: 'd', name: 'D', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'b')] })
+    const rows = rowsOf([
+      { ...summary(waits), queue: [proposal({ provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'a' } })] } as FellowSummary,
+      { ...summary(decides), queue: [proposal({ provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'b' } })] } as FellowSummary,
+    ])
+    expect(rows.map((r) => `${r.phase}${r.kind[0]}:${r.fellowName}`)).toEqual(['1r:W', '2p:W', '2p:D', '3r:D'])
+  })
+
+  it('draws a slot with no proposal yet as the open room it is', () => {
+    // Quota of two against one standing proposal: the second run is real, its subject is not.
+    const a = agent({ id: 'b', name: 'B', autonomy: 'auto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    const rows = rowsOf([{ ...summary(a), queue: [proposal({ provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'a' } })] } as FellowSummary])
+    expect(rows.map((r) => r.kind)).toEqual(['plan', 'run', 'open'])
+    const open = rows.find((r) => r.kind === 'open')!
+    expect(open.proposal).toBeNull()
+    // Priced by the Fellow, since nothing is known about what it will do.
+    expect(open.estUsd).toBeGreaterThan(0)
+    // And in the same currency as the rest of the list, where the calibration reaches.
+    expect(open.estPct).toBeNull()
+    const priced = nightRows(
+      { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [{ ...summary(a), queue: [] } as FellowSummary] },
+      scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [{ ...summary(a), queue: [] } as FellowSummary] }], 1500, durations),
+      { points: (amount) => amount * 0.03 },
+    )
+    expect(priced.find((r) => r.kind === 'open')!.estPct).toBeCloseTo(0.18, 5)
+  })
+
+  it('says what will NOT happen, in the words the shift would use', () => {
+    const paused = agent({ id: 'p', name: 'P', state: 'paused', tasks: [task('watch', 'a')] })
+    expect(rowsOf([summary(paused)]).map((r) => r.kind)).toEqual(['held'])
+    expect(rowsOf([summary(paused)])[0]!.why).toContain('paused')
+
+    /*
+     * Skipping stops the runs and not the plans, so the line stands beside a planning row
+     * rather than in place of the Fellow. Whether the mark covers the night ahead is the
+     * service's answer, which is why it arrives as a flag and not as a date to compare.
+     */
+    const skipped = agent({ id: 's', name: 'S', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
+    const off = rowsOf([{ ...summary(skipped), skipsTonight: true } as FellowSummary])
+    expect(off.map((r) => r.kind)).toEqual(['plan', 'held'])
+    expect(off[1]!.why).toContain('skipped tonight')
+    // Without the mark the same Fellow plans and runs.
+    expect(rowsOf([summary(skipped)]).map((r) => r.kind)).toEqual(['plan', 'open'])
+
+    // A task nothing survived the veto on is named, not merely counted.
+    const vetoed = agent({ id: 'v', name: 'V', autonomy: 'auto', tasks: [task('watch', 'a'), task('watch', 'b')] })
+    const f = { ...summary(vetoed), tonight: [{ id: 'a', outcome: 'vetoed' as const }, { id: 'b', outcome: 'open' as const }] } as FellowSummary
+    const held = rowsOf([f]).filter((r) => r.kind === 'held')
+    expect(held.map((r) => r.task)).toEqual(['a'])
+    expect(held[0]!.why).toContain('vetoed')
+
+    // And a Fellow that asks first says how many decisions are waiting on you.
+    const asks = agent({ id: 'm', name: 'M', autonomy: 'manual', tasks: [task('watch', 'a')] })
+    const waiting = { ...summary(asks), pendingProposals: 2, undecidedProposals: 2, queue: [] } as FellowSummary
+    expect(rowsOf([waiting]).find((r) => r.kind === 'held')!.why).toContain('2 proposals wait')
   })
 })
 

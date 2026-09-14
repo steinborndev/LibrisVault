@@ -48,6 +48,9 @@ import {
   plannedOnly,
   taskBands,
   type TaskBand,
+  nightRows,
+  type NightRow,
+  CANDIDATE_TEXT,
   shelfOrder,
   shelvesFrom,
   tasksTonight,
@@ -67,7 +70,7 @@ import { WeekRelease } from './WeekRelease.tsx'
 import { queryState } from '../QueryState.tsx'
 import { Markdown } from '../Markdown.tsx'
 import { timeAgo, usd } from '../../lib/format.ts'
-import { MODEL_FACTOR, rosterShare, runUsd, shareDetail, weekShare } from '../../lib/plan.ts'
+import { MODEL_FACTOR, pointsPerUsd, rosterShare, runUsd, shareDetail, weekShare } from '../../lib/plan.ts'
 
 export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
 type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
@@ -381,7 +384,7 @@ export function CommandCentre({
     },
   })
   const overflow = blocks.filter((b) => b.to > live.to)
-  const mine = shelf ? blocks.filter((b) => b.shelf === shelf.key) : []
+  const mine = useMemo(() => (shelf ? blocks.filter((b) => b.shelf === shelf.key) : []), [blocks, shelf])
   /*
    * This shelf's deferred tasks, not the night's. The note sits on a shelf's own page and is
    * about its Fellows, so counting every shelf's put a number there that nothing on the page
@@ -389,6 +392,18 @@ export function CommandCentre({
    * is one line for everyone, so what pushes your work past the window may not be yours.
    */
   const planOnly = plannedOnly(mine)
+  // The night as a list, for the shelf you are on: the same blocks the bar draws, in the
+  // shift's own order, each carrying the proposal it will work from.
+  const rows = useMemo(() => {
+    if (shelf === undefined) return []
+    // One currency for the list: a slot with no proposal yet is priced in USD, and the
+    // calibration turns that into the points the rest of the night is counted in.
+    const points = (amount: number, model: string): number | null => {
+      const rate = pointsPerUsd(usage.data, model)
+      return rate === null ? null : Math.round(amount * rate.ppu * 100) / 100
+    }
+    return nightRows(shelf, mine, { points })
+  }, [shelf, mine, usage.data])
   // The queue draws every shelf, so the "no run of its own" set has to cover every shelf too;
   // `planOnly` above is this shelf's share of it, which is what the note under the bar counts.
   const unrun = useMemo(() => new Set(plannedOnly(blocks)), [blocks])
@@ -975,6 +990,42 @@ export function CommandCentre({
             </section>
 
             {/*
+              * What the bar can only shade: the night as a list, in the shift's own order,
+              * with the sentence each run will work from. The room under the Fellows is where
+              * it belongs - you read who is on the shelf, then what they will do.
+              */}
+            <section className="cc-block">
+              <h3 className="cc-sec">
+                Tonight, in order
+                <span className="c">{rows.filter((r) => r.kind === 'run' || r.kind === 'open').length}</span>
+                <span className="grow" />
+                <span className="mono-meta">{nightBill(rows)}</span>
+              </h3>
+              {rows.length === 0 ? (
+                <p className="cc-note dim">Nothing is scheduled for this shelf tonight.</p>
+              ) : (
+                PHASES.filter(([phase]) => rows.some((r) => r.phase === phase)).map(([phase, lead], at, shown) => {
+                  const here = rows.filter((r) => r.phase === phase)
+                  return (
+                    <div key={phase} className="cc-phase">
+                      <h6>{phaseLead(lead, at, shown.length)}</h6>
+                      {here.map((r, i) => (
+                        <PlanRow
+                          key={`${r.fellowId}-${r.kind}-${r.proposal?.id ?? r.task ?? ''}-${i}`}
+                          row={r}
+                          onPage={openPage}
+                          busy={decide.isPending}
+                          onOpen={() => openFellow(r.fellowId)}
+                          {...(r.proposal === null ? {} : { onVeto: (): void => decide.mutate({ id: r.proposal!.id, status: 'vetoed' }) })}
+                        />
+                      ))}
+                    </div>
+                  )
+                })
+              )}
+            </section>
+
+            {/*
               * Below the list, not above it. These notes appear and disappear with the night's
               * state, and every line of them used to push the Fellows down the page: walking
               * from shelf to shelf moved the one thing you walked there to read.
@@ -1080,6 +1131,134 @@ export function CommandCentre({
 }
 
 /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
+/**
+ * The three phases of a night, in the order the shift takes them (`pipeline/shift.ts`).
+ *
+ * Not the order the bar draws: the bar groups a Fellow's work together because the shelf order
+ * is what the arrows set and a task scattered over the night cannot be pointed at. The list is
+ * where the true order belongs, and these headings are how it says so without inventing clock
+ * times the bar would then contradict.
+ */
+const PHASES: ReadonlyArray<readonly [1 | 2 | 3, string]> = [
+  [1, 'what already stands'],
+  [2, 'the planning runs'],
+  [3, 'what the night decides for itself'],
+]
+
+/** The heading, with the connector the reader needs: "then" only when something came before. */
+const phaseLead = (lead: string, at: number, of: number): string =>
+  of === 1 ? lead[0]!.toUpperCase() + lead.slice(1) : `${at === 0 ? 'First' : 'Then'}, ${lead}`
+
+/**
+ * The night's own arithmetic for one shelf: what it spends and how long it takes.
+ *
+ * Points where every line has them, USD otherwise. Never a sum of both - the two are the same
+ * estimate in different currencies, and adding one to the other would be a number for nothing.
+ */
+function nightBill(rows: readonly NightRow[]): string {
+  const work = rows.filter((r) => r.kind === 'run' || r.kind === 'open')
+  const minutes = rows.reduce((n, r) => n + r.minutes, 0)
+  if (work.length === 0) return `${dur(minutes)} · planning only`
+  const priced = work.every((r) => r.estPct !== null)
+  const total = priced
+    ? `${work.reduce((n, r) => n + (r.estPct ?? 0), 0).toFixed(2)} points`
+    : usd(work.reduce((n, r) => n + (r.estUsd ?? 0), 0))
+  return `${dur(minutes)} · about ${total}`
+}
+
+/**
+ * One line of the night. Four kinds, and the difference between them is what the reader is
+ * being told: a run names its subject, a plan names the task it will think about, an open slot
+ * names the room it has, and a held line names what will not happen and why.
+ */
+function PlanRow({
+  row: r,
+  busy,
+  onOpen,
+  onVeto,
+  onPage,
+}: {
+  row: NightRow
+  busy: boolean
+  onOpen: () => void
+  onVeto?: () => void
+  onPage: (page: string) => void
+}): React.ReactElement {
+  const p = r.proposal
+  const source = p?.provenance.sourcePages[0]
+  return (
+    <div className={`cc-pl ${r.kind}`} onClick={onOpen}>
+      <span className="cc-pl-mark" aria-hidden>
+        {r.kind === 'run' ? '▶' : r.kind === 'plan' ? '◇' : r.kind === 'open' ? '◌' : '✕'}
+      </span>
+      <div className="cc-pl-main">
+        <div className="cc-pl-head">
+          <b>{r.fellowName}</b>
+          {p !== null ? (
+            <>
+              <span className="sev mut">{p.kind}</span>
+              <span className="sev mut">{p.pageSet.length > 0 ? `extends ${p.pageSet.length} pages` : p.lens}</span>
+              {p.status === 'approved' ? <span className="sev ok">approved</span> : <span className="sev due">undecided</span>}
+            </>
+          ) : r.art !== null ? (
+            <span className={`cc-art a-${r.art}`}>{r.art}</span>
+          ) : null}
+          <span className="grow" />
+          {r.minutes > 0 && (
+            <span className="mono-meta">
+              {dur(r.minutes)}
+              {r.estPct !== null ? ` · ${r.estPct} points` : r.estUsd !== null ? ` · ${usd(r.estUsd)}` : ''}
+            </span>
+          )}
+          {p !== null && (
+            <span className="cc-scope" title="token overlap with what you asked this Fellow to follow">
+              <span className="mono-meta">· fit</span>
+              <span className="cc-bar"><i style={{ width: `${Math.round(p.scopeScore * 100)}%` }} /></span>
+              <span className="mono-meta">{Math.round(p.scopeScore * 100)}%</span>
+            </span>
+          )}
+        </div>
+        {/* The subject, in the planner's own sentence where there is one - that is the whole
+            point of the list, and shortening it would leave the reader guessing again. */}
+        <p className="cc-pl-t">{p !== null ? p.topic : (r.task ?? r.fellowName)}</p>
+        <p className="cc-pl-why">
+          {r.why}
+          {p !== null && (
+            <>
+              {' · from '}
+              {CANDIDATE_TEXT[p.provenance.candidate] ?? p.provenance.candidate}
+              {source !== undefined && (
+                <>
+                  {', '}
+                  <button
+                    className="cc-pl-src"
+                    onClick={(e) => { e.stopPropagation(); onPage(source) }}
+                    title={source}
+                  >
+                    {source.replace(/^wiki\//, '').replace(/\.md$/, '')}
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </p>
+      </div>
+      {onVeto !== undefined && (
+        /* The one decision worth having here. Approving is a ranking choice and belongs in
+           Decisions with the alternatives beside it; stopping something does not. */
+        <button
+          className="btn ghost sm danger cc-pl-veto"
+          disabled={busy}
+          title={`Veto "${p?.topic ?? ''}". It will not run, tonight or later.`}
+          onClick={(e) => { e.stopPropagation(); onVeto() }}
+        >
+          Veto
+        </button>
+      )}
+    </div>
+  )
+}
+
 /**
  * What one block of the queue says about itself: whose it is, which task, and what the night
  * does with it. Every section carries its own, because a Fellow with three tasks is three

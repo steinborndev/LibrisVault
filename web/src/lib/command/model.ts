@@ -15,7 +15,8 @@
  *   when most of it is not booked, and two of the three tasks would look done.
  */
 
-import type { AgentTask, FellowRecord, FellowSummary, GraphNode, TaskKind, SceneJob } from '../../api/types.ts'
+import { runUsd } from '../plan.ts'
+import type { AgentTask, FellowRecord, FellowSummary, GraphNode, ProposalRecord, TaskKind, SceneJob } from '../../api/types.ts'
 
 /** A Fellow holds one art when all its tasks share one, and is custom when they do not. */
 export type FellowArt = TaskKind | 'custom'
@@ -145,6 +146,13 @@ export interface Block {
    */
   readonly phase: 'plan' | 'run'
   /**
+   * The proposal this run will carry out, where one already stands. Null for a planning run,
+   * and for a run tonight's own planning has yet to fill - the slot is real, its subject is not
+   * decided. A block that knows its proposal is priced by the proposal's own kind, which is the
+   * difference between a five-minute step and a ten-minute sweep.
+   */
+  readonly proposal: ProposalRecord | null
+  /**
    * What the night made of this block, as the service recorded it: `ran` when a run carried a
    * proposal out, `vetoed` when every proposal the task got was vetoed, `open` otherwise. The
    * bar marks a section from this rather than from the schedule, because the schedule is a
@@ -178,6 +186,15 @@ export function runMinutes(kind: TaskKind, durations: Readonly<Record<string, nu
   return Math.round(runMs(kind, durations) / 60_000)
 }
 
+/**
+ * The same for a run whose PROPOSAL is known, priced by what the proposal asks for rather than
+ * by the art of the task it came from: a sweep of the whole field and a single-question step
+ * are both proposals of a watch task and take twice as long one as the other.
+ */
+export function kindMinutes(kind: string, durations: Readonly<Record<string, number | null>>): number {
+  return Math.round((durations[kind] ?? durations['research-step'] ?? 320_000) / 60_000)
+}
+
 /** Proposals one planning run puts up for its task; the planner is capped at three. */
 const PROPOSALS_PER_PLAN = 3
 
@@ -192,16 +209,20 @@ const PROPOSALS_PER_PLAN = 3
  *
  * What the night can actually reach:
  *   - the quota, less what this night already spent;
- *   - what stands: an approved proposal runs in any mode, an undecided one in every mode but
- *     `manual`, which is what "run unless I stop it" means;
+ *   - what stands: the Fellow's `queue`, which the service builds from the same rule the shift
+ *     runs by - approved first in any mode, then the undecided ones a Fellow that decides for
+ *     itself would take;
  *   - what tonight's own plans add, and only an auto Fellow runs what it just planned - in veto
  *     mode tonight's proposals are tomorrow's runs, which is the whole point of the mode.
  */
 export function runsTonight(f: FellowSummary): number {
   const done = Math.max(0, f.runsTonight)
+  // "Skip tonight" stops the runs and not the planning, so the night still costs its plans.
+  if (f.skipsTonight === true) return done
   const left = Math.max(0, f.agent.quotaRunsPerDay - done)
-  const approved = Math.max(0, f.pendingProposals - f.undecidedProposals)
-  const standing = f.agent.autonomy === 'manual' ? approved : f.pendingProposals
+  // What stands is no longer guessed from two counts: the service reports the very list the
+  // shift would take, in its order and already capped by the quota.
+  const standing = (f.queue ?? []).length
   const fresh = f.agent.autonomy === 'auto' ? tasksTonight(f.agent).length * PROPOSALS_PER_PLAN : 0
   return done + Math.min(left, standing + fresh)
 }
@@ -234,10 +255,24 @@ export function fellowMinutes(f: FellowSummary, durations: Readonly<Record<strin
   const tasks = tasksTonight(f.agent)
   const runs = runsByTask(f)
   const plans = tasks.length * planMinutes(durations)
-  // Priced by the tasks the runs actually reach, so a Fellow whose tasks are of different arts
-  // is not charged for an art the night never gets to.
+  /*
+   * Priced the same way the blocks are, or the Fellow's own line would disagree with the bar
+   * beside it: by the standing proposal where there is one, because a sweep of the whole field
+   * and a single-question step are both proposals of a watch task and one takes twice as long;
+   * by the task's art where the night has yet to decide.
+   */
+  const waiting = new Map<string, ProposalRecord[]>()
+  for (const p of f.queue ?? []) {
+    const key = p.provenance.task ?? ''
+    waiting.set(key, [...(waiting.get(key) ?? []), p])
+  }
   let n = 0
-  for (const t of tasks) n += (runs.get(t.id) ?? 0) * runMinutes(t.kind, durations)
+  for (const t of tasks) {
+    for (let i = 0; i < (runs.get(t.id) ?? 0); i++) {
+      const p = waiting.get(t.text)?.shift()
+      n += p === undefined ? runMinutes(t.kind, durations) : kindMinutes(p.kind, durations)
+    }
+  }
   return plans + n
 }
 
@@ -314,7 +349,7 @@ export function scheduleFrom(
     for (const f of s.fellows) {
       const outcomes = new Map((f.tonight ?? []).map((o) => [o.id, o.outcome]))
       const tasks = tasksTonight(f.agent)
-      const push = (t: AgentTask, phase: 'plan' | 'run', minutes: number, outcome: TaskOutcome): void => {
+      const push = (t: AgentTask, phase: 'plan' | 'run', minutes: number, outcome: TaskOutcome, proposal: ProposalRecord | null = null): void => {
         out.push({
           shelf: s.key,
           fellowId: f.agent.id,
@@ -326,10 +361,22 @@ export function scheduleFrom(
           to: cur + minutes,
           waits: f.agent.autonomy === 'manual',
           phase,
+          proposal,
           outcome,
         })
         cur += minutes
       }
+      /*
+       * The standing proposals fill the run slots in the shift's own order, task by task as the
+       * layout below walks them. A slot past the end of the queue is one tonight's planning
+       * will fill, and it is priced by its task's art because nothing more is known about it.
+       */
+      const waiting = new Map<string, ProposalRecord[]>()
+      for (const p of f.queue ?? []) {
+        const key = p.provenance.task ?? ''
+        waiting.set(key, [...(waiting.get(key) ?? []), p])
+      }
+      const take = (t: AgentTask): ProposalRecord | null => waiting.get(t.text)?.shift() ?? null
       // The runs this night has already carried out come first and wear the mark; the rest are
       // the forecast.
       const runsFor = runsByTask(f)
@@ -346,7 +393,8 @@ export function scheduleFrom(
         // nothing survived.
         push(t, 'plan', planMinutes(durations), outcomes.get(t.id) === 'vetoed' ? 'vetoed' : 'open')
         for (let i = 0; i < (runsFor.get(t.id) ?? 0); i++) {
-          push(t, 'run', runMinutes(t.kind, durations), ran++ < done ? 'ran' : 'open')
+          const p = take(t)
+          push(t, 'run', p === null ? runMinutes(t.kind, durations) : kindMinutes(p.kind, durations), ran++ < done ? 'ran' : 'open', p)
         }
       }
     }
@@ -563,4 +611,161 @@ export function windowMinutes(start: string, end: string): { readonly from: numb
   if (to <= from % 1440 || to < NIGHT_FROM) to += 1440
   if (to <= from) to = from + 60
   return { from, to }
+}
+
+/**
+ * Tonight's work as a list, in the order the shift will take it (2026-09-14).
+ *
+ * The bar answers how long and whose; this answers WHAT, which is the question the queue over
+ * it cannot draw. Four kinds of line, because a night is four different statements:
+ *
+ *   `run`   a proposal that already stands and will be carried out. Its subject is known,
+ *           down to the sentence the planner wrote and the vault page it came from.
+ *   `plan`  a planning run: the Fellow works out what to do about one standing task. What it
+ *           decides runs tonight for a Fellow that decides for itself, tomorrow for one that
+ *           waits a night.
+ *   `open`  a run the quota leaves room for and tonight's planning has yet to fill. The slot
+ *           is real; its subject is not decided.
+ *   `held`  something that will NOT happen, and why. The reasons are the ones the shift itself
+ *           uses when it skips a Fellow.
+ *
+ * Ordered by the shift's own phases (`pipeline/shift.ts`), which is not the order the bar
+ * draws: the bar groups by shelf because the shelf order is what the arrows set, while the
+ * night really runs the standing proposals of the Fellows that wait a night, then every
+ * planning run, then what the Fellows that decide for themselves have.
+ */
+export interface NightRow {
+  readonly kind: 'run' | 'plan' | 'open' | 'held'
+  /** 1: standing proposals of the Fellows that wait. 2: the plans. 3: the auto Fellows' runs. */
+  readonly phase: 1 | 2 | 3
+  readonly shelf: string
+  readonly fellowId: string
+  readonly fellowName: string
+  /** The standing task this line belongs to, where it belongs to one. */
+  readonly task: string | null
+  readonly art: TaskKind | null
+  readonly proposal: ProposalRecord | null
+  readonly minutes: number
+  /** Why it runs, or why it does not. One sentence, in the words the shift would use. */
+  readonly why: string
+  /** What the run is expected to cost: the proposal's own estimate, else the Fellow's price. */
+  readonly estUsd: number | null
+  /** The same in plan points, where the service is calibrated enough to have one. */
+  readonly estPct: number | null
+}
+
+/**
+ * Where a proposal came from, in words a reader knows (`pipeline/candidates.ts`). The planner
+ * is told the candidate's kind, and it is the difference between "it swept its own subject
+ * again" and "it is answering a question your vault wrote down".
+ */
+export const CANDIDATE_TEXT: Record<string, string> = {
+  sweep: 'the standing sweep of its own task',
+  'open-question': 'an open question in the vault',
+  note: 'a note in its own notebook',
+  gap: 'a page linked but never written',
+  stub: 'a page too thin to stand',
+  reading: 'a publication you put on its reading list',
+  ingest: 'something you added to the vault',
+  handoff: 'a question another Fellow handed over',
+}
+
+/** Where a Fellow's own runs sit in the night: a Fellow that waits runs before the plans. */
+const phaseOf = (f: FellowSummary): 1 | 3 => (f.agent.autonomy === 'auto' ? 3 : 1)
+
+/** Why a standing proposal will be carried out, in one clause. */
+function whyItRuns(f: FellowSummary, p: ProposalRecord): string {
+  if (p.status === 'approved') return 'you approved it, so it runs ahead of the others'
+  if (f.agent.autonomy === 'manual') return 'waiting for you: nothing runs unless you approve it'
+  return 'the top of its plan, and it runs unless you veto it during the day'
+}
+
+/** What a Fellow will not do tonight, and the reason the shift would give for it. */
+function heldRows(f: FellowSummary, shelf: string): NightRow[] {
+  const base = { shelf, fellowId: f.agent.id, fellowName: f.agent.name, task: null, art: null, proposal: null, minutes: 0, estUsd: null, estPct: null } as const
+  const row = (why: string): NightRow => ({ ...base, kind: 'held', phase: 2, why })
+  const a = f.agent
+  if (a.state === 'paused') return [row('paused: nothing runs and nothing is planned until you resume it')]
+  if (a.state === 'blocked') return [row('blocked after a failed run; resume it from its card')]
+  // Skipping stops the runs, not the plans, so this line stands BESIDE the planning rows.
+  if (f.skipsTonight === true) return [row('skipped tonight at your request: it still plans, and nothing of it runs')]
+  const out: NightRow[] = []
+  if (a.state === 'sleeping' && (a.sleepCode === 'covered' || a.sleepCode === 'stalled')) {
+    out.push(row(`sleeping (${a.sleepCode}): it plans again when something new arrives in its domains`))
+  }
+  // Every option of a task was vetoed: the task is planned and nothing it proposed may run.
+  const vetoed = (f.tonight ?? []).filter((o) => o.outcome === 'vetoed')
+  for (const o of vetoed) {
+    const t = a.tasks.find((x) => x.id === o.id)
+    if (t !== undefined) out.push({ ...base, kind: 'held', phase: 2, task: t.text, art: t.kind, why: 'every option it proposed was vetoed, so nothing runs for this task tonight' })
+  }
+  // Undecided proposals a Fellow that asks first is holding: these are the ones waiting on you.
+  if (a.autonomy === 'manual' && f.undecidedProposals > 0) {
+    out.push(row(`asks every time: ${f.undecidedProposals} proposal${f.undecidedProposals === 1 ? '' : 's'} wait for your decision`))
+  }
+  return out
+}
+
+/**
+ * The list for one shelf, with the rest of the night as the order it sits in.
+ *
+ * Built from the same blocks the bar draws, so the two can never disagree about how many runs
+ * there are or how long they take - the list simply names what the bar can only shade.
+ */
+export function nightRows(
+  shelf: Shelf,
+  blocks: readonly Block[],
+  opts: {
+    /**
+     * Plan points for a price in USD, where the service is calibrated enough to give them.
+     * Passed in rather than read here so the whole list speaks ONE currency: a proposal
+     * carries points of its own, a slot nothing has been decided for does not, and a list
+     * that mixed the two would add a number to a different number.
+     */
+    readonly points?: (usd: number, model: string) => number | null
+  } = {},
+): NightRow[] {
+  const out: NightRow[] = []
+  for (const f of shelf.fellows) {
+    const mine = blocks.filter((b) => b.fellowId === f.agent.id)
+    for (const b of mine) {
+      const common = {
+        shelf: shelf.key,
+        fellowId: f.agent.id,
+        fellowName: f.agent.name,
+        task: b.text,
+        art: b.kind,
+        minutes: b.minutes,
+        // The proposal's own estimate where there is one; the Fellow's price for a slot that
+        // has no proposal yet. A planning run is not priced here: it is not what the quota or
+        // the research share is spent on, and naming a price for it would read as a choice.
+        estUsd: b.phase === 'plan' ? null : (b.proposal?.estCostUsd ?? runUsd(f.agent.step, f.agent.model)),
+        estPct:
+          b.phase === 'plan'
+            ? null
+            : (b.proposal?.estPlanPct ?? opts.points?.(runUsd(f.agent.step, f.agent.model), f.agent.model) ?? null),
+      }
+      if (b.phase === 'plan') {
+        out.push({
+          ...common,
+          kind: 'plan',
+          phase: 2,
+          proposal: null,
+          why:
+            f.agent.autonomy === 'auto'
+              ? 'works out what to do about this task, and carries out its own top pick tonight'
+              : 'works out what to do about this task; what it picks runs tomorrow night unless you veto it',
+        })
+        continue
+      }
+      if (b.proposal !== null) {
+        out.push({ ...common, kind: 'run', phase: phaseOf(f), proposal: b.proposal, why: whyItRuns(f, b.proposal) })
+        continue
+      }
+      out.push({ ...common, kind: 'open', phase: 3, proposal: null, why: 'a run the quota leaves room for, on whatever tonight’s planning puts up first' })
+    }
+    out.push(...heldRows(f, shelf.key))
+  }
+  // Stable inside a phase: the blocks are already in the order the bar lays them out.
+  return out.map((r, i) => ({ r, i })).sort((a, b) => a.r.phase - b.r.phase || a.i - b.i).map((x) => x.r)
 }

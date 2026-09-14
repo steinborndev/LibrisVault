@@ -1005,6 +1005,14 @@ export interface FellowSummary {
   lastRun: AgentRunRecord | null
   /** Research runs spent in the current NIGHT cycle, which is what the quota is counted in. */
   runsTonight: number
+  /**
+   * What the next shift would run for this Fellow, in the order it would take them and no
+   * further than the quota reaches. `next` is its first entry. Empty is not "nothing runs": an
+   * auto Fellow also runs what tonight's own planning puts up, which does not exist yet.
+   */
+  queue: ProposalRecord[]
+  /** Whether "skip tonight" covers the night ahead: it still plans, and nothing of it runs. */
+  skipsTonight: boolean
   /** Proposals still to decide or to run: approved ones stand here until they have run. */
   pendingProposals: number
   /**

@@ -1456,7 +1456,12 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 ## 12. API (draft, all under `/api/v1`, behind the existing auth middleware)
 
 - `GET/POST /agents` (POST carries `runFirstStep`, default true);
-  `GET/PATCH/DELETE /agents/:id`; `POST /agents/:id/pause|resume|retire|step`.
+  `GET/PATCH/DELETE /agents/:id`; `POST /agents/:id/pause|resume|retire|step`. Each Fellow of
+  the list carries `queue` and `skipsTonight` (2026-09-14): the proposals the next shift would
+  run, in its own order and capped by the quota, and whether a skip mark covers the night
+  ahead. `next` is the queue's first entry and stays for what only needs one. Both are answered
+  here rather than in the dashboard because both mean knowing which night is ahead, and the
+  board must not have a second opinion about that.
 - `GET /agents/:id/proposals`; `POST /proposals/:id/decide` with status, note, edits
   (topic text, rank); `POST /proposals/:id/run` executes a pending proposal now, gated.
 - `POST /agents/:id/plan` (plan now; 200 with the reason when there was nothing to plan
