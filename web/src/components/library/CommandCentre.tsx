@@ -37,14 +37,15 @@ import type {
   TaskKind,
 } from '../../api/types.ts'
 import {
-  carriedTonight,
+  runsTonight,
   fellowMinutes,
   isSystemPage,
   minutesFor,
   nightBlock,
   nightRoom,
   scheduleFrom,
-  taskCount,
+  runCount,
+  plannedOnly,
   shelfOrder,
   shelvesFrom,
   tasksTonight,
@@ -385,7 +386,7 @@ export function CommandCentre({
    * accounted for. The overflow note below it stays global on purpose and says why: the queue
    * is one line for everyone, so what pushes your work past the window may not be yours.
    */
-  const planOnly = mine.filter((b) => !b.runs)
+  const planOnly = plannedOnly(mine)
   /*
    * Whether the plan's own reserves will refuse the night. The schedule above knows tasks and
    * durations; this is the gate every run meets first, and without it the window draws work
@@ -672,7 +673,7 @@ export function CommandCentre({
               /* The hours first: they are the setting the rest of the line is read against. */
               { key: 'hours', node: `${hhmm(win.from)} to ${hhmm(win.to)}` },
               { key: 'ingests', node: `Ingest queue: ${ingests.length}` },
-              { key: 'tasks', node: `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}` },
+              { key: 'tasks', node: `${runCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}` },
               /* The night's length counts the held ingests with the Fellows' tasks; the
                  reserve holds only the Fellows, and the line says so when ingests still run. */
               {
@@ -738,9 +739,26 @@ export function CommandCentre({
                   <span
                     key={b.id}
                     className={`cc-ingest${picked === b.id ? ' here' : ''}`}
-                    style={{ left: `${pctIn(NIGHT, b.from)}%`, width: `${Math.max(0.4, (b.minutes / (NIGHT.to - NIGHT.from)) * 100)}%` }}
+                    style={{ left: `${pctIn(NIGHT, b.from)}%`, width: `${(b.minutes / (NIGHT.to - NIGHT.from)) * 100}%` }}
                     title={`${b.name} · ${b.type} · about ${b.minutes} min · held for tonight`}
                     onClick={() => setPicked(b.id)}
+                  />
+                ))}
+                {/*
+                  * And the Fellows' own work after it, one block per shelf in the shelf's
+                  * colour (2026-09-14). The ingests were drawn here and the work that follows
+                  * them was not, so the setter showed a night with nothing in it whenever the
+                  * queue was empty - which is most nights. Twelve hours of scale make a
+                  * nine-minute run a hairline, so the blocks carry a minimum width in CSS and
+                  * a shelf's tasks are one block rather than one each; the queue below draws
+                  * them task by task on the window's own scale.
+                  */}
+                {bandsOf(blocks).map((g) => (
+                  <span
+                    key={`${g.shelf}-${g.from}`}
+                    className="cc-work"
+                    style={{ left: `${pctIn(NIGHT, g.from)}%`, width: `${((g.to - g.from) / (NIGHT.to - NIGHT.from)) * 100}%`, ['--dc' as string]: domainColor(g.shelf) }}
+                    title={`${g.shelf}: ${runCount(g.parts)}, ${dur(g.to - g.from)}`}
                   />
                 ))}
               </div>
@@ -807,7 +825,7 @@ export function CommandCentre({
           <NightLine
             facts={[
               { key: 'ingests', node: `Ingest queue: ${ingests.length}` },
-              { key: 'tasks', node: taskCount(mine) },
+              { key: 'tasks', node: runCount(mine) },
               { key: 'when', node: mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} to ${hhmm(mine[mine.length - 1]!.to)} (estimated)` },
               { key: 'fellows', node: `${shelf.fellows.length} Fellow${shelf.fellows.length === 1 ? '' : 's'}` },
             ]}
@@ -824,7 +842,7 @@ export function CommandCentre({
                   <div
                     key={b.id}
                     className={`cc-band ingest${picked === b.id ? ' here' : ''}`}
-                    style={{ left: `${pctIn(live, b.from)}%`, width: `${Math.max(0.4, (b.minutes / (live.to - live.from)) * 100)}%` }}
+                    style={{ left: `${pctIn(live, b.from)}%`, width: `${(b.minutes / (live.to - live.from)) * 100}%` }}
                     title={`${b.name} · ${b.type} · about ${b.minutes} min · held for tonight, ahead of every Fellow`}
                     onClick={() => setPicked(b.id)}
                   />
@@ -833,21 +851,21 @@ export function CommandCentre({
                   <div
                     key={`${g.shelf}-${g.from}`}
                     className={`cc-band ${g.shelf === shelf.key ? 'here' : ''}`}
-                    style={{ left: `${pctIn(live, g.from)}%`, width: `${Math.max(0.4, ((g.to - g.from) / (live.to - live.from)) * 100)}%`, ['--dc' as string]: domainColor(g.shelf) }}
+                    style={{ left: `${pctIn(live, g.from)}%`, width: `${((g.to - g.from) / (live.to - live.from)) * 100}%`, ['--dc' as string]: domainColor(g.shelf) }}
                     title={`${g.shelf}: ${g.parts.length} task(s), ${dur(g.to - g.from)}`}
                   >
                     <span className="cc-parts">
                       {g.parts.map((b, i) => (
                         <span
                           key={`${b.fellowId}-${b.text}`}
-                          className={`cc-part ${b.runs ? '' : 'plan'}`}
+                          className={`cc-part ${b.phase === 'run' ? '' : 'plan'}`}
                           style={{ width: `${(b.minutes / (g.to - g.from)) * 100}%`, borderLeft: i > 0 ? '1px solid rgba(255,255,255,.55)' : undefined }}
                           title={
                             b.outcome === 'ran'
                               ? `${b.fellowName} · ${b.kind}: ${b.text} · done, a run carried it out tonight`
                               : b.outcome === 'vetoed'
                                 ? `${b.fellowName} · ${b.kind}: ${b.text} · nothing runs: you vetoed every option it proposed`
-                                : b.runs
+                                : b.phase === 'run'
                                   ? `${b.fellowName} · ${b.kind}: ${b.text} · ${dur(b.minutes)}, planning included`
                                   : `${b.fellowName} · ${b.kind}: ${b.text} · planned only tonight (${dur(b.minutes)}); the daily quota is spent, so it is carried out on a later night`
                           }
@@ -893,8 +911,8 @@ export function CommandCentre({
               <div className="cc-rows">
                 {shelf.fellows.map((f, i) => {
                   const tonight = tasksTonight(f.agent)
-                  const minutes = fellowMinutes(f.agent, durations)
-                  const carried = carriedTonight(f.agent)
+                  const minutes = fellowMinutes(f, durations)
+                  const runs = runsTonight(f)
                   const rested = f.agent.tasks.length > 0 && f.agent.tasks.every((t) => t.state !== 'active')
                   return (
                     <div key={f.agent.id} className={`cc-row ${i === row ? 'sel' : ''}`} onClick={() => { setRow(i); openFellow(f.agent.id) }}>
@@ -929,17 +947,18 @@ export function CommandCentre({
                           </button>
                         ) : (
                           <>
+                            {/* Runs against the quota, not tasks against tasks: one standing
+                                task can carry a whole night, because its planning run puts up
+                                three proposals and the shift works through them in rounds. */}
                             <span
-                              className={`sev ${carried < tonight.length ? 'due' : 'ok'}`}
+                              className={`sev ${runs === 0 ? 'due' : 'ok'}`}
                               title={
-                                carried < tonight.length
-                                  ? `all ${tonight.length} are planned; ${carried} of them also run, because the quota is ${f.agent.quotaRunsPerDay} run(s) a day. The rest stand as proposals.`
-                                  : f.agent.nightly === 'sweep'
-                                    ? 'every standing task, each in its own run'
-                                    : `one task a night: each of ${f.agent.tasks.length} comes round every ${f.agent.tasks.length} nights`
+                                `${tonight.length} task${tonight.length === 1 ? '' : 's'} planned tonight, ${runs} research run${runs === 1 ? '' : 's'} carried out. ` +
+                                `The quota is ${f.agent.quotaRunsPerDay} run(s) a night` +
+                                (runs === 0 ? ', and nothing stands to run: tonight is a planning night.' : '.')
                               }
                             >
-                              {carried} of {f.agent.tasks.length}
+                              {runs} of {f.agent.quotaRunsPerDay}
                             </span>
                             <span className="mono-meta">{minutes} min</span>
                           </>
@@ -974,8 +993,8 @@ export function CommandCentre({
                     {planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out
                     {' '}({[...new Set(planOnly.map((b) => b.fellowName))].join(', ')}).
                   </b>{' '}
-                  Planning is free of the daily quota and the run it produces is not, so a Fellow that works more tasks a
-                  night than its <i>runs a day</i> allows plans them all and runs the top ones. What is left over stands as
+                  Planning is free of the quota and the run it produces is not, so a Fellow that works more tasks a
+                  night than its <i>runs a night</i> allows plans them all and runs the top ones. What is left over stands as
                   a proposal for two nights: approve it to move it ahead of the others, or raise the quota in the Fellow
                   {planOnly.length === 1 ? "'s" : 's’'} settings so every planned task also runs.
                 </p>
@@ -1387,9 +1406,9 @@ function Dossier({
     ['notebook', 'Notebook'],
     ['settings', 'Settings'],
   ]
-  const nightly = fellowMinutes(a, durations)
+  const nightly = fellowMinutes(fellow, durations)
   const tonight = tasksTonight(a)
-  const carried = carriedTonight(a)
+  const carried = runsTonight(fellow)
 
   return (
     <>
@@ -1417,13 +1436,13 @@ function Dossier({
             tonight.map((t, i) => (
               <span key={t.id} className="cc-flow-step">
                 <i className="cc-arrow-in" aria-hidden>→</i>
-                <span className="cc-art a-plan" title="A planning run: what to do about this task. It never counts against the daily quota.">
+                <span className="cc-art a-plan" title="A planning run: what to do about this task. It never counts against the night's quota.">
                   plan
                 </span>
                 <i className="cc-arrow-in" aria-hidden>→</i>
                 <span
                   className={`cc-art a-${t.kind} ${i < carried ? '' : 'held'}`}
-                  title={i < carried ? `${ART_TEXT[t.kind]} Task: ${t.text}` : `Planned tonight, carried out on a later night: the quota is ${a.quotaRunsPerDay} run(s) a day. Task: ${t.text}`}
+                  title={i < carried ? `${ART_TEXT[t.kind]} Task: ${t.text}` : `Planned tonight, carried out on a later night: the quota is ${a.quotaRunsPerDay} run(s) a night. Task: ${t.text}`}
                 >
                   {t.kind}
                 </span>
@@ -1477,7 +1496,7 @@ function Dossier({
               <span className={`cc-art a-${upNext.kind}`}>{upNext.kind}</span>
               <span className="cc-upnext-t">{upNext.text}</span>
               <span className="grow" />
-              <span className="mono-meta">{nightly} min tonight · {card ? `${card.quota.usedToday} of ${card.quota.runsPerDay} runs used` : ''}</span>
+              <span className="mono-meta">{nightly} min tonight · {card ? `${card.quota.used} of ${card.quota.runsPerDay} runs used` : ''}</span>
             </>
           ) : (
             <>
@@ -1662,7 +1681,7 @@ function Dossier({
                     )}
                   </p>
                   <div className="cc-quota">
-                    <span className="k">Runs a day</span>
+                    <span className="k">Runs a night</span>
                     <span className="cc-step">
                       <button
                         disabled={patching || a.quotaRunsPerDay <= 0}
@@ -1680,7 +1699,7 @@ function Dossier({
                         +
                       </button>
                     </span>
-                    <span className="mono-meta">{nightly} min tonight{card ? ` · ${card.quota.usedToday} used today` : ''}</span>
+                    <span className="mono-meta">{nightly} min tonight{card ? ` · ${card.quota.used} of ${card.quota.runsPerDay} used` : ''}</span>
                   </div>
                   {/*
                     * Against TONIGHT'S tasks, not against everything standing. A rotating
@@ -1690,9 +1709,9 @@ function Dossier({
                     */}
                   {carried < tonight.length && (
                     <p className="cc-note warn">
-                      {tonight.length} task{tonight.length === 1 ? '' : 's'} planned tonight, {carried} carried out.
-                      Planning is free of the daily quota and the run it produces is not, so {tonight.length} run
-                      {tonight.length === 1 ? '' : 's'} a day is what it takes for every task planned to also run.{' '}
+                      {tonight.length} task{tonight.length === 1 ? '' : 's'} planned tonight, {carried} run
+                      {carried === 1 ? '' : 's'} carried out. Planning is free of the quota and the run it produces is not, so{' '}
+                      {tonight.length} run{tonight.length === 1 ? '' : 's'} a night is what it takes for every task planned to also run.{' '}
                       <button className="cc-link" disabled={patching} onClick={() => onPatch({ quotaRunsPerDay: tonight.length })}>
                         Raise it to {tonight.length} ›
                       </button>

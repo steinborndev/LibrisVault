@@ -138,14 +138,16 @@ export interface Block {
   /** A Fellow in `manual` mode starts nothing on its own. */
   readonly waits: boolean
   /**
-   * False when only the planning run fits tonight: the Fellow's runs-per-day quota is spent
-   * on earlier tasks, so this one is planned tonight and carried out on a later night.
+   * Which of the night's two run kinds this block is (2026-09-14). The shift plans every
+   * standing task and then carries out as many proposals as the quota allows, and those are
+   * different lengths and different numbers - a Fellow with one task and a quota of two does
+   * one plan and two runs. Drawing one block per TASK could show neither.
    */
-  readonly runs: boolean
+  readonly phase: 'plan' | 'run'
   /**
-   * What the night made of this task, as the service recorded it: `ran` when a run carried one
-   * of its proposals out, `vetoed` when every proposal it got was vetoed, `open` otherwise.
-   * The bar marks a section from this rather than from the schedule, because the schedule is a
+   * What the night made of this block, as the service recorded it: `ran` when a run carried a
+   * proposal out, `vetoed` when every proposal the task got was vetoed, `open` otherwise. The
+   * bar marks a section from this rather than from the schedule, because the schedule is a
    * forecast and this is the record.
    */
   readonly outcome: TaskOutcome
@@ -171,19 +173,49 @@ export function minutesFor(kind: TaskKind, durations: Readonly<Record<string, nu
   return Math.round((planMs(durations) + runMs(kind, durations)) / 60_000)
 }
 
-/**
- * How many of tonight's tasks a Fellow also carries out, as opposed to only planning: its
- * runs-per-day quota, or fewer if it has fewer tasks standing.
- */
-export function carriedTonight(agent: FellowRecord): number {
-  return Math.min(tasksTonight(agent).length, Math.max(0, agent.quotaRunsPerDay))
+/** What one research run of this art takes, without the planning run in front of it. */
+export function runMinutes(kind: TaskKind, durations: Readonly<Record<string, number | null>>): number {
+  return Math.round(runMs(kind, durations) / 60_000)
 }
 
-/** What one Fellow costs the night: a planning run each, plus the runs the quota lets through. */
-export function fellowMinutes(agent: FellowRecord, durations: Readonly<Record<string, number | null>>): number {
-  const tasks = tasksTonight(agent)
-  const carried = carriedTonight(agent)
-  return tasks.reduce((n, t, i) => n + (i < carried ? minutesFor(t.kind, durations) : planMinutes(durations)), 0)
+/** Proposals one planning run puts up for its task; the planner is capped at three. */
+const PROPOSALS_PER_PLAN = 3
+
+/**
+ * How many RESEARCH runs the night carries out for this Fellow, the ones already done included.
+ *
+ * It used to be `min(tasks, quota)`, which read the quota as a supply of tasks rather than as
+ * the cap it is: a Fellow with one standing task and a quota of two was drawn as one run, while
+ * the shift ran two - phase 3 walks its auto Fellows in ROUNDS and stops on the quota, not on
+ * the task list. One task can carry a whole night, because one planning run puts up three
+ * proposals for it.
+ *
+ * What the night can actually reach:
+ *   - the quota, less what this night already spent;
+ *   - what stands: an approved proposal runs in any mode, an undecided one in every mode but
+ *     `manual`, which is what "run unless I stop it" means;
+ *   - what tonight's own plans add, and only an auto Fellow runs what it just planned - in veto
+ *     mode tonight's proposals are tomorrow's runs, which is the whole point of the mode.
+ */
+export function runsTonight(f: FellowSummary): number {
+  const done = Math.max(0, f.runsTonight)
+  const left = Math.max(0, f.agent.quotaRunsPerDay - done)
+  const approved = Math.max(0, f.pendingProposals - f.undecidedProposals)
+  const standing = f.agent.autonomy === 'manual' ? approved : f.pendingProposals
+  const fresh = f.agent.autonomy === 'auto' ? tasksTonight(f.agent).length * PROPOSALS_PER_PLAN : 0
+  return done + Math.min(left, standing + fresh)
+}
+
+/** What one Fellow costs the night: one planning run per standing task, plus its research runs. */
+export function fellowMinutes(f: FellowSummary, durations: Readonly<Record<string, number | null>>): number {
+  const tasks = tasksTonight(f.agent)
+  const runs = runsTonight(f)
+  const plans = tasks.length * planMinutes(durations)
+  // Round robin over the tasks, so a Fellow whose tasks are of different arts is priced by the
+  // ones its runs actually reach.
+  let n = 0
+  for (let i = 0; i < runs; i++) n += runMinutes(tasks[i % Math.max(1, tasks.length)]?.kind ?? 'watch', durations)
+  return plans + n
 }
 
 /**
@@ -242,9 +274,11 @@ export function ingestSchedule(
  * start. The runs are serialized on the run mutex, so this is one line and not one per shelf
  * (A7 D9) - which is the whole reason the schedule is drawn at all.
  *
- * A Fellow's `quotaRunsPerDay` caps how many of its tasks are also CARRIED OUT tonight; the
- * rest still cost their planning run. `minutesFor` a task past the cap would book time the
- * shift will not spend.
+ * One block is one RUN, not one task (2026-09-14). The shift plans every standing task and
+ * then carries out as many proposals as the quota allows, so the two are different counts and
+ * different lengths, and a Fellow with one task and a quota of two fills a night with three
+ * runs. Grouped per Fellow rather than in the shift's true phase order (all plans, then all
+ * runs): the shelf order is what the arrows set, and it has to stay legible in the bar.
  */
 export function scheduleFrom(
   shelves: readonly Shelf[],
@@ -255,11 +289,9 @@ export function scheduleFrom(
   let cur = startMinute
   for (const s of shelves) {
     for (const f of s.fellows) {
-      const carried = carriedTonight(f.agent)
       const outcomes = new Map((f.tonight ?? []).map((o) => [o.id, o.outcome]))
-      for (const [i, t] of tasksTonight(f.agent).entries()) {
-        const runs = i < carried
-        const minutes = runs ? minutesFor(t.kind, durations) : planMinutes(durations)
+      const tasks = tasksTonight(f.agent)
+      const push = (t: AgentTask, phase: 'plan' | 'run', minutes: number, outcome: TaskOutcome): void => {
         out.push({
           shelf: s.key,
           fellowId: f.agent.id,
@@ -270,10 +302,27 @@ export function scheduleFrom(
           from: cur,
           to: cur + minutes,
           waits: f.agent.autonomy === 'manual',
-          runs,
-          outcome: outcomes.get(t.id) ?? 'open',
+          phase,
+          outcome,
         })
         cur += minutes
+      }
+      // One planning run per standing task. A vetoed task is marked here: it is the plan that
+      // produced the proposals nothing survived.
+      for (const t of tasks) {
+        const outcome = outcomes.get(t.id)
+        push(t, 'plan', planMinutes(durations), outcome === 'vetoed' ? 'vetoed' : 'open')
+      }
+      /*
+       * Then the research runs, round robin over the tasks. The ones this night has already
+       * carried out come first and wear the mark; the rest are the forecast.
+       */
+      const runs = runsTonight(f)
+      const done = Math.max(0, f.runsTonight)
+      for (let i = 0; i < runs; i++) {
+        const t = tasks[i % Math.max(1, tasks.length)]
+        if (t === undefined) break
+        push(t, 'run', runMinutes(t.kind, durations), i < done ? 'ran' : 'open')
       }
     }
   }
@@ -281,16 +330,28 @@ export function scheduleFrom(
 }
 
 /**
- * How many tasks a set of blocks actually gets through, in words.
- *
- * The count has to lead with what RUNS. Every task on the list gets a planning run, so a plain
- * "3 tasks" against a quota of two says the night does three when it does two and defers one,
- * and the number a schedule shows is the one a reader takes at face value.
+ * The tasks a night plans but never gets a run to: their plan block has no run block beside it.
+ * What the quota holds back, named per task rather than counted, so the note can say whose.
  */
-export function taskCount(blocks: readonly Block[]): string {
-  const runs = blocks.filter((b) => b.runs).length
-  const word = (n: number): string => `${n} task${n === 1 ? '' : 's'}`
-  return runs === blocks.length ? word(runs) : `${runs} of ${word(blocks.length)} run`
+export function plannedOnly(blocks: readonly Block[]): Block[] {
+  const ran = new Set(blocks.filter((b) => b.phase === 'run').map((b) => `${b.fellowId}\u0000${b.text}`))
+  return blocks.filter((b) => b.phase === 'plan' && !ran.has(`${b.fellowId}\u0000${b.text}`))
+}
+
+/**
+ * What a set of blocks gets through, in words.
+ *
+ * The count leads with the RESEARCH runs: they are the work, a planning run is what decides
+ * what the work will be. Both are named, because a night of four plans and one run is a
+ * different night from one plan and four runs, and "5" would say neither.
+ */
+export function runCount(blocks: readonly Block[]): string {
+  const runs = blocks.filter((b) => b.phase === 'run').length
+  const plans = blocks.length - runs
+  const word = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`
+  if (blocks.length === 0) return 'nothing to run'
+  if (runs === 0) return `${word(plans, 'plan')}, no run`
+  return plans === 0 ? word(runs, 'run') : `${word(runs, 'run')}, ${word(plans, 'plan')}`
 }
 
 /**

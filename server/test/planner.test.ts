@@ -321,11 +321,11 @@ describe('planner prompt, schema and answer', () => {
   ]
 
   it('renders the prompt with candidates, kinds, vetoes and quota', () => {
-    const prompt = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: ['2026-09-06 · research-step · x · 1 page(s) · 2.00 USD'], vetoed: ['Old topic'], runsLeftToday: 1, kinds: ['research-step', 'research'] })
+    const prompt = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: ['2026-09-06 · research-step · x · 1 page(s) · 2.00 USD'], vetoed: ['Old topic'], runsLeftTonight: 1, kinds: ['research-step', 'research'] })
     expect(prompt).toContain('C1 [open-question; from wiki/meta/agents/ada.md] Does the precision hold')
     expect(prompt).toContain('C2 [gap; from wiki/concepts/Transit Photometry.md] Limb Darkening')
     expect(prompt).toContain('do not propose them again:\n- Old topic')
-    expect(prompt).toContain('1 run(s) left today')
+    expect(prompt).toContain('1 run(s) left tonight')
     expect(prompt).toContain('research-step (one question')
     expect(prompt).toContain('no web access')
   })
@@ -348,7 +348,7 @@ describe('planner prompt, schema and answer', () => {
         { fellow: 'Bo', topic: 'Limb darkening in transit photometry', ran: true },
         { fellow: 'Cy', topic: 'Faint host precision', ran: false },
       ],
-      runsLeftToday: 1,
+      runsLeftTonight: 1,
       kinds: ['research-step'],
     })
     expect(prompt).toContain('ALREADY RAN tonight by Bo: "Limb darkening in transit photometry"')
@@ -362,9 +362,9 @@ describe('planner prompt, schema and answer', () => {
   })
 
   it('says nothing about elsewhere when the Fellow works alone', () => {
-    const alone = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], elsewhere: [], runsLeftToday: 1, kinds: ['research-step'] })
+    const alone = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], elsewhere: [], runsLeftTonight: 1, kinds: ['research-step'] })
     expect(alone).not.toContain('already claimed elsewhere')
-    const unset = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    const unset = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: ['research-step'] })
     expect(unset).not.toContain('already claimed elsewhere')
   })
 
@@ -460,27 +460,27 @@ describe('planner prompt, schema and answer', () => {
     expect(item['topic']).toMatchObject({ maxLength: FIELD_CAPS.topic, minLength: 3 })
     expect(item['rationale']).toMatchObject({ maxLength: FIELD_CAPS.rationale })
     expect(item['pages']).toMatchObject({ maxItems: FIELD_CAPS.pages })
-    const prompt = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    const prompt = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: ['research-step'] })
     expect(prompt).toContain(`at most ${FIELD_CAPS.topic} characters`)
     // The planner writes nothing itself; the reading entries come back as data.
     expect(prompt).toContain('could NOT get')
     expect(prompt).toContain('you must not write to any page')
     expect(prompt).not.toContain('NOTE:')
-    const again = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], retryNote: 'its answer did not match the schema' })
+    const again = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: ['research-step'], retryNote: 'its answer did not match the schema' })
     expect(again).toContain('NOTE: its answer did not match the schema')
   })
 
-  it('says what "runs left today" is for, because zero is not a reason to stop planning', () => {
+  it('says what "runs left tonight" is for, because zero is not a reason to stop planning', () => {
     /*
      * Measured: three of nine planning runs on this vault returned nothing with the reason
-     * "the Fellow has 0 runs left today, so nothing proposed would execute". The shift
+     * "the Fellow has 0 runs left tonight, so nothing proposed would execute". The shift
      * executes standing proposals in phase 1 and plans in phase 2, so a Fellow with a quota
      * of one reaches every planning run with zero left - and then plans nothing for the
      * night after.
      */
     const has = (n: number): string =>
-      renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: n, kinds: ['research-step'] })
-    expect(has(1)).toContain('The Fellow has 1 run(s) left today.')
+      renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftTonight: n, kinds: ['research-step'] })
+    expect(has(1)).toContain('The Fellow has 1 run(s) left tonight.')
     expect(has(1)).not.toContain('Propose anyway')
     expect(has(0)).toContain('nothing you propose can run before tomorrow')
     expect(has(0)).toContain('Propose anyway')
@@ -492,18 +492,18 @@ describe('planner prompt, schema and answer', () => {
       { id: 'C1', kind: 'sweep', text: 'new quick vegetarian recipes', sourcePages: ['wiki/meta/agents/ada.md'], weight: 3.2 },
       ...candidates,
     ]
-    const plain = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    const plain = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: ['research-step'] })
     expect(plain).not.toContain('`sweep` candidate')
-    const swept = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'] })
+    const swept = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: ['research-step'] })
     expect(swept).toContain('The `sweep` candidate is the standing task itself')
     expect(swept).toContain('material the library does not have yet')
 
     // The loop sentence is a statement of fact about this Fellow, so it appears only when
     // the streak is real - a planner told about a loop it is not in would avoid its own
     // best candidate for nothing.
-    const below = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], selfLoop: SELF_LOOP_LIMIT - 1 })
+    const below = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: ['research-step'], selfLoop: SELF_LOOP_LIMIT - 1 })
     expect(below).not.toContain('followed up a question this Fellow wrote itself')
-    const looping = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: ['research-step'], selfLoop: 4 })
+    const looping = renderPlannerPrompt({ task: TASK, agent: agentRecord(), candidates: withSweep, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: ['research-step'], selfLoop: 4 })
     expect(looping).toContain('The last 4 runs all followed up a question this Fellow wrote itself')
     expect(looping).toContain('an audit of its own first sources')
   })
@@ -694,6 +694,28 @@ describe('night window arithmetic', () => {
     expect(windowAt(at(2026, 9, 7, 23, 30), late).current).toMatchObject({ cycleDate: '2026-09-08', end: at(2026, 9, 8, 4, 0) })
     expect(windowAt(at(2026, 9, 8, 2, 0), late).current).toMatchObject({ cycleDate: '2026-09-08', start: at(2026, 9, 7, 23, 0) })
     expect(windowAt(at(2026, 9, 8, 5, 0), late).current).toBeNull()
+  })
+
+  /*
+   * The night the Fellows are read against (2026-09-14): the one running now, else the one
+   * that has not opened yet. `current ?? next`, and the part that matters is that it does not
+   * change at midnight - a window from 23:30 to 04:00 is one night on both sides of it.
+   */
+  it('names one night across midnight, and the coming one while the evening waits', () => {
+    const late = { start: '23:30', end: '04:00' }
+    // Evening, before the window opens: "tonight" is the window that has not started.
+    const evening = at(2026, 9, 14, 19, 40)
+    expect(windowAt(evening, late).current).toBeNull()
+    expect(windowAt(evening, late).next).toMatchObject({ start: at(2026, 9, 14, 23, 30), cycleDate: '2026-09-15' })
+
+    // Inside it, on both sides of midnight, it stays the same night with the same start.
+    for (const t of [at(2026, 9, 14, 23, 40), at(2026, 9, 15, 0, 10), at(2026, 9, 15, 3, 59)]) {
+      expect(windowAt(t, late).current).toMatchObject({ start: at(2026, 9, 14, 23, 30), cycleDate: '2026-09-15' })
+    }
+
+    // And once it ends, the next one is a new night with a new count.
+    expect(windowAt(at(2026, 9, 15, 9, 0), late).current).toBeNull()
+    expect(windowAt(at(2026, 9, 15, 9, 0), late).next.cycleDate).toBe('2026-09-16')
   })
 
   it('local dates and knowledge pages', () => {

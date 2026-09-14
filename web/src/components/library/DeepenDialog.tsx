@@ -76,7 +76,7 @@ export function DeepenDialog({
     agents.data?.models.find((m) => m.key === chosen?.agent.model)?.factor ?? 1;
   const step = stepButton(
     {
-      usedToday: chosen?.runsToday ?? 0,
+      used: chosen?.runsTonight ?? 0,
       runsPerDay: chosen?.agent.quotaRunsPerDay ?? 1,
     },
     confirming,
@@ -294,7 +294,7 @@ export function DeepenDialog({
 
                 <p className="mono-meta">
                   Up to {deepenCostUsd(pages.length, factor).toFixed(2)} USD ·{" "}
-                  {chosen?.agent.name} · {chosen?.runsToday} of{" "}
+                  {chosen?.agent.name} · {chosen?.runsTonight} of{" "}
                   {chosen?.agent.quotaRunsPerDay} runs today
                 </p>
                 {step.note !== null && <p className="mono-meta">{step.note}</p>}

@@ -271,8 +271,8 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         </label>
         <label>
           <span className="sp-lbl">
-            Runs a day
-            <Tip text="How many runs a day the night shift may spend on this Fellow. It is the ceiling over its standing work: three tasks worked in one night are three runs, so a quota of one leaves two of them for the following nights. It follows the number of tasks until you set it yourself. You can always start a run by hand past this limit - the quota holds back the autopilot, not you." />
+            Runs a night
+            <Tip text="How many research runs one night shift may spend on this Fellow. It is a ceiling, not a supply: one standing task can use all of them, because its planning run puts up three proposals and the shift works through them in rounds. Counted per night rather than per calendar day, so a window that crosses midnight stays one count. It follows the number of tasks until you set it yourself, and you can always start a run by hand past it - the quota holds back the autopilot, not you." />
           </span>
           <input
             className="input"

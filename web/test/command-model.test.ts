@@ -9,16 +9,18 @@
 import { describe, it, expect } from 'vitest'
 import {
   artOf,
-  carriedTonight,
+  runsTonight,
   isSystemPage,
   fellowMinutes,
   minutesFor,
+  runMinutes,
   nightBlock,
   nightRoom,
   scheduleFrom,
   shelfOrder,
   shelvesFrom,
-  taskCount,
+  runCount,
+  plannedOnly,
   tasksTonight,
   ticksIn,
   toMinutes,
@@ -66,7 +68,11 @@ const agent = (over: Partial<FellowRecord> & Pick<FellowRecord, 'id' | 'name'>):
   }) as FellowRecord
 
 const summary = (a: FellowRecord): FellowSummary =>
-  ({ agent: a, currentRun: null, lastRun: null, runsToday: 0, pendingProposals: 0, next: null }) as FellowSummary
+  ({ agent: a, currentRun: null, lastRun: null, runsTonight: 0, pendingProposals: 0, undecidedProposals: 0, next: null }) as FellowSummary
+
+/** A Fellow with proposals standing from an earlier night, which is what phase 1 runs. */
+const withStanding = (a: FellowRecord, pending: number, over: Partial<FellowSummary> = {}): FellowSummary =>
+  ({ ...summary(a), pendingProposals: pending, undecidedProposals: pending, ...over }) as FellowSummary
 
 const node = (over: Partial<GraphNode>): GraphNode =>
   ({ path: 'wiki/concepts/X.md', title: 'X', type: 'concepts', tags: [], domain: null, kind: 'knowledge', out: 0, in: 0, mtimeMs: 0, size: 100, ...over }) as GraphNode
@@ -317,14 +323,51 @@ describe('scheduleFrom', () => {
 
   it('lays the night end to end, because the runs are serialized', () => {
     const shelves = [
-      { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(agent({ id: 'c', name: 'Clara', tasks: [task('watch', 'a')] }))] },
-      { key: 'ml', pages: 0, questions: 0, gaps: 0, fellows: [summary(agent({ id: 'a', name: 'Ada', tasks: [task('deepen', 'b')] }))] },
+      { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withStanding(agent({ id: 'c', name: 'Clara', tasks: [task('watch', 'a')] }), 1)] },
+      { key: 'ml', pages: 0, questions: 0, gaps: 0, fellows: [withStanding(agent({ id: 'a', name: 'Ada', tasks: [task('deepen', 'b')] }), 1)] },
     ]
     const blocks = scheduleFrom(shelves, 1500, durations)
-    expect(blocks).toHaveLength(2)
-    // The second starts where the first ends - one queue, not two.
-    expect(blocks[1]!.from).toBe(blocks[0]!.to)
+    // One plan and one run each: the plan decides what the night does, the run does it.
+    expect(blocks.map((b) => b.phase)).toEqual(['plan', 'run', 'plan', 'run'])
+    // Every block starts where the one before it ends - one queue, not one per shelf.
+    for (const [i, b] of blocks.entries()) if (i > 0) expect(b.from).toBe(blocks[i - 1]!.to)
     expect(blocks[0]!.shelf).toBe('bio')
+  })
+
+  /*
+   * The count the quota actually caps (2026-09-14). It used to be read as a supply of tasks -
+   * `min(tasks, quota)` - so a Fellow with one standing task and a quota of two was drawn as
+   * one run while the shift ran two: phase 3 walks its auto Fellows in ROUNDS and stops on the
+   * quota, and one planning run puts up three proposals for one task.
+   */
+  it('a single task can fill a night, because the quota caps runs and not tasks', () => {
+    const a = agent({ id: 'b', name: 'B', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations)
+    expect(blocks.map((b) => b.phase)).toEqual(['plan', 'run', 'run'])
+    expect(runsTonight(summary(a))).toBe(2)
+  })
+
+  it('a Fellow that waits a night runs only what already stands', () => {
+    // Veto mode: tonight it plans, tomorrow night the top proposal runs. With nothing standing
+    // from an earlier night, tonight is a planning night and the bar says so.
+    const a = agent({ id: 'v', name: 'V', autonomy: 'veto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations).map((b) => b.phase)).toEqual(['plan'])
+    expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withStanding(a, 1)] }], 1500, durations).map((b) => b.phase)).toEqual(['plan', 'run'])
+    // Asking first means nothing undecided runs: only what the user approved.
+    const asks = agent({ ...a, id: 'm', autonomy: 'manual' })
+    expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withStanding(asks, 1)] }], 1500, durations).map((b) => b.phase)).toEqual(['plan'])
+  })
+
+  it('counts the runs this night already made, so the bar does not shrink as the night works', () => {
+    // One of the two is done. The block for it carries the mark; the other is still forecast.
+    const a = agent({ id: 'b', name: 'B', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    const half = { ...summary(a), runsTonight: 1 } as FellowSummary
+    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [half] }], 1500, durations)
+    expect(blocks.map((b) => b.phase)).toEqual(['plan', 'run', 'run'])
+    expect(blocks.map((b) => b.outcome)).toEqual(['open', 'ran', 'open'])
+    // And once the quota is spent the night is still drawn as the two runs it made.
+    const spent = { ...summary(a), runsTonight: 2 } as FellowSummary
+    expect(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [spent] }], 1500, durations).map((b) => b.outcome)).toEqual(['open', 'ran', 'ran'])
   })
 
   it('books only the planning run for a task the quota will not carry out', () => {
@@ -333,26 +376,29 @@ describe('scheduleFrom', () => {
      * is not. A sweeping Fellow on a quota of one plans three tasks and runs one, so drawing
      * three full runs would book about 21 minutes the shift never spends.
      */
-    const a = agent({ id: 's', name: 'S', nightly: 'sweep', quotaRunsPerDay: 1, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] })
+    const a = agent({ id: 's', name: 'S', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 1, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] })
     const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations)
-    expect(blocks.map((b) => b.runs)).toEqual([true, false, false])
-    expect(blocks.map((b) => b.minutes)).toEqual([7, 1, 1])
+    expect(blocks.map((b) => b.phase)).toEqual(['plan', 'plan', 'plan', 'run'])
+    expect(blocks.map((b) => b.minutes)).toEqual([1, 1, 1, 5])
     // And the whole Fellow costs the same as its blocks, because it is the same arithmetic.
-    expect(fellowMinutes(a, durations)).toBe(9)
-    expect(carriedTonight(a)).toBe(1)
+    expect(fellowMinutes(summary(a), durations)).toBe(8)
+    expect(runsTonight(summary(a))).toBe(1)
+    // Two of the three tasks get no run of their own; the note under the bar names them.
+    expect(plannedOnly(blocks).map((b) => b.text)).toEqual(['b', 'c'])
   })
 
   it('carries out every task once the quota is raised to match them', () => {
-    const a = agent({ id: 's', name: 'S', nightly: 'sweep', quotaRunsPerDay: 3, tasks: [task('watch', 'a'), task('deepen', 'b')] })
-    expect(carriedTonight(a)).toBe(2)
-    expect(fellowMinutes(a, durations)).toBe(14)
+    const a = agent({ id: 's', name: 'S', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 2, tasks: [task('watch', 'a'), task('deepen', 'b')] })
+    expect(runsTonight(summary(a))).toBe(2)
+    expect(fellowMinutes(summary(a), durations)).toBe(12)
+    expect(plannedOnly(scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations))).toEqual([])
   })
 
   it('carries out nothing at a quota of zero, and still plans', () => {
     // A quota of 0 is a real setting: it parks a Fellow without pausing it.
-    const a = agent({ id: 'z', name: 'Z', nightly: 'sweep', quotaRunsPerDay: 0, tasks: [task('watch', 'a')] })
-    expect(carriedTonight(a)).toBe(0)
-    expect(fellowMinutes(a, durations)).toBe(1)
+    const a = agent({ id: 'z', name: 'Z', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 0, tasks: [task('watch', 'a')] })
+    expect(runsTonight(summary(a))).toBe(0)
+    expect(fellowMinutes(summary(a), durations)).toBe(1)
   })
 
   it('counts what runs, not what is merely on the list', () => {
@@ -366,12 +412,14 @@ describe('scheduleFrom', () => {
         pages: 0,
         questions: 0,
         gaps: 0,
-        fellows: [summary(agent({ id: 's', name: 'S', nightly: 'sweep', quotaRunsPerDay: quota, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] }))],
+        fellows: [summary(agent({ id: 's', name: 'S', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: quota, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] }))],
       },
     ]
-    expect(taskCount(scheduleFrom(shelves(1), 1500, durations))).toBe('1 of 3 tasks run')
-    expect(taskCount(scheduleFrom(shelves(3), 1500, durations))).toBe('3 tasks')
-    expect(taskCount([])).toBe('0 tasks')
+    expect(runCount(scheduleFrom(shelves(1), 1500, durations))).toBe('1 run, 3 plans')
+    expect(runCount(scheduleFrom(shelves(3), 1500, durations))).toBe('3 runs, 3 plans')
+    expect(runCount([])).toBe('nothing to run')
+    // A night that only plans says so rather than counting the plans as work done.
+    expect(runCount(scheduleFrom(shelves(0), 1500, durations))).toBe('3 plans, no run')
   })
 
   it('carries what the night made of each task onto its block', () => {
@@ -383,42 +431,14 @@ describe('scheduleFrom', () => {
     const a = agent({
       id: 'o',
       name: 'O',
-      nightly: 'sweep',
-      quotaRunsPerDay: 3,
-      tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')],
-    })
-    const summaryWith = summary(a) as FellowSummary & { tonight: Array<{ id: string; outcome: 'ran' | 'vetoed' | 'open' }> }
-    summaryWith.tonight = [
-      { id: 'a', outcome: 'ran' },
-      { id: 'b', outcome: 'vetoed' },
-      { id: 'c', outcome: 'open' },
-    ]
-    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summaryWith] }], 1500, durations)
-    expect(blocks.map((b) => b.outcome)).toEqual(['ran', 'vetoed', 'open'])
-  })
-
-  it('calls a task open when the service says nothing about it', () => {
-    // A Fellow the payload has no outcomes for at all: absent is not the same as decided.
-    const a = agent({ id: 'q', name: 'Q', tasks: [task('watch', 'a')] })
-    const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(a)] }], 1500, durations)
-    expect(blocks[0]!.outcome).toBe('open')
-  })
-
-  it('carries what the night made of each task onto its block', () => {
-    /*
-     * The record, not the forecast: the service says what became of a task this cycle and the
-     * bar marks the section from that. A task with no outcome yet is `open`, which is what a
-     * schedule drawn before the night is.
-     */
-    const a = agent({
-      id: 'o',
-      name: 'O',
+      autonomy: 'auto',
       nightly: 'sweep',
       quotaRunsPerDay: 3,
       tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')],
     })
     const withOutcomes = {
       ...summary(a),
+      runsTonight: 1,
       tonight: [
         { id: 'a', outcome: 'ran' as const },
         { id: 'b', outcome: 'vetoed' as const },
@@ -426,7 +446,9 @@ describe('scheduleFrom', () => {
       ],
     }
     const blocks = scheduleFrom([{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [withOutcomes] }], 1500, durations)
-    expect(blocks.map((b) => b.outcome)).toEqual(['ran', 'vetoed', 'open'])
+    // The veto is a verdict on the TASK, so it marks the plan that produced the proposals; the
+    // run that happened marks the first run block, which is the one the night already made.
+    expect(blocks.map((b) => `${b.phase}:${b.outcome}`)).toEqual(['plan:open', 'plan:vetoed', 'plan:open', 'run:ran', 'run:open', 'run:open'])
   })
 
   it('calls a task open when the service says nothing about it', () => {
@@ -439,6 +461,12 @@ describe('scheduleFrom', () => {
   it('marks a task whose Fellow asks first, since it does not start on its own', () => {
     const shelves = [{ key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [summary(agent({ id: 'x', name: 'X', autonomy: 'manual', tasks: [task('watch', 'a')] }))] }]
     expect(scheduleFrom(shelves, 1500, durations)[0]!.waits).toBe(true)
+  })
+
+  it('prices a run on its own, and a task as its run plus its planning run', () => {
+    // 318 s is 5 minutes of run; with the 86 s plan in front of it the task costs 7.
+    expect(runMinutes('watch', durations)).toBe(5)
+    expect(runMinutes('deepen', durations)).toBe(5)
   })
 
   it('counts a task as its run plus its own planning run', () => {

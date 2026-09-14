@@ -9100,6 +9100,20 @@ tr:focus-within .rowacts {
   background: var(--text-faint); opacity: 0.55; cursor: pointer; border-right: 2px solid var(--bg-elev-2);
 }
 .cc-ingest.here, .cc-ingest:hover { opacity: 0.9; }
+/* The Fellows' work in the setter, one block per shelf in the shelf's colour. */
+.cc-work {
+  position: absolute; top: 3px; bottom: 3px; z-index: 1; border-radius: 3px;
+  background: var(--dc); opacity: 0.75; border-right: 2px solid var(--bg-elev-2);
+}
+/*
+ * A floor on the width, not a floor in the arithmetic (2026-09-14): the setter spans twelve
+ * hours, where a nine-minute run is eight pixels and a five-minute ingest four. Blocks stay at
+ * their true position and true proportion, and only stop shrinking below something a reader
+ * can see and a pointer can hit. Widening them in the numbers instead would push every
+ * following block off the hour it actually starts on.
+ */
+.cc-ingest, .cc-work { min-width: 11px; }
+.cc-band, .cc-band.ingest { min-width: 5px; }
 .cc-active { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); opacity: 0.55; }
 /* A domain occupies one band of the night in its own colour; hairlines are its topics. */
 .cc-band { position: absolute; top: 0; bottom: 0; background: var(--dc); opacity: 0.42; border-right: 2px solid var(--bg-elev); overflow: hidden; cursor: grab; }

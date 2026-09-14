@@ -15,7 +15,7 @@ import type { AgentRecord } from '../db/agents.js'
 import type { FellowService } from './fellows.js'
 import { localDate, windowAt, type NightWindow } from './clock.js'
 
-export { windowAt, type NightWindow, type WindowAt, type WindowSpan } from './clock.js'
+export { windowAt, cycleAt, type NightWindow, type WindowAt, type WindowSpan } from './clock.js'
 
 export interface ShiftStatus {
   readonly window: NightWindow

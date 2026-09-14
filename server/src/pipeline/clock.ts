@@ -51,6 +51,25 @@ function spanStartingOn(dayRef: Date, window: NightWindow): WindowSpan {
   return { start, end, cycleDate: localDate(end) }
 }
 
+/**
+ * The cycle an instant BELONGS to: the window it falls inside, else the one that started most
+ * recently (2026-09-14).
+ *
+ * The difference from {@link windowAt} is which way it looks when `now` is between two nights.
+ * A forecast looks FORWARD - "tonight" at six in the evening is the window that has not opened
+ * yet. A count that GATES has to cover the present moment instead, or there would be hours of
+ * the day in which nothing is counted at all: the daylight hours belong to the night that
+ * opened them, so a run started by hand at noon is counted against that one.
+ *
+ * Both anchor on the window START rather than on local midnight, which is the point of having
+ * them: a night from 23:30 to 04:00 is one cycle and not two.
+ */
+export function cycleAt(now: Date, window: NightWindow): WindowSpan {
+  const t = now.getTime()
+  const days = [-2, -1, 0].map((d) => spanStartingOn(new Date(now.getFullYear(), now.getMonth(), now.getDate() + d), window))
+  return [...days].reverse().find((s) => s.start.getTime() <= t) ?? days[0]!
+}
+
 /** Where `now` stands relative to the night window. */
 export function windowAt(now: Date, window: NightWindow): WindowAt {
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)

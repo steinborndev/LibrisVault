@@ -58,7 +58,7 @@ import { parseFrontmatterMeta } from './graph.js'
 import { computeCandidates, fellowDomains, knowledgePages, ownQuestionStreak, SELF_LOOP_LIMIT, type Candidate } from './candidates.js'
 import { rankForDeepening } from './deepen-rank.js'
 import { EXPAND_MAX_PAGES } from './expand.js'
-import { localDate, addDays, windowAt } from './clock.js'
+import { localDate, addDays, windowAt, cycleAt, type WindowSpan } from './clock.js'
 import type { VaultGraph } from './graph.js'
 import {
   buildProposals,
@@ -215,7 +215,11 @@ export interface FellowSummary {
   readonly agent: AgentRecord
   readonly currentRun: MaintenanceRun | null
   readonly lastRun: AgentRunRecord | null
-  readonly runsToday: number
+  /**
+   * Research runs spent in the cycle the quota is counted in - the night, not the calendar day
+   * (2026-09-14). A window that crosses midnight is one night and one count.
+   */
+  readonly runsTonight: number
   /** Proposals still to decide or to run: approved ones stand here until they have run. */
   readonly pendingProposals: number
   /**
@@ -252,7 +256,13 @@ export interface FellowCard extends FellowSummary {
   /** Every page the Fellow's runs committed, newest first, deduplicated. */
   readonly pages: readonly string[]
   readonly lastActive: string | null
-  readonly quota: { readonly runsPerDay: number; readonly usedToday: number }
+  /**
+   * The quota and what is spent of it in the cycle now in force - the night that is running,
+   * else the one that opened this day (2026-09-14). Not the calendar day, so a night that
+   * crosses midnight is one allowance, and not the night AHEAD, because a count that gates a
+   * hand-started run may not read zero through the whole afternoon.
+   */
+  readonly quota: { readonly runsPerDay: number; readonly used: number }
   /** Pending first (by rank), then the recent history. */
   readonly proposals: readonly ProposalRecord[]
   readonly spend: FellowSpend
@@ -476,7 +486,7 @@ export class FellowService {
       agent,
       currentRun,
       lastRun: lastRun ?? null,
-      runsToday: this.runsToday(agent.id),
+      runsTonight: this.runsTonight(agent.id),
       pendingProposals: this.pendingProposals(agent.id).length,
       undecidedProposals: this.pendingProposals(agent.id).filter((p) => p.status === 'proposed').length,
       tonight: this.taskOutcomes(agent),
@@ -490,13 +500,13 @@ export class FellowService {
     const runs = this.runs.list({ agentId: id, limit: 50 })
     const pages: string[] = []
     for (const r of runs) for (const p of r.pages) if (!pages.includes(p)) pages.push(p)
-    const usedToday = this.runsToday(id)
+    const used = this.runsThisCycle(id)
     return {
       ...this.summary(agent),
       runs,
       pages,
       lastActive: runs[0]?.finishedAt ?? null,
-      quota: { runsPerDay: agent.quotaRunsPerDay, usedToday },
+      quota: { runsPerDay: agent.quotaRunsPerDay, used },
       proposals: this.proposals.list({ agentId: id, limit: 20 }),
       spend: this.spend(id),
       value: this.valueCounts(id),
@@ -579,7 +589,6 @@ export class FellowService {
     return this.proposals.get(id)
   }
 
-  /** Steps this Fellow ran since local midnight; a planning run does not count. */
   /**
    * What the other Fellows are already on, for the planner's duplicate check (section 6.6).
    *
@@ -600,9 +609,10 @@ export class FellowService {
       out.push({ fellow, topic, ran })
     }
     const others = this.agents.list().filter((a) => a.id !== agentId && a.state !== 'retired')
-    // What ran tonight comes first: it is the strongest claim, the pages already exist.
+    // What ran tonight comes first: it is the strongest claim, the pages already exist. The
+    // night, not the calendar day - a run at 23:40 and one at 00:10 are the same night's.
     for (const other of others) {
-      for (const run of this.runs.list({ agentId: other.id, since: startOfToday(this.now()).toISOString(), limit: 20 })) {
+      for (const run of this.runs.list({ agentId: other.id, since: this.cycleNow().start.toISOString(), limit: 20 })) {
         if (!isResearchKind(run.kind) || !run.ok || run.label === null) continue
         add(other.name, run.label, true)
       }
@@ -611,10 +621,18 @@ export class FellowService {
     return out.slice(0, ELSEWHERE_CAP)
   }
 
-  private runsToday(agentId: string): number {
-    return this.runs
-      .list({ agentId, since: startOfToday(this.now()).toISOString() })
-      .filter((r) => isResearchKind(r.kind)).length
+  /** Steps this Fellow ran in the cycle the quota gates; a planning run does not count. */
+  private runsThisCycle(agentId: string): number {
+    return this.researchRunsSince(agentId, this.cycleNow().start)
+  }
+
+  /** The same count for the night AHEAD: what the bar draws as already carried out. */
+  private runsTonight(agentId: string): number {
+    return this.researchRunsSince(agentId, this.nightAhead().start)
+  }
+
+  private researchRunsSince(agentId: string, since: Date): number {
+    return this.runs.list({ agentId, since: since.toISOString() }).filter((r) => isResearchKind(r.kind)).length
   }
 
   /** USD totals for the card (list-price estimates in subscription mode). */
@@ -729,9 +747,9 @@ export class FellowService {
      * also what stops a shift round that is still walking its Fellows.
      */
     if (kind !== 'plan' && opts.manual !== true && !this.quotaSuspended()) {
-      const used = this.runsToday(agent.id)
+      const used = this.runsThisCycle(agent.id)
       if (used >= agent.quotaRunsPerDay) {
-        return { status: 409, code: 'quota', error: `${agent.name} used today's quota (${used} of ${agent.quotaRunsPerDay} runs)` }
+        return { status: 409, code: 'quota', error: `${agent.name} used tonight's quota (${used} of ${agent.quotaRunsPerDay} runs)` }
       }
     }
     // The service-wide gate: the daily budget and the rate-limit pause, and the plan shares
@@ -889,7 +907,9 @@ export class FellowService {
      * untouched - which is the opposite of what "every standing task each night" promises.
      * Rank still decides inside a task; it just no longer decides between them.
      */
-    const done = this.tasksRunToday(agentId)
+    // Fairness runs inside ONE night: what has already run in the night being planned goes to
+    // the back. Inside the window that is the running shift; outside it, nothing has run yet.
+    const done = this.tasksRunSince(agentId, this.nightAhead().start)
     const byTask = (a: ProposalRecord, b: ProposalRecord): number => {
       const ad = done.has(a.provenance.task ?? '') ? 1 : 0
       const bd = done.has(b.provenance.task ?? '') ? 1 : 0
@@ -903,13 +923,42 @@ export class FellowService {
   }
 
   /**
-   * What each standing task came to this cycle: a run carried one of its proposals out, every
-   * proposal it got was vetoed, or it is still open. Read against TODAY, the same day the
-   * quota and the schedule are read against.
+   * The night the Fellows are read against: the one running now, else the one that has not
+   * opened yet (2026-09-14).
+   *
+   * The calendar day was the wrong unit on both counts. A window of 23:30 to 04:00 carries the
+   * cycle date of the morning after, so the afternoon's finished work was drawn under the
+   * heading "Tonight" - and the count that gates the night reset at midnight, in the middle of
+   * the shift that was still running.
+   *
+   * This is the FORECAST anchor: what the night ahead has made of each task, and how much of
+   * it is still to come. The gate counts in {@link cycleNow} instead, which covers the present
+   * moment - a count that gates may not have hours of the day in which it counts nothing.
+   * Inside the window the two are the same span, which is where the gate does its work.
+   */
+  private nightAhead(): WindowSpan {
+    const at = windowAt(this.now(), this.settings().window)
+    return at.current ?? at.next
+  }
+
+  /** The cycle in force at this instant, which the quota is counted in. See {@link cycleAt}. */
+  private cycleNow(): WindowSpan {
+    return cycleAt(this.now(), this.settings().window)
+  }
+
+  /**
+   * What each standing task came to in the night ahead: a run carried one of its proposals
+   * out, every proposal it got was vetoed, or it is still open.
+   *
+   * Read against the NIGHT, not the calendar day (2026-09-14). A window of 23:30 to 04:00
+   * carries the cycle date of the morning after, so reading the outcomes against today put
+   * the afternoon's finished work under the heading "Tonight" - and would have cleared it at
+   * midnight, in the middle of the shift that was still running.
    */
   private taskOutcomes(agent: AgentRecord): TaskOutcome[] {
-    const ran = this.tasksRunToday(agent.id)
-    const cycle = localDate(this.now())
+    const night = this.nightAhead()
+    const ran = this.tasksRunSince(agent.id, night.start)
+    const cycle = night.cycleDate
     const mine = this.proposals.list({ agentId: agent.id, limit: 60 }).filter((p) => p.cycleDate === cycle)
     return agent.tasks.map((t) => {
       if (ran.has(t.text)) return { id: t.id, outcome: 'ran' as const }
@@ -920,10 +969,10 @@ export class FellowService {
     })
   }
 
-  /** The standing tasks this Fellow has already run today, by their text (what proposals store). */
-  private tasksRunToday(agentId: string): Set<string> {
+  /** The standing tasks this Fellow has run since an instant, by their text (what proposals store). */
+  private tasksRunSince(agentId: string, since: Date): Set<string> {
     const out = new Set<string>()
-    for (const r of this.runs.list({ agentId, since: startOfToday(this.now()).toISOString() })) {
+    for (const r of this.runs.list({ agentId, since: since.toISOString() })) {
       if (!isResearchKind(r.kind) || !r.proposalId) continue
       const task = this.proposals.get(r.proposalId)?.provenance.task
       if (task !== undefined && task !== '') out.add(task)
@@ -1013,7 +1062,7 @@ export class FellowService {
       recentLog: renderLogLines(runs.slice(0, 8)).slice(-8),
       vetoed,
       elsewhere: this.elsewhereFor(agent.id),
-      runsLeftToday: Math.max(0, agent.quotaRunsPerDay - this.runsToday(agent.id)),
+      runsLeftTonight: Math.max(0, agent.quotaRunsPerDay - this.runsThisCycle(agent.id)),
       kinds,
       task: tonight.task,
       taskIndex: tonight.index,

@@ -644,6 +644,18 @@ skips planning. The refusal codes are `reserve` and `share`, each naming the win
 when known, its reset; the shift turns them into the sleep code `plan`. Manual steps from
 the card or the API get the same refusal (409) and leave the Fellow's state alone.
 
+**The quota is counted per NIGHT, not per calendar day** (2026-09-14). A window of 23:30 to
+04:00 carries the cycle date of the morning after and crosses midnight in the middle, so a
+count anchored on local midnight split one night into two: a shift that started at 23:30
+inherited the day's spent quota and then got a fresh one at 00:00, halfway through its own
+work. Both counts anchor on the window START instead, and there are two of them because they
+answer different questions. The **forecast** - what each standing task came to, and how much
+of the night is still to come - is read against the window running now, else the one that has
+not opened yet: at six in the evening "tonight" is the window at 23:30, and the afternoon's
+finished work is not part of it. The **gate** is read against the window that started most
+recently, because a count that refuses a run may not have hours of the day in which it counts
+nothing. Inside the window the two are the same span, which is where the gate does its work.
+
 **The one limit a manual run may pass is runs per day.** It is a limit on the autopilot,
 not on the user: the user set it so the night shift would stop, and a deliberate click has
 already made that decision again. So `POST /agents/:id/step` and `POST /proposals/:id/run`

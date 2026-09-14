@@ -1003,7 +1003,8 @@ export interface FellowSummary {
   agent: FellowRecord
   currentRun: MaintenanceRun | null
   lastRun: AgentRunRecord | null
-  runsToday: number
+  /** Research runs spent in the current NIGHT cycle, which is what the quota is counted in. */
+  runsTonight: number
   /** Proposals still to decide or to run: approved ones stand here until they have run. */
   pendingProposals: number
   /**
@@ -1025,7 +1026,8 @@ export interface FellowCard extends FellowSummary {
   runs: AgentRunRecord[]
   pages: string[]
   lastActive: string | null
-  quota: { runsPerDay: number; usedToday: number }
+  /** The quota and what is spent of it in the night cycle now in force, not in the day. */
+  quota: { runsPerDay: number; used: number }
   proposals: ProposalRecord[]
   spend: { todayUsd: number; weekUsd: number; runsToday: number; runsWeek: number; weekPct: number | null }
   value: { pageOpens: number; recapLinks: number }

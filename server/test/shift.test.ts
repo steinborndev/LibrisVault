@@ -568,7 +568,7 @@ describe('planning, proposals and the night shift', () => {
     expect(h.service.list()[0]).toMatchObject({ pendingProposals: 2, next: { id: p1!.id } })
     // The run log carries the planning run, attributed and costed; the ledger's quota ignores it.
     expect(h.runs.list({ agentId: ada.id })[0]).toMatchObject({ kind: 'plan', costUsd: 0.4, ok: true })
-    expect(h.service.card(ada.id)!.quota).toEqual({ runsPerDay: 1, usedToday: 0 })
+    expect(h.service.card(ada.id)!.quota).toEqual({ runsPerDay: 1, used: 0 })
 
     // The same night again: the row exists, the timer does nothing.
     expect(await h.shift.tick()).toBeNull()
@@ -578,7 +578,7 @@ describe('planning, proposals and the night shift', () => {
     const night2 = (await h.shift.tick())!
     expect(night2.cycleDate).toBe('2026-09-08')
     expect(night2.summary.executed).toMatchObject([{ agentName: 'Ada', proposalId: p1!.id, kind: 'research-step', topic: p1!.topic, ok: true, pages: 2, costUsd: 0.5 }])
-    expect(night2.summary.skipped.map((s) => s.reason)).toEqual(expect.arrayContaining([expect.stringContaining("used today's quota (1 of 1 runs)")]))
+    expect(night2.summary.skipped.map((s) => s.reason)).toEqual(expect.arrayContaining([expect.stringContaining("used tonight's quota (1 of 1 runs)")]))
     expect(night2.summary.planned).toMatchObject([{ agentName: 'Ada', ok: true, proposals: 2 }])
     const executed = h.service.getProposal(p1!.id)!
     expect(executed).toMatchObject({ status: 'executed' })
@@ -1157,7 +1157,7 @@ describe('proposal and shift routes', () => {
     const run = await app.inject({ method: 'POST', url: `/api/v1/proposals/${next.next!.id}/run` })
     expect(run.statusCode).toBe(409)
     const refused = run.json() as { error: string; code: string }
-    expect(refused.error).toContain("used today's quota")
+    expect(refused.error).toContain("used tonight's quota")
     // The code travels with the refusal: the card needs to tell an overridable quota from a
     // share or a reserve, which it may not override.
     expect(refused.code).toBe('quota')

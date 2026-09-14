@@ -12,11 +12,11 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import type { FastifyInstance } from 'fastify'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
-import { SqliteAgentStore, slugify, type AgentRecord } from '../src/db/agents.js'
-import { SqliteAgentRunStore, type AgentRunRecord } from '../src/db/agent-runs.js'
-import { SqliteProposalStore } from '../src/db/proposals.js'
+import { MemoryAgentStore, SqliteAgentStore, slugify, type AgentRecord } from '../src/db/agents.js'
+import { MemoryAgentRunStore, SqliteAgentRunStore, type AgentRunRecord } from '../src/db/agent-runs.js'
+import { MemoryProposalStore, SqliteProposalStore } from '../src/db/proposals.js'
 import { renderNotebook, parseNotebook, readBackNotebook, notebookPath, NotebookWriter } from '../src/pipeline/notebook.js'
-import { FellowService } from '../src/pipeline/fellows.js'
+import { FellowService, localDate } from '../src/pipeline/fellows.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { EventBus } from '../src/pipeline/events.js'
 import { Mutex } from '../src/util/mutex.js'
@@ -245,7 +245,7 @@ describe('FellowService against a git vault', () => {
     expect(card.runs).toHaveLength(1)
     expect(card.runs[0]).toMatchObject({ kind: 'research', agentId: agent!.id, model: 'claude-opus-5', ok: true })
     expect(card.pages).toEqual(['wiki/questions/Research: Q.md'])
-    expect(card.quota).toEqual({ runsPerDay: 2, usedToday: 1 })
+    expect(card.quota).toEqual({ runsPerDay: 2, used: 1 })
     const notebook = fs.readFileSync(path.join(vaultRoot, 'wiki/meta/agents/ada.md'), 'utf8')
     expect(notebook).toContain('research · ' + agentRecord().intent)
     expect(notebook).toContain('1 page(s) · 0.50 USD')
@@ -265,7 +265,7 @@ describe('FellowService against a git vault', () => {
 
     const second = service.step(agent!.id)
     expect(second.refusal).toMatchObject({ status: 409, code: 'quota' })
-    expect(second.refusal?.error).toContain("used today's quota (1 of 1 runs)")
+    expect(second.refusal?.error).toContain("used tonight's quota (1 of 1 runs)")
     expect(service.card(agent!.id)!.agent.state).toBe('sleeping')
 
     // A deliberate manual start passes the quota: it limits the autopilot, not the user.
@@ -377,7 +377,7 @@ describe('agents routes', () => {
 
     const card = await app.inject({ method: 'GET', url: `/api/v1/agents/${agent.id}/card` })
     expect(card.statusCode).toBe(200)
-    expect((card.json() as { quota: { usedToday: number } }).quota.usedToday).toBe(1)
+    expect((card.json() as { quota: { used: number } }).quota.used).toBe(1)
 
     const over = await app.inject({ method: 'POST', url: `/api/v1/agents/${agent.id}/step`, payload: { topic: 'A follow-up' } })
     expect(over.statusCode).toBe(409)
@@ -587,5 +587,91 @@ describe('bounds of a hand-started deepening', () => {
     const set = [page('Foreign', 'cooking')]
     const { refusal } = service.step(id, { kind: 'research-expand', pageSet: set, proposalId: 'p1', override: true })
     expect(refusal).toBeUndefined()
+  })
+})
+
+/*
+ * Which night a run belongs to (2026-09-14).
+ *
+ * The board calls the coming window "Tonight" and the quota calls its allowance "runs a day",
+ * and both used to be read against the local calendar day. A window of 23:30 to 04:00 agrees
+ * with neither: it carries the cycle date of the morning after, and it crosses midnight in the
+ * middle. So a run finished in the afternoon was drawn under "Tonight" with a done mark, while
+ * a shift that started at 23:30 inherited the day's spent quota and then got a fresh one at
+ * midnight, halfway through its own night.
+ */
+describe('the night a run is counted in', () => {
+  const WINDOW = { start: '23:30', end: '04:00' }
+  const TASK = { id: 't1', text: 'Antibody drug conjugates', kind: 'watch' as const, state: 'active' as const }
+
+  const build = (now: Date, runAt: Date): { service: FellowService; agentId: string } => {
+    const agents = new MemoryAgentStore()
+    const runs = new MemoryAgentRunStore()
+    const proposals = new MemoryProposalStore()
+    const agent = { ...agentRecord(), tasks: [TASK], quotaRunsPerDay: 2, autonomy: 'auto' as const }
+    agents.create(agent)
+    proposals.create({
+      id: 'p1',
+      agentId: agent.id,
+      createdAt: runAt.toISOString(),
+      cycleDate: localDate(runAt),
+      kind: 'research',
+      topic: 'what 2026 added',
+      lens: 'broad',
+      rationale: '',
+      provenance: { candidate: 'sweep', text: TASK.text, sourcePages: [], task: TASK.text },
+      pageSet: [],
+      estCostUsd: 6,
+      estPlanPct: null,
+      scopeScore: 1,
+      rank: 1,
+      status: 'executed',
+      decidedAt: null,
+      decidedVia: null,
+      userNote: null,
+      runId: 'r1',
+    })
+    runs.record({ ...runRecord(), kind: 'research', agentId: agent.id, proposalId: 'p1', startedAt: runAt.toISOString(), finishedAt: runAt.toISOString() })
+    const service = new FellowService({
+      agents,
+      runs,
+      proposals,
+      maintenance: {} as unknown as MaintenanceRunner,
+      notebook: {} as unknown as NotebookWriter,
+      now: () => now,
+      settings: () => ({ window: WINDOW, defaultModel: 'sonnet-5' }),
+    })
+    return { service, agentId: agent.id }
+  }
+
+  it('an afternoon run is not what the coming night did, and does not spend its quota', () => {
+    // 19:40, four hours before the window opens. The run happened at 16:55 the same afternoon.
+    const { service, agentId } = build(new Date(2026, 8, 14, 19, 40), new Date(2026, 8, 14, 16, 55))
+    const card = service.card(agentId)!
+    expect(card.tonight).toEqual([{ id: 't1', outcome: 'open' }])
+    expect(card.runsTonight).toBe(0)
+    /*
+     * The quota still counts it, and that is the other half of the fix: the forecast looks
+     * forward, the gate covers the present moment. The run belongs to the night that opened
+     * this day, so a hand-started run this afternoon meets a quota with one of two spent - and
+     * at 23:30, when the next window opens, the count starts over.
+     */
+    expect(card.quota).toEqual({ runsPerDay: 2, used: 1 })
+  })
+
+  it('inside the window the night is one cycle, on both sides of midnight', () => {
+    const started = new Date(2026, 8, 14, 23, 40)
+    // 00:10: past midnight, still the same night, and the run at 23:40 still counts.
+    const { service, agentId } = build(new Date(2026, 8, 15, 0, 10), started)
+    const card = service.card(agentId)!
+    expect(card.tonight).toEqual([{ id: 't1', outcome: 'ran' }])
+    expect(card.runsTonight).toBe(1)
+    expect(card.quota).toEqual({ runsPerDay: 2, used: 1 })
+  })
+
+  it('once the night is over its runs are off tonight\'s count again', () => {
+    // The morning after: 09:00, with last night's run at 23:40. The next window is a new night.
+    const { service, agentId } = build(new Date(2026, 8, 15, 9, 0), new Date(2026, 8, 14, 23, 40))
+    expect(service.card(agentId)!.tonight).toEqual([{ id: 't1', outcome: 'open' }])
   })
 })

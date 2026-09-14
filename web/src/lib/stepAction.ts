@@ -10,7 +10,7 @@
  */
 
 export interface QuotaState {
-  readonly usedToday: number
+  readonly used: number
   readonly runsPerDay: number
 }
 
@@ -27,8 +27,8 @@ export interface StepButton {
 const NOTE = "Today's quota holds the night shift back, not you. The plan shares, the reserves and the daily budget still apply."
 
 export function stepButton(quota: QuotaState, confirming: boolean): StepButton {
-  const spent = quota.runsPerDay > 0 && quota.usedToday >= quota.runsPerDay
+  const spent = quota.runsPerDay > 0 && quota.used >= quota.runsPerDay
   if (!spent) return { label: 'Run next step now', asks: false, override: false, note: null }
-  if (!confirming) return { label: `Run a step anyway · ${quota.usedToday} of ${quota.runsPerDay} today`, asks: true, override: false, note: null }
+  if (!confirming) return { label: `Run a step anyway · ${quota.used} of ${quota.runsPerDay} used`, asks: true, override: false, note: null }
   return { label: 'Yes, run it now', asks: false, override: true, note: NOTE }
 }

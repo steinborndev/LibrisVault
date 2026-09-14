@@ -147,7 +147,7 @@ export interface PlannerInput {
    * floor. Empty when there is only one Fellow.
    */
   readonly elsewhere?: readonly { readonly fellow: string; readonly topic: string; readonly ran: boolean }[]
-  readonly runsLeftToday: number
+  readonly runsLeftTonight: number
   readonly kinds: readonly ProposalKind[]
   /** Tonight's task: the one thing the answer is judged against (decision 2026-09-07). */
   readonly task: AgentTask
@@ -247,8 +247,8 @@ export function renderPlannerPrompt(input: PlannerInput): string {
      * phase 2 plans, so a Fellow with a quota of one always reaches its planning run with
      * nothing left for today. Tonight's plan is what tomorrow runs.
      */
-    `The Fellow has ${input.runsLeftToday} run(s) left today${
-      input.runsLeftToday === 0
+    `The Fellow has ${input.runsLeftTonight} run(s) left tonight${
+      input.runsLeftTonight === 0
         ? ', so nothing you propose can run before tomorrow. Propose anyway: a proposal stands for two nights, ' +
           'the shift executes standing proposals BEFORE it plans, and the user decides on them in between. A night ' +
           'with no proposal is a night the Fellow does nothing and the user is asked nothing'

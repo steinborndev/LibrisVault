@@ -107,7 +107,7 @@ export function FellowCard({ agentId, vaultName, onClose }: { agentId: string; v
               <span className="gx-tag">{c.agent.model} · {c.agent.effort}</span>
               <span className="gx-tag">{c.agent.step} steps</span>
               <span className="gx-tag">{c.agent.autonomy} mode</span>
-              <span className="gx-tag">{c.quota.usedToday} of {c.quota.runsPerDay} today</span>
+              <span className="gx-tag" title="Runs spent of this Fellow's quota in the current night cycle. The cycle turns when the night window opens, not at midnight.">{c.quota.used} of {c.quota.runsPerDay} used</span>
             </div>
           </div>
           {toast && (
