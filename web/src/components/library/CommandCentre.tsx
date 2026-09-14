@@ -38,6 +38,9 @@ import type {
 } from '../../api/types.ts'
 import {
   runsTonight,
+  shortfall,
+  type ShortfallCode,
+  type Shortfall,
   fellowMinutes,
   isSystemPage,
   minutesFor,
@@ -394,6 +397,25 @@ export function CommandCentre({
    * is one line for everyone, so what pushes your work past the window may not be yours.
    */
   const planOnly = plannedOnly(mine)
+  // The Fellows of this shelf whose QUOTA is what holds a task back - the one shortfall a
+  // number can fix, and so the only one the note under the list is about.
+  const capped = useMemo(
+    () =>
+      (shelf?.fellows ?? [])
+        .map((f) => ({ name: f.agent.name, short: shortfall(f) }))
+        .filter((x): x is { name: string; short: Shortfall } => x.short !== null && x.short.code === 'quota'),
+    [shelf],
+  )
+  const cappedTasks = capped.reduce((n, c) => n + c.short.tasks - c.short.runs, 0)
+  /** Every Fellow of the night by the reason its tasks go unrun, for the queue's own tooltips. */
+  const shortOf = useMemo(() => {
+    const out = new Map<string, ShortfallCode>()
+    for (const sh of staffed) for (const f of sh.fellows) {
+      const s = shortfall(f)
+      if (s !== null) out.set(f.agent.id, s.code)
+    }
+    return out
+  }, [staffed])
   // The night as a list, for the shelf you are on: the same blocks the bar draws, in the
   // shift's own order, each carrying the proposal it will work from.
   const rows = useMemo(() => {
@@ -908,7 +930,7 @@ export function CommandCentre({
                           key={`${b.fellowId}-${b.text}-${b.phase}-${b.from}`}
                           className={`cc-part ${b.phase === 'run' ? '' : 'plan'}`}
                           style={{ width: `${(b.minutes / (g.to - g.from)) * 100}%`, borderLeft: i > 0 ? '1px solid rgba(255,255,255,.55)' : undefined }}
-                          title={blockTitle(b, unrun.has(b))}
+                          title={blockTitle(b, unrun.has(b) ? (shortOf.get(b.fellowId) ?? 'quota') : null)}
                         >
                           {/* The mark is the record of what happened, not part of the forecast:
                               it appears only once the night has made something of the task. */}
@@ -1051,16 +1073,21 @@ export function CommandCentre({
               * tooltip; what is left is about tonight in particular.
               */}
             <section className="cc-block" hidden={planOnly.length === 0 && overflow.length === 0 && !blocks.some((b) => b.waits)}>
-              {planOnly.length > 0 && (
+              {/*
+                * Only where raising the quota would actually change the night. A task that goes
+                * unrun because nothing stands for it yet is a Fellow waiting a night, which the
+                * list above already draws as a night of plans and no runs.
+                */}
+              {capped.length > 0 && (
                 <p className="cc-note">
                   <b>
-                    {planOnly.length} task{planOnly.length === 1 ? ' is' : 's are'} planned tonight but not carried out
-                    {' '}({[...new Set(planOnly.map((b) => b.fellowName))].join(', ')}).
+                    {cappedTasks} task{cappedTasks === 1 ? ' is' : 's are'} planned tonight but not carried out
+                    {' '}({capped.map((c) => c.name).join(', ')}).
                   </b>{' '}
                   Planning is free of the quota and the run it produces is not, so a Fellow that works more tasks a
                   night than its <i>runs a night</i> allows plans them all and runs the top ones. What is left over stands as
                   a proposal for two nights: approve it to move it ahead of the others, or raise the quota in the Fellow
-                  {planOnly.length === 1 ? "'s" : 's’'} settings so every planned task also runs.
+                  {capped.length === 1 ? "'s" : 's’'} settings so every planned task also runs.
                 </p>
               )}
               {overflow.length > 0 ? (
@@ -1143,6 +1170,18 @@ export function CommandCentre({
 }
 
 /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
+/**
+ * Why a task is planned tonight and not carried out, in the words the Fellow's own state would
+ * use. Only `quota` is a number to change; the rest are a night's own shape.
+ */
+const SHORTFALL_TEXT: Record<ShortfallCode, string> = {
+  parked: 'parked at 0 runs a night, so it plans and nothing it plans runs',
+  skipped: 'skipped tonight at your request, so it plans and nothing it plans runs',
+  quota: 'the quota is spent on the tasks ahead of it',
+  asks: 'it asks every time, and what it proposes is waiting for you under Decisions',
+  waits: 'it waits a night, so what it plans tonight runs tomorrow night unless you veto it',
+}
+
 /**
  * A figure in the unit the share is counted in: points where it is calibrated, USD until then.
  * The unit is named once in a sentence and the figures after it go bare - "0.25 points of the
@@ -1241,14 +1280,17 @@ function ActRow({
  * does with it. Every section carries its own, because a Fellow with three tasks is three
  * different answers and one tooltip for the band would name none of them.
  */
-function blockTitle(b: Block, unrun: boolean): string {
+function blockTitle(b: Block, unrun: ShortfallCode | null): string {
   const who = `${b.fellowName} · ${b.kind}: ${b.text}`
   if (b.outcome === 'ran') return `${who} · done, a run carried it out tonight`
   if (b.outcome === 'vetoed') return `${who} · nothing runs: you vetoed every option it proposed`
   if (b.phase === 'run') return `${who} · a research run, about ${dur(b.minutes)}`
-  return unrun
-    ? `${who} · the planning run (${dur(b.minutes)}). Its own run does not fit tonight: the quota is spent on the tasks ahead of it, so what it proposes stands for a later night.`
-    : `${who} · the planning run (${dur(b.minutes)}): what to do about this task tonight. It never counts against the quota.`
+  const plan = `${who} · the planning run (${dur(b.minutes)})`
+  // Why this task's own run is not in tonight, in its Fellow's own terms: the quota is one
+  // answer among several, and it used to be the only one the tooltip knew.
+  return unrun === null
+    ? `${plan}: what to do about this task tonight. It never counts against the quota.`
+    : `${plan}. Its own run is not in tonight: ${SHORTFALL_TEXT[unrun]}, so what it proposes stands for a later night.`
 }
 
 /** The same for one whole task, which is what the overview above draws. */
@@ -1589,6 +1631,7 @@ function Dossier({
   const nightly = fellowMinutes(fellow, durations)
   const tonight = tasksTonight(a)
   const carried = runsTonight(fellow)
+  const short = shortfall(fellow)
 
   return (
     <>
@@ -1882,19 +1925,26 @@ function Dossier({
                     <span className="mono-meta">{nightly} min tonight{card ? ` · ${card.quota.used} of ${card.quota.runsPerDay} used` : ''}</span>
                   </div>
                   {/*
-                    * Against TONIGHT'S tasks, not against everything standing. A rotating
-                    * Fellow plans one task a night whatever its list holds, so comparing the
-                    * quota with the whole list told a Fellow doing exactly what it was asked
-                    * that it was falling behind.
+                    * The warning tone and the button belong to the ONE cause the button can
+                    * fix. Every other reason a task goes unrun is a supply that has not
+                    * arrived - a Fellow that waits a night runs nothing on the night it plans,
+                    * which is the mode working - and a sentence is the whole of the answer.
                     */}
-                  {carried < tonight.length && (
-                    <p className="cc-note warn">
-                      {tonight.length} task{tonight.length === 1 ? '' : 's'} planned tonight, {carried} run
-                      {carried === 1 ? '' : 's'} carried out. Planning is free of the quota and the run it produces is not, so{' '}
-                      {tonight.length} run{tonight.length === 1 ? '' : 's'} a night is what it takes for every task planned to also run.{' '}
-                      <button className="cc-link" disabled={patching} onClick={() => onPatch({ quotaRunsPerDay: tonight.length })}>
-                        Raise it to {tonight.length} ›
-                      </button>
+                  {short !== null && (
+                    <p className={`cc-note${short.code === 'quota' ? ' warn' : ''}`}>
+                      {short.tasks} task{short.tasks === 1 ? '' : 's'} planned tonight, {short.runs} run
+                      {short.runs === 1 ? '' : 's'} carried out
+                      {short.code === 'quota' ? (
+                        <>
+                          . Planning is free of the quota and the run it produces is not, so {short.raiseTo} run
+                          {short.raiseTo === 1 ? '' : 's'} a night is what it takes for every task planned to also run.{' '}
+                          <button className="cc-link" disabled={patching} onClick={() => onPatch({ quotaRunsPerDay: short.raiseTo ?? tonight.length })}>
+                            Raise it to {short.raiseTo} ›
+                          </button>
+                        </>
+                      ) : (
+                        `: ${SHORTFALL_TEXT[short.code]}.`
+                      )}
                     </p>
                   )}
                 </div>

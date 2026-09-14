@@ -836,3 +836,44 @@ export function nightAsk(blocks: readonly Block[], shelves: readonly Shelf[], pl
     total,
   }
 }
+
+/**
+ * Why a Fellow will carry out fewer runs tonight than it has standing tasks, or null when it
+ * will not (2026-09-14).
+ *
+ * The board used to read a shortfall as a quota that was set too low, and said so in the
+ * warning tone with a button to raise it. That was true while the runs were `min(tasks,
+ * quota)`; since they come from what stands and what tonight's own planning puts up, the
+ * quota is only one of the reasons and no longer the usual one. A Fellow that waits a night
+ * runs nothing on the night it plans - that is the mode working, not a number to fix - and
+ * telling it to raise a quota that is not binding changes nothing at all.
+ *
+ * The quota is the cause exactly when it BINDS and tasks are still left over. Everything else
+ * is a supply that has not arrived yet, and the answer to it is a sentence, not a button.
+ */
+export type ShortfallCode = 'parked' | 'skipped' | 'quota' | 'asks' | 'waits'
+
+export interface Shortfall {
+  readonly code: ShortfallCode
+  /** The standing tasks tonight, and the research runs the night will carry out for them. */
+  readonly tasks: number
+  readonly runs: number
+  /** What the quota would have to be for every task to also run; only for `quota`. */
+  readonly raiseTo: number | null
+}
+
+export function shortfall(f: FellowSummary): Shortfall | null {
+  const tasks = tasksTonight(f.agent).length
+  const runs = runsTonight(f)
+  if (tasks === 0 || runs >= tasks) return null
+  const quota = f.agent.quotaRunsPerDay
+  const at = (code: ShortfallCode): Shortfall => ({ code, tasks, runs, raiseTo: code === 'quota' ? tasks : null })
+  // A quota of zero parks a Fellow without pausing it, and reads as its own thing rather than
+  // as a quota that is merely too small.
+  if (quota <= 0) return at('parked')
+  if (f.skipsTonight === true) return at('skipped')
+  // The quota binds: every run it allows is taken and there are tasks past them.
+  if (runs >= quota) return at('quota')
+  if (f.agent.autonomy === 'manual' && f.undecidedProposals > 0) return at('asks')
+  return at('waits')
+}

@@ -24,6 +24,7 @@ import {
   taskBands,
   nightRows,
   nightAsk,
+  shortfall,
   type NightRow,
   tasksTonight,
   ticksIn,
@@ -659,6 +660,49 @@ describe('nightRows', () => {
  * headroom against the reserves, and "Research budget" is the roster at full quota over seven
  * days. None of them answers whether TONIGHT fits, which is what stops a shift half way.
  */
+/*
+ * Why a task is planned and not run (2026-09-14). The board used to read every shortfall as a
+ * quota set too low and offered a button to raise it; since the runs come from what stands and
+ * what the night's own planning puts up, the quota is one reason among several and no longer
+ * the usual one - and raising a quota that is not binding changes nothing at all.
+ */
+describe('shortfall', () => {
+  const stands = (t: string) => proposal({ status: 'approved', provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: t } })
+
+  it('says nothing when every standing task gets a run', () => {
+    const a = agent({ id: 'a', name: 'A', autonomy: 'auto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    expect(shortfall(summary(a))).toBeNull()
+    // And nothing for a Fellow with no standing task at all: there is no shortfall in nothing.
+    expect(shortfall(summary(agent({ id: 'b', name: 'B', tasks: [] })))).toBeNull()
+  })
+
+  it('blames the quota only when the quota binds and tasks are left over', () => {
+    // Three tasks, one run allowed, and the run is taken: raising the number is the answer.
+    const a = agent({ id: 'q', name: 'Q', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 1, tasks: [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')] })
+    expect(shortfall(summary(a))).toMatchObject({ code: 'quota', tasks: 3, runs: 1, raiseTo: 3 })
+  })
+
+  it('calls a Fellow that waits a night what it is, and offers no number to change', () => {
+    /*
+     * The case that made the old warning wrong: veto mode, nothing standing, quota of two. It
+     * plans tonight and runs tomorrow - the mode working - and the quota is not binding, so
+     * raising it would change nothing. No `raiseTo`, and the caller draws no warning tone.
+     */
+    const a = agent({ id: 'w', name: 'W', autonomy: 'veto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    expect(shortfall(summary(a))).toMatchObject({ code: 'waits', tasks: 1, runs: 0, raiseTo: null })
+    // With something standing it runs, and there is nothing to say.
+    expect(shortfall({ ...summary(a), queue: [stands('a')] } as FellowSummary)).toBeNull()
+  })
+
+  it('names the other three the way a Fellow\'s own state does', () => {
+    const base = { id: 'x', name: 'X', autonomy: 'auto' as const, quotaRunsPerDay: 2, tasks: [task('watch', 'a')] }
+    expect(shortfall(summary(agent({ ...base, quotaRunsPerDay: 0 })))).toMatchObject({ code: 'parked', raiseTo: null })
+    expect(shortfall({ ...summary(agent(base)), skipsTonight: true } as FellowSummary)).toMatchObject({ code: 'skipped' })
+    const asks = { ...summary(agent({ ...base, autonomy: 'manual' })), pendingProposals: 2, undecidedProposals: 2 } as FellowSummary
+    expect(shortfall(asks)).toMatchObject({ code: 'asks' })
+  })
+})
+
 describe('nightAsk', () => {
   const durations = { 'research-step': 318_000, 'research-expand': 311_000, plan: 86_000, research: 614_000 }
   const CAL = { perModel: { 'sonnet-5': { sevenDay: 0.02, n: 40 } } }
