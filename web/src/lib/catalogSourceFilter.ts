@@ -56,6 +56,21 @@ export function isPublication(
   return DOI.test(node.url ?? '') || DOI.test(refs?.[node.path]?.url ?? '')
 }
 
+/**
+ * Whether the Source column would show anything for this page: an ingested document, or the
+ * address the page states for itself. A page with neither is one the vault wrote out of other
+ * pages, and the column draws a dash for it.
+ *
+ * While the page index is still in flight nothing is narrowed, for the reason `matchesSources`
+ * gives below.
+ */
+export function hasSource(
+  node: { readonly path: string; readonly url?: string | null },
+  refs: Record<string, SourceRef> | undefined,
+): boolean {
+  return refs === undefined || sourceKind(node, refs) !== null
+}
+
 /** Whether a page passes the selection. Nothing selected is not a filter: everything passes. */
 export function matchesSources(
   node: GraphNode,

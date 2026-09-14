@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PUBLICATION,
   SOURCE_FILTERS,
+  hasSource,
   isPublication,
   matchesSources,
   sourceCounts,
@@ -78,6 +79,24 @@ describe('the pills OR together', () => {
   it('narrows nothing while the index is still in flight', () => {
     // Otherwise the table would empty out and read as "nothing matches" mid-load.
     expect(pages.filter((n) => matchesSources(n, undefined, new Set(['pdf'])))).toHaveLength(pages.length)
+  })
+})
+
+describe('with a source at all', () => {
+  it('is what the column draws a link for, the bare address included', () => {
+    expect(pages.filter((n) => hasSource(n, refs)).map((n) => n.path)).toEqual([
+      'paper.md',
+      'site.md',
+      'preprint.md',
+      'photo.md',
+      'read.md',
+    ])
+    // The one page the vault wrote out of other pages: no document, no address.
+    expect(hasSource(node({ path: 'written.md' }), refs)).toBe(false)
+  })
+
+  it('narrows nothing while the index is still in flight', () => {
+    expect(hasSource(node({ path: 'written.md' }), undefined)).toBe(true)
   })
 })
 

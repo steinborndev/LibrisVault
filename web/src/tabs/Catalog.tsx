@@ -20,7 +20,7 @@ import { domainColor, STUB_BYTES } from '../lib/domains.ts'
 import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
 import { addressLink, sourceLink } from '../lib/sources.ts'
 import { CATALOG_SORTS, naturalDir, sortCatalog, type CatalogSortKey, type SortDir } from '../lib/catalogSort.ts'
-import { SOURCE_FILTERS, matchesSources, sourceCounts, sourceSummary } from '../lib/catalogSourceFilter.ts'
+import { SOURCE_FILTERS, hasSource, matchesSources, sourceCounts, sourceSummary } from '../lib/catalogSourceFilter.ts'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
 import { ScopeMid } from '../components/ScopeMid.tsx'
@@ -49,10 +49,18 @@ const bucketLabel = (type: string): string => BUCKET_LABELS[type] ?? type
  * toggle sitting apart from the three it belongs with - but it is a subset like the
  * others, not a second axis, so the other three now never show system pages.
  */
-type Subset = 'all' | 'orphans' | 'stubs' | 'system'
+type Subset = 'all' | 'sourced' | 'orphans' | 'stubs' | 'system'
 
 const SUBSETS: Array<{ key: Subset; label: string; desc: string }> = [
   { key: 'all', label: 'All pages', desc: 'every page except the system ones' },
+  /*
+   * The pages something stands behind. Measured over this vault, 150 of 1,095 knowledge pages
+   * have neither a document nor an address: a maintenance run wrote them out of what the other
+   * pages already said. This hides exactly those, and it is one CHOICE among the subsets rather
+   * than a toggle of its own, because that is what this section is. Narrowing to particular
+   * kinds is the Source types section below.
+   */
+  { key: 'sourced', label: 'With source', desc: 'pages with a document or an address' },
   { key: 'orphans', label: 'Orphans', desc: 'nothing links to these' },
   { key: 'stubs', label: 'Stubs', desc: 'thin pages, under 1 KB' },
   { key: 'system', label: 'System', desc: 'index hubs, MOCs, reports' },
@@ -254,6 +262,7 @@ export function Catalog({
       if (domain === null && wingScope !== null && !wingScope.has(n.domain ?? '')) return false
       if (subset === 'orphans' && !isOrphan(n)) return false
       if (subset === 'stubs' && !isStub(n)) return false
+      if (subset === 'sourced' && !hasSource(n, refs)) return false
       if (!matchesSources(n, refs, kinds)) return false
       if (terms.length > 0) {
         // `names` carries the page's own title and aliases where they differ from the file
