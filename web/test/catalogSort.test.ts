@@ -120,6 +120,13 @@ describe('the sorts as the sidebar lists them', () => {
     expect(CATALOG_SORTS.every((s) => s.label !== '' && s.desc !== '')).toBe(true)
   })
 
+  it('says each one in a line the panel can show whole', () => {
+    // The hint slot is one line that clips rather than wraps; measured against the live
+    // sidebar, 222px of an 11px face takes about 41 characters. Two of these were cut off
+    // mid-word until 2026-09-14.
+    for (const s of CATALOG_SORTS) expect(s.desc.length).toBeLessThanOrEqual(41)
+  })
+
   it('leaves the caller\'s array alone', () => {
     const pages = [node({ title: 'B' }), node({ title: 'A' })]
     const before = titles(pages)

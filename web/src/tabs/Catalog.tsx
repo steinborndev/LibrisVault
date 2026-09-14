@@ -20,6 +20,7 @@ import { domainColor, STUB_BYTES } from '../lib/domains.ts'
 import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
 import { addressLink, sourceLink } from '../lib/sources.ts'
 import { CATALOG_SORTS, naturalDir, sortCatalog, type CatalogSortKey, type SortDir } from '../lib/catalogSort.ts'
+import { SOURCE_FILTERS, matchesSources, sourceCounts, sourceSummary } from '../lib/catalogSourceFilter.ts'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
 import { ScopeMid } from '../components/ScopeMid.tsx'
@@ -87,6 +88,7 @@ export function Catalog({
   // all fetch ['graph'], and only one of them has a Source column. A failure here costs the
   // column, never the table.
   const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
+  const refs = sources.data?.pages
 
   const [query, setQuery] = useState('')
   const [type, setType] = useState<string | null>(null)
@@ -94,12 +96,15 @@ export function Catalog({
   /** The deepening dialog for the domain currently filtered (docs/agents/ideas.md, 2026-09-07). */
   const [deepening, setDeepening] = useState(false)
   const [subset, setSubset] = useState<Subset>('all')
+  /** The source types on show, ORed; empty is not a filter but "whatever it came from". */
+  const [kinds, setKinds] = useState<ReadonlySet<string>>(() => new Set())
   const [sort, setSort] = useState<CatalogSortKey>('changed')
   /** Which way, per column: a first click gives the natural direction, a second reverses it. */
   const [dir, setDir] = useState<SortDir>(naturalDir('changed'))
   /** Hover previews an option's meaning; leaving falls back to the one in force. */
   const [subsetHover, setSubsetHover] = useState<Subset | null>(null)
   const [sortHover, setSortHover] = useState<CatalogSortKey | null>(null)
+  const [kindHover, setKindHover] = useState<string | null>(null)
   const domListRef = useRef<HTMLDivElement>(null)
 
   /**
@@ -119,6 +124,7 @@ export function Catalog({
     setQuery('')
     setType(null)
     setSubset('all')
+    setKinds(new Set())
     navigate('/catalog', { replace: true })
     // The list is longer than the panel: a filter set from another screen must be visible
     // as a filter, not just as a shorter table.
@@ -194,6 +200,12 @@ export function Catalog({
     return { domains: [...m.entries()].sort((a, b) => b[1] - a[1]), none }
   }, [knowledge])
 
+  /**
+   * What each source pill would show. Counted over the same pool the type chips count over, so
+   * the figures do not move while another filter narrows the table.
+   */
+  const kindCounts = useMemo(() => sourceCounts(knowledge, refs), [knowledge, refs])
+
   /** The flat list's order: alphabetical, the no-domain bucket (key '') last. */
   const domainRows = useMemo(
     () =>
@@ -242,6 +254,7 @@ export function Catalog({
       if (domain === null && wingScope !== null && !wingScope.has(n.domain ?? '')) return false
       if (subset === 'orphans' && !isOrphan(n)) return false
       if (subset === 'stubs' && !isStub(n)) return false
+      if (!matchesSources(n, refs, kinds)) return false
       if (terms.length > 0) {
         // `names` carries the page's own title and aliases where they differ from the file
         // name - the same reason the graph search reads them.
@@ -256,7 +269,7 @@ export function Catalog({
      * sorting here as well would be a second implementation of it.
      */
     return list
-  }, [knowledge, query, type, domain, wingScope, subset])
+  }, [knowledge, query, type, domain, wingScope, subset, refs, kinds])
 
   /*
    * Every match, in one list. It was paged in 50s and grew as you reached the bottom, which
@@ -273,7 +286,13 @@ export function Catalog({
 
   /** Whether anything is narrowing the list - the reset only appears when it would do something. */
   const dirty =
-    query !== '' || type !== null || domain !== null || subset !== 'all' || sort !== 'changed' || dir !== naturalDir('changed')
+    query !== '' ||
+    type !== null ||
+    domain !== null ||
+    subset !== 'all' ||
+    kinds.size > 0 ||
+    sort !== 'changed' ||
+    dir !== naturalDir('changed')
   /*
    * What the head says: the count against the pool a type narrows to ("4 of 529 concepts")
    * on the left, and the domain in the middle, the way the graph's bar says it (2026-09-11;
@@ -287,6 +306,20 @@ export function Catalog({
   )
   const subsetHint = SUBSETS.find((x) => x.key === (subsetHover ?? subset))!.desc
   const sortHint = CATALOG_SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
+  /*
+   * The pills a vault actually has, plus any that are selected: a selection whose pill went
+   * away with the last subset change would keep narrowing the table with nothing on screen to
+   * say so, and nothing to click to undo it.
+   */
+  const kindPills = SOURCE_FILTERS.filter((f) => (kindCounts.get(f.key) ?? 0) > 0 || kinds.has(f.key))
+  const kindHint = kindHover !== null ? (SOURCE_FILTERS.find((f) => f.key === kindHover)?.desc ?? '') : sourceSummary(kinds)
+  const toggleKind = (key: string): void => {
+    setKinds((cur) => {
+      const next = new Set(cur)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  }
   /** Choose a column, or reverse it when it is already the one - from a pill or from a heading. */
   const chooseSort = (key: CatalogSortKey, next?: SortDir): void => {
     setDir(next ?? (key === sort ? (dir === 'asc' ? 'desc' : 'asc') : naturalDir(key)))
@@ -297,6 +330,7 @@ export function Catalog({
     setType(null)
     setDomain(null)
     setSubset('all')
+    setKinds(new Set())
     setSort('changed')
     setDir(naturalDir('changed'))
   }
@@ -404,6 +438,50 @@ export function Catalog({
           <div className="pillhint">{sortHint}</div>
         </div>
 
+        {/* What a page came from, as a filter rather than only as a column and an order
+            (2026-09-14). Multi-select, ORed: the question a reader has here is "show me the
+            papers and the web pages", not "show me exactly one kind" - which is why these are
+            toggles and the sorts above them are a radio group. `Publication` is the one pill
+            that is not a document type; see lib/catalogSourceFilter.ts. */}
+        {kindPills.length > 0 && (
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Source types</span>
+              {/* The same × the domains carry, in the same place: one gesture for "stop
+                  narrowing by this", wherever a section narrows. */}
+              {kinds.size > 0 && (
+                <button
+                  className="btn ghost head-clear"
+                  onClick={() => setKinds(new Set())}
+                  title="Clear the source filter"
+                  aria-label="Clear the source filter"
+                >
+                  <Icon name="x" />
+                </button>
+              )}
+            </div>
+            <div className="pillrow multi" role="group" aria-label="Source types">
+              {kindPills.map((f) => (
+                <button
+                  key={f.key}
+                  className="viewpill"
+                  aria-pressed={kinds.has(f.key)}
+                  onClick={() => toggleKind(f.key)}
+                  title={f.desc}
+                  onMouseEnter={() => setKindHover(f.key)}
+                  onMouseLeave={() => setKindHover(null)}
+                  onFocus={() => setKindHover(f.key)}
+                  onBlur={() => setKindHover(null)}
+                >
+                  {f.label}
+                  <span className="pn">{kindCounts.get(f.key) ?? 0}</span>
+                </button>
+              ))}
+            </div>
+            <div className="pillhint">{kindHint}</div>
+          </div>
+        )}
+
         <DomainSection
           domains={domainRows}
           label={(d) => (d === '' ? 'no domain' : d)}
@@ -479,7 +557,7 @@ export function Catalog({
         ) : (
           <CatalogTable
             nodes={shown}
-            refs={sources.data?.pages}
+            refs={refs}
             vaultName={vaultName}
             onOpenPage={(p) => navigate(catalogPageRoute(p))}
             sort={sort}

@@ -20,7 +20,11 @@ export interface CatalogSortSpec {
   readonly key: CatalogSortKey
   /** The pill's label, and what the heading says. */
   readonly label: string
-  /** What the sidebar's hint line reads under the pills. */
+  /**
+   * What the sidebar's hint line reads under the pills. ONE line in a 222px panel that clips
+   * rather than wraps (`.pillhint`), so it is a phrase, not a sentence: measured, roughly 41
+   * characters fit. Two of these used to be cut off mid-word.
+   */
   readonly desc: string
   /** The direction a first click gives. */
   readonly natural: SortDir
@@ -30,10 +34,10 @@ export interface CatalogSortSpec {
 export const CATALOG_SORTS: readonly CatalogSortSpec[] = [
   { key: 'changed', label: 'Changed', desc: 'most recently edited first', natural: 'desc' },
   { key: 'title', label: 'Title', desc: 'alphabetical, A to Z', natural: 'asc' },
-  { key: 'type', label: 'Type', desc: 'grouped by bucket: concepts, entities, sources, questions…', natural: 'asc' },
+  { key: 'type', label: 'Type', desc: 'grouped by bucket, not alphabetically', natural: 'asc' },
   { key: 'domain', label: 'Domain', desc: 'grouped by domain, unfiled pages last', natural: 'asc' },
   { key: 'backlinks', label: 'Backlinks', desc: 'most linked pages first', natural: 'desc' },
-  { key: 'source', label: 'Source type', desc: 'grouped by what was ingested, pages without a source last', natural: 'asc' },
+  { key: 'source', label: 'Source type', desc: 'grouped by source, pages without one last', natural: 'asc' },
 ]
 
 export const naturalDir = (key: CatalogSortKey): SortDir => CATALOG_SORTS.find((s) => s.key === key)?.natural ?? 'desc'

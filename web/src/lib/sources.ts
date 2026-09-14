@@ -29,7 +29,8 @@ export interface SourceLink {
   title: string
 }
 
-const LABELS: Record<string, string> = {
+/** The type as the column names it. Exported so a filter pill can use the same word. */
+export const LABELS: Record<string, string> = {
   pdf: 'PDF',
   web: 'Web',
   image: 'Image',
