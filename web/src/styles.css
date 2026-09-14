@@ -5655,6 +5655,70 @@ tr:focus-within .rowacts {
   font-size: 11.5px;
   color: var(--text-faint);
 }
+/*
+ * The intake, rebuilt 2026-09-14: the destination is the heading, the zone holds one thing at
+ * a time, and one button sends it. All three are the width of the column, so the eye runs
+ * straight down them - choose where, put the thing in, press send.
+ */
+.ip-strip {
+  display: flex;
+  width: 100%;
+  box-shadow: none;
+}
+.ip-strip .rp {
+  flex: 1;
+  justify-content: center;
+}
+.ip-send {
+  width: 100%;
+  justify-content: center;
+}
+/* What the zone is holding: kind, name, size, and the way back out. */
+.dz-held {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  width: 100%;
+  text-align: left;
+}
+.dz-icon {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.dz-icon svg { width: 22px; height: 22px; }
+.dz-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dz-size { grid-column: 2; font-size: 11px; color: var(--text-faint); }
+.dz-drop {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.dz-drop:hover:not(:disabled) { background: var(--bg-elev-2); color: var(--err); }
+.dz-drop svg { width: 14px; height: 14px; }
+/* Holding something, the zone is a shelf rather than an invitation: no hover, no pointer. */
+.dropzone.slim:has(.dz-held) { cursor: default; border-style: solid; }
+.dropzone.slim:has(.dz-held):hover { border-color: var(--border-strong); background: var(--bg); }
 .ip-actions .ch {
   display: inline-flex;
   align-items: center;

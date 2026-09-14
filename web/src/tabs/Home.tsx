@@ -138,6 +138,8 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
    */
   const [day, setDay] = useState<string>(() => localDate(new Date()))
   const [fellow, setFellow] = useState<string | null>(null)
+  /** Which queue the box below feeds: now, or tonight's shift. */
+  const [intake, setIntake] = useState<'now' | 'night'>('now')
   /** The search box, one for both views: the stream matches titles and pages, the feed its sections. */
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -437,25 +439,45 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         {/* Intake first: it is the reason to open the app at all. The two other ways in are
             the header's own chips, one row up, so they are not restated here. */}
         {!demoMode && (
+          /*
+           * One box, two destinations (2026-09-14). They used to be two sections with one
+           * drop zone each, which is two of everything - two zones to aim at, two notes to
+           * paste into - for a choice that is one word wide. The heading IS the choice now,
+           * in the strip the Library uses for its rooms, and the box below it belongs to
+           * whichever is lit.
+           */
           <div className="gp-sec">
             <div className="gp-head">
-              <span className="gp-eyebrow" title="Files, links and notes go into the queue right away; the next free worker files them, and the Activity stream shows each one settle.">
-                Add now
-              </span>
+              {fellowsOn ? (
+                <div className="lib-strip ip-strip" role="radiogroup" aria-label="Where this goes">
+                  <button
+                    className={`rp${intake === 'now' ? ' on' : ''}`}
+                    role="radio"
+                    aria-checked={intake === 'now'}
+                    title="Into the queue right away; the next free worker files it, and the Activity stream shows it settle."
+                    onClick={() => setIntake('now')}
+                  >
+                    Add now
+                  </button>
+                  <button
+                    className={`rp${intake === 'night' ? ' on' : ''}`}
+                    role="radio"
+                    aria-checked={intake === 'night'}
+                    title="Held until the night shift begins. The shift runs these first, ahead of every Fellow, so the Fellows plan on a vault that already holds them. The Night shift window lists what is waiting and lets you take it off again."
+                    onClick={() => setIntake('night')}
+                  >
+                    Night shift
+                  </button>
+                </div>
+              ) : (
+                <span className="gp-eyebrow" title="Files, links and notes go into the queue right away; the next free worker files them, and the Activity stream shows each one settle.">
+                  Add now
+                </span>
+              )}
             </div>
-            <Dropzone legend={false} />
-          </div>
-        )}
-        {/* The same box for the night: what it takes is held until the shift begins and runs
-            ahead of every Fellow, so the Fellows plan on a vault that already holds it. */}
-        {!demoMode && fellowsOn && (
-          <div className="gp-sec">
-            <div className="gp-head">
-              <span className="gp-eyebrow" title="The same box, but everything it takes is held until the night shift begins. The shift runs these first, ahead of every Fellow, so the Fellows plan on a vault that already holds them. The Night shift window lists what is waiting and lets you take it off again.">
-                Add to night shift
-              </span>
-            </div>
-            <Dropzone legend={false} when="night" />
+            {/* Keyed, so switching destination empties the zone: what is held is held FOR one
+                of them, and a file that quietly changed sides would be a surprise. */}
+            <Dropzone key={intake} legend={false} {...(intake === 'night' ? { when: 'night' as const } : {})} />
           </div>
         )}
         {/* The plan, between the two boxes and the view's own sections: what tonight can cost
