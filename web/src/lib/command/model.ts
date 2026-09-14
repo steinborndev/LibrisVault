@@ -15,7 +15,7 @@
  *   when most of it is not booked, and two of the three tasks would look done.
  */
 
-import { runUsd } from '../plan.ts'
+import { kindUsd, pointsPerUsd, runUsd, type Calibrated } from '../plan.ts'
 import type { AgentTask, FellowRecord, FellowSummary, GraphNode, ProposalRecord, TaskKind, SceneJob } from '../../api/types.ts'
 
 /** A Fellow holds one art when all its tasks share one, and is custom when they do not. */
@@ -752,4 +752,87 @@ export function nightRows(
   }
   // Stable inside a phase: the blocks are already in the order the bar lays them out.
   return out.map((r, i) => ({ r, i })).sort((a, b) => a.r.phase - b.r.phase || a.i - b.i).map((x) => x.r)
+}
+
+/**
+ * What tonight asks of the Fellows' share of the week, against what is left of it.
+ *
+ * The one number the night shift never had (2026-09-14). Everything else answers a neighbouring
+ * question and none of them this one: a Fellow's pill is its own run count against its own
+ * quota, the plan banner is the plan's headroom against the reserves, and "Research budget" is
+ * the roster at full quota projected over seven days. So four Fellows could each sit inside
+ * their quota, every pill green, and the night still stop half way through with the Fellows
+ * asleep on `share` - which is a thing you want to know at eleven, not at four.
+ *
+ * The WEEK, and only the week. The five-hour window resets inside a night that runs from 23:30
+ * to 04:00, so a night measured against one five-hour share would be measured against a bound
+ * that refills under it; the week is the one that survives the night, and it is the one the
+ * user sets a percentage for.
+ *
+ * Planning runs count. The gate prices every Fellow run and holds the plans as well - they
+ * spend plan points like anything else - so a total that left them out would be short by one
+ * per standing task, which on a shelf of quiet Fellows is most of the night.
+ */
+export interface NightAsk {
+  /** What the night's runs are expected to spend, in the unit the share is counted in. */
+  readonly needs: number
+  /** What is left of the share after what the Fellows have already spent this week. */
+  readonly left: number
+  /** The share itself: what the user set aside for the Fellows. */
+  readonly share: number
+  readonly unit: 'points' | 'usd'
+  /** True when the night asks for more than is left, and the shift will stop part-way. */
+  readonly over: boolean
+  /** How many of the night's runs fit before the share runs out, and how many there are. */
+  readonly fits: number
+  readonly total: number
+}
+
+/** The plan fields this reads, so a test can hand it four numbers instead of a payload. */
+export interface AskPlan {
+  readonly shares: { readonly unit: 'points' | 'usd'; readonly week: number; readonly weekUsed: number }
+  readonly calibration?: Calibrated['calibration']
+}
+
+export function nightAsk(blocks: readonly Block[], shelves: readonly Shelf[], plan: AskPlan | undefined): NightAsk | null {
+  if (plan === undefined || plan.shares.week <= 0) return null
+  const byFellow = new Map<string, FellowSummary>()
+  for (const s of shelves) for (const f of s.fellows) byFellow.set(f.agent.id, f)
+  const share = plan.shares.week
+  const left = Math.max(0, Math.round((share - plan.shares.weekUsed) * 100) / 100)
+  let needs = 0
+  let fits = 0
+  let spent = 0
+  for (const b of blocks) {
+    const f = byFellow.get(b.fellowId)
+    if (f === undefined) continue
+    const model = f.agent.model
+    /*
+     * Priced the way the gate will price it: by the run's own kind where one is decided, by
+     * the Fellow's depth where the night has yet to decide. In points where the service has
+     * measured enough to have a rate for this model - which is the unit the share itself is
+     * counted in - and in USD until then, which is what the share falls back to as well.
+     */
+    const usd =
+      b.phase === 'plan'
+        ? kindUsd('plan', model)
+        : (b.proposal?.estCostUsd ?? runUsd(f.agent.step, model))
+    const rate = plan.shares.unit === 'points' && plan.calibration !== undefined ? (pointsPerUsd({ calibration: plan.calibration }, model)?.ppu ?? null) : null
+    const cost = rate === null ? usd : Math.round(usd * rate * 1000) / 1000
+    needs += cost
+    spent += cost
+    // A planning run is not one of the runs the count is about: it is what decides what they
+    // will be, and "the share runs out after the 3rd of 5" has to mean the work.
+    if (b.phase === 'run' && spent <= left) fits++
+  }
+  const total = blocks.filter((b) => b.phase === 'run').length
+  return {
+    needs: Math.round(needs * 100) / 100,
+    left,
+    share,
+    unit: plan.shares.unit,
+    over: needs > left,
+    fits: Math.min(fits, total),
+    total,
+  }
 }

@@ -644,6 +644,16 @@ skips planning. The refusal codes are `reserve` and `share`, each naming the win
 when known, its reset; the shift turns them into the sleep code `plan`. Manual steps from
 the card or the API get the same refusal (409) and leave the Fellow's state alone.
 
+**What tonight asks of the share is shown before the night runs** (2026-09-14). Every other
+figure answers a neighbouring question: a Fellow's own runs against its own quota, the plan's
+headroom against the reserves, the roster at full quota projected over seven days. None says
+whether TONIGHT fits, so Fellows could each sit inside their quota and the shift still stop half
+way with them asleep on `share`. The night shift sums every run it will make - planning runs
+included, at the prices the gate uses - against what is left of the week's research share, and
+names how far the night gets when it does not fit. The WEEK and only the week: the five-hour
+window resets inside a night that crosses it, and a night measured against a bound that refills
+under it would be measured against nothing.
+
 **The quota is counted per NIGHT, not per calendar day** (2026-09-14). A window of 23:30 to
 04:00 carries the cycle date of the morning after and crosses midnight in the middle, so a
 count anchored on local midnight split one night into two: a shift that started at 23:30

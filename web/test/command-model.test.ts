@@ -23,6 +23,7 @@ import {
   plannedOnly,
   taskBands,
   nightRows,
+  nightAsk,
   type NightRow,
   tasksTonight,
   ticksIn,
@@ -649,6 +650,54 @@ describe('nightRows', () => {
     const approved = rowsOf([{ ...summary(a), queue: [{ ...pending, status: 'approved' }] } as FellowSummary])
     expect(approved.map((r) => r.kind)).toEqual(['run', 'plan'])
     expect(approved.find((r) => r.kind === 'run')!.proposal?.topic).toBe('Something nobody has decided on')
+  })
+})
+
+/*
+ * What tonight asks of the Fellows' weekly share (2026-09-14). The number the night shift never
+ * had: a Fellow's pill is its own runs against its own quota, the plan banner is the plan's
+ * headroom against the reserves, and "Research budget" is the roster at full quota over seven
+ * days. None of them answers whether TONIGHT fits, which is what stops a shift half way.
+ */
+describe('nightAsk', () => {
+  const durations = { 'research-step': 318_000, 'research-expand': 311_000, plan: 86_000, research: 614_000 }
+  const CAL = { perModel: { 'sonnet-5': { sevenDay: 0.02, n: 40 } } }
+  const askOf = (fellows: FellowSummary[], plan: Parameters<typeof nightAsk>[2]): ReturnType<typeof nightAsk> => {
+    const shelf = { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows }
+    return nightAsk(scheduleFrom([shelf], 1500, durations), [shelf], plan)
+  }
+
+  it('prices every run of the night, planning runs included, in the unit the share uses', () => {
+    // One task, one approved research proposal at 6 USD, quota 1: one plan at 0.40 and one run
+    // at 6.00, which the calibration turns into 0.008 + 0.12 points of the week.
+    const a = agent({ id: 'b', name: 'B', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
+    const p = proposal({ status: 'approved', kind: 'research', estCostUsd: 6, provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: 'a' } })
+    const f = { ...summary(a), queue: [p] } as FellowSummary
+    const points = askOf([f], { shares: { unit: 'points', week: 10, weekUsed: 0 }, calibration: CAL })!
+    expect(points).toMatchObject({ unit: 'points', needs: 0.13, left: 10, share: 10, over: false, fits: 1, total: 1 })
+    // Without a calibration the share is counted in USD, and so is the night.
+    const money = askOf([f], { shares: { unit: 'usd', week: 100, weekUsed: 40 } })!
+    expect(money).toMatchObject({ unit: 'usd', needs: 6.4, left: 60, over: false })
+  })
+
+  it('says how far the night gets when the share runs out under it', () => {
+    /*
+     * The case the line exists for: two Fellows inside their own quotas, both pills green, and
+     * a share with room for one of the three runs. The count is of RUNS - a planning run is
+     * what decides what a run will be, and "after 1 of 3" has to mean the work.
+     */
+    const one = { ...summary(agent({ id: 'x', name: 'X', autonomy: 'auto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })), queue: [] } as FellowSummary
+    const two = { ...summary(agent({ id: 'y', name: 'Y', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'b')] })), queue: [] } as FellowSummary
+    const ask = askOf([one, two], { shares: { unit: 'usd', week: 10, weekUsed: 2.5 } })!
+    // Three runs of 6.00 and two plans of 0.40 against 7.50 left: the first run fits, the rest do not.
+    expect(ask).toMatchObject({ needs: 18.8, left: 7.5, over: true, total: 3 })
+    expect(ask.fits).toBe(1)
+  })
+
+  it('has nothing to say without a share to measure against', () => {
+    const a = { ...summary(agent({ id: 'b', name: 'B', tasks: [task('watch', 'a')] })), queue: [] } as FellowSummary
+    expect(askOf([a], undefined)).toBeNull()
+    expect(askOf([a], { shares: { unit: 'points', week: 0, weekUsed: 0 }, calibration: CAL })).toBeNull()
   })
 })
 

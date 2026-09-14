@@ -43,6 +43,8 @@ import {
   minutesFor,
   nightBlock,
   nightRoom,
+  nightAsk,
+  type NightAsk,
   scheduleFrom,
   runCount,
   plannedOnly,
@@ -414,6 +416,9 @@ export function CommandCentre({
    */
   const blocked = nightBlock(usage.data)
   const room = nightRoom(usage.data)
+  // What the whole night asks of the Fellows' weekly share - every shelf, not the one you are
+  // on, because the share is one purse for all of them and so is the night's queue.
+  const ask = useMemo(() => nightAsk(blocks, staffed, usage.data), [blocks, staffed, usage.data])
   /*
    * The one control that hands out budget from this window. It sits at the end of the banner
    * because that is where the reader already is when the answer matters: the sentence before
@@ -805,6 +810,29 @@ export function CommandCentre({
                   {usage.data?.weekOverride.active === true ? weekRelease : null}
                 </p>
               ) : null}
+              {/*
+                * And what tonight asks of it. The banner above says the plan has room; this
+                * says whether the night fits in the room the FELLOWS have, which is the share
+                * you set and a different question with a different answer.
+                */}
+              {ask !== null && (
+                <p className={`cc-note${ask.over ? ' warn' : ''}`}>
+                  <b>Tonight asks about {askAmount(ask, ask.needs)}</b> of the {askNum(ask, ask.left)} left in the
+                  Fellows’ share of this week
+                  {ask.left < ask.share ? ` (${askNum(ask, Math.round((ask.share - ask.left) * 100) / 100)} of ${askNum(ask, ask.share)} already spent)` : ''}.{' '}
+                  {ask.over ? (
+                    <>
+                      It does not fit: the share runs out after {ask.fits} of tonight’s {ask.total} run
+                      {ask.total === 1 ? '' : 's'}, and the rest sleep until the week resets. Lower a quota, or{' '}
+                      <button className="cc-link quiet" onClick={() => navigate('/system?section=service&setting=researchShareWeekPct')}>
+                        raise the share ›
+                      </button>
+                    </>
+                  ) : (
+                    'Planning runs included, at the prices the gate uses.'
+                  )}
+                </p>
+              )}
             </section>
             <Shelves
               staffed={staffed}
@@ -1115,6 +1143,14 @@ export function CommandCentre({
 }
 
 /** Contiguous runs of one shelf: the unit you read, divided by hairlines into its topics. */
+/**
+ * A figure in the unit the share is counted in: points where it is calibrated, USD until then.
+ * The unit is named once in a sentence and the figures after it go bare - "0.25 points of the
+ * 0.2 left" - because a line that repeats "points" four times reads as four different units.
+ */
+const askAmount = (ask: NightAsk, n: number): string => (ask.unit === 'points' ? `${n} points` : usd(n))
+const askNum = (ask: NightAsk, n: number): string => (ask.unit === 'points' ? `${n}` : usd(n))
+
 /**
  * What the list is, what it leaves out, and what the order of the shelves means: the standing
  * rules, on the heading. They are read once and then known, where the night's own state - a

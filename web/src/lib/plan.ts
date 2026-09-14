@@ -22,8 +22,30 @@ import type { PlanStatus } from '../api/types.ts'
 export const STEP_USD: Record<string, number> = { small: 2, standard: 6, deep: 6 }
 export const MODEL_FACTOR: Record<string, number> = { 'sonnet-5': 1, 'opus-5': 2.5, 'fable-5-1': 5 }
 
+/**
+ * What one run of each KIND costs, as the gate prices it (`pipeline/planner.ts` KIND_COST_USD).
+ *
+ * `STEP_USD` above prices a Fellow's pace - what a step of its depth costs - and is what a
+ * forecast uses where nothing has been decided yet. This prices a run whose kind is known, and
+ * a planning run among them: the gate holds those too, because a plan spends plan points like
+ * anything else, and a night's total that left them out would be short by one per task.
+ */
+export const KIND_USD: Record<string, number> = { 'research-step': 2, research: 6, 'research-expand': 3, plan: 0.4 }
+
+/** One run of this kind on this model, in USD. */
+export const kindUsd = (kind: string, model: string): number =>
+  Math.round((KIND_USD[kind] ?? KIND_USD['research-step']!) * (MODEL_FACTOR[model] ?? 1) * 100) / 100
+
 export const runUsd = (step: string, model: string): number =>
   (STEP_USD[step] ?? STEP_USD['standard']!) * (MODEL_FACTOR[model] ?? 1)
+
+/**
+ * What {@link pointsPerUsd} needs of a plan, and no more: `PlanStatus` satisfies it, and so
+ * does a forecast's own input, which is how a caller can price a night without the payload.
+ */
+export interface Calibrated {
+  readonly calibration: { readonly perModel: Record<string, { readonly sevenDay: number | null; readonly n: number }> }
+}
 
 /**
  * A model's points per USD, and whether it had to be borrowed.
@@ -34,7 +56,7 @@ export const runUsd = (step: string, model: string): number =>
  * factor is already inside the USD amount this rate multiplies, and applying it a second time
  * would price an opus run at 6.25 sonnet runs instead of 2.5.
  */
-export function pointsPerUsd(plan: PlanStatus | undefined, model: string): { ppu: number; estimated: boolean } | null {
+export function pointsPerUsd(plan: Calibrated | undefined, model: string): { ppu: number; estimated: boolean } | null {
   const own = plan?.calibration.perModel[model]
   if (own && own.sevenDay !== null && own.n >= 3) return { ppu: own.sevenDay, estimated: false }
   const lent = Object.values(plan?.calibration.perModel ?? {})
