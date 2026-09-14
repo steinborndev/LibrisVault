@@ -2270,7 +2270,9 @@ function Spawn({
                     <span>{minutesFor(kind, durations)} min a task · {usd(perRun)} a run</span>
                     <span>
                       {sh.defaults.model.replace(/-\d.*$/, '')}
-                      {(MODEL_FACTOR[sh.defaults.model] ?? 1) > 1 ? ` (×${MODEL_FACTOR[sh.defaults.model]!} the plan)` : ''} ·{' '}
+                      {/* The factor alone: what it multiplies is the line it stands in, and
+                          spelling it out wrapped the card's densest line onto a second one. */}
+                      {(MODEL_FACTOR[sh.defaults.model] ?? 1) > 1 ? ` (×${MODEL_FACTOR[sh.defaults.model]!})` : ''} ·{' '}
                       {sh.defaults.step} depth
                       {week === null ? '' : ` · ${week.pct.toFixed(0)}% of the research budget at 3 tasks`}
                     </span>
