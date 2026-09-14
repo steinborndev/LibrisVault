@@ -482,11 +482,14 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         style={{ cursor: props.onAislePointerDown ? 'grab' : 'default', opacity: isSource ? 0.4 : 1 }}
       >
         <title>{row === 'wall' ? 'The doorway. Drag it along the wall to rearrange the shelves.' : 'The aisle. Drag it along the row to rearrange the shelves.'}</title>
+        {/* The floor of the gap: hatched so it reads as something, and the depth of a case
+            so the doorway and the aisle are the same size as what stands beside them. */}
+        <polygon points={pts([P(i, j), P(i + CASE_W, j), P(i + CASE_W, j + CASE_D), P(i, j + CASE_D)])} fill={`url(#${idp}-aisle)`} />
         <polygon
           points={pts([P(i, j), P(i + CASE_W, j), P(i + CASE_W, j + CASE_D), P(i, j + CASE_D)])}
           fill={held !== null && held.row === row ? TOK.accentSoft : 'transparent'}
-          stroke={held !== null && held.row === row ? TOK.accent : 'transparent'}
-          strokeWidth={1.2}
+          stroke={held !== null && held.row === row ? TOK.accent : TOK.borderStrong}
+          strokeWidth={held !== null && held.row === row ? 1.4 : 0.8}
           strokeDasharray="4 4"
         />
       </g>
@@ -714,6 +717,16 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" className={`lib-svg${night ? ' night' : ''}`} style={{ display: 'block' }}>
       <defs>
+        {/*
+         * The hatch a gap wears: diagonal grey lines on the floor where a row has no case.
+         * A gap used to be bare parquet, which reads as nothing at all - and a thing you are
+         * meant to take hold of has to look like a thing. Flat rather than a pale case, because
+         * a gap is not an empty shelf: nothing can be put there, it is the way through.
+         */}
+        <pattern id={`${idp}-aisle`} patternUnits="userSpaceOnUse" width={7} height={7} patternTransform="rotate(45)">
+          <rect width={7} height={7} fill={night ? '#1a2130' : '#e9e6e0'} opacity={0.55} />
+          <line x1={0} y1={0} x2={0} y2={7} stroke={night ? '#5b6577' : '#9c968c'} strokeWidth={1.6} opacity={0.7} />
+        </pattern>
         {/* Oak parquet: four blocks of three staves, every other block turned a quarter. */}
         <pattern id={`${idp}-floor`} patternUnits="userSpaceOnUse" width={56} height={56} patternTransform={`matrix(${k} ${kv} ${-k} ${kv} ${ox} ${oy})`}>
           <rect width={56} height={56} fill={f.base} />

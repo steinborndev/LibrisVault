@@ -23,6 +23,7 @@ import { FellowCard } from '../components/library/FellowCard.tsx'
 import { FellowPopover } from '../components/library/FellowPopover.tsx'
 import { SpawnForm } from '../components/library/SpawnForm.tsx'
 import { Icon } from '../components/Icon.tsx'
+import { Shortcuts } from '../components/Shortcuts.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
@@ -56,6 +57,22 @@ type Mode = 'full' | 'focus'
  * other direction in time, the report of what the shift did. Home has no such neighbour, so
  * the same feed is "Night shift" there.
  */
+/**
+ * What the keys and the pointer do in the room. Not the Graph screen's list and not the
+ * department window's: this is a place you walk around, so the keys walk the rooms, and what
+ * the pointer does is mostly pick things up.
+ */
+const ROOM_SHORTCUTS = [
+  { keys: ['←', '→'], what: 'the room before or after this one' },
+  { keys: ['PgUp', 'PgDn'], what: 'the same step, and the wheel over the room does it too' },
+  { keys: ['Esc'], what: 'one step back: a window, then a wing, out to the main room' },
+  { keys: ['click'], what: 'a shelf opens its department; a free one starts a new department' },
+  { keys: ['drag'], what: 'a shelf moves to another slot or another room' },
+  { keys: ['drag'], what: 'the hatched gap moves the aisle, or the doorway, along its row' },
+  { keys: ['click'], what: 'the passage walks to the next room; a board on the wall opens it' },
+  { keys: ['click'], what: 'a figure shows what that Fellow is doing' },
+]
+
 const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Last night', reading: 'Reading list' }
 /* Empty is a value here: the night shift board carries a date stepper in this slot, and a
    line about where else the feed appears described a screen you are not looking at. */
@@ -839,6 +856,15 @@ export function LibraryScreen({
                 </span>
               </span>
             )}
+            {/* The clock and the floor, where the rooms are chosen rather than in a corner of
+                the drawing: it says what time it is IN the room, which is the same kind of fact
+                as which room you are in. Its width is fixed so the strip beside it starts at
+                one x whatever the sentence says. */}
+            {!ccOpen && shelf === null && board === null && (
+              <span className={`chip lib-when${night ? ' dark' : ''}`} title={`${hhmm} · ${night ? 'night' : 'day'} · ${floorLine(actors)}`}>
+                <Icon name={night ? 'moon' : 'sun'} /> {hhmm} · {night ? 'night' : 'day'} · {floorLine(actors)}
+              </span>
+            )}
             {!ccOpen && shelf === null && board === null && rooms.length > 0 && current && (
               <RoomStrip
                 rooms={rooms}
@@ -1052,7 +1078,7 @@ export function LibraryScreen({
             const corner = planCorner(plan.data, Date.now())
             if (corner === null) return null
             return (
-              <div className="lib-corner br">
+              <div className="lib-corner bl">
                 {/* The release button stands beside the age; the card is the shared one. */}
                 <PlanCard
                   corner={corner}
@@ -1070,14 +1096,10 @@ export function LibraryScreen({
               </div>
             )
           })()}
-          {/* The clock and the floor. The week's research share used to trail it; the night
-              shift's own line carries that number now, as a percent of the budget and with the
-              setting behind it one click away. */}
-          <div className="lib-corner bl">
-            <span className={`chip${night ? ' dark' : ''}`}>
-              <Icon name={night ? 'moon' : 'sun'} /> {hhmm} · {night ? 'night' : 'day'} · {floorLine(actors)}
-            </span>
-          </div>
+
+          {/* Bottom right, where the Graph screen and the department window both keep theirs.
+              Only over the room: a window covers the drawing and carries its own. */}
+          {!windowOpen && <Shortcuts rows={ROOM_SHORTCUTS} corner />}
           {popover && (
             <FellowPopover
               fellow={popover.fellow}

@@ -8628,6 +8628,21 @@ tr:focus-within .rowacts {
 .lib-head-left, .lib-head-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .lib-head-mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
 /*
+ * The room strip starts at one x and only ever grows to the right (2026-09-14). Centred, it
+ * slid sideways every time a wing was added - the one control you aim at by memory, moving
+ * because something else got longer. So the middle is packed from the left, and the clock
+ * beside it keeps a fixed width whatever its sentence says.
+ */
+.lib-headline:has(> .lib-head-mid > .lib-strip) .lib-head-mid { justify-content: flex-start; }
+.lib-when {
+  flex: none;
+  width: 224px;
+  justify-content: flex-start;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/*
  * While the command centre is open the middle sits in the row's true centre rather than in
  * what is left over: the right-hand slot swaps "Night shift" for a decisions count, and a
  * middle centred on the remainder would slide sideways every time it did.
