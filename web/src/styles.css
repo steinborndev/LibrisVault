@@ -7815,6 +7815,14 @@ tr:focus-within .rowacts {
 .rl-act { flex: none; display: flex; align-items: center; gap: 6px; }
 
 /*
+ * What a search for an open copy found: nothing. It stands in the row's meta line, in the error
+ * tone rather than the meta grey, because the answer to a button click has to be visible as an
+ * answer - a row that looks unchanged reads as a button that did nothing. The full sentence the
+ * service wrote is the title.
+ */
+.rl-miss { color: var(--err); }
+
+/*
  * The archive button is the quiet one in the row: it sits beside whatever the row's real
  * action is (Ingest, Open, a status chip) and must not compete with it, so it is icon-only
  * and takes its weight from hover rather than from colour.

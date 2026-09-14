@@ -25,6 +25,13 @@ const css = readFileSync(cssPath, 'utf8')
 /** Comments replaced by blanks of the same length, so offsets and line numbers survive. */
 const bare = css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
 
+describe('what a row says after a search', () => {
+  it('paints the open-access miss in the error tone', () => {
+    // A click whose result is invisible reads as a click that did nothing (2026-09-14).
+    expect(bare).toMatch(/\.rl-miss\s*\{[^}]*color:\s*var\(--err\)/)
+  })
+})
+
 describe('styles.css structure', () => {
   it('has balanced braces', () => {
     let depth = 0

@@ -137,7 +137,12 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
                       {reachLabel(e) !== null ? ` · ${reachLabel(e)}` : ''}
                       {/* What the last search said, until the next one: a miss is worth seeing. */}
                       {searched[e.url] ? (
-                        <span title={searched[e.url]!}> · {searchMiss(searched[e.url]!)}</span>
+                        /* In the warning tone: the click DID something, and a row that looks
+                           unchanged after a search reads as a button that did nothing. */
+                        <span className="rl-miss" title={searched[e.url]!}>
+                          {' · '}
+                          {searchMiss(searched[e.url]!)}
+                        </span>
                       ) : (
                         ''
                       )}
