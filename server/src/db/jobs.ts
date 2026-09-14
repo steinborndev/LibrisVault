@@ -445,9 +445,26 @@ export class JobStore {
     return this.db.prepare('DELETE FROM jobs WHERE id = ?').run(id).changes > 0
   }
 
+  /**
+   * Says a row changed without changing its status (2026-09-14).
+   *
+   * Most of what a finished ingest shows up with arrives AFTER it reaches `done`: the pages
+   * come from the commit, and the commit happens next; the revert anchor, the validation
+   * summary and the "wrote nothing" outcome follow the same way. Those writes were silent, so
+   * the dashboard - which refetches the job list on a `job` event - held the version it had
+   * fetched the moment the status changed: a finished ingest with no pages and no Article tab,
+   * until something unrelated happened to invalidate the list.
+   */
+  private touched(id: string): void {
+    if (this.bus === undefined) return
+    const job = this.get(id)
+    if (job !== undefined) this.bus.publish({ kind: 'job', job })
+  }
+
   /** Records how a `done` run ended when the status alone would mislead (v14). */
   setOutcome(id: string, outcome: JobOutcome | null): void {
     this.db.prepare('UPDATE jobs SET outcome = ? WHERE id = ?').run(outcome, id)
+    this.touched(id)
   }
 
   /** Job counts grouped by status — for the dashboard/health overview (SPEC.md §6.1). */
@@ -729,6 +746,7 @@ export class JobStore {
    */
   setValidation(id: string, summary: unknown): void {
     this.db.prepare('UPDATE jobs SET validation = ? WHERE id = ?').run(JSON.stringify(summary), id)
+    this.touched(id)
   }
 
   /** Records where the job's `.raw/<job-id>/` directory lives (vault-relative). */
@@ -739,11 +757,13 @@ export class JobStore {
   /** Records the wiki pages this ingest committed (read back from the commit itself). */
   setCreatedPages(id: string, pages: readonly string[]): void {
     this.db.prepare('UPDATE jobs SET created_pages = ? WHERE id = ?').run(JSON.stringify(pages), id)
+    this.touched(id)
   }
 
   /** Records the vault commit a job produced (v9). Batch members share one hash by design. */
   setCommitHash(id: string, hash: string): void {
     this.db.prepare('UPDATE jobs SET commit_hash = ? WHERE id = ?').run(hash, id)
+    this.touched(id)
   }
 
   /**
