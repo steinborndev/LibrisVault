@@ -50,7 +50,13 @@ const CANVAS_H = 700
 
 type Mode = 'full' | 'focus'
 
-const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Night shift', reading: 'Reading list' }
+/*
+ * The board on the wall is "Last night": the headline's own button already says "Night shift",
+ * and that one means TONIGHT - which Fellows run, in what order, at what cost. This is the
+ * other direction in time, the report of what the shift did. Home has no such neighbour, so
+ * the same feed is "Night shift" there.
+ */
+const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Last night', reading: 'Reading list' }
 const BOARD_SUBS: Record<BoardId, string> = {
   hot: "the vault's digest, refreshed after every run",
   recap: 'the same view Home opens on',
