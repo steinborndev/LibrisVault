@@ -251,7 +251,15 @@ export function RecapFeed({
         {control === undefined && (
           <aside className="rrail" aria-label="Recap filters">
             <div className="rrail-sec">
-              <div className="rrail-k">Fellows</div>
+              {/* What the section does, on hover rather than under it: the line was one of two
+                  sentences that swapped as you picked, and the pills already show what is
+                  picked. The foot says it in words when it matters. */}
+              <div
+                className="rrail-k"
+                title="Pick one or more to see only their work; none picked is all of them. An empty slot spawns a new Fellow, each one for a domain of its own."
+              >
+                Fellows
+              </div>
               <div className="rrail-pills">
                 {fellows.slice(0, FELLOW_SLOTS).map((f) => {
                   const runs = runsInWeek(rows, shownWeek, f.agent.name)
@@ -285,11 +293,6 @@ export function RecapFeed({
               </div>
             </div>
 
-            <p className="rrail-hint">
-              {picked.length === 0
-                ? 'Every Fellow. Pick one or more to see only their work.'
-                : `${picked.join(' and ')} only. Click again to let the others back in.`}
-            </p>
           </aside>
         )}
       </div>

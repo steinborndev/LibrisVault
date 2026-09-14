@@ -289,12 +289,14 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         {weekly.weekPct !== null && plan ? `; about ${weekly.weekPct.toFixed(1)} of the week's ${plan.shares.week} research points` : ''}.
       </p>
       {spawn.error != null && <div className="toast err">{(spawn.error as Error).message}</div>}
+      {/* Cancel left, Spawn right: the commit sits where a form's commit sits, at the end of
+          the row, and the way out is passed on the way there. */}
       <div className="gx-actions">
-        <button className="btn primary sm" type="submit" disabled={spawn.isPending}>
-          Spawn
-        </button>
         <button className="btn ghost sm" type="button" onClick={onCancel}>
           Cancel
+        </button>
+        <button className="btn primary sm" type="submit" disabled={spawn.isPending}>
+          Spawn
         </button>
       </div>
     </form>
