@@ -597,6 +597,19 @@ export interface EffectiveSettings {
   /** The hours the night shift may work in, `HH:MM`, crossing midnight (SPEC section 8.5). */
   nightWindowStart: string
   nightWindowEnd: string
+  /**
+   * The research budget, in percent of the plan's own windows (SPEC section 8.2, A5). The
+   * shares are what the Fellows may spend; the reserves are where everything stops, whatever
+   * the share says. The server has always sent them; they reach the settings form as of
+   * 2026-09-14, and the night shift's own budget line points at them.
+   */
+  researchShareWeekPct: number
+  researchShare5hPct: number
+  reserveWeekPct: number
+  reserve5hPct: number
+  /** USD-equivalent size of the plan windows, for the accounting that runs without a sample. */
+  planWeekUsd: number
+  plan5hUsd: number
 }
 
 /**

@@ -35,7 +35,7 @@ const READ_ONLY_LABELS: Record<string, string> = {
  */
 export type SettingsSection = 'all' | 'service' | 'integrations'
 
-export function SettingsEditor({ section = 'all' }: { section?: SettingsSection } = {}): React.ReactElement {
+export function SettingsEditor({ section = 'all', focus = '' }: { section?: SettingsSection; focus?: string } = {}): React.ReactElement {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['settings'], queryFn: api.settings })
   const [draft, setDraft] = useState<EffectiveSettings | null>(null)
@@ -45,6 +45,17 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
   useEffect(() => {
     if (q.data) setDraft((current) => current ?? q.data.effective)
   }, [q.data])
+
+  /*
+   * `?setting=<key>` from elsewhere - the night shift's research budget points at its share.
+   * An effect and not an anchor: the screen stays mounted, so arriving a second time would
+   * otherwise do nothing, and the form is not in the DOM until the settings have loaded.
+   */
+  useEffect(() => {
+    if (focus === '' || draft === null) return
+    const el = document.getElementById(`setting-${focus}`)
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [focus, draft])
 
   const save = useMutation({
     mutationFn: (patch: SettingsPatch) => api.saveSettings(patch),
@@ -82,7 +93,7 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
     hint: string,
     control: React.ReactNode,
   ): React.ReactElement => (
-    <div className="setting" key={k}>
+    <div className={`setting${focus === k ? ' focused' : ''}`} key={k} id={`setting-${k}`}>
       <div>
         <div className="setting-label">
           {label}
@@ -159,6 +170,68 @@ export function SettingsEditor({ section = 'all' }: { section?: SettingsSection 
             min={1}
             value={Math.round(draft.maxUploadBytes / MB)}
             onChange={(e) => setDraft({ ...draft, maxUploadBytes: Math.max(1, Number(e.target.value)) * MB })}
+          />,
+        )}
+
+        {/*
+          * The research budget (2026-09-14). It was settable only through the API: the night
+          * shift's own line now names the share and points here, and a limit you can read but
+          * not change is half a control. The four belong together - two shares the Fellows may
+          * spend, two reserves where everything stops whatever the share says.
+          */}
+        {row(
+          'researchShareWeekPct',
+          'Research share, week',
+          'How much of the plan\'s seven-day window the Fellows may spend, in percent. The night shift adds up what every Fellow claims at its own model, depth and quota and measures it against this. 10 % is the default; more buys more nights, and the reserve below still stops everything.',
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={draft.researchShareWeekPct}
+            onChange={(e) => setDraft({ ...draft, researchShareWeekPct: Math.min(100, Math.max(0, Number(e.target.value))) })}
+          />,
+        )}
+
+        {row(
+          'researchShare5hPct',
+          'Research share, 5 hours',
+          'The same limit over one 5-hour window, so a single night cannot spend the week. 15 % by default.',
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={draft.researchShare5hPct}
+            onChange={(e) => setDraft({ ...draft, researchShare5hPct: Math.min(100, Math.max(0, Number(e.target.value))) })}
+          />,
+        )}
+
+        {row(
+          'reserveWeekPct',
+          'Reserve, week',
+          'Where the Fellows stop whatever their share says: above this utilization of the seven-day window nothing research-related runs, so your own work keeps the rest. 80 % by default.',
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={draft.reserveWeekPct}
+            onChange={(e) => setDraft({ ...draft, reserveWeekPct: Math.min(100, Math.max(0, Number(e.target.value))) })}
+          />,
+        )}
+
+        {row(
+          'reserve5hPct',
+          'Reserve, 5 hours',
+          'The same floor over one 5-hour window. 60 % by default: the window you are most likely to want for yourself.',
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={draft.reserve5hPct}
+            onChange={(e) => setDraft({ ...draft, reserve5hPct: Math.min(100, Math.max(0, Number(e.target.value))) })}
           />,
         )}
 

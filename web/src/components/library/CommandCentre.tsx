@@ -64,7 +64,7 @@ import { WeekRelease } from './WeekRelease.tsx'
 import { queryState } from '../QueryState.tsx'
 import { Markdown } from '../Markdown.tsx'
 import { timeAgo, usd } from '../../lib/format.ts'
-import { weeklyProjection } from '../../lib/plan.ts'
+import { MODEL_FACTOR, rosterShare, runUsd, shareDetail, weekShare } from '../../lib/plan.ts'
 
 export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
 type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
@@ -156,9 +156,6 @@ const SHAPES: ReadonlyArray<{
   },
 ]
 
-/** What one run of this shape costs, list price, from the same table the spawn form uses. */
-const STEP_USD: Record<string, number> = { small: 2, standard: 6, deep: 6 }
-const MODEL_FACTOR: Record<string, number> = { 'sonnet-5': 1, 'opus-5': 2.5, 'fable-5-1': 5 }
 
 const shapeOf = (art: FellowRecord['art']): (typeof SHAPES)[number] => SHAPES.find((x) => x.art === art) ?? SHAPES[3]!
 
@@ -329,6 +326,22 @@ export function CommandCentre({
   const live = drag ?? win
   const span = live.to - live.from
   // A fresh `{}` every render would re-lay the schedule on every render with it.
+  /*
+   * What the standing arrangement claims of the week's research budget: every Fellow that is
+   * not retired, at its own model, depth and quota. Not tonight's plan - a Fellow that is
+   * paused or waiting on approval still occupies its share of the arrangement, and the number
+   * that answers "can I afford another one" is the one that counts them all.
+   */
+  const budget = useMemo(
+    () =>
+      rosterShare(
+        usage.data,
+        (agents.data?.fellows ?? [])
+          .filter((f) => f.agent.state !== 'retired')
+          .map((f) => ({ model: f.agent.model, step: f.agent.step, quotaRunsPerDay: f.agent.quotaRunsPerDay })),
+      ),
+    [usage.data, agents.data],
+  )
   const durations = useMemo(() => agents.data?.durations ?? {}, [agents.data])
   // Phase 0: the ingests held for tonight, from the window's start; the Fellows' queue
   // starts where they end (chunk 7 of docs/tasks/TASKS-SWEEP-2026-09.md).
@@ -619,19 +632,44 @@ export function CommandCentre({
           <NightLine
             facts={[
               /* The hours first: they are the setting the rest of the line is read against. */
-              `${hhmm(win.from)} to ${hhmm(win.to)}`,
-              `Ingest queue: ${ingests.length}`,
-              `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}`,
+              { key: 'hours', node: `${hhmm(win.from)} to ${hhmm(win.to)}` },
+              { key: 'ingests', node: `Ingest queue: ${ingests.length}` },
+              { key: 'tasks', node: `${taskCount(blocks)} across ${new Set(blocks.map((b) => b.shelf)).size} shel${new Set(blocks.map((b) => b.shelf)).size === 1 ? 'f' : 'ves'}` },
               /* The night's length counts the held ingests with the Fellows' tasks; the
                  reserve holds only the Fellows, and the line says so when ingests still run. */
-              blocked !== null
-                ? ingests.length > 0
-                  ? 'ingests run, Fellows held by the plan reserve'
-                  : 'held by the plan reserve'
-                : blocks.length === 0 && ingests.length === 0
-                  ? 'nothing to run'
-                  : `${dur(blocks.reduce((n, b) => n + b.minutes, 0) + ingests.reduce((n, b) => n + b.minutes, 0))} estimated`,
-              `${roster.length} Fellow${roster.length === 1 ? '' : 's'}`,
+              {
+                key: 'length',
+                node:
+                  blocked !== null
+                    ? ingests.length > 0
+                      ? 'ingests run, Fellows held by the plan reserve'
+                      : 'held by the plan reserve'
+                    : blocks.length === 0 && ingests.length === 0
+                      ? 'nothing to run'
+                      : `${dur(blocks.reduce((n, b) => n + b.minutes, 0) + ingests.reduce((n, b) => n + b.minutes, 0))} estimated`,
+              },
+              { key: 'fellows', node: `${roster.length} Fellow${roster.length === 1 ? '' : 's'}` },
+              /*
+               * What the arrangement claims of the week, and the way to change what it is
+               * claimed from: the limit is a setting, and a number you cannot act on is only
+               * half a fact. Over the budget it wears the warning tone.
+               */
+              ...(budget === null
+                ? []
+                : [
+                    {
+                      key: 'budget',
+                      node: (
+                        <button
+                          className={`cc-budget${budget.pct > 100 ? ' over' : ''}`}
+                          title={`Research budget: ${shareDetail(budget)}. Click to set the share in System.`}
+                          onClick={() => navigate('/system?section=service&setting=researchShareWeekPct')}
+                        >
+                          Research budget: {budget.pct.toFixed(0)}%
+                        </button>
+                      ),
+                    },
+                  ]),
             ]}
           />
           <div className="cc-fixed cc-shelves">
@@ -730,10 +768,10 @@ export function CommandCentre({
         <>
           <NightLine
             facts={[
-              `Ingest queue: ${ingests.length}`,
-              taskCount(mine),
-              mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} to ${hhmm(mine[mine.length - 1]!.to)} (estimated)`,
-              `${shelf.fellows.length} Fellow${shelf.fellows.length === 1 ? '' : 's'}`,
+              { key: 'ingests', node: `Ingest queue: ${ingests.length}` },
+              { key: 'tasks', node: taskCount(mine) },
+              { key: 'when', node: mine.length === 0 ? 'nothing scheduled' : `${hhmm(mine[0]!.from)} to ${hhmm(mine[mine.length - 1]!.to)} (estimated)` },
+              { key: 'fellows', node: `${shelf.fellows.length} Fellow${shelf.fellows.length === 1 ? '' : 's'}` },
             ]}
           />
           <div className="lib-window-body cc-body">
@@ -1016,13 +1054,13 @@ function Axis({ scale, step }: { scale: Scale; step: number }): React.ReactEleme
  * setting, and a line that re-centres itself as they do is a line you have to find again each
  * time - so each fact keeps its width whatever it says.
  */
-function NightLine({ facts }: { facts: readonly string[] }): React.ReactElement {
+function NightLine({ facts }: { facts: readonly { key: string; node: React.ReactNode }[] }): React.ReactElement {
   return (
     <div className="cc-line2">
       <span className="cc-side" />
       <span className="cc-facts">
         <b>Tonight</b>
-        {facts.map((f) => <span key={f} className="s">{f}</span>)}
+        {facts.map((f) => <span key={f.key} className="s">{f.node}</span>)}
       </span>
       <span className="cc-side end" />
     </div>
@@ -2016,8 +2054,8 @@ function Spawn({
                * is what the shape is sized for, and what a spawn defaults its quota to.
                */
               const kind: TaskKind = sh.art === 'custom' ? 'explore' : sh.art
-              const perRun = STEP_USD[sh.defaults.step]! * (MODEL_FACTOR[sh.defaults.model] ?? 1)
-              const week = weeklyProjection(plan, { stepUsd: perRun, stepsPerDay: 3, model: sh.defaults.model })
+              const perRun = runUsd(sh.defaults.step, sh.defaults.model)
+              const week = weekShare(plan, { stepUsd: perRun, stepsPerDay: 3, model: sh.defaults.model })
               return (
                 <button key={sh.art} className="cc-shape" onClick={() => setShape(sh.art)}>
                   <b>
@@ -2033,7 +2071,7 @@ function Spawn({
                       {sh.defaults.model.replace(/-\d.*$/, '')}
                       {(MODEL_FACTOR[sh.defaults.model] ?? 1) > 1 ? ` (×${MODEL_FACTOR[sh.defaults.model]!} the plan)` : ''} ·{' '}
                       {sh.defaults.step} depth
-                      {week.weekPct === null ? '' : ` · ${week.weekPct}% of the week at 3 tasks`}
+                      {week === null ? '' : ` · ${week.pct.toFixed(0)}% of the research budget at 3 tasks`}
                     </span>
                     <span>{autonomyOf(sh.defaults.autonomy).short}</span>
                   </span>

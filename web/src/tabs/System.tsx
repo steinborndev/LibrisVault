@@ -65,7 +65,7 @@ const DIR_LABELS: Record<string, string> = {
   root: 'Wiki root',
 }
 
-export function System({ section = '' }: { section?: string }): React.ReactElement {
+export function System({ section = '', setting = '' }: { section?: string; setting?: string }): React.ReactElement {
   const [active, setActive] = useState<SectionId>(() => (isSection(section) ? section : 'checks'))
 
   // `?section=` from elsewhere (the setup banner points at integrations) - the screen stays
@@ -198,7 +198,7 @@ export function System({ section = '' }: { section?: string }): React.ReactEleme
           {active === 'vault' && <VaultStatsSection />}
           {active === 'service' && (
             <div className="sys-pane">
-              <SettingsEditor section="service" />
+              <SettingsEditor section="service" focus={setting} />
             </div>
           )}
           {active === 'integrations' && (

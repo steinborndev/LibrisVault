@@ -39,7 +39,6 @@ import { domainColor } from '../lib/domains.ts'
 import { orderedDomains, stepInOrder } from '../lib/library/shelfOrder.ts'
 import { navigate } from '../lib/router.ts'
 import { buildActors, exitOk, floorLine, roleOfRun, ROLE_NAME, EXIT_MS, type Actor, type Exit } from '../lib/library/scene.ts'
-import { shareLine } from '../lib/plan.ts'
 import { planCorner } from '../lib/library/planCorner.ts'
 import { FiveHourRelease } from '../components/library/FiveHourRelease.tsx'
 import { PlanCard } from '../components/PlanCard.tsx'
@@ -1032,10 +1031,12 @@ export function LibraryScreen({
               </div>
             )
           })()}
+          {/* The clock and the floor. The week's research share used to trail it; the night
+              shift's own line carries that number now, as a percent of the budget and with the
+              setting behind it one click away. */}
           <div className="lib-corner bl">
             <span className={`chip${night ? ' dark' : ''}`}>
               <Icon name={night ? 'moon' : 'sun'} /> {hhmm} · {night ? 'night' : 'day'} · {floorLine(actors)}
-              {plan.data && ` · ${shareLine(plan.data)}`}
             </span>
           </div>
           {popover && (

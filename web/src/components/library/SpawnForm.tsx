@@ -12,7 +12,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import type { PlanStatus, SpawnBody } from '../../api/types.ts'
-import { weeklyProjection } from '../../lib/plan.ts'
+import { MODEL_FACTOR, runUsd, shareDetail, weekShare } from '../../lib/plan.ts'
 import { suggestFellowName } from '../../lib/fellowNames.ts'
 import { addTask, removeTask, setTask, tasksReady, TASK_HINT, TASK_LABEL, type TaskDraft } from '../../lib/library/tasks.ts'
 import { MAX_TASKS, TASK_KINDS } from '../../api/types.ts'
@@ -20,11 +20,10 @@ import { Tip } from '../Tip.tsx'
 import type { TaskKind } from '../../api/types.ts'
 
 const MODELS: Array<{ key: string; label: string; factor: number }> = [
-  { key: 'sonnet-5', label: 'Sonnet 5', factor: 1 },
-  { key: 'opus-5', label: 'Opus 5', factor: 2.5 },
-  { key: 'fable-5-1', label: 'Fable 5.1', factor: 5 },
+  { key: 'sonnet-5', label: 'Sonnet 5', factor: MODEL_FACTOR['sonnet-5']! },
+  { key: 'opus-5', label: 'Opus 5', factor: MODEL_FACTOR['opus-5']! },
+  { key: 'fable-5-1', label: 'Fable 5.1', factor: MODEL_FACTOR['fable-5-1']! },
 ]
-const STEP_COST: Record<string, number> = { small: 2, standard: 6, deep: 6 }
 
 /**
  * The research lenses while the server's list is still loading: the same closed set as
@@ -88,10 +87,16 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
     },
   })
   const keys = (domains.data?.domains ?? []).map((d) => d.key).filter((k) => k !== 'meta')
-  const model = MODELS.find((m) => m.key === form.model) ?? MODELS[0]!
-  const monthly = Math.round(STEP_COST[form.step ?? 'standard']! * model.factor * 30 * quota * 10) / 10
-  // The week in the plan's own unit once the model is calibrated (section 5.1, A5).
-  const weekly = weeklyProjection(plan, { stepUsd: STEP_COST[form.step ?? 'standard']! * model.factor, stepsPerDay: quota, model: form.model ?? 'sonnet-5' })
+  const perRun = runUsd(form.step ?? 'standard', form.model ?? 'sonnet-5')
+  const monthly = Math.round(perRun * 30 * quota * 10) / 10
+  /*
+   * What this pace claims of the week's research budget, as a percent of it (2026-09-14). It
+   * used to be points against a USD limit, said in the words of neither: "10.7 of the week's
+   * 100 research points" was 10.7 percent of the plan window measured against 100 USD, and it
+   * vanished entirely for a model with no calibration - opus, which is exactly the one a
+   * researcher runs. Now it is one percent of one budget, and it is always there.
+   */
+  const share = weekShare(plan, { stepUsd: perRun, stepsPerDay: quota, model: form.model ?? 'sonnet-5' })
   return (
     <form
       className="lib-spawn"
@@ -286,7 +291,15 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
       </label>
       <p className="mono-meta">
         About {monthly.toFixed(0)} USD a month at this pace (list price, estimate)
-        {weekly.weekPct !== null && plan ? `; about ${weekly.weekPct.toFixed(1)} of the week's ${plan.shares.week} research points` : ''}.
+        {share !== null && (
+          <>
+            ;{' '}
+            <span className={share.pct > 100 ? 'budget-over' : undefined} title={shareDetail(share)}>
+              about {share.pct.toFixed(0)}% of the week&apos;s research budget
+            </span>
+          </>
+        )}
+        .
       </p>
       {spawn.error != null && <div className="toast err">{(spawn.error as Error).message}</div>}
       {/* Cancel left, Spawn right: the commit sits where a form's commit sits, at the end of

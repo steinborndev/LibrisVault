@@ -430,7 +430,7 @@ export function App(): React.ReactElement {
                     />
                   ) : (
                     <Suspense fallback={<div className="empty">Loading system…</div>}>
-                      <System section={screen === 'system' ? (query.get('section') ?? '') : ''} />
+                      <System section={screen === 'system' ? (query.get('section') ?? '') : ''} setting={screen === 'system' ? (query.get('setting') ?? '') : ''} />
                     </Suspense>
                   )}
                 </ErrorBoundary>

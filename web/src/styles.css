@@ -3526,6 +3526,23 @@ span.head-slot { display: inline-block; }
   border-radius: 50%;
   flex: none;
 }
+/* The night line's one actionable fact: it reads as the facts beside it and only shows it is
+   a button on hover, because a row of five plain facts with one loud one in it reads as an
+   error. Over the budget it takes the warning tone and keeps it. */
+.cc-budget {
+  all: unset;
+  cursor: pointer;
+  border-bottom: 1px dotted currentColor;
+}
+.cc-budget:hover { color: var(--text); }
+.cc-budget.over { color: var(--err); }
+/* The same tone in the spawn form's estimate, where over the budget is the thing to notice. */
+.budget-over { color: var(--err); }
+/* A setting arrived at from a link: named for a moment so the eye lands on the right row. */
+.setting.focused {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--accent);
+}
 .gx-actions {
   display: flex;
   gap: 8px;

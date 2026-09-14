@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pointsPerUsd, shareLine, weeklyProjection } from '../src/lib/plan.ts'
+import { pointsPerUsd, rosterShare, runUsd, shareDetail, shareLine, weekShare, weeklyProjection } from '../src/lib/plan.ts'
 import type { PlanStatus } from '../src/api/types.ts'
 
 const plan = (over: Partial<PlanStatus> = {}): PlanStatus => ({
@@ -24,11 +24,75 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus => ({
 
 describe('plan helpers', () => {
   it('projects a week in USD and, once calibrated, in points', () => {
-    expect(pointsPerUsd(plan(), 'sonnet-5')).toBe(0.1)
-    expect(pointsPerUsd(plan(), 'opus-5')).toBeNull()
+    expect(pointsPerUsd(plan(), 'sonnet-5')).toEqual({ ppu: 0.1, estimated: false })
     expect(pointsPerUsd(undefined, 'sonnet-5')).toBeNull()
     expect(weeklyProjection(plan(), { stepUsd: 2, stepsPerDay: 1, model: 'sonnet-5' })).toEqual({ usd: 14, weekPct: 1.4 })
-    expect(weeklyProjection(plan(), { stepUsd: 6, stepsPerDay: 2, model: 'opus-5' })).toEqual({ usd: 84, weekPct: null })
+  })
+
+  it('lends an uncalibrated model the rate of a calibrated one, unscaled', () => {
+    // opus-5 has one measured run, not three, so it borrows sonnet's 0.1 - and only that.
+    // The model factor is already in the USD figure the rate multiplies; applying it twice
+    // would price an opus run at 6.25 sonnet runs instead of 2.5.
+    expect(pointsPerUsd(plan(), 'opus-5')).toEqual({ ppu: 0.1, estimated: true })
+    expect(weeklyProjection(plan(), { stepUsd: 6, stepsPerDay: 2, model: 'opus-5' })).toEqual({ usd: 84, weekPct: 8.4 })
+    // Nothing calibrated at all: no rate to lend.
+    expect(pointsPerUsd(plan({ calibration: { perModel: {}, ready: false } }), 'sonnet-5')).toBeNull()
+  })
+
+  it('prices one run from the shared table', () => {
+    expect(runUsd('standard', 'sonnet-5')).toBe(6)
+    expect(runUsd('deep', 'opus-5')).toBe(15)
+    expect(runUsd('small', 'fable-5-1')).toBe(10)
+    // An unknown step or model falls back rather than producing NaN.
+    expect(runUsd('enormous', 'sonnet-5')).toBe(6)
+    expect(runUsd('small', 'whatever')).toBe(2)
+  })
+
+  describe('the share of the week\'s research budget', () => {
+    it('measures points against the share, which is what the gate does', () => {
+      // 6 USD a run, one a day: 42 USD a week at 0.1 points/USD = 4.2 points of the 10 allowed.
+      const s = weekShare(plan(), { stepUsd: 6, stepsPerDay: 1, model: 'sonnet-5' })!
+      expect(s).toEqual({ pct: 42, used: 4.2, limit: 10, unit: 'points', estimated: false })
+    })
+
+    it('measures USD against the USD budget when no run has been measured this week', () => {
+      const usd = plan({ shares: { unit: 'usd', week: 100, fiveHour: 12, weekUsed: 0, fiveHourUsed: 0, stepsLeftWeek: 50 } })
+      const s = weekShare(usd, { stepUsd: 6, stepsPerDay: 1, model: 'sonnet-5' })!
+      expect(s).toEqual({ pct: 42, used: 42, limit: 100, unit: 'usd', estimated: false })
+    })
+
+    it('answers for an uncalibrated model instead of going silent', () => {
+      const s = weekShare(plan(), { stepUsd: 15, stepsPerDay: 1, model: 'opus-5' })!
+      expect(s.estimated).toBe(true)
+      expect(s.pct).toBe(105)
+      expect(shareDetail(s)).toContain('estimated from another model')
+    })
+
+    it('says nothing without a plan', () => {
+      expect(weekShare(undefined, { stepUsd: 6, stepsPerDay: 1, model: 'sonnet-5' })).toBeNull()
+    })
+  })
+
+  describe('the whole roster', () => {
+    it('adds every Fellow at its own pace', () => {
+      const fellows = [
+        { model: 'sonnet-5', step: 'standard', quotaRunsPerDay: 1 },
+        { model: 'sonnet-5', step: 'standard', quotaRunsPerDay: 2 },
+      ]
+      // 42 + 84 USD a week at 0.1 points/USD = 12.6 points of 10: over the budget.
+      const s = rosterShare(plan(), fellows)!
+      expect(s.used).toBe(12.6)
+      expect(s.limit).toBe(10)
+      expect(s.pct).toBe(126)
+    })
+
+    it('is zero for an empty roster, not null', () => {
+      expect(rosterShare(plan(), [])).toEqual({ pct: 0, used: 0, limit: 10, unit: 'points', estimated: false })
+    })
+
+    it('marks the whole sum as estimated when one Fellow borrowed a rate', () => {
+      expect(rosterShare(plan(), [{ model: 'opus-5', step: 'deep', quotaRunsPerDay: 1 }])!.estimated).toBe(true)
+    })
   })
 
   it('summarises the share in its unit', () => {
