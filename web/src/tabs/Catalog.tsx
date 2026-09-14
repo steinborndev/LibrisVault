@@ -19,6 +19,7 @@ import { obsidianUri } from '../lib/obsidian.ts'
 import { domainColor, STUB_BYTES } from '../lib/domains.ts'
 import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
 import { addressLink, sourceLink } from '../lib/sources.ts'
+import { CATALOG_SORTS, naturalDir, sortCatalog, type CatalogSortKey, type SortDir } from '../lib/catalogSort.ts'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
 import { ScopeMid } from '../components/ScopeMid.tsx'
@@ -42,7 +43,6 @@ const BUCKET_LABELS: Record<string, string> = {
 }
 const bucketLabel = (type: string): string => BUCKET_LABELS[type] ?? type
 
-type SortKey = 'changed' | 'title' | 'backlinks' | 'domain'
 /**
  * The four subsets of the page index, as ONE choice. System used to be a separate
  * toggle sitting apart from the three it belongs with - but it is a subset like the
@@ -55,12 +55,6 @@ const SUBSETS: Array<{ key: Subset; label: string; desc: string }> = [
   { key: 'orphans', label: 'Orphans', desc: 'nothing links to these' },
   { key: 'stubs', label: 'Stubs', desc: 'thin pages, under 1 KB' },
   { key: 'system', label: 'System', desc: 'index hubs, MOCs, reports' },
-]
-const SORTS: Array<{ key: SortKey; label: string; desc: string }> = [
-  { key: 'changed', label: 'Changed', desc: 'most recently edited first' },
-  { key: 'title', label: 'Title', desc: 'alphabetical, A to Z' },
-  { key: 'backlinks', label: 'Backlinks', desc: 'most linked pages first' },
-  { key: 'domain', label: 'Domain', desc: 'grouped by domain, unfiled pages last' },
 ]
 
 
@@ -100,10 +94,12 @@ export function Catalog({
   /** The deepening dialog for the domain currently filtered (docs/agents/ideas.md, 2026-09-07). */
   const [deepening, setDeepening] = useState(false)
   const [subset, setSubset] = useState<Subset>('all')
-  const [sort, setSort] = useState<SortKey>('changed')
+  const [sort, setSort] = useState<CatalogSortKey>('changed')
+  /** Which way, per column: a first click gives the natural direction, a second reverses it. */
+  const [dir, setDir] = useState<SortDir>(naturalDir('changed'))
   /** Hover previews an option's meaning; leaving falls back to the one in force. */
   const [subsetHover, setSubsetHover] = useState<Subset | null>(null)
-  const [sortHover, setSortHover] = useState<SortKey | null>(null)
+  const [sortHover, setSortHover] = useState<CatalogSortKey | null>(null)
   const domListRef = useRef<HTMLDivElement>(null)
 
   /**
@@ -238,7 +234,7 @@ export function Catalog({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const terms = q === '' ? [] : q.split(/\s+/)
-    let list = knowledge.filter((n) => {
+    const list = knowledge.filter((n) => {
       if (type !== null && n.type !== type) return false
       if (domain === 'none' && n.domain !== null) return false
       if (domain !== null && domain !== 'none' && n.domain !== domain) return false
@@ -254,19 +250,13 @@ export function Catalog({
       }
       return true
     })
-    list = [...list]
-    if (sort === 'title') list.sort((a, b) => a.title.localeCompare(b.title))
-    else if (sort === 'backlinks') list.sort((a, b) => b.in - a.in || a.title.localeCompare(b.title))
-    else if (sort === 'domain') {
-      // Unfiled pages last rather than first: an empty string would sort to the top and
-      // bury the domains the sort exists to group.
-      list.sort(
-        (a, b) =>
-          (a.domain ?? '\uffff').localeCompare(b.domain ?? '\uffff') || a.title.localeCompare(b.title),
-      )
-    } else list.sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0))
+    /*
+     * Filtered only. The ORDER is the table's, from the state this screen owns and its headings
+     * set (lib/catalogSort.ts) - a sidebar pill and a column heading are the same choice, and
+     * sorting here as well would be a second implementation of it.
+     */
     return list
-  }, [knowledge, query, type, domain, wingScope, subset, sort])
+  }, [knowledge, query, type, domain, wingScope, subset])
 
   /*
    * Every match, in one list. It was paged in 50s and grew as you reached the bottom, which
@@ -282,7 +272,8 @@ export function Catalog({
   // Only the table's own area changes.
 
   /** Whether anything is narrowing the list - the reset only appears when it would do something. */
-  const dirty = query !== '' || type !== null || domain !== null || subset !== 'all' || sort !== 'changed'
+  const dirty =
+    query !== '' || type !== null || domain !== null || subset !== 'all' || sort !== 'changed' || dir !== naturalDir('changed')
   /*
    * What the head says: the count against the pool a type narrows to ("4 of 529 concepts")
    * on the left, and the domain in the middle, the way the graph's bar says it (2026-09-11;
@@ -295,13 +286,19 @@ export function Catalog({
     wing === null ? null : (wings.find((g) => g.id === wing)?.name ?? 'one wing'),
   )
   const subsetHint = SUBSETS.find((x) => x.key === (subsetHover ?? subset))!.desc
-  const sortHint = SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
+  const sortHint = CATALOG_SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
+  /** Choose a column, or reverse it when it is already the one - from a pill or from a heading. */
+  const chooseSort = (key: CatalogSortKey, next?: SortDir): void => {
+    setDir(next ?? (key === sort ? (dir === 'asc' ? 'desc' : 'asc') : naturalDir(key)))
+    setSort(key)
+  }
   const reset = (): void => {
     setQuery('')
     setType(null)
     setDomain(null)
     setSubset('all')
     setSort('changed')
+    setDir(naturalDir('changed'))
   }
 
   return (
@@ -380,19 +377,27 @@ export function Catalog({
             <span className="gp-eyebrow">Sort by</span>
           </div>
           <div className="pillrow" role="radiogroup" aria-label="Sort by">
-            {SORTS.map((x) => (
+            {CATALOG_SORTS.map((x) => (
               <button
                 key={x.key}
                 className="viewpill"
                 role="radio"
                 aria-checked={sort === x.key}
-                onClick={() => setSort(x.key)}
+                /* The same rule as a column heading: choose it, or reverse it when it already
+                   sorts. One behaviour, so neither place has to be learned separately. */
+                onClick={() => chooseSort(x.key)}
+                title={sort === x.key ? `${x.desc} - click again to reverse` : x.desc}
                 onMouseEnter={() => setSortHover(x.key)}
                 onMouseLeave={() => setSortHover(null)}
                 onFocus={() => setSortHover(x.key)}
                 onBlur={() => setSortHover(null)}
               >
                 {x.label}
+                {sort === x.key && (
+                  <span className="lt-arrow" aria-hidden>
+                    {dir === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -472,7 +477,15 @@ export function Catalog({
             <div className="empty">Nothing matches the current filters.</div>
           </div>
         ) : (
-          <CatalogTable nodes={shown} refs={sources.data?.pages} vaultName={vaultName} onOpenPage={(p) => navigate(catalogPageRoute(p))} />
+          <CatalogTable
+            nodes={shown}
+            refs={sources.data?.pages}
+            vaultName={vaultName}
+            onOpenPage={(p) => navigate(catalogPageRoute(p))}
+            sort={sort}
+            dir={dir}
+            onSort={chooseSort}
+          />
         )}
         </div>
         <div className="box-foot keys" hidden={state !== null}>
@@ -546,6 +559,9 @@ export function CatalogTable({
   vaultName,
   hideDomain = false,
   onOpenPage,
+  sort,
+  dir,
+  onSort,
 }: {
   nodes: readonly GraphNode[]
   refs: Record<string, SourceRef> | undefined
@@ -554,24 +570,59 @@ export function CatalogTable({
   hideDomain?: boolean
   /** Where a row click goes. Default: the vault viewer. The Library reads the page in place. */
   onOpenPage?: (path: string) => void
+  /**
+   * The order, when a screen around the table owns it - the Catalog does, because its sidebar
+   * shows the same choice as a row of pills. Left out, the table keeps its own: the Library's
+   * shelf window has no sidebar and still sorts by its headings.
+   */
+  sort?: CatalogSortKey
+  dir?: SortDir
+  onSort?: (key: CatalogSortKey, dir: SortDir) => void
 }): React.ReactElement {
-  const shown = nodes
+  // Uncontrolled fallback, so a table without a screen around it is still sortable.
+  const [ownSort, setOwnSort] = useState<{ key: CatalogSortKey; dir: SortDir }>({ key: 'changed', dir: naturalDir('changed') })
+  const activeSort = sort ?? ownSort.key
+  const activeDir = dir ?? ownSort.dir
+  /** A heading click: the column's natural direction, or the reverse when it already sorts. */
+  const chooseSort = (key: CatalogSortKey): void => {
+    const next = key === activeSort ? (activeDir === 'asc' ? 'desc' : 'asc') : naturalDir(key)
+    if (onSort !== undefined) onSort(key, next)
+    else setOwnSort({ key, dir: next })
+  }
+  const shown = useMemo(() => sortCatalog(nodes, activeSort, activeDir, refs), [nodes, activeSort, activeDir, refs])
   const sources = { data: { pages: refs } }
   const domainCol = !hideDomain
+  const head = (key: CatalogSortKey, label: string): React.ReactElement => (
+    <button
+      type="button"
+      className={`lt-sort${activeSort === key ? ' on' : ''}`}
+      onClick={() => chooseSort(key)}
+      title={`Sort by ${CATALOG_SORTS.find((x) => x.key === key)?.label.toLowerCase() ?? label}${activeSort === key ? ' - again to reverse' : ''}`}
+    >
+      {label}
+      {activeSort === key && <span className="lt-arrow" aria-hidden>{activeDir === 'asc' ? '↑' : '↓'}</span>}
+    </button>
+  )
+  const ariaSort = (key: CatalogSortKey): 'ascending' | 'descending' | 'none' =>
+    activeSort !== key ? 'none' : activeDir === 'asc' ? 'ascending' : 'descending'
   return (
       <table className="dtable lib-table">
         <thead>
           <tr>
-            <th>
+            {/* Two headings in one cell, because two columns share it: the kind chip sits in its
+                own slot ahead of the title, and each sorts by what stands under it. */}
+            <th aria-sort={ariaSort('type') === 'none' ? ariaSort('title') : ariaSort('type')}>
               <span className="lt-cell">
-                <span className="lt-kind">Type</span>
-                Title
+                <span className="lt-kind">{head('type', 'Type')}</span>
+                {head('title', 'Title')}
               </span>
             </th>
-            {domainCol && <th>Domain</th>}
-            <th className="num">In / out</th>
-            <th>Changed</th>
-            <th>Source</th>
+            {domainCol && <th aria-sort={ariaSort('domain')}>{head('domain', 'Domain')}</th>}
+            <th className="num" aria-sort={ariaSort('backlinks')}>
+              {head('backlinks', 'In / out')}
+            </th>
+            <th aria-sort={ariaSort('changed')}>{head('changed', 'Changed')}</th>
+            <th aria-sort={ariaSort('source')}>{head('source', 'Source')}</th>
             <th aria-hidden />
           </tr>
         </thead>

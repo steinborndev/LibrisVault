@@ -7815,6 +7815,37 @@ tr:focus-within .rowacts {
 .rl-act { flex: none; display: flex; align-items: center; gap: 6px; }
 
 /*
+ * A sortable column heading (2026-09-14). It is a button, because that is what it does, but it
+ * has to read as the heading it replaced: the table's own heading type and colour, no border, no
+ * background, and the pointer only on hover. The arrow marks the column that is sorting and says
+ * which way; a second click reverses it.
+ */
+.lt-sort {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.lt-sort:hover,
+.lt-sort:focus-visible {
+  color: var(--text);
+}
+.lt-sort.on {
+  color: var(--text);
+}
+.lt-arrow {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.8;
+}
+/* In a pill the arrow follows the label, with the gap the pill's own text has. */
+.viewpill .lt-arrow {
+  margin-left: 4px;
+}
+
+/*
  * What a search for an open copy found: nothing. It stands in the row's meta line, in the error
  * tone rather than the meta grey, because the answer to a button click has to be visible as an
  * answer - a row that looks unchanged reads as a button that did nothing. The full sentence the

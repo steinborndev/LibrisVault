@@ -75,6 +75,20 @@ export function addressLink(url: string | null | undefined): SourceLink | null {
   }
 }
 
+/**
+ * What KIND of source a page has, as the column shows it: the ingested document's type, else
+ * `web` when the page states its own address, else null. The table's "Source type" order reads
+ * this, so what the column shows and what the sort groups by cannot be two different things.
+ */
+export function sourceKind(
+  node: { readonly path: string; readonly url?: string | null },
+  refs: Record<string, SourceRef> | undefined,
+): string | null {
+  const ref = refs?.[node.path]
+  if (ref !== undefined && (ref.type === 'web' ? ref.url !== null : ref.file !== null)) return ref.type
+  return node.url !== undefined && node.url !== null && node.url !== '' ? 'web' : null
+}
+
 /** The link for one page's source, or null when there is nothing to open. */
 export function sourceLink(ref: SourceRef | undefined): SourceLink | null {
   if (ref === undefined) return null
