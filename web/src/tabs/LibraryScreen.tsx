@@ -50,7 +50,7 @@ const CANVAS_H = 700
 
 type Mode = 'full' | 'focus'
 
-const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Daily recap', reading: 'Reading list' }
+const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Night shift', reading: 'Reading list' }
 const BOARD_SUBS: Record<BoardId, string> = {
   hot: "the vault's digest, refreshed after every run",
   recap: 'the same view Home opens on',

@@ -455,7 +455,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
 
   if (room.kind === 'main') {
     FAV_I.forEach((fi, n) => placeCase(fi, WALL_J, n, 'favorite'))
-    // Two boards on the short wall: the hot cache and the daily recap, each under a title
+    // Two boards on the short wall: the hot cache and the night shift, each under a title
     // band. Clicking one opens it as a window over the room (docs/agents/SPEC.md section 10).
     const board = (j0: number, j1: number, title: string, id: BoardId): React.ReactNode => {
       // Centred on the wall: board plus title band is 70 high, so 40 of wall is left above
@@ -493,7 +493,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     const gap = (ROOM.NJ - 3 * bw) / 4
     const at = (n: number): [number, number] => [gap + n * (bw + gap), gap + n * (bw + gap) + bw]
     add(at(0)[1] + 0.001, 'board-hot', board(at(0)[0], at(0)[1], 'Hot cache', 'hot'))
-    add(at(1)[1] + 0.001, 'board-recap', board(at(1)[0], at(1)[1], 'Daily recap', 'recap'))
+    add(at(1)[1] + 0.001, 'board-recap', board(at(1)[0], at(1)[1], 'Night shift', 'recap'))
     add(at(2)[1] + 0.001, 'board-reading', board(at(2)[0], at(2)[1], 'Reading list', 'reading'))
     // fireplace with the hood, four armchairs
     const fi = 5.5

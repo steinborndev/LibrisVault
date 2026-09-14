@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import type { GraphNode } from '../../api/types.ts'
 import { CatalogTable } from '../../tabs/Catalog.tsx'
+import { Shortcuts } from '../Shortcuts.tsx'
 import { DeepenDialog } from './DeepenDialog.tsx'
 import { Markdown } from '../Markdown.tsx'
 import { PageLink } from '../PageLink.tsx'
@@ -24,6 +25,23 @@ import { GraphCanvas, TYPE_VARS } from '../GraphCanvas.tsx'
 import { queryState } from '../QueryState.tsx'
 import { signText } from '../../lib/library/room.ts'
 import { hasSource } from '../../lib/catalogSourceFilter.ts'
+
+/**
+ * What the keys do INSIDE the window, which is not what they do on the Graph screen. Three
+ * differences, all of them real: a single click opens a page here (`openOnClick`) where the
+ * screen wants a double one, nothing is ever merely selected so there is no Enter to open it,
+ * and neither the `/` search nor the wing arrows reach in - the window's own band is already
+ * a search, and the arrows belong to the room behind it. What the canvas brings with it (fit,
+ * zoom, the wheel, the drag, the overview) is the same everywhere, so it reads the same.
+ */
+const SHELF_SHORTCUTS = [
+  { keys: ['click'], what: 'open a page from the graph' },
+  { keys: ['Esc'], what: 'one step back: the page you are reading, then the window' },
+  { keys: ['f'], what: 'fit the view' },
+  { keys: ['+', '-'], what: 'zoom in and out' },
+  { keys: ['wheel'], what: 'zoom towards the pointer' },
+  { keys: ['drag'], what: 'pan the canvas; the overview in the corner jumps the view' },
+]
 
 type Pane = 'graph' | 'catalog'
 
@@ -230,6 +248,9 @@ export function ShelfWindow({
               onOpen={(node) => onPage(node.path)}
             />
           )}
+          {/* Bottom-right of the drawing, where the Graph screen keeps it: same canvas, same
+              place to look. */}
+          {state === null && <Shortcuts rows={SHELF_SHORTCUTS} corner />}
         </div>
       ) : (
         <div className="shelf-table">

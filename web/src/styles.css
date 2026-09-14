@@ -2680,6 +2680,27 @@ details.hot-cache[open] summary {
   flex-wrap: wrap;
   gap: 5px;
 }
+/* One type per row, for the graph's page types: the dot, the name, and the count at the
+   right edge. The wrapping row above is still what Home, the Library and the Catalog want,
+   so this is a modifier and not a change of the base. */
+.typechips.stacked {
+  display: grid;
+  gap: 4px;
+}
+.typechips.stacked .chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+/* The label is a bare text node between the dot and the count, so the count is what pushes:
+   `margin-left: auto` lines every figure up without wrapping the name in an element. */
+.typechips.stacked .chip .chip-n {
+  margin-left: auto;
+}
 .chip.dimmed,
 .domrow.dimmed {
   opacity: 0.45;

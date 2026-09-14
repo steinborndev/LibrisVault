@@ -6,7 +6,7 @@
  *   BAND      the stock, as a glance. The number is the header, every countable thing is a
  *             door beside it, the picture is the door to the graph, the domains are a list.
  *             No panel heads, no switcher, no button: nothing in the band asks for a click.
- *   HEADLINE  left the view (Daily recaps | Activity), middle where
+ *   HEADLINE  left the view (Night shift | Activity), middle where
  *             you are (the day on show, the stream's kinds, the open record's path),
  *             right the one thing this state offers (Build now; the record's Article | Log).
  *   COLUMN    intake first, always, now and for the night; then the plan; then what the view
@@ -726,8 +726,8 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             <div className="lib-head-left">
               {fellowsOn ? (
                 <div className="seg sm" role="tablist" aria-label="View">
-                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title={`Daily recaps${waiting > 0 ? ` · ${waiting} undecided` : ''}`}>
-                    Daily recaps
+                  <button role="tab" aria-selected={view === 'recaps'} onClick={() => openView('recaps')} title={`Night shift${waiting > 0 ? ` · ${waiting} undecided` : ''}`}>
+                    Night shift
                   </button>
                   <button role="tab" aria-selected={view === 'activity'} onClick={() => openView('activity')} title="Activity">
                     Activity

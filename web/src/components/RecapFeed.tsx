@@ -166,7 +166,7 @@ export function RecapFeed({
       )}
 
       <div className={`rfeed-split${control !== undefined ? ' solo' : ''}`}>
-        <div className="rfeed" ref={feedRef} tabIndex={0} aria-label="Daily recaps, newest first">
+        <div className="rfeed" ref={feedRef} tabIndex={0} aria-label="Night shift, newest first">
           {/* A Fellow's answers come back under that Fellow; only a spawn has no section. */}
           {toasts.some((t) => t.answer.action === 'spawn') && (
             <div className={`toast ${toasts.every((t) => t.ok) ? 'ok' : 'warn'}`} role="status">

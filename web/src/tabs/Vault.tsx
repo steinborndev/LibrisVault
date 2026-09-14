@@ -1833,7 +1833,11 @@ function GraphPanel({
           <span className="spacer" />
           <span className="gp-state">{selectedTypes.size === 0 ? 'all' : `${selectedTypes.size} of ${types.length}`}</span>
         </div>
-        <div className="typechips">
+        {/* One type per row (2026-09-14). Wrapped, the labels broke into a ragged block whose
+            height changed with the type mix, and the counts ended wherever each label
+            happened to stop; as rows they read as the list they are. Same shape the panel's
+            stacked pills already use elsewhere. */}
+        <div className="typechips stacked">
           {types.map(([t, count]) => {
             const active = selectedTypes.has(t)
             return (
