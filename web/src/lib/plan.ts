@@ -62,13 +62,20 @@ export interface BudgetShare {
   readonly unit: 'points' | 'usd'
   /** True when a model's own calibration was missing and another's stood in. */
   readonly estimated: boolean
+  /** True when the USD limit came from the calibration rather than the plan-size setting. */
+  readonly measured: boolean
 }
 
-/** One line for a tooltip: the absolute claim behind the percent. */
+/**
+ * One line for a tooltip: the absolute claim behind the percent, and where its limit comes
+ * from. The USD limit is a share of what a window costs to fill, which is measured from the
+ * calibration where there is one - a number that reads oddly small next to a plan's price
+ * unless the line says it was measured.
+ */
 export const shareDetail = (s: BudgetShare): string =>
   s.unit === 'points'
     ? `about ${s.used.toFixed(1)} of the week's ${s.limit.toFixed(0)} research points${s.estimated ? ', estimated from another model' : ''}`
-    : `about ${s.used.toFixed(2)} of the week's ${s.limit.toFixed(2)} USD`
+    : `about ${s.used.toFixed(2)} of the week's ${s.limit.toFixed(2)} USD${s.measured ? ', measured from what a run takes out of the plan' : ''}`
 
 /**
  * What one pace claims of the week's research budget. Null only when there is no plan at all
@@ -86,10 +93,10 @@ export function weekShare(
   if (plan.shares.unit === 'points' && rate !== null) {
     const limit = plan.settings.researchShareWeekPct
     const used = usd * rate.ppu
-    return { pct: limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0, used: Math.round(used * 10) / 10, limit, unit: 'points', estimated: rate.estimated }
+    return { pct: limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0, used: Math.round(used * 10) / 10, limit, unit: 'points', estimated: rate.estimated, measured: false }
   }
   const limit = plan.shares.week
-  return { pct: limit > 0 ? Math.round((usd / limit) * 1000) / 10 : 0, used: Math.round(usd * 100) / 100, limit, unit: 'usd', estimated: false }
+  return { pct: limit > 0 ? Math.round((usd / limit) * 1000) / 10 : 0, used: Math.round(usd * 100) / 100, limit, unit: 'usd', estimated: false, measured: plan.planUsd.measured }
 }
 
 /** One Fellow's pace, as the roster states it. */
@@ -122,6 +129,7 @@ export function rosterShare(plan: PlanStatus | undefined, fellows: readonly Fell
     limit,
     unit,
     estimated: parts.some((s) => s.estimated),
+    measured: parts[0]!.measured,
   }
 }
 

@@ -261,7 +261,11 @@ function PlanPanel({ plan }: { plan: PlanStatus }): React.ReactElement {
           </div>
         ) : (
           <p className="tab-hint">
-            No plan windows: {plan.reason ?? 'no sample yet'}. The research share is accounted in USD against the configured plan size.
+            No plan windows: {plan.reason ?? 'no sample yet'}. The research share is accounted in USD against{' '}
+            {plan.planUsd.measured
+              ? `what a week of the plan was measured to cost (${plan.planUsd.week.toFixed(0)} USD, from the calibration)`
+              : 'the configured plan size'}
+            .
             {plan.resets['five_hour'] ? ` The 5-hour window resets ${timeAgo(plan.resets['five_hour'])}.` : ''}
           </p>
         )}
@@ -276,7 +280,7 @@ function PlanPanel({ plan }: { plan: PlanStatus }): React.ReactElement {
         {plan.gate && <p className="tab-hint">Steps wait: {plan.gate.reason}.</p>}
         <p className="mono-meta">
           {models.length > 0
-            ? `Calibrated: ${models.map(([m, c]) => `${m} ${(c.sevenDay! * 1).toFixed(2)} points/USD over ${c.n} run(s)`).join(', ')}.`
+            ? `Calibrated: ${models.map(([m, c]) => `${m} ${(c.sevenDay! * 1).toFixed(2)} points/USD over ${c.n} run(s)`).join(', ')}. A week of the plan costs about ${plan.planUsd.week.toFixed(0)} USD to fill at that rate${plan.planUsd.measured ? '' : ' (the configured size; no model is calibrated yet)'}.`
             : `Not calibrated yet: the points per USD come from the first 3 measured runs per model. Runs measured so far: ${Object.values(plan.calibration.perModel).reduce((a, c) => a + c.n, 0)}.`}
         </p>
       </div>

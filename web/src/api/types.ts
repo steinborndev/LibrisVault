@@ -1108,6 +1108,12 @@ export interface PlanStatus {
   /** When each window resets, as far as the samples or the rate-limit events told. */
   resets: Record<string, string>
   calibration: { perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number }>; ready: boolean }
+  /**
+   * What one plan window costs to fill, in USD, and whether that is measured or the setting's
+   * guess. A window is 100 points, so the calibration gives it directly; `planWeekUsd` is only
+   * the fallback for a service that has never measured a run.
+   */
+  planUsd: { week: number; fiveHour: number; measured: boolean }
   consumption: { weekPct: number | null; fiveHourPct: number | null; weekUsd: number; fiveHourUsd: number; weekRuns: number; fiveHourRuns: number }
   settings: { researchShareWeekPct: number; researchShare5hPct: number; reserve5hPct: number; reserveWeekPct: number; planWeekUsd: number; plan5hUsd: number; planName: string }
   shares: { unit: 'points' | 'usd'; week: number; fiveHour: number; weekUsed: number; fiveHourUsed: number; stepsLeftWeek: number | null }

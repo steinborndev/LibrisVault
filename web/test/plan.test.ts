@@ -15,6 +15,7 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus => ({
   windows: [{ window: 'five_hour', utilization: 12, resetsAt: null }],
   resets: {},
   calibration: { perModel: { 'sonnet-5': { fiveHour: 1.2, sevenDay: 0.1, n: 3 }, 'opus-5': { fiveHour: null, sevenDay: 0.3, n: 1 } }, ready: true },
+  planUsd: { week: 1000, fiveHour: 83.33, measured: false },
   consumption: { weekPct: 3.2, fiveHourPct: 1, weekUsd: 41.2, fiveHourUsd: 2, weekRuns: 5, fiveHourRuns: 1 },
   settings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '5x max' },
   shares: { unit: 'points', week: 10, fiveHour: 15, weekUsed: 3.2, fiveHourUsed: 1, stepsLeftWeek: 30 },
@@ -52,13 +53,13 @@ describe('plan helpers', () => {
     it('measures points against the share, which is what the gate does', () => {
       // 6 USD a run, one a day: 42 USD a week at 0.1 points/USD = 4.2 points of the 10 allowed.
       const s = weekShare(plan(), { stepUsd: 6, stepsPerDay: 1, model: 'sonnet-5' })!
-      expect(s).toEqual({ pct: 42, used: 4.2, limit: 10, unit: 'points', estimated: false })
+      expect(s).toEqual({ pct: 42, used: 4.2, limit: 10, unit: 'points', estimated: false, measured: false })
     })
 
     it('measures USD against the USD budget when no run has been measured this week', () => {
       const usd = plan({ shares: { unit: 'usd', week: 100, fiveHour: 12, weekUsed: 0, fiveHourUsed: 0, stepsLeftWeek: 50 } })
       const s = weekShare(usd, { stepUsd: 6, stepsPerDay: 1, model: 'sonnet-5' })!
-      expect(s).toEqual({ pct: 42, used: 42, limit: 100, unit: 'usd', estimated: false })
+      expect(s).toEqual({ pct: 42, used: 42, limit: 100, unit: 'usd', estimated: false, measured: false })
     })
 
     it('answers for an uncalibrated model instead of going silent', () => {
@@ -66,6 +67,17 @@ describe('plan helpers', () => {
       expect(s.estimated).toBe(true)
       expect(s.pct).toBe(105)
       expect(shareDetail(s)).toContain('estimated from another model')
+    })
+
+    it('names a measured window in the detail line, because a smaller number needs its reason', () => {
+      const measured = plan({
+        shares: { unit: 'usd', week: 39.39, fiveHour: 12, weekUsed: 0, fiveHourUsed: 0, stepsLeftWeek: 6 },
+        planUsd: { week: 393.87, fiveHour: 80, measured: true },
+      })
+      const s = weekShare(measured, { stepUsd: 6, stepsPerDay: 1, model: 'sonnet-5' })!
+      expect(s.measured).toBe(true)
+      expect(s.pct).toBe(106.6)
+      expect(shareDetail(s)).toContain('measured from what a run takes out of the plan')
     })
 
     it('says nothing without a plan', () => {
@@ -87,7 +99,7 @@ describe('plan helpers', () => {
     })
 
     it('is zero for an empty roster, not null', () => {
-      expect(rosterShare(plan(), [])).toEqual({ pct: 0, used: 0, limit: 10, unit: 'points', estimated: false })
+      expect(rosterShare(plan(), [])).toEqual({ pct: 0, used: 0, limit: 10, unit: 'points', estimated: false, measured: false })
     })
 
     it('marks the whole sum as estimated when one Fellow borrowed a rate', () => {

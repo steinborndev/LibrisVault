@@ -118,6 +118,11 @@ export interface PlanStatus {
   readonly calibration: Calibration
   readonly consumption: Consumption
   readonly settings: PlanSettings
+  /**
+   * What one window costs to fill, in USD, and whether that came from the calibration or from
+   * the `planWeekUsd` / `plan5hUsd` settings. The USD shares below are a percentage of it.
+   */
+  readonly planUsd: { readonly week: number; readonly fiveHour: number; readonly measured: boolean }
   /** The shares as the gate applies them: points when calibrated, USD otherwise. */
   readonly shares: { readonly unit: 'points' | 'usd'; readonly week: number; readonly fiveHour: number; readonly weekUsed: number; readonly fiveHourUsed: number; readonly stepsLeftWeek: number | null }
   /** The gate's answer for a standard step on the default model right now. */
@@ -476,6 +481,44 @@ export class UsageMonitor {
     return { perModel, ready }
   }
 
+  /**
+   * The plan's windows in USD, MEASURED where the calibration reaches (2026-09-14).
+   *
+   * A window is 100 points by definition, and the calibration says what one point costs in
+   * USD - so `100 / pointsPerUsd` is what it takes to fill one. `planWeekUsd` was a guess the
+   * user typed (1000 by default), and the two disagreed by a factor of 2.5 on this instance:
+   * the same Fellow read 42% of the week counted in USD and 107% counted in points, which is
+   * not two views of one budget but one of them being wrong. The measurement wins, because the
+   * points path is what the gate uses the moment any run this week reports a delta - the USD
+   * path exists for the weeks before that, and it should not be looser than what follows it.
+   *
+   * The best-measured model sets the rate: they differ only in how well the list price
+   * predicts what a run actually takes out of the window, and the one with the most runs
+   * behind it predicts best. Null until some model has its three runs; then the setting is
+   * the fallback, not the other way round.
+   */
+  private measuredPlanUsd(): { week: number | null; fiveHour: number | null } {
+    const best = Object.values(this.calibration().perModel)
+      .filter((c) => c.n >= CALIBRATION_MIN)
+      .sort((a, b) => b.n - a.n)[0]
+    if (best === undefined) return { week: null, fiveHour: null }
+    return {
+      week: best.sevenDay !== null && best.sevenDay > 0 ? 100 / best.sevenDay : null,
+      fiveHour: best.fiveHour !== null && best.fiveHour > 0 ? 100 / best.fiveHour : null,
+    }
+  }
+
+  /** What a window costs to fill: the measurement when there is one, the setting otherwise. */
+  planUsd(): { week: number; fiveHour: number; measured: boolean } {
+    const s = this.o.settings()
+    const m = this.measuredPlanUsd()
+    return {
+      week: m.week ?? s.planWeekUsd,
+      fiveHour: m.fiveHour ?? s.plan5hUsd,
+      measured: m.week !== null,
+    }
+  }
+
   /** The points a run of `costUsd` on `model` would take, per window; null while uncalibrated for that model. */
   estimatePct(costUsd: number, model: string): { fiveHour: number | null; sevenDay: number | null } {
     const cal = this.calibration().perModel[modelKey(model)]
@@ -601,16 +644,16 @@ export class UsageMonitor {
       if (c.weekPct + est.sevenDay > shareWeek) {
         return { code: 'share', window: 'seven_day', reason: `the research share of the week is used up (${c.weekPct} of ${shareWeek} points, this step about ${est.sevenDay})`, resetsAt: weekReset }
       }
-    } else if (c.weekUsd + ctx.estCostUsd > (shareWeek / 100) * s.planWeekUsd) {
-      const budget = Math.round((shareWeek / 100) * s.planWeekUsd * 100) / 100
+    } else if (c.weekUsd + ctx.estCostUsd > (shareWeek / 100) * this.planUsd().week) {
+      const budget = Math.round((shareWeek / 100) * this.planUsd().week * 100) / 100
       return { code: 'share', window: 'seven_day', reason: `the research share of the week is used up (${c.weekUsd.toFixed(2)} of about ${budget} USD, this step about ${ctx.estCostUsd} USD)`, resetsAt: weekReset }
     }
     if (c.fiveHourPct !== null && est.fiveHour !== null) {
       if (c.fiveHourPct + est.fiveHour > share5h) {
         return { code: 'share', window: 'five_hour', reason: `the research share of this 5-hour window is used up (${c.fiveHourPct} of ${share5h} points, this step about ${est.fiveHour})`, resetsAt: fiveReset }
       }
-    } else if (c.fiveHourUsd + ctx.estCostUsd > (share5h / 100) * s.plan5hUsd) {
-      const budget = Math.round((share5h / 100) * s.plan5hUsd * 100) / 100
+    } else if (c.fiveHourUsd + ctx.estCostUsd > (share5h / 100) * this.planUsd().fiveHour) {
+      const budget = Math.round((share5h / 100) * this.planUsd().fiveHour * 100) / 100
       return { code: 'share', window: 'five_hour', reason: `the research share of this 5-hour window is used up (${c.fiveHourUsd.toFixed(2)} of about ${budget} USD, this step about ${ctx.estCostUsd} USD)`, resetsAt: fiveReset }
     }
     return null
@@ -701,9 +744,10 @@ export class UsageMonitor {
     const est = this.estimatePct(standardStep.estCostUsd, standardStep.model)
     const points = consumption.weekPct !== null && est.sevenDay !== null
     const shareWeekPct = liftedWeek?.pct ?? s.researchShareWeekPct
-    const weekShare = points ? shareWeekPct : (shareWeekPct / 100) * s.planWeekUsd
+    const planUsd = this.planUsd()
+    const weekShare = points ? shareWeekPct : (shareWeekPct / 100) * planUsd.week
     const share5h = lifted?.pct ?? s.researchShare5hPct
-    const fiveShare = points ? share5h : (share5h / 100) * s.plan5hUsd
+    const fiveShare = points ? share5h : (share5h / 100) * planUsd.fiveHour
     const weekUsed = points ? consumption.weekPct! : consumption.weekUsd
     const perStep = points ? est.sevenDay! : standardStep.estCostUsd
     return {
@@ -742,6 +786,12 @@ export class UsageMonitor {
       calibration,
       consumption,
       settings: s,
+      /*
+       * What a window costs to fill, and whether that is measured or the setting's guess. The
+       * USD budget is a share OF this, so a figure that moved from 100 to 39 needs the reason
+       * on the same screen as the number.
+       */
+      planUsd,
       shares: {
         unit: points ? 'points' : 'usd',
         week: Math.round(weekShare * 100) / 100,

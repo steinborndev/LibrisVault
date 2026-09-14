@@ -262,6 +262,36 @@ describe('the monitor', () => {
   })
 })
 
+describe('the plan window in USD', () => {
+  it('is measured from the calibration once a model has its three runs', () => {
+    // Three runs at 2 USD, each taking 0.4% of the week: 0.2 points per USD, so filling the
+    // whole 100-point window costs 500 USD - not the 1000 the setting guesses.
+    const { m } = monitorWith([0, 1, 2].map((i) => run({ id: `c${i}`, costUsd: 2, planPctDelta: { five_hour: 2, seven_day: 0.4 } })))
+    expect(m.planUsd()).toEqual({ week: 500, fiveHour: 100, measured: true })
+  })
+
+  it('falls back to the setting while nothing is calibrated', () => {
+    const { m } = monitorWith([run({ id: 'one', planPctDelta: { five_hour: 2, seven_day: 0.4 } })])
+    expect(m.planUsd()).toEqual({ week: 1000, fiveHour: 80, measured: false })
+  })
+
+  it('spends the USD share of the measured window, not of the guess', () => {
+    /*
+     * The calibration reads every stored run; the week's consumption reads only this week's.
+     * Runs from a fortnight ago therefore leave the shares in USD - the case this vault is in -
+     * while still saying what a window costs. 10% of the measured 500 is 50 USD a week; the
+     * guess would have allowed 100.
+     */
+    const old = [0, 1, 2].map((i) =>
+      run({ id: `c${i}`, costUsd: 2, startedAt: '2026-08-20T09:00:00.000Z', finishedAt: '2026-08-20T09:10:00.000Z', planPctDelta: { five_hour: 2, seven_day: 0.4 } }),
+    )
+    const status = monitorWith(old).m.status({ estCostUsd: 6, model: 'sonnet-5' })
+    expect(status.shares.unit).toBe('usd')
+    expect(status.shares.week).toBe(50)
+    expect(status.planUsd).toEqual({ week: 500, fiveHour: 100, measured: true })
+  })
+})
+
 describe('usage routes', () => {
   let vaultRoot: string
   let db: Db

@@ -216,6 +216,7 @@ describe('recap model from fixtures', () => {
       reason: null,
       liveReason: null, sinceSample: { runs: 0, fiveHour: null, sevenDay: null }, override: { enabled: false, active: false, pct: 90, expiresAt: null }, weekOverride: { enabled: false, active: false, pct: 90, expiresAt: null },
       subscription: 'max',
+      planUsd: { week: 1000, fiveHour: 80, measured: false },
       sampledAt: '2026-09-07T06:00:00.000Z',
       windows: [{ window: 'five_hour', utilization: 12, resetsAt: null }, { window: 'seven_day', utilization: 31, resetsAt: null }, { window: 'seven_day_sonnet', utilization: 4, resetsAt: null }],
       resets: {},
