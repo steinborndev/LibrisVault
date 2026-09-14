@@ -138,8 +138,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
    */
   const [day, setDay] = useState<string>(() => localDate(new Date()))
   const [fellow, setFellow] = useState<string | null>(null)
-  /** Which queue the box below feeds: now, or tonight's shift. */
-  const [intake, setIntake] = useState<'now' | 'night'>('now')
   /** The search box, one for both views: the stream matches titles and pages, the feed its sections. */
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -448,36 +446,20 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
            */
           <div className="gp-sec">
             <div className="gp-head">
-              {fellowsOn ? (
-                <div className="lib-strip ip-strip" role="radiogroup" aria-label="Where this goes">
-                  <button
-                    className={`rp${intake === 'now' ? ' on' : ''}`}
-                    role="radio"
-                    aria-checked={intake === 'now'}
-                    title="Into the queue right away; the next free worker files it, and the Activity stream shows it settle."
-                    onClick={() => setIntake('now')}
-                  >
-                    Add now
-                  </button>
-                  <button
-                    className={`rp${intake === 'night' ? ' on' : ''}`}
-                    role="radio"
-                    aria-checked={intake === 'night'}
-                    title="Held until the night shift begins. The shift runs these first, ahead of every Fellow, so the Fellows plan on a vault that already holds them. The Night shift window lists what is waiting and lets you take it off again."
-                    onClick={() => setIntake('night')}
-                  >
-                    Night shift
-                  </button>
-                </div>
-              ) : (
-                <span className="gp-eyebrow" title="Files, links and notes go into the queue right away; the next free worker files them, and the Activity stream shows each one settle.">
-                  Add now
-                </span>
-              )}
+              <span
+                className="gp-eyebrow"
+                title={
+                  fellowsOn
+                    ? 'A file, a link or a note. Choose where it goes above the button: straight into the queue, or held for tonight, where the shift runs it ahead of every Fellow.'
+                    : 'Files, links and notes go into the queue right away; the next free worker files them, and the Activity stream shows each one settle.'
+                }
+              >
+                Intake
+              </span>
             </div>
-            {/* Keyed, so switching destination empties the zone: what is held is held FOR one
-                of them, and a file that quietly changed sides would be a surprise. */}
-            <Dropzone key={intake} legend={false} {...(intake === 'night' ? { when: 'night' as const } : {})} />
+            {/* The destination lives with the button it arms, not up here: it is the first
+                half of the sentence the button finishes. */}
+            <Dropzone legend={false} destinations={fellowsOn} />
           </div>
         )}
         {/* The plan, between the two boxes and the view's own sections: what tonight can cost

@@ -56,7 +56,11 @@ const kb = (n: number): string => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n
  * `when: 'night'` is the same box for the night shift: everything it takes is held until the
  * shift begins and runs ahead of every Fellow (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 7).
  */
-export function Dropzone({ legend = true, when }: { legend?: boolean; when?: 'night' } = {}): React.ReactElement {
+export function Dropzone({
+  legend = true,
+  when,
+  destinations = false,
+}: { legend?: boolean; when?: 'night'; destinations?: boolean } = {}): React.ReactElement {
   const qc = useQueryClient()
   const [over, setOver] = useState(false)
   const [toast, setToast] = useState<Toast>(null)
@@ -64,6 +68,14 @@ export function Dropzone({ legend = true, when }: { legend?: boolean; when?: 'ni
   const [title, setTitle] = useState('')
   /** The file in the zone, waiting for the button. One at a time: two would need a queue. */
   const [staged, setStaged] = useState<File | null>(null)
+  /*
+   * Where this goes, when the box offers the choice. It sits with the button rather than as
+   * the section's heading: it is the first half of the sentence the button finishes ("night
+   * shift" - "hold this file for tonight"), and the two belong within a glance of each other.
+   * Switching clears what is held: a file is held FOR one of them.
+   */
+  const [dest, setDest] = useState<'now' | 'night'>(when === 'night' ? 'night' : 'now')
+  const target: 'night' | undefined = destinations ? (dest === 'night' ? 'night' : undefined) : when
   const fileInput = useRef<HTMLInputElement>(null)
 
   // Success toasts dismiss themselves; errors stay until the next action replaces them.
@@ -76,12 +88,12 @@ export function Dropzone({ legend = true, when }: { legend?: boolean; when?: 'ni
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: ['jobs'] })
     // The night shift's window lists what is held for tonight.
-    if (when !== undefined) void qc.invalidateQueries({ queryKey: ['library-scene'] })
+    if (target !== undefined) void qc.invalidateQueries({ queryKey: ['library-scene'] })
   }
-  const said = (res: EnqueueResult): string => `${summarize(res)}${when === 'night' ? ' · held for tonight' : ''}`
+  const said = (res: EnqueueResult): string => `${summarize(res)}${target === 'night' ? ' · held for tonight' : ''}`
 
   const upload = useMutation({
-    mutationFn: (files: File[]) => api.uploadFiles(files, when),
+    mutationFn: (files: File[]) => api.uploadFiles(files, target),
     onSuccess: (res) => {
       setToast({ kind: 'ok', text: said(res) })
       setStaged(null)
@@ -93,8 +105,8 @@ export function Dropzone({ legend = true, when }: { legend?: boolean; when?: 'ni
   const submit = useMutation({
     mutationFn: ({ value, noteTitle }: { value: string; noteTitle: string }) =>
       looksLikeUrl(value)
-        ? api.submitUrl(value.trim(), when)
-        : api.submitText(value, noteTitle.trim() === '' ? undefined : noteTitle.trim(), when),
+        ? api.submitUrl(value.trim(), target)
+        : api.submitText(value, noteTitle.trim() === '' ? undefined : noteTitle.trim(), target),
     onSuccess: (res) => {
       setToast({ kind: 'ok', text: said(res) })
       setText('')
@@ -157,8 +169,8 @@ export function Dropzone({ legend = true, when }: { legend?: boolean; when?: 'ni
   const noun = kind === 'file' ? 'file' : kind === 'link' ? 'link' : 'note'
   const label =
     kind === null
-      ? when === 'night' ? 'Nothing to hold for tonight yet' : 'Nothing to add yet'
-      : when === 'night'
+      ? target === 'night' ? 'Nothing to hold for tonight yet' : 'Nothing to add yet'
+      : target === 'night'
         ? `Hold this ${noun} for tonight`
         : `Add this ${noun} to the vault`
   const send = (): void => {
@@ -265,6 +277,35 @@ export function Dropzone({ legend = true, when }: { legend?: boolean; when?: 'ni
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+      )}
+
+      {destinations && (
+        <div className="lib-strip ip-strip" role="radiogroup" aria-label="Where this goes">
+          <button
+            className={`rp${dest === 'now' ? ' on' : ''}`}
+            role="radio"
+            aria-checked={dest === 'now'}
+            title="Into the queue right away; the next free worker files it, and the Activity stream shows it settle."
+            onClick={() => {
+              setDest('now')
+              setStaged(null)
+            }}
+          >
+            Add now
+          </button>
+          <button
+            className={`rp${dest === 'night' ? ' on' : ''}`}
+            role="radio"
+            aria-checked={dest === 'night'}
+            title="Held until the night shift begins. The shift runs these first, ahead of every Fellow, so the Fellows plan on a vault that already holds them. The Night shift window lists what is waiting and lets you take it off again."
+            onClick={() => {
+              setDest('night')
+              setStaged(null)
+            }}
+          >
+            Night shift
+          </button>
+        </div>
       )}
 
       <div className="ip-actions">
