@@ -599,17 +599,17 @@ export function CommandCentre({
   }
 
   /*
-   * The wheel walks that ring from anywhere in the window - EXCEPT where there is still
-   * something to scroll under the pointer, which keeps its wheel.
+   * The wheel walks the SHELVES, and only them.
    *
-   * The window is one long page on a shelf with a few Fellows and a long list of options under
-   * Decisions, so a wheel that always paged would cost you whatever you were reading; one that
-   * only worked over the headline is a target you have to find. Scroll chaining is the answer
-   * both halves want: what is under the pointer scrolls while it has room, and the gesture
-   * that runs off its end walks to the next stop.
+   * Scroll chaining gives it a second job at the end of every list - what is under the pointer
+   * keeps its wheel while it has room, and the gesture that runs off that end walks on - and
+   * that is a fair trade for a shelf, which is a page you are done with. It is not one for a
+   * Fellow: the dossier and Decisions are made of text you read to the bottom, so the gesture
+   * that finishes reading one would have moved you off it. Those rings keep the arrow keys,
+   * which say exactly what they mean and never fire at the end of a paragraph.
    */
   useEffect(() => {
-    if (view === 'spawn') return
+    if (view === 'spawn' || view === 'dossier' || view === 'decisions') return
     let last = 0
     const scrollable = (from: Element | null, delta: number): boolean => {
       for (let el = from; el !== null && el !== document.body; el = el.parentElement) {

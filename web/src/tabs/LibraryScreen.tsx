@@ -801,7 +801,7 @@ export function LibraryScreen({
             {ccOpen && (
               /* Just where you are. Escape steps back, the dots jump, and the shelves view is
                  the map - so the name needs no arrows around it. */
-              <span className="lib-open cc-rot" title="The arrow keys walk this screen's own ring - the shelves, a Fellow's roster, the ones up for review - and so does the wheel wherever there is nothing left to scroll">
+              <span className="lib-open cc-rot" title="The arrow keys walk this screen's own ring: the shelves, a Fellow's roster, the ones up for review. Over the shelves the wheel does it too, wherever there is nothing left to scroll.">
                 {/* Dot, name, dots: the same three slots at every stop, and the name's slot is
                     wide enough for the longest domain, so walking the ring moves nothing but
                     the letters. The overview takes the accent for its dot because it is not a
