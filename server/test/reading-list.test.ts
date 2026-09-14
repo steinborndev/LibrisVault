@@ -303,7 +303,7 @@ title: "Reading list"
         today: '2026-09-13',
         lookup: async (doi) => {
           asked.push(doi)
-          return { url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13' }
+          return { url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13', chars: null }
         },
       })
       expect(asked).toEqual(['10.1234/example.2026.001'])
@@ -311,8 +311,9 @@ title: "Reading list"
       expect(out.found.map((f) => f.copy.url)).toEqual(['https://repository.example/paper.pdf', 'https://arxiv.org/pdf/2506.20907'])
 
       const marked = parseReadingList(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8'))
-      expect(marked[0]!.oa).toEqual({ url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13' })
-      expect(marked[1]!.oa).toEqual({ url: 'https://arxiv.org/pdf/2506.20907', version: 'submittedVersion', at: '2026-09-13' })
+      // The sweep asks, it does not open the copy: no measurement to write.
+      expect(marked[0]!.oa).toEqual({ url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13', chars: null })
+      expect(marked[1]!.oa).toEqual({ url: 'https://arxiv.org/pdf/2506.20907', version: 'submittedVersion', at: '2026-09-13', chars: null })
       // Everything the Fellows wrote is still there, and nothing else gained a mark.
       expect(marked).toHaveLength(6)
       expect(marked[0]).toMatchObject({ blocked: 'HTTP 403', by: 'Jane', access: 'paywalled' })
@@ -328,7 +329,7 @@ title: "Reading list"
       const dry = await reading.markOpenCopies({
         today: '2026-09-13',
         dryRun: true,
-        lookup: async () => ({ url: 'https://repository.example/paper.pdf', version: 'publishedVersion', at: '2026-09-13' }),
+        lookup: async () => ({ url: 'https://repository.example/paper.pdf', version: 'publishedVersion', at: '2026-09-13', chars: null }),
       })
       expect(dry.found).toHaveLength(2)
       expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toBe(SWEEP_PAGE)
@@ -368,6 +369,8 @@ title: "Reading list"
       url: 'https://repository.example/paper.pdf',
       version: 'acceptedVersion',
       at: '2026-09-13',
+      // The reconcile step writes what the ingest's manifest knew; nobody measured a size here.
+      chars: null,
     })
   })
 
@@ -392,6 +395,7 @@ title: "Reading list"
       url: 'https://repository.example/paper.pdf',
       version: null,
       at: '2026-09-13',
+      chars: null,
     })
   })
 
@@ -640,6 +644,28 @@ describe('entries the service writes for the planner', () => {
   })
 })
 
+/** The entry the route harness needs beyond the shared page: paywalled, and with a DOI. */
+const PAYWALLED_WITH_DOI = `
+- title: A paywalled paper that names its DOI
+  url: https://publisher.example/articles/one
+  ref: doi:10.1234/example.2026.001
+  access: paywalled
+  blocked: subscription
+  by: Jane
+  at: 2026-09-07
+`
+
+/** The config the route harness runs with; one shape for every server this file builds. */
+const TEST_CONFIG = (vaultRoot: string): Config => ({
+  vaultRoot,
+  obsidianVaultName: 'vault',
+  demoMode: false,
+  agentsEnabled: true,
+  auth: { mode: 'oauth', credential: 'x', envVar: 'CLAUDE_CODE_OAUTH_TOKEN' },
+  telegram: null,
+  server: { host: '127.0.0.1', port: 0, watchFolder: path.join(vaultRoot, 'inbox'), maxUploadBytes: 1024, authMode: 'local-single-user' },
+})
+
 describe('the reading list route', () => {
   let vaultRoot: string
   let db: Db
@@ -649,19 +675,11 @@ describe('the reading list route', () => {
   beforeEach(async () => {
     vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-'))
     fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
-    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE)
+    fs.writeFileSync(path.join(vaultRoot, READING_LIST_PAGE), PAGE + PAYWALLED_WITH_DOI)
     db = openDb(MEMORY_DB)
     const events = new EventBus()
     store = new JobStore(db, events)
-    const config: Config = {
-      vaultRoot,
-      obsidianVaultName: 'vault',
-      demoMode: false,
-      agentsEnabled: true,
-      auth: { mode: 'oauth', credential: 'x', envVar: 'CLAUDE_CODE_OAUTH_TOKEN' },
-      telegram: null,
-      server: { host: '127.0.0.1', port: 0, watchFolder: path.join(vaultRoot, 'inbox'), maxUploadBytes: 1024, authMode: 'local-single-user' },
-    }
+    const config: Config = TEST_CONFIG(vaultRoot)
     const queue = new IngestQueue({ store, vaultRoot, auth: config.auth, runIngest: async () => { throw new Error('no agent') } })
     const runner = new MaintenanceRunner({ vaultRoot, auth: config.auth, events, commitMutex: new Mutex() })
     app = await buildServer({
@@ -683,8 +701,8 @@ describe('the reading list route', () => {
 
   it('lists the entries, ingests one through the URL path, and refuses anything not on the list', async () => {
     const listed = (await app.inject({ method: 'GET', url: '/api/v1/reading-list' })).json() as { entries: Array<{ title: string; job: unknown; reach: string }> }
-    expect(listed.entries).toHaveLength(3)
-    expect(listed.entries.map((e) => e.reach)).toEqual(['unknown', 'unknown', 'paywalled'])
+    expect(listed.entries).toHaveLength(4)
+    expect(listed.entries.map((e) => e.reach)).toEqual(['unknown', 'unknown', 'paywalled', 'paywalled'])
     expect(listed.entries[0]!.job).toBeNull()
 
     const started = await app.inject({ method: 'POST', url: '/api/v1/reading-list/ingest', payload: { url: 'https://example.invalid/hip41378f' } })
@@ -699,6 +717,88 @@ describe('the reading list route', () => {
     // Not on the list: the route is not an open fetch proxy.
     expect((await app.inject({ method: 'POST', url: '/api/v1/reading-list/ingest', payload: { url: 'https://example.invalid/elsewhere' } })).statusCode).toBe(404)
     expect((await app.inject({ method: 'POST', url: '/api/v1/reading-list/ingest', payload: { url: 'not-a-url' } })).statusCode).toBe(400)
+  })
+
+  /**
+   * "Find open-access" (docs/sources/SPEC.md 6.3, extended 2026-09-14). The finder itself is
+   * stubbed: what it does is `recoverOpenAccess`, which is tested where it lives. What is asked
+   * here is who may trigger it, and what a find leaves behind.
+   */
+  it('says which entries can be looked up at all', async () => {
+    const entries = ((await app.inject({ method: 'GET', url: '/api/v1/reading-list' })).json() as {
+      entries: Array<{ title: string; oaEligible: boolean; oa: unknown }>
+    }).entries
+    // Paywalled AND carrying an identity: the DOI entry and the arXiv one are eligible - but the
+    // arXiv entry is open, so only the paywalled pair is offered the button.
+    expect(entries.filter((e) => e.oaEligible).map((e) => e.title)).toEqual(['A paywalled paper that names its DOI'])
+    // The other paywalled entry names no DOI, arXiv id or PMC id: nothing to ask about.
+    expect(entries.find((e) => e.title === 'Three papers nobody could open')?.oaEligible).toBe(false)
+  })
+
+  it('writes a verified copy into the entry, and refuses a second search for it', async () => {
+    const asked: Array<{ url: string; ref: string | null }> = []
+    const server = await buildServer({
+      config: TEST_CONFIG(vaultRoot),
+      store,
+      chat: new ChatStore(db),
+      queue: new IngestQueue({ store, vaultRoot, auth: TEST_CONFIG(vaultRoot).auth, runIngest: async () => { throw new Error('no agent') } }),
+      events: new EventBus(),
+      maintenance: new MaintenanceRunner({ vaultRoot, auth: TEST_CONFIG(vaultRoot).auth, events: new EventBus(), commitMutex: new Mutex() }),
+      logger: false,
+      reading: new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false }),
+      findOpenAccess: async (entry) => {
+        asked.push({ url: entry.url, ref: entry.ref })
+        return { found: true, url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', chars: 35_718 }
+      },
+    })
+    try {
+      const res = await server.inject({ method: 'POST', url: '/api/v1/reading-list/open-access', payload: { url: 'https://publisher.example/articles/one' } })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toMatchObject({ found: true, oa: { url: 'https://repository.example/paper.pdf', chars: 35_718 } })
+      expect(asked).toEqual([{ url: 'https://publisher.example/articles/one', ref: 'doi:10.1234/example.2026.001' }])
+
+      // The mark is on the page, with what the verification measured, and the entry is no longer
+      // eligible - a copy is never searched for twice, and never overwritten.
+      const marked = parseReadingList(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8'))
+      expect(marked.find((e) => e.url === 'https://publisher.example/articles/one')?.oa).toEqual({
+        url: 'https://repository.example/paper.pdf',
+        version: 'acceptedVersion',
+        at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) as unknown as string,
+        chars: 35_718,
+      })
+      const again = await server.inject({ method: 'POST', url: '/api/v1/reading-list/open-access', payload: { url: 'https://publisher.example/articles/one' } })
+      expect(again.statusCode).toBe(409)
+      expect(asked).toHaveLength(1)
+
+      // An entry with no identity, and one that is not on the list at all.
+      expect((await server.inject({ method: 'POST', url: '/api/v1/reading-list/open-access', payload: { url: 'https://acs.invalid/lithium-sulfur' } })).statusCode).toBe(409)
+      expect((await server.inject({ method: 'POST', url: '/api/v1/reading-list/open-access', payload: { url: 'https://example.invalid/elsewhere' } })).statusCode).toBe(404)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('leaves the page alone when nothing was found, and says why', async () => {
+    const server = await buildServer({
+      config: TEST_CONFIG(vaultRoot),
+      store,
+      chat: new ChatStore(db),
+      queue: new IngestQueue({ store, vaultRoot, auth: TEST_CONFIG(vaultRoot).auth, runIngest: async () => { throw new Error('no agent') } }),
+      events: new EventBus(),
+      maintenance: new MaintenanceRunner({ vaultRoot, auth: TEST_CONFIG(vaultRoot).auth, events: new EventBus(), commitMutex: new Mutex() }),
+      logger: false,
+      reading: new ReadingListService(vaultRoot, store, { commitMutex: new Mutex(), autoCommit: () => false }),
+      findOpenAccess: async () => ({ found: false, reason: 'no open copy cleared the bar (tried 2)' }),
+    })
+    try {
+      const before = fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')
+      const res = await server.inject({ method: 'POST', url: '/api/v1/reading-list/open-access', payload: { url: 'https://publisher.example/articles/one' } })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toEqual({ found: false, reason: 'no open copy cleared the bar (tried 2)' })
+      expect(fs.readFileSync(path.join(vaultRoot, READING_LIST_PAGE), 'utf8')).toBe(before)
+    } finally {
+      await server.close()
+    }
   })
 })
 

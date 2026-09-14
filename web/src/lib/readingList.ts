@@ -81,6 +81,32 @@ export function copyVersionWords(version: string | null): string {
 /** Whether the board may offer the one click: a copy is named and nobody has ruled it out yet. */
 export const hasUsableCopy = (e: ReadingItem): boolean => e.oa !== null && !e.oaExhausted
 
+/**
+ * Whether the copy was opened and measured, rather than merely named by a resolver.
+ *
+ * The two ways a copy reaches an entry differ in exactly this: the nightly sweep ASKS (three
+ * lines, no size), and "Find open-access" on the board FETCHES, extracts and measures it (a
+ * fourth line with the character count). The checkmark on the button marks the second.
+ */
+export const copyVerified = (e: ReadingItem): boolean => (e.oa?.chars ?? null) !== null
+
+/**
+ * What a search that found nothing says in the row: short, dated, and the same whether the answer
+ * came from the resolvers just now or from the week-old row that already asked them. The full
+ * sentence - which resolver said what, how many copies were tried - rides in the tooltip.
+ */
+export function searchMiss(reason: string): string {
+  const asked = /last asked \((\d{4})-(\d{2})-(\d{2})/.exec(reason)
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  if (asked !== null) return `no open copy · asked ${Number(asked[3])} ${months[Number(asked[2]) - 1]}`
+  const tried = /tried (\d+)/.exec(reason)
+  return tried !== null && Number(tried[1]) > 0 ? `no open copy · ${tried[1]} tried` : 'no open copy'
+}
+
+/** The size a verification measured, in the short form a label can carry. */
+export const copySize = (e: ReadingItem): string | null =>
+  e.oa?.chars == null ? null : `${e.oa.chars.toLocaleString('en-US')} chars`
+
 /** What the row says about reaching the document, or null when there is nothing to say. */
 export function reachLabel(e: ReadingItem): string | null {
   /*
@@ -90,7 +116,11 @@ export function reachLabel(e: ReadingItem): string | null {
    * instead - the address is still real, it is just not the document (docs/sources/SPEC.md 6.3).
    */
   const copy =
-    e.oa === null ? '' : e.oaExhausted ? ' · copy named, not readable' : ` · open copy · ${copyVersionWords(e.oa.version)}`
+    e.oa === null
+      ? ''
+      : e.oaExhausted
+        ? ' · copy named, not readable'
+        : ` · open copy · ${copyVersionWords(e.oa.version)}${copySize(e) === null ? '' : ` · ${copySize(e)!}`}`
   if (e.reach === 'paywalled') return `${e.blocked !== null ? `paywalled · ${e.blocked}` : 'paywalled'}${copy}`
   if (e.reach === 'unreachable') return `${e.blocked !== null ? `unreachable · ${e.blocked}` : 'unreachable'}${copy}`
   return copy === '' ? null : copy.replace(/^ · /, '')

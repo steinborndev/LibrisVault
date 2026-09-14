@@ -428,12 +428,40 @@ would fix it at the price of turning `10-20` into one number.
       three new pages: 3`, `Edit on a page the run created: the run may finish its own page`.
       PASS. Server 1,209 tests, web 483, `tsc` and `eslint` clean.
 
+- [x] **"Find open-access" on the board** (2026-09-14, asked for after chunk 6). A paywalled entry
+      that names a DOI, an arXiv id or a PMC id gets a second button beside `Open URL` (renamed
+      from `Open`): it asks the resolvers, FETCHES the best copy, extracts it and measures it at
+      the two acceptance bars, and writes the find into the entry - three lines plus a fourth,
+      `oa_chars`, which is what separates a copy somebody opened from one a resolver merely named.
+      The button then reads `Fetch open access` with a checkmark, and the click is the ordinary
+      ingest of the entry's own address, exactly as the night shift's find works. `POST
+      /api/v1/reading-list/open-access` is the route; `canFindOpenCopy` decides eligibility on the
+      SERVER (`oaEligible` on the item), so the board and the route cannot disagree, and the
+      setting `oaRecovery` switches the whole offer off.
+      Decided with the user after measuring, not before: verify rather than only ask. Measured
+      over the live list (read-only, in-memory cache, no job, no vault write): of 8 entries with
+      an identifier, 6 had a copy named and **6 of 6 really held full text**; asking costs 0.2 s
+      on a hit and up to **5.7 s on a miss** (three APIs, politely, in sequence), while the fetch
+      that follows a find costs only 0.2 to 2.4 s - so verifying does not move the worst case, and
+      it makes the checkmark mean something. Caveat recorded with the number: n = 6, all of them
+      in PMC, arXiv or an OA journal; the repository record page that the bars exist for did not
+      occur in this sample.
+      The night shift still only ASKS (spec 6.1), so its finds carry no checkmark and say so in
+      the tooltip. Measured in the running app: the two eligible entries of the live list get the
+      button, all four row states render as designed, and `Find open-access`, `Open URL` and the
+      archive button share one line (identical `top`, 275 px, no overflow) - the promise that
+      nothing wraps. Server 1,212 tests (3 new), web 493 (2 new).
+
 ## Deviations from the spec
 
 - **`ReadingItem.oa` is `{ url, version, at }`, not `{ url, version, source }`** (spec 6.2).
   The page carries `oa_url`, `oa_version` and `oa_at`, so the date is what can be read back;
   the resolver's own name stays in the job's manifest, which is the record of what that job
   did. A `source` field on the item would have had to be invented on every read.
+- **A reading-list entry may carry a fourth `oa_` line** (`oa_chars`), beyond the three spec 6.2
+  names. It is written only by the board's own search, and only because that search OPENS the copy
+  and can therefore say how much text it holds; the night shift, which asks without opening, keeps
+  to three. The field is what the checkmark on the button reads.
 - **A quotation is compared word by word, not character by character** (spec 7.3 lists the
   normalizations). Same intent, one step further: both sides are reduced to runs of letters and
   digits, so a mark the source puts around one word of the sentence, a comma where the source has

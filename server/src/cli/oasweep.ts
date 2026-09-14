@@ -81,7 +81,7 @@ const main = async (): Promise<void> => {
         return undefined
       }
       console.log(`  ${doi}: ${best.source} ${best.version ?? 'version not stated'} at ${best.host} -> ${best.url}`)
-      return { url: best.url, version: best.version, at: today }
+      return { url: best.url, version: best.version, at: today, chars: null }
     },
   })
   console.log(`\n${checked} asked, ${found.length} with an open copy (nothing written)`)

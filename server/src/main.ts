@@ -4,6 +4,9 @@
  * can stop it cleanly; the direct-run block adds signal handling.
  */
 
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { loadConfig, describeConfig, assertBindAllowed, ConfigError, type Config, requireAuth } from './config.js'
 import { openDb, defaultDbPath } from './db/index.js'
@@ -13,8 +16,20 @@ import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
 import { CommitDismissalStore } from './db/commit-dismissals.js'
 import { OaLookupStore } from './db/oa.js'
-import { bestUntriedCandidate, lookupExhausted, lookupOpenAccess, lookupSaysNothing, oaCacheOver } from './pipeline/preprocess/oa.js'
+import {
+  bestUntriedCandidate,
+  lookupExhausted,
+  lookupOpenAccess,
+  lookupSaysNothing,
+  oaCacheOver,
+  recoverOpenAccess,
+  type OaPdfReader,
+} from './pipeline/preprocess/oa.js'
 import { detectTools } from './pipeline/preprocess/index.js'
+import { pdfPlugin } from './pipeline/preprocess/plugins/pdf.js'
+import { buildProbe } from './pipeline/preprocess/detect.js'
+import { documentTextOf } from './pipeline/preprocess/fence.js'
+import type { ToolAvailability } from './pipeline/preprocess/types.js'
 import { SqliteMaintenanceStateStore } from './db/maintenance-state.js'
 import { SqliteAgentRunStore } from './db/agent-runs.js'
 import { SAMPLE_LIMIT } from './pipeline/run-duration.js'
@@ -29,6 +44,7 @@ import { SqliteLibraryStore } from './db/library.js'
 import { LibraryService } from './pipeline/library.js'
 import { SqliteUsageSampleStore, SqlitePlanOverrideStore } from './db/usage-samples.js'
 import { ReadingListService } from './pipeline/reading-list.js'
+import { refKey } from './pipeline/dedupe.js'
 import { UsageMonitor, type EndpointResult } from './pipeline/usage-monitor.js'
 import { indexWikiPages } from './pipeline/citations.js'
 import { FellowService, type GateBlock } from './pipeline/fellows.js'
@@ -73,6 +89,23 @@ export interface RunningService {
  * in its own stop timeout.
  */
 const HTTP_CLOSE_GRACE_MS = 5_000
+
+/**
+ * How an open-access PDF candidate becomes text for the board's own search: the ordinary PDF
+ * plugin, in a scratch directory outside the vault. The URL lane does the same inside an ingest;
+ * this is the one caller that needs it without a job.
+ */
+function readPdfCandidate(dir: string, tools: ToolAvailability): OaPdfReader {
+  return async (bytes, seq) => {
+    const at = path.join(dir, `candidate-${seq}`)
+    fs.mkdirSync(at, { recursive: true })
+    const file = path.join(at, 'candidate.pdf')
+    fs.writeFileSync(file, bytes)
+    const res = await pdfPlugin.normalize({ probe: buildProbe(file, 'candidate.pdf'), jobDir: at, tools })
+    const text = res.normalizedPath === undefined ? '' : documentTextOf(fs.readFileSync(res.normalizedPath, 'utf8'))
+    return { text, notes: res.notes, ocrApplied: res.ocrApplied ?? false, deferred: res.deferred ?? false }
+  }
+}
 
 export async function startService(config: Config = loadConfig()): Promise<RunningService> {
   // Fail fast, before opening anything, if the bind policy is violated (hard rule 2).
@@ -335,7 +368,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
                 // Only a copy nobody has fetched yet: one an ingest already threw away as a
                 // record page is not somewhere to send the user.
                 const best = bestUntriedCandidate(round)
-                return best === undefined ? undefined : { url: best.url, version: best.version, at: today }
+                // The sweep ASKS; it does not open the copy, so nothing measured is written.
+                return best === undefined ? undefined : { url: best.url, version: best.version, at: today, chars: null }
               },
             })
             return { checked, found: found.length }
@@ -458,6 +492,51 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(library !== undefined ? { library } : {}),
     ...(usage !== undefined ? { usage } : {}),
     ...(config.agentsEnabled === true ? { reading: readingList } : {}),
+    /*
+     * "Find open-access" on the board (docs/sources/SPEC.md 6.3): the same recovery an ingest
+     * runs, in a scratch directory outside the vault and without writing a page - so a find is
+     * VERIFIED (fetched, extracted, measured at the two bars) rather than merely registered
+     * somewhere. The accepted copy lands in `oa_lookups`, so the ingest the user starts
+     * afterwards goes straight to it.
+     */
+    findOpenAccess: async (entry) => {
+      if (!settings.effective(config).oaRecovery) return { found: false, reason: 'open-access recovery is switched off in the System tab' }
+      const ref = refKey(entry.ref) ?? refKey(entry.url)
+      if (ref === undefined) return { found: false, reason: 'this entry names no DOI, arXiv id or PMC id' }
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-find-'))
+      try {
+        const tools = await detectTools()
+        const out = await recoverOpenAccess({
+          ...(ref.startsWith('doi:') ? { doi: ref.slice('doi:'.length) } : {}),
+          kind: 'rescued',
+          haveChars: 0,
+          deps: {
+            jobDir: dir,
+            tools,
+            cache: oaCacheOver(oaLookups),
+            readPdf: readPdfCandidate(dir, tools),
+            // An arXiv or a PMC id IS the copy; there is nothing to ask a resolver about.
+            ...(ref.startsWith('arxiv:')
+              ? { hint: { url: `https://arxiv.org/pdf/${ref.slice('arxiv:'.length)}`, version: 'submittedVersion' } }
+              : ref.startsWith('pmc:')
+                ? { hint: { url: `https://pmc.ncbi.nlm.nih.gov/articles/${ref.slice('pmc:'.length)}/` } }
+                : {}),
+          },
+        })
+        if (out.recovery === undefined) {
+          const last = out.notes[out.notes.length - 1]
+          return { found: false, reason: last ?? 'no open copy was found' }
+        }
+        return {
+          found: true,
+          url: out.recovery.disclosure.url,
+          version: out.recovery.disclosure.version,
+          chars: out.recovery.text.trim().length,
+        }
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    },
   })
   await app.listen({ host: config.server.host, port: config.server.port })
   const url = `http://${config.server.host}:${config.server.port}`

@@ -74,12 +74,20 @@ export interface ReadingEntry {
   readonly oa: ReadingOpenCopy | null
 }
 
-/** The open copy an entry names. `at` is the third field the page carries; the resolver's own
- * name lives in the job's manifest, not on the page. */
+/**
+ * The open copy an entry names. `at` is the third field the page carries; the resolver's own name
+ * lives in the job's manifest, not on the page.
+ *
+ * `chars` is the fourth, and it is what separates the two ways a copy gets here: the nightly
+ * sweep ASKS the resolvers and writes three lines, while "Find open-access" on the board fetches
+ * the copy, extracts it and measures it against the acceptance bars - so a number here means the
+ * copy was read, not merely registered somewhere. Null for a copy nobody has opened yet.
+ */
 export interface ReadingOpenCopy {
   readonly url: string
   readonly version: string | null
   readonly at: string | null
+  readonly chars: number | null
 }
 
 /** One entry a run added under another name, as {@link ReadingListService.attribute} corrected it. */
@@ -108,9 +116,30 @@ export interface ReadingItem extends ReadingEntry {
    * copy is known: the board then says so rather than offering the ingest again (6.3).
    */
   readonly oaExhausted: boolean
+  /**
+   * Whether "Find open-access" applies to this entry: the user's own access is the only way in
+   * (paywalled or unreachable), nothing is known yet, and it names an identity a copy could be
+   * found by. Decided HERE and not in the board, so one rule answers for every reader.
+   */
+  readonly oaEligible: boolean
 }
 
-const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat|archivedat|oa_url|oa_version|oa_at)\s*:\s*(.*)$/i
+/**
+ * Whether an entry could be looked up for an open copy at all (section 6.3, extended 2026-09-14).
+ *
+ * Three identities can lead to one: a DOI, which the resolvers are asked about, and an arXiv or
+ * PMC id, which IS the copy - the PDF beside the abstract, the article in PubMed Central. Without
+ * one of those there is nothing to ask. An entry that is already in the vault, already marked,
+ * archived, or one the service can fetch itself, has no use for the button.
+ */
+export function canFindOpenCopy(entry: ReadingEntry): boolean {
+  if (entry.filed !== null || entry.archivedAt !== null || entry.oa !== null) return false
+  const reach = reachOf(entry)
+  if (reach !== 'paywalled' && reach !== 'unreachable' && entry.blocked === null) return false
+  return entryRef(entry) !== undefined
+}
+
+const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat|archivedat|oa_url|oa_version|oa_at|oa_chars)\s*:\s*(.*)$/i
 
 /** Hosts that only ever serve the full text: an entry from one of them needs no toggle to be useful. */
 const OPEN_HOSTS = [
@@ -225,11 +254,47 @@ export function urlFileName(url: string): string | undefined {
 
 const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/**
+ * The `oa_*` lines an entry gains, as the page carries them. An unknown version or an unopened
+ * copy leaves its LINE out rather than writing words into a field the parser reads back.
+ */
+function oaLines(copy: ReadingOpenCopy, today: string): string {
+  return (
+    `\n  oa_url: ${copy.url}` +
+    (copy.version === null ? '' : `\n  oa_version: ${copy.version}`) +
+    `\n  oa_at: ${copy.at ?? today}` +
+    (copy.chars === null ? '' : `\n  oa_chars: ${copy.chars}`)
+  )
+}
+
+/**
+ * Those lines inserted into ONE entry's own block, right under its title line; null when the
+ * page does not hold that entry. Nothing else on the page is touched - the same block edit
+ * `filed` and `archivedAt` take.
+ */
+function withOaLines(markdown: string, title: string, copy: ReadingOpenCopy, today: string): string | null {
+  const block = new RegExp(`(^[ \t]*[-*][ \t]+title:[ \t]*${escapeRe(title)}[ \t]*$)`, 'm')
+  if (!block.test(markdown)) return null
+  const next = markdown.replace(block, `$1${oaLines(copy, today)}`)
+  return next === markdown ? null : next
+}
+
 /** The three `oa_*` lines as one field, or null when the entry names no copy. */
-function oaOf(url: string | undefined, version: string | undefined, at: string | undefined): ReadingOpenCopy | null {
+function oaOf(
+  url: string | undefined,
+  version: string | undefined,
+  at: string | undefined,
+  chars: string | undefined,
+): ReadingOpenCopy | null {
   const href = url?.trim()
   if (href === undefined || href === '' || !/^https?:\/\//i.test(href)) return null
-  return { url: href, version: version?.trim() || null, at: at?.trim() || null }
+  const measured = Number.parseInt(chars?.trim() ?? '', 10)
+  return {
+    url: href,
+    version: version?.trim() || null,
+    at: at?.trim() || null,
+    chars: Number.isFinite(measured) && measured > 0 ? measured : null,
+  }
 }
 
 /** `Ada, 2026-09-06` - the shape the first version wrote, kept readable for the entries that carry it. */
@@ -266,7 +331,7 @@ export function parseReadingList(markdown: string): ReadingEntry[] {
         filed: cur['filed']?.trim() || null,
         filedAt: cur['filedat']?.trim() || null,
         archivedAt: cur['archivedat']?.trim() || null,
-        oa: oaOf(cur['oa_url'], cur['oa_version'], cur['oa_at']),
+        oa: oaOf(cur['oa_url'], cur['oa_version'], cur['oa_at'], cur['oa_chars']),
       })
     }
     cur = null
@@ -316,6 +381,11 @@ export interface ReadingListWriteOptions {
    * same failure; the mark itself is never revised, because the copy does exist.
    */
   readonly copyExhausted?: (doi: string) => boolean
+  /**
+   * Whether the open-access mechanism is on at all (the `oaRecovery` setting). With it off the
+   * board must not offer a search whose result the ingest would then ignore.
+   */
+  readonly openCopyEnabled?: () => boolean
 }
 
 export class ReadingListService {
@@ -351,13 +421,16 @@ export class ReadingListService {
       const { job, page, via } = this.locate(e, jobs, files)
       const ref = e.oa === null ? undefined : entryRef(e)
       const doi = ref?.startsWith('doi:') === true ? ref.slice('doi:'.length) : undefined
+      const exhausted = doi !== undefined && (this.write.copyExhausted?.(doi) ?? false)
       return {
         ...e,
         job,
         reach: reachOf(e),
         page,
         via,
-        oaExhausted: doi !== undefined && (this.write.copyExhausted?.(doi) ?? false),
+        oaExhausted: exhausted,
+        // A copy that was tried and found wanting is not worth looking for again this week.
+        oaEligible: canFindOpenCopy(e) && !exhausted && (this.write.openCopyEnabled?.() ?? true),
       }
     })
   }
@@ -650,22 +723,17 @@ export class ReadingListService {
     for (const candidate of candidates) {
       const copy: ReadingOpenCopy | undefined =
         candidate.arxivId !== undefined
-          ? { url: `https://arxiv.org/pdf/${candidate.arxivId}`, version: 'submittedVersion', at: args.today }
+          ? { url: `https://arxiv.org/pdf/${candidate.arxivId}`, version: 'submittedVersion', at: args.today, chars: null }
           : candidate.doi === undefined
             ? undefined
             : await args.lookup(candidate.doi)
       if (copy === undefined) continue
-      const marked: ReadingOpenCopy = { url: copy.url, version: copy.version, at: args.today }
+      const marked: ReadingOpenCopy = { url: copy.url, version: copy.version, at: args.today, chars: copy.chars }
       found.push({ entry: { ...candidate.entry, oa: marked }, copy: marked })
       if (args.dryRun === true) continue
-      // The entry's own block gains the three lines; nothing else on the page is touched. An
-      // unknown version leaves its LINE out rather than writing words into a field.
-      const block = new RegExp(`(^[ \t]*[-*][ \t]+title:[ \t]*${escapeRe(candidate.entry.title)}[ \t]*$)`, 'm')
-      if (!block.test(next)) continue
-      next = next.replace(
-        block,
-        `$1\n  oa_url: ${marked.url}${marked.version === null ? '' : `\n  oa_version: ${marked.version}`}\n  oa_at: ${args.today}`,
-      )
+      const written = withOaLines(next, candidate.entry.title, marked, args.today)
+      if (written === null) continue
+      next = written
     }
     if (found.length === 0 || args.dryRun === true || next === markdown) return { checked: candidates.length, found }
     const commit = this.write.commit ?? commitPaths
@@ -684,6 +752,42 @@ export class ReadingListService {
       }
     })
     return { checked: candidates.length, found }
+  }
+
+  /**
+   * Marks ONE entry with the copy that was found for it - what "Find open-access" leaves behind
+   * (docs/sources/SPEC.md section 6.3, extended 2026-09-14).
+   *
+   * The same write the nightly sweep makes, for one entry and with the measurement the button
+   * took: three lines plus `oa_chars`, inside the entry's own block, one commit behind the
+   * shared mutex. False when the url is not on the list or the entry already names a copy -
+   * a mark is never overwritten, because the page is append-only for content.
+   */
+  async markOpenCopy(url: string, copy: ReadingOpenCopy, today: string): Promise<boolean> {
+    const file = path.join(this.vaultRoot, READING_LIST_PAGE)
+    let markdown: string
+    try {
+      markdown = fs.readFileSync(file, 'utf8')
+    } catch {
+      return false
+    }
+    const wanted = urlKey(url)
+    const entry = parseReadingList(markdown).find((e) => urlKey(e.url) === wanted)
+    if (entry === undefined || entry.oa !== null) return false
+    const next = withOaLines(markdown, entry.title, copy, today)
+    if (next === null) return false
+    if (this.write.commitMutex === undefined) {
+      fs.writeFileSync(file, next, 'utf8')
+      return true
+    }
+    const commit = this.write.commit ?? commitPaths
+    await this.write.commitMutex.runExclusive(async () => {
+      fs.writeFileSync(file, next, 'utf8')
+      if (this.write.autoCommit?.() ?? true) {
+        await commit(this.vaultRoot, 'reading list: an open copy found for one entry', [READING_LIST_PAGE])
+      }
+    })
+    return true
   }
 
   /**
@@ -733,7 +837,8 @@ export class ReadingListService {
       line('archivedAt', e.archivedAt) +
       line('oa_url', e.oa?.url ?? null) +
       line('oa_version', e.oa?.version ?? null) +
-      line('oa_at', e.oa?.at ?? null)
+      line('oa_at', e.oa?.at ?? null) +
+      line('oa_chars', e.oa?.chars === null || e.oa?.chars === undefined ? null : String(e.oa.chars))
     )
   }
 
@@ -806,11 +911,11 @@ export class ReadingListService {
        * An unknown version leaves the LINE out rather than writing words into it: the parser
        * reads this field back, and "version not stated" would come back as a version.
        */
-      const oaLines =
+      const marks =
         oa === undefined || entry.oa !== null
           ? ''
-          : `\n  oa_url: ${oa.url}${oa.version === null ? '' : `\n  oa_version: ${oa.version}`}\n  oa_at: ${today}`
-      next = next.replace(block, `$1\n  filed: ${page}\n  filedAt: ${today}${oaLines}`)
+          : oaLines({ url: oa.url, version: oa.version, at: today, chars: null }, today)
+      next = next.replace(block, `$1\n  filed: ${page}\n  filedAt: ${today}${marks}`)
       found.push({ entry: { ...entry, filed: page, filedAt: today }, page })
     }
     if (found.length === 0 || this.write.commitMutex === undefined) return found.length > 0 ? found : []

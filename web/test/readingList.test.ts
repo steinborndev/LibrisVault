@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { copyVersionWords, hasUsableCopy, inReach, isReachable, reachLabel, readingView } from '../src/lib/readingList.ts'
+import { copySize, copyVerified, copyVersionWords, hasUsableCopy, inReach, isReachable, reachLabel, readingView, searchMiss } from '../src/lib/readingList.ts'
 import type { ReadingItem } from '../src/api/types.ts'
 
 const item = (over: Partial<ReadingItem>): ReadingItem => ({
@@ -28,6 +28,7 @@ const item = (over: Partial<ReadingItem>): ReadingItem => ({
   archivedAt: null,
   oa: null,
   oaExhausted: false,
+  oaEligible: false,
   job: null,
   ...over,
 })
@@ -130,7 +131,7 @@ describe('the reading list view', () => {
 
 describe('an entry with an open copy (docs/sources/SPEC.md 6.3)', () => {
   it('says so beside the reach, in words rather than in OpenAlex\'s', () => {
-    const copy = { url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13' }
+    const copy = { url: 'https://repository.example/paper.pdf', version: 'acceptedVersion', at: '2026-09-13', chars: null }
     expect(reachLabel(item({ reach: 'paywalled', blocked: 'HTTP 403', oa: copy }))).toBe(
       'paywalled · HTTP 403 · open copy · accepted manuscript',
     )
@@ -148,7 +149,7 @@ describe('an entry with an open copy (docs/sources/SPEC.md 6.3)', () => {
   })
 
   it('says a copy was tried and found wanting, and offers no click for it', () => {
-    const copy = { url: 'https://repository.example/record.pdf', version: 'publishedVersion', at: '2026-09-13' }
+    const copy = { url: 'https://repository.example/record.pdf', version: 'publishedVersion', at: '2026-09-13', chars: null }
     const tried = item({ reach: 'paywalled', blocked: 'HTTP 403', oa: copy, oaExhausted: true })
     // The address is real, so the mark stays; it is just not the paper.
     expect(reachLabel(tried)).toBe('paywalled · HTTP 403 · copy named, not readable')
@@ -157,10 +158,31 @@ describe('an entry with an open copy (docs/sources/SPEC.md 6.3)', () => {
     expect(hasUsableCopy(item({ reach: 'paywalled' }))).toBe(false)
   })
 
+  it('tells a verified copy from one a resolver merely named', () => {
+    const named = item({ reach: 'paywalled', blocked: 'subscription', oa: { url: 'https://repository.example/x.pdf', version: 'acceptedVersion', at: '2026-09-14', chars: null } })
+    const verified = item({ ...named, oa: { ...named.oa!, chars: 35_718 } })
+    // The night shift asks; the board's own search opens the copy and measures it.
+    expect(copyVerified(named)).toBe(false)
+    expect(copyVerified(verified)).toBe(true)
+    expect(copySize(verified)).toBe('35,718 chars')
+    expect(copySize(named)).toBeNull()
+    // And the size rides in the label only when somebody measured it.
+    expect(reachLabel(named)).toBe('paywalled · subscription · open copy · accepted manuscript')
+    expect(reachLabel(verified)).toBe('paywalled · subscription · open copy · accepted manuscript · 35,718 chars')
+  })
+
+  it('says a miss shortly, whatever the service wrote about it', () => {
+    expect(searchMiss('open access: nothing usable was found for this DOI when it was last asked (2026-09-13T22:01:36.239Z, tried 0)')).toBe(
+      'no open copy · asked 13 Sep',
+    )
+    expect(searchMiss('no open copy cleared the bar (tried 2)')).toBe('no open copy · 2 tried')
+    expect(searchMiss('open-access recovery is switched off in the System tab')).toBe('no open copy')
+  })
+
   it('stays on the paywalled side of the toggle: the copy does not make the entry open', () => {
     // The entry is still one the user could not read; what changed is that the service can
     // rescue the ingest. Moving it to the open side would hide it from the list it belongs on.
-    const e = item({ reach: 'paywalled', oa: { url: 'https://repository.example/x.pdf', version: 'publishedVersion', at: '2026-09-13' } })
+    const e = item({ reach: 'paywalled', oa: { url: 'https://repository.example/x.pdf', version: 'publishedVersion', at: '2026-09-13', chars: null } })
     expect(isReachable(e)).toBe(false)
     expect(inReach(e, 'paywalled')).toBe(true)
     expect(inReach(e, 'open')).toBe(false)

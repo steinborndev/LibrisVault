@@ -500,6 +500,18 @@ export const api = {
       body: JSON.stringify({ url }),
     }).then(json<{ job: Job }>),
 
+  /**
+   * Look for a legal open copy of one entry, now. It VERIFIES - the copy is fetched, extracted
+   * and measured against the acceptance bars - so it can take a few seconds, and a find is
+   * written into the entry on the page.
+   */
+  findOpenAccess: (url: string): Promise<{ found: boolean; reason?: string; oa?: { url: string; version: string | null; chars: number } }> =>
+    fetch(`${BASE}/reading-list/open-access`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+    }).then(json<{ found: boolean; reason?: string; oa?: { url: string; version: string | null; chars: number } }>),
+
   /** Put one entry out of sight, or bring it back. A mark on the entry, never a removal. */
   archiveReading: (url: string, archived: boolean): Promise<{ archived: boolean }> =>
     fetch(`${BASE}/reading-list/archive`, {

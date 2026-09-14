@@ -1131,13 +1131,19 @@ export interface ReadingItem {
    * A legal open-access copy of this publication, found by the nightly sweep or by the ingest
    * that read one (docs/sources/SPEC.md sections 5.4 and 6.2). Null while none is known.
    */
-  oa: { url: string; version: string | null; at: string | null } | null
+  oa: { url: string; version: string | null; at: string | null; chars: number | null } | null
   /**
    * True when the copy above was already fetched by an ingest and did not read as full text, and
    * no other copy is known. The mark stays - a copy does exist at that address - but the board
    * says so rather than offering a click that would repeat the same failure.
    */
   oaExhausted: boolean
+  /**
+   * Whether "Find open-access" applies: nobody could read this one, nothing is known yet, and it
+   * names a DOI, an arXiv id or a PMC id - the three identities a copy can be found by. The
+   * service decides it, so the board and the route cannot disagree.
+   */
+  oaEligible: boolean
   /** The ingest of this url, when the service has one. */
   job: { id: string; status: string; pages: number } | null
 }

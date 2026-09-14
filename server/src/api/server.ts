@@ -46,7 +46,7 @@ import { registerLibraryRoute } from './routes/library.js'
 import type { UsageMonitor } from '../pipeline/usage-monitor.js'
 import { registerUsageRoute } from './routes/usage.js'
 import type { ReadingListService } from '../pipeline/reading-list.js'
-import { registerReadingListRoute } from './routes/reading-list.js'
+import { registerReadingListRoute, type OpenAccessFinder } from './routes/reading-list.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -106,6 +106,12 @@ export interface AppContext {
   readonly usage?: UsageMonitor
   /** What the Fellows found on the web (section 10.6); registers its routes when present. */
   readonly reading?: ReadingListService
+  /**
+   * Looks for an open copy of one reading-list entry on demand, verifying it (docs/sources
+   * SPEC.md 6.3). Absent = the board's "Find open-access" button answers 503, which is what a
+   * service without the mechanism should say.
+   */
+  readonly findOpenAccess?: OpenAccessFinder
 }
 
 /** Location of the built frontend (`web/dist`), resolved relative to this source file. */
@@ -189,7 +195,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
         })
       },
     })
-  if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue)
+  if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue, ctx.findOpenAccess)
 
   await registerFrontend(app)
 

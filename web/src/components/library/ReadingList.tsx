@@ -15,7 +15,18 @@ import { queryState } from '../QueryState.tsx'
 import { Icon } from '../Icon.tsx'
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
-import { copyVersionWords, hasUsableCopy, isReachable, reachLabel, readingView, type ReadingReach, type ReadingTab } from '../../lib/readingList.ts'
+import {
+  copySize,
+  copyVerified,
+  searchMiss,
+  copyVersionWords,
+  hasUsableCopy,
+  isReachable,
+  reachLabel,
+  readingView,
+  type ReadingReach,
+  type ReadingTab,
+} from '../../lib/readingList.ts'
 import { PageLink } from '../PageLink.tsx'
 
 const host = (url: string): string => {
@@ -40,9 +51,24 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
     mutationFn: ({ url, archived }: { url: string; archived: boolean }) => api.archiveReading(url, archived),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['reading-list'] }),
   })
+  /*
+   * "Find open-access": the service asks the resolvers AND opens the best copy, so this takes a
+   * few seconds and the row says so while it runs. A find is written into the entry, which is
+   * why the answer only has to invalidate the list.
+   */
+  const findOa = useMutation({
+    mutationFn: (url: string) => api.findOpenAccess(url),
+    onSuccess: (res, url) => {
+      setSearched((prev) => ({ ...prev, [url]: res.found ? '' : (res.reason ?? 'no open copy found') }))
+      void qc.invalidateQueries({ queryKey: ['reading-list'] })
+    },
+    onError: (err: Error, url) => setSearched((prev) => ({ ...prev, [url]: err.message })),
+  })
   // Opens on what the service can fetch: a paywalled row's Ingest would fail the same way
   // the run did, so those wait behind their own third of the toggle.
   const [reach, setReach] = useState<ReadingReach>('open')
+  /** What the last search said, per entry url, so a miss is visible until the next look. */
+  const [searched, setSearched] = useState<Record<string, string>>({})
   const state = queryState(list, 'the reading list')
   const entries = list.data?.entries ?? []
   const view = readingView(entries, reach, tab)
@@ -109,6 +135,12 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
                       {e.domain !== null ? ` · ${signText(e.domain)}` : ''}
                       {e.by !== null ? ` · found by ${e.by}${e.at !== null ? `, ${e.at}` : ''}` : e.found !== null ? ` · found by ${e.found}` : ''}
                       {reachLabel(e) !== null ? ` · ${reachLabel(e)}` : ''}
+                      {/* What the last search said, until the next one: a miss is worth seeing. */}
+                      {searched[e.url] ? (
+                        <span title={searched[e.url]!}> · {searchMiss(searched[e.url]!)}</span>
+                      ) : (
+                        ''
+                      )}
                     </p>
                     {e.page !== null && (
                       <p className="rl-filed">
@@ -124,34 +156,59 @@ export function ReadingList({ vaultName, tab = 'current' }: { vaultName: string;
                       <span className="chip ok" title={`in the vault as ${e.page}`}>
                         in the vault
                       </span>
-                    ) : e.job === null && !isReachable(e) && hasUsableCopy(e) ? (
-                      /*
-                       * A copy was found for an entry nobody could read (docs/sources/SPEC.md
-                       * 6.3). The click is the ORDINARY ingest of the entry's own url: the job
-                       * meets the same wall the Fellow did and is rescued from the copy the
-                       * sweep already cached, with the full disclosure on the page. No second
-                       * door, and nothing here has to know the copy's address.
-                       */
-                      <button
-                        className="btn sm"
-                        disabled={ingest.isPending}
-                        title={`The requested address stays the source's own; the text comes from the open copy (${copyVersionWords(e.oa?.version ?? null)}) at ${host(e.oa?.url ?? '')}, and the page says so.`}
-                        onClick={() => ingest.mutate(e.url)}
-                      >
-                        <Icon name="upload" />
-                        Ingest via the open copy
-                      </button>
                     ) : e.job === null && !isReachable(e) ? (
-                      <a
-                        className="btn sm"
-                        href={e.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        title="The service cannot fetch this one. Open it with your own access and drop the file into the vault; it goes through the ordinary ingest from there."
-                      >
-                        <Icon name="link" />
-                        Open
-                      </a>
+                      /*
+                       * The paywalled row carries two actions side by side: what the service can
+                       * do about the copy, and the address for your own access. They stay on one
+                       * line - `.rl-act` never wraps and every `.btn` is nowrap.
+                       */
+                      <>
+                        {hasUsableCopy(e) ? (
+                          /*
+                           * A copy is on record (docs/sources/SPEC.md 6.3). The click is the
+                           * ORDINARY ingest of the entry's own url: the job meets the same wall
+                           * the Fellow did and is rescued from the copy already cached, with the
+                           * full disclosure on the page. No second door, and nothing here has to
+                           * know the copy's address. The checkmark says the copy was OPENED and
+                           * measured, which only this button's own search does.
+                           */
+                          <button
+                            className="btn sm"
+                            disabled={ingest.isPending}
+                            title={
+                              `The requested address stays the source's own; the text comes from the open copy ` +
+                              `(${copyVersionWords(e.oa?.version ?? null)}) at ${host(e.oa?.url ?? '')}, and the page says so.` +
+                              (copyVerified(e)
+                                ? ` Verified: ${copySize(e) ?? ''} of text.`
+                                : ' Found by the night shift, which asks the resolvers rather than opening the copy.')
+                            }
+                            onClick={() => ingest.mutate(e.url)}
+                          >
+                            <Icon name={copyVerified(e) ? 'check' : 'upload'} />
+                            Fetch open access
+                          </button>
+                        ) : e.oaEligible ? (
+                          <button
+                            className="btn sm"
+                            disabled={findOa.isPending}
+                            title="Ask OpenAlex, Europe PMC and CORE whether a legal open copy of this publication exists, fetch it and measure it. Nothing is ingested yet."
+                            onClick={() => findOa.mutate(e.url)}
+                          >
+                            <Icon name="search" />
+                            {findOa.isPending && findOa.variables === e.url ? 'Searching…' : 'Find open-access'}
+                          </button>
+                        ) : null}
+                        <a
+                          className="btn sm"
+                          href={e.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          title="The service cannot fetch this one. Open it with your own access and drop the file into the vault; it goes through the ordinary ingest from there."
+                        >
+                          <Icon name="link" />
+                          Open URL
+                        </a>
+                      </>
                     ) : e.job === null ? (
                       <button
                         className="btn sm"
