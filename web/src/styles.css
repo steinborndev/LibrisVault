@@ -7760,27 +7760,6 @@ tr:focus-within .rowacts {
 }
 .shelf-fellow .nm { font-weight: 600; }
 .shelf-fellow .st { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shelf-docs {
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 4px;
-  font-size: 12px;
-}
-.shelf-docs li { display: flex; gap: 8px; align-items: center; min-width: 0; }
-.shelf-docs a {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  color: var(--accent);
-  text-decoration: none;
-}
-.shelf-docs a:hover { text-decoration: underline; }
-.shelf-docs .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shelf-docs .n { color: var(--text-faint); font-family: var(--mono); font-size: 10.5px; }
 /* One page, read inside the window. */
 .shelf-page {
   flex: 1;
