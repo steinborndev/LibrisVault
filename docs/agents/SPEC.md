@@ -1808,6 +1808,20 @@ parallel after A0 because it depends only on existing signals.
 All plan-percent numbers are estimates until the usage monitor has measured deltas on the
 user's own account.
 
+**These are reference prices, not the prices** (2026-09-15). What a run of a kind costs is
+taken from the vault's own settled runs, the way its duration already was: the median of the
+recent runs of that kind, that model's own once three of them exist, and otherwise the kind's
+median normalised by the model factor each sample was run on and scaled to the one being
+asked about. The table above is what carries the first few runs of a fresh install, and every
+row of it is replaced as soon as three runs of its kind have settled.
+
+It is not a cosmetic figure: the gate decides with it whether a run still fits the research
+share. Measured over the first vault's own log the constants were wrong in both directions -
+a full run a third above what one actually costs there, a planning run and a step below it -
+so a constant refused runs that would have fitted and let nights overrun the share they were
+measured against. The median, not the mean, for the same reason the durations use one: a run
+that hit its budget cap would otherwise price every ordinary run after it.
+
 ---
 
 ## 17. Decisions from the review round (2026-09-05)

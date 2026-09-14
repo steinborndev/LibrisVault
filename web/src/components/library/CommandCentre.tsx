@@ -75,7 +75,7 @@ import { WeekRelease } from './WeekRelease.tsx'
 import { queryState } from '../QueryState.tsx'
 import { Markdown } from '../Markdown.tsx'
 import { timeAgo, usd } from '../../lib/format.ts'
-import { MODEL_FACTOR, pointsPerUsd, rosterShare, runUsd, shareDetail, weekShare } from '../../lib/plan.ts'
+import { MODEL_FACTOR, pointsPerUsd, rosterShare, runUsd, shareDetail, weekShare, type Prices } from '../../lib/plan.ts'
 
 export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
 type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
@@ -371,10 +371,13 @@ export function CommandCentre({
         (agents.data?.fellows ?? [])
           .filter((f) => f.agent.state !== 'retired')
           .map((f) => ({ model: f.agent.model, step: f.agent.step, quotaRunsPerDay: f.agent.quotaRunsPerDay })),
+        agents.data?.costs,
       ),
     [usage.data, agents.data],
   )
   const durations = useMemo(() => agents.data?.durations ?? {}, [agents.data])
+  /** What each kind of run costs here, measured; the reference prices until it has been. */
+  const costs = useMemo(() => agents.data?.costs, [agents.data])
   // Phase 0: the ingests held for tonight, from the window's start; the Fellows' queue
   // starts where they end (chunk 7 of docs/tasks/TASKS-SWEEP-2026-09.md).
   const ingests = useMemo(() => ingestSchedule(scene.data?.jobs ?? [], live.from), [scene.data, live.from])
@@ -426,8 +429,8 @@ export function CommandCentre({
       const rate = pointsPerUsd(usage.data, model)
       return rate === null ? null : Math.round(amount * rate.ppu * 100) / 100
     }
-    return nightRows(shelf, mine, { points })
-  }, [shelf, mine, usage.data])
+    return nightRows(shelf, mine, { points, ...(costs === undefined ? {} : { costs }) })
+  }, [shelf, mine, usage.data, costs])
   // The queue draws every shelf, so the "no run of its own" set has to cover every shelf too;
   // `planOnly` above is this shelf's share of it, which is what the note under the bar counts.
   const unrun = useMemo(() => new Set(plannedOnly(blocks)), [blocks])
@@ -440,7 +443,7 @@ export function CommandCentre({
   const room = nightRoom(usage.data)
   // What the whole night asks of the Fellows' weekly share - every shelf, not the one you are
   // on, because the share is one purse for all of them and so is the night's queue.
-  const ask = useMemo(() => nightAsk(blocks, staffed, usage.data), [blocks, staffed, usage.data])
+  const ask = useMemo(() => nightAsk(blocks, staffed, usage.data, costs), [blocks, staffed, usage.data, costs])
   /*
    * The one control that hands out budget from this window. It sits at the end of the banner
    * because that is where the reader already is when the answer matters: the sentence before
@@ -1160,6 +1163,7 @@ export function CommandCentre({
         <Spawn
           shelf={spawnShelf ?? shelf?.key ?? ''}
           durations={durations}
+          costs={costs}
           plan={usage.data}
           onBack={back}
           onDone={openFellow}
@@ -2310,12 +2314,15 @@ function Option({
 function Spawn({
   shelf,
   durations,
+  costs,
   plan,
   onBack,
   onDone,
 }: {
   shelf: string
   durations: Readonly<Record<string, number | null>>
+  /** What each kind of run costs here, measured; undefined until the service has reported it. */
+  costs: Prices | undefined
   plan: PlanStatus | undefined
   onBack: () => void
   onDone: (id: string, homeDomain: string) => void
@@ -2341,7 +2348,7 @@ function Spawn({
                * is what the shape is sized for, and what a spawn defaults its quota to.
                */
               const kind: TaskKind = sh.art === 'custom' ? 'explore' : sh.art
-              const perRun = runUsd(sh.defaults.step, sh.defaults.model)
+              const perRun = runUsd(sh.defaults.step, sh.defaults.model, costs, kind)
               const week = weekShare(plan, { stepUsd: perRun, stepsPerDay: 3, model: sh.defaults.model })
               return (
                 <button key={sh.art} className="cc-shape" onClick={() => setShape(sh.art)}>

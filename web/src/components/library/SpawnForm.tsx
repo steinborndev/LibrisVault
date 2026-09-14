@@ -89,7 +89,13 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
     },
   })
   const keys = (domains.data?.domains ?? []).map((d) => d.key).filter((k) => k !== 'meta')
-  const perRun = runUsd(form.step ?? 'standard', form.model ?? 'sonnet-5')
+  /*
+   * Priced by the art as well as the depth: a deepen Fellow extends pages, which is not what a
+   * sweep costs. Only where the list agrees on one art - a mixed Fellow has no single price,
+   * and the largest of them is the honest number to show.
+   */
+  const arts = new Set(tasks.map((t) => t.kind))
+  const perRun = runUsd(form.step ?? 'standard', form.model ?? 'sonnet-5', agents.data?.costs, arts.size === 1 ? [...arts][0] : undefined)
   const monthly = Math.round(perRun * 30 * quota * 10) / 10
   /*
    * What this pace claims of the week's research budget, as a percent of it (2026-09-14). It

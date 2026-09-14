@@ -32,7 +32,9 @@ import { MAX_TASKS, TASK_KINDS } from '../../db/agents.js'
 import { AGENT_ARTS, AGENT_AUTONOMIES, AGENT_EFFORTS, AGENT_MODELS, AGENT_NIGHTLY, AGENT_STEPS, MODEL_FACTOR, MODEL_IDS } from '../../db/agents.js'
 import { readDomainRegistry, isValidDomainKey } from '../../pipeline/domains.js'
 import { isResearchProfileKey } from '../../pipeline/research-profiles.js'
-import { KIND_COST_USD } from '../../pipeline/planner.js'
+import { runPrices } from '../../pipeline/run-cost.js'
+import { SAMPLE_LIMIT } from '../../pipeline/run-duration.js'
+import { DEFAULT_RESEARCH_MODEL } from '../../db/settings.js'
 import { typicalRunMs } from '../../pipeline/run-duration.js'
 
 /** zod leaves optional keys as `undefined`; the service types are exact-optional, so drop them. */
@@ -118,7 +120,14 @@ export function registerAgentsRoute(app: FastifyInstance, ctx: AppContext, fello
     return reply.send({
       fellows: fellows.list(),
       models: AGENT_MODELS.map((m) => ({ key: m, id: MODEL_IDS[m], factor: MODEL_FACTOR[m] })),
-      costs: KIND_COST_USD,
+      /*
+       * What a run of each kind costs, from this vault's own settled runs (run-cost.ts) and
+       * priced for the default model, the way `durations` reports how long one takes. It was
+       * the four reference constants, which never learned: after ten research runs the log
+       * said the constant was a third above what one actually costs, and that number is what
+       * the gate decides with.
+       */
+      costs: runPrices(ctx.agentRuns?.list({ limit: SAMPLE_LIMIT }) ?? [], DEFAULT_RESEARCH_MODEL),
       /*
        * How long each kind of run usually takes, in ms, so a schedule can be drawn BEFORE
        * anything starts. `typicalMs` on a run already answers this for one in flight; the

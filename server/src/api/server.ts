@@ -46,6 +46,7 @@ import type { LibraryService } from '../pipeline/library.js'
 import { registerLibraryRoute } from './routes/library.js'
 import type { UsageMonitor } from '../pipeline/usage-monitor.js'
 import { registerUsageRoute } from './routes/usage.js'
+import { SAMPLE_LIMIT } from '../pipeline/run-duration.js'
 import type { ReadingListService } from '../pipeline/reading-list.js'
 import { registerReadingListRoute, type OpenAccessFinder } from './routes/reading-list.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
@@ -201,6 +202,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
           app.log.warn(`[usage] the round after a 5-hour release failed: ${(err as Error).message}`)
         })
       },
+      runs: () => ctx.agentRuns?.list({ limit: SAMPLE_LIMIT }) ?? [],
     })
   if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue, ctx.findOpenAccess)
 

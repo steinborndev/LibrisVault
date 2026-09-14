@@ -15,7 +15,7 @@
  *   when most of it is not booked, and two of the three tasks would look done.
  */
 
-import { kindUsd, pointsPerUsd, runUsd, type Calibrated } from '../plan.ts'
+import { kindUsd, pointsPerUsd, runUsd, type Calibrated, type Prices } from '../plan.ts'
 import type { AgentTask, FellowRecord, FellowSummary, GraphNode, ProposalRecord, TaskKind, SceneJob } from '../../api/types.ts'
 
 /** A Fellow holds one art when all its tasks share one, and is custom when they do not. */
@@ -693,6 +693,8 @@ export function nightRows(
      * that mixed the two would add a number to a different number.
      */
     readonly points?: (usd: number, model: string) => number | null
+    /** The measured price of each run kind, where the service has reported one. */
+    readonly costs?: Prices
   } = {},
 ): NightRow[] {
   const out: NightRow[] = []
@@ -709,11 +711,11 @@ export function nightRows(
         // The proposal's own estimate where there is one; the Fellow's price for a slot that
         // has no proposal yet. A planning run is not priced here: it is not what the quota or
         // the research share is spent on, and naming a price for it would read as a choice.
-        estUsd: b.phase === 'plan' ? null : (b.proposal?.estCostUsd ?? runUsd(f.agent.step, f.agent.model)),
+        estUsd: b.phase === 'plan' ? null : (b.proposal?.estCostUsd ?? runUsd(f.agent.step, f.agent.model, opts.costs, b.kind)),
         estPct:
           b.phase === 'plan'
             ? null
-            : (b.proposal?.estPlanPct ?? opts.points?.(runUsd(f.agent.step, f.agent.model), f.agent.model) ?? null),
+            : (b.proposal?.estPlanPct ?? opts.points?.(runUsd(f.agent.step, f.agent.model, opts.costs, b.kind), f.agent.model) ?? null),
       }
       if (b.phase === 'plan') {
         out.push({
@@ -794,7 +796,7 @@ export interface AskPlan {
   readonly calibration?: Calibrated['calibration']
 }
 
-export function nightAsk(blocks: readonly Block[], shelves: readonly Shelf[], plan: AskPlan | undefined): NightAsk | null {
+export function nightAsk(blocks: readonly Block[], shelves: readonly Shelf[], plan: AskPlan | undefined, costs?: Prices): NightAsk | null {
   if (plan === undefined || plan.shares.week <= 0) return null
   const byFellow = new Map<string, FellowSummary>()
   for (const s of shelves) for (const f of s.fellows) byFellow.set(f.agent.id, f)
@@ -815,8 +817,8 @@ export function nightAsk(blocks: readonly Block[], shelves: readonly Shelf[], pl
      */
     const usd =
       b.phase === 'plan'
-        ? kindUsd('plan', model)
-        : (b.proposal?.estCostUsd ?? runUsd(f.agent.step, model))
+        ? kindUsd('plan', model, costs)
+        : (b.proposal?.estCostUsd ?? runUsd(f.agent.step, model, costs, b.kind))
     const rate = plan.shares.unit === 'points' && plan.calibration !== undefined ? (pointsPerUsd({ calibration: plan.calibration }, model)?.ppu ?? null) : null
     const cost = rate === null ? usd : Math.round(usd * rate * 1000) / 1000
     needs += cost

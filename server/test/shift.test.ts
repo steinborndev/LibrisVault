@@ -263,16 +263,21 @@ describe('plan points through the whole path (A5)', () => {
     expect(h.service.card(ada.id)!.spend).toMatchObject({ runsWeek: 3, weekUsd: 1.5, weekPct: 3 })
 
     /*
-     * A planning run prices its proposals in points. The planning run itself is measured too,
-     * so it joins the calibration before the proposals are priced: 4 points of week over 1.90
-     * USD rather than 3 over 1.50, and a 2 USD step is 4.21 points instead of 4. Summing both
-     * sides is what makes a fourth measurement move the rate at all.
+     * A planning run prices its proposals in points, and prices the RUN from the runs already
+     * settled (2026-09-15): three research-steps at 0.50 USD are three samples of what a step
+     * of this kind on this model costs here, so a proposal is priced at 0.50 rather than at
+     * the 2.00 reference the vault started with.
+     *
+     * The planning run itself is measured too, and joins the calibration before the proposals
+     * are priced: 4 points of week over 1.90 USD rather than 3 over 1.50, so the rate is 2.105
+     * and a 0.50 USD step is 1.05 points. Summing both sides is what makes a fourth
+     * measurement move the rate at all.
      */
     const planned = h.service.plan(ada.id)
     await h.service.settled(planned.run!.id)
-    expect(h.service.pendingProposals(ada.id).map((p) => [p.estCostUsd, p.estPlanPct])).toEqual([[2, 4.21], [2, 4.21]])
+    expect(h.service.pendingProposals(ada.id).map((p) => [p.estCostUsd, p.estPlanPct])).toEqual([[0.5, 1.05], [0.5, 1.05]])
 
-    // The share holds 10 points; 4 consumed (the planning run took one too) plus 4 fits.
+    // The share holds 10 points; 4 consumed (the planning run took one too) plus one fits.
     const fits = h.service.step(ada.id, { topic: 'fits' })
     expect(fits.refusal).toBeUndefined()
     await h.service.settled(fits.run!.id)
@@ -280,8 +285,8 @@ describe('plan points through the whole path (A5)', () => {
     // A share of 6 has no room for another 4-point step.
     h.planSettings = { ...h.planSettings, researchShareWeekPct: 6 }
     const refused = h.service.step(ada.id, { topic: 'no room' }).refusal
-    // 4.17 and not 4.21: another measured run has joined the calibration since.
-    expect(refused).toMatchObject({ code: 'share', error: 'the research share of the week is used up (5 of 6 points, this step about 4.17)' })
+    // 1.04 and not 1.05: another measured run has joined the calibration since.
+    expect(refused).toMatchObject({ code: 'share', error: 'the research share of the week is used up (5 of 6 points, this step about 1.04)' })
     expect(h.usage!.status({ estCostUsd: 2, model: 'sonnet-5' }).shares).toEqual({ unit: 'points', week: 6, fiveHour: 60, weekUsed: 5, fiveHourUsed: 10, stepsLeftWeek: 0 })
   })
 })

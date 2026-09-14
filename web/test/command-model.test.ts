@@ -738,6 +738,34 @@ describe('nightAsk', () => {
     expect(ask.fits).toBe(1)
   })
 
+  it('prices a run from the measured table when the service has reported one', () => {
+    /*
+     * The prices used to be four constants in this file. They are the service's own medians
+     * now (`pipeline/run-cost.ts`), and the board takes what it is given: a forecast drawn
+     * with a stale number is the gate refusing runs the board said would fit.
+     */
+    const a = agent({ id: 'b', name: 'B', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('watch', 'a')] })
+    const f = { ...summary(a), queue: [] } as FellowSummary
+    const shelf = { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [f] }
+    const blocks = scheduleFrom([shelf], 1500, durations)
+    // Reference: a standard watch Fellow's run is a sweep, priced at 6.00, plus a 0.40 plan.
+    expect(nightAsk(blocks, [shelf], { shares: { unit: 'usd', week: 100, weekUsed: 0 } })!.needs).toBe(6.4)
+    // Measured: this vault's sweeps cost 4.51 and its plans 0.50.
+    const costs = { research: 4.51, 'research-step': 3.54, 'research-expand': 3, plan: 0.5 }
+    expect(nightAsk(blocks, [shelf], { shares: { unit: 'usd', week: 100, weekUsed: 0 } }, costs)!.needs).toBe(5.01)
+  })
+
+  it('prices a deepen Fellow by what it will actually do', () => {
+    // It extends pages; quoting it a sweep's price beside an extension's duration was one
+    // number from its art and the other from its depth, in the same line.
+    const a = agent({ id: 'd', name: 'D', autonomy: 'auto', quotaRunsPerDay: 1, tasks: [task('deepen', 'pages')] })
+    const f = { ...summary(a), queue: [] } as FellowSummary
+    const shelf = { key: 'bio', pages: 0, questions: 0, gaps: 0, fellows: [f] }
+    const costs = { research: 4.51, 'research-step': 3.54, 'research-expand': 3, plan: 0.5 }
+    const ask = nightAsk(scheduleFrom([shelf], 1500, durations), [shelf], { shares: { unit: 'usd', week: 100, weekUsed: 0 } }, costs)!
+    expect(ask.needs).toBe(3.5)
+  })
+
   it('has nothing to say without a share to measure against', () => {
     const a = { ...summary(agent({ id: 'b', name: 'B', tasks: [task('watch', 'a')] })), queue: [] } as FellowSummary
     expect(askOf([a], undefined)).toBeNull()

@@ -19,25 +19,44 @@
 import type { PlanStatus } from '../api/types.ts'
 
 /** What one run costs at list price. One table, because three screens quote it. */
-export const STEP_USD: Record<string, number> = { small: 2, standard: 6, deep: 6 }
+/**
+ * What a run of a kind costs, as the service measured it (`pipeline/run-cost.ts`), priced on a
+ * factor-1 model so a caller scales it by the model it is asking about. `GET /agents` carries
+ * one of these; the table below is what a vault with no history of its own falls back to, and
+ * every entry of it is replaced as soon as three runs of that kind have settled.
+ */
+export type Prices = Readonly<Record<string, number>>
 export const MODEL_FACTOR: Record<string, number> = { 'sonnet-5': 1, 'opus-5': 2.5, 'fable-5-1': 5 }
 
 /**
  * What one run of each KIND costs, as the gate prices it (`pipeline/planner.ts` KIND_COST_USD).
  *
- * `STEP_USD` above prices a Fellow's pace - what a step of its depth costs - and is what a
- * forecast uses where nothing has been decided yet. This prices a run whose kind is known, and
- * a planning run among them: the gate holds those too, because a plan spends plan points like
+ * The reference the service itself starts from, kept here for the same reason: a board that
+ * has not been told the measured table yet prices a night the way a fresh vault would. A
+ * planning run is in it because the gate holds those too - a plan spends plan points like
  * anything else, and a night's total that left them out would be short by one per task.
  */
 export const KIND_USD: Record<string, number> = { 'research-step': 2, research: 6, 'research-expand': 3, plan: 0.4 }
 
 /** One run of this kind on this model, in USD. */
-export const kindUsd = (kind: string, model: string): number =>
-  Math.round((KIND_USD[kind] ?? KIND_USD['research-step']!) * (MODEL_FACTOR[model] ?? 1) * 100) / 100
+export const kindUsd = (kind: string, model: string, costs?: Prices): number =>
+  Math.round((costs?.[kind] ?? KIND_USD[kind] ?? KIND_USD['research-step']!) * (MODEL_FACTOR[model] ?? 1) * 100) / 100
 
-export const runUsd = (step: string, model: string): number =>
-  (STEP_USD[step] ?? STEP_USD['standard']!) * (MODEL_FACTOR[model] ?? 1)
+/**
+ * The kind a Fellow's run will be, from its art and its step (`planner.ts` kindsForTask):
+ * a deepen task only ever extends pages, and for the other two `small` may take a
+ * single-question step where `standard` and `deep` may also sweep.
+ *
+ * The art matters because the kinds are priced apart. Without it a librarian was quoted a
+ * sweep's price beside an extension's duration - one number from its art and the other from
+ * its depth, in the same line of the same card.
+ */
+export const stepKind = (step: string, art?: string): string =>
+  art === 'deepen' ? 'research-expand' : step === 'small' ? 'research-step' : 'research'
+
+/** What one run of a Fellow at this pace costs, measured where the service has measured it. */
+export const runUsd = (step: string, model: string, costs?: Prices, art?: string): number =>
+  kindUsd(stepKind(step, art), model, costs)
 
 /**
  * What {@link pointsPerUsd} needs of a plan, and no more: `PlanStatus` satisfies it, and so
@@ -134,10 +153,10 @@ export interface FellowPace {
  * configured pace - what the standing arrangement costs if each runs its quota, not what
  * tonight's plan happens to hold.
  */
-export function rosterShare(plan: PlanStatus | undefined, fellows: readonly FellowPace[]): BudgetShare | null {
+export function rosterShare(plan: PlanStatus | undefined, fellows: readonly FellowPace[], costs?: Prices): BudgetShare | null {
   if (plan === undefined) return null
   const parts = fellows
-    .map((f) => weekShare(plan, { stepUsd: runUsd(f.step, f.model), stepsPerDay: f.quotaRunsPerDay, model: f.model }))
+    .map((f) => weekShare(plan, { stepUsd: runUsd(f.step, f.model, costs), stepsPerDay: f.quotaRunsPerDay, model: f.model }))
     .filter((s): s is BudgetShare => s !== null)
   if (parts.length === 0) {
     const empty = weekShare(plan, { stepUsd: 0, stepsPerDay: 0, model: 'sonnet-5' })

@@ -21,6 +21,7 @@ import type { FastifyInstance } from 'fastify'
 import type { UsageMonitor } from '../../pipeline/usage-monitor.js'
 import type { AgentModel } from '../../db/agents.js'
 import { estimateCostUsd } from '../../pipeline/planner.js'
+import type { CostSample } from '../../pipeline/run-cost.js'
 
 export function registerUsageRoute(
   app: FastifyInstance,
@@ -43,12 +44,14 @@ export function registerUsageRoute(
      * unused, which made the whole control decorative.
      */
     readonly workNow?: () => void
+    /** Settled runs to price the gate's sample step from (`pipeline/run-cost.ts`). */
+    readonly runs?: () => readonly CostSample[]
   },
 ): void {
   app.get('/api/v1/usage/plan', async (_req, reply) => {
     await usage.refresh()
     const model = defaultModel()
-    return reply.send(usage.status({ estCostUsd: estimateCostUsd('research-step', model), model }))
+    return reply.send(usage.status({ estCostUsd: estimateCostUsd('research-step', model, guards.runs?.() ?? []), model }))
   })
 
   /**

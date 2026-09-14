@@ -9,23 +9,24 @@
 
 import { z } from 'zod'
 import type { AgentRecord, AgentStep, AgentModel, AgentTask, TaskKind } from '../db/agents.js'
-import { MODEL_FACTOR } from '../db/agents.js'
 import type { ProposalKind, ProposalRecord, Provenance } from '../db/proposals.js'
 import { RESEARCH_PROFILES } from './research-profiles.js'
 import { tokenize } from './related-pages.js'
 import { SELF_LOOP_LIMIT, type Candidate } from './candidates.js'
 import { EXPAND_MAX_PAGES } from './expand.js'
+import { REFERENCE_USD, typicalRunUsd, type CostSample } from './run-cost.js'
 
 /** The kinds the planner may propose, smallest first (A3 added `research-expand`). */
 export const PLANNER_KINDS: readonly ProposalKind[] = ['research-step', 'research-expand', 'research']
 
 /** Rough list-price cost per kind on Sonnet 5 (spec section 16), scaled by the model factor. */
-export const KIND_COST_USD: Readonly<Record<ProposalKind | 'plan', number>> = {
-  'research-step': 2,
-  research: 6,
-  'research-expand': 3,
-  plan: 0.4,
-}
+/**
+ * The reference prices, kept under this name for the callers that had it. What a run is
+ * actually expected to cost comes from {@link estimateCostUsd}, which reads the vault's own
+ * settled runs and only falls back to these while there are too few of a kind to have a
+ * median (`pipeline/run-cost.ts`).
+ */
+export const KIND_COST_USD = REFERENCE_USD as Readonly<Record<ProposalKind | 'plan', number>>
 
 /** Below this overlap with the intent a proposal is flagged as drift (section 6.4, D9). */
 export const DRIFT_THRESHOLD = 0.2
@@ -52,8 +53,8 @@ export const FIELD_CAPS = {
   url: 500,
 } as const
 
-export function estimateCostUsd(kind: ProposalKind | 'plan', model: AgentModel): number {
-  return Math.round(KIND_COST_USD[kind] * MODEL_FACTOR[model] * 100) / 100
+export function estimateCostUsd(kind: ProposalKind | 'plan', model: AgentModel, history: readonly CostSample[] = []): number {
+  return typicalRunUsd(history, kind, model)
 }
 
 /**
@@ -505,6 +506,11 @@ export interface BuildProposalsInput {
   readonly ownPages?: readonly string[]
   /** Points of the week a run of that cost takes on that model, once calibrated (A5); null otherwise. */
   readonly estimatePct?: (costUsd: number, model: AgentModel) => number | null
+  /**
+   * Settled runs to price this Fellow's proposals from (`pipeline/run-cost.ts`). Without them
+   * the reference prices stand, which is what a vault with no history of its own has.
+   */
+  readonly costHistory?: readonly CostSample[]
 }
 
 export interface BuiltProposals {
@@ -526,6 +532,16 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
   const { agent } = input
   const byId = new Map(input.candidates.map((c) => [c.id, c]))
   const lensKeys = new Set<string>(RESEARCH_PROFILES.map((p) => p.key))
+  // One price per kind for the whole answer: the history does not change between two
+  // proposals of one run, and a median over forty rows is not worth recomputing per row.
+  const priced = new Map<string, number>()
+  const price = (kind: ProposalKind): number => {
+    const known = priced.get(kind)
+    if (known !== undefined) return known
+    const usd = estimateCostUsd(kind, agent.model, input.costHistory ?? [])
+    priced.set(kind, usd)
+    return usd
+  }
   const proposals: ProposalRecord[] = []
   const rejected: string[] = []
   const clamped: string[] = []
@@ -578,8 +594,8 @@ export function buildProposals(input: BuildProposalsInput): BuiltProposals {
       rationale: p.rationale,
       provenance,
       pageSet,
-      estCostUsd: estimateCostUsd(kind, agent.model),
-      estPlanPct: input.estimatePct ? input.estimatePct(estimateCostUsd(kind, agent.model), agent.model) : null,
+      estCostUsd: price(kind),
+      estPlanPct: input.estimatePct ? input.estimatePct(price(kind), agent.model) : null,
       // Against TONIGHT'S task, which is what makes the number mean something: measured
       // against a broad intent plus free-text notes it read 0.00 for a Fellow that was in
       // fact on topic (the end-to-end tests).

@@ -53,6 +53,8 @@ import { notebookPath, renderLogLines, type NotebookWriter } from './notebook.js
 import { READING_LIST_PAGE, type ReadingEntry as ReadingEntryInput } from './reading-list.js'
 import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
+import { SAMPLE_LIMIT } from './run-duration.js'
+import type { CostSample } from './run-cost.js'
 import { EXPAND_MANUAL_MAX_PAGES, expandBudgetUsd, expandTimeoutMs } from './expand.js'
 import { parseFrontmatterMeta } from './graph.js'
 import { computeCandidates, fellowDomains, knowledgePages, ownQuestionStreak, SELF_LOOP_LIMIT, type Candidate } from './candidates.js'
@@ -634,6 +636,16 @@ export class FellowService {
     return out.slice(0, ELSEWHERE_CAP)
   }
 
+  /**
+   * The settled runs a price is taken from (`pipeline/run-cost.ts`): the most recent ones of
+   * every Fellow, not only this one's, because what a kind costs is a property of the kind and
+   * the model rather than of who asked for it - and one Fellow alone rarely has three runs of
+   * a kind to have a median from.
+   */
+  private costHistory(): readonly CostSample[] {
+    return this.runs.list({ limit: SAMPLE_LIMIT })
+  }
+
   /** Steps this Fellow ran in the cycle the quota gates; a planning run does not count. */
   private runsThisCycle(agentId: string): number {
     return this.researchRunsSince(agentId, this.cycleNow().start)
@@ -800,7 +812,7 @@ export class FellowService {
     // The service-wide gate: the daily budget and the rate-limit pause, and the plan shares
     // and reserves (section 8.4) for every Fellow run, planning included: a planning run
     // spends plan points too, and the reserves protect the user's own use of the plan.
-    const block = this.gate({ estCostUsd: estimateCostUsd(kind, agent.model), model: agent.model, kind })
+    const block = this.gate({ estCostUsd: estimateCostUsd(kind, agent.model, this.costHistory()), model: agent.model, kind })
     if (block) {
       this.planReset = block.resetsAt ? Date.parse(block.resetsAt) : null
       return { status: 409, code: block.code, error: block.reason }
@@ -1655,6 +1667,7 @@ export class FellowService {
       pageExists: (page) => (root === undefined ? true : fs.existsSync(path.join(root, page))),
       ownPages: [...fellowSynthesisPages(this.runs.list({ agentId, limit: 50 })), agent.notebookPath],
       ...(this.estimatePct ? { estimatePct: (cost, model) => this.estimatePct!(cost, model).sevenDay } : {}),
+      costHistory: this.costHistory(),
     })
     for (const r of built.rejected) this.log('warn', `fellows: ${agent.name}: proposal dropped, ${r}`)
     for (const t of built.clamped) this.log('info', `fellows: ${agent.name}: "${t}" clamped to a step, no listed page exists`)
