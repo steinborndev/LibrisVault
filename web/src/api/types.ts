@@ -1114,12 +1114,21 @@ export interface PlanStatus {
    */
   calibration: {
     perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } }>
+    /** The same rate over every measured run, model or not: what prices a window in USD. */
+    overall: { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } }
     ready: boolean
   }
   /**
    * What one plan window costs to fill, in USD, and whether that is measured or the setting's
    * guess. A window is 100 points, so the calibration gives it directly; `planWeekUsd` is only
    * the fallback for a service that has never measured a run.
+   *
+   * An ESTIMATE either way, and a wide one. Anthropic states the plan's limits as multiples of
+   * the Pro plan and a weekly cap in (internally weighted) tokens - never in dollars - so no
+   * figure here can be checked against an official one. What the service measures is a counter
+   * that moves in whole percent, and other surfaces on the same account move it too. Treat it
+   * as an order of magnitude; the reserve, which reads the plan's own utilization, is what
+   * actually protects the subscription.
    */
   planUsd: { week: number; fiveHour: number; measured: boolean }
   consumption: { weekPct: number | null; fiveHourPct: number | null; weekUsd: number; fiveHourUsd: number; weekRuns: number; fiveHourRuns: number }

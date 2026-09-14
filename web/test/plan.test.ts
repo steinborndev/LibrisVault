@@ -19,6 +19,7 @@ const plan = (over: Partial<PlanStatus> = {}): PlanStatus => ({
       'sonnet-5': { fiveHour: 1.2, sevenDay: 0.1, n: 3, points: { fiveHour: 12, sevenDay: 1 } },
       'opus-5': { fiveHour: null, sevenDay: 0.3, n: 1, points: { fiveHour: 0, sevenDay: 1 } },
     },
+    overall: { fiveHour: 1.2, sevenDay: 0.1, n: 4, points: { fiveHour: 12, sevenDay: 2 } },
     ready: true,
   },
   planUsd: { week: 1000, fiveHour: 83.33, measured: false },
@@ -43,7 +44,7 @@ describe('plan helpers', () => {
     expect(pointsPerUsd(plan(), 'opus-5')).toEqual({ ppu: 0.1, estimated: true })
     expect(weeklyProjection(plan(), { stepUsd: 6, stepsPerDay: 2, model: 'opus-5' })).toEqual({ usd: 84, weekPct: 8.4 })
     // Nothing calibrated at all: no rate to lend.
-    expect(pointsPerUsd(plan({ calibration: { perModel: {}, ready: false } }), 'sonnet-5')).toBeNull()
+    expect(pointsPerUsd(plan({ calibration: { perModel: {}, overall: { fiveHour: null, sevenDay: null, n: 0, points: { fiveHour: 0, sevenDay: 0 } }, ready: false } }), 'sonnet-5')).toBeNull()
   })
 
   it('prices one run from the shared table', () => {
@@ -83,7 +84,7 @@ describe('plan helpers', () => {
       const s = weekShare(measured, { stepUsd: 6, stepsPerDay: 1, model: 'sonnet-5' })!
       expect(s.measured).toBe(true)
       expect(s.pct).toBe(106.6)
-      expect(shareDetail(s)).toContain('measured from what a run takes out of the plan')
+      expect(shareDetail(s)).toContain('the plan states no dollar budget')
     })
 
     it('says nothing without a plan', () => {

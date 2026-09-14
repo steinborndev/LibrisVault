@@ -158,6 +158,9 @@ describe('the monitor', () => {
     const cal = m.calibration()
     expect(cal.ready).toBe(true)
     expect(cal.perModel['sonnet-5']!.n).toBe(3)
+    // The ingest is in the plan-wide rate though: it filled the same window, 9 points of it.
+    expect(cal.overall.n).toBe(4)
+    expect(cal.overall.points.sevenDay).toBeCloseTo(10.2, 6)
     expect(cal.perModel['sonnet-5']!.fiveHour).toBeCloseTo(1, 6)
     expect(cal.perModel['sonnet-5']!.sevenDay).toBeCloseTo(0.2, 6)
     expect(cal.perModel['sonnet-5']!.points.fiveHour).toBeCloseTo(6, 6)

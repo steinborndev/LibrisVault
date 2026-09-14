@@ -220,7 +220,11 @@ describe('recap model from fixtures', () => {
       sampledAt: '2026-09-07T06:00:00.000Z',
       windows: [{ window: 'five_hour', utilization: 12, resetsAt: null }, { window: 'seven_day', utilization: 31, resetsAt: null }, { window: 'seven_day_sonnet', utilization: 4, resetsAt: null }],
       resets: {},
-      calibration: { perModel: { 'sonnet-5': { fiveHour: 1, sevenDay: 0.2, n: 3, points: { fiveHour: 1 * 3, sevenDay: 0.2 * 3 } } }, ready: true },
+      calibration: {
+        perModel: { 'sonnet-5': { fiveHour: 1, sevenDay: 0.2, n: 3, points: { fiveHour: 3, sevenDay: 0.6 } } },
+        overall: { fiveHour: 1, sevenDay: 0.2, n: 3, points: { fiveHour: 3, sevenDay: 0.6 } },
+        ready: true,
+      },
       consumption: { weekPct: 3.2, fiveHourPct: 1, weekUsd: 12.4, fiveHourUsd: 2.1, weekRuns: 9, fiveHourRuns: 1 },
       settings: { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false, weekOverrideEnabled: false },
       shares: { unit: 'points' as const, week: 10, fiveHour: 15, weekUsed: 3.2, fiveHourUsed: 1, stepsLeftWeek: 17 },

@@ -67,15 +67,16 @@ export interface BudgetShare {
 }
 
 /**
- * One line for a tooltip: the absolute claim behind the percent, and where its limit comes
- * from. The USD limit is a share of what a window costs to fill, which is measured from the
- * calibration where there is one - a number that reads oddly small next to a plan's price
- * unless the line says it was measured.
+ * One line for a tooltip: the claim behind the percent, and how much that limit is worth
+ * trusting. Points are a real unit - percent of the plan's own window, which is what the gate
+ * counts. USD is not: the plan states no dollar budget anywhere, so the limit is an inference
+ * from a counter that moves in whole percent, and it is written in whole dollars and hedged
+ * accordingly. The percent stays the number to read; this says what it rests on.
  */
 export const shareDetail = (s: BudgetShare): string =>
   s.unit === 'points'
     ? `about ${s.used.toFixed(1)} of the week's ${s.limit.toFixed(0)} research points${s.estimated ? ', estimated from another model' : ''}`
-    : `about ${s.used.toFixed(2)} of the week's ${s.limit.toFixed(2)} USD${s.measured ? ', measured from what a run takes out of the plan' : ''}`
+    : `roughly ${s.used.toFixed(0)} of about ${s.limit.toFixed(0)} USD a week${s.measured ? ' - a rough figure: the plan states no dollar budget, and this is what runs were measured to take out of it' : ' (from the configured plan size)'}`
 
 /**
  * What one pace claims of the week's research budget. Null only when there is no plan at all

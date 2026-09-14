@@ -281,8 +281,8 @@ function PlanPanel({ plan }: { plan: PlanStatus }): React.ReactElement {
         <p className="mono-meta">
           {models.length > 0
             ? `Calibrated: ${models
-                .map(([m, c]) => `${m} ${c.sevenDay!.toFixed(4)} points/USD from ${c.n} run(s) that moved the week by ${c.points.sevenDay} point(s)`)
-                .join(', ')}. A week of the plan costs about ${plan.planUsd.week.toFixed(0)} USD to fill at that rate${plan.planUsd.measured ? '' : ' (the configured size; no model is calibrated yet)'}. The plan reports whole percent, so few points behind a rate means a wide rate.`
+                .map(([m, c]) => `${m} ${c.sevenDay!.toFixed(4)} points/USD from ${c.n} run(s)`)
+                .join(', ')}. Over every measured run, the plan's own rate is ${plan.calibration.overall.sevenDay?.toFixed(4) ?? '-'} points/USD from ${plan.calibration.overall.n} run(s) that moved the week by ${plan.calibration.overall.points.sevenDay} point(s) in all - which prices a week at roughly ${plan.planUsd.week.toFixed(0)} USD${plan.planUsd.measured ? '' : ' (the configured size; nothing measured yet)'}. A rough figure by nature: the plan states its limits in weighted tokens and never in dollars, the counter behind this moves in whole percent, and every other surface on the same account moves it too. The reserve is what protects the subscription; this only sizes the share.`
             : `Not calibrated yet: the points per USD come from the first 3 measured runs per model. Runs measured so far: ${Object.values(plan.calibration.perModel).reduce((a, c) => a + c.n, 0)}.`}
         </p>
       </div>

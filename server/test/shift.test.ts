@@ -256,6 +256,8 @@ describe('plan points through the whole path (A5)', () => {
     // over 1.50 USD, which is the rate - and `points` says how much signal is behind it.
     expect(h.usage!.calibration()).toEqual({
       perModel: { 'sonnet-5': { fiveHour: 4, sevenDay: 2, n: 3, points: { fiveHour: 6, sevenDay: 3 } } },
+      // Nothing else ran here, so the plan-wide rate is the same three runs.
+      overall: { fiveHour: 4, sevenDay: 2, n: 3, points: { fiveHour: 6, sevenDay: 3 } },
       ready: true,
     })
     expect(h.service.card(ada.id)!.spend).toMatchObject({ runsWeek: 3, weekUsd: 1.5, weekPct: 3 })

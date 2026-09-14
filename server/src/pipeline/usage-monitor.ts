@@ -85,6 +85,21 @@ export interface Calibration {
       }
     >
   >
+  /**
+   * The same rate over EVERY measured run, whatever ran it and whatever model it used.
+   *
+   * A window belongs to the plan, not to a model: a maintenance run or an ingest fills it the
+   * same way a Fellow's step does, and those runs record no model at all. Leaving them out
+   * while their spend still lands inside the next Fellow run's delta is the error one level up
+   * from the median - the numerator carried them and the denominator did not. This is what
+   * prices a window in USD; `perModel` stays for what a run of one model costs.
+   */
+  readonly overall: {
+    readonly fiveHour: number | null
+    readonly sevenDay: number | null
+    readonly n: number
+    readonly points: { readonly fiveHour: number; readonly sevenDay: number }
+  }
   /** True once any model has at least CALIBRATION_MIN measured runs and the week moved at all. */
   readonly ready: boolean
 }
@@ -143,6 +158,14 @@ export interface PlanStatus {
   readonly shares: { readonly unit: 'points' | 'usd'; readonly week: number; readonly fiveHour: number; readonly weekUsed: number; readonly fiveHourUsed: number; readonly stepsLeftWeek: number | null }
   /** The gate's answer for a standard step on the default model right now. */
   readonly gate: GateVerdict | null
+}
+
+/** One running total behind a rate: what was spent, and how far each window moved. */
+interface Tally {
+  cost: number
+  five: number
+  seven: number
+  n: number
 }
 
 export const CALIBRATION_MIN = 3
@@ -492,27 +515,45 @@ export class UsageMonitor {
    * rate, not a certainty.
    */
   calibration(): Calibration {
-    const runs = this.o.runs.list({ limit: 400 }).filter((r) => isFellowRun(r) && r.planPctDelta && r.costUsd !== null && r.costUsd > 0)
-    const byModel = new Map<string, { cost: number; five: number; seven: number; n: number }>()
+    const runs = this.o.runs.list({ limit: 400 }).filter((r) => r.planPctDelta && r.costUsd !== null && r.costUsd > 0)
+    const empty = (): Tally => ({ cost: 0, five: 0, seven: 0, n: 0 })
+    const byModel = new Map<string, Tally>()
+    const all = empty()
     for (const r of runs) {
-      const model = modelKey(r.model)
-      const bucket = byModel.get(model) ?? { cost: 0, five: 0, seven: 0, n: 0 }
-      if (bucket.n >= CALIBRATION_RUNS) continue
       const d = r.planPctDelta!
-      bucket.cost += r.costUsd!
-      bucket.n += 1
-      if (d['five_hour'] !== undefined && d['five_hour'] > 0) bucket.five += d['five_hour']
-      if (d['seven_day'] !== undefined && d['seven_day'] > 0) bucket.seven += d['seven_day']
+      const add = (b: Tally): void => {
+        b.cost += r.costUsd!
+        b.n += 1
+        if (d['five_hour'] !== undefined && d['five_hour'] > 0) b.five += d['five_hour']
+        if (d['seven_day'] !== undefined && d['seven_day'] > 0) b.seven += d['seven_day']
+      }
+      if (all.n < CALIBRATION_RUNS * 4) add(all)
+      /*
+       * Only Fellow steps price a Fellow step. An ingest or a maintenance run fills the same
+       * window - which is why it counts in `all` above - but its shape is another one (long
+       * documents, heavy caching), and `perModel` exists to answer "what will this Fellow's
+       * next run take". Runs that record no model at all say nothing about a model either way.
+       */
+      if (!isFellowRun(r) || r.model === null || r.model === undefined || r.model === '') continue
+      const model = modelKey(r.model)
+      const bucket = byModel.get(model) ?? empty()
+      if (bucket.n >= CALIBRATION_RUNS) continue
+      add(bucket)
       byModel.set(model, bucket)
     }
-    const perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } }> = {}
+    const rateOf = (b: Tally): { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } } => ({
+      fiveHour: b.cost > 0 && b.five > 0 ? b.five / b.cost : null,
+      sevenDay: b.cost > 0 && b.seven > 0 ? b.seven / b.cost : null,
+      n: b.n,
+      points: { fiveHour: b.five, sevenDay: b.seven },
+    })
+    const perModel: Record<string, ReturnType<typeof rateOf>> = {}
     let ready = false
     for (const [model, b] of byModel) {
-      const rate = (points: number): number | null => (b.cost > 0 && points > 0 ? points / b.cost : null)
-      perModel[model] = { fiveHour: rate(b.five), sevenDay: rate(b.seven), n: b.n, points: { fiveHour: b.five, sevenDay: b.seven } }
+      perModel[model] = rateOf(b)
       if (b.n >= CALIBRATION_MIN && b.seven > 0) ready = true
     }
-    return { perModel, ready }
+    return { perModel, overall: rateOf(all), ready }
   }
 
   /**
@@ -532,13 +573,11 @@ export class UsageMonitor {
    * the fallback, not the other way round.
    */
   private measuredPlanUsd(): { week: number | null; fiveHour: number | null } {
-    const best = Object.values(this.calibration().perModel)
-      .filter((c) => c.n >= CALIBRATION_MIN)
-      .sort((a, b) => b.n - a.n)[0]
-    if (best === undefined) return { week: null, fiveHour: null }
+    const all = this.calibration().overall
+    if (all.n < CALIBRATION_MIN) return { week: null, fiveHour: null }
     return {
-      week: best.sevenDay !== null && best.sevenDay > 0 ? 100 / best.sevenDay : null,
-      fiveHour: best.fiveHour !== null && best.fiveHour > 0 ? 100 / best.fiveHour : null,
+      week: all.sevenDay !== null && all.sevenDay > 0 ? 100 / all.sevenDay : null,
+      fiveHour: all.fiveHour !== null && all.fiveHour > 0 ? 100 / all.fiveHour : null,
     }
   }
 
