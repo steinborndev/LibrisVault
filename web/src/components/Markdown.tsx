@@ -7,6 +7,9 @@
  * Wikilinks render as plain emphasized text by default (the hot-cache/chat behaviour); the
  * vault viewer passes `renderWikilink` to turn them into in-app navigation. Still not a full
  * CommonMark implementation - by design.
+ *
+ * Emphasis parses its content again (a link inside bold is a bold link); inline code does not,
+ * because a page that shows the wikilink syntax has to keep its brackets.
  */
 
 import type { ReactNode } from 'react'
@@ -56,9 +59,14 @@ function inline(text: string, keyBase: string, ctx: InlineCtx): ReactNode[] {
         ),
       )
     } else if (tok.startsWith('**')) {
-      nodes.push(<strong key={key}>{tok.slice(2, -2)}</strong>)
+      // Emphasis wraps CONTENT, and the content may be a link of either kind. Emitting the inner
+      // text raw is what showed `**[[A Page]]**` as its own brackets on 156 pages of the vault
+      // (2026-09-14); every other reader of those pages - Obsidian, the graph, the dead-link
+      // check - resolved them. Recursion terminates: each level is at least two characters
+      // shorter, and inline code never recurses, so `` `[[X]]` `` keeps its brackets.
+      nodes.push(<strong key={key}>{inline(tok.slice(2, -2), `${key}b`, ctx)}</strong>)
     } else {
-      nodes.push(<em key={key}>{tok.slice(1, -1)}</em>)
+      nodes.push(<em key={key}>{inline(tok.slice(1, -1), `${key}i`, ctx)}</em>)
     }
     last = m.index + tok.length
   }

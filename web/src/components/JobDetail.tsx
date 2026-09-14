@@ -14,7 +14,7 @@
  * Escape leaves, the way it did from the drawer.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { AuthMode, JobStatus } from '../api/types.ts'
@@ -28,6 +28,7 @@ import { JobLog } from './JobLog.tsx'
 import { StatusBadge } from './StatusBadge.tsx'
 import { mainArticle, readerPages } from '../lib/homeArticle.ts'
 import { parseQuoteSummary, quotesFact, quotesTitle } from '../lib/quotes.ts'
+import { wikilinkResolver } from '../lib/wikilink.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
 import { duration, timeAgo, tokens } from '../lib/format.ts'
 import { catalogPageRoute, navigate } from '../lib/router.ts'
@@ -70,6 +71,12 @@ export function JobDetail({
 
   const pages = readerPages(event.pages)
   const quotes = parseQuoteSummary(job?.validation)
+  /*
+   * The page index, for the article's wikilinks. The same query the Home tab already holds, so
+   * this is a cache read rather than a fetch; without it the links would be text.
+   */
+  const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
+  const linkTo = useMemo(() => wikilinkResolver(graph.data?.nodes ?? []), [graph.data])
   const articlePath = mainArticle(event.pages)
   const [tabState, setTabState] = useState<'article' | 'log'>(articlePath === null ? 'log' : 'article')
   const tab = tabProp ?? tabState
@@ -229,7 +236,10 @@ export function JobDetail({
         ) : article.isError ? (
           <div className="empty">That page could not be read: {(article.error as Error).message}</div>
         ) : (
-          <Markdown source={body} />
+          /* The page this record wrote, read here the way the Catalog reads it: a wikilink is
+             a link (lib/wikilink.tsx). It used to render as plain emphasis, so the same page
+             had links in one view and none in the other. */
+          <Markdown source={body} renderWikilink={linkTo} />
         )}
       </div>
 

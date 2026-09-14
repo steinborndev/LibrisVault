@@ -13,7 +13,8 @@ import { Icon } from './Icon.tsx'
 import { Markdown } from './Markdown.tsx'
 import { PageLink } from './PageLink.tsx'
 import { queryState } from './QueryState.tsx'
-import { catalogPageRoute, navigate } from '../lib/router.ts'
+import { navigate } from '../lib/router.ts'
+import { wikilinkResolver } from '../lib/wikilink.tsx'
 import { obsidianUri } from '../lib/obsidian.ts'
 
 export function CatalogArticle({
@@ -33,36 +34,9 @@ export function CatalogArticle({
   const body = page.data ? page.data.markdown.replace(/^---[\s\S]*?\n---\n/, '') : ''
   const node = nodes.find((n) => n.path === path)
   const title = page.data?.title ?? node?.title ?? path.split('/').pop()?.replace(/\.md$/, '') ?? path
-  // Title to path, first wins, case-insensitive: the same rule as the graph's viewer and the
-  // server, so no viewer can send a wikilink somewhere another would not.
-  const byTitle = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const n of nodes) {
-      const key = n.title.toLowerCase()
-      if (!m.has(key)) m.set(key, n.path)
-    }
-    return m
-  }, [nodes])
-  const linkTo = (target: string, label: string, key: string): React.ReactNode => {
-    const resolved = byTitle.get(target.toLowerCase())
-    return resolved !== undefined ? (
-      <a
-        key={key}
-        className="wikilink"
-        href={catalogPageRoute(resolved)}
-        onClick={(e) => {
-          e.preventDefault()
-          navigate(catalogPageRoute(resolved))
-        }}
-      >
-        {label}
-      </a>
-    ) : (
-      <span key={key} className="wikilink unresolved" title="This page doesn't exist (yet)">
-        {label}
-      </span>
-    )
-  }
+  // One resolver for every view that reads a page (lib/wikilink.tsx), so the Catalog and the
+  // record's article cannot answer the same link differently.
+  const linkTo = useMemo(() => wikilinkResolver(nodes), [nodes])
 
   return (
     <div className="ca">
