@@ -11,6 +11,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
+import { navigate } from '../../lib/router.ts'
 import type { PlanStatus, SpawnBody } from '../../api/types.ts'
 import { MODEL_FACTOR, runUsd, shareDetail, weekShare } from '../../lib/plan.ts'
 import { suggestFellowName } from '../../lib/fellowNames.ts'
@@ -294,9 +295,17 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
         {share !== null && (
           <>
             ;{' '}
-            <span className={share.pct > 100 ? 'budget-over' : undefined} title={shareDetail(share)}>
+            {/* The share is a setting, so the figure is a way to it - the same door the night
+                shift's own budget line opens. `type="button"` is load-bearing: this sits inside
+                the spawn form, and a submit here would create the Fellow it is describing. */}
+            <button
+              type="button"
+              className={`linkish${share.pct > 100 ? ' budget-over' : ''}`}
+              title={`${shareDetail(share)}. Click to set the share in System.`}
+              onClick={() => navigate('/system?section=service&setting=researchShareWeekPct')}
+            >
               about {share.pct.toFixed(0)}% of the week&apos;s research budget
-            </span>
+            </button>
           </>
         )}
         .

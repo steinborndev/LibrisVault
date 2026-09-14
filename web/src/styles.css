@@ -3536,8 +3536,11 @@ span.head-slot { display: inline-block; }
 }
 .cc-budget:hover { color: var(--text); }
 .cc-budget.over { color: var(--err); }
-/* The same tone in the spawn form's estimate, where over the budget is the thing to notice. */
+/* The same tone in the spawn form's estimate, where over the budget is the thing to notice.
+   As a link it keeps the warning colour rather than the accent, underline and all. */
 .budget-over { color: var(--err); }
+.linkish.budget-over { border-bottom-color: color-mix(in srgb, var(--err) 55%, transparent); }
+.linkish.budget-over:hover { color: color-mix(in srgb, var(--err) 80%, var(--text)); }
 /* A setting arrived at from a link: named for a moment so the eye lands on the right row. */
 .setting.focused {
   border-radius: var(--radius-sm);
