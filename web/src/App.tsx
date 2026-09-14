@@ -12,7 +12,6 @@ import { DemoNotice } from './components/DemoNotice.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Home } from './tabs/Home.tsx'
 import { Chat } from './tabs/Chat.tsx'
-import { Recap } from './tabs/Recap.tsx'
 import { Icon, type IconName } from './components/Icon.tsx'
 import { usePath, navigate, pageFromPath, catalogPageFromPath } from './lib/router.ts'
 import { RUN_RUNNING_TITLES, isMaintenanceRun } from './lib/runLabels.ts'
@@ -197,14 +196,6 @@ export function App(): React.ReactElement {
   const openShelf = screen === 'library' ? (query.get('shelf') ?? '') : ''
   const routeFor = (tab: TabItem): string => (tab.id === 'vault' && openShelf !== '' ? `/graph?domain=${encodeURIComponent(openShelf)}` : tab.route)
 
-  // The recap lives under Home (`/recap`, `/recap/<date>`); Home stays mounted behind it.
-  const pathname = path.split('?')[0]!
-  const recapOpen = pathname === '/recap' || pathname.startsWith('/recap/')
-  const recapDate = recapOpen ? decodeURIComponent(pathname.slice('/recap/'.length)) : ''
-  const [recapMounted, setRecapMounted] = useState(recapOpen)
-  useEffect(() => {
-    if (recapOpen) setRecapMounted(true)
-  }, [recapOpen])
   /*
    * The code-split screens mount on their FIRST visit and stay mounted after it. Both halves
    * matter: without the gate a lazy screen's module is fetched during the first render and
@@ -355,20 +346,11 @@ export function App(): React.ReactElement {
         <div className="screens">
           {/* Every screen is the same workspace shape now: one control column, one content
               box, no bar spanning both - so switching screens never shifts the edges. */}
-          <section className="screen flush" hidden={screen !== 'home' || recapOpen} aria-label="Home">
+          <section className="screen flush" hidden={screen !== 'home'} aria-label="Home">
             <div className="lane wide">
               <ErrorBoundary label="Home">
-                <Home statusFilter={screen === 'home' ? (query.get('filter') ?? '') : ''} active={screen === 'home' && !recapOpen} />
+                <Home statusFilter={screen === 'home' ? (query.get('filter') ?? '') : ''} active={screen === 'home'} />
               </ErrorBoundary>
-            </div>
-          </section>
-          <section className="screen" hidden={!recapOpen} aria-label="Recap">
-            <div className="lane wide">
-              {recapMounted && (
-                <ErrorBoundary label="Recap">
-                  <Recap date={recapDate} />
-                </ErrorBoundary>
-              )}
             </div>
           </section>
           <section className="screen flush" hidden={screen !== 'research'} aria-label="Research">

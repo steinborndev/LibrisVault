@@ -76,7 +76,9 @@ describe('App.tsx wiring', () => {
 
   it('wraps every screen', () => {
     const labels = [...app.matchAll(/<ErrorBoundary label="([^"]+)"/g)].map((m) => m[1])
-    expect(labels.slice().sort()).toEqual(['Catalog', 'Graph', 'Home', 'Library', 'Recap', 'Research', 'System'])
+    // "Recap" left the list on 2026-09-14: the standalone day screen is gone, and the parts
+    // it used to frame are rendered inside Home's and the Library's feeds.
+    expect(labels.slice().sort()).toEqual(['Catalog', 'Graph', 'Home', 'Library', 'Research', 'System'])
     // `screen` exactly, not the `screens` container that holds all five.
     const screens = app.match(/className=(?:"screen[ "]|\{`screen[ $])/g) ?? []
     expect(labels).toHaveLength(screens.length)

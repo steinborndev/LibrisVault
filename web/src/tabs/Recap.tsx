@@ -1,20 +1,20 @@
 /**
- * The Recap screen (docs/agents/SPEC.md section 9.3): the morning recap with its
- * proposals as buttons. `/recap` shows the latest, `/recap/<date>` one day. Every button
- * sends the same answer the Telegram grammar would (`1b`, `veto 1b`, `skip 1`, ...), so
- * the two channels can never disagree about what an answer does.
+ * One recap, rendered (docs/agents/SPEC.md section 9.3): the night's Fellow sections with
+ * their proposals as buttons. Every button sends the same answer the Telegram grammar would
+ * (`1b`, `veto 1b`, `skip 1`, ...), so the two channels can never disagree about what an
+ * answer does.
  *
- * Mounted only on an instance that has Fellows (`health.fellows`); Home's inbox entry and
- * the route are the two ways in.
+ * There is no screen of its own here any more (2026-09-14). `/recap/<date>` was a whole page
+ * around these parts, with a row of day chips in its head; both feeds that render them - Home's
+ * and the Library's night shift board - now step through the nights from their own headline,
+ * and the page's last door ("Open day") was a second way to read what you were already
+ * reading. What is left is the parts: RecapBody, RecapFacts and the sections under them.
  */
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api/client.ts'
 import type { RecapAnswer, RecapAnswerResult, RecapFellow, RecapProposal, RecapRow, RecapUnclaimed } from '../api/types.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { PageLink } from '../components/PageLink.tsx'
-import { queryState } from '../components/QueryState.tsx'
 import { navigate } from '../lib/router.ts'
 import { answerCode, undecidedCount } from '../lib/recap.ts'
 import { fellowText } from '../lib/recapFeed.ts'
@@ -23,114 +23,6 @@ import { domainColor } from '../lib/domains.ts'
 
 const MODELS = ['sonnet-5', 'opus-5', 'fable-5-1']
 const STEPS = ['small', 'standard', 'deep']
-
-export function Recap({ date }: { date: string }): React.ReactElement {
-  const qc = useQueryClient()
-  const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
-  const vaultName = stats.data?.vaultName ?? 'vault'
-  const recaps = useQuery({ queryKey: ['recaps'], queryFn: api.recaps, refetchInterval: 30_000 })
-  const [toasts, setToasts] = useState<RecapAnswerResult[]>([])
-
-  const rows = recaps.data?.recaps ?? []
-  const current: RecapRow | undefined = date !== '' ? rows.find((r) => r.cycleDate === date) : rows[0]
-
-  const answer = useMutation({
-    mutationFn: (input: { date: string; answers: RecapAnswer[] }) => api.answerRecap(input.date, { answers: input.answers }),
-    onSuccess: (res) => {
-      setToasts(res.results)
-      void qc.invalidateQueries({ queryKey: ['recaps'] })
-      void qc.invalidateQueries({ queryKey: ['agents'] })
-    },
-  })
-  const build = useMutation({
-    mutationFn: (force: boolean) => api.buildRecap({ force }),
-    onSuccess: () => {
-      // The build runs in the background; the 30 s refetch picks the row up, this one sooner.
-      setTimeout(() => void qc.invalidateQueries({ queryKey: ['recaps'] }), 4_000)
-    },
-  })
-
-  const send = (a: RecapAnswer): void => {
-    if (!current) return
-    answer.mutate({ date: current.cycleDate, answers: [a] })
-  }
-  const followed = (page: string, agentId: string): void => api.valueEvent({ kind: 'recap_link', page, agentId })
-
-  const state = queryState(recaps, 'the recaps')
-  const status = recaps.data?.status
-
-  return (
-    <div className="box">
-      <div className="box-head">
-        <h2 className="box-title">Recap{current ? ` · ${current.cycleDate}` : ''}</h2>
-        <span className="box-sub">
-          {status
-            ? status.building
-              ? 'building now…'
-              : `next at ${status.recapTime} (${timeAgo(status.nextAt).replace('ago', 'from now')})`
-            : ''}
-        </span>
-        <span className="spacer" />
-        {rows.length > 0 && (
-          <span className="pillrow" role="tablist" aria-label="Recap days">
-            {rows.slice(0, 7).map((r) => (
-              <button
-                key={r.cycleDate}
-                className={`chip${current?.cycleDate === r.cycleDate ? ' active' : ''}`}
-                onClick={() => navigate(`/recap/${r.cycleDate}`)}
-                title={r.quiet ? 'quiet day' : `${undecidedCount(r.model)} undecided`}
-              >
-                {r.cycleDate.slice(5)}
-                {!r.quiet && undecidedCount(r.model) > 0 && <span className="chip-n">{undecidedCount(r.model)}</span>}
-              </button>
-            ))}
-          </span>
-        )}
-        <button
-          className="btn ghost sm"
-          disabled={build.isPending || status?.building === true}
-          onClick={() => build.mutate(current !== undefined && current.cycleDate === new Date().toISOString().slice(0, 10))}
-          title="Build today's recap now, rebuilding it when today's exists. Costs a short agent run for the summary lines and rewrites the recap page in the vault; the proposals and Fellow states are current without it."
-        >
-          Build now
-        </button>
-        <button className="btn ghost sm" onClick={() => navigate('/')}>
-          Back to Home
-        </button>
-      </div>
-
-      {toasts.length > 0 && (
-        <div className={`toast ${toasts.every((t) => t.ok) ? 'ok' : 'warn'}`} role="status">
-          {toasts.map((t, i) => (
-            <div key={i}>
-              {t.ok ? '✓' : '✗'} {t.message}
-            </div>
-          ))}
-        </div>
-      )}
-      {answer.error != null && <div className="toast err">Answer failed: {(answer.error as Error).message}</div>}
-
-      <div className="box-body">
-        {state ?? (current === undefined ? (
-          <div className="empty">
-            <h2>No recap yet</h2>
-            <p className="qs-line">The first one is built at {status?.recapTime ?? '07:00'} and covers the night's Fellow runs and their proposals. Build one now to see today's.</p>
-          </div>
-        ) : (
-          <RecapBody
-            row={current}
-            vaultName={vaultName}
-            onAnswer={send}
-            onFollow={followed}
-            busy={answer.isPending}
-            decidable={current.cycleDate === rows[0]?.cycleDate}
-            results={toasts}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
 
 export function RecapBody({
   row,

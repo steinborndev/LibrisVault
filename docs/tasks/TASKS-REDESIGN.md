@@ -864,6 +864,11 @@ daily recaps - sat beside a column that filtered a table nobody could see.
 - [ ] SPEC.md section 6's table still describes Home with the filter column and the second
       panel's three views; a correction line the shape of 2026-08-27's is proposed.
 - [ ] The key handling in `Home.tsx` has no tests yet.
-- [ ] The standalone Recap screen (`/recap/<date>`) has no door in the dashboard any more;
-      it stays for Telegram links.
+- [x] The standalone Recap screen (`/recap/<date>`) has no door in the dashboard any more;
+      it stays for Telegram links. **Removed 2026-09-14.** The premise did not hold: the recap
+      service delivers its text to Telegram and links nothing back, so no link needed the page.
+      Its last door was "Open day" in the feed's day header, which opened a second reading of
+      the night already on screen, with a row of day chips that repeated the stepper the night
+      shift board now carries. `RecapBody`, `RecapFacts` and the sections stay in `tabs/Recap.tsx`;
+      only the screen around them and its route are gone, and `/recap/...` falls back to Home.
 

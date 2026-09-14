@@ -220,9 +220,6 @@ export function RecapFeed({
                   ) : (
                     row.answeredAt !== null && <span className="chip ok">answered</span>
                   )}
-                  <button className="btn ghost sm" onClick={() => navigate(`/recap/${row.cycleDate}`)}>
-                    Open day
-                  </button>
                 </div>
                 )}
                 {picked
