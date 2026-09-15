@@ -216,6 +216,15 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       Its goal was one window that manages the Fellows so the docked card can be retired, and
       `FellowCard.tsx` was deleted on 2026-09-15.
 
+**Four more decisions were taken later, during the work, and they are recorded where they
+apply rather than here** - this section is the set that had to be settled BEFORE anything could
+be written, and backdating the others into it would make the file lie about its own order. They
+are: the package name (section 6), what happens to the names that were already public
+(section 7), the one quoted run in the task folder (section 7, under the sweep item), and the
+other clone's stray private file (section 7). Each is marked **DECIDED 2026-09-15** at its item,
+in the same form as D1 to D6.
+
+
 ## 1. Feature flag review
 
 - [x] **Done. Confirmed 2026-09-15 (F-A6-6): every line reference below matches.**
