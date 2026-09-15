@@ -402,8 +402,23 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       probe, the Fellows' web access as a widening of the agent-egress rule, and the OA
       egress from D5. This is the file a security reviewer opens first.
 - [x] **Done 2026-09-15 (F-A6-26).** Says that M0 to M5 are finished and the A-series sits on top. "Status & license" (line 789): bring the status paragraph up to the merged state.
-- [ ] **Half done 2026-09-15 (F-A6-26).** Read against the CODE, which found three stale things (screens, configuration, API list). Against the RUNNING app is still owed and belongs with the screenshots of section 5. Read the whole file once against the running app. It was written for the pre-A state
-      and 280 commits of UI work have landed since.
+- [x] **Done 2026-09-15 (F-A6-32).** Read against the CODE first, which found three stale
+      things (screens, configuration, API list), then against the RUNNING app, which found six
+      more that a code read cannot reach because they are about what the screen actually shows:
+      the **screen order** (the Library sits directly after Research, before the two screens it
+      contains - the README had it fifth, among the browse screens); **`System → Research`**,
+      a section that does not exist (those keys are in Service & config, and the per-Fellow ones
+      are in the Library); the **runtime-settable list**, given twice in the README, incomplete
+      both times and not even agreeing with itself; the **Catalog's controls** (a whole
+      source-type filter unmentioned, two sort keys missing, the domain list grouped by wing);
+      the **`src/tabs/` listing**, which named five files of which two no longer exist and
+      omitted three; and the **demo vault's own figures**, which grew when the four real research
+      runs were added (~850 pages over 17 domains became ~900 over 18).
+      **And one the read reproduced rather than found**: the dashboard came up blank, because
+      running the four gates rebuilds `web/dist` under a service that registered the old asset
+      names at startup. The troubleshooting entry for it was right but too narrow - it named
+      `npm run build:web`, and the thing everybody actually runs is `npm run build`. It says so
+      now, including that it blanks every service serving that directory.
 
 ## 5. Demo vault and screenshots
 
@@ -755,6 +770,26 @@ Status as measured 2026-09-15, on the working tree:
       actually delivered, with every deviation recorded below.
 
 ## 10. Findings
+
+- **F-A6-32 (2026-09-15) - reading a README against the running app finds a different class of
+  error than reading it against the code.** The code pass found three stale statements and felt
+  thorough. The app pass found six more, and every one of them is a claim the code would have
+  confirmed if you read the right file: the tab array really does list six screens, the settings
+  editor really does render those keys, `Catalog.tsx` really does have those filters. What the
+  code cannot tell you is the ORDER a person meets them in, which section a key ends up under,
+  or that a control exists at all if you were not looking for it. The README was written from
+  the inside out; a reader meets it from the outside in.
+  The sharpest of the six: the README sent people to `System → Research` for the research
+  settings. There is no such section and never was - the keys live in Service & config, and
+  everything belonging to one Fellow is set in the Library. That sentence would have survived
+  any number of code reads, because nothing in the code contradicts a section name that does not
+  appear in it.
+  **And the pass reproduced the bug it was reading about.** Running the four gates rebuilt
+  `web/dist` under a service that had registered the old asset names at startup, and the
+  dashboard came up blank - styled, because the CSS name happened to survive, and empty, because
+  the JS 404'd. The README already documented this, but only for `npm run build:web`. The
+  command everyone actually runs is `npm run build`, which is to say: running the gates next to
+  a running service blanks it, and blanks every other service serving the same `web/dist` too.
 
 - **F-A6-31 (2026-09-15) - a name scan built from page titles cannot see a page the vault
   deleted.** Generalising the already-public fixtures turned up a limit worth more than the

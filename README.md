@@ -210,8 +210,10 @@ vault, and silently replaying a mid-commit write risks vault integrity.
 ## The dashboard
 
 **Five screens**, as tabs in the header row, all live over SSE, and a sixth when the research
-agents are switched on. The order follows the day: what arrived, what you go and find out, the
-two ways of browsing what is there, then the machine room.
+agents are switched on. The order follows the day: what arrived, what you go and find out, then
+what is there, then the machine room. The Library sits directly after Research and before the
+two screens it contains - from a shelf you open the graph and the catalog of that one department
+without leaving the room.
 
 - **Home** - intake and everything in flight. The left rail is the control column: the dropzone
   (files, URLs, a pasted note) on top, then the filters that narrow the stream below it - by kind
@@ -255,6 +257,24 @@ two ways of browsing what is there, then the machine room.
 
   ![A synthesis page a research run filed, with its findings, its sources and the limits it names](docs/img/research-result.png)
 
+- **Library** - *only with `AGENTS_ENABLED`* (see [Research agents](#research-agents)): the
+  vault drawn as a room. Domains are shelves, Fellows are figures at desks and in armchairs, and
+  what each is doing right now is in the bubble over its head. One window over the room manages
+  the Fellows completely: tonight's schedule as a bar priced from the runs this vault has
+  actually made, a dossier per Fellow with its notebook, its slice of the recap, its run ledger
+  and its settings, the decisions waiting for you, and the form that spawns a new one. The wall
+  board beside it carries the hot cache, the daily recap and the reading list.
+
+  ![The Library: domains as shelves, Fellows as figures, and what each is doing in the bubble over its head](docs/img/library-room.png)
+
+  The main room holds the Fellows and the wall boards; the domains themselves stand in wings
+  off it. A shelf is one domain, its colour is the domain's, and how full it is is how many
+  pages that domain holds - so the shape of the vault is readable before a single label is.
+
+  ![A wing: one shelf per domain, filled to the page count it holds](docs/img/library-wing.png)
+
+  ![The command centre: tonight as one queue, priced from the runs this vault has actually made](docs/img/command-centre.png)
+
 - **Graph** - the wikilink structure on a canvas, with the force layout in a web worker so it
   stays smooth as the vault grows (deliberately, since the WSLg Obsidian graph does not). The
   view bar carries the **colour lenses** - recolour the same graph to answer different questions:
@@ -279,8 +299,10 @@ two ways of browsing what is there, then the machine room.
   ![The wikilink graph, one colour per domain, with the gaps overlay one click away](docs/img/graph.png)
 
 - **Catalog** - the browse path a graph cannot give you: one filterable, sortable table over
-  every page, fed by the same graph query the canvas uses. Filter by page type, by domain, or by
-  health (orphans, stubs, system pages); sort by recency, title, backlinks or domain. Each row
+  every page, fed by the same graph query the canvas uses. Filter by page type, by domain (the
+  list is grouped by wing once there are enough of them), by health (with a source, orphans,
+  stubs, system pages), or by what the page came from (PDF, web, text); sort by recency, title,
+  type, domain, backlinks or source type. Each row
   carries the page's domain, its in/out link counts, when it changed, and a **source** column
   that opens the document the page came from - the provenance comes from the vault's own `.raw/`
   manifests rather than from the database, because losing operational state must never lose
@@ -288,26 +310,8 @@ two ways of browsing what is there, then the machine room.
 
   ![Catalog: one table over every page, filtered by type, domain and health](docs/img/library.png)
 
-  *This screen was called Library until September 2026. The name moved to the room view below,
+  *This screen was called Library until September 2026. The name moved to the room view above,
   which is what a library looks like; a catalog of pages is what this one is.*
-
-- **Library** - *only with `AGENTS_ENABLED`* (see [Research agents](#research-agents)): the
-  vault drawn as a room. Domains are shelves, Fellows are figures at desks and in armchairs, and
-  what each is doing right now is in the bubble over its head. One window over the room manages
-  the Fellows completely: tonight's schedule as a bar priced from the runs this vault has
-  actually made, a dossier per Fellow with its notebook, its slice of the recap, its run ledger
-  and its settings, the decisions waiting for you, and the form that spawns a new one. The wall
-  board beside it carries the hot cache, the daily recap and the reading list.
-
-  ![The Library: domains as shelves, Fellows as figures, and what each is doing in the bubble over its head](docs/img/library-room.png)
-
-  The main room holds the Fellows and the wall boards; the domains themselves stand in wings
-  off it. A shelf is one domain, its colour is the domain's, and how full it is is how many
-  pages that domain holds - so the shape of the vault is readable before a single label is.
-
-  ![A wing: one shelf per domain, filled to the page count it holds](docs/img/library-wing.png)
-
-  ![The command centre: tonight as one queue, priced from the runs this vault has actually made](docs/img/command-centre.png)
 
 - **System** - the machine room, in five sections:
   - **Status & checks** - what the vault needs from you right now: lint (a structured report)
@@ -320,7 +324,7 @@ two ways of browsing what is there, then the machine room.
   - **Vault stats** - pages, links, orphans, stubs, gaps and unfiled pages as figures; growth
     over 30 days; pages by type; the vault's own commit history; the retrieval index and its
     rebuild; and a check that every page under `wiki/` actually made it into git.
-  - **Service & config** - watch folder, concurrency, upload limit, git auto-commit, DOI dedupe, daily budget.
+  - **Service & config** - watch folder, concurrency, upload limit, git auto-commit, open-access rescue, DOI dedupe, the daily budget, and (with the agents on) the research shares and reserves.
   - **Integrations** - the Anthropic credential, the Telegram bot, and the Obsidian vault name.
 
   ![System: vault stats - size, shape, growth and what is still unfiled](docs/img/system.png)
@@ -434,14 +438,18 @@ SQLite and survive a restart.
 | `DEMO_MODE` | off | `1` serves the vault strictly read-only for a public instance: every non-read request is refused, nothing that writes or spawns an agent starts, no credential needed |
 | `PREPROCESS_SANDBOX` | on | `off` runs the document converters without their bubblewrap jail. Only for a machine that cannot install bubblewrap; it removes a boundary that stands between a hostile document and your files |
 
-With the research agents on, System → Research adds their own settings: the research share of
-the five-hour and weekly windows with the reserves under them, the plan's size in USD for
-pricing, the night window, and per Fellow a runs-per-day quota, a model, an effort level and an
-autonomy mode. Those are runtime settings like the ones below, not environment variables.
+With the research agents on, **System → Service & config** gains their settings: the research
+share of the five-hour and weekly windows with the reserves under them, the plan's name, the
+optional five-hour release and the duplicate judge. The night window and everything that belongs
+to one Fellow - its runs-per-day quota, model, effort level and autonomy mode - are set where
+that Fellow lives, in the Library's command centre and dossier. All of these are runtime
+settings like the ones below, not environment variables.
 
-Runtime-settable under System → Service & config: watch folder, concurrency, upload limit, git
-auto-commit, and the daily budget. Concurrency and auto-commit apply live; the watch folder and upload limit are
-bound at startup and are flagged "Restart required" rather than pretending they took effect.
+Runtime-settable under System → Service & config, in the order the screen shows them: watch
+folder, concurrency, upload limit, the four research share and reserve keys, the plan name, the
+five-hour release, the duplicate judge, git auto-commit, open-access rescue, DOI dedupe and the
+daily budget. Everything but two applies live; the watch folder and the upload limit are bound at
+startup and are flagged "Restart required" rather than pretending they took effect.
 
 The bind address is **not** settable through the UI, by design. The credential is settable -
 but only through the dedicated guarded endpoint that writes the env file (setup mode /
@@ -771,7 +779,9 @@ server/   Fastify backend, TypeScript ESM
   src/telegram/   bot api client, long-poll loop, update router, message formatting
   src/db/         better-sqlite3 schema + migrations
 web/      React + Vite frontend (responsive, PWA-ready)
-  src/tabs/       the five screens: Home, Chat (Research), Vault (Graph), Library, System
+  src/tabs/       one file per screen, under the names they were built with rather than the
+                  ones the header shows: Home, Chat (= Research), Vault (= Graph), Catalog,
+                  LibraryScreen, System, plus Maintenance and Recap
   src/components/ shared vocabulary: cards, tables, status, charts, the graph canvas
 scripts/  setup helpers, systemd unit template, demo vault + screenshot tooling
 docs/     per-milestone task lists and findings
@@ -799,7 +809,7 @@ The images in this README are shot from a **synthetic vault**, so nothing privat
 published and the whole set can be re-shot whenever the UI changes:
 
 ```bash
-# 1. Build a throwaway vault (~850 invented pages over 17 domains, backdated git history)
+# 1. Build a throwaway vault (~900 pages over 18 domains, backdated git history)
 node scripts/demo-vault.mjs
 
 # 2. Serve it on a spare port. TELEGRAM_BOT_TOKEN= is REQUIRED: without it this process picks
@@ -827,7 +837,7 @@ invented one shows a shape where the real one shows an argument; the difference 
 point of the screen, so it is not a thing to fake. Those pages name real papers, real patents and
 real companies, all of them public, and none of them from anyone's private notes.
 
-Two things the generator deliberately does NOT do: make the vault small, or make it tidy. It is sized like a real one (~850 pages, 4k links, one domain far deeper
+Two things the generator deliberately does NOT do: make the vault small, or make it tidy. It is sized like a real one (~900 pages, ~4,500 links, one domain far deeper
 than the rest, a long tail of one-afternoon detours) because the graph, the domain filters and
 the library only show what they are for at that scale; and it leaves stubs, unfiled pages and
 knowledge gaps in, because a wiki without them is not a wiki anyone has actually used. Pages are
@@ -936,10 +946,14 @@ costs about 2 ms.
 
 ## Troubleshooting
 
-**Frontend changes don't show up after a rebuild.** The static file routes are registered at
-startup (`@fastify/static` with `wildcard: false`), so a running service keeps serving the old
-asset names and the new hashed files fall through to the SPA shell. Restart the service after
-`npm run build:web` (`systemctl --user restart vault-service`).
+**Frontend changes don't show up after a rebuild - or the dashboard comes up blank.** The
+static file routes are registered at startup (`@fastify/static` with `wildcard: false`), so a
+running service keeps serving the old asset names while the new hashed files fall through to the
+SPA shell: the CSS still resolves, the JS `404`s, and you get a styled empty page rather than an
+error. Restart the service (`systemctl --user restart vault-service`). This is not only
+`npm run build:web` - **`npm run build` does it too**, which makes running the four gates next to
+a running service enough to blank it, and it blanks every service serving that `web/dist`, the
+demo instance included.
 
 **Port 8420 already in use.** Usually an orphaned process from a killed `tsx`/`npm` wrapper:
 `ss -ltnp | grep 8420`, then kill the PID. The systemd unit avoids this by running the built JS
