@@ -17,12 +17,16 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-22 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-23 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Decision round 2026-09-15 (F-A6-23).** D1 to D5 are settled and section 0 carries each
+answer with its reasoning. Four went as proposed; D1 needed a third branch for what the flag
+review had turned up, and that branch is implemented. Sections 2, 3 and 4 are unblocked.
 
 **Sixth pass 2026-09-15 (F-A6-22).** Section 1 is closed except for the half that waits on
 the root spec: the flag surfaces and the background work are confirmed gated, the containment
@@ -51,7 +55,22 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 0. Decisions before the work starts
 
-- [ ] **D1 - the acceptance criterion is wrong as written; correct it first.** Section 15
+- [x] **D1 - DECIDED 2026-09-15. Name the two halves separately, and move the reading list
+      out of the unflagged half (implemented, F-A6-23).** The acceptance criterion becomes
+      two sentences rather than one: *the FELLOWS are behind `AGENTS_ENABLED` and the flag off
+      leaves the base product exactly as it was, network requests included; SOURCE INTEGRITY
+      is not behind a flag, because it is a correctness fix to the existing ingest pipeline
+      and flagging it would ship the known-weaker path as the default.*
+      **What the decision had to settle beyond the original proposal.** F-A6-19 found a third
+      thing that was neither: the reading list wrote a vault page with the flag off, through
+      the ingest prompt and the attribution pass, while the route that displays it was gated.
+      That is not a correctness fix - it is a Fellows feature writing where nobody can look.
+      It is behind the flag now, the append-only rule moved into the block it points at, and
+      the test pins both sides. So the seam this item asked to be named explicitly is:
+      **the fence, PDF URL handling, quote integrity and the expand lock are unflagged; the
+      reading list and its sweep are the extension; open-access recovery is unflagged and
+      documented as service egress (D5).**
+      The original text and its correction, kept as the record: section 15
       promises "LibrisVault unchanged with the flag off". That holds for the Fellows and
       not for the rest: the source-integrity work (`docs/sources/SPEC.md`, TASKS-SOURCES,
       55 tasks) is behind no flag at all and changes ingest behaviour with `AGENTS_ENABLED`
@@ -69,19 +88,35 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       unflagged": the sweep is source-integrity work running on the Fellows' schedule.
       D1 has to name that seam explicitly, and section 1's background-work bullet must
       stop demanding the opposite.
-- [ ] **D2 - one spec or two: follow the established pattern.** Root `SPEC.md` gets a
+- [x] **D2 - DECIDED 2026-09-15: as proposed.** 12.10 Fellows and 12.11 Source integrity in
+      the root spec, detail specs where they are, no second top-level spec. One qualifier from
+      F-A6-16: "unchanged" means not RESTRUCTURED, not untouched - `docs/agents/SPEC.md` was
+      wrong in four places and has been corrected. The proposal, unchanged:
+      **D2 - one spec or two: follow the established pattern.** Root `SPEC.md` gets a
       summarising `12.x` per subsystem and the detail lives in `docs/<area>/SPEC.md`, the
       way 12.6 (retrieval), 12.7 (vault check), 12.8 (demo mode) and 12.9 (dedupe) already
       do. So: **12.10 Fellows**, **12.11 Source integrity**, with `docs/agents/SPEC.md` and
       `docs/sources/SPEC.md` unchanged as the detail specs. Not a second top-level spec.
       Note that the pattern was already broken once: source integrity shipped without a
       root section, which is why 12.11 is part of this milestone and not of TASKS-SOURCES.
-- [ ] **D3 - what happens to the fork's name.** "Curious" names the private branch in 10
+- [x] **D3 - DECIDED 2026-09-15: keep the name, explain it once.** One sentence in the root
+      spec's 12.10 saying that "Curious" was the private fork this work was built in, and the
+      13 occurrences stay. The reason is the same one this repo follows elsewhere: these are
+      DATED RECORDS, and rewriting them so that another name was never used is the quiet kind
+      of revision that A7 deliberately avoids when it keeps its superseded sections standing.
+      A reader who meets the name once with an explanation is not confused by it again.
+      The original item: **D3 - what happens to the fork's name.** "Curious" names the private branch in 10
       tracked documents, 13 occurrences (`docs/agents/SPEC.md` 3, `docs/agents/ideas.md` 2,
       `docs/sources/SPEC.md` 1, `docs/tasks/TASKS-A0..A5,A7` 1 each). Decide once: keep it
       as the historical name of the work and say so in one place, or rewrite to "the
       `research-agents` branch" throughout. Do not leave both readings in the repo.
-- [ ] **D4 - how much of the A-series history the public repo gets.** The 290 commits carry
+- [x] **D4 - DECIDED 2026-09-15: merge the history as it stands.** The commit messages of
+      this project explain mechanisms and the reasoning behind them; that is the most valuable
+      part of the record and it has been audited twice (F-A6-7 over all of it, F-A6-21 over
+      the last 41). The home-directory path in three commits is weighed and accepted: it is a
+      username and a config path, not a secret and not vault content, and rewriting 290 hashes
+      to remove it would cost a force-push and every commit's identity for a very small gain.
+      The original item: **D4 - how much of the A-series history the public repo gets.** The 290 commits carry
       the full design record. Decide: merge the history as it stands (preferred, the commit
       messages are the record and the audit in section 7 found them clean - confirmed
       independently, F-A6-7 and again over the last 41 in F-A6-21), or squash. If squashed,
@@ -98,7 +133,14 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       do not let it decide alone - and note that a third option exists if the record is what
       matters: merge the history and accept the path, or squash and keep the design rounds in
       `ideas.md` and these task files, which are merged as files either way.
-- [ ] **D5 [added] - open-access recovery is on by default and makes outbound requests
+- [x] **D5 - DECIDED 2026-09-15: document it, leave it on.** In 12.11 and in the README's
+      security model, written the way SPEC section 9 already writes the Telegram paragraph -
+      service egress, not agent egress - and naming the three hosts. Hard rule 4 is untouched:
+      "no web egress in ingest runs" is about AGENT runs and stands. Not defaulted off for
+      upgrades, because the three are non-commercial scholarly infrastructure and a DOI lookup
+      is what the recovery IS; an install that wants none of it turns the setting off.
+      **This one must not be merged undocumented** - that half of the item is binding.
+      The original item: **D5 [added] - open-access recovery is on by default and makes outbound requests
       during ingest.** `DEFAULT_OA_RECOVERY = true` (`server/src/db/settings.ts:168`), and
       the recovery path contacts `api.openalex.org`, `api.core.ac.uk` and
       `www.ebi.ac.uk` (Europe PMC). Every existing LibrisVault install gets that silently
@@ -634,6 +676,22 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-23 (2026-09-15, DECIDED and implemented) - the decision round, and the one thing it
+  had to settle that was not on its own list.** D1 to D5 were taken together; four went as
+  proposed and D1 grew a third branch. As written, D1 split the world into "Fellows, flagged"
+  and "source integrity, unflagged, because it is a correctness fix". F-A6-19 had found
+  something in neither category: the reading list WROTE A VAULT PAGE with the flag off, driven
+  by the ingest prompt and finished by the attribution pass, while the route that shows that
+  page was gated. A feature writing where its own interface cannot look is not a correctness
+  fix, so it moved behind the flag - the service hands the list to the queue and the
+  maintenance runner only when the flag is on, and both build their prompt from whether they
+  were handed one. The append-only rule went with it: it had been sitting in the page-hygiene
+  checklist that every run carries, telling the run to add entries "in the shape the
+  <reading_list> block gives" while that block could be absent. It now lives inside the block,
+  so the rule and the shape it refers to travel together or not at all.
+  The seam D1 asked to have named, named: fence, PDF URL handling, quote integrity and the
+  expand lock are unflagged; the reading list and its sweep are the extension; open-access
+  recovery is unflagged and documented as service egress.
 - **F-A6-22 (2026-09-15, FIXED same day) - the base product asked for something only the
   extension owns.** Checking section 1's web item found its first half true and its second
   half false. Rendering is gated properly: the Library tab is filtered out of `TABS` on
