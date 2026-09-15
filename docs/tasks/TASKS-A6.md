@@ -17,12 +17,17 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-20 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-21 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Fifth pass 2026-09-15 (F-A6-21), before the branch went to the private remote.** Five
+passes over the 41 unpushed commits: messages, file list, secrets, absolute paths, and the
+added lines against every bucket. Clean. It also settled what D4 weighs: the tree holds no
+home path, the history holds one in three places.
 
 **Fourth pass 2026-09-15 (F-A6-20).** The commit-msg guard reads title fragments and every
 telling bucket now, which found two fixtures the earlier method could not. Its remaining limit
@@ -71,12 +76,23 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       `docs/sources/SPEC.md` 1, `docs/tasks/TASKS-A0..A5,A7` 1 each). Decide once: keep it
       as the historical name of the work and say so in one place, or rewrite to "the
       `research-agents` branch" throughout. Do not leave both readings in the repo.
-- [ ] **D4 - how much of the A-series history the public repo gets.** The 280 commits carry
+- [ ] **D4 - how much of the A-series history the public repo gets.** The 290 commits carry
       the full design record. Decide: merge the history as it stands (preferred, the commit
       messages are the record and the audit in section 7 found them clean - confirmed
-      independently, F-A6-7), or squash. If squashed, the design rounds in
-      `docs/agents/ideas.md` become the only record and that has to be a deliberate choice,
-      not a side effect.
+      independently, F-A6-7 and again over the last 41 in F-A6-21), or squash. If squashed,
+      the design rounds in `docs/agents/ideas.md` become the only record and that has to be a
+      deliberate choice, not a side effect.
+      **[added 2026-09-15] The one concrete thing that argues the other way, and it is small.**
+      The commit messages are clean and so is the tree, but the history holds a home-directory
+      path at three points that the tree no longer has: `d22be54` introduced it with the
+      timelapse drivers, `b5aabf7` removed it from them, and in between `db8dec7` added this
+      very file carrying the path as a QUOTE of the hygiene item below, which `7f26199` then
+      generalised. So two commits of this file, and a stretch of the drivers, name a username
+      and a config path. It is not a secret and it is not vault content; it is the kind of
+      thing a squash erases for free and a merge carries forever. Weigh it against the record,
+      do not let it decide alone - and note that a third option exists if the record is what
+      matters: merge the history and accept the path, or squash and keep the design rounds in
+      `ideas.md` and these task files, which are merged as files either way.
 - [ ] **D5 [added] - open-access recovery is on by default and makes outbound requests
       during ingest.** `DEFAULT_OA_RECOVERY = true` (`server/src/db/settings.ts:168`), and
       the recovery path contacts `api.openalex.org`, `api.core.ac.uk` and
@@ -514,7 +530,9 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       newly publish, because generalising an already-public fixture changes nothing about
       what is already in the history and pre-empts this decision.
 - [ ] Re-run the audit over the final merge diff, both commit messages and added lines, and
-      over `docs/img/`. Record the method and the result under Findings so the next merge
+      over `docs/img/`. **The method is written down and rehearsed: F-A6-21 ran exactly this
+      over the 41 pre-push commits, five passes, and it is the shape to repeat against the
+      merge diff.** Record the method and the result under Findings so the next merge
       can repeat it rather than reinvent it. (Method and first result: F-A6-7.)
 - [ ] Confirm `docs/local/` and `docs/studio/` are still excluded and still hold nothing
       that belongs in the public repo. **[corrected] They are excluded by
@@ -581,6 +599,22 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-21 (2026-09-15) - a pre-push audit over 41 commits, and the method to reuse for the
+  merge diff.** The fork's own branch was pushed to the PRIVATE remote, and reviewed first on
+  the grounds that a private push still fixes what a later merge will carry. Method, five
+  passes over `origin/research-agents..HEAD`: (1) every commit message through the widened
+  commit-msg guard, 0 of 41 blocked; (2) the added/deleted file list read by hand, 7 added and
+  2 deleted, nothing of a sensitive shape; (3) the 5216 added lines for secrets - no
+  `sk-ant-`, no token assignment, no bot token, no private key - where the only hit was a line
+  of this file *describing* that check; (4) the same lines for absolute paths, none; (5) the
+  same lines against a denylist of 2253 terms built from ALL SIX buckets, `concepts/`
+  included, with fragments. **A pre-push review takes the wider list on purpose**, unlike the
+  commit hook: here a false positive costs a glance and a miss costs a leak, so the trade runs
+  the other way. Seven terms matched, each checked in place: three `cursor` (two of them CSS),
+  and six occurrences inside this file's own sentences REPORTING the audit - product
+  vocabulary, not vault subjects. Result: clean.
+  What it turned up that the diff could not show is in D4: the tree carries no home path, the
+  history does, in three places and partly by this file's own doing.
 - **F-A6-20 (2026-09-15, hook FIXED same day) - widening the guard found two leaks the
   method could not have found, and showed what the guard costs off its own ground.** The
   commit-msg hook now reads title FRAGMENTS and three more buckets (F-A6-8's three blind
