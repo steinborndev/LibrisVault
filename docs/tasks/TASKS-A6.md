@@ -449,8 +449,18 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       **[added] Both files were also commented and logging in German**, the only files in the
       repo still doing so (checked repo-wide). Translated with the same content. Worth a line
       here because the merge audit looks for vault names and would not have looked for this.
-- [ ] `package.json` is named `vault-service` while the product is LibrisVault. The
-      `repository` field is already correct. Decide whether the package name follows.
+- [x] **Decided and done 2026-09-15: the package name follows the product.** Root
+      `librisvault`, workspaces `@librisvault/server` and `@librisvault/web`, lockfile
+      regenerated - only the two workspace link entries move in it, no dependency version
+      changes. Nothing outside those three `name` fields referenced the scope, so the rename
+      is three lines and a lockfile.
+      **What deliberately did NOT follow**, because it is not a label: `~/.config/vault-service/env`,
+      `~/.local/share/vault-service/`, the systemd unit, and the `user.name=vault-service` the
+      service commits under. Those are an installed path and a recorded identity. Renaming the
+      config directory would strand the credential file of every existing install, and renaming
+      the git author would make past commits claim a writer that did not exist when they were
+      written. The package name is what a reader of the repo sees; the rest is what a machine
+      already has on disk.
 - [x] **`npm test` exits 1 although all 1819 tests pass**: an unhandled rejection in
       teardown, "TypeError: The database connection is not open".
       **Fixed 2026-09-15 (F-A6-15). `npm test` now exits 0, 1819 tests, no errors.**
@@ -657,13 +667,22 @@ Status as measured 2026-09-15, on the working tree:
 | `npm run build` | exit 0 |
 | CI | `.github/workflows/ci.yml` runs all four on every push and pull request (added 2026-09-15; first run red on two environment-dependent tests, F-A6-30) |
 | `preprocprobe` | **PASS**, "the jail holds", 14 checks (F-A6-5, re-run 2026-09-15) |
-| `permprobe` | not run - it starts a real, billable agent run |
+| `permprobe` | **PASS**, run 2026-09-15 with authorisation: both canaries blocked, the expand lock's five checks ok |
 
 - [x] `npm test`, `npm run typecheck`, `npm run lint` green **and exit 0** (section 6). All
       three measured 2026-09-15 after F-A6-15, F-A6-2 and F-A6-9; `lint` covers both
       workspaces now, so the gate is met by intent and not only by the letter of the script.
       Test count is 1823 (server 1250 / 83 files, web 573 / 52) since the flag-off test.
-- [ ] `npm run permprobe --workspace server`: expect `canary outside vault: blocked`.
+- [x] **Done 2026-09-15, run with authorisation because it is billable.** `canary outside
+      vault: blocked`, `canary in skills/: blocked`, 1 tool denial, and the expand probe's
+      five checks all ok in its own throwaway vault. **PASS - confinement and the expand lock.**
+      Worth reading rather than just ticking: the two canaries were refused by two DIFFERENT
+      mechanisms, which is what hard rules 4 and 5 claim and what only a live run can show.
+      `/tmp` came back "Read-only file system" - the OS-level sandbox, not the bash denylist,
+      which is the distinction hard rule 4 spends a paragraph on. The `skills/` write was
+      refused by the upstream guard's own message, in-process, on a path the sandbox would
+      have allowed. A probe that only reported "blocked" twice would hide that they are not
+      the same boundary.
 - [x] **Done 2026-09-15.** `preprocprobe` run through its new npm script: **14 ok lines,
       "PASS - the jail holds"**. The discrepancy is reconciled in `docs/agents/ideas.md`
       rather than left as a puzzle: the note said 13 because it predated `53a9339`, which made
