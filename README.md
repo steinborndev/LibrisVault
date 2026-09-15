@@ -209,8 +209,9 @@ vault, and silently replaying a mid-commit write risks vault integrity.
 
 ## The dashboard
 
-**Five screens**, as tabs in the header row, all live over SSE. The order follows the day: what
-arrived, what you go and find out, the two ways of browsing what is there, then the machine room.
+**Five screens**, as tabs in the header row, all live over SSE, and a sixth when the research
+agents are switched on. The order follows the day: what arrived, what you go and find out, the
+two ways of browsing what is there, then the machine room.
 
 - **Home** - intake and everything in flight. The left rail is the control column: the dropzone
   (files, URLs, a pasted note) on top, then the filters that narrow the stream below it - by kind
@@ -270,7 +271,7 @@ arrived, what you go and find out, the two ways of browsing what is there, then 
 
   ![The wikilink graph, one colour per domain, with the gaps overlay one click away](docs/img/graph.png)
 
-- **Library** - the browse path a graph cannot give you: one filterable, sortable table over
+- **Catalog** - the browse path a graph cannot give you: one filterable, sortable table over
   every page, fed by the same graph query the canvas uses. Filter by page type, by domain, or by
   health (orphans, stubs, system pages); sort by recency, title, backlinks or domain. Each row
   carries the page's domain, its in/out link counts, when it changed, and a **source** column
@@ -278,7 +279,18 @@ arrived, what you go and find out, the two ways of browsing what is there, then 
   manifests rather than from the database, because losing operational state must never lose
   provenance.
 
-  ![Library: one table over every page, filtered by type, domain and health](docs/img/library.png)
+  ![Catalog: one table over every page, filtered by type, domain and health](docs/img/library.png)
+
+  *This screen was called Library until September 2026. The name moved to the room view below,
+  which is what a library looks like; a catalog of pages is what this one is.*
+
+- **Library** - *only with `AGENTS_ENABLED`* (see [Research agents](#research-agents)): the
+  vault drawn as a room. Domains are shelves, Fellows are figures at desks and in armchairs, and
+  what each is doing right now is in the bubble over its head. One window over the room manages
+  the Fellows completely: tonight's schedule as a bar priced from the runs this vault has
+  actually made, a dossier per Fellow with its notebook, its slice of the recap, its run ledger
+  and its settings, the decisions waiting for you, and the form that spawns a new one. The wall
+  board beside it carries the hot cache, the daily recap and the reading list.
 
 - **System** - the machine room, in five sections:
   - **Status & checks** - what the vault needs from you right now: lint (a structured report)
@@ -401,6 +413,14 @@ SQLite and survive a restart.
 | `TELEGRAM_BOT_TOKEN` | - | enables the Telegram bot (see below); a secret, same handling as the credential |
 | `TELEGRAM_ALLOWED_USER_IDS` | - | comma-separated numeric Telegram user ids; **required** once the token is set |
 | `DB_PATH` | `~/.local/share/vault-service/jobs.db` | kept **outside** the vault |
+| `AGENTS_ENABLED` | off | `1` turns on the research agents (see below); off means the service behaves exactly as it did before |
+| `DEMO_MODE` | off | `1` serves the vault strictly read-only for a public instance: every non-read request is refused, nothing that writes or spawns an agent starts, no credential needed |
+| `PREPROCESS_SANDBOX` | on | `off` runs the document converters without their bubblewrap jail. Only for a machine that cannot install bubblewrap; it removes a boundary that stands between a hostile document and your files |
+
+With the research agents on, System → Research adds their own settings: the research share of
+the five-hour and weekly windows with the reserves under them, the plan's size in USD for
+pricing, the night window, and per Fellow a runs-per-day quota, a model, an effort level and an
+autonomy mode. Those are runtime settings like the ones below, not environment variables.
 
 Runtime-settable under System → Service & config: watch folder, concurrency, upload limit, git
 auto-commit, and the daily budget. Concurrency and auto-commit apply live; the watch folder and upload limit are
@@ -422,6 +442,95 @@ Optional. The unit follows the auth mode, because the two modes constrain differ
 When the budget is reached the queue stops claiming new work (in-flight runs always finish) and
 resumes at the next local midnight. In subscription mode every `cost_usd` shown in the UI is
 labelled **"estimate (subscription)"** - it is an API-price equivalent, not money charged.
+
+---
+
+## Research agents (optional, off by default)
+
+<a name="research-agents"></a>
+
+A **Fellow** is a standing research agent. You give it a subject, one to three standing tasks and
+a budget; it works at night on its own and leaves a record you read in the morning. It is not a
+chat and not a one-off run: it keeps a notebook page in the vault, it plans from what the vault
+itself says is unanswered, and it comes back to the same subject night after night.
+
+Off unless you turn it on:
+
+```bash
+echo 'AGENTS_ENABLED=1' >> ~/.config/vault-service/env
+# then restart the service
+```
+
+With the flag unset, nothing of this exists: no schedule, no routes, no Library tab, and no
+request to any of it. The service behaves exactly as it did before.
+
+**What a Fellow does with a night.** Once the night window opens (01:00 to 06:00 by default), a
+planning run reads what the vault holds - the open questions on its own pages, link targets
+nobody has written, stub pages, what your recent ingests brought in - and proposes concrete runs
+against one of its standing tasks. Each proposal carries its reasoning, where the idea came from
+and on which page you can read it, a score for how close to the task it stays, and an estimated
+cost. Then the runs themselves: read the sources, write or extend pages, update the notebook.
+
+**A task has an art.** `watch` looks for what is new on a subject, `explore` pursues an open
+question until the vault has it covered, `deepen` builds out pages the library points at more
+than they pay off. Three per Fellow at most: at one run a day, a longer list starves its own
+tail, and a fourth subject is a second Fellow.
+
+**You decide how much say you want.** In `manual` nothing runs without your click. In `veto` -
+the default and the interesting one - a proposal you did not decide on RUNS; deciding is how you
+stop something or move it to the front, not how you permit it. In `auto` you are not asked at
+all. The morning **recap** is where the decisions are: a page per day, per Fellow, with what the
+night did and what it wants to do next, answerable in the dashboard or by Telegram reply.
+
+**The budget is a share of your subscription, not a pile of money.** Runs are priced in plan
+utilization measured against the runs this vault has actually made, not against constants, and a
+Fellow stops at whichever binds first: its runs-per-day quota, the daily budget, or the research
+share of the five-hour and the weekly window. The shares have reserves under them, so the
+autopilot cannot spend the capacity you want for your own work.
+
+**Where the work shows up.** In the vault as ordinary pages, written by ordinary agent runs
+behind the same commit mutex as an ingest, so `git revert` undoes a night like it undoes
+anything else. In the dashboard as the **Library** screen (see above). And in one page per
+Fellow under `wiki/meta/agents/`, which is the Fellow's own notebook: its log, its plan and its
+running list of open questions.
+
+Details, including the planner's candidate sources, the scheduling and the quota arithmetic:
+[`docs/agents/SPEC.md`](docs/agents/SPEC.md), summarised in SPEC.md section 12.10.
+
+---
+
+## Source integrity
+
+Five mechanisms that harden how material is acquired and read, and one that limits what a
+research run may do to an existing page. Unlike the research agents these are **not** optional
+and not behind a flag: each one corrects the pipeline rather than adding something beside it,
+and a correctness fix behind a flag would ship the weaker path as the default.
+
+- **A URL that serves a PDF is read as one.** Detection is by what comes back, not by what the
+  address looks like, so a link that redirects to a PDF no longer arrives as a page of
+  navigation furniture.
+- **Everything a converter produces is fenced as data.** Text extracted from a document reaches
+  the agent inside an explicit boundary that says it is material to read and never instructions
+  to follow, and text inside it that addresses an assistant is reported to you rather than
+  passed on quietly. This is the prompt-injection boundary, at the one place every ingest
+  crosses.
+- **A blocked or abstract-thin page is rescued from a legal open copy.** When a URL lands on a
+  paywall and the page names a DOI, the service asks three open scholarly indexes whether a
+  legal open-access copy exists, fetches it if so, and records on the resulting page which copy
+  the text came from. This makes outbound requests of its own - see the security model.
+- **Quotes are checked against the text the run actually read.** A quotation an ingest writes is
+  compared verbatim against the job's own source text and the record says how many held. A quote
+  that cannot be found is flagged, not deleted: the run may have quoted a caption the extraction
+  dropped, and a checker that deletes is worse than one that reports.
+- **A deepening run is confined while it runs** (the *expand lock*). It may only touch the pages it was given and
+  may only insert, enforced at tool time rather than only at the commit, with the commit check
+  and an automatic revert still underneath as the backstop.
+
+One part of this rides along with the research agents and therefore needs the flag: the nightly
+**reading-list sweep**, which re-checks publications nobody could read for an open copy and marks
+them so you can ingest the copy with one click.
+
+Details: [`docs/sources/SPEC.md`](docs/sources/SPEC.md), summarised in SPEC.md section 12.11.
 
 ---
 
@@ -486,12 +595,17 @@ Behavior and limits:
 
 ## Security model
 
-Five constraints are load-bearing. They are documented in full in `CLAUDE.md`; do not weaken them.
+Six constraints are load-bearing. They are documented in full in `CLAUDE.md`; do not weaken them.
 `SECURITY.md` has the full threat model - including what a malicious *document* can and cannot make
 the ingest agent do - and the vulnerability reporting channel.
 
-1. **Vault integrity.** The service writes to the vault only through agent runs and git commits.
-   SQLite holds operational state only - losing the database must never damage the vault.
+1. **Vault integrity.** Everything the service writes to the vault is one immediate git commit
+   behind a shared mutex, so it is versioned, revertable, and can never interleave with an agent's
+   own commit. Four paths write, and only these four: an agent run; a page you edit or delete
+   yourself in the dashboard; the vault's own deterministic retrieval-index scripts, which produce
+   only rebuildable artifacts outside git history; and the removal of a never-committed staging
+   directory when a job turns out to be a duplicate. Pipeline code never rewrites vault content on
+   its own. SQLite holds operational state only - losing the database must never damage the vault.
 2. **Localhost guard.** The server binds `127.0.0.1`. If the bind is not loopback and no auth mode
    with a token is active, it **refuses to start**. State-changing requests carrying a foreign
    browser `Origin` are rejected, so a malicious website cannot fire drive-by requests at the
@@ -499,14 +613,26 @@ the ingest agent do - and the vulnerability reporting channel.
 3. **Credentials** live only in the service environment - never in the repo, logs, frontend or
    database. Both credential variables set at once is a startup error.
 4. **Agent confinement is enforced by the OS sandbox**, not by application-level callbacks. Runs
-   execute under bubblewrap with writes confined to `VAULT_ROOT` and no web egress except in the
-   autoresearch flow. Tool policy additionally runs through a `PreToolUse` hook. `canUseTool` was
+   execute under bubblewrap with writes confined to `VAULT_ROOT`, and an **ingest** run has no web
+   egress at all. Tool policy additionally runs through a `PreToolUse` hook. `canUseTool` was
    measured to be invoked *zero* times by this SDK and is not the enforcement point.
+   Which runs *may* reach the web: the autoresearch flow, and a research agent's own runs when
+   they are enabled. Which never do: an ingest, and a Fellow's planning run, which is deliberately
+   confined to what the vault already holds.
 5. **Plugin internals stay read-only.** The vault is a clone of claude-obsidian, so its own
    machinery (skills, scripts, the shipped reference docs its skills consult by path) sits inside
    the sandbox's writable area. A `PreToolUse` write guard confines agent writes to the knowledge
    areas (`wiki/`, `.raw/`, …) and refuses edits to plugin files, so an ingest can extend the
    vault but never rewrite the tool it runs on.
+
+6. **The document converters are jailed too, one stage earlier.** `pdftotext`, `pdfinfo`,
+   `ocrmypdf`, `pandoc`, the Office extractors, `exiftool` and `defuddle` each run under
+   bubblewrap with no network, no `$HOME`, a read-only system, the one input file and one
+   writable output directory. This is the same reasoning as item 4 applied one step sooner: a
+   hostile document reaches a parser *before* any agent sees it, and a parser with a
+   memory-safety bug is a more likely way in than a prompt. `yt-dlp` is the documented exception,
+   because fetching is its job. Verify with `npm run preprocprobe`, which runs the real tools
+   against real canaries and expects 14 checks and "PASS - the jail holds".
 
 Because the sandbox is the real boundary, it is configured with `failIfUnavailable: true`: if
 bubblewrap is missing or cannot start, an agent run **fails loudly** instead of silently running
@@ -528,7 +654,19 @@ VAULT_ROOT=~/vault npm run permprobe --workspace server
 # Does a stuck tool really die with the run? Expects: PASS … descendants were reaped
 # Point this at a THROWAWAY vault - it runs write-enabled (see the script header).
 VAULT_ROOT=/tmp/throwaway-vault npm run killprobe --workspace server
+
+# Does the converter jail hold? Expects 14 ok lines and "PASS - the jail holds".
+# Read-only and safe to run against the real vault; it only tries to reach it.
+npm run preprocprobe
 ```
+
+**Outbound requests the SERVICE makes, as opposed to an agent.** Two, and both are worth knowing
+because "no web egress in an ingest run" is a statement about the agent and not about the
+service. The Telegram bot talks to Telegram, if you configure one. And open-access recovery asks
+`api.openalex.org`, `api.core.ac.uk` and `www.ebi.ac.uk` whether a legal copy of a paywalled
+paper exists, sending the DOI of the document you are ingesting. That one is **on by default**;
+turn it off under System → Service if you would rather no third party learn which papers you
+file.
 
 ---
 
@@ -724,6 +862,21 @@ GET    /settings/telegram        bot status + rejected non-allowlisted senders (
 POST   /settings/telegram        {botToken, allowedUserIds} → writes BOTH env vars together
                                  and restarts; same rules as /settings/credential
 DELETE /settings/telegram        disables the bot: removes both env vars, restarts
+
+                                 --- only with AGENTS_ENABLED; 404 without it ---
+GET    /agents                   the Fellows, with tonight's schedule inputs: measured run
+                                 durations and prices, the shelf order, the shift's status
+POST   /agents                   spawn one; PATCH /agents/:id edits tasks, quota, autonomy,
+                                 model, effort, step and priority
+POST   /agents/:id/{step,pause,resume,retire,plan}   act on one Fellow by hand
+GET    /agents/:id/card          one Fellow's dossier: runs, pages, notebook path, plan
+POST   /proposals/:id/{approve,veto}   decide one proposal before the night uses it
+GET    /recaps, /recaps/:date    the daily record; POST /recaps/:date/answers replies to it
+GET    /library/scene            the room as the dashboard draws it: figures, shelves, poses
+GET    /wings                    the rooms and which domain sits on which shelf
+GET    /usage/plan               plan utilization, the research share and what is left of it
+GET    /reading-list             publications a run could not read, with open copies found
+POST   /reading-list/ingest      file one of them; /open-access looks for a copy right now
 ```
 
 Every vault-mutating agent run (lint, lint-fix, autoresearch, hot-cache, reference cleanup, graph
@@ -789,7 +942,11 @@ at all.)
 ## Status & license
 
 A personal project (v0.1) built milestone by milestone with Claude Code; the engineering journals
-in `docs/tasks/` are left in as-is - findings, dead ends, measurements and all. The specification
+in `docs/tasks/` are left in as-is - findings, dead ends, measurements and all. M0 to M5 built the
+base product and are finished; the research agents and the source-integrity work were built on
+top of it afterwards, as their own series (A0 to A7) with their own specifications, and their
+journals sit in the same folder. Those files record what is still open as plainly as what is
+done, which is the point of keeping them. The specification
 (`SPEC.md`) is English since 2026-09-05, as are code, UI, and vault content. Issues and PRs are welcome, with
 the caveat that `SPEC.md` and the hard rules in `CLAUDE.md` define what this is and is not, and
 that contributions are accepted under the license below.
