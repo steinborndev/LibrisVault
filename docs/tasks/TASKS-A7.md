@@ -6,6 +6,11 @@ worked out in mockup iterations v1-v7; this file carries the decisions and the o
 
 Extension milestone in the Curious fork (branch `research-agents`), behind `AGENTS_ENABLED=1`.
 
+**Status (2026-09-15): the goal is met.** The window manages the Fellows, spawning included,
+and `FellowCard.tsx` is gone (section 8). What is left is written down in section 9. Four of
+those are design questions rather than tasks - sections 1, 1b, 5 and 7 - and each is decided
+before it is built, not while.
+
 ## 0. Decisions from the design rounds
 
 - **D1 - domain-grouped, with one stop past the end.** The rotation covers the domains that
@@ -50,9 +55,14 @@ Extension milestone in the Curious fork (branch `research-agents`), behind `AGEN
   reachable at a URL, fed fixture data. "A mockup must match the final render" is then true by
   construction rather than by care, and the distance to the implementation is one data source.
 
-## 1. Open item: skip the planning run for a deepen task
+## 1. Open design question: skip the planning run for a deepen task
 
-**Not specified, not built. Needs its own design pass and measurement before it is written.**
+**Not specified, not built. Re-checked 2026-09-15 and unchanged: `kindsForTask` still returns
+`['research-expand']` for a deepen task and every one of them still goes through `plan()`.**
+
+It stays open on purpose. This is a question to DECIDE, not a task waiting for a free
+afternoon: the five points below have no default answer, and the measurement that would settle
+it has to be run against real themes before anything is written.
 
 `rankForDeepening` already chooses the pages deterministically - theme overlap, then
 backlinks per kilobyte, capped at `EXPAND_MAX_PAGES = 4`. For a deepen task the planner
@@ -95,9 +105,22 @@ never ranked. `provenance.task` would become a guess. It also puts all three tas
 2.3 min and $0.85 per fellow-night, about half a Fellow of capacity - not worth trading an
 enforced constraint for a hoped-for one.
 
-## 1b. Open item: an intra-domain handoff between the arts
+## 1b. Open design question: an intra-domain handoff between the arts
 
-**Not specified, not built.** It is the precondition for a design that was considered and set
+**Not specified, not built. Re-checked 2026-09-15: `HandoffRecord.domain` still routes a
+question between domains and nothing routes one within a domain.**
+
+**What changed under it, and why that raises the stakes (2026-09-15).** When this was written,
+a single-art Fellow was a design that had been set aside, so the two failure modes below were
+hypothetical. Stage B built the field (4.2): `art` is enforced by `artRefusal` at spawn and at
+update, and the spawn view offers `watch`, `explore` and `deepen` as three of its four shapes.
+A pure-art Fellow is therefore something a user can make today, and both failure modes are
+reachable in production. They are not bugs - the service does exactly what the art promises -
+but the mixed-art Fellow that answers them is now a convention the UI does not teach, and the
+channel that would answer them properly is still the missing piece. Deciding this is what
+turns `custom` from the safe default into a real choice among four.
+
+It is the precondition for a design that was considered and set
 aside on 2026-09-09: giving each Fellow a single art (a watcher holds only watch tasks, a
 librarian only deepen tasks), which is cleaner in several ways - the name stops being a
 category error, `kindsForTask` lifts from the task to the Fellow, one honest default lens per
@@ -185,6 +208,10 @@ turned out to be wrong and were corrected in it; the rest holds.
 
 ### 3.3 Missing - what the design needs and the code does not have
 
+**All six landed (verified 2026-09-15).** 1 to 3 are stage B and have their own record in 4.2;
+4 to 6 went into the window itself and are noted at the item. The list stays as the shape of
+the gap the design started from.
+
 1. **Full sweep.** `taskForTonight` returns exactly one task and phase 2 plans once per
    Fellow, so "every standing task, every night" is new behaviour: a per-Fellow mode, a loop
    in the shift, and one planning run per task rather than per Fellow. This is the largest
@@ -198,11 +225,21 @@ turned out to be wrong and were corrected in it; the rest holds.
 4. **A duration estimate before a run.** `typicalRunMs` exists but is only surfaced for a run
    already in flight (`SceneRun.typicalMs`). The schedule needs it per proposal, from kind and
    model, before anything starts. Small: the function is there, only the exposure is missing.
+   **Built:** `GET /api/v1/agents` answers `durations` (median ms per kind over the last 200
+   runs) beside `costs`, so the schedule is drawn from this vault's own history rather than
+   from a constant.
 5. **Per-domain counts for the unstaffed shelves.** Derivable client-side - `GraphGap.refBy`
    indexes nodes that carry a `domain` - but nothing aggregates it today.
+   **Built:** `shelvesFrom` returns pages, questions and gaps for EVERY registry domain, not
+   only the staffed ones, and a gap is attributed to the domain most of its referrers sit in.
 6. **A UI name for the quiet state.** The record says `state: 'sleeping'` with
    `sleepCode: 'covered'`; the mockup's `quiet` is a label for exactly that and must map to it
    rather than become a new state.
+   **Built, and better than asked for:** there is no `quiet` label. Every sleep code says its
+   own reason in two or three words instead - `covered` reads "topic taken", `no-candidates`
+   "nothing to plan", `quota` "out of quota", `stalled` "no progress" - because one word for
+   six different reasons is the thing the mockup was trying to avoid, and the bubble has room
+   for a short sentence.
 
 Everything else the command centre draws already exists behind an endpoint.
 
@@ -256,7 +293,12 @@ Five contact points checked; no collision, one pressure point.
   And the ownership line - hooks read, they do not update - is one we already satisfy: the
   refresh is an agent run, not a hook.
 
-## 3.5 Decision needed: what a drag on the night bar orders
+## 3.5 Decision taken: what a drag on the night bar orders
+
+**Settled 2026-09-09 and built in stage B (4.2): the `shelf_order` table, `byShelfThenPriority`,
+and `PUT /api/v1/agents/shelf-order`.** The recommendation below is what was adopted, unchanged.
+The heading used to read "Decision needed" and stayed that way after the decision was made,
+which is how it came to be miscounted as open (see section 9).
 
 Recommended: **a stored domain order as the night's primary sort key, with `priority` keeping
 its meaning inside a domain.**
@@ -335,8 +377,12 @@ Two things the wiring turned up, both now fixed:
    three full runs, booking about 21 minutes the shift never spends and showing two tasks as
    done. `scheduleFrom` now marks a block `runs: false` past the cap and books only its
    planning run; the band draws it hatched, and the dossier says which number to raise. This
-   is the strongest argument for defaulting `quotaRunsPerDay` to the task count at spawn,
-   which is not done: the field is the user's, and a silent bump is the same class of mistake.
+   is the strongest argument for defaulting `quotaRunsPerDay` to the task count at spawn.
+   **That was written as "not done" and then done in the same session** - a new Fellow gets one
+   run a day per standing task (`fellows.ts` spawn, because `nightly` defaults to `sweep`), and
+   4.2.1 below says so at its end. What stays deliberate is the other half: raising a Fellow's
+   task count LATER does not raise its quota, because the field is the user's by then and a
+   silent bump is the mistake this paragraph was guarding against.
 
 ### 4.2.1 What the sweep broke, found by reading the window's own numbers
 
@@ -363,7 +409,33 @@ its quota. The window says so where it matters rather than moving a number the u
 
 Retiring `FellowCard` is now unblocked; A6 merge prep is the next milestone gate.
 
-## 5. Open item: a log channel per run
+## 5. Open design question: a log channel per run
+
+**Re-checked 2026-09-15 and unchanged: `maintenanceChannel` is still `maintenance:${kind}` and
+the `since()` workaround is what carries the room.**
+
+It stays open as a QUESTION, and the mechanical part turned out to be the smaller half. A
+`MaintenanceRun` already carries `channel` as a field (`maintenance.ts`), every start endpoint
+answers 202 with that record, and the Library scene already follows `f.run.channel` rather than
+a name it builds itself. So renaming the channel would move the scene for free. What has no
+answer yet is what happens to the twelve subscribers that name a kind literally
+(`maintenance:lint`, `maintenance:research`, `maintenance:hot-cache`, ...) across
+`tabs/Maintenance.tsx`, `tabs/Chat.tsx` and `components/RunActivity.tsx`, plus `lib/activity.ts`,
+which classifies a subject by the `maintenance:` PREFIX and would keep working either way:
+
+- **Does the kind channel stay beside the run channels?** It is what answers "show me what the
+  maintenance is doing" without knowing which run, and a fan-out that writes every line to both
+  is a second buffer of the same lines. Dropping it means every subscriber has to hold a run id
+  it gets from the 202 it already receives.
+- **What does a subscriber see that arrived AFTER the run started?** Today it finds the kind's
+  buffer and the backlog is simply there. With a per-run name a reloaded tab has to ask which
+  runs are live before it can subscribe to anything.
+- **What is the lifetime of a buffer?** The store is the browser's (`lib/logStore.ts`, 2000
+  lines per channel), so one per kind is bounded by the number of kinds and a long-lived tab
+  costs a fixed amount. One per run is unbounded in a tab left open through a night of runs, so
+  a rule for discarding them is part of the design rather than an implementation detail.
+- **Does `since()` stay?** As belt and braces it is nearly free, but two mechanisms for one
+  invariant is how the next reader learns the wrong one.
 
 `maintenanceChannel(kind)` is `maintenance:<kind>` - one channel for every run of a kind, for
 every Fellow, for the life of the tab. The room reads it for two things and both were wrong
@@ -453,7 +525,21 @@ decided before the candidates, because the list depends on it.
 What remains true and is worth knowing: a task's own sweep is its only self-standing candidate,
 so a watch task whose subject the vault has nothing on proposes a sweep or nothing at all.
 
-### 6.5 Open: the schedule draws shelves, the shift walks rounds
+### 6.5 Decided: the schedule draws shelves, the shift walks rounds
+
+**Settled 2026-09-14 in favour of the bar, deliberately and in writing.** Neither of the two
+options below was taken: `scheduleFrom` groups a Fellow's blocks together and says so at the
+source ("Grouped per Fellow rather than in the shift's true phase order (all plans, then all
+runs): the shelf order is what the arrows set, and it has to stay legible in the bar"), and
+both execution phases still walk rounds. So the ORDER the bar draws is the shelf order, which
+is true, and the START TIMES it draws are a forecast that a night with several multi-run
+Fellows does not keep. The reason it is the right trade: the bar is read to answer "what does
+tonight do and roughly how long does it take", and a night interleaved across four Fellows
+answers that worse while being more literally correct. What the shift and the bar DO agree on
+is the thing the user set - `fellows.list()` orders by `byShelfThenPriority`, so the shelves
+are walked in the order the arrows put them in.
+
+The original statement of the problem follows.
 
 `scheduleFrom` lays one shelf's blocks end to end, then the next shelf's - the picture the
 shelf order promises. Both execution phases are `for round { for agent { executeOne } }`, so a
@@ -461,7 +547,8 @@ night actually gives each Fellow one run in shelf order, then goes round again. 
 each the two readings agree; with several they do not. Either the bar should interleave or the
 shift should drain a Fellow before moving on, and that is a decision about what the shelf order
 MEANS, not a detail.
-### 7. A deepening writes in place, not into a dated tail (2026-09-10)
+
+## 7. A deepening writes in place, not into a dated tail (2026-09-10)
 
 `renderExpandRules` demanded one `## Update <date>` section at the END of every page it
 touched. Comparing that against the vault's own skills says it was the wrong shape:
@@ -495,10 +582,33 @@ additive rather than append-only, tells the run to add to the section the fact b
 SPEC section 7a carries the reasoning; `expand.test.ts` asserts the wording, because here
 the wording IS the mechanism.
 
-Open: **splitting an overgrown page.** The vault wants pages split past a few hundred lines,
-and the additive rule cannot express that - moving a section to a new page reads to the
-validator as deleted lines. A deepening can only leave a note in Open Questions. Probably a
-run kind of its own rather than a loosening of this one.
+**Open design question: splitting an overgrown page.** The vault wants pages split past a few
+hundred lines (`wiki-ingest`: "keep wiki pages short, 100 to 300 lines max; if a page grows
+beyond 300 lines, split it"), and the additive rule cannot express that - moving a section to a
+new page reads to the validator as deleted lines. A deepening can only leave a note in Open
+Questions. Re-checked 2026-09-15: nothing is built, and there is no run kind for it.
+
+It is a design question and not a task because the shape is not obvious and the cheap version
+is the dangerous one. Loosening the additive rule so a split can happen is exactly the rule
+that makes a deepening safe to run unattended, so the exception has to be bound to something
+narrower than "a run that says it is splitting". What a specification has to settle:
+
+- **A run kind of its own, or an exception inside `research-expand`?** A separate kind keeps
+  `isSubsequence` absolute for deepening, which is its value. It also means the split never
+  happens as part of the work that noticed it was needed.
+- **What raises the signal?** Nothing measures a page's length today: the validator has no
+  finding for it and the upstream lint does not report one. So the trigger is a decision -
+  a validator finding, a lint entry, or the deepening run that is reading the page anyway.
+- **Who decides the cut, and does the user see it first?** A split renames nothing but moves
+  claims between pages, which is the most visible thing a run can do to a vault. Whether it
+  arrives as a proposal to decide on or as maintenance that just runs is the same question
+  section 1 asks about deepen tasks, and the two answers should agree.
+- **What happens to the links.** Wikilinks aim at the page a section left, `related:` footers
+  point both ways, and 7a is the record of how much damage a page that moves can do quietly.
+  A new page also needs a name, so `titleSafe` and `PAGE_HYGIENE_CHECKLIST` apply to it.
+- **How the validator is taught the difference** between a split and a run that deleted half a
+  page. Probably: the moved lines must appear, in order, on the new page named in the same
+  commit - checkable, and it fails closed.
 
 **The tails already written were folded in by hand (2026-09-10).** Six pages carried one, and
 that is small enough that a run kind for the cleanup would have cost more than the cleanup.
@@ -513,7 +623,7 @@ gained real structure it had been missing (efficacy, safety, manufacturing and r
 history as sections rather than one dated block), and one unverified figure became a `[!gap]`
 callout on the claim, which is what the new rule asks a run to do in the first place.
 
-### 7a. A title that carried a path separator (2026-09-10)
+## 7a. A title that carried a path separator (2026-09-10)
 
 That cleanup turned one up: a synthesis page whose TITLE contained a slash was written to a
 path that read the slash as a directory separator. The page sat one folder down, named after
@@ -559,3 +669,108 @@ validator can rename a page after the fact. `PAGE_HYGIENE_CHECKLIST` now states 
 runs were each inventing differently: a page's name is its file name, a file name holds no
 separator, write the hyphen in the title AND the file name AND every link, and do not repair
 the file name alone - that is precisely what breaks the links.
+
+## 8. Stage C: what the window became, and the card that went (2026-09-10 to 2026-09-15)
+
+Twenty-six commits on `CommandCentre.tsx` and `lib/command/` after section 7 was written, and
+the milestone's own goal among them. The decisions went into `docs/agents/SPEC.md` as they were
+made, which is the right home for them; this section is the index, so the task file stops
+reading as though it ended on the tenth.
+
+**The goal is met.** `FellowCard.tsx` is deleted (2026-09-15). Behind the room's old "Open
+card" door sat a Fellow sidebar carrying its own older copies of the recap, the activity log,
+the pages, the notebook and the settings - all five of which the command centre had grown, so
+the door led to a second version of screens the user already had. Every way in (the figure in
+the room, the Fellows list, a fresh spawn, `?agent=<id>`) opens the dossier now. What replaced
+the sidebar is a card twice as wide, centred over the room rather than pinned to a figure,
+saying what the Fellow was SPAWNED as, how it works in the words its own settings use, and
+what its night comes to; with three ways out, because a Fellow's work is kept in three places
+(its dossier, its shelf's night, its decisions).
+
+What else the window grew, in the order it matters:
+
+- **The bar draws runs, not tasks.** A block is one RUN. A Fellow with one task and a quota of
+  two fills a night with three blocks, and `taskBands` groups them back into one band per task
+  for the overview, where a single run is ten pixels wide.
+- **The night is priced from measurement, not from constants.** `runPrices` over this vault's
+  settled runs answers `costs` on `GET /api/v1/agents` beside `durations`. The four reference
+  constants never learned: after ten research runs the log said the constant was a third above
+  what a run actually costs, and that number is what the gate decides with.
+- **The research budget is a share of the week**, one figure, said the same way everywhere and
+  settable, with what tonight asks of it shown before the night asks.
+- **The ingest queue is part of the night.** Held jobs are laid into the same schedule and
+  empty one at a time as the night goes, so the estimate counts them with the Fellows' tasks
+  and says "nothing to run" only when both are empty.
+- **A spawn runs first and plans second** (`planAfterFirst`). The plan is only worth having
+  once the run has been: a Fellow spawned in the evening writes its pages and its open
+  questions, and those are what its planner then works from. What it buys is a night - the
+  proposals stand before the shift opens, so there is an evening to decide in.
+- **The pill counts the planning runs too**, and says when the quota is what binds.
+
+## 9. What is open (2026-09-15)
+
+Every item below was checked at the source on 2026-09-15, so that `TASKS-A6.md` D6 has
+something true to point at. **D6 currently names 1, 1b, 3.5 and 5. That list is wrong in both
+directions:** 3.5 was decided and built in stage B (its heading kept the word "needed" and was
+read as open), and it misses 7 as well as everything under "before this milestone is called
+done".
+
+**Four design questions. None blocks the merge; each is decided before it is built, not while.**
+
+| # | Question | Why it is not a task |
+| --- | --- | --- |
+| 1 | Skip the planning run for a deepen task | Changes what a Fellow proposes and removes a model from a decision. Needs a before/after on real themes; $0.55 is not worth a worse choice of pages. |
+| 1b | An intra-domain handoff between the arts | Stage B made single-art Fellows spawnable, so its two failure modes are now reachable. The unit of handoff, who may create one, and how it avoids being a second invisible queue are all unsettled. |
+| 5 | A log channel per run | The rename is cheap (`channel` is already a field the server hands out). What the twelve kind-named subscribers do, and what a per-run buffer's lifetime is, is not. |
+| 7 | Splitting an overgrown page | The additive rule is what makes a deepening safe to run unattended, so the exception has to be narrower than "a run that says it is splitting". Nothing measures a page's length today either. |
+
+**Two things that had to be fixed before this milestone could be called done. Both done
+2026-09-15**, and both are carried in `TASKS-A6.md` (F-A6-15, F-A6-16) because that is where
+the merge gates live:
+
+1. **`npm test` exited 1**, although all 1819 tests passed: `planAfterFirst` (section 8)
+   reached `agents.get` after `collaboration.test.ts` had closed its database. Fixed in two
+   places. The suite now awaits `service.flush()` before closing - the service already had
+   `flush` for exactly this and the suite never called it. And `FellowService.enqueue` catches
+   and logs, the way `track` already did one level down, which closes the same hole in the
+   SERVICE: `main.ts`'s `stop()` closes the database without flushing and nothing handles
+   `unhandledRejection`, so a Fellow spawned shortly before a restart could have ended the
+   process. Awaiting that work on shutdown instead would hang `stop()` for minutes, because the
+   chained plan waits on a research run. `npm test` exits 0.
+2. **`docs/agents/SPEC.md` described a component that no longer exists.** Section 10.5 "Fellow
+   card" and the "Open card (switches to full mode with the docked card)" action in 10.6 were
+   the sidebar stage C deleted, and the command centre - this whole milestone - had no section
+   of its own. Fixed in the spec's own pattern: 10.5 and 10.6 keep the design they were built
+   against and carry a dated note pointing forward, and **new 10.12 "The Fellow command centre
+   (as built, 2026-09-15)"** describes what exists. Four more claims had the same single cause
+   and went with it: 10.11's "one task a night, in turn" (`sweep` has been the default since
+   stage B) and its task-state labels, 8.6a's comparison to a quota override on the card,
+   10.8's level-of-detail example, and 10.10's deepen entry points. Worth keeping in view:
+   10.11 was written on 2026-09-07 and was wrong by the 9th, two days later, with nothing able
+   to notice.
+
+**One thing to settle with A6, not here: the quoted planning run in 6.4.** It names two
+research subjects - the standing tasks of a Fellow on the production vault - and this repo is
+public (hard rule 7). The two Fellow NAMES in 6.3 and 6.4 are not the problem: both come from
+`web/src/lib/fellowNames.ts`, the product's own suggestion list, so they ship in this repo
+already and say nothing about anyone's vault. The subjects do.
+
+It is a decision rather than a scrub, because the quote is the EVIDENCE for 6.4: the finding is
+that the planner said out loud why it had nothing to propose, and a generalised paraphrase
+proves less. A6 has to choose between rewriting it with invented subjects (the vocabulary
+F-A6-13 established) and keeping it. What it must not do is assume a tool caught this: the
+`commit-msg` hook reads commit text, not tracked files, and the audit of F-A6-7 built its term
+list from vault page titles, which a standing task's subject is not - the task lives in SQLite,
+and the pages it produced are named for their findings, not for the watch that found them.
+
+**Two small things in the window itself**, both cheap, neither load-bearing:
+
+- **The standing task list is read-only in the dossier**, and says so ("Editing the list is not
+  built into this window yet"). `PATCH /api/v1/agents/:id` already takes `tasks`, so this is UI
+  only - but a window that "manages the Fellows completely" not editing the property that
+  defines a Fellow is the one visible hole left in the goal.
+- **That list labels its rows `up next` / `waiting`**, which is 4.2.1's fourth finding surviving
+  in one corner: under `sweep` (the default) every active task is planned tonight, so "waiting"
+  is wrong; under `rotate` the row it marks is `active[0]`, which is not necessarily the task
+  the cursor points at. The dossier's own `upNext` reads `tasksTonight` and is right; this list
+  does not use it.

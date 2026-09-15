@@ -761,8 +761,11 @@ granted at any hour but one therefore expired unused, which made the control dec
 
 The button sits in the Library's plan corner, next to the age of the measurement - which is now
 always shown, "0m old" included, so the button never moves. A first click turns it into
-`yes, to 90%` / `no`, the same two-step the Fellow card's quota override uses. While a grant is
-live the button says `90% until 18:20` and withdraws it on click.
+`yes, to 90%` / `no`. While a grant is live the button says `90% until 18:20` and withdraws it
+on click. (It used to name the Fellow card's quota override as the same two-step; since A7 that
+override is a single button in the dossier, which names the number it would raise the quota to
+and why, so the comparison no longer holds. The two-step here stands on its own reasoning: this
+one spends the week's reserve.)
 
 ### 8.6a Releasing the week for one night (as built, 2026-09-10)
 
@@ -1036,6 +1039,13 @@ and night.
 
 ### 10.5 Fellow card
 
+> **Superseded 2026-09-15 (A7). The docked card described here no longer exists.**
+> `FellowCard.tsx` is deleted: all five of the things it held (the recap, the activity log,
+> the pages, the notebook and the settings) had grown inside the Fellow command centre, so the
+> card had become a second, older copy of screens the user already had. Every way in now opens
+> the command centre's dossier instead, deep link included. What is built is 10.12; this stays
+> as the design it was built against, and as the record of which fields were promised.
+
 Opened by clicking a Fellow, by the Fellow list in the control column (the accessible
 path), from the research ledger's Fellow chip, and from the recap. Deep link
 `/library?agent=<id>`. Docked beside the canvas per DESIGN.md (the canvas shrinks, no
@@ -1061,6 +1071,12 @@ domain, state), name, what it works on now with step and phase, what runs tonigh
 estimated cost, and two actions, "Open card" (switches to full mode with the docked card)
 and "Pause". The popover is the only chrome that appears in focus mode; everything else
 waits in full mode.
+
+> **Corrected 2026-09-15 (A7):** there is no docked card to switch to, so "Open card" opens
+> the Fellow's dossier in the command centre over the room. The popover itself stands: a click
+> on a figure still answers in place, and the card it leads to is now centred over the room
+> rather than pinned to the figure, because at its width an anchored card spends its life half
+> off an edge.
 
 ### 10.7 Rendering and assets
 
@@ -1097,8 +1113,9 @@ repo. Controls live on the canvas as on the graph screen. The screen follows DES
   side toward the viewer; tall objects only in the back half or free-standing; one tile
   free in front of every shelf; wall decoration only where the frame always shows it, with
   a drawing depth behind nothing that overlaps it.
-- **Level of detail.** Below a tile size of about 34 px the signs leave the shelves (the
-  docked-card view, thumbnails); below about 18 px only colored blocks remain.
+- **Level of detail.** Below a tile size of about 34 px the signs leave the shelves
+  (thumbnails, and the narrow canvas the docked card used to leave behind before A7 removed
+  it); below about 18 px only colored blocks remain.
 
 ### 10.9 Navigation and naming
 
@@ -1574,9 +1591,11 @@ and recaps survive in the vault and let the user re-create Fellows by hand.
 touches pages the vault already has was the one the user could not ask for. It has two entry
 points into one dialog, and it is called **Deepen**.
 
-- **The Fellow card**, beside "Run next step now", on the Fellow's own home domain; and **the
+- **The shelf window**, as "Deepen this domain" on the shelf you are standing in; and **the
   Catalog**, in the bar that carries the hit count, as soon as a domain filter is on. Both open
-  `DeepenDialog`, so there is one thing to keep consistent instead of two.
+  `DeepenDialog`, so there is one thing to keep consistent instead of two. (It was the Fellow
+  card and the Catalog until A7; the card is gone and the shelf is the better home anyway,
+  since a deepening is asked of a DOMAIN and the shelf is where a domain is stood in.)
 - **You pick a domain, the vault picks the pages.** `deepenCandidates` ranks by demand against
   substance - many backlinks, little text - from `in` and `size`, which every graph node already
   carries, so the ranking is a pure function in the web and needs no endpoint. Concepts and
@@ -1771,6 +1790,60 @@ unmeasurable, which the end-to-end tests read as a drift score of 0.00.
   the recap can say so. Not in the bubble over the figure: that says what the Fellow is DOING.
 - **Every field of the spawn form now carries a footnote**, because it is the first form a user
   meets and none of it explained itself.
+
+> **Two of these were overtaken by A7 (2026-09-15), see 10.12.** "One task a night, in turn"
+> is now the non-default: `nightly` is `sweep` unless the user says otherwise, so a Fellow
+> plans EVERY standing task each night and `rotate` is the setting that keeps the behaviour
+> described above. And the task states the card lists are no longer "up next / waiting /
+> resting" for a sweeping Fellow, where every active task is tonight's. Everything else in this
+> section stands, the tasks themselves included.
+
+### 10.12 The Fellow command centre (as built, 2026-09-15)
+
+One window that manages the Fellows completely, opened by "Night shift" or `?cc=1`, over the
+room in the frame a shelf window uses. It replaced the docked card of 10.5, which had become
+the second copy of five screens this window already had.
+
+- **It opens on the night, not on a list.** Five views (`shelves`, `tonight`, `dossier`,
+  `decisions`, `spawn`), and Escape steps back one level the way the shelf window does. The
+  arithmetic is under test in `web/src/lib/command/model.ts`; the component lays it out.
+- **A Fellow appears at its `homeDomain` only.** `extraDomains` widens where it may work, not
+  where it lives, so the night's arithmetic cannot count a Fellow twice.
+- **One queue, because the runs are serialized** on the run mutex. The night is drawn as a
+  single line rather than one lane per domain, which is what makes the diagnosis it was built
+  for readable: a window of N hours holding M minutes of work.
+- **A block is one RUN, not one task.** A Fellow plans every standing task and then carries out
+  as many proposals as its quota allows, so the two are different counts and different lengths;
+  `taskBands` groups the blocks back into one band per task for the overview, where a single run
+  is about ten pixels wide.
+- **The schedule is drawn from measurement.** `GET /api/v1/agents` answers `durations` (median
+  ms per kind over this vault's own runs) and `costs` (`runPrices` over the settled ones). The
+  four reference constants never learned: after ten research runs the log put one a third above
+  what a run actually costs, and that is the number the gate decides with.
+- **The order it draws is the shelf order; the start times are a forecast.** `scheduleFrom`
+  lays a Fellow's blocks together, while both execution phases walk rounds, so a night with
+  several multi-run Fellows does not keep the clock the bar shows. Deliberate: the bar answers
+  "what does tonight do and roughly how long does it take", and interleaving four Fellows
+  answers that worse while being more literally correct.
+- **An unstaffed shelf is a screen, not an omission.** Every registry domain gets its pages,
+  its question pages and its gaps counted, not only the staffed ones, and a gap is attributed to
+  the domain most of its referrers sit in. Unclaimed handoffs live here, next to the spawn
+  button that answers them.
+- **The dossier is five panes** (notebook, recap, ledger, pages, settings) plus the standing
+  work. Editing the task list is NOT in it yet; `PATCH /api/v1/agents/:id` already takes
+  `tasks`, so that gap is UI only.
+- **Three fields came with it** (migration v23), each the thing a drawn control needed:
+  `agents.nightly` (`sweep` | `rotate`, default `sweep`), `agents.art` (`watch` | `explore` |
+  `deepen` | `custom`, default `custom`, enforced by `artRefusal` at spawn and at update, 409 on
+  a conflict), and the `shelf_order` table read by `byShelfThenPriority`, which gives the domain
+  the primary sort key and leaves `priority` its meaning inside a shelf.
+- **The card in the room says what a Fellow was SPAWNED as.** `art` is not a setting that
+  drifts, it is the promise the shape made, which is why a Fellow spawned as one art cannot
+  later be handed a task of another. Three ways out of the card, because a Fellow's work is kept
+  in three places: its dossier, its shelf's night, and its decisions.
+- **Open questions, decided before they are built:** skipping the planning run for a deepen
+  task, an intra-domain handoff between the arts, a log channel per run, and splitting an
+  overgrown page (7). `docs/tasks/TASKS-A7.md` section 9 is the list.
 
 ---
 
