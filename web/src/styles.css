@@ -8766,6 +8766,14 @@ tr:focus-within .rowacts {
 }
 .lib-decisions.due { border-color: var(--warn); color: var(--warn); font-weight: 600; }
 .lib-decisions.due .n { background: var(--warn-bg); color: var(--warn); }
+/* Pressed: the decisions are open and this button is the way back out of them. A toggle has
+   to look held down, or its second click reads as a click that did nothing. */
+.lib-decisions.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.lib-decisions.on .n { background: var(--bg-elev); color: var(--accent); }
 
 /* The room strip is a segmented control like the others, so it is built like one. */
 .lib-headline .lib-strip { padding: 2px; box-shadow: none; }

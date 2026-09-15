@@ -166,6 +166,8 @@ export function LibraryScreen({
   /** The roster, in the order the dossier's arrows walk it. Reported up for the same reason. */
   const [ccRoster, setCcRoster] = useState<readonly RosterEntry[]>([])
   const [ccFellowId, setCcFellowId] = useState<string | null>(ccFellowIdParam === '' ? null : ccFellowIdParam)
+  /** The view the decisions toggle was pressed from, so pressing it again goes back there. */
+  const [ccFrom, setCcFrom] = useState<CcView>('tonight')
   /*
    * Only the dossier is a Fellow. `ccFellowId` outlives it - Escape steps back to the shelf
    * and leaves it set, so that the arrows and a later reopen land where you were - and reading
@@ -958,10 +960,30 @@ export function LibraryScreen({
                 their decisions and their notebooks are behind it. */}
             {shelf === null && board === null && (
               ccOpen ? (
+                /*
+                 * A toggle, not a one-way door (2026-09-15): the second click on it closes
+                 * what the first opened. It returns to where the click came FROM rather than
+                 * to a fixed view, because the door can be opened from the shelves as well as
+                 * from a shelf's night, and landing on a different screen than the one you
+                 * left is not what closing something does. Escape still takes its own way out
+                 * (`back()` in the centre), which is one step at a time.
+                 */
                 <button
-                  className={`btn sm lib-decisions${openDecisions > 0 ? ' due' : ''}`}
-                  onClick={() => setCcView('decisions')}
-                  title={openDecisions > 0 ? `${openDecisions} proposal(s) up for review` : 'Nothing is up for review'}
+                  className={`btn sm lib-decisions${ccView === 'decisions' ? ' on' : ''}${openDecisions > 0 ? ' due' : ''}`}
+                  onClick={() => {
+                    if (ccView === 'decisions') setCcView(ccFrom)
+                    else {
+                      setCcFrom(ccView)
+                      setCcView('decisions')
+                    }
+                  }}
+                  title={
+                    ccView === 'decisions'
+                      ? 'Close the decisions'
+                      : openDecisions > 0
+                        ? `${openDecisions} proposal(s) up for review`
+                        : 'Nothing is up for review'
+                  }
                 >
                   Decisions
                   <span className="n">{openDecisions}</span>
