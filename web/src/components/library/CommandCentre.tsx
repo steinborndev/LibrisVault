@@ -470,6 +470,25 @@ export function CommandCentre({
     [roster],
   )
 
+  /*
+   * Opened on the decisions FOR a named Fellow - the room's card has a button that does this -
+   * the list starts on that Fellow rather than on whoever happens to be first. Once per id,
+   * like the shelf above: after that the arrows are the user's.
+   */
+  const aimed = useRef<string | null>(null)
+  useEffect(() => {
+    if (view !== 'decisions' || fellowId === null) {
+      if (view !== 'decisions') aimed.current = null
+      return
+    }
+    if (aimed.current === fellowId) return
+    const at = deciders.findIndex((d) => d.fellow.agent.id === fellowId)
+    if (at < 0) return
+    aimed.current = fellowId
+    setDecIndex(at)
+    setOptIndex(0)
+  }, [view, fellowId, deciders])
+
   const qc = useQueryClient()
   const saveWindow = useMutation({
     mutationFn: (w: { from: number; to: number }) =>

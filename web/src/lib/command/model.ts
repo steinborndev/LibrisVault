@@ -32,6 +32,40 @@ export function artOf(tasks: readonly AgentTask[]): FellowArt {
 }
 
 /**
+ * What a Fellow was SPAWNED as, in one word (2026-09-15).
+ *
+ * The spawn form offers four shapes and the service holds a Fellow to the one it was made
+ * from: `art` is not a setting that drifts, it is the promise the shape made, which is why an
+ * observer cannot later be handed a deepen task. So the shape is a fact about the Fellow and
+ * can be read back off the record wherever the Fellow is named.
+ */
+export function shapeName(art: FellowRecord['art']): 'Observer' | 'Researcher' | 'Librarian' | 'Custom' {
+  if (art === 'watch') return 'Observer'
+  if (art === 'explore') return 'Researcher'
+  if (art === 'deepen') return 'Librarian'
+  return 'Custom'
+}
+
+/** The standing work: the tasks that have not been answered, whatever tonight does with them. */
+export function standingTasks(agent: FellowRecord): readonly AgentTask[] {
+  return (agent.tasks ?? []).filter((t) => t.state === 'active')
+}
+
+/**
+ * How far a run in flight has got, as a fraction in [0, 1], or null when nothing says.
+ *
+ * Measured against the median of its own kind (`run-duration.ts`), so it is an estimate and
+ * not a report - it is capped just below 1 for that reason: a run that outlives the median is
+ * still running, and a full bar would say it had finished.
+ */
+export function runProgress(startedAt: string, typicalMs: number | null, now: number): number | null {
+  if (typicalMs === null || typicalMs <= 0) return null
+  const started = Date.parse(startedAt)
+  if (!Number.isFinite(started)) return null
+  return Math.max(0.02, Math.min(0.96, (now - started) / typicalMs))
+}
+
+/**
  * The tasks a Fellow works tonight: every standing one when it sweeps, the one whose turn it
  * is when it rotates (docs/tasks/TASKS-A7.md D8). A paused Fellow works none.
  */

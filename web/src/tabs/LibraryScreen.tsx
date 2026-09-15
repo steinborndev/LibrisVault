@@ -19,7 +19,6 @@ import { fmtDay } from '../lib/recapFeed.ts'
 import type { LibraryScene, SceneFellow, SceneRoom } from '../api/types.ts'
 import { RoomSvg } from '../components/library/RoomSvg.tsx'
 import { RoomStrip } from '../components/library/RoomStrip.tsx'
-import { FellowCard } from '../components/library/FellowCard.tsx'
 import { FellowPopover } from '../components/library/FellowPopover.tsx'
 import { SpawnForm } from '../components/library/SpawnForm.tsx'
 import { Icon } from '../components/Icon.tsx'
@@ -62,15 +61,18 @@ type Mode = 'full' | 'focus'
  * department window's: this is a place you walk around, so the keys walk the rooms, and what
  * the pointer does is mostly pick things up.
  */
+/** Stable empty default: a fresh object each render would re-lay the schedule with it. */
+const NO_DURATIONS: Readonly<Record<string, number | null>> = {}
+
 const ROOM_SHORTCUTS = [
   { keys: ['←', '→'], what: 'the room before or after this one' },
   { keys: ['PgUp', 'PgDn'], what: 'the same step, and the wheel over the room does it too' },
-  { keys: ['Esc'], what: 'one step back: a window, then a wing, out to the main room' },
+  { keys: ['Esc'], what: 'one step back: a Fellow card, then a window, then a wing, out to the main room' },
   { keys: ['click'], what: 'a shelf opens its department; a free one starts a new department' },
   { keys: ['drag'], what: 'a shelf moves to another slot or another room' },
   { keys: ['drag'], what: 'the hatched gap moves the aisle, or the doorway, along its row' },
   { keys: ['click'], what: 'the passage walks to the next room; a board on the wall opens it' },
-  { keys: ['click'], what: 'a figure shows what that Fellow is doing' },
+  { keys: ['click'], what: 'a figure opens its Fellow: what it is doing, and the way to its screens' },
 ]
 
 const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Last night', reading: 'Reading list' }
@@ -175,7 +177,8 @@ export function LibraryScreen({
    */
   const ccFellow = ccView === 'dossier' ? (ccRoster.find((r) => r.id === ccFellowId) ?? null) : null
   const ccShelf = ccView === 'shelves' ? null : (ccFellow?.domain ?? ccShelves[ccStop] ?? null)
-  const [popover, setPopover] = useState<{ fellow: SceneFellow; x: number; y: number } | null>(null)
+  /* No coordinates: the card opens centred over the room whichever figure was clicked. */
+  const [popover, setPopover] = useState<{ fellow: SceneFellow } | null>(null)
   /**
    * Which of the reading list's two lists is open. It lives here rather than in the board,
    * because its toggle stands in the headline where the mode toggle otherwise does - one slot,
@@ -261,8 +264,16 @@ export function LibraryScreen({
   useEffect(() => {
     if (shelfParam !== '') setShelf(shelfParam)
   }, [shelfParam])
+  /*
+    * `?agent=<id>` used to open the Fellow sidebar. The sidebar is gone; the link is not, so it
+    * opens the dossier the sidebar's sections moved into.
+    */
   useEffect(() => {
-    if (agentParam !== '') setMode('full')
+    if (agentParam === '') return
+    setMode('full')
+    setCcFellowId(agentParam)
+    setCcView('dossier')
+    setCcOpen(true)
   }, [agentParam])
 
   // Live log lines change poses without a new snapshot: re-render on a line of any channel in play.
@@ -373,19 +384,19 @@ export function LibraryScreen({
     },
     [],
   )
-  const openCard = useCallback((agentId: string): void => {
-    const q = new URLSearchParams(window.location.search)
-    q.set('agent', agentId)
-    navigate(`/library?${q.toString()}`)
+  /*
+   * Into the command centre, on the screen the button named (2026-09-15). This used to be
+   * `?agent=<id>`, which opened a Fellow sidebar carrying its own older copies of the recap,
+   * the log, the pages and the settings; all four live in the centre now, so the room opens
+   * the centre instead of a second version of it.
+   */
+  const openFellowAt = useCallback((agentId: string, view: CcView): void => {
+    setCcFellowId(agentId)
+    setCcView(view)
+    setCcOpen(true)
+    setBoard(null)
     setPopover(null)
-    setMode('full')
   }, [])
-  const closeCard = (): void => {
-    const q = new URLSearchParams(window.location.search)
-    q.delete('agent')
-    const rest = q.toString()
-    navigate(rest === '' ? '/library' : `/library?${rest}`, { replace: true })
-  }
 
   /*
    * Paging: wheel and arrow keys inside the canvas. It wraps - scrolling past the last room
@@ -648,14 +659,12 @@ export function LibraryScreen({
     if (next) pickRoom(next.id)
   }
 
-  const onActorClick = (a: Actor, e: React.MouseEvent): void => {
+  const onActorClick = (a: Actor): void => {
     if (!a.agentId || !scene.data) return
     const fellow = scene.data.fellows.find((f) => f.agentId === a.agentId)
     if (!fellow) return
-    if (mode === 'focus') {
-      const rect = areaRef.current?.getBoundingClientRect()
-      setPopover({ fellow, x: e.clientX - (rect?.left ?? 0) + 16, y: e.clientY - (rect?.top ?? 0) - 40 })
-    } else openCard(a.agentId)
+    // The card is the same in both modes and takes no coordinates: it opens centred.
+    setPopover({ fellow })
   }
 
   /*
@@ -687,7 +696,7 @@ export function LibraryScreen({
               setShelf(d)
             }}
             onOpenPage={setShelfPage}
-            onOpenFellow={openCard}
+            onOpenFellow={(id) => openFellowAt(id, 'dossier')}
           />
         </aside>
       )}
@@ -740,7 +749,7 @@ export function LibraryScreen({
             {(s?.fellows ?? [])
               .filter((f) => f.state !== 'retired')
               .map((f) => (
-                <button key={f.agentId} className={`lib-frow${agentParam === f.agentId ? ' sel' : ''}`} onClick={() => openCard(f.agentId)}>
+                <button key={f.agentId} className={`lib-frow${ccFellowId === f.agentId ? ' sel' : ''}`} onClick={() => openFellowAt(f.agentId, 'dossier')}>
                   <span className="d" style={{ background: domainColor(f.homeDomain) }} aria-hidden />
                   <span className="who">
                     <b>{f.name}</b>
@@ -755,7 +764,7 @@ export function LibraryScreen({
                 plan={plan.data}
                 onDone={(id) => {
                   setSpawnOpen(false)
-                  openCard(id)
+                  openFellowAt(id, 'dossier')
                 }}
                 onCancel={() => setSpawnOpen(false)}
               />
@@ -1009,7 +1018,7 @@ export function LibraryScreen({
               actors={actors}
               width={CANVAS_W}
               height={CANVAS_H}
-              selectedAgentId={agentParam || null}
+              selectedAgentId={ccFellowId}
               draggingDomain={drag?.domain ?? null}
               dropSlot={drag && drag.target === null ? drag.slot : null}
               onShelfClick={(domain) => {
@@ -1127,11 +1136,14 @@ export function LibraryScreen({
           {!windowOpen && <Shortcuts rows={ROOM_SHORTCUTS} corner />}
           {popover && (
             <FellowPopover
-              fellow={popover.fellow}
-              x={popover.x}
-              y={popover.y}
+              scene={popover.fellow}
+              fellow={agentsQ.data?.fellows.find((f) => f.agent.id === popover.fellow.agentId)}
               roomName={current?.name ?? ''}
-              onOpenCard={() => openCard(popover.fellow.agentId)}
+              durations={agentsQ.data?.durations ?? NO_DURATIONS}
+              costs={agentsQ.data?.costs}
+              onDossier={() => openFellowAt(popover.fellow.agentId, 'dossier')}
+              onTonight={() => openFellowAt(popover.fellow.agentId, 'tonight')}
+              onDecisions={() => openFellowAt(popover.fellow.agentId, 'decisions')}
               onPause={() => pauseFellow.mutate(popover.fellow)}
               onClose={() => setPopover(null)}
             />
@@ -1145,7 +1157,6 @@ export function LibraryScreen({
         </div>
       </div>
 
-      {mode === 'full' && agentParam !== '' && <FellowCard agentId={agentParam} vaultName={vaultName} onClose={closeCard} />}
     </div>
   )
 }

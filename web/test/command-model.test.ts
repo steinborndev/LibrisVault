@@ -11,6 +11,9 @@ import {
   artOf,
   runsTonight,
   runsPillTitle,
+  shapeName,
+  standingTasks,
+  runProgress,
   isSystemPage,
   fellowMinutes,
   minutesFor,
@@ -667,6 +670,39 @@ describe('nightRows', () => {
  * what the night's own planning puts up, the quota is one reason among several and no longer
  * the usual one - and raising a quota that is not binding changes nothing at all.
  */
+describe('what the room\'s Fellow card reads off a record', () => {
+  it('names the shape the Fellow was spawned as, which is what its art promises', () => {
+    // The service holds a Fellow to its art (`artRefusal`), so the shape is a fact and not a
+    // setting that drifts: reading it back off the record is always the shape it was made from.
+    expect(shapeName('watch')).toBe('Observer')
+    expect(shapeName('explore')).toBe('Researcher')
+    expect(shapeName('deepen')).toBe('Librarian')
+    expect(shapeName('custom')).toBe('Custom')
+  })
+
+  it('counts the standing work, which is the tasks that have not been answered', () => {
+    const a = agent({
+      id: 's', name: 'S',
+      tasks: [task('watch', 'a'), { ...task('explore', 'b'), state: 'resting' } as AgentTask, task('deepen', 'c')],
+    })
+    expect(standingTasks(a).map((t) => t.text)).toEqual(['a', 'c'])
+    expect(standingTasks(agent({ id: 'e', name: 'E', tasks: [] }))).toHaveLength(0)
+  })
+
+  it('reads a run in flight against the median of its kind, and never fills the bar', () => {
+    const at = Date.parse('2026-09-15T22:00:00.000Z')
+    const min = 60_000
+    expect(runProgress('2026-09-15T21:56:00.000Z', 8 * min, at)).toBeCloseTo(0.5, 3)
+    // A run that outlives the median is still running: a full bar would say it had finished.
+    expect(runProgress('2026-09-15T21:00:00.000Z', 8 * min, at)).toBe(0.96)
+    // And one that just started still shows: a bar at nothing reads as a bar that is broken.
+    expect(runProgress('2026-09-15T22:00:00.000Z', 8 * min, at)).toBe(0.02)
+    // Nothing measured, nothing drawn.
+    expect(runProgress('2026-09-15T21:56:00.000Z', null, at)).toBeNull()
+    expect(runProgress('not a date', 8 * min, at)).toBeNull()
+  })
+})
+
 describe('runsPillTitle', () => {
   const swept = (a: FellowRecord, standing: number, done: number): FellowSummary =>
     ({ ...withStanding(a, standing), runsTonight: done }) as FellowSummary
