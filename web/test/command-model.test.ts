@@ -696,6 +696,32 @@ describe('runsPillTitle', () => {
     expect(runsPillTitle(swept(a, 2, 1), 2)).toContain('1 carried out and 2 still standing')
   })
 
+  it('counts the planning runs, which is one per task the night works', () => {
+    // A sweeping Fellow with three tasks puts three planning runs on the board and, at a quota
+    // of two, two research runs: five rows over a pill that says 2. Every clause has to hold.
+    const three = [task('watch', 'a'), task('watch', 'b'), task('watch', 'c')]
+    const sweeps = agent({ id: 's', name: 'S', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 2, tasks: three })
+    const title = runsPillTitle(swept(sweeps, 2, 0), tasksTonight(sweeps).length)
+    expect(title.startsWith('3 standing tasks.')).toBe(true)
+    expect(title).toContain('One planning run per task comes first')
+    expect(title).toContain('The quota is reached before every task gets a run')
+
+    // Two tasks and two runs: still one plan each, but nothing is left short.
+    const even = agent({ id: 'e', name: 'E', autonomy: 'auto', nightly: 'sweep', quotaRunsPerDay: 2, tasks: three.slice(0, 2) })
+    const evenly = runsPillTitle(swept(even, 2, 0), tasksTonight(even).length)
+    expect(evenly).toContain('One planning run per task')
+    expect(evenly).not.toContain('reached before every task')
+
+    // A Fellow that rotates works ONE task a night however many it holds, so the singular
+    // stands: one planning run, and both runs of the quota go to that task.
+    const rotates = agent({ id: 'r', name: 'R', autonomy: 'auto', nightly: 'rotate', quotaRunsPerDay: 2, tasks: three })
+    expect(tasksTonight(rotates)).toHaveLength(1)
+    const rotating = runsPillTitle(swept(rotates, 2, 0), tasksTonight(rotates).length)
+    expect(rotating.startsWith('1 standing task.')).toBe(true)
+    expect(rotating).toContain('A planning run of its own comes first')
+    expect(rotating).not.toContain('reached before every task')
+  })
+
   it('a night with nothing to run says so, and says what the quota is', () => {
     const a = agent({ id: 'c', name: 'C', autonomy: 'veto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
     const title = runsPillTitle(summary(a), 1)

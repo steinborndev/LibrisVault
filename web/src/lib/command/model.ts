@@ -249,11 +249,22 @@ export function runsPillTitle(f: FellowSummary, tasks: number): string {
    * words that meant different things are now two sentences - what stands, and what runs of it.
    */
   const head = `${many(tasks, 'standing task')}.`
-  const free = 'A planning run of its own comes first and never counts against the quota.'
+  /*
+   * One planning run per task for a Fellow that sweeps, one for the task whose turn it is for
+   * one that rotates - and `tasks` is already what `tasksTonight` reduced that to, so it is
+   * also the number of planning runs. Saying "a planning run" over three of them on the board
+   * is the same conflation one step down.
+   */
+  const free =
+    tasks === 1
+      ? 'A planning run of its own comes first and never counts against the quota.'
+      : 'One planning run per task comes first, and a planning run never counts against the quota.'
+  // Fewer runs than tasks: the pill is right and still smaller than the list above it.
+  const short = total < tasks ? ' The quota is reached before every task gets a run.' : ''
   if (total === 0) return `${head} Nothing stands to run: tonight is a planning night. The quota is ${many(quota, 'run')} a night.`
-  if (done === 0) return `${head} ${many(standing, 'research run')} of the quota's ${quota} stand to run tonight; none carried out yet. ${free}`
-  if (standing === 0) return `${head} ${many(done, 'research run')} of the quota's ${quota} carried out; nothing more stands. ${free}`
-  return `${head} Of the quota's ${quota} research runs, ${done} carried out and ${standing} still standing. ${free}`
+  if (done === 0) return `${head} ${many(standing, 'research run')} of the quota's ${quota} stand to run tonight; none carried out yet.${short} ${free}`
+  if (standing === 0) return `${head} ${many(done, 'research run')} of the quota's ${quota} carried out; nothing more stands.${short} ${free}`
+  return `${head} Of the quota's ${quota} research runs, ${done} carried out and ${standing} still standing.${short} ${free}`
 }
 
 /**
