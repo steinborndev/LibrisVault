@@ -6,9 +6,9 @@
  * theme re-ranked each run lets what has already been built out fall to the back on its own.
  *
  * Two steps. First the theme picks its pages - token overlap between the task's sentence and a
- * page's title and tags, the same tokeniser the scope score uses, so "endosomal escape and LNP
- * formulation" finds the pages about those things. Then the same demand-against-substance
- * ranking the Deepen dialog uses puts the thin, much-linked ones first.
+ * page's title and tags, the same tokeniser the scope score uses, so "sintering shrinkage in
+ * ceramic electrolytes" finds the pages about those things. Then the same
+ * demand-against-substance ranking the Deepen dialog uses puts the thin, much-linked ones first.
  *
  * TWIN: `web/src/lib/library/../deepen.ts` ranks identically for the dialog. The formula lives
  * in two places because the two workspaces share no code; if one changes, change both, and the

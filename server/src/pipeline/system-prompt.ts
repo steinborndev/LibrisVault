@@ -186,7 +186,7 @@ document), a file the user dropped in, and any page you fetch yourself in a rese
 
 /**
  * Entity-notability policy appended to every vault-WRITING run, alongside the hygiene
- * checklist. Motivating case (2026-07-22, "Fokki" / earlier "0xCodez"): the ingest skill
+ * checklist. Motivating case (2026-07-22, the single-post-creator class): the ingest skill
  * creates an entity page for every named author, so single-post social-media creators end
  * up as bio-transcription pages with no reusable knowledge. The runs already CLASSIFY these
  * correctly (the gap notes call them single-source promotional content) — what was missing

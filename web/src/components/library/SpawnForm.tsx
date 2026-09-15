@@ -169,9 +169,9 @@ export function SpawnForm({ prefill, plan, onDone, onCancel }: { prefill?: Parti
               onChange={(e) => setTasks(setTask(tasks, i, { text: e.target.value }))}
               placeholder={
                 t.kind === 'watch'
-                  ? 'What to keep an eye on, e.g. newly approved biologics'
+                  ? 'What to keep an eye on, e.g. newly published sintering standards'
                   : t.kind === 'deepen'
-                    ? 'The theme whose pages should be built out, e.g. endosomal escape and LNP formulation'
+                    ? 'The theme whose pages should be built out, e.g. sintering shrinkage in ceramic electrolytes'
                     : 'The question this Fellow pursues'
               }
               required

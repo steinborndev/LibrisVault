@@ -99,8 +99,8 @@ describe('which run an art of task allows', () => {
 
 describe('the scope score against one task instead of a subject', () => {
   it('reads high for a proposal on the task and low for one beside it', () => {
-    const onTask = scopeScore('endosomal escape efficiency of ionizable lipid nanoparticles', 'endosomal escape and LNP formulation')
-    const beside = scopeScore('regulatory timelines for orphan drug designation in the EU', 'endosomal escape and LNP formulation')
+    const onTask = scopeScore('sintering shrinkage of ceramic solid electrolytes', 'sintering shrinkage in ceramic electrolytes')
+    const beside = scopeScore('procurement timelines for laboratory furnaces in the EU', 'sintering shrinkage in ceramic electrolytes')
     expect(onTask).toBeGreaterThan(beside)
     expect(beside).toBeLessThan(0.2)
   })
@@ -110,7 +110,7 @@ describe('which pages a deepen task builds out', () => {
   const node = (over: Partial<GraphNode> & { path: string; title: string }): GraphNode => ({
     type: 'concepts',
     tags: [],
-    domain: 'biomedicine',
+    domain: 'materials',
     kind: 'knowledge',
     out: 2,
     in: 0,
@@ -121,32 +121,32 @@ describe('which pages a deepen task builds out', () => {
 
   it('takes the theme’s pages, thin and much-linked first', () => {
     const g = graph([
-      node({ path: 'a.md', title: 'Endosomal Escape Efficiency', in: 20, size: 800 }),
-      node({ path: 'b.md', title: 'Endosomal Escape Assays', in: 3, size: 30_000 }),
-      node({ path: 'c.md', title: 'Sourdough Fermentation', in: 40, size: 300 }),
+      node({ path: 'a.md', title: 'Sintering Shrinkage Rate', in: 20, size: 800 }),
+      node({ path: 'b.md', title: 'Sintering Shrinkage Models', in: 3, size: 30_000 }),
+      node({ path: 'c.md', title: 'Weld Porosity', in: 40, size: 300 }),
     ])
-    expect(rankForDeepening(g, new Set(['biomedicine']), 'endosomal escape', 4).map((r) => r.title)).toEqual([
-      'Endosomal Escape Efficiency',
-      'Endosomal Escape Assays',
+    expect(rankForDeepening(g, new Set(['materials']), 'sintering shrinkage', 4).map((r) => r.title)).toEqual([
+      'Sintering Shrinkage Rate',
+      'Sintering Shrinkage Models',
     ])
   })
 
   it('stays inside the Fellow’s own domains, the same bound a hand-started deepening has', () => {
-    const g = graph([node({ path: 'a.md', title: 'Endosomal Escape', domain: 'cooking', in: 9, size: 500 })])
-    expect(rankForDeepening(g, new Set(['biomedicine']), 'endosomal escape', 4)).toEqual([])
+    const g = graph([node({ path: 'a.md', title: 'Sintering Shrinkage', domain: 'cooking', in: 9, size: 500 })])
+    expect(rankForDeepening(g, new Set(['materials']), 'sintering shrinkage', 4)).toEqual([])
   })
 
   it('offers concepts and entities, never sources or index hubs', () => {
     const g = graph([
-      node({ path: 's.md', title: 'Endosomal Escape (Paper)', type: 'sources', in: 9, size: 500 }),
-      node({ path: 'i.md', title: 'Endosomal Escape Index', kind: 'structural', in: 9, size: 500 }),
-      node({ path: 'e.md', title: 'Endosomal Escape', type: 'entities', in: 9, size: 500 }),
+      node({ path: 's.md', title: 'Sintering Shrinkage (Paper)', type: 'sources', in: 9, size: 500 }),
+      node({ path: 'i.md', title: 'Sintering Shrinkage Index', kind: 'structural', in: 9, size: 500 }),
+      node({ path: 'e.md', title: 'Sintering Shrinkage', type: 'entities', in: 9, size: 500 }),
     ])
-    expect(rankForDeepening(g, new Set(['biomedicine']), 'endosomal escape', 4).map((r) => r.path)).toEqual(['e.md'])
+    expect(rankForDeepening(g, new Set(['materials']), 'sintering shrinkage', 4).map((r) => r.path)).toEqual(['e.md'])
   })
 
   it('answers nothing without a graph, so a deepen task skips its night instead of guessing', () => {
-    expect(rankForDeepening(null, new Set(['biomedicine']), 'anything', 4)).toEqual([])
+    expect(rankForDeepening(null, new Set(['materials']), 'anything', 4)).toEqual([])
   })
 })
 

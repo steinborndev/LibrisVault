@@ -353,9 +353,9 @@ describe('isSystemPage', () => {
   })
 
   it('leaves everything a run set out to write', () => {
-    expect(isSystemPage('wiki/concepts/Honey Garlic Tofu.md')).toBe(false)
+    expect(isSystemPage('wiki/concepts/Compound Interest.md')).toBe(false)
     expect(isSystemPage('wiki/questions/Research: something.md')).toBe(false)
-    expect(isSystemPage('wiki/entities/NYT Cooking.md')).toBe(false)
+    expect(isSystemPage('wiki/entities/Northwind Press.md')).toBe(false)
   })
 })
 

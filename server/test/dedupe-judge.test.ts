@@ -13,7 +13,7 @@ import * as runner from '../src/pipeline/agent-runner.js'
 import type { AgentRunResult } from '../src/pipeline/agent-runner.js'
 
 const PAIRS = [
-  { id: 'p1', a: 'newly approved biologics and what they treat', b: 'which new medicines cleared regulators lately' },
+  { id: 'p1', a: 'newly published sintering standards and what they cover', b: 'which ceramics rules the bodies issued lately' },
   { id: 'p2', a: 'has application X moved since March', b: 'has application Y moved since March' },
 ]
 
@@ -44,7 +44,7 @@ describe('the duplicate judge', () => {
     expect(prompt).toContain('different subjects')
     // Hedging is allowed on purpose: a forced verdict destroys the margin a threshold needs.
     expect(prompt).toContain('middle of the range when you are genuinely unsure')
-    expect(prompt).toContain('p1\n  A: newly approved biologics')
+    expect(prompt).toContain('p1\n  A: newly published sintering standards')
   })
 
   it('binds the answer to exactly the pairs it was asked about', () => {

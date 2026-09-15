@@ -274,15 +274,15 @@ describe('FellowService against a git vault', () => {
       proposals: new SqliteProposalStore(db),
       maintenance: runner,
       notebook: new NotebookWriter({ vaultRoot, commitMutex: new Mutex() }),
-      candidates: () => [{ id: 'C1', kind: 'sweep', text: 'Harness engineering', sourcePages: [], weight: 3 }],
+      candidates: () => [{ id: 'C1', kind: 'sweep', text: 'Creep resistance testing', sourcePages: [], weight: 3 }],
     })
     const { agent, run } = await planner.spawn({
       name: 'Ida',
-      intent: 'Harness engineering',
+      intent: 'Creep resistance testing',
       homeDomain: 'ai-tooling',
-      tasks: [{ text: 'Harness engineering', kind: 'watch' }],
+      tasks: [{ text: 'Creep resistance testing', kind: 'watch' }],
     })
-    expect(run).toMatchObject({ kind: 'research', label: 'Harness engineering' })
+    expect(run).toMatchObject({ kind: 'research', label: 'Creep resistance testing' })
 
     await waitSettled(run!.id)
     await planner.flush()

@@ -2,11 +2,11 @@
  * The Markdown renderer's inline layer, and the one thing it got wrong: a construct inside
  * another construct.
  *
- * Found in the wild (2026-09-14): a source page written as `**[[Carbamoyl Phosphate Synthetase 1
- * (CPS1) Deficiency]]**` showed the brackets, because the bold alternative matched first and its
- * branch emitted the inner text raw. 404 wikilinks on 156 pages of the live vault are written
- * that way, and Obsidian, the graph and the dead-link check all read them correctly - the
- * renderer was the only reader that did not.
+ * Found in the wild (2026-09-14): a page whose wikilink sat inside bold and carried a
+ * parenthesised abbreviation showed its brackets, because the bold alternative matched first
+ * and its branch emitted the inner text raw. 404 wikilinks on 156 pages of a real vault are
+ * written that way, and Obsidian, the graph and the dead-link check all read them correctly -
+ * the renderer was the only reader that did not.
  *
  * The component is called directly and its element tree walked: no DOM, the same style the
  * linkify tests use.
@@ -53,14 +53,14 @@ const render = (source: string, wiki?: WikilinkRenderer): ReactElement =>
 
 describe('a wikilink inside other inline markup', () => {
   it('links a bold wikilink instead of showing its brackets', () => {
-    const tree = render('to a single infant with **[[Carbamoyl Phosphate Synthetase 1 (CPS1) Deficiency]]**, from birth.', asLink)
+    const tree = render('the run stopped at **[[Adaptive Mesh Refinement 2 (AMR2) Threshold]]**, as configured.', asLink)
     expect(textOf(tree)).not.toContain('[[')
     const links = find(tree, 'a')
     expect(links).toHaveLength(1)
-    expect((links[0]!.props as { href: string }).href).toBe('/catalog/page/Carbamoyl Phosphate Synthetase 1 (CPS1) Deficiency')
+    expect((links[0]!.props as { href: string }).href).toBe('/catalog/page/Adaptive Mesh Refinement 2 (AMR2) Threshold')
     // Still bold: the emphasis the page asked for is kept around the link.
     expect(find(tree, 'strong')).toHaveLength(1)
-    expect(textOf(find(tree, 'strong')[0])).toBe('Carbamoyl Phosphate Synthetase 1 (CPS1) Deficiency')
+    expect(textOf(find(tree, 'strong')[0])).toBe('Adaptive Mesh Refinement 2 (AMR2) Threshold')
   })
 
   it('does the same inside italic, and in a list item', () => {

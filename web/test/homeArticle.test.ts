@@ -9,7 +9,7 @@ import { isHubPage, mainArticle, readerPages } from '../src/lib/homeArticle.ts'
 const INGEST = [
   'wiki/concepts/Harvest Lag.md',
   'wiki/concepts/Crowding-Out Effect.md',
-  'wiki/sources/The 2028 Global Intelligence Crisis.md',
+  'wiki/sources/The 2028 Grain Price Shock.md',
   'wiki/concepts/_index.md',
   'wiki/sources/_index.md',
   'wiki/index.md',
@@ -41,7 +41,7 @@ describe('isHubPage', () => {
 
 describe('mainArticle', () => {
   it('opens an ingest on the source it read', () => {
-    expect(mainArticle(INGEST)).toBe('wiki/sources/The 2028 Global Intelligence Crisis.md')
+    expect(mainArticle(INGEST)).toBe('wiki/sources/The 2028 Grain Price Shock.md')
   })
 
   it('opens a research run on its synthesis, not on a source it also filed', () => {
@@ -68,7 +68,7 @@ describe('mainArticle', () => {
 describe('readerPages', () => {
   it('drops the hubs and leads with the article', () => {
     expect(readerPages(INGEST)).toEqual([
-      'wiki/sources/The 2028 Global Intelligence Crisis.md',
+      'wiki/sources/The 2028 Grain Price Shock.md',
       'wiki/concepts/Harvest Lag.md',
       'wiki/concepts/Crowding-Out Effect.md',
     ])
