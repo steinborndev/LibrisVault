@@ -19,7 +19,7 @@
  * looks at would be busywork.
  */
 
-import { mkdirSync, rmSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync, existsSync, utimesSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
@@ -138,6 +138,14 @@ const around = (arr, i, n) =>
 let gapSeq = 0
 
 for (const [domain, spec] of Object.entries(DOMAINS)) {
+  /*
+   * A domain with no concepts of its own is skipped rather than special-cased downstream:
+   * everything below builds sources and questions FROM the concept list, and an empty one
+   * would produce a question about nothing. Such a domain still reaches the registry - it is
+   * a real state, the one where something opened a subject and only a research run has filed
+   * anything under it.
+   */
+  if ((spec.concepts ?? []).length === 0) continue
   const conceptTitles = spec.concepts
 
   // Roughly one ingested document per 2.7 concepts, which is about the real ratio.
@@ -531,181 +539,66 @@ for (const f of FELLOWS) {
 }
 
 /*
- * ----------------------------------------------------------------- synthesis pages
+ * ------------------------------------------------------- the real research runs
  *
- * Every research run files exactly one, under `wiki/questions/`, titled `Research: <topic>`
- * plus the lens suffix. Without them the Research tab lists runs whose result cannot be
- * opened, which is most of what that screen is for.
+ * Five of the research runs this demo shows are REAL: they cost money, took ten minutes each
+ * and searched the actual web. `capture-research-run.mjs` froze each into
+ * `scripts/demo-research/<slug>/`, and this reads them back, because the vault is rebuilt from
+ * scratch every time this script runs and anything an agent wrote would otherwise live exactly
+ * until the next rebuild.
  *
- * Two details are replicated rather than invented, because the service checks them. The file
- * name keeps the colon of `Research: ` - `isSynthesisPath` asks for exactly that prefix, and
- * the generator's own `fileName()` would strip it, so these pages are pushed with an explicit
- * path. And the lens suffixes carry the em dash the product itself writes; this is one place
- * where copying the product's string matters more than the house style, since a title that
- * differs by one character is a page the run cannot find.
+ * The hub pages a run touches on its way (`hot.md`, `index.md`, `log.md`, the reading list,
+ * the domain registry) are deliberately NOT restored: this generator writes those itself, for
+ * the whole vault rather than for one run, and a run's copy of them describes a vault that had
+ * only that run in it.
  */
-const LENS_SUFFIX = { broad: '', sota: ' \u2014 State of the Art', patents: ' \u2014 Patent Landscape', startups: ' \u2014 Startup Landscape' }
+const RESEARCH_DIR = join(process.cwd(), 'scripts/demo-research')
+/** Pages the generator owns; a captured run's copy of them is its snapshot, not the vault's. */
+const HUB_PAGES = new Set(['wiki/hot.md', 'wiki/index.md', 'wiki/log.md', 'wiki/meta/reading-list.md', 'wiki/meta/domains.md'])
 
-const SYNTHESES = [
-  { topic: 'Atmospheric retrieval at low resolution', profile: 'sota', domain: 'astronomy', daysAgo: 4,
-    question: 'How much of an atmosphere can be recovered when the spectrum is coarse?',
-    findings: [
-      ['The limit is set by the degeneracy between temperature and abundance, not by the noise',
-       'Two parameters move the same feature in the same direction, so a coarse spectrum cannot separate them. Higher signal-to-noise narrows the error bars without breaking the degeneracy.'],
-      ['Priors do most of the work, and are rarely stated',
-       'Of the retrievals surveyed, the ones that report a tight abundance are the ones that fixed the temperature profile first. That choice is a result, and it usually appears in a caption.'],
-      ['One band does more than a wider range at lower resolution',
-       'Where a feature is isolated, a narrow high-resolution window beats a broad survey of the same total exposure.'],
-    ],
-    changes: 'The vault treated retrieval precision as an instrument property. It is a joint property of the instrument and the prior, and the pages now say which.',
-    open: ['Does the degeneracy break for the hottest targets, where the profile is better constrained?', 'What would a retrieval look like that reported its priors as a result?'] },
-
-  { topic: 'Ocean carbon sink capacity', profile: 'broad', domain: 'climate-science', daysAgo: 9,
-    question: 'How much carbon does the ocean take up, and why do the estimates disagree?',
-    findings: [
-      ['The disagreement is mostly in the coastal margin, which the global products treat differently',
-       'Open-ocean estimates converge within a few percent. The spread comes from shelf seas, where one family of products extrapolates and the other excludes.'],
-      ['The trend is better constrained than the absolute value',
-       'Every method agrees on the direction and roughly on the slope. What they disagree about is the baseline they start from.'],
-      ['Inventory and flux methods answer different questions and are compared as if they did not',
-       'One measures what is there, the other what crosses the surface in a year. A mismatch between them is not automatically an error in either.'],
-    ],
-    changes: 'The sink pages carried one number with a range. They now carry the number, the method behind it, and what the method excludes.',
-    open: ['Does the coastal treatment explain the whole spread, or only most of it?'] },
-
-  { topic: 'Storage engine trade-offs under write amplification', profile: 'broad', domain: 'computing', daysAgo: 14,
-    question: 'When does a log-structured store stop paying for itself?',
-    findings: [
-      ['Write amplification is a function of the workload, not of the engine',
-       'The same engine amplifies four times on one access pattern and thirty on another. Comparisons that quote a single factor have chosen a workload.'],
-      ['The crossover is at the point where reads start missing the cache, not at a size',
-       'Below that point the extra writes are invisible; above it they compete with the reads that now need the disk.'],
-      ['Compaction strategy moves the cost, it does not remove it',
-       'Tiered compaction trades read amplification for write amplification; levelled does the reverse. Neither is free and both are configurable, which is why the defaults rarely fit.'],
-    ],
-    changes: 'The engine pages compared throughput. They now compare it against the access pattern the number was measured on.',
-    open: ['Is there a workload where the crossover does not exist at all?'] },
-
-  { topic: 'Recent patents on adaptive optics', profile: 'patents', domain: 'astronomy', daysAgo: 19,
-    question: 'What has been filed on wavefront correction, and by whom?',
-    findings: [
-      ['Filing activity concentrates on the sensor, not the corrector',
-       'The deformable mirror is mature and the claims are narrow. The recent filings are about measuring the wavefront faster and with less light.'],
-      ['Two independent filings claim the same predictive-control idea from different directions',
-       'One frames it as a control problem and one as an estimation problem. The claims overlap in what they cover and not in how they say it.'],
-      ['Ground-layer-only correction is claimed more often than full correction',
-       'A narrower correction with a wider field is the commercially interesting case, and the filings follow that rather than the physics.'],
-    ],
-    changes: 'The instrument pages described correction as one technique. The filings show it is at least three, with different economics.',
-    open: ['Do the two predictive-control filings actually conflict, or do their claims miss each other?'] },
-
-  { topic: 'Who is funding fermentation biotech', profile: 'startups', domain: 'mycology', daysAgo: 26,
-    question: 'Where is the money in precision fermentation going, and to what kind of company?',
-    findings: [
-      ['Funding follows the substrate, not the product',
-       'The companies raising are the ones with a cheap input, whatever they make from it. The product pivots; the substrate does not.'],
-      ['Scale-up capital and research capital come from different places and at different stages',
-       'The gap between a working strain and a working plant is funded by parties who do not fund either end of it.'],
-      ['Contract capacity is the constraint everyone names and few price',
-       'Announced capacity and available capacity are different numbers, and the second is the one that sets a timeline.'],
-    ],
-    changes: 'The vault filed these as product companies. They are better read as substrate companies, which is why their product pages kept needing revision.',
-    open: ['Does the substrate-first reading hold for the companies that failed, or only for the ones that raised?'] },
-
-  { topic: 'What limits the precision of ground-based transit photometry', profile: 'broad', domain: 'astronomy', daysAgo: 2,
-    question: 'Where does the error budget of a ground-based transit actually go?',
-    findings: [
-      ['Scintillation dominates for bright hosts, and it is a site property',
-       'For the targets worth following up, the atmosphere sets the floor and no amount of aperture moves it much. The site does.'],
-      ['Detrending removes real signal along with the systematics',
-       'Every detrending choice is a filter, and a filter shaped like a transit takes some of the transit. The papers that inject and recover report this; most others do not.'],
-      ['Comparison-star choice is a bigger lever than exposure time',
-       'A well-matched comparison star buys more than a longer exposure, and it is free.'],
-    ],
-    changes: 'The photometry pages described precision as a property of the instrument. It is mostly a property of the site and the reduction.',
-    open: ['How much of the detrending loss can be recovered by injecting the model before filtering?'] },
-
-  { topic: 'Proxy records and the spread they leave on sensitivity', profile: 'broad', domain: 'climate-science', daysAgo: 3,
-    question: 'How far do the paleo records actually narrow climate sensitivity?',
-    findings: [
-      ['They constrain the lower bound much better than the upper one',
-       'Every record rules out the low end. None of them rules out the high end, because the high end lives in feedbacks the records do not resolve.'],
-      ['The spread is dominated by one conversion step, not by the measurements',
-       'Turning a proxy into a temperature carries an assumption whose uncertainty is larger than the measurement uncertainty it is applied to.'],
-      ['Combining records narrows nothing if they share that step',
-       'Independent records are not independent estimates when they pass through the same calibration.'],
-    ],
-    changes: 'The sensitivity pages treated the paleo constraint as one number. It is an asymmetric constraint with a shared-assumption problem behind it.',
-    open: ['Is there a record that avoids the shared conversion step entirely?'] },
-
-  { topic: 'What makes an evaluation set go stale', profile: 'broad', domain: 'machine-learning', daysAgo: 4,
-    question: 'Why do benchmarks stop measuring what they were built to measure?',
-    findings: [
-      ['Contamination is the fast way and the rare one',
-       'It is the failure everyone names because it is checkable. Most staleness is slower than that and has no test.'],
-      ['A set goes stale when the field optimises against its distribution, not its task',
-       'Nothing leaks. The models simply get good at the shape of the questions, and the shape was never the point.'],
-      ['The tell is a compressed score range, not a high score',
-       'When every system lands within a point of every other, the set has stopped ranking, whatever the absolute numbers say.'],
-    ],
-    changes: 'The evaluation pages treated staleness as contamination. Contamination is the special case; distribution-fitting is the general one.',
-    open: ['Can a set be built so that fitting its distribution IS the task?'] },
-
-  { topic: 'What the inventories agree on, and where they part', profile: 'broad', domain: 'climate-science', daysAgo: 17,
-    question: 'Where exactly do the carbon inventories diverge?',
-    findings: [
-      ['They agree on the total to within a few percent and part on the attribution',
-       'How much is where is a harder question than how much there is, and the second is the one that gets quoted.'],
-      ['The land-use term carries most of the disagreement and the least data',
-       'It is the smallest well-measured term and the largest badly-measured one.'],
-      ['Revisions move the baseline more often than the recent years',
-       'A revision usually rewrites the past, which is why trends computed across revisions can be artefacts.'],
-    ],
-    changes: 'The inventory pages cited a single figure per source. They now cite the figure, the vintage, and what the vintage revised.',
-    open: ['Does any inventory publish a trend computed within one vintage throughout?'] },
-]
-
-/** A run's synthesis page path, so the database can point its `pages` at it. */
-const synthesisPath = (topic, profile) =>
-  `wiki/questions/Research: ${topic}${LENS_SUFFIX[profile] ?? ''}.md`
-
-for (const syn of SYNTHESES) {
-  const created = day(syn.daysAgo)
-  const title = `Research: ${syn.topic}${LENS_SUFFIX[syn.profile] ?? ''}`
-  const related = pages
-    .filter((p) => p.path.startsWith('wiki/concepts/') && p.domain === syn.domain)
-    .slice(0, 5)
-    .map((p) => p.title)
-  const sourcePages = pages
-    .filter((p) => p.path.startsWith('wiki/sources/') && p.domain === syn.domain)
-    .slice(0, 3)
-    .map((p) => p.title)
-  pages.push({
-    path: synthesisPath(syn.topic, syn.profile), domain: syn.domain, type: 'question',
-    title, tags: ['question', 'research', syn.domain], related: [], sources: [],
-    status: 'developing', created, prerendered: true,
-    body: [
-      '---', 'type: question', `title: "${title}"`, `domain: ${syn.domain}`,
-      `created: ${iso(created)}`, `updated: ${iso(created)}`,
-      'tags:', '  - question', '  - research', `  - ${syn.domain}`,
-      'status: developing',
-      ...(related.length ? ['related:', ...related.map((r) => `  - "[[${r}]]"`)] : []),
-      ...(sourcePages.length ? ['sources:', ...sourcePages.map((r) => `  - "[[${r}]]"`)] : []),
-      '---', '',
-      `# ${title}`, '',
-      '## Question', '', syn.question, '',
-      '## Method', '',
-      `Searched through the ${syn.profile === 'broad' ? 'broad' : syn.profile} lens, read what was reachable in full, `
-        + 'and checked each claim against the pages the vault already held. Publications that could not be read '
-        + 'are on the reading list rather than summarised from their abstracts.', '',
-      '## Findings', '',
-      ...syn.findings.flatMap(([head, body], i) => [`### ${i + 1}. ${head}`, '', body, '']),
-      '## What this changes about the vault', '', syn.changes, '',
-      '## Open questions', '',
-      ...syn.open.map((q) => `- ${q}`), '',
-      ...(related.length ? ['## Pages this rests on', '', ...related.map((r) => `- [[${r}]]`), ''] : []),
-    ].join('\n'),
-  })
+const capturedRuns = []
+/** Entries the real runs put on the reading list, kept out of their hub-page snapshot. */
+const realReadingEntries = []
+if (existsSync(RESEARCH_DIR)) {
+  for (const slug of readdirSync(RESEARCH_DIR).sort()) {
+    const runFile = join(RESEARCH_DIR, slug, 'run.json')
+    if (!existsSync(runFile)) continue
+    const run = JSON.parse(readFileSync(runFile, 'utf8'))
+    const kept = []
+    for (const rel of run.pages) {
+      if (HUB_PAGES.has(rel)) continue
+      const file = join(RESEARCH_DIR, slug, 'pages', rel)
+      if (!existsSync(file)) continue
+      const body = readFileSync(file, 'utf8')
+      const title = /^title:\s*"?(.+?)"?\s*$/m.exec(body)?.[1] ?? rel.split('/').pop().replace(/\.md$/, '')
+      pages.push({
+        path: rel,
+        domain: /^domain:\s*(\S+)\s*$/m.exec(body)?.[1] ?? 'meta',
+        type: /^type:\s*(\S+)/m.exec(body)?.[1] ?? 'concept',
+        title, tags: [], related: [], sources: [], status: 'evergreen',
+        // Dated by the run that wrote it, so the vault's timeline stays honest.
+        created: new Date(Date.parse(run.capturedAt) - (run.durationMs ?? 0)),
+        prerendered: true, body,
+      })
+      kept.push(rel)
+    }
+    /*
+     * The reading list is a hub page and is not restored wholesale - but the ENTRIES a run
+     * added to it are its own output and are worth keeping: real publications it could not
+     * read, with real addresses. They are pulled out here and appended to the generated list
+     * further down, so the demo's reading list has something on it that was genuinely asked
+     * for rather than only invented.
+     */
+    const listFile = join(RESEARCH_DIR, slug, 'pages/wiki/meta/reading-list.md')
+    if (existsSync(listFile)) {
+      const blocks = readFileSync(listFile, 'utf8').split(/\n(?=- title:)/).slice(1)
+      for (const b of blocks) {
+        if (!/^\s*by:\s*(research|ingest)\s*$/m.test(b)) continue
+        realReadingEntries.push('- ' + b.trim().replace(/^- /, '').trimEnd())
+      }
+    }
+    capturedRuns.push({ ...run, keptPages: kept })
+  }
 }
 
 /** The recap pages of the last three nights, as the recap service renders them. */
@@ -775,6 +668,8 @@ pages.push({
     `  oa_at: ${iso(day(2))}`,
     '  oa_chars: 28900',
     '',
+    // What the real runs asked for: actual publications at actual addresses.
+    ...realReadingEntries.flatMap((e) => [e, '']),
   ].join('\n'),
 })
 
@@ -1003,13 +898,6 @@ const runStmt = db.prepare(
 const conceptPaths = pages.filter((p) => p.path.startsWith('wiki/concepts/')).map((p) => p.path)
 const MAINT_SECONDS = { research: 610, lint: 512, 'hot-cache': 21, 'domain-backfill': 140, 'lint-fix': 205, 'domain-review': 96 }
 const RUNS = [
-  // The five research runs are the ones with a synthesis page; the topic and the lens here
-  // have to match SYNTHESES above, because that pair is what names the page.
-  ['research', 'Atmospheric retrieval at low resolution', 'sota', 7, 268_000, 21_400, 2.34, 4],
-  ['research', 'Ocean carbon sink capacity', 'broad', 5, 191_000, 15_100, 1.62, 9],
-  ['research', 'Storage engine trade-offs under write amplification', 'broad', 4, 158_000, 12_800, 1.31, 14],
-  ['research', 'Recent patents on adaptive optics', 'patents', 3, 121_000, 9_900, 1.04, 19],
-  ['research', 'Who is funding fermentation biotech', 'startups', 4, 143_000, 11_200, 1.19, 26],
   ['lint', null, null, 0, 118_000, 3_900, 0.52, 1],
   ['hot-cache', null, null, 1, 47_000, 2_300, 0.21, 1],
   ['domain-backfill', null, null, 23, 104_000, 7_800, 0.63, 6],
@@ -1025,16 +913,40 @@ RUNS.forEach(([kind, label, profile, pageCount, tin, tout, cost, daysAgo], i) =>
      * way. The order is what the Research tab shows: the result, and then the material. A run
      * with no synthesis in its page list is one whose result cannot be opened.
      */
-    pages: JSON.stringify([
-      ...(kind === 'research' ? [synthesisPath(label, profile)] : []),
-      ...conceptPaths.slice(i * 17, i * 17 + pageCount),
-    ]),
+    pages: JSON.stringify(conceptPaths.slice(i * 17, i * 17 + pageCount)),
     tokens_in: tin, tokens_out: tout, cost_usd: cost,
     // Same rule as the Fellow runs below: the length follows the KIND. These used to be one
   // rising series, which put a full research run at five minutes and skewed every median
   // drawn from this vault.
   started_at: at(started),
   finished_at: at(new Date(started.getTime() + ((MAINT_SECONDS[kind] ?? 300) + i * 11) * 1000)),
+  })
+})
+
+/*
+ * The real runs in the ledger, with the numbers they actually produced: their own cost, their
+ * own duration, their own token counts, and the pages they actually wrote. Nothing here is
+ * rounded or prettied - a demo whose figures are invented cannot be used to check the
+ * arithmetic the schedule does with them.
+ */
+capturedRuns.forEach((run, i) => {
+  const finished = new Date(Date.parse(run.capturedAt))
+  const started = new Date(finished.getTime() - (run.durationMs ?? 600_000))
+  // Spread them over the recent weeks rather than stacking them on the capture date, which
+  // would put five ten-minute runs inside the same afternoon.
+  const shift = (i * 3 + 2) * 86_400_000
+  runStmt.run({
+    id: ulid(900 + i),
+    kind: run.kind ?? 'research',
+    label: run.topic,
+    profile_key: run.profileKey ?? null,
+    ok: 1,
+    pages: JSON.stringify(run.keptPages),
+    tokens_in: run.tokensIn,
+    tokens_out: run.tokensOut,
+    cost_usd: run.costUsd,
+    started_at: at(new Date(started.getTime() - shift)),
+    finished_at: at(new Date(finished.getTime() - shift)),
   })
 })
 
@@ -1122,19 +1034,15 @@ const FELLOW_RUNS = [
   // what the layout is for.
   ['Ada', 'research-step', 'A bright-host transit candidate and its follow-up photometry', 2, 1.94, 1],
   ['Ada', 'research-step', 'Wavefront sensing upgrades reported this quarter', 1, 1.71, 1],
-  ['Ada', 'research', 'What limits the precision of ground-based transit photometry', 6, 4.12, 2],
   ['Casper', 'research-step', 'Where the sink estimates disagree, and on what data', 3, 2.08, 1],
   ['Casper', 'research-expand', 'Feedback pages, built out from their own open questions', 4, 2.31, 1],
-  ['Casper', 'research', 'Proxy records and the spread they leave on sensitivity', 7, 4.48, 3],
   ['Mira', 'research-step', 'Retrieval against long context, on the cases where it loses', 2, 2.22, 1],
-  ['Mira', 'research', 'What makes an evaluation set go stale', 5, 4.02, 4],
   ['Milo', 'research-expand', 'Sintering defects, built out where the wiki was thinnest', 3, 2.19, 11],
   // A third of each kind, because `typicalRunMs` needs three samples before it trusts a
   // measurement over its reference constant - and a schedule drawn from constants is exactly
   // what the command centre exists to replace.
   ['Ada', 'research-expand', 'Instrument pages, built out from the detections that named them', 3, 2.27, 14],
   ['Mira', 'research-step', 'Where a stale evaluation set still flatters a model', 2, 2.06, 15],
-  ['Casper', 'research', 'What the inventories agree on, and where they part', 6, 4.31, 17],
 ]
 const fellowRunIds = {}
 FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
@@ -1149,10 +1057,7 @@ FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
      VALUES (?, 'local', ?, ?, ?, ?, 1, ?, ?, ?, ?, NULL, ?, ?, ?)`,
   ).run(
     id, fellowIds[who], kind, topic, who === 'Mira' ? 'opus-5' : 'sonnet-5',
-    JSON.stringify([
-      ...(kind === 'research' ? [synthesisPath(topic, 'broad')] : []),
-      ...conceptPaths.slice(60 + i * 11, 60 + i * 11 + pageCount),
-    ]),
+    JSON.stringify(conceptPaths.slice(60 + i * 11, 60 + i * 11 + pageCount)),
     140_000 + i * 9_000, 11_000 + i * 700, cost,
     at(started), at(new Date(started.getTime() + (RUN_SECONDS[kind] + (i % 4) * 17) * 1000)),
     'Filed what it found and left the open questions on the page.',
@@ -1350,3 +1255,9 @@ db.close()
 console.log(`db:     ${DB}`)
 console.log(`        ${recentJobs.length + 2} jobs, ${RUNS.length + FELLOW_RUNS.length} runs, ${CONVOS.length} conversations`)
 console.log(`        ${FELLOWS.length} Fellows, ${PROPOSALS.length} proposals, 7 nights, 3 recaps`)
+console.log(
+  `        ${capturedRuns.length} real research run(s) restored` +
+    (capturedRuns.length
+      ? `: ${capturedRuns.reduce((n, r) => n + r.keptPages.length, 0)} pages, $${capturedRuns.reduce((n, r) => n + r.costUsd, 0).toFixed(2)}`
+      : ' (none captured yet)'),
+)
