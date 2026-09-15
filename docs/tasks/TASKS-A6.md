@@ -17,12 +17,16 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-26 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-27 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Demo seed pass 2026-09-15 (F-A6-27).** The synthetic vault has Fellows, so the screens the
+extension adds can be shot without pointing a camera at a real vault. What remains of section 5
+is the shooting itself.
 
 **README and SECURITY pass 2026-09-15 (F-A6-26).** Section 4 done but for reading the README
 against a running app. The security page gained a threat chain the agents opened and nobody had
@@ -397,13 +401,13 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 5. Demo vault and screenshots
 
-- [ ] **`scripts/demo-vault.mjs` seeds zero Fellows** (`grep -ci fellow` returns 0, and so
+- [x] **Done 2026-09-15 (F-A6-27).** Four Fellows covering the range (an observer sweeping, a custom mix, a researcher on auto that rotates, a librarian asleep on `covered`), nine runs, five proposals in three states, a week of nights, three recaps, the shelf order, and as vault pages: a notebook each, three recap pages and a reading list. Defined once above the page generation, so the pages and the rows cannot disagree. **`scripts/demo-vault.mjs` seeds zero Fellows** (`grep -ci fellow` returns 0, and so
       do recap, notebook, shift and proposal; it seeds jobs, agent runs, sessions and
       messages), so the Library screen with Fellows cannot be shot synthetically today. Seed
       the demo DB: agents with home domains, notebook pages in the demo vault, past runs
       with costs and durations, a night's shift history, proposals awaiting a veto, recap
       pages, a few reading-list entries. Invented throughout, like the rest of the generator.
-- [ ] Note for whoever wires this: Fellows never run in demo mode (`main.ts:289` requires
+- [x] **Read and followed 2026-09-15.** The seed writes rows; it starts nothing. Note for whoever wires this: Fellows never run in demo mode (`main.ts:289` requires
       `!config.demoMode`), and the screenshot procedure does not use demo mode - it runs a
       normal service against the demo vault and a demo DB. Seeding the DB is the path;
       turning demo mode on is not.
@@ -692,6 +696,17 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-27 (2026-09-15) - the demo seed, and the field that would have looked right.**
+  `scripts/demo-vault.mjs` seeds the Fellows now (section 5). Worth recording is how it was
+  checked: not by reading the SQL back, but by opening the generated database with the REAL
+  stores - `SqliteAgentStore`, `SqliteProposalStore`, `SqliteRecapStore` - and printing what
+  they parsed. That caught the one error that would have survived any amount of staring at the
+  insert statements: `provenance.task` carries the task's TEXT, not its id, because that is what
+  `planner.ts` writes and what the night's schedule groups a Fellow's standing proposals by
+  (`waiting.get(t.text)` in `lib/command/model.ts`). Seeded with ids, every proposal would have
+  piled onto the first task of its Fellow and the schedule would have drawn a plausible lie.
+  The method generalises to the rest of section 5: **a fixture is right when the code that reads
+  it in production parses it, not when it looks like the table.**
 - **F-A6-26 (2026-09-15) - the security page did not know a chain that the agents opened.**
   Section 4 is done except for reading the README against a RUNNING app, which is owed together
   with the screenshots. Writing `SECURITY.md` turned up the one thing on this list that nobody
