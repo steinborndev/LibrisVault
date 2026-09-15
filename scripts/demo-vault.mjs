@@ -41,6 +41,17 @@ const DB = argOf('--db', join(homedir(), '.local/share/vault-service/demo-jobs.d
 const TODAY = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000)
 const day = (offset) => new Date(TODAY.getTime() - offset * 86_400_000)
 const iso = (d) => d.toISOString().slice(0, 10)
+/**
+ * A moment inside the night that BELONGS to `iso(day(offset))` - the window the service calls
+ * a cycle, 01:00 to 06:00 of that date. Runs seeded with `day()` alone land at the current
+ * hour, which is the afternoon, and the recap of that date would not see them: it reads from
+ * the previous recap forward. Without this the demo's most recent night is always empty.
+ */
+const nightOf = (offset, hour, minute = 0) => {
+  const d = day(offset)
+  d.setHours(hour, minute, 0, 0)
+  return d
+}
 
 /** The vault predates the growth chart's 30-day window, the way a real one does. */
 const SPAN_DAYS = 74
@@ -462,6 +473,28 @@ const FELLOWS = [
 ]
 
 /**
+ * What each Fellow has written down as unanswered - its own, because the recap lists them per
+ * Fellow and four identical lists read as a template rather than as work.
+ */
+const FELLOW_QUESTIONS = {
+  Ada: [
+    'Which follow-up would settle the ambiguous candidate first, spectroscopy or a second transit?',
+    'Does the scintillation floor move enough between sites to be worth travelling for?',
+  ],
+  Casper: [
+    'Does the coastal treatment explain the whole spread between the products, or only most of it?',
+    'Is there a proxy record that avoids the shared calibration step entirely?',
+  ],
+  Mira: [
+    'Can an evaluation set be built so that fitting its distribution IS the task?',
+    'What is the earliest observable sign that a benchmark has stopped ranking?',
+  ],
+  Milo: [
+    'Which of the defect classes actually survives into service, and which anneal out?',
+  ],
+}
+
+/**
  * A notebook page per Fellow: `type: meta` on purpose, the way the service writes them, so
  * the vault's own tiling and address rules leave them alone.
  */
@@ -489,8 +522,7 @@ for (const f of FELLOWS) {
       `| ${iso(day(1))} | research-step | ${f.tasks[0].text.slice(0, 48)} | 2 | 1.94 |`,
       `| ${iso(day(5))} | research | ${f.tasks[f.tasks.length - 1].text.slice(0, 48)} | 6 | 4.12 |`,
       '', '## Open Questions', '',
-      '- Which of the two follow-ups would settle the ambiguous case first?',
-      '- Does the newer method actually supersede the older one, or only for bright targets?',
+      ...FELLOW_QUESTIONS[f.name].map((q) => `- ${q}`),
       '', '## Plan', '',
       '- Standing, undecided: one step on the question the last run left behind.',
       '',
@@ -580,7 +612,7 @@ const SYNTHESES = [
     changes: 'The vault filed these as product companies. They are better read as substrate companies, which is why their product pages kept needing revision.',
     open: ['Does the substrate-first reading hold for the companies that failed, or only for the ones that raised?'] },
 
-  { topic: 'What limits the precision of ground-based transit photometry', profile: 'broad', domain: 'astronomy', daysAgo: 5,
+  { topic: 'What limits the precision of ground-based transit photometry', profile: 'broad', domain: 'astronomy', daysAgo: 2,
     question: 'Where does the error budget of a ground-based transit actually go?',
     findings: [
       ['Scintillation dominates for bright hosts, and it is a site property',
@@ -593,7 +625,7 @@ const SYNTHESES = [
     changes: 'The photometry pages described precision as a property of the instrument. It is mostly a property of the site and the reduction.',
     open: ['How much of the detrending loss can be recovered by injecting the model before filtering?'] },
 
-  { topic: 'Proxy records and the spread they leave on sensitivity', profile: 'broad', domain: 'climate-science', daysAgo: 8,
+  { topic: 'Proxy records and the spread they leave on sensitivity', profile: 'broad', domain: 'climate-science', daysAgo: 3,
     question: 'How far do the paleo records actually narrow climate sensitivity?',
     findings: [
       ['They constrain the lower bound much better than the upper one',
@@ -606,7 +638,7 @@ const SYNTHESES = [
     changes: 'The sensitivity pages treated the paleo constraint as one number. It is an asymmetric constraint with a shared-assumption problem behind it.',
     open: ['Is there a record that avoids the shared conversion step entirely?'] },
 
-  { topic: 'What makes an evaluation set go stale', profile: 'broad', domain: 'machine-learning', daysAgo: 9,
+  { topic: 'What makes an evaluation set go stale', profile: 'broad', domain: 'machine-learning', daysAgo: 4,
     question: 'Why do benchmarks stop measuring what they were built to measure?',
     findings: [
       ['Contamination is the fast way and the rare one',
@@ -1085,14 +1117,17 @@ const shelfStmt = db.prepare(`INSERT INTO shelf_order (user_id, domain, rank, up
  */
 const RUN_SECONDS = { 'research-step': 320, research: 615, 'research-expand': 310, plan: 86 }
 const FELLOW_RUNS = [
+  // The last night is deliberately full: every Fellow that can run did, each inside its own
+  // quota (Ada 2, Casper 3, Mira 1, Milo asleep). A recap of one run shows the layout but not
+  // what the layout is for.
   ['Ada', 'research-step', 'A bright-host transit candidate and its follow-up photometry', 2, 1.94, 1],
-  ['Ada', 'research-step', 'Wavefront sensing upgrades reported this quarter', 1, 1.71, 2],
-  ['Ada', 'research', 'What limits the precision of ground-based transit photometry', 6, 4.12, 5],
+  ['Ada', 'research-step', 'Wavefront sensing upgrades reported this quarter', 1, 1.71, 1],
+  ['Ada', 'research', 'What limits the precision of ground-based transit photometry', 6, 4.12, 2],
   ['Casper', 'research-step', 'Where the sink estimates disagree, and on what data', 3, 2.08, 1],
-  ['Casper', 'research-expand', 'Feedback pages, built out from their own open questions', 4, 2.31, 3],
-  ['Casper', 'research', 'Proxy records and the spread they leave on sensitivity', 7, 4.48, 8],
-  ['Mira', 'research-step', 'Retrieval against long context, on the cases where it loses', 2, 2.22, 2],
-  ['Mira', 'research', 'What makes an evaluation set go stale', 5, 4.02, 9],
+  ['Casper', 'research-expand', 'Feedback pages, built out from their own open questions', 4, 2.31, 1],
+  ['Casper', 'research', 'Proxy records and the spread they leave on sensitivity', 7, 4.48, 3],
+  ['Mira', 'research-step', 'Retrieval against long context, on the cases where it loses', 2, 2.22, 1],
+  ['Mira', 'research', 'What makes an evaluation set go stale', 5, 4.02, 4],
   ['Milo', 'research-expand', 'Sintering defects, built out where the wiki was thinnest', 3, 2.19, 11],
   // A third of each kind, because `typicalRunMs` needs three samples before it trusts a
   // measurement over its reference constant - and a schedule drawn from constants is exactly
@@ -1103,7 +1138,9 @@ const FELLOW_RUNS = [
 ]
 const fellowRunIds = {}
 FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
-  const started = day(daysAgo)
+  // Runs of the last three nights sit INSIDE the night window; older ones keep the hour they
+  // had, since nothing reads them by night any more.
+  const started = daysAgo <= 4 ? nightOf(daysAgo - 1, 1 + (i % 4), (i * 13) % 60) : day(daysAgo)
   const id = ulid(500 + i)
   fellowRunIds[`${who}:${i}`] = id
   db.prepare(
@@ -1125,7 +1162,7 @@ FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
 /** One planning run per Fellow per night, which is what a sweep costs before any work. */
 FELLOWS.forEach((f, i) => {
   for (let d = 1; d <= 3; d++) {
-    const started = day(d)
+    const started = nightOf(d - 1, 1, (i * 7) % 50)
     db.prepare(
       `INSERT INTO agent_runs (id, user_id, agent_id, kind, label, model, ok, pages, tokens_in, tokens_out,
                                cost_usd, error, started_at, finished_at, answer)
@@ -1191,10 +1228,9 @@ const shiftStmt = db.prepare(
   `INSERT INTO agent_shifts (cycle_date, user_id, trigger, started_at, finished_at, summary)
    VALUES (?, 'local', 'timer', ?, ?, ?)`,
 )
-for (let d = 1; d <= 7; d++) {
+for (let d = 0; d <= 6; d++) {
   const night = day(d)
-  const started = new Date(night.getTime())
-  started.setHours(1, 0, 0, 0)
+  const started = nightOf(d, 1)
   const executed = d === 4 ? 0 : 2 + (d % 2)
   shiftStmt.run(
     iso(night), at(started), at(new Date(started.getTime() + (25 + d * 4) * 60_000)),
@@ -1214,12 +1250,38 @@ const recapStmt = db.prepare(
   `INSERT INTO recaps (cycle_date, user_id, generated_at, path, quiet, model, delivered)
    VALUES (?, 'local', ?, ?, 0, ?, '{}')`,
 )
-for (let d = 1; d <= 3; d++) {
+/*
+ * What a summary run would have written. These lines are the only part of a recap that is
+ * MODEL output rather than bookkeeping - the service asks a read-only run to turn the night's
+ * results into three sentences per Fellow - so a demo has to supply them the same way it
+ * supplies the synthesis pages: invented, and written as that run would write them. One short
+ * sentence each, most useful finding first, plain English.
+ */
+const FOUND = {
+  Ada: [
+    'The brightest of this quarter\'s candidates has a second transit on record and the depths agree.',
+    'Two of the three follow-ups can be done from the existing site; the third needs a bigger aperture.',
+    'A wavefront-sensing upgrade shipped that changes what counts as a faint host.',
+  ],
+  Casper: [
+    'The sink estimates part over the coastal margin, not over the open ocean.',
+    'The three feedback pages the wiki leaned on hardest now say what the feedback actually does.',
+    'One product excludes shelf seas entirely, which explains about half the spread on its own.',
+  ],
+  Mira: [
+    'Retrieval loses to a long context exactly where the answer is spread across the document.',
+    'The cases where it wins are the ones with a single passage that settles the question.',
+    'The crossover moves with the chunking, which is why published comparisons disagree.',
+  ],
+  Milo: [],
+}
+
+for (let d = 0; d <= 3; d++) {
   const night = day(d)
   const cycle = iso(night)
-  const runsOfNight = FELLOW_RUNS.filter(([, , , , , ago]) => ago === d)
+  const runsOfNight = FELLOW_RUNS.filter(([, , , , , ago]) => ago === d + 1)
   const model = {
-    cycleDate: cycle, generatedAt: at(day(d - 1)), quiet: false, since: at(day(d + 1)),
+    cycleDate: cycle, generatedAt: at(nightOf(d, 7)), quiet: false, since: at(nightOf(d + 1, 7)),
     window: { start: '01:00', end: '06:00' },
     shift: { trigger: 'timer', startedAt: at(night), finishedAt: at(night), executed: runsOfNight.length, planned: 3, skipped: [], costUsd: 4.2 },
     totals: { runs: runsOfNight.length, failed: 0, costUsd: Math.round(runsOfNight.reduce((a, r) => a + r[4], 0) * 100) / 100 },
@@ -1235,16 +1297,27 @@ for (let d = 1; d <= 3; d++) {
         pagesCreated: conceptPaths.slice(j * 5, j * 5 + pageCount), pagesUpdated: [],
         commit: null, costUsd: cost, startedAt: at(night), proposalId: null,
       })),
-      found: ['Filed the detections it could verify.', 'Left two questions it could not settle.'],
-      openQuestions: ['Which follow-up would settle the ambiguous candidate?'],
-      proposals: [], value: { pageOpens: 3, recapLinks: 1 },
+      found: FOUND[f.name] ?? [],
+      openQuestions: FELLOW_QUESTIONS[f.name] ?? [],
+      // The decisions the morning offers, coded the way the recap codes them: the Fellow's
+      // position in the list, then a letter per proposal.
+      proposals: PROPOSALS.filter(([who, , , , , , , , status]) => who === f.name && status === 'proposed')
+        .map(([, taskIndex, kind, topic, rationale, candidate, score], j) => ({
+          code: `${k + 1}${'abc'[j]}`, proposalId: ulid(600 + j), kind, topic, rationale,
+          provenance: { candidate, text: topic, sourcePages: [] },
+          estCostUsd: kind === 'research' ? 4.2 : 2.0,
+          scopeScore: score, drift: score < 0.2, status: 'proposed', rank: j + 1,
+        })),
+      value: { pageOpens: 3, recapLinks: 1 },
     })),
-    sleeping: [{ name: 'Milo', reason: 'the theme is built out' }],
+    sleeping: FELLOWS.filter((f) => !runsOfNight.some((r) => r[0] === f.name))
+      .map((f) => ({ name: f.name, reason: f.sleep_reason ?? 'nothing it could run tonight' })),
     summaryNote: null, summaryCostUsd: 0.31, unclaimed: [],
     dedupe: { merged: [] },
   }
   const path = `wiki/meta/recaps/Recap ${cycle}.md`
-  recapStmt.run(cycle, at(day(d - 1)), path, JSON.stringify(model))
+  // The column and the model must agree: a recap is written the morning after its night.
+  recapStmt.run(cycle, at(nightOf(d, 7)), path, JSON.stringify(model))
 }
 
 db.close()
