@@ -1478,10 +1478,25 @@ export class FellowService {
     while (this.pending.length > 0) await Promise.allSettled(this.pending)
   }
 
+  /**
+   * Holds a detached piece of background work so `flush` can wait for it, and swallows its
+   * failure into a log line.
+   *
+   * The catch is the point. Everything enqueued here is work the caller already returned
+   * without: the notebook rewrite after a settle, the planning run chained onto a spawn's
+   * first run ("a courtesy and not a promise"). None of it may fail the call that started it,
+   * and an unhandled rejection in Node takes the process down, so a database error during a
+   * shutdown would end the service over work whose result nobody was waiting for.
+   * `track` already catches inside its own handler for the same reason; this is that rule in
+   * the one place every caller passes through.
+   */
   private enqueue(p: Promise<unknown>): void {
-    this.pending.push(p)
-    void p.finally(() => {
-      this.pending = this.pending.filter((x) => x !== p)
+    const guarded = p.catch((err: unknown) => {
+      this.log('warn', `fellows: background work failed: ${(err as Error).message}`)
+    })
+    this.pending.push(guarded)
+    void guarded.finally(() => {
+      this.pending = this.pending.filter((x) => x !== guarded)
     })
   }
 

@@ -211,7 +211,10 @@ describe('routing, dedupe and the recap', () => {
   beforeEach(() => {
     h = makeHarness()
   })
-  afterEach(() => {
+  afterEach(async () => {
+    // A spawn chains a planning run onto its first run and returns without it (`planAfterFirst`).
+    // Closing the database under that detached work is what makes it reach a closed handle.
+    await h.service.flush()
     h.db.close()
     fs.rmSync(h.vaultRoot, { recursive: true, force: true })
   })
