@@ -185,7 +185,7 @@ function makeHarness(withUsage = false): Harness {
         return { added: entries.length }
       },
       reconcile: async () => h.readingFiled!,
-      entries: () => h.reading!.map((e) => ({ ...e, page: e.filed })),
+      entries: () => h.reading!.map((e) => ({ ...e, page: e.filed, held: e.filed !== null })),
     },
     now,
     candidates: (agent, runs, since, task) => h.candidates!(agent, runs, since, task),

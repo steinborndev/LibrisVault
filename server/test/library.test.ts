@@ -178,9 +178,10 @@ describe('LibraryService', () => {
         agent: { id: 'a1', name: 'Ada', homeDomain: 'astronomy', model: 'sonnet-5', state: 'active', sleepCode: null, sleepReason: null, skipUntil: null } as FellowSummary['agent'],
         currentRun: runs[2]!,
         lastRun: null,
-        runsToday: 1,
+        runsTonight: 1,
         pendingProposals: 1,
         undecidedProposals: 1, tonight: [],
+        queue: [], skipsTonight: false,
         next: { topic: 'Next', kind: 'research-step', estCostUsd: 2, status: 'proposed' } as FellowSummary['next'],
       },
     ]
@@ -264,9 +265,10 @@ describe('LibraryService', () => {
         agent: { id: 'a1', name: 'Ada', homeDomain: 'astronomy', model: 'sonnet-5', state: 'active', sleepCode: null, sleepReason: null, skipUntil: null } as FellowSummary['agent'],
         currentRun: runs[2]!,
         lastRun: null,
-        runsToday: 1,
+        runsTonight: 1,
         pendingProposals: 0,
         undecidedProposals: 0, tonight: [],
+        queue: [], skipsTonight: false,
         next: null,
       },
     ]

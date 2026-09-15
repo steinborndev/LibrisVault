@@ -169,7 +169,7 @@ describe('planner: expand page sets and handoffs', () => {
   it('offers expand to standard and deep Fellows, carries the registry and asks for handoffs', () => {
     expect(kindsForStep('standard')).toEqual(['research-step', 'research-expand', 'research'])
     expect(kindsForStep('small')).toEqual(['research-step'])
-    const prompt = renderPlannerPrompt({ task: TASK, agent: agent(), candidates: CANDIDATES_ADA, recentLog: [], vetoed: [], runsLeftToday: 1, kinds: kindsForStep('standard'), domains: DOMAINS })
+    const prompt = renderPlannerPrompt({ task: TASK, agent: agent(), candidates: CANDIDATES_ADA, recentLog: [], vetoed: [], runsLeftTonight: 1, kinds: kindsForStep('standard'), domains: DOMAINS })
     expect(prompt).toContain("The library's domains (registry keys): astronomy (stars, planets, instruments); climate-science")
     expect(prompt).toContain('list it under `handoffs`')
     expect(prompt).toContain('research-expand (deepen up to 4 EXISTING pages')
