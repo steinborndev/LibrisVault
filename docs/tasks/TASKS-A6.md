@@ -17,12 +17,15 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-27 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-28 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Screenshot pass 2026-09-15 (F-A6-28).** Section 5 is complete. Thirteen images, seven of
+screens nobody had shot, and four real research runs standing behind them.
 
 **Demo seed pass 2026-09-15 (F-A6-27).** The synthetic vault has Fellows, so the screens the
 extension adds can be shot without pointing a camera at a real vault. What remains of section 5
@@ -411,15 +414,15 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       `!config.demoMode`), and the screenshot procedure does not use demo mode - it runs a
       normal service against the demo vault and a demo DB. Seeding the DB is the path;
       turning demo mode on is not.
-- [ ] `scripts/shoot-screens.mjs` knows five screens and none of the new Fellow surfaces.
+- [x] **Done 2026-09-15 (F-A6-28).** Thirteen shots now. Seven new ones (the room, a wing, the command centre, a dossier, the recap, Home in night view, the reading list) plus the one that matters most - a synthesis page as it is read, which no ledger screenshot can stand in for. Two mechanisms came with it: an optional click before the shutter, for surfaces no URL reaches, and clicking by `[role="tab"]` alone, since a wider selector finds Home's OTHER "Night shift" button and returns a picture of the view it meant to leave. `scripts/shoot-screens.mjs` knows five screens and none of the new Fellow surfaces.
       Add them: the Fellow command centre, the recap, the night view, the reading list.
-- [ ] Re-shoot every existing image. **[corrected] They are older than "dated 2026-09-05"
+- [x] **Done 2026-09-15 (F-A6-28).** All five re-shot against the demo vault. One had changed hands: what the script shot as the Library is the Catalog now, so the route and caption follow the rename while the file name stays and keeps the README link alive. Re-shoot every existing image. **[corrected] They are older than "dated 2026-09-05"
       suggests** - that is the working-tree mtime from a checkout, not the content. By
       commit date `home.png`, `graph.png`, `research.png`, `library.png` and `system.png`
       are from **2026-08-27** (`f77548d`, the redesign merge) and `social-preview.png` from
       **2026-07-19** (`b52c19e`). So `library.png` predates everything now in the Library
       screen, and the re-shoot is a bigger job than a refresh.
-- [ ] Check every image before committing: no real page title, no real domain name, nothing
+- [x] **Done 2026-09-15 (F-A6-28).** Every one looked at, which is the only check that works on a PNG - and it earned its keep three times: a red 206% budget banner (right figure, demo configured too tight), placeholders mixed into the reading list, and a research run's pages filed under an ingest commit in the activity stream. Check every image before committing: no real page title, no real domain name, nothing
       from `~/vault`. The generator invents its subject matter, but the screenshot is taken
       against whatever `VAULT_ROOT` points at, and pointing it at the wrong vault is one
       environment variable away. (The current images were checked byte-wise for the terms
@@ -696,6 +699,25 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-28 (2026-09-15) - the screenshots, and the three data errors only a picture showed.**
+  Section 5 is done: thirteen shots, four real research runs behind them, and the README carries
+  all but the repo card. The finding worth keeping is what the looking-at caught, since each of
+  the three passed every automated check the repo has.
+  (a) The command centre reported the research budget at **206%** in red. The figure was right -
+  four Fellows at their quotas is 49 runs a week, and at the real prices the captured runs
+  established that is about $196 against a default share of $100. The demo was configured too
+  tight, and a standing red warning reads as a broken screen rather than as a guard working.
+  (b) The reading list mixed real publications with `example.invalid` placeholders, side by side.
+  (c) A research run's pages were swept into an ingest's commit, so the activity stream filed a
+  patent synthesis under "ingest: some-file.pdf" - and a commit message is exactly how that
+  stream says which kind of work produced a page.
+  None of these is visible in the data. All three are obvious in a picture. **That is the
+  argument for the "look at every image" line in section 5 being a real gate and not a
+  courtesy**, and it is worth carrying into the re-run before the PR.
+  One more, from the same pass: the first click selector matched Home's OTHER "Night shift"
+  button, the one in the intake box, and returned a screenshot of the activity view it was
+  meant to leave. The script reports a missed click, which is why that was caught; without that
+  line it would have shipped as a second picture of a screen already in the README.
 - **F-A6-27 (2026-09-15) - the demo seed, and the field that would have looked right.**
   `scripts/demo-vault.mjs` seeds the Fellows now (section 5). Worth recording is how it was
   checked: not by reading the SQL back, but by opening the generated database with the REAL
