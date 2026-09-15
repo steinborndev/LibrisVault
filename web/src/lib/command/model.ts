@@ -46,6 +46,19 @@ export function shapeName(art: FellowRecord['art']): 'Observer' | 'Researcher' |
   return 'Custom'
 }
 
+/**
+ * What the user wanted when they picked that shape, in the shape's own words. It is the line
+ * the spawn form is chosen BY, so it is the line that says what a Fellow is for - and it lives
+ * here rather than in the form, because the room's card says it too and one sentence with two
+ * copies is one sentence that will disagree with itself.
+ */
+export function shapeWant(art: FellowRecord['art']): string {
+  if (art === 'watch') return 'Keep me current.'
+  if (art === 'explore') return 'Answer my questions.'
+  if (art === 'deepen') return 'Expand what we already have.'
+  return 'Something of my own.'
+}
+
 /** The standing work: the tasks that have not been answered, whatever tonight does with them. */
 export function standingTasks(agent: FellowRecord): readonly AgentTask[] {
   return (agent.tasks ?? []).filter((t) => t.state === 'active')

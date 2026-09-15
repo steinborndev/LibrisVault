@@ -39,6 +39,7 @@ import type {
 import {
   runsTonight,
   runsPillTitle,
+  shapeWant,
   shortfall,
   type ShortfallCode,
   type Shortfall,
@@ -138,7 +139,7 @@ const SHAPES: ReadonlyArray<{
   {
     art: 'watch',
     name: 'The observer',
-    want: 'Keep me current.',
+    want: shapeWant('watch'),
     what: 'Searches the web for what is new in a subject and writes it into the vault. A watch task never finishes: it comes round for as long as there is something to find.',
     holds: 'up to 3 tasks, all of them watch',
     defaults: { model: 'sonnet-5', step: 'standard', autonomy: 'veto' },
@@ -146,7 +147,7 @@ const SHAPES: ReadonlyArray<{
   {
     art: 'explore',
     name: 'The researcher',
-    want: 'Answer my questions.',
+    want: shapeWant('explore'),
     what: 'Searches the web to answer one question, reads the sources it finds and writes the synthesis into the vault. The question rests once the planner judges the vault has it covered; when the last one rests, the Fellow goes quiet and waits for a new question from you.',
     holds: 'up to 3 tasks, all of them explore',
     defaults: { model: 'opus-5', step: 'deep', autonomy: 'manual' },
@@ -154,7 +155,7 @@ const SHAPES: ReadonlyArray<{
   {
     art: 'deepen',
     name: 'The librarian',
-    want: 'Expand what we already have.',
+    want: shapeWant('deepen'),
     what: 'Ranks the concept and entity pages of this shelf against a theme, backlinks per kilobyte, and extends the four thinnest with what it finds on the web. It writes no new pages.',
     holds: 'up to 3 tasks, all of them deepen',
     defaults: { model: 'sonnet-5', step: 'standard', autonomy: 'veto' },
@@ -162,7 +163,7 @@ const SHAPES: ReadonlyArray<{
   {
     art: 'custom',
     name: 'Custom',
-    want: 'Something of my own.',
+    want: shapeWant('custom'),
     what: 'Any mix of the three arts, up to three tasks, and every setting yours from the start. The shape with no opinion about what a Fellow should be.',
     holds: 'up to 3 tasks, any of the three arts',
     defaults: { model: 'sonnet-5', step: 'standard', autonomy: 'veto' },

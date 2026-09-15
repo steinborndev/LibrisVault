@@ -17,7 +17,7 @@ import { useEffect } from 'react'
 import type { FellowSummary, SceneFellow } from '../../api/types.ts'
 import { usd } from '../../lib/format.ts'
 import { domainColor } from '../../lib/domains.ts'
-import { fellowMinutes, runProgress, runsTonight, shapeName, standingTasks } from '../../lib/command/model.ts'
+import { fellowMinutes, runProgress, runsTonight, shapeName, shapeWant, standingTasks } from '../../lib/command/model.ts'
 import { runUsd, type Prices } from '../../lib/plan.ts'
 
 const NIGHTLY: Record<string, string> = { sweep: 'every task', rotate: 'one task a night' }
@@ -123,7 +123,11 @@ export function FellowPopover({
       <div className="lib-pop-head">
         <div className="lib-pop-title">
           {scene.name}
-          {agent && <span className="shape">({shapeName(agent.art)})</span>}
+          {agent && (
+            <span className="shape">
+              ({shapeName(agent.art)} <i>“{shapeWant(agent.art)}”</i>)
+            </span>
+          )}
         </div>
         <span className={`sev ${tone}`}>{state}</span>
       </div>

@@ -12,6 +12,7 @@ import {
   runsTonight,
   runsPillTitle,
   shapeName,
+  shapeWant,
   standingTasks,
   runProgress,
   isSystemPage,
@@ -678,6 +679,14 @@ describe('what the room\'s Fellow card reads off a record', () => {
     expect(shapeName('explore')).toBe('Researcher')
     expect(shapeName('deepen')).toBe('Librarian')
     expect(shapeName('custom')).toBe('Custom')
+  })
+
+  it('quotes the want each shape is picked by, which the spawn form takes from here too', () => {
+    // One copy of the sentence: the form and the room's card would otherwise drift apart.
+    expect(shapeWant('watch')).toBe('Keep me current.')
+    expect(shapeWant('explore')).toBe('Answer my questions.')
+    expect(shapeWant('deepen')).toBe('Expand what we already have.')
+    expect(shapeWant('custom')).toBe('Something of my own.')
   })
 
   it('counts the standing work, which is the tasks that have not been answered', () => {
