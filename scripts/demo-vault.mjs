@@ -498,6 +498,184 @@ for (const f of FELLOWS) {
   })
 }
 
+/*
+ * ----------------------------------------------------------------- synthesis pages
+ *
+ * Every research run files exactly one, under `wiki/questions/`, titled `Research: <topic>`
+ * plus the lens suffix. Without them the Research tab lists runs whose result cannot be
+ * opened, which is most of what that screen is for.
+ *
+ * Two details are replicated rather than invented, because the service checks them. The file
+ * name keeps the colon of `Research: ` - `isSynthesisPath` asks for exactly that prefix, and
+ * the generator's own `fileName()` would strip it, so these pages are pushed with an explicit
+ * path. And the lens suffixes carry the em dash the product itself writes; this is one place
+ * where copying the product's string matters more than the house style, since a title that
+ * differs by one character is a page the run cannot find.
+ */
+const LENS_SUFFIX = { broad: '', sota: ' \u2014 State of the Art', patents: ' \u2014 Patent Landscape', startups: ' \u2014 Startup Landscape' }
+
+const SYNTHESES = [
+  { topic: 'Atmospheric retrieval at low resolution', profile: 'sota', domain: 'astronomy', daysAgo: 4,
+    question: 'How much of an atmosphere can be recovered when the spectrum is coarse?',
+    findings: [
+      ['The limit is set by the degeneracy between temperature and abundance, not by the noise',
+       'Two parameters move the same feature in the same direction, so a coarse spectrum cannot separate them. Higher signal-to-noise narrows the error bars without breaking the degeneracy.'],
+      ['Priors do most of the work, and are rarely stated',
+       'Of the retrievals surveyed, the ones that report a tight abundance are the ones that fixed the temperature profile first. That choice is a result, and it usually appears in a caption.'],
+      ['One band does more than a wider range at lower resolution',
+       'Where a feature is isolated, a narrow high-resolution window beats a broad survey of the same total exposure.'],
+    ],
+    changes: 'The vault treated retrieval precision as an instrument property. It is a joint property of the instrument and the prior, and the pages now say which.',
+    open: ['Does the degeneracy break for the hottest targets, where the profile is better constrained?', 'What would a retrieval look like that reported its priors as a result?'] },
+
+  { topic: 'Ocean carbon sink capacity', profile: 'broad', domain: 'climate-science', daysAgo: 9,
+    question: 'How much carbon does the ocean take up, and why do the estimates disagree?',
+    findings: [
+      ['The disagreement is mostly in the coastal margin, which the global products treat differently',
+       'Open-ocean estimates converge within a few percent. The spread comes from shelf seas, where one family of products extrapolates and the other excludes.'],
+      ['The trend is better constrained than the absolute value',
+       'Every method agrees on the direction and roughly on the slope. What they disagree about is the baseline they start from.'],
+      ['Inventory and flux methods answer different questions and are compared as if they did not',
+       'One measures what is there, the other what crosses the surface in a year. A mismatch between them is not automatically an error in either.'],
+    ],
+    changes: 'The sink pages carried one number with a range. They now carry the number, the method behind it, and what the method excludes.',
+    open: ['Does the coastal treatment explain the whole spread, or only most of it?'] },
+
+  { topic: 'Storage engine trade-offs under write amplification', profile: 'broad', domain: 'computing', daysAgo: 14,
+    question: 'When does a log-structured store stop paying for itself?',
+    findings: [
+      ['Write amplification is a function of the workload, not of the engine',
+       'The same engine amplifies four times on one access pattern and thirty on another. Comparisons that quote a single factor have chosen a workload.'],
+      ['The crossover is at the point where reads start missing the cache, not at a size',
+       'Below that point the extra writes are invisible; above it they compete with the reads that now need the disk.'],
+      ['Compaction strategy moves the cost, it does not remove it',
+       'Tiered compaction trades read amplification for write amplification; levelled does the reverse. Neither is free and both are configurable, which is why the defaults rarely fit.'],
+    ],
+    changes: 'The engine pages compared throughput. They now compare it against the access pattern the number was measured on.',
+    open: ['Is there a workload where the crossover does not exist at all?'] },
+
+  { topic: 'Recent patents on adaptive optics', profile: 'patents', domain: 'astronomy', daysAgo: 19,
+    question: 'What has been filed on wavefront correction, and by whom?',
+    findings: [
+      ['Filing activity concentrates on the sensor, not the corrector',
+       'The deformable mirror is mature and the claims are narrow. The recent filings are about measuring the wavefront faster and with less light.'],
+      ['Two independent filings claim the same predictive-control idea from different directions',
+       'One frames it as a control problem and one as an estimation problem. The claims overlap in what they cover and not in how they say it.'],
+      ['Ground-layer-only correction is claimed more often than full correction',
+       'A narrower correction with a wider field is the commercially interesting case, and the filings follow that rather than the physics.'],
+    ],
+    changes: 'The instrument pages described correction as one technique. The filings show it is at least three, with different economics.',
+    open: ['Do the two predictive-control filings actually conflict, or do their claims miss each other?'] },
+
+  { topic: 'Who is funding fermentation biotech', profile: 'startups', domain: 'mycology', daysAgo: 26,
+    question: 'Where is the money in precision fermentation going, and to what kind of company?',
+    findings: [
+      ['Funding follows the substrate, not the product',
+       'The companies raising are the ones with a cheap input, whatever they make from it. The product pivots; the substrate does not.'],
+      ['Scale-up capital and research capital come from different places and at different stages',
+       'The gap between a working strain and a working plant is funded by parties who do not fund either end of it.'],
+      ['Contract capacity is the constraint everyone names and few price',
+       'Announced capacity and available capacity are different numbers, and the second is the one that sets a timeline.'],
+    ],
+    changes: 'The vault filed these as product companies. They are better read as substrate companies, which is why their product pages kept needing revision.',
+    open: ['Does the substrate-first reading hold for the companies that failed, or only for the ones that raised?'] },
+
+  { topic: 'What limits the precision of ground-based transit photometry', profile: 'broad', domain: 'astronomy', daysAgo: 5,
+    question: 'Where does the error budget of a ground-based transit actually go?',
+    findings: [
+      ['Scintillation dominates for bright hosts, and it is a site property',
+       'For the targets worth following up, the atmosphere sets the floor and no amount of aperture moves it much. The site does.'],
+      ['Detrending removes real signal along with the systematics',
+       'Every detrending choice is a filter, and a filter shaped like a transit takes some of the transit. The papers that inject and recover report this; most others do not.'],
+      ['Comparison-star choice is a bigger lever than exposure time',
+       'A well-matched comparison star buys more than a longer exposure, and it is free.'],
+    ],
+    changes: 'The photometry pages described precision as a property of the instrument. It is mostly a property of the site and the reduction.',
+    open: ['How much of the detrending loss can be recovered by injecting the model before filtering?'] },
+
+  { topic: 'Proxy records and the spread they leave on sensitivity', profile: 'broad', domain: 'climate-science', daysAgo: 8,
+    question: 'How far do the paleo records actually narrow climate sensitivity?',
+    findings: [
+      ['They constrain the lower bound much better than the upper one',
+       'Every record rules out the low end. None of them rules out the high end, because the high end lives in feedbacks the records do not resolve.'],
+      ['The spread is dominated by one conversion step, not by the measurements',
+       'Turning a proxy into a temperature carries an assumption whose uncertainty is larger than the measurement uncertainty it is applied to.'],
+      ['Combining records narrows nothing if they share that step',
+       'Independent records are not independent estimates when they pass through the same calibration.'],
+    ],
+    changes: 'The sensitivity pages treated the paleo constraint as one number. It is an asymmetric constraint with a shared-assumption problem behind it.',
+    open: ['Is there a record that avoids the shared conversion step entirely?'] },
+
+  { topic: 'What makes an evaluation set go stale', profile: 'broad', domain: 'machine-learning', daysAgo: 9,
+    question: 'Why do benchmarks stop measuring what they were built to measure?',
+    findings: [
+      ['Contamination is the fast way and the rare one',
+       'It is the failure everyone names because it is checkable. Most staleness is slower than that and has no test.'],
+      ['A set goes stale when the field optimises against its distribution, not its task',
+       'Nothing leaks. The models simply get good at the shape of the questions, and the shape was never the point.'],
+      ['The tell is a compressed score range, not a high score',
+       'When every system lands within a point of every other, the set has stopped ranking, whatever the absolute numbers say.'],
+    ],
+    changes: 'The evaluation pages treated staleness as contamination. Contamination is the special case; distribution-fitting is the general one.',
+    open: ['Can a set be built so that fitting its distribution IS the task?'] },
+
+  { topic: 'What the inventories agree on, and where they part', profile: 'broad', domain: 'climate-science', daysAgo: 17,
+    question: 'Where exactly do the carbon inventories diverge?',
+    findings: [
+      ['They agree on the total to within a few percent and part on the attribution',
+       'How much is where is a harder question than how much there is, and the second is the one that gets quoted.'],
+      ['The land-use term carries most of the disagreement and the least data',
+       'It is the smallest well-measured term and the largest badly-measured one.'],
+      ['Revisions move the baseline more often than the recent years',
+       'A revision usually rewrites the past, which is why trends computed across revisions can be artefacts.'],
+    ],
+    changes: 'The inventory pages cited a single figure per source. They now cite the figure, the vintage, and what the vintage revised.',
+    open: ['Does any inventory publish a trend computed within one vintage throughout?'] },
+]
+
+/** A run's synthesis page path, so the database can point its `pages` at it. */
+const synthesisPath = (topic, profile) =>
+  `wiki/questions/Research: ${topic}${LENS_SUFFIX[profile] ?? ''}.md`
+
+for (const syn of SYNTHESES) {
+  const created = day(syn.daysAgo)
+  const title = `Research: ${syn.topic}${LENS_SUFFIX[syn.profile] ?? ''}`
+  const related = pages
+    .filter((p) => p.path.startsWith('wiki/concepts/') && p.domain === syn.domain)
+    .slice(0, 5)
+    .map((p) => p.title)
+  const sourcePages = pages
+    .filter((p) => p.path.startsWith('wiki/sources/') && p.domain === syn.domain)
+    .slice(0, 3)
+    .map((p) => p.title)
+  pages.push({
+    path: synthesisPath(syn.topic, syn.profile), domain: syn.domain, type: 'question',
+    title, tags: ['question', 'research', syn.domain], related: [], sources: [],
+    status: 'developing', created, prerendered: true,
+    body: [
+      '---', 'type: question', `title: "${title}"`, `domain: ${syn.domain}`,
+      `created: ${iso(created)}`, `updated: ${iso(created)}`,
+      'tags:', '  - question', '  - research', `  - ${syn.domain}`,
+      'status: developing',
+      ...(related.length ? ['related:', ...related.map((r) => `  - "[[${r}]]"`)] : []),
+      ...(sourcePages.length ? ['sources:', ...sourcePages.map((r) => `  - "[[${r}]]"`)] : []),
+      '---', '',
+      `# ${title}`, '',
+      '## Question', '', syn.question, '',
+      '## Method', '',
+      `Searched through the ${syn.profile === 'broad' ? 'broad' : syn.profile} lens, read what was reachable in full, `
+        + 'and checked each claim against the pages the vault already held. Publications that could not be read '
+        + 'are on the reading list rather than summarised from their abstracts.', '',
+      '## Findings', '',
+      ...syn.findings.flatMap(([head, body], i) => [`### ${i + 1}. ${head}`, '', body, '']),
+      '## What this changes about the vault', '', syn.changes, '',
+      '## Open questions', '',
+      ...syn.open.map((q) => `- ${q}`), '',
+      ...(related.length ? ['## Pages this rests on', '', ...related.map((r) => `- [[${r}]]`), ''] : []),
+    ].join('\n'),
+  })
+}
+
 /** The recap pages of the last three nights, as the recap service renders them. */
 for (let d = 1; d <= 3; d++) {
   const night = day(d)
@@ -793,6 +971,8 @@ const runStmt = db.prepare(
 const conceptPaths = pages.filter((p) => p.path.startsWith('wiki/concepts/')).map((p) => p.path)
 const MAINT_SECONDS = { research: 610, lint: 512, 'hot-cache': 21, 'domain-backfill': 140, 'lint-fix': 205, 'domain-review': 96 }
 const RUNS = [
+  // The five research runs are the ones with a synthesis page; the topic and the lens here
+  // have to match SYNTHESES above, because that pair is what names the page.
   ['research', 'Atmospheric retrieval at low resolution', 'sota', 7, 268_000, 21_400, 2.34, 4],
   ['research', 'Ocean carbon sink capacity', 'broad', 5, 191_000, 15_100, 1.62, 9],
   ['research', 'Storage engine trade-offs under write amplification', 'broad', 4, 158_000, 12_800, 1.31, 14],
@@ -808,7 +988,15 @@ RUNS.forEach(([kind, label, profile, pageCount, tin, tout, cost, daysAgo], i) =>
   const started = day(daysAgo)
   runStmt.run({
     id: ulid(200 + i), kind, label, profile_key: profile, ok: 1,
-    pages: JSON.stringify(conceptPaths.slice(i * 17, i * 17 + pageCount)),
+    /*
+     * A research run's own synthesis page first, then the concept pages it wrote along the
+     * way. The order is what the Research tab shows: the result, and then the material. A run
+     * with no synthesis in its page list is one whose result cannot be opened.
+     */
+    pages: JSON.stringify([
+      ...(kind === 'research' ? [synthesisPath(label, profile)] : []),
+      ...conceptPaths.slice(i * 17, i * 17 + pageCount),
+    ]),
     tokens_in: tin, tokens_out: tout, cost_usd: cost,
     // Same rule as the Fellow runs below: the length follows the KIND. These used to be one
   // rising series, which put a full research run at five minutes and skewed every median
@@ -899,7 +1087,7 @@ const RUN_SECONDS = { 'research-step': 320, research: 615, 'research-expand': 31
 const FELLOW_RUNS = [
   ['Ada', 'research-step', 'A bright-host transit candidate and its follow-up photometry', 2, 1.94, 1],
   ['Ada', 'research-step', 'Wavefront sensing upgrades reported this quarter', 1, 1.71, 2],
-  ['Ada', 'research', 'Ground-based transit photometry: what limits the precision', 6, 4.12, 5],
+  ['Ada', 'research', 'What limits the precision of ground-based transit photometry', 6, 4.12, 5],
   ['Casper', 'research-step', 'Where the sink estimates disagree, and on what data', 3, 2.08, 1],
   ['Casper', 'research-expand', 'Feedback pages, built out from their own open questions', 4, 2.31, 3],
   ['Casper', 'research', 'Proxy records and the spread they leave on sensitivity', 7, 4.48, 8],
@@ -924,7 +1112,10 @@ FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
      VALUES (?, 'local', ?, ?, ?, ?, 1, ?, ?, ?, ?, NULL, ?, ?, ?)`,
   ).run(
     id, fellowIds[who], kind, topic, who === 'Mira' ? 'opus-5' : 'sonnet-5',
-    JSON.stringify(conceptPaths.slice(60 + i * 11, 60 + i * 11 + pageCount)),
+    JSON.stringify([
+      ...(kind === 'research' ? [synthesisPath(topic, 'broad')] : []),
+      ...conceptPaths.slice(60 + i * 11, 60 + i * 11 + pageCount),
+    ]),
     140_000 + i * 9_000, 11_000 + i * 700, cost,
     at(started), at(new Date(started.getTime() + (RUN_SECONDS[kind] + (i % 4) * 17) * 1000)),
     'Filed what it found and left the open questions on the page.',
