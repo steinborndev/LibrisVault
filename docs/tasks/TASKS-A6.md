@@ -17,12 +17,17 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-17 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-19 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Third pass 2026-09-15 (F-A6-18, F-A6-19).** The flag-off acceptance test is written, the
+four repo-hygiene items of section 6 are done, and the open question about the reading list is
+answered: it writes to the vault with the flag off, and the ingest prompt asks it to, which
+makes it D1's subject rather than a footnote.
 
 **Second pass 2026-09-15, from the A7 review (F-A6-15, F-A6-16).** Three items closed: the
 `npm test` exit (section 6, and it was a service bug as well as a test bug), the fork's own
@@ -123,6 +128,19 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       off: a service that only holds state is fine, a service that writes during ingest is
       the unflagged behaviour change D1 is about. A timer that starts and finds nothing to
       do is still a behaviour change.
+      **Answered 2026-09-15 (F-A6-19), and the answer is the second one: it writes, and the
+      prompt asks it to.** Two independent halves, neither behind the flag:
+      the `<reading_list>` block is in the system prompt of EVERY ingest run
+      (`queue.ts:1121` and `:1453`, unconditional in `systemPromptExtra`), telling the run to
+      append an entry to `wiki/meta/reading-list.md` for every publication worth having in the
+      original; and `attributeRun` runs after the ingest and rewrites that page's `by:` lines
+      for the entries the run added (`reading-list.ts`, `fs.writeFileSync`). So a LibrisVault
+      user who upgrades and sets no flag gets a new vault page that their ingests fill in.
+      That is a vault-visible behaviour change in the default path, which makes it D1's
+      subject rather than a footnote to it, and it is a bigger one than the OA egress of D5,
+      because this one writes to the vault. D1 has to name it; decide whether the block and
+      the attribution move behind the flag, or whether the reading list is declared part of
+      the base product and documented as such.
 - [ ] Migrations: the agent tables are created regardless of the flag (schema present, no
       behaviour). Confirm that is what happens, and state it in 12.10 rather than leave a
       reader to discover a `fellows` table in a vault that has no Fellows.
@@ -140,7 +158,22 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       (`App.tsx:215`, `Home.tsx:161`, `System.tsx:309`). The `'on'` / `'off'` strings at
       `config.ts:389` are the **startup log banner**, a different object. A test written
       against `health.fellows === 'off'` would assert a contract that does not exist.
-- [ ] **The test that is missing entirely.** No test file mentions `AGENTS_ENABLED` today
+- [x] **The test that is missing entirely. Written 2026-09-15 (F-A6-18):**
+      `server/test/agents-flag-off.test.ts`, four tests. Every route the extension registers
+      answers 404 with its service absent (seven of them, one per registrar, `/api/v1/wings`
+      included because it rides along in the library registrar); the base product's own routes
+      still answer 200; `health.fellows` is asserted as a falsy BOOLEAN and as a boolean type,
+      against the banner-string trap this file records below; and a counter-test wires one
+      gated service and sees its route appear, without which the other three would pass
+      against a deleted registrar or a typo in a path.
+      **It covers the second of the two gating steps, and says so in its own header.**
+      `main.ts` turns the FLAG into the presence of a service, `buildServer` turns PRESENCE
+      into routes; this is the second. Booting the first means `startService`, which opens the
+      database at `defaultDbPath()`, reads the real credential file and starts a watcher - one
+      environment variable away from writing into the developer's own vault, which is not a
+      thing a unit test may be able to do. The flag-off smoke run in section 8 is what covers
+      that half, and it is the reason that line stays open.
+      The original finding: no test file mentioned `AGENTS_ENABLED` today
       (confirmed: the only test occurrences are of the config field `agentsEnabled`, and of
       those only `commit-dismissals.test.ts:67` sets it false, incidentally and without
       asserting anything about it), so the milestone's own acceptance criterion has no
@@ -288,14 +321,21 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 6. Repo hygiene
 
-- [ ] `.claude/settings.local.json` is **tracked** although `.gitignore:39` lists it
+- [x] **Done 2026-09-15.** `.claude/settings.local.json` is **tracked** although `.gitignore:39` lists it
       **[corrected: the file said `.gitignore:21`]** (it was committed before the rule, and
       an ignore rule does not reach a tracked file). It carries a local path
-      (`/home/benjamin/.config/vault-service/**`). `git rm --cached` it.
-- [ ] `scripts/timelapse/frames.cjs` and `video.cjs` hold hardcoded `/home/benjamin` paths.
-      Take them from the environment or from an argument. (Both are `require()` of a
-      playwright inside an npx cache directory, so they are broken for anyone else anyway,
-      not merely leaky.)
+      (a home-directory path). `git rm --cached`'d; the file itself is untouched on disk.
+- [x] **Done 2026-09-15.** `scripts/timelapse/frames.cjs` and `video.cjs` held a hardcoded
+      home-directory path. (Both were a `require()` of a playwright inside an npx cache
+      directory, so they were broken for anyone else anyway, not merely leaky.) Resolved at
+      run time now by a shared `playwright.cjs`: an ordinary `require('playwright')` or
+      `PLAYWRIGHT_MODULE`, with a message naming both ways when it finds neither. Playwright
+      stays OUT of the dependency list deliberately - these drivers are a promo tool run by
+      hand a few times a year, and a browser download in everyone's `npm ci` is a steep price
+      for that; the README says so.
+      **[added] Both files were also commented and logging in German**, the only files in the
+      repo still doing so (checked repo-wide). Translated with the same content. Worth a line
+      here because the merge audit looks for vault names and would not have looked for this.
 - [ ] `package.json` is named `vault-service` while the product is LibrisVault. The
       `repository` field is already correct. Decide whether the package name follows.
 - [x] **`npm test` exits 1 although all 1819 tests pass**: an unhandled rejection in
@@ -344,16 +384,19 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       Note why nothing else caught these: `tsconfig.build.json` excludes `test/`, so the
       build stayed green, and vitest does not typecheck, so the suite stayed green.
       `npm run typecheck` now exits 0 for both workspaces.
-- [ ] **[added] `npm run lint` at the root never lints `web`.** Root is
+- [x] **[added] Done 2026-09-15. `npm run lint` at the root never linted `web`.** Root was
       `"lint": "npm run lint --workspace server"`, while `web/package.json` does carry
       `"lint": "eslint ."` and the A-series added the whole eslint toolchain to that
       workspace (the only dependency change on the web side). It passes when run by hand,
-      but the acceptance gate in section 8 does not cover it. Make the root script run both.
-- [ ] `preprocprobe` has no npm script although CLAUDE.md hard rule 6 mandates running it
-      after any change to the converter wiring. Add it beside `permprobe`, and while there
-      check the other CLI entry points that hard rules or task files reference
-      (`quoteprobe`, `oasweep`, `usageprobe`, `readingsweep`, and also `backfill-sources`
-      and `graph-timelapse`, which likewise have none).
+      but the acceptance gate in section 8 did not cover it. The root script runs both now,
+      and both are clean.
+- [x] **Done 2026-09-15.** `preprocprobe` had no npm script although CLAUDE.md hard rule 6
+      mandates running it after any change to the converter wiring: a rule that names a file
+      path and gives no way to run it invites the path to go stale. All seven that had none
+      are now beside `permprobe` in the server workspace (`preprocprobe`, `quoteprobe`,
+      `usageprobe`, `oasweep`, `readingsweep`, `backfill-sources`, `graph-timelapse`), and the
+      two probes a hard rule names are also reachable from the repo ROOT, which is where
+      someone reads the rule.
 - [ ] Apply D3 to every occurrence of the fork name.
 
 ## 7. Private-content audit (hard rule 7)
@@ -467,14 +510,15 @@ Status as measured 2026-09-15, on the working tree:
 |---|---|
 | `npm test` | exit 0, 1819 tests pass (server 1246/82 files, web 573/52) (was exit 1; fixed 2026-09-15, F-A6-15) |
 | `npm run typecheck` | exit 0 for both workspaces (was exit 2; fixed 2026-09-15, F-A6-2) |
-| `npm run lint` | exit 0, but does not cover `web`; `web` lints clean when run directly (F-A6-9) |
+| `npm run lint` | exit 0 for both workspaces (the root script covered only `server` until 2026-09-15, F-A6-9) |
 | `npm run build` | exit 0 |
 | `preprocprobe` | **PASS**, "the jail holds" (F-A6-5) |
 | `permprobe` | not run - it starts a real, billable agent run |
 
 - [x] `npm test`, `npm run typecheck`, `npm run lint` green **and exit 0** (section 6). All
-      three measured 2026-09-15 after F-A6-15 and F-A6-2. `lint` still does not cover `web`
-      (F-A6-9), so this gate is met by the letter of the script and not yet by its intent.
+      three measured 2026-09-15 after F-A6-15, F-A6-2 and F-A6-9; `lint` covers both
+      workspaces now, so the gate is met by intent and not only by the letter of the script.
+      Test count is 1823 (server 1250 / 83 files, web 573 / 52) since the flag-off test.
 - [ ] `npm run permprobe --workspace server`: expect `canary outside vault: blocked`.
 - [ ] `preprocprobe`: **[corrected] expect 14 ok lines**, not the 13 that
       `docs/agents/ideas.md:829` records from an earlier run. Reconcile the number in
@@ -512,6 +556,26 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-19 (2026-09-15) - the reading list is unflagged behaviour that WRITES TO THE VAULT,
+  and the prompt is half of it.** Section 1 asked what the unconditionally constructed
+  `ReadingListService` costs with the flag off, and guessed the answer might be "it only holds
+  state". It is the other one, through two independent paths, neither behind the flag.
+  (a) `renderReadingList(INGEST_ACTOR, ...)` sits in `systemPromptExtra` of every ingest run,
+  unconditionally (`queue.ts:1121`, `:1453`): the run is TOLD to append an entry to
+  `wiki/meta/reading-list.md` for every publication worth having in the original, full text or
+  not. (b) `attributeRun` runs after the ingest and rewrites that page's `by:` lines for the
+  entries the run added (`reading-list.ts`, `fs.writeFileSync`). So a LibrisVault user who
+  upgrades and sets nothing gets a new vault page their ingests fill in. This outranks D5 as
+  D1's subject: the OA recovery makes third-party requests, this one writes to the vault.
+- **F-A6-18 (2026-09-15) - the flag-off acceptance now has a test, covering one of its two
+  halves on purpose.** `server/test/agents-flag-off.test.ts`: seven gated routes answer 404
+  with their services absent, the base routes answer 200, `health.fellows` is a falsy boolean
+  (asserted as a type too, because the same idea is spelled `'on'`/`'off'` in the startup
+  banner and `'off'` is truthy), and one counter-test wires a gated service to watch its route
+  appear. The half it does not cover is flag-to-presence, which lives in `main.ts` and would
+  need `startService` - and that opens the database at `defaultDbPath()`, reads the real
+  credential file and starts a watcher. A unit test that can reach the developer's own vault
+  on a bad environment variable is not worth the coverage; the smoke run in section 8 is.
 - **F-A6-17 (2026-09-15) - the private-content audit is blind to quoted run output, which is
   what the A-series produces most of.** F-A6-7 built its 2325 terms from vault page titles in
   every bucket. A Fellow's standing task is not a page title: it lives in `agents.tasks` in
