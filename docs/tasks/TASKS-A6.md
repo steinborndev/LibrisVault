@@ -17,12 +17,15 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-28 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-29 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**CI and sweep pass 2026-09-15 (F-A6-29).** The repo has CI. The task files are swept. The
+hook's structural limit has a tool beside it rather than only a warning.
 
 **Screenshot pass 2026-09-15 (F-A6-28).** Section 5 is complete. Thirteen images, seven of
 screens nobody had shot, and four real research runs standing behind them.
@@ -511,7 +514,7 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 7. Private-content audit (hard rule 7)
 
-- [ ] **The hook has three blind spots, not one, and content has already gone through all
+- [x] **Done 2026-09-15 (F-A6-29).** The two cheap ones were closed in F-A6-20; the third is structural and is now stated in the hook header AND answered by a tool rather than by a hope: `scripts/vault-name-scan.mjs` does the half a commit-msg hook cannot, over tracked files, over a merge diff (`--diff <base>`), or over one file - which is how the PR body gets checked before it is posted. It takes the WIDER list than the hook (concepts included), because a false positive costs a glance here and a blocked commit there. **The hook has three blind spots, not one, and content has already gone through all
       of them.** **[corrected and widened from the original single finding.]**
       1. It builds its denylist from **whole page-title stems**, so a fixture naming a
          substring of a title passes: the vault page's title ends in a parenthesised
@@ -572,7 +575,7 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       pins; the dedupe-judge pair is still one formal phrasing against one colloquial
       paraphrase. Domain keys moved from a real registry key to a neutral one where the key
       itself carried the subject. All 1819 tests still pass and both lints are clean.
-- [ ] **[added] The audit covered code and fixtures; the TASK FILES were not swept, and at
+- [x] **Swept 2026-09-15 (F-A6-29).** All 22 task files against 2034 terms: every hit is product vocabulary (Anthropic, hot cache, cursor, system prompt, one deliberately generic fixture). And the shape this item asked for - quoted RUN OUTPUT, which no title list can catch - was searched by hand: four blockquotes across the whole folder, of which exactly ONE is a quoted run, the known one in A7 6.4. So the sweep is complete and the decision it leaves is a single one, not a class. **[added] The audit covered code and fixtures; the TASK FILES were not swept, and at
       least one carries a verbatim quote naming two real research subjects.**
       `docs/tasks/TASKS-A7.md` 6.4 quotes a planning run against the production vault, and the
       quote names the two standing tasks of one Fellow. That quote is the EVIDENCE for the
@@ -652,6 +655,7 @@ Status as measured 2026-09-15, on the working tree:
 | `npm run typecheck` | exit 0 for both workspaces (was exit 2; fixed 2026-09-15, F-A6-2) |
 | `npm run lint` | exit 0 for both workspaces (the root script covered only `server` until 2026-09-15, F-A6-9) |
 | `npm run build` | exit 0 |
+| CI | `.github/workflows/ci.yml` runs all four on every push and pull request (added 2026-09-15) |
 | `preprocprobe` | **PASS**, "the jail holds", 14 checks (F-A6-5, re-run 2026-09-15) |
 | `permprobe` | not run - it starts a real, billable agent run |
 
@@ -667,9 +671,9 @@ Status as measured 2026-09-15, on the working tree:
 - [x] **Done 2026-09-15 (F-A6-18):** the flag-off test from section 1,
       `server/test/agents-flag-off.test.ts`, covering routes-from-presence. The
       presence-from-flag half is the clean-clone/smoke item below.
-- [ ] A build from a clean clone: `npm ci && npm run build` on a machine that has never seen
+- [x] **Done 2026-09-15.** A fresh single-branch clone, `npm ci`, then test, typecheck, lint and build in order: all four pass. Done as the verification for the CI workflow, which is the same procedure by definition. A build from a clean clone: `npm ci && npm run build` on a machine that has never seen
       this repo, so the README's quick start is verified rather than remembered.
-- [ ] **[added] Neither repo has any CI** (no `.github/` at all in either). Every gate above
+- [x] **Done 2026-09-15 (F-A6-29).** `.github/workflows/ci.yml`: the four gates as four steps on push and pull request, `npm ci` from the lockfile, Node pinned to the engines floor. Both probes stay out and the file says why - one is billable, the other needs bubblewrap and a vault, and both are what a hand-run pre-merge pass is for. **[added] Neither repo has any CI** (no `.github/` at all in either). Every gate above
       is caught only by whoever remembers to run it, which is how a red `npm test` and a red
       `npm run typecheck` both survived into merge preparation. A minimal workflow running
       test, typecheck, lint and build on push is the cheap way to make section 8 hold after
@@ -699,6 +703,24 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-29 (2026-09-15) - CI, and the task-file sweep that came back almost empty.**
+  Three items closed and one narrowed. **CI**: four gates, four steps, on push and pull request,
+  verified by doing what it does - a fresh clone, `npm ci`, each gate in order - which also
+  settles the clean-clone item. Both probes are deliberately absent and the workflow says so:
+  one is billable, the other needs bubblewrap and a vault.
+  **The task-file sweep** found nothing but product vocabulary across 22 files and 2034 terms.
+  More useful is what it found by NOT using the list: the shape this milestone actually worries
+  about is quoted run output, which carries no page title, so it was searched by hand as a
+  shape - four blockquotes in the whole folder, exactly one of them a quoted run. The decision
+  this leaves is therefore a single sentence in A7 6.4 and not a category of work.
+  **The hook's third blind spot** cannot be closed in a commit-msg hook and is now answered by
+  `scripts/vault-name-scan.mjs` instead: the same term-building, over file content rather than
+  a message, with a `--diff <base>` mode for exactly the merge audit section 7 still owes and a
+  `--file` mode for the PR body, which is the one text that reaches the public repo without
+  passing any hook at all. It takes the wider list (concepts included) because the trade runs
+  the other way here: a false positive costs a glance, not a blocked commit.
+  Its header says what it cannot see, in the same words the hook's does, because the way this
+  audit went wrong the first time was trusting a title-based list to be a content check.
 - **F-A6-28 (2026-09-15) - the screenshots, and the three data errors only a picture showed.**
   Section 5 is done: thirteen shots, four real research runs behind them, and the README carries
   all but the repo card. The finding worth keeping is what the looking-at caught, since each of
