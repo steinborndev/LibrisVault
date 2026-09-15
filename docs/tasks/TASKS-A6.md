@@ -17,12 +17,17 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-21 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-22 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Sixth pass 2026-09-15 (F-A6-22).** Section 1 is closed except for the half that waits on
+the root spec: the flag surfaces and the background work are confirmed gated, the containment
+probe is run and its count reconciled, and the web check turned up two base-product screens
+requesting a route only the extension registers.
 
 **Fifth pass 2026-09-15 (F-A6-21), before the branch went to the private remote.** Five
 passes over the 41 unpushed commits: messages, file list, secrets, absolute paths, and the
@@ -130,7 +135,8 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 1. Feature flag review
 
-- [ ] Enumerate every surface `AGENTS_ENABLED` gates and check each one for a path that
+- [x] **Done. Confirmed 2026-09-15 (F-A6-6): every line reference below matches.**
+      Enumerate every surface `AGENTS_ENABLED` gates and check each one for a path that
       still runs with the flag off: routes `agents.ts`, `library.ts`, `reading-list.ts`,
       `recaps.ts`, `usage.ts`; `api/server.ts:105`; `main.ts:245` (night shift), `:284`
       and `:289` (Fellows), `:507` (reading list); `config.ts:102`, `:327`, `:352`, `:389`.
@@ -139,7 +145,12 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       `if (ctx.fellows !== undefined) ...`), not by reading the flag, and `main.ts` is what
       turns the flag into presence. That is fine, but it means a test may construct a server
       with Fellows present and the flag false; only `main.ts` ties the two together.
-- [ ] Assert the background work does not start with the flag off: the night shift, the
+- [x] **Done 2026-09-15. Three of the four are gated; the fourth is F-A6-19.**
+      `shift` and `recaps` are constructed only when `fellows !== undefined` and started only
+      when they exist and the service is not passive (`main.ts:557-558`); the `UsageMonitor`
+      is built behind the flag AND has no timer at all - it samples on demand, so there is
+      nothing to start. The one that is not gated is the reading list, below.
+      Assert the background work does not start with the flag off: the night shift, the
       usage monitor and its sampling, the recap scheduler.
       **[corrected]** The reading-list **sweep** was in this list and does not belong here:
       it is inside `NightShift` and therefore already gated (see D1). What is NOT gated is
@@ -162,15 +173,29 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       the attribution move behind the flag, or whether the reading list is declared part of
       the base product and documented as such.
 - [ ] Migrations: the agent tables are created regardless of the flag (schema present, no
-      behaviour). Confirm that is what happens, and state it in 12.10 rather than leave a
+      behaviour). **The confirming half is done (F-A6-6): 29 migrations, gated by
+      `PRAGMA user_version`, none steps down.** What is left is the writing half, which waits
+      on section 2: state it in 12.10 rather than leave a
       reader to discover a `fellows` table in a vault that has no Fellows.
       **[added] And state that the migration is one-way.** There are 29 migrations gated by
       `PRAGMA user_version`; nothing steps back down. A LibrisVault user who upgrades, finds
       the Fellows are not for them and wants the previous release cannot run the old binary
       against the same database. That belongs in 12.10 beside "the tables exist anyway",
       because it is the part that costs the user something.
-- [ ] Web: with the flag off no Fellow surface may render and no request to a gated route
+- [x] **Done 2026-09-15 (F-A6-22), and the second half was false until it was.**
+      Web: with the flag off no Fellow surface may render and no request to a gated route
       may be issued. Check `client.ts:401`, `:431` and the Library screen.
+      **Rendering was already right**: the Library tab is filtered out of `TABS` on
+      `fellowsOn`, and Home and System guard every Fellow query with `enabled`. **The network
+      was not**: `Vault.tsx` and `Catalog.tsx` - two BASE PRODUCT screens - queried
+      `/api/v1/library/scene` unguarded on every mount, so the flag off meant one 404 apiece
+      per mount. Both carried `retry: false`, which is the same request made quietly. Fixed by
+      the guard the comment above each already described. `wingGroups` has always returned an
+      empty list for an absent scene, so nothing downstream moves.
+      Left as a known, click-gated remnant: `DeepenDialog` queries `agents` without a guard,
+      and the Catalog can open it. It costs one 404 after a deliberate click on a button that
+      cannot do anything with the flag off, which is a smaller wrong than a mount-time request
+      - but it is the same class, and the Deepen entry point itself should probably be gated.
       **[corrected] The contract is a boolean, not the string this file used to name.**
       `health.fellows` is `ctx.fellows !== undefined`
       (`server/src/api/routes/health.ts:21`), typed `fellows?: boolean` in
@@ -534,7 +559,14 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       over the 41 pre-push commits, five passes, and it is the shape to repeat against the
       merge diff.** Record the method and the result under Findings so the next merge
       can repeat it rather than reinvent it. (Method and first result: F-A6-7.)
-- [ ] Confirm `docs/local/` and `docs/studio/` are still excluded and still hold nothing
+- [x] **Done 2026-09-15, and the mechanism is worth knowing (F-A6-22).** Both hold files (4
+      and 2) and neither has a tracked file, so nothing of them is in the history. But they are
+      excluded by **`.git/info/exclude`, not `.gitignore`** - which is the right choice for
+      something that must not be named in a public file, and which **does not survive a
+      clone**. A fresh clone of this repo on another machine, or a reset of that file, and the
+      next `git add -A` sweeps both in. Nothing to fix before the merge; worth a line in the
+      setup script's neighbourhood so it is not rediscovered by accident.
+      The original item: confirm `docs/local/` and `docs/studio/` are still excluded and still hold nothing
       that belongs in the public repo. **[corrected] They are excluded by
       `.git/info/exclude`, not by `.gitignore`** - a local, per-clone mechanism that travels
       with nothing and that no reviewer can see. Say so wherever this is relied on.
@@ -555,7 +587,7 @@ Status as measured 2026-09-15, on the working tree:
 | `npm run typecheck` | exit 0 for both workspaces (was exit 2; fixed 2026-09-15, F-A6-2) |
 | `npm run lint` | exit 0 for both workspaces (the root script covered only `server` until 2026-09-15, F-A6-9) |
 | `npm run build` | exit 0 |
-| `preprocprobe` | **PASS**, "the jail holds" (F-A6-5) |
+| `preprocprobe` | **PASS**, "the jail holds", 14 checks (F-A6-5, re-run 2026-09-15) |
 | `permprobe` | not run - it starts a real, billable agent run |
 
 - [x] `npm test`, `npm run typecheck`, `npm run lint` green **and exit 0** (section 6). All
@@ -563,10 +595,13 @@ Status as measured 2026-09-15, on the working tree:
       workspaces now, so the gate is met by intent and not only by the letter of the script.
       Test count is 1823 (server 1250 / 83 files, web 573 / 52) since the flag-off test.
 - [ ] `npm run permprobe --workspace server`: expect `canary outside vault: blocked`.
-- [ ] `preprocprobe`: **[corrected] expect 14 ok lines**, not the 13 that
-      `docs/agents/ideas.md:829` records from an earlier run. Reconcile the number in
-      ideas.md with what the probe prints, or say which line is not a check.
-- [ ] The flag-off test from section 1.
+- [x] **Done 2026-09-15.** `preprocprobe` run through its new npm script: **14 ok lines,
+      "PASS - the jail holds"**. The discrepancy is reconciled in `docs/agents/ideas.md`
+      rather than left as a puzzle: the note said 13 because it predated `53a9339`, which made
+      the JATS conversion a check of its own.
+- [x] **Done 2026-09-15 (F-A6-18):** the flag-off test from section 1,
+      `server/test/agents-flag-off.test.ts`, covering routes-from-presence. The
+      presence-from-flag half is the clean-clone/smoke item below.
 - [ ] A build from a clean clone: `npm ci && npm run build` on a machine that has never seen
       this repo, so the README's quick start is verified rather than remembered.
 - [ ] **[added] Neither repo has any CI** (no `.github/` at all in either). Every gate above
@@ -599,6 +634,21 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-22 (2026-09-15, FIXED same day) - the base product asked for something only the
+  extension owns.** Checking section 1's web item found its first half true and its second
+  half false. Rendering is gated properly: the Library tab is filtered out of `TABS` on
+  `fellowsOn`, and Home and System put `enabled` on every Fellow query. But `Vault.tsx:581`
+  and `Catalog.tsx:229` - the Graph and the Catalog, both BASE PRODUCT screens - queried
+  `/api/v1/library/scene` with no guard at all, so with the flag off each mount fired a
+  request that could only 404. Both carried `retry: false`, which is the same request made
+  quietly, and the comment directly above each already stated the intended behaviour
+  ("without the Library there is no scene and no wing mode") while the line under it did the
+  opposite. Fixed with the guard the comment described; `wingGroups` has always returned an
+  empty list for an absent scene, so nothing downstream moves. Worth generalising: "no Fellow
+  surface renders" was checked and passed for years, and the network half of the same sentence
+  had never been checked at all.
+  Also from this pass, recorded in section 7: `docs/local/` and `docs/studio/` are excluded by
+  `.git/info/exclude`, which does not survive a clone.
 - **F-A6-21 (2026-09-15) - a pre-push audit over 41 commits, and the method to reuse for the
   merge diff.** The fork's own branch was pushed to the PRIVATE remote, and reviewed first on
   the grounds that a private push still fixes what a later merge will carry. Method, five
