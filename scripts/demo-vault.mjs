@@ -544,7 +544,10 @@ pages.push({
     '  why: The review the follow-up question keeps pointing at.',
     '  by: Ada',
     `  at: ${iso(day(6))}`,
-    '  oa: open copy found, repository version',
+    '  oa_url: https://example.invalid/repo/demo-transit-timing.pdf',
+    '  oa_version: acceptedVersion',
+    `  oa_at: ${iso(day(5))}`,
+    '  oa_chars: 41200',
     '',
     '- title: Inventory revisions and the ocean sink',
     '  url: https://example.invalid/doi/10.0000/demo-ocean-sink',
@@ -557,7 +560,10 @@ pages.push({
     '  why: Named on three pages, read by none of them.',
     '  by: ingest',
     `  at: ${iso(day(9))}`,
-    '  oa: open copy found, publisher version',
+    '  oa_url: https://example.invalid/oa/demo-sintering.pdf',
+    '  oa_version: publishedVersion',
+    `  oa_at: ${iso(day(2))}`,
+    '  oa_chars: 28900',
     '',
   ].join('\n'),
 })
@@ -785,6 +791,7 @@ const runStmt = db.prepare(
            @cost_usd, NULL, @started_at, @finished_at)`,
 )
 const conceptPaths = pages.filter((p) => p.path.startsWith('wiki/concepts/')).map((p) => p.path)
+const MAINT_SECONDS = { research: 610, lint: 512, 'hot-cache': 21, 'domain-backfill': 140, 'lint-fix': 205, 'domain-review': 96 }
 const RUNS = [
   ['research', 'Atmospheric retrieval at low resolution', 'sota', 7, 268_000, 21_400, 2.34, 4],
   ['research', 'Ocean carbon sink capacity', 'broad', 5, 191_000, 15_100, 1.62, 9],
@@ -803,7 +810,11 @@ RUNS.forEach(([kind, label, profile, pageCount, tin, tout, cost, daysAgo], i) =>
     id: ulid(200 + i), kind, label, profile_key: profile, ok: 1,
     pages: JSON.stringify(conceptPaths.slice(i * 17, i * 17 + pageCount)),
     tokens_in: tin, tokens_out: tout, cost_usd: cost,
-    started_at: at(started), finished_at: at(new Date(started.getTime() + 300_000 + i * 40_000)),
+    // Same rule as the Fellow runs below: the length follows the KIND. These used to be one
+  // rising series, which put a full research run at five minutes and skewed every median
+  // drawn from this vault.
+  started_at: at(started),
+  finished_at: at(new Date(started.getTime() + ((MAINT_SECONDS[kind] ?? 300) + i * 11) * 1000)),
   })
 })
 
@@ -878,6 +889,13 @@ const shelfStmt = db.prepare(`INSERT INTO shelf_order (user_id, domain, rank, up
 ;['astronomy', 'climate-science', 'machine-learning', 'materials-science'].forEach((d, i) => shelfStmt.run(d, i, at(day(3))))
 
 /** Runs the Fellows made, which the ledger, the dossier and the night's arithmetic read. */
+/*
+ * Durations follow the KIND, because that is what the night's schedule is drawn from: a full
+ * research run is twice a step, a deepening sits between them, and a planning run is a couple
+ * of minutes. Seeded from one index they came out backwards - an expand longer than a research
+ * - and the bar would have drawn a plausible night nobody ever had.
+ */
+const RUN_SECONDS = { 'research-step': 320, research: 615, 'research-expand': 310, plan: 86 }
 const FELLOW_RUNS = [
   ['Ada', 'research-step', 'A bright-host transit candidate and its follow-up photometry', 2, 1.94, 1],
   ['Ada', 'research-step', 'Wavefront sensing upgrades reported this quarter', 1, 1.71, 2],
@@ -888,6 +906,12 @@ const FELLOW_RUNS = [
   ['Mira', 'research-step', 'Retrieval against long context, on the cases where it loses', 2, 2.22, 2],
   ['Mira', 'research', 'What makes an evaluation set go stale', 5, 4.02, 9],
   ['Milo', 'research-expand', 'Sintering defects, built out where the wiki was thinnest', 3, 2.19, 11],
+  // A third of each kind, because `typicalRunMs` needs three samples before it trusts a
+  // measurement over its reference constant - and a schedule drawn from constants is exactly
+  // what the command centre exists to replace.
+  ['Ada', 'research-expand', 'Instrument pages, built out from the detections that named them', 3, 2.27, 14],
+  ['Mira', 'research-step', 'Where a stale evaluation set still flatters a model', 2, 2.06, 15],
+  ['Casper', 'research', 'What the inventories agree on, and where they part', 6, 4.31, 17],
 ]
 const fellowRunIds = {}
 FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
@@ -902,9 +926,25 @@ FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
     id, fellowIds[who], kind, topic, who === 'Mira' ? 'opus-5' : 'sonnet-5',
     JSON.stringify(conceptPaths.slice(60 + i * 11, 60 + i * 11 + pageCount)),
     140_000 + i * 9_000, 11_000 + i * 700, cost,
-    at(started), at(new Date(started.getTime() + 300_000 + i * 55_000)),
+    at(started), at(new Date(started.getTime() + (RUN_SECONDS[kind] + (i % 4) * 17) * 1000)),
     'Filed what it found and left the open questions on the page.',
   )
+})
+
+/** One planning run per Fellow per night, which is what a sweep costs before any work. */
+FELLOWS.forEach((f, i) => {
+  for (let d = 1; d <= 3; d++) {
+    const started = day(d)
+    db.prepare(
+      `INSERT INTO agent_runs (id, user_id, agent_id, kind, label, model, ok, pages, tokens_in, tokens_out,
+                               cost_usd, error, started_at, finished_at, answer)
+       VALUES (?, 'local', ?, 'plan', ?, 'sonnet-5', 1, '[]', ?, ?, ?, NULL, ?, ?, NULL)`,
+    ).run(
+      ulid(800 + i * 10 + d), fellowIds[f.name], `planning ${f.name}`,
+      38_000 + d * 1_400, 2_100 + d * 90, 0.38 + d * 0.02,
+      at(started), at(new Date(started.getTime() + (RUN_SECONDS.plan + d * 6) * 1000)),
+    )
+  }
 })
 
 /*
