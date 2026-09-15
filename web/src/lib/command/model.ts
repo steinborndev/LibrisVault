@@ -242,11 +242,18 @@ export function runsPillTitle(f: FellowSummary, tasks: number): string {
   const standing = total - done
   const quota = f.agent.quotaRunsPerDay
   const many = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
-  const head = `${many(tasks, 'task')} planned tonight.`
+  /*
+   * A task is the standing work, not an activity of the night: one task can put three rows on
+   * the board, because its planning run comes first and then the shift works through what that
+   * run proposed. "1 task planned tonight" over a list of three read as a miscount, so the two
+   * words that meant different things are now two sentences - what stands, and what runs of it.
+   */
+  const head = `${many(tasks, 'standing task')}.`
+  const free = 'A planning run of its own comes first and never counts against the quota.'
   if (total === 0) return `${head} Nothing stands to run: tonight is a planning night. The quota is ${many(quota, 'run')} a night.`
-  if (done === 0) return `${head} ${many(standing, 'research run')} of the quota's ${quota} stand to run; none carried out yet.`
-  if (standing === 0) return `${head} ${many(done, 'research run')} of the quota's ${quota} carried out; nothing more stands.`
-  return `${head} Of the quota's ${quota} research runs, ${done} carried out and ${standing} still standing.`
+  if (done === 0) return `${head} ${many(standing, 'research run')} of the quota's ${quota} stand to run tonight; none carried out yet. ${free}`
+  if (standing === 0) return `${head} ${many(done, 'research run')} of the quota's ${quota} carried out; nothing more stands. ${free}`
+  return `${head} Of the quota's ${quota} research runs, ${done} carried out and ${standing} still standing. ${free}`
 }
 
 /**

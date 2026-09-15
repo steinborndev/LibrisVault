@@ -1222,7 +1222,7 @@ export function CommandCentre({
           held={blocked === null ? null : blocked.reason}
           nextShift={agents.data?.shift?.nextStartsAt ?? null}
           inWindow={agents.data?.shift?.inWindow ?? false}
-          windowStart={agents.data?.shift?.window.start ?? set?.nightWindowStart ?? '23:15'}
+          windowStart={agents.data?.shift?.window.start ?? set?.nightWindowStart ?? null}
           confirmStep={confirmStep}
           setConfirmStep={setConfirmStep}
           actError={act.error === null ? null : (act.error as Error).message}
@@ -1691,8 +1691,8 @@ function Dossier({
   nextShift: string | null
   /** Whether the shift is running right now; it decides which night the quota figure is about. */
   inWindow: boolean
-  /** Local `HH:MM` the window opens at, for the line that says when the count turns. */
-  windowStart: string
+  /** Local `HH:MM` the window opens at, from the user's setting; null while it is unknown. */
+  windowStart: string | null
   /** The quota is spent and the run button is asking whether to pass it anyway. */
   confirmStep: boolean
   setConfirmStep: (v: boolean) => void

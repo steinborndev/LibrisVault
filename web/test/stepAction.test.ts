@@ -58,4 +58,12 @@ describe('which night the quota figure is about', () => {
   it('never says midnight, which is the unit it is not counted in', () => {
     expect(quotaLine({ used: 0, runsPerDay: 3 }, false, '01:00').title).toContain('not at midnight')
   })
+
+  it('takes the hour from the setting, and names none when there is none to name', () => {
+    // The window is the user's own, moved from the same screen: no hour may be baked in here.
+    expect(quotaLine({ used: 1, runsPerDay: 2 }, false, '02:30').title).toContain('opens at 02:30')
+    const unknown = quotaLine({ used: 1, runsPerDay: 2 }, false, null)
+    expect(unknown.title).toContain('when the night window opens,')
+    expect(unknown.title).not.toMatch(/\d\d:\d\d/)
+  })
 })

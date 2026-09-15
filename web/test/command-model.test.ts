@@ -681,6 +681,16 @@ describe('runsPillTitle', () => {
     expect(title).not.toContain('2 research runs carried out')
   })
 
+  it('counts tasks as standing work, and says the planning run is not one of the quota\'s', () => {
+    // One task, three rows on the board: a planning run and the two research runs it feeds.
+    // Calling the task "planned tonight" made the pill look like it had lost two of them.
+    const a = agent({ id: 'p', name: 'P', autonomy: 'auto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    const title = runsPillTitle(swept(a, 2, 0), 1)
+    expect(title.startsWith('1 standing task.')).toBe(true)
+    expect(title).not.toContain('planned tonight')
+    expect(title).toContain('never counts against the quota')
+  })
+
   it('names both halves once the night has run some of them', () => {
     const a = agent({ id: 'b', name: 'B', autonomy: 'veto', quotaRunsPerDay: 3, tasks: [task('watch', 'a'), task('watch', 'b')] })
     expect(runsPillTitle(swept(a, 2, 1), 2)).toContain('1 carried out and 2 still standing')

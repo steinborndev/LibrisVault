@@ -53,16 +53,21 @@ export interface QuotaLine {
  * reading "13 min tonight · 2 of 2 runs used", which says the night ahead is already spent.
  *
  * Inside the window there is nothing to tell apart: the two nights are the same night.
+ *
+ * `windowStart` is the user's own setting and is named only when it is known; the hour the
+ * shift opens at is a value, never a constant, and a tooltip that states one the user has
+ * since moved is worse than a tooltip that states none.
  */
-export function quotaLine(quota: QuotaState, inWindow: boolean, windowStart: string): QuotaLine {
+export function quotaLine(quota: QuotaState, inWindow: boolean, windowStart: string | null): QuotaLine {
   const of = `${quota.used} of ${quota.runsPerDay}`
   if (inWindow) {
     return { text: `${of} used tonight`, title: 'Research runs spent of this quota in the night now running. A planning run never counts against it.' }
   }
+  const opens = windowStart === null ? 'when the night window opens' : `when the night window opens at ${windowStart}`
   return {
     text: `${of} used since last night`,
     title:
-      `Research runs spent of this quota in the night cycle still in force. It turns when the window opens at ${windowStart}, ` +
+      `Research runs spent of this quota in the night cycle still in force. It turns ${opens}, ` +
       `not at midnight, so tonight's shift begins at 0 of ${quota.runsPerDay}. A planning run never counts against it.`,
   }
 }
