@@ -17,12 +17,16 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-23 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-24 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Root spec pass 2026-09-15 (F-A6-24).** Section 2 is complete: both summarising sections
+written and applied, and four corrections with them. One of those corrections was needed in two
+places rather than the one this file had found.
 
 **Decision round 2026-09-15 (F-A6-23).** D1 to D5 are settled and section 0 carries each
 answer with its reasoning. Four went as proposed; D1 needed a third branch for what the flag
@@ -270,18 +274,18 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 2. Root SPEC.md (draft, then ask)
 
-- [ ] **New 12.10 "Research agents (Fellows)"**: what a Fellow is, the notebook page in the
+- [x] **Done 2026-09-15 (F-A6-24).** Written and applied after review. **New 12.10 "Research agents (Fellows)"**: what a Fellow is, the notebook page in the
       vault, the four task arts, planning from vault-internal candidates, the veto window,
       the night shift and its quota in plan-utilization points, the recap, the Library
       screen, and `AGENTS_ENABLED` as the gate with its default. Pointer to
       `docs/agents/SPEC.md` for the detail. Include the one-way migration note (section 1).
-- [ ] **New 12.11 "Source integrity"**: PDF URLs, the untrusted-content fence,
+- [x] **Done 2026-09-15 (F-A6-24).** Written and applied after review, and it says plainly that this half is NOT flagged. **New 12.11 "Source integrity"**: PDF URLs, the untrusted-content fence,
       open-access recovery, the reading-list sweep, quote integrity in the validator, the
       expand lock. Say plainly that this one is NOT behind a flag (D1), and name the one
       part of it that IS (the sweep, which runs inside the night shift). Say what OA
       recovery talks to over the network and that it defaults on (D5). Pointer to
       `docs/sources/SPEC.md`.
-- [ ] **Section 5 still describes the preprocessing chain as it was** (a plugin chain of
+- [x] **Done 2026-09-15 (F-A6-24).** Corrected: the plugin-chain sentence keeps its place and gains the converter containment and the fence. **Section 5 still describes the preprocessing chain as it was** (a plugin chain of
       external tools, no word about what contains them), which `docs/agents/ideas.md` has
       recorded as A6 work since 2026-09-08. Add one paragraph beside the tool table:
       converters run through `runConverter`, not `runTool`; the jail is bubblewrap with no
@@ -290,22 +294,22 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       a home directory; `yt-dlp` is the documented exception; a missing bubblewrap fails
       the conversion unless `PREPROCESS_SANDBOX=off`; and `preprocprobe` is to this what
       `permprobe` is to section 7.
-- [ ] Section 6: the dashboard description predates the Library screen's Fellow surfaces.
+- [x] **Done 2026-09-15 (F-A6-24).** Corrected, in the format that section already uses for its 2026-08-27 correction. Section 6: the dashboard description predates the Library screen's Fellow surfaces.
       Bring the screen list and the tab descriptions up to what is built.
-- [ ] Section 9 (security): add the preprocessing containment and both probes, so the
+- [x] **Done 2026-09-15 (F-A6-24).** Corrected, and both probes named where a reader of the boundary will look. Section 9 (security): add the preprocessing containment and both probes, so the
       security section names every boundary the code actually has.
-- [ ] **[added] Section 9 also contradicts CLAUDE.md hard rule 4 and has to be corrected,
+- [x] **Done 2026-09-15 (F-A6-24).** Corrected, and it was in TWO places: section 4 said the same wrong thing as section 9. **[added] Section 9 also contradicts CLAUDE.md hard rule 4 and has to be corrected,
       not only extended.** It still says agent runs get "bash on a script allowlist". Hard
       rule 4 says the opposite in as many words ("NOT a `scripts/*.sh` whitelist", with the
       M0 measurement behind it: 14 of 68 bash calls in the validated run were
       `find`/`ls`/`cat`/`python3`). A public reviewer reading the spec would take the
       allowlist as the boundary and miss that the sandbox is. Fix the sentence to say what
       the code does: the sandbox is the boundary, the denylist is defense in depth.
-- [ ] **[added] Section 9 is also missing the OA egress** (D5). Write it the way the
+- [x] **Done 2026-09-15 (F-A6-24).** Written into 12.11, in the shape section 9 already uses for the bot. **[added] Section 9 is also missing the OA egress** (D5). Write it the way the
       Telegram paragraph in the same section is written: service egress, not agent egress,
       naming the hosts and saying the rule "no web egress in ingest runs" is about agent
       runs and stands unchanged.
-- [ ] Section 10 / milestones: reconcile the M0-M5 table with the A-series, so a reader can
+- [x] **Done 2026-09-15 (F-A6-24).** Corrected: a note below the table places the A-series on top of a finished M5. Section 10 / milestones: reconcile the M0-M5 table with the A-series, so a reader can
       see that the A work sits on top of a finished M5 rather than inside it.
 - [x] **[added] `docs/agents/SPEC.md` was not "unchanged" as D2 assumed - it described a
       component that had been deleted. Fixed 2026-09-15 (F-A6-16).** Section 10.5 "Fellow
@@ -676,6 +680,19 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-24 (2026-09-15) - the root spec is told, and the worst thing in it was said twice.**
+  Section 2 is done: 12.10 (Fellows) and 12.11 (source integrity) written in the pattern 12.6
+  to 12.9 set, drafted first and applied after review, as this file's own rule for the root
+  spec requires. The four corrections went with them. The one worth recording as a finding is
+  the bash-allowlist sentence: it appeared in section 4 AND in section 9, saying in both places
+  that an agent run gets "bash on a script allowlist restricted to `scripts/*.sh`" - the exact
+  opposite of what the M0 measurement established and what hard rule 4 has said since. This
+  file had caught the section 9 copy and not the section 4 one, which is the general lesson: a
+  wrong sentence in a spec propagates by being quoted, so a correction has to grep for the
+  CLAIM rather than fix the line that was reported.
+  Both now describe the sandbox as the boundary and the denylist as defense in depth, with the
+  number that settles it (14 of 68 bash calls in the validated run were ordinary file tools),
+  and both name the probe that proves it.
 - **F-A6-23 (2026-09-15, DECIDED and implemented) - the decision round, and the one thing it
   had to settle that was not on its own list.** D1 to D5 were taken together; four went as
   proposed and D1 grew a third branch. As written, D1 split the world into "Fellows, flagged"
