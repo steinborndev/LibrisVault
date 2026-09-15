@@ -17,12 +17,16 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-19 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-20 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Fourth pass 2026-09-15 (F-A6-20).** The commit-msg guard reads title fragments and every
+telling bucket now, which found two fixtures the earlier method could not. Its remaining limit
+is in its own header rather than implied.
 
 **Third pass 2026-09-15 (F-A6-18, F-A6-19).** The flag-off acceptance test is written, the
 four repo-hygiene items of section 6 are done, and the open question about the reading list is
@@ -415,9 +419,25 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
          the hook structurally cannot see, and `gh pr create` text is not a commit message
          either, so the PR body - which section 9 correctly calls the likeliest leak - is
          unguarded.
-      Extend the hook where it is cheap (fragments, all buckets), and document the limit in
-      the hook header for the rest, so the next person does not trust it further than it
-      goes. A file-content check before the PR is the part that actually protects this merge.
+      **Done 2026-09-15 (F-A6-20) for the two cheap ones; the third is now written down.**
+      Fragments: a title is split on parentheses, colons, dashes and commas, and each part
+      joins the list at two words or more. Single-word fragments are dropped deliberately -
+      that is where the false positives live, and a distinctive single word is usually the
+      whole title, which is on the list anyway. Buckets: `questions/`, `comparisons/` and
+      `folds/` join `entities/` and `sources/`. Three stay off with the reason in the header:
+      `concepts/` would false-positive against ordinary technical wording at 585 entries (and
+      the header admits what that costs, since a concept title HAS leaked), `references/` is
+      upstream and public already, `meta/` holds journals named after product vocabulary.
+      The third blind spot cannot be fixed in a commit-msg hook and is stated in the header
+      instead, together with the two limits beside it: it reads the message and never file
+      content, PR text is not a commit message, and it only knows page TITLES, so a subject
+      that lives in SQLite and was quoted into a document names something no title carried.
+      Calibrated before it was committed: eleven shaped cases against an invented vault, both
+      documented blind spots among them, all eleven as intended; over 290 real commit messages
+      it blocks exactly one, and that one is closer to right than wrong. 551 terms to 1283,
+      and it runs in under a fifth of a second.
+      **A file-content check before the PR is still the part that actually protects this
+      merge**, and section 8's re-run is where it belongs.
 - [x] **Generalise the names the A-series would newly add. Done 2026-09-15 (F-A6-13).**
       Found by matching title fragments (parenthetical parts, the part before the
       parenthesis, comma-separated parts, handles) from **every** vault bucket against the
@@ -459,6 +479,11 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       for the watch. So the audit is blind to exactly the material the A-series generates most
       of: run output quoted into a design record. Sweep the other task files for the same
       shape - a quoted run, recap or planner answer - rather than for names.
+      **Partly done 2026-09-15 (F-A6-20):** the widened list was run over all 478 tracked
+      files, which found two fixtures the first pass structurally could not (both quote a page
+      title in the shape the FILE SYSTEM forced on it, so no whole stem matched) and no quoted
+      run output beyond the one in A7 6.4 already recorded below. Both fixtures are
+      generalised. What remains of this item is the decision about that quote.
       **This file was the first one swept, 2026-09-15.** It quoted, as evidence for its own
       findings, two of the very strings section 7 had just removed from the code: a vault
       entity name illustrating the hook's stem matching, and the opening words of a
@@ -556,6 +581,24 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-20 (2026-09-15, hook FIXED same day) - widening the guard found two leaks the
+  method could not have found, and showed what the guard costs off its own ground.** The
+  commit-msg hook now reads title FRAGMENTS and three more buckets (F-A6-8's three blind
+  spots, the two cheap ones). Run over the tracked tree rather than over messages, the wider
+  list turns up two test fixtures that quote a `wiki/questions/` title in the shape the file
+  system forced on it - a slash become an underscore, a trailing `?` dropped - so neither ever
+  matched a whole stem, which is exactly the gap fragments close. Both generalised, each
+  keeping the shape its test pins.
+  The cost, measured so nobody mistakes one number for the other: over 290 commit messages the
+  wider list blocks ONE, and that one quotes a field of study back out of a browser check,
+  which is subject rather than mechanism. Over 478 tracked files it lights up 88, nearly all
+  from two single-word entity titles that are also ordinary technical words, plus the author's
+  name in the licence. A commit message is a paragraph and a source tree is a corpus; the list
+  was built for the paragraph, and the tree scan is a lead list, never a leak count.
+  One class of noise was the guard's own doing and is fixed: every synthesis page carries a
+  lens name as a title suffix, so splitting on the dash put all three lens names on the list
+  once per page, and a commit discussing a lens would have been blocked by vocabulary this
+  repo ships. They are on the stop list now.
 - **F-A6-19 (2026-09-15) - the reading list is unflagged behaviour that WRITES TO THE VAULT,
   and the prompt is half of it.** Section 1 asked what the unconditionally constructed
   `ReadingListService` costs with the flag off, and guessed the answer might be "it only holds
