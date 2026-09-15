@@ -626,7 +626,7 @@ Behavior and limits:
 
 ## Security model
 
-Six constraints are load-bearing. They are documented in full in `CLAUDE.md`; do not weaken them.
+Six constraints are essential. They are documented in full in `CLAUDE.md`; do not weaken them.
 `SECURITY.md` has the full threat model - including what a malicious *document* can and cannot make
 the ingest agent do - and the vulnerability reporting channel.
 
