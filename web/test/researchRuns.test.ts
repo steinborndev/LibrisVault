@@ -349,19 +349,19 @@ describe('what a run is recorded as having written', () => {
   /**
    * A file name drops the characters the filesystem dislikes; the page's own title keeps
    * them, and the run log records the topic as typed. Comparing by file name alone, a run
-   * about "implantable/wearable" did not recognise its own page and was reconstructed a
+   * about a topic with a slash in it did not recognise its own page and was reconstructed a
    * second time - so the ledger showed the run twice, the copy claiming a single page.
    */
   it('does not reconstruct a run whose page name lost a character to the filesystem', () => {
-    const topic = 'Nanoparticle-based implantable/wearable drug delivery'
+    const topic = 'Sintering shrinkage in pressed/cast ceramic electrolytes'
     const entries = buildResearchRuns({
       history: [history({ id: 'h1', label: topic, profileKey: 'sota', pages: ['wiki/concepts/Some Page.md'] })],
       runs: [],
       lastRuns: [],
       nodes: [
         node({
-          path: 'wiki/questions/Research: Nanoparticle-based implantable_wearable drug delivery - State of the Art.md',
-          title: 'Research: Nanoparticle-based implantable_wearable drug delivery - State of the Art',
+          path: 'wiki/questions/Research: Sintering shrinkage in pressed_cast ceramic electrolytes - State of the Art.md',
+          title: 'Research: Sintering shrinkage in pressed_cast ceramic electrolytes - State of the Art',
           names: [`Research: ${topic} - State of the Art`],
           mtimeMs: Date.parse('2026-08-20T10:00:00.000Z'),
         }),

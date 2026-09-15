@@ -302,22 +302,22 @@ describe('GraphBuilder', () => {
 
   it('resolves links via frontmatter title and aliases when the basename differs', () => {
     // Filenames drop filesystem-hostile characters that links keep: the vault files
-    // "…work?" as "…work.md" with the `?` preserved only in `title:`.
+    // "…hold?" as "…hold.md" with the `?` preserved only in `title:`.
     page(
-      'wiki/questions/How does the LLM Wiki pattern work.md',
-      '---\ntype: question\ndomain: km\ntitle: "How does the LLM Wiki pattern work?"\n---\nanswer',
+      'wiki/questions/How long does a sintered seal hold.md',
+      '---\ntype: question\ndomain: km\ntitle: "How long does a sintered seal hold?"\n---\nanswer',
     )
     page('wiki/meta/domains.md', '---\ntype: meta\ndomain: meta\ntitle: "Domain Registry"\n---\nregistry')
     page('wiki/concepts/Reg Alias.md', '---\ntype: concept\ndomain: km\naliases:\n  - "The Registry"\n---\nx')
     page(
       'wiki/concepts/A.md',
-      '[[How does the LLM Wiki pattern work?]] and [[Domain Registry]] and [[The Registry]]',
+      '[[How long does a sintered seal hold?]] and [[Domain Registry]] and [[The Registry]]',
     )
     const g = new GraphBuilder(vaultRoot).build()
     expect(g.unresolved).toBe(0)
     expect(g.gaps).toHaveLength(0)
     const inDeg = (title: string): number => g.nodes.find((n) => n.title === title)!.in
-    expect(inDeg('How does the LLM Wiki pattern work')).toBe(1)
+    expect(inDeg('How long does a sintered seal hold')).toBe(1)
     expect(inDeg('domains')).toBe(1)
     expect(inDeg('Reg Alias')).toBe(1)
   })

@@ -78,7 +78,15 @@ msg_low = msg.lower()
 # Short/common tokens that are entity names in the vault but also ordinary words: matching
 # them would block legitimate commits. Distinctive names (handles, multi-word titles) carry
 # the real leak signal, so the cost of skipping these is low.
-STOP = {"data", "code", "test", "page", "user", "index", "log", "hot", "meta", "core", "self"}
+#
+# The second group is this product's OWN vocabulary, which every synthesis page carries as a
+# title suffix (`research-profiles.ts`). Splitting titles on the dash puts each lens name on
+# the list once per page, so without these three the guard would block any commit discussing
+# a lens by name - product terms shipped in this repo, describing nothing about a vault.
+STOP = {
+    "data", "code", "test", "page", "user", "index", "log", "hot", "meta", "core", "self",
+    "state of the art", "patent landscape", "startup landscape",
+}
 
 deny = {}  # lowercased term -> canonical form (for the error message)
 
