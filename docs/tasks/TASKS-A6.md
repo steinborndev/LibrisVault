@@ -17,12 +17,15 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-24 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-25 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**CLAUDE.md pass 2026-09-15 (F-A6-25).** Section 3 is done, and checking the screen list
+turned up a base-product tab renamed by the extension work and behind no flag.
 
 **Root spec pass 2026-09-15 (F-A6-24).** Section 2 is complete: both summarising sections
 written and applied, and four corrections with them. One of those corrections was needed in two
@@ -74,6 +77,11 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       **the fence, PDF URL handling, quote integrity and the expand lock are unflagged; the
       reading list and its sweep are the extension; open-access recovery is unflagged and
       documented as service egress (D5).**
+      **[added 2026-09-15, F-A6-25] One more thing is unflagged and was not counted:** the
+      tabular view was renamed Library to Catalog by A4, and the name went to the new room
+      screen. A base-product install that upgrades finds a tab renamed. Nothing behaves
+      differently and the name went where it fits, but it is a visible change and belongs in
+      the release notes rather than in a surprise.
       The original text and its correction, kept as the record: section 15
       promises "LibrisVault unchanged with the flag off". That holds for the Fellows and
       not for the rest: the source-integrity work (`docs/sources/SPEC.md`, TASKS-SOURCES,
@@ -329,18 +337,18 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 3. CLAUDE.md
 
-- [ ] "What this project is" describes neither subsystem. Add both, in the register of the
+- [x] **Done 2026-09-15 (F-A6-25).** Both added in one paragraph each, with their specs and which is flagged. "What this project is" describes neither subsystem. Add both, in the register of the
       existing text: what they are, where their specs live, which one is flagged.
-- [ ] Hard rules: state `AGENTS_ENABLED` as the extension gate and that the Fellows are the
+- [x] **Done 2026-09-15 (F-A6-25).** Added as rule EIGHT, not inserted: over 100 places in this repo name a hard rule by number, so inserting one would have broken every reference to 5 through 7. Rule 4 also corrected on who reaches the web. Hard rules: state `AGENTS_ENABLED` as the extension gate and that the Fellows are the
       only agents with web access (today only hard rule 4 says web is autoresearch-only,
       which the Fellows have since widened).
-- [ ] Hard rule 7 says "This repo is PUBLIC". True again after the merge, so the wording
+- [x] **Done 2026-09-15 (F-A6-25).** The three limits are in the rule now, two of them closed the same day and the structural one stated. Hard rule 7 says "This repo is PUBLIC". True again after the merge, so the wording
       stands, but the rule needs the findings from section 7: the `commit-msg` hook matches
       **whole page-title stems** and therefore misses a title's substring, it reads only
       `wiki/entities/` and `wiki/sources/` and therefore knows nothing of the page types the
       Fellows write, and it scans **commit messages only** and therefore cannot see a name
       that leaks in file content or in PR text.
-- [ ] Conventions: the job lifecycle list, the plugin-chain sentence and the test paragraph
+- [x] **Done 2026-09-15 (F-A6-25).** The plugin-chain sentence gains the containment and the fence; the test line names typecheck and lint beside the suite, with the reason. The lifecycle list needed nothing, as this item already said. Conventions: the job lifecycle list, the plugin-chain sentence and the test paragraph
       predate the A-series. Check each against what the code does now.
       (Checked 2026-09-15: the **job lifecycle list is still exact** - `JobStatus` in
       `server/src/db/jobs.ts:20-28` is the same eight states in the same order. The other
@@ -680,6 +688,22 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-25 (2026-09-15) - a base-product tab was renamed by the extension work, and nobody
+  had noticed.** Checking CLAUDE.md's screen list against the code for section 3 found it
+  naming five screens with the tabular view called **Library**. That view has been called
+  **Catalog** since `9cd92eb` (A4, 2026-09-06), and the name Library went to the new room
+  screen on the same route. **The rename is not behind `AGENTS_ENABLED`**, so it is the one
+  visible change an upgrading base-product install takes from the A-series: five screens
+  either way, one of them renamed. It is defensible on its own terms - a catalog of pages is
+  what that view is - but it belongs in D1's inventory, which had not counted it, and in the
+  release notes, because a renamed tab is the kind of thing a user writes in to ask about.
+  Two documents said it wrong, including the spec section written an hour earlier in this same
+  milestone; both are corrected. The general shape is the same as F-A6-24: a fact that is
+  wrong in one place is usually wrong in two, because the second copy was made from the first.
+  **Also recorded from this pass:** the new hard rule went in as number EIGHT rather than as
+  five, where it fits by subject. Over a hundred places in this repo name a hard rule by
+  number; inserting one would have silently redirected every reference to rules 5 through 7.
+  Numbered rules are an append-only list, and that is worth knowing before the next one.
 - **F-A6-24 (2026-09-15) - the root spec is told, and the worst thing in it was said twice.**
   Section 2 is done: 12.10 (Fellows) and 12.11 (source integrity) written in the pattern 12.6
   to 12.9 set, drafted first and applied after review, as this file's own rule for the root
