@@ -226,7 +226,15 @@ export function Catalog({
    * The Library's rooms, for the domain section's wing mode: the same placement the
    * Library draws. Without the Library (agents off) there is no scene and no wing mode.
    */
-  const sceneQ = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 60_000, retry: false })
+  /*
+   * Asked only when the extension is wired. The route exists only then, so without this the
+   * base product issues a request per mount that can only 404 - `retry: false` kept it to one
+   * apiece, which is a quieter version of the same thing rather than an answer to it. The
+   * acceptance of the merge milestone is that the flag off changes NOTHING, network included
+   * (docs/tasks/TASKS-A6.md 1).
+   */
+  const fellowsOn = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 }).data?.fellows === true
+  const sceneQ = useQuery({ queryKey: ['library-scene'], queryFn: api.libraryScene, staleTime: 60_000, retry: false, enabled: fellowsOn })
   const wings = useMemo(() => wingGroups(sceneQ.data, domainRows.map(([d]) => d)), [sceneQ.data, domainRows])
   /** The wing on show (by wing is the default, remembered per screen), or null for the flat list; the wing narrows the table. */
   const wingMode = useWingMode('vault.domainMode.catalog', wings)

@@ -826,8 +826,10 @@ quietly converting uncontained.
 `server/src/cli/preprocprobe.ts` runs the real tools against real canaries - the credential file,
 the vault, the service API, the open internet - and checks both directions: that the four are
 unreachable, that nothing written escapes to the host, and that pandoc, pdftotext, defuddle and a
-python3 with its packages still work in there. Last run: 13 checks, all as expected. The unit
-tests read the argument list and prove the policy; only the probe proves it is applied.
+python3 with its packages still work in there. Last run (2026-09-15): 14 checks, all as
+expected, "PASS - the jail holds". It said 13 until then, from a run before the JATS conversion
+became a check of its own. The unit tests read the argument list and prove the policy; only the
+probe proves it is applied.
 
 ### Still open: the root spec has not been told (todo, for A6)
 
