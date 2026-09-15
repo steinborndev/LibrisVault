@@ -84,6 +84,25 @@ const SHOTS = [
     hold: 9000,
   },
   {
+    /*
+     * A wing: the room one floor out, where the shelves of a dozen domains stand and each
+     * carries its own page count. Reached by CLICKING rather than by a room id, because the
+     * ids are generated fresh with the vault and a shot pinned to one would break on the next
+     * rebuild - which is the same reason the Fellow dossier below uses a stable seeded id.
+     */
+    file: 'library-wing.png',
+    route: '/library',
+    settle: `[...document.querySelectorAll('canvas, svg')].some((c) => c.getBoundingClientRect().height > 300)`,
+    hold: 7000,
+    act: `(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim().startsWith('Wing A'))
+      if (!b) return false
+      b.click()
+      return true
+    })()`,
+    actHold: 7000,
+  },
+  {
     // The command centre, opened on the night rather than on a list - which is the decision
     // the whole window rests on, so it is what a screenshot should show.
     file: 'command-centre.png',

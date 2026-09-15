@@ -301,6 +301,12 @@ two ways of browsing what is there, then the machine room.
 
   ![The Library: domains as shelves, Fellows as figures, and what each is doing in the bubble over its head](docs/img/library-room.png)
 
+  The main room holds the Fellows and the wall boards; the domains themselves stand in wings
+  off it. A shelf is one domain, its colour is the domain's, and how full it is is how many
+  pages that domain holds - so the shape of the vault is readable before a single label is.
+
+  ![A wing: one shelf per domain, filled to the page count it holds](docs/img/library-wing.png)
+
   ![The command centre: tonight as one queue, priced from the runs this vault has actually made](docs/img/command-centre.png)
 
 - **System** - the machine room, in five sections:
@@ -808,7 +814,7 @@ cd server && VAULT_ROOT=~/.local/share/vault-service/demo-vault \
   CLAUDE_CODE_OAUTH_TOKEN=demo-not-a-real-token TELEGRAM_BOT_TOKEN= \
   node dist/main.js &
 
-# 3. Shoot the screens at 2x into docs/img/ (twelve of them; BASE_URL must match the port)
+# 3. Shoot the screens at 2x into docs/img/ (thirteen of them; BASE_URL must match the port)
 BASE_URL=http://127.0.0.1:8422 node --experimental-websocket scripts/shoot-screens.mjs
 ```
 
