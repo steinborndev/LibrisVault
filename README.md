@@ -248,6 +248,13 @@ two ways of browsing what is there, then the machine room.
 
   ![Research: two ledgers of one shape, with the vault's own gaps as a backlog](docs/img/research.png)
 
+  A run files one synthesis page, and that page is the point of the whole screen - what the
+  ledger above records is only that it happened. This one is real: it was produced by the run
+  in the ledger's first row, against the demo vault, and every filing it names was read on the
+  web during the run.
+
+  ![A synthesis page a research run filed, with its findings, its sources and the limits it names](docs/img/research-result.png)
+
 - **Graph** - the wikilink structure on a canvas, with the force layout in a web worker so it
   stays smooth as the vault grows (deliberately, since the WSLg Obsidian graph does not). The
   view bar carries the **colour lenses** - recolour the same graph to answer different questions:
@@ -291,6 +298,10 @@ two ways of browsing what is there, then the machine room.
   actually made, a dossier per Fellow with its notebook, its slice of the recap, its run ledger
   and its settings, the decisions waiting for you, and the form that spawns a new one. The wall
   board beside it carries the hot cache, the daily recap and the reading list.
+
+  ![The Library: domains as shelves, Fellows as figures, and what each is doing in the bubble over its head](docs/img/library-room.png)
+
+  ![The command centre: tonight as one queue, priced from the runs this vault has actually made](docs/img/command-centre.png)
 
 - **System** - the machine room, in five sections:
   - **Status & checks** - what the vault needs from you right now: lint (a structured report)
@@ -488,6 +499,18 @@ Fellow stops at whichever binds first: its runs-per-day quota, the daily budget,
 share of the five-hour and the weekly window. The shares have reserves under them, so the
 autopilot cannot spend the capacity you want for your own work.
 
+![The morning recap: what each Fellow did last night, what it found, and what it wants to do next](docs/img/recap.png)
+
+The same night reads two ways. Above is the wall board, which keeps the whole of it; below is
+one Fellow's dossier, which keeps everything about one - its notebook, its ledger, its settings
+and the decisions it is waiting on.
+
+![One Fellow's dossier: its night, what it found, the questions it raised, and whether you used any of it](docs/img/fellow-dossier.png)
+
+And the same recap appears on Home, which is where a morning actually starts.
+
+![Home in night-shift view: the Fellows down the left, the night's figures across the top, and the decisions in the feed](docs/img/home-night.png)
+
 **Where the work shows up.** In the vault as ordinary pages, written by ordinary agent runs
 behind the same commit mutex as an ingest, so `git revert` undoes a night like it undoes
 anything else. In the dashboard as the **Library** screen (see above). And in one page per
@@ -529,6 +552,8 @@ and a correctness fix behind a flag would ship the weaker path as the default.
 One part of this rides along with the research agents and therefore needs the flag: the nightly
 **reading-list sweep**, which re-checks publications nobody could read for an open copy and marks
 them so you can ingest the copy with one click.
+
+![The reading list: what the Fellows could not read, with the open copies the sweep found](docs/img/reading-list.png)
 
 Details: [`docs/sources/SPEC.md`](docs/sources/SPEC.md), summarised in SPEC.md section 12.11.
 
@@ -774,18 +799,29 @@ node scripts/demo-vault.mjs
 # 2. Serve it on a spare port. TELEGRAM_BOT_TOKEN= is REQUIRED: without it this process picks
 #    the real token out of the service env file and knocks the real bot off it (Telegram
 #    allows exactly one poller per token).
+#    WATCH_FOLDER matters too: the default is the real inbox, and two services watching one
+#    folder race each other for whatever lands in it. AGENTS_ENABLED=1 because half the
+#    screens are the Fellows'.
 cd server && VAULT_ROOT=~/.local/share/vault-service/demo-vault \
-  DB_PATH=~/.local/share/vault-service/demo-jobs.db PORT=8421 \
+  DB_PATH=~/.local/share/vault-service/demo-jobs.db PORT=8422 \
+  AGENTS_ENABLED=1 WATCH_FOLDER=/tmp/demo-inbox \
   CLAUDE_CODE_OAUTH_TOKEN=demo-not-a-real-token TELEGRAM_BOT_TOKEN= \
   node dist/main.js &
 
-# 3. Shoot the screens at 2x into docs/img/
-node --experimental-websocket scripts/shoot-screens.mjs
+# 3. Shoot the screens at 2x into docs/img/ (twelve of them; BASE_URL must match the port)
+BASE_URL=http://127.0.0.1:8422 node --experimental-websocket scripts/shoot-screens.mjs
 ```
 
 The generator invents everything it writes - textbook subject matter, document titles with no
-authors, no real people or organisations. Two things it deliberately does NOT do: make the vault
-small, or make it tidy. It is sized like a real one (~850 pages, 4k links, one domain far deeper
+authors, no real people or organisations - with **one deliberate exception**: the research runs
+are real. Four of them were run against this demo vault, cost real money and searched the actual
+web, and `scripts/capture-research-run.mjs` froze each into `scripts/demo-research/` so the
+generator can restore it. A synthesis page is what the research function produces, and an
+invented one shows a shape where the real one shows an argument; the difference is the whole
+point of the screen, so it is not a thing to fake. Those pages name real papers, real patents and
+real companies, all of them public, and none of them from anyone's private notes.
+
+Two things the generator deliberately does NOT do: make the vault small, or make it tidy. It is sized like a real one (~850 pages, 4k links, one domain far deeper
 than the rest, a long tail of one-afternoon detours) because the graph, the domain filters and
 the library only show what they are for at that scale; and it leaves stubs, unfiled pages and
 knowledge gaps in, because a wiki without them is not a wiki anyone has actually used. Pages are

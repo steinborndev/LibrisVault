@@ -559,6 +559,7 @@ const HUB_PAGES = new Set(['wiki/hot.md', 'wiki/index.md', 'wiki/log.md', 'wiki/
 const capturedRuns = []
 /** Entries the real runs put on the reading list, kept out of their hub-page snapshot. */
 const realReadingEntries = []
+const seenReadingUrls = new Set()
 if (existsSync(RESEARCH_DIR)) {
   for (const slug of readdirSync(RESEARCH_DIR).sort()) {
     const runFile = join(RESEARCH_DIR, slug, 'run.json')
@@ -593,7 +594,14 @@ if (existsSync(RESEARCH_DIR)) {
     if (existsSync(listFile)) {
       const blocks = readFileSync(listFile, 'utf8').split(/\n(?=- title:)/).slice(1)
       for (const b of blocks) {
-        if (!/^\s*by:\s*(research|ingest)\s*$/m.test(b)) continue
+        // Only what a RESEARCH run asked for. A run's snapshot also contains whatever was on
+        // the list when it ran, including entries this generator wrote itself, and taking
+        // those back would both duplicate them and resurrect ones since removed.
+        if (!/^\s*by:\s*research\s*$/m.test(b)) continue
+        const url = /^\s*url:\s*(\S+)/m.exec(b)?.[1] ?? ''
+        // Two runs that ran after each other snapshot the same earlier entries; keep one.
+        if (url === '' || seenReadingUrls.has(url)) continue
+        seenReadingUrls.add(url)
         realReadingEntries.push('- ' + b.trim().replace(/^- /, '').trimEnd())
       }
     }
@@ -642,32 +650,6 @@ pages.push({
     'Publications worth having in the original. A run adds an entry when it could not read one',
     'itself; the nightly sweep looks for a legal open copy and marks what it finds.', '',
     '## Entries', '',
-    '- title: A survey of transit-timing methods',
-    '  url: https://example.invalid/doi/10.0000/demo-transit-timing',
-    '  why: The review the follow-up question keeps pointing at.',
-    '  by: Ada',
-    `  at: ${iso(day(6))}`,
-    '  oa_url: https://example.invalid/repo/demo-transit-timing.pdf',
-    '  oa_version: acceptedVersion',
-    `  oa_at: ${iso(day(5))}`,
-    '  oa_chars: 41200',
-    '',
-    '- title: Inventory revisions and the ocean sink',
-    '  url: https://example.invalid/doi/10.0000/demo-ocean-sink',
-    '  why: Paywalled; the abstract alone does not settle the disagreement.',
-    '  by: Casper',
-    `  at: ${iso(day(3))}`,
-    '',
-    '- title: Sintering defects in pressed ceramics',
-    '  url: https://example.invalid/doi/10.0000/demo-sintering',
-    '  why: Named on three pages, read by none of them.',
-    '  by: ingest',
-    `  at: ${iso(day(9))}`,
-    '  oa_url: https://example.invalid/oa/demo-sintering.pdf',
-    '  oa_version: publishedVersion',
-    `  oa_at: ${iso(day(2))}`,
-    '  oa_chars: 28900',
-    '',
     // What the real runs asked for: actual publications at actual addresses.
     ...realReadingEntries.flatMap((e) => [e, '']),
   ].join('\n'),
@@ -794,9 +776,20 @@ git(['config', 'user.email', 'demo@example.invalid'])
  * but dated first) truncates the history the growth chart can see to one day.
  */
 const ordered = [...pages].sort((a, b) => a.created - b.created)
+/*
+ * Commits. A real research run's pages get a commit of their OWN, labelled as that run, rather
+ * than being swept into an ingest's bucket - which is what happened first, and put a patent
+ * synthesis under "ingest: some-file.pdf" in the activity stream. A commit message is how the
+ * stream says which kind of work produced a page, so getting it wrong misattributes the whole
+ * run at the one place a reader looks.
+ */
+const realPagePaths = new Map()
+for (const run of capturedRuns) for (const rel of run.keptPages) realPagePaths.set(rel, run)
+
 const commitPlan = []
 let bucket = []
 for (const p of ordered) {
+  if (realPagePaths.has(p.path)) continue
   bucket.push(p)
   // An ingest typically writes a source page plus a handful of concepts.
   if (bucket.length >= 6) {
@@ -820,6 +813,15 @@ commitPlan.forEach((group, i) => {
   const name = commitNames[i % commitNames.length]
   git(['commit', '-q', '-m', `ingest: ${name}`], { GIT_AUTHOR_DATE: stamp, GIT_COMMITTER_DATE: stamp })
 })
+
+/** One commit per real run, in the message shape the service itself writes for one. */
+for (const run of capturedRuns) {
+  const theirs = ordered.filter((p) => realPagePaths.get(p.path) === run)
+  if (theirs.length === 0) continue
+  for (const p of theirs) git(['add', '--', p.path])
+  const stamp = new Date(Date.parse(run.capturedAt)).toISOString()
+  git(['commit', '-q', '-m', `research: ${run.topic}`], { GIT_AUTHOR_DATE: stamp, GIT_COMMITTER_DATE: stamp })
+}
 
 console.log(`vault:  ${OUT}`)
 console.log(`        ${pages.length} pages, ${Object.keys(DOMAINS).length} domains, ${commitPlan.length + 1} commits`)
@@ -949,6 +951,24 @@ capturedRuns.forEach((run, i) => {
     finished_at: at(new Date(finished.getTime() - shift)),
   })
 })
+
+/*
+ * Settings the demo needs to be internally consistent.
+ *
+ * `rosterShare` prices the whole roster against the week's research budget - four Fellows at
+ * their quotas is 49 runs a week, and at the REAL costs the captured runs established (three
+ * to four dollars a piece, not the reference constants) that is about $196. Against the
+ * default share of ten percent of a $1000 plan, the command centre correctly reports 206% and
+ * paints it red. The figure is right; the configuration is what is wrong for a demo, where a
+ * standing red warning reads as a broken screen rather than as the guard working.
+ *
+ * So the demo gives the Fellows a quarter of the plan, which is what someone running four of
+ * them in earnest would do, and the banner lands near 80%: visibly near the limit, which is
+ * the honest picture, without crossing it.
+ */
+const setting = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`)
+setting.run('researchShareWeekPct', '25')
+setting.run('researchShare5hPct', '30')
 
 /** Saved conversations, so Research opens with a ledger rather than an empty state. */
 const sess = db.prepare(`INSERT INTO sessions (id, user_id, title, created_at, updated_at) VALUES (?, 'local', ?, ?, ?)`)
@@ -1238,12 +1258,21 @@ for (let d = 0; d <= 3; d++) {
       ],
       shares: { unit: 'points', week: 10, fiveHour: 15, reserveWeek: 80, reserveFiveHour: 60 },
     },
-    readingFiled: d === 0
-      ? [{ title: 'A survey of transit-timing methods', page: 'wiki/sources/Instrument Handbook.md', by: 'Ada' }]
-      : [],
-    readingAdded: d === 0
-      ? [{ title: 'Inventory revisions and the ocean sink', url: 'https://example.invalid/doi/10.0000/demo-ocean-sink', by: 'Casper', page: null }]
-      : [],
+    /*
+     * What the reading list gained and lost that night. Taken from the real runs' own
+     * entries rather than invented, so the recap and the list agree: an invented line here
+     * would name a publication the list does not carry.
+     */
+    readingFiled: [],
+    readingAdded:
+      d === 0 && realReadingEntries.length > 0
+        ? realReadingEntries.slice(0, 2).map((e) => ({
+            title: (/^- title:\s*(.+)$/m.exec(e)?.[1] ?? 'a publication').replace(/^"|"$/g, ''),
+            url: /^\s*url:\s*(\S+)/m.exec(e)?.[1] ?? '',
+            by: /^\s*by:\s*(\S+)/m.exec(e)?.[1] ?? 'research',
+            page: null,
+          }))
+        : [],
     sinceBuilt: { runs: 0, proposals: 0 },
   }
   const path = `wiki/meta/recaps/Recap ${cycle}.md`
