@@ -432,18 +432,25 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   })
 
   return (
-    <div className="workspace">
-      <aside className="gpanel" aria-label="Home controls">
-        {/* Intake first: it is the reason to open the app at all. The two other ways in are
-            the header's own chips, one row up, so they are not restated here. */}
-        {!demoMode && (
-          /*
+    <div className="workspace home-workspace">
+      {/*
+        * The control column is two boxes, not one (2026-09-15), and they take their heights
+        * from the column beside them: intake stands beside the stock zone, everything else
+        * beside the flow. Both columns are placed in ONE grid for that reason - two columns
+        * that size themselves cannot agree on a line that content decides.
+        *
+        * Intake first: it is the reason to open the app at all. The two other ways in are the
+        * header's own chips, one row up, so they are not restated here.
+        */}
+      {!demoMode && (
+        <aside className="gpanel gp-top" aria-label="Intake">
+          {/*
            * One box, two destinations (2026-09-14). They used to be two sections with one
            * drop zone each, which is two of everything - two zones to aim at, two notes to
            * paste into - for a choice that is one word wide. The heading IS the choice now,
            * in the strip the Library uses for its rooms, and the box below it belongs to
            * whichever is lit.
-           */
+           */}
           <div className="gp-sec">
             <div className="gp-head">
               <span
@@ -461,7 +468,9 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                 half of the sentence the button finishes. */}
             <Dropzone legend={false} destinations={fellowsOn} />
           </div>
-        )}
+        </aside>
+      )}
+      <aside className="gpanel gp-rest" aria-label="Home controls">
         {/* The plan, between the two boxes and the view's own sections: what tonight can cost
             against what is left of the windows. The same card as the Library's corner and the
             Research tab's rail. */}

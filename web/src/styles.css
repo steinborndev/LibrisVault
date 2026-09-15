@@ -5129,6 +5129,26 @@ tr:focus-within .rowacts {
 /* The overflow count under a row's chips: a fact in the faint ink, not a chip of its own. */
 .rowpages .chip-n { align-self: center; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
 
+/* ---- Home: four boxes on two shared rows (2026-09-15) ----
+   The control column is split in two, and each half stands to the same edges as the box
+   beside it: intake against the stock zone, the rest of the panel against the flow.
+
+   That alignment is why all four are items of ONE grid rather than two columns of their own.
+   The stock zone's height is decided by its content, so a second column laid out separately
+   can only guess at it and be wrong by a few pixels at every window width. `display: contents`
+   lifts the content column's two boxes into the same grid without taking `.home-main` out of
+   the stylesheet or out of the selectors that reach through it. */
+.home-workspace {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.home-workspace > .gp-top { grid-area: 1 / 1; }
+.home-workspace > .gp-rest { grid-area: 2 / 1; }
+.home-workspace > .home-main { display: contents; }
+.home-workspace .home-main > .vaultzone { grid-area: 1 / 2; }
+.home-workspace .home-main > .box { grid-area: 2 / 2; min-height: 0; }
+/* Demo mode has no intake, and the panel then has the whole column to itself. */
+.home-workspace:not(:has(> .gp-top)) > .gp-rest { grid-area: 1 / 1 / span 2 / auto; }
+
 /* ---- Home: the vault zone (redesign 2026-08-26) ----
    Two zones stacked in the content column: the stock above (quiet, large, few words) and
    the flow below (dense, small, many words). The contrast between them is the thing that
