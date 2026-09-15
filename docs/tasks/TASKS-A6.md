@@ -17,12 +17,16 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-25 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-26 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**README and SECURITY pass 2026-09-15 (F-A6-26).** Section 4 done but for reading the README
+against a running app. The security page gained a threat chain the agents opened and nobody had
+written down.
 
 **CLAUDE.md pass 2026-09-15 (F-A6-25).** Section 3 is done, and checking the screen list
 turned up a base-product tab renamed by the extension work and behind no flag.
@@ -356,29 +360,29 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
 
 ## 4. README and SECURITY.md
 
-- [ ] **New section "Research agents"**: what a Fellow does, the night shift, the recap, the
+- [x] **Done 2026-09-15 (F-A6-26).** Written for someone deciding whether to turn it on. **New section "Research agents"**: what a Fellow does, the night shift, the recap, the
       quota, how to turn it on (`AGENTS_ENABLED=1`), and that it is off by default. It is
       the single largest undocumented feature in the repo. (Measured: the README has **zero**
       occurrences of `AGENTS_ENABLED`, "Fellow", "night shift", "recap" and "reading list".)
-- [ ] **New section "Source integrity"**: the fence, quote checking, open-access recovery.
+- [x] **Done 2026-09-15 (F-A6-26).** Written, with the reason it is not behind a flag. **New section "Source integrity"**: the fence, quote checking, open-access recovery.
       This is the subsystem a reviewer arriving from a provenance question will look for,
       and today the README does not mention it (zero occurrences of "source integrity",
       "fence", "open-access", "expand lock").
-- [ ] "The dashboard" (line 210): the Library screen's Fellow surfaces, the reading list,
+- [x] **Done 2026-09-15 (F-A6-26).** Corrected, including the Library/Catalog rename the list had missed. "The dashboard" (line 210): the Library screen's Fellow surfaces, the reading list,
       the recap inbox.
-- [ ] "Configuration" (line 377): `AGENTS_ENABLED` and every setting the A-series added
+- [x] **Done 2026-09-15 (F-A6-26).** All three variables documented, plus the research settings. "Configuration" (line 377): `AGENTS_ENABLED` and every setting the A-series added
       (research shares, reserves, plan USD, runs-per-day quota). While there: `DEMO_MODE`
       and `PREPROCESS_SANDBOX` are also undocumented, the second one although CLAUDE.md
       hard rule 6 tells the reader to use it.
-- [ ] "Security model" (line 487): the preprocessing sandbox and `preprocprobe`, beside the
+- [x] **Done 2026-09-15 (F-A6-26).** Converter jail added as item 6, with the probe. "Security model" (line 487): the preprocessing sandbox and `preprocprobe`, beside the
       agent-run sandbox and `permprobe` that are already there.
-- [ ] **[added] "Security model" item 1 is stale and says something no longer true**: "The
+- [x] **Done 2026-09-15 (F-A6-26).** Brought to the hard rule: four write paths, each one commit behind the mutex. **[added] "Security model" item 1 is stale and says something no longer true**: "The
       service writes to the vault only through agent runs and git commits". CLAUDE.md hard
       rule 1 has carried the corrections since 2026-07-18 and 2026-07-23: user-initiated
       page edits and deletes via `PUT`/`DELETE /api/v1/pages`, the retrieval-index scripts,
       and `discardUntrackedDir` for a duplicate job's own staging directory. Bring the item
       to the hard rule, not the other way round.
-- [ ] **[added] `SECURITY.md` is untouched by this milestone and needs both subsystems.**
+- [x] **Done 2026-09-15 (F-A6-26).** All four written, plus one the item did not ask for: the chain from a poisoned page to a run that reaches the web. **[added] `SECURITY.md` is untouched by this milestone and needs both subsystems.**
       The README points at it for "the full threat model - including what a malicious
       *document* can and cannot make the ingest agent do". That is precisely what the
       A-series built, and the file mentions none of it: zero occurrences of "fence",
@@ -387,8 +391,8 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       boundary, the preprocessing sandbox as the parser boundary with `preprocprobe` as its
       probe, the Fellows' web access as a widening of the agent-egress rule, and the OA
       egress from D5. This is the file a security reviewer opens first.
-- [ ] "Status & license" (line 789): bring the status paragraph up to the merged state.
-- [ ] Read the whole file once against the running app. It was written for the pre-A state
+- [x] **Done 2026-09-15 (F-A6-26).** Says that M0 to M5 are finished and the A-series sits on top. "Status & license" (line 789): bring the status paragraph up to the merged state.
+- [ ] **Half done 2026-09-15 (F-A6-26).** Read against the CODE, which found three stale things (screens, configuration, API list). Against the RUNNING app is still owed and belongs with the screenshots of section 5. Read the whole file once against the running app. It was written for the pre-A state
       and 280 commits of UI work have landed since.
 
 ## 5. Demo vault and screenshots
@@ -688,6 +692,24 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 10. Findings
 
+- **F-A6-26 (2026-09-15) - the security page did not know a chain that the agents opened.**
+  Section 4 is done except for reading the README against a RUNNING app, which is owed together
+  with the screenshots. Writing `SECURITY.md` turned up the one thing on this list that nobody
+  had asked for and that matters most: **a research agent reaches the web by design and reads
+  pages an earlier ingest wrote**, so a hostile document can poison a page and reach, at a
+  remove, a run with network access. The ingest sandbox does not close it, because the two runs
+  are separate; what limits it is that a Fellow reads its own domains, that its planning run has
+  no web access and is what chooses, that every run is one revertable commit, and that the recap
+  shows it in the morning. All of that is now written beside the chain rather than assumed.
+  A sentence there was also narrower than it read: "ingest runs have no web egress, so a hijacked
+  run cannot exfiltrate" is true of the run that reads your document and of no other kind. It
+  says so now. **The general shape, for the rest of this milestone: a guarantee written before a
+  subsystem existed does not become false, it becomes NARROW, and a narrow guarantee read as a
+  broad one is the most comfortable kind of wrong.**
+  The stale item this section already knew about turned out to be stale by fourteen months of
+  drift: "the service writes to the vault only through agent runs and git commits" is now four
+  paths, and the property that actually holds across all four is that each is one immediate
+  commit behind the shared mutex. That is what the item says now.
 - **F-A6-25 (2026-09-15) - a base-product tab was renamed by the extension work, and nobody
   had noticed.** Checking CLAUDE.md's screen list against the code for section 3 found it
   naming five screens with the tabular view called **Library**. That view has been called
