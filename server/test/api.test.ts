@@ -36,6 +36,29 @@ const NO_TOOLS: ToolAvailability = {
   deno: false,
 }
 
+/**
+ * Say "not under systemd", instead of assuming it.
+ *
+ * `POST /settings/credential` and `POST /settings/telegram` answer `restart: 'auto'` when they
+ * can restart the service themselves and `'manual'` when they cannot, and the way they ask is
+ * `INVOCATION_ID` - set by systemd on the units it starts, and inherited by everything those
+ * units start. That makes its ABSENCE ambient: true on a developer machine, false on a CI
+ * runner, which is itself a systemd unit. The two tests that expect `'auto'` already set the
+ * variable deliberately; this is the same statement from the other side, for the two that
+ * expect `'manual'` and used to get it by luck.
+ */
+const withoutSystemd = (): void => {
+  let saved: string | undefined
+  beforeEach(() => {
+    saved = process.env['INVOCATION_ID']
+    delete process.env['INVOCATION_ID']
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env['INVOCATION_ID']
+    else process.env['INVOCATION_ID'] = saved
+  })
+}
+
 let db: Db
 let store: JobStore
 let chat: ChatStore
@@ -216,6 +239,7 @@ describe('setup mode (no credential)', () => {
 })
 
 describe('POST /api/v1/settings/credential', () => {
+  withoutSystemd()
   let credFile: string
   let restarts: number
   let credApp: FastifyInstance
@@ -314,6 +338,7 @@ describe('POST /api/v1/settings/credential', () => {
 })
 
 describe('telegram settings endpoint (SPEC.md §4.3)', () => {
+  withoutSystemd()
   let envFile: string
   let restarts: number
   let tgApp: FastifyInstance

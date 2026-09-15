@@ -655,7 +655,7 @@ Status as measured 2026-09-15, on the working tree:
 | `npm run typecheck` | exit 0 for both workspaces (was exit 2; fixed 2026-09-15, F-A6-2) |
 | `npm run lint` | exit 0 for both workspaces (the root script covered only `server` until 2026-09-15, F-A6-9) |
 | `npm run build` | exit 0 |
-| CI | `.github/workflows/ci.yml` runs all four on every push and pull request (added 2026-09-15) |
+| CI | `.github/workflows/ci.yml` runs all four on every push and pull request (added 2026-09-15; first run red on two environment-dependent tests, F-A6-30) |
 | `preprocprobe` | **PASS**, "the jail holds", 14 checks (F-A6-5, re-run 2026-09-15) |
 | `permprobe` | not run - it starts a real, billable agent run |
 
@@ -673,7 +673,7 @@ Status as measured 2026-09-15, on the working tree:
       presence-from-flag half is the clean-clone/smoke item below.
 - [x] **Done 2026-09-15.** A fresh single-branch clone, `npm ci`, then test, typecheck, lint and build in order: all four pass. Done as the verification for the CI workflow, which is the same procedure by definition. A build from a clean clone: `npm ci && npm run build` on a machine that has never seen
       this repo, so the README's quick start is verified rather than remembered.
-- [x] **Done 2026-09-15 (F-A6-29).** `.github/workflows/ci.yml`: the four gates as four steps on push and pull request, `npm ci` from the lockfile, Node pinned to the engines floor. Both probes stay out and the file says why - one is billable, the other needs bubblewrap and a vault, and both are what a hand-run pre-merge pass is for. **[added] Neither repo has any CI** (no `.github/` at all in either). Every gate above
+- [x] **Done 2026-09-15 (F-A6-29, F-A6-30).** `.github/workflows/ci.yml`: the four gates as four steps on push and pull request, `npm ci` from the lockfile, Node pinned to the engines floor. Both probes stay out and the file says why - one is billable, the other needs bubblewrap and a vault, and both are what a hand-run pre-merge pass is for. **Its first run was red**, on two tests that pass here and cannot pass on a runner (F-A6-30); fixed, and green on the second. **[added] Neither repo has any CI** (no `.github/` at all in either). Every gate above
       is caught only by whoever remembers to run it, which is how a red `npm test` and a red
       `npm run typecheck` both survived into merge preparation. A minimal workflow running
       test, typecheck, lint and build on push is the cheap way to make section 8 hold after
@@ -702,6 +702,27 @@ Status as measured 2026-09-15, on the working tree:
       actually delivered, with every deviation recorded below.
 
 ## 10. Findings
+
+- **F-A6-30 (2026-09-15) - CI failed on its first run, and neither failure was a product bug.**
+  Two tests were green on this machine and red on a runner, which is the entire argument for
+  having CI stated in one run. Both are the same bug class: an assertion about the ENVIRONMENT
+  written as an assertion about the code.
+  **`queue-integration.test.ts`**: step 8 reverts an ingest commit, and `git revert` needs an
+  author identity. The file already knew that - its seed commit passes `-c user.name=t` - and
+  the revert did not. Every other git-using test here sets a repo-local identity right after
+  `git init`; this was the single outlier, and a developer machine can never catch it, because
+  a global git identity is the first thing anybody configures.
+  **`api.test.ts`**: two tests asserted `restart: 'manual'`, which `POST /settings/credential`
+  and `POST /settings/telegram` answer when `INVOCATION_ID` is unset. A GitHub runner is itself
+  a systemd unit and its children inherit that variable, so the honest answer there is `'auto'`.
+  The two tests that expect `'auto'` set the variable deliberately; the two that expected
+  `'manual'` were reading the developer's environment and calling it a result. Both now say it,
+  through a `withoutSystemd()` helper that clears and restores.
+  **The runner is reproducible locally**, and this is the part worth keeping:
+  `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null INVOCATION_ID=x npm test` brings back
+  both failures in one command, and the whole suite (1825 tests) passes under it now. Run it
+  before trusting a green local suite to mean a green CI.
+  A green suite is a claim about the machine it ran on. CI is the second machine.
 
 - **F-A6-29 (2026-09-15) - CI, and the task-file sweep that came back almost empty.**
   Three items closed and one narrowed. **CI**: four gates, four steps, on push and pull request,

@@ -53,11 +53,17 @@ beforeEach(() => {
   srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'src-'))
   // A real vault-like git repo.
   git(vaultRoot, 'init', '-q')
+  // Repo-local identity, the way every other git-using test here sets it. Not decoration: the
+  // commands below that WRITE a commit (the seed, and the revert in step 8) fall back to the
+  // global git config, and a CI runner has none. A laptop cannot catch this.
+  git(vaultRoot, 'config', 'user.email', 't@t')
+  git(vaultRoot, 'config', 'user.name', 't')
+  git(vaultRoot, 'config', 'commit.gpgsign', 'false')
   fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
   fs.mkdirSync(path.join(vaultRoot, '.raw'), { recursive: true })
   fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# Index\n')
   git(vaultRoot, 'add', '-A')
-  git(vaultRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
+  git(vaultRoot, 'commit', '-q', '-m', 'init')
 })
 afterEach(() => {
   fs.rmSync(vaultRoot, { recursive: true, force: true })
