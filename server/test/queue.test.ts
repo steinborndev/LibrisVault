@@ -147,18 +147,40 @@ describe('system-prompt extension', () => {
     await q.onIdle()
     expect(extra).toContain('<page_hygiene>')
     expect(extra).toContain('<entity_notability>')
-    // An ingest is a writing run like any other, and it reaches the reading list: one deleted
-    // the entry that had asked for the very document it was filing, which is how a request
-    // and the Fellow behind it disappear (section 10.6).
-    expect(extra).toContain('wiki/meta/reading-list.md is append-only')
-    expect(extra).toContain('NEVER remove or rewrite one')
-    // And the shape of an entry, signed as the ingest: without it the run copied the name
-    // it saw on the entries already there, a retired Fellow's.
-    expect(extra).toContain('<reading_list>')
-    expect(extra).toContain('by: ingest')
-    expect(extra).toMatch(/at: \d{4}-\d{2}-\d{2}/)
     // A link split by a paragraph wrap stops resolving and reads as a dead link everywhere.
     expect(extra).toContain('NEVER break a wikilink across a line')
+    // The reading list is NOT in it: a queue without a list is a base product without the
+    // Fellows extension, and it must not be told to write a page only the extension has.
+    expect(extra).not.toContain('<reading_list>')
+    expect(extra).not.toContain('reading-list.md')
+  })
+
+  /*
+   * The other half of the same rule (TASKS-A6 D1). With a list wired - which `main.ts` does
+   * only behind `AGENTS_ENABLED` - the run gets the entry shape, the actor to sign with, and
+   * the append-only rule that protects a request from the run that fulfils it: one ingest
+   * deleted the entry asking for the very document it was filing, which is how a request and
+   * the Fellow behind it disappear (docs/agents/SPEC.md 10.6).
+   */
+  it('carries the reading list only when one is wired, and signs it as the ingest', async () => {
+    let extra = ''
+    const q = makeQueue({
+      reading: new ReadingListService(vaultRoot, store),
+      runIngest: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        return okResult()
+      },
+    })
+    q.start()
+    await q.enqueueFile({ sourcePath: writeSource('note.md'), source: 'drop' })
+    await q.onIdle()
+    expect(extra).toContain('<reading_list>')
+    // Signed as the ingest: without the name the run copied the one it saw on the entries
+    // already there, a retired Fellow's.
+    expect(extra).toContain('by: ingest')
+    expect(extra).toMatch(/at: \d{4}-\d{2}-\d{2}/)
+    expect(extra).toContain('append-only')
+    expect(extra).toContain('NEVER remove or rewrite an entry')
   })
 
   /*

@@ -1276,7 +1276,8 @@ export class MaintenanceRunner {
           UNTRUSTED_CONTENT_RULES,
           ENTITY_NOTABILITY_RULES,
           TAG_HYGIENE_RULES,
-          renderReadingList(actor, localDate(this.now())),
+          // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
+          this.reading === undefined ? '' : renderReadingList(actor, localDate(this.now())),
         ]
           .filter(Boolean)
           .join('\n\n')

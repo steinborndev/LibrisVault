@@ -1118,7 +1118,8 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
-        renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
+        this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
         renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
         // Where the text came from when it did not come from the address (5.4).
         renderOaNotice(pre.manifest.oa === undefined ? [] : [{ artifact: pre.primaryArtifact, oa: pre.manifest.oa }]),
@@ -1450,7 +1451,8 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
-        renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
+        this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
         // Each member keeps its OWN origin: a batch is several documents, and one shared
         // address would file the wrong one on all but one of them.
         renderProvenance(ready.map((r) => ({ artifact: r.artifact, url: r.url }))),

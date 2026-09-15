@@ -182,7 +182,15 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     commitMutex,
     concurrency: effective.concurrency,
     runRegistry,
-    reading: readingList,
+    /*
+     * The reading list is a FELLOWS concept (docs/agents/SPEC.md 10.6, TASKS-A6 D1), so an
+     * ingest is told about it only when the extension is on. It used to be handed over
+     * unconditionally, which meant the prompt asked every ingest to append entries and the
+     * attribution pass rewrote the page afterwards - in a base product whose UI does not even
+     * register the route that shows the list. Writing a vault page nobody can see is the
+     * behaviour change the flag exists to prevent.
+     */
+    ...(config.agentsEnabled === true ? { reading: readingList } : {}),
     // A provider, not a value: a settings change takes effect on the next commit, no restart.
     autoCommit: () => settings.effective(config).gitAutoCommit,
     doiDedupe: () => settings.effective(config).doiDedupe,
@@ -277,7 +285,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     validate,
     stateStore: maintenanceState,
     runStore: agentRuns,
-    reading: readingList,
+    // Same as the queue above: a maintenance run only hears about the list behind the flag.
+    ...(config.agentsEnabled === true ? { reading: readingList } : {}),
     ...(usage !== undefined ? { usage } : {}),
   })
 

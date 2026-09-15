@@ -94,11 +94,6 @@ flags violations to the operator):
   line for this pass, the key recent facts, recent changes, active threads. Never append a
   new pass below the previous ones, and keep related: to the pages of this pass. Older
   passes are preserved in git history and belong nowhere in this file.
-- wiki/meta/reading-list.md is append-only, in every kind of run. Add an entry when you find
-  a publication worth having in the original, in the shape the <reading_list> block gives;
-  NEVER remove or rewrite one, not even after its document has been ingested. The service
-  marks an entry as filed once the publication is in the vault, and the Fellow that asked for
-  it is told from that mark - delete the entry and that request is simply gone.
 </page_hygiene>
 `.trim()
 
@@ -122,6 +117,17 @@ flags violations to the operator):
 export function renderReadingList(by: string, today: string): string {
   return (
     '<reading_list>\n' +
+    /*
+     * The append-only rule travels with the block that gives the entry shape (TASKS-A6 D1).
+     * It used to sit in the page-hygiene checklist, which every run carries whatever the
+     * feature flag says - so with the extension off a run was told to add entries "in the
+     * shape the <reading_list> block gives" and handed no such block. A rule about a file
+     * that exists only with the feature belongs with the feature.
+     */
+    'This file is append-only, in every kind of run. NEVER remove or rewrite an entry, not ' +
+    'even after its document has been ingested: the service marks an entry as filed once the ' +
+    'publication is in the vault, and the Fellow that asked for it is told from that mark - ' +
+    'delete the entry and that request is simply gone.\n' +
     'Every publication worth having in the original (a paper, a standard, a dataset note - not a blog index or a ' +
     'search page) goes on the reading list, whether or not you got the full text. Append one entry per publication ' +
     'to wiki/meta/reading-list.md, under its "## Entries" heading, in exactly this shape, one field per line:\n' +
