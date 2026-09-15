@@ -2356,22 +2356,20 @@ function Option({
           </>
         )}
       </div>
+      {/*
+        * One pair, one order, on every option: veto left, approve right. It used to swap for
+        * the option that runs by default - approve on the left, veto in the accent - on the
+        * reasoning that stopping it is the live decision there. What that produced is a column
+        * of cards where the button under your pointer means the opposite of the one above it,
+        * and the first card is the one you act on most.
+        */}
       <div className="cc-opt-foot">
         <span className="grow" />
-        {runsByDefault ? (
-          <>
-            <button className="btn sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>Approve anyway</button>
-            <button className="btn primary sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
-          </>
-        ) : (
-          <>
-            <button className="btn sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
-            {!approved && (
-              <button className="btn primary sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>
-                Approve{drift ? ', it drifts' : ' this one'}
-              </button>
-            )}
-          </>
+        <button className="btn sm danger" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('vetoed') }}>Veto</button>
+        {!approved && (
+          <button className="btn primary sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onDecide('approved') }}>
+            Approve{drift ? ', it drifts' : ''}
+          </button>
         )}
       </div>
     </div>
