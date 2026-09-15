@@ -43,7 +43,7 @@ import {
   renderRecapMessages,
   renderRecapPage,
   summaryInput,
-  type RecapModel, withEveryField} from '../src/pipeline/recap.js'
+  type RecapModel, withModelDefaults} from '../src/pipeline/recap.js'
 
 const INTENT = 'How well can ground-based transit photometry constrain exoplanet atmospheres, and where do the systematics come from?'
 
@@ -893,7 +893,7 @@ describe('a recap stored by an older version', () => {
 
   it('reads back with every list the views expect, without inventing numbers', () => {
     // The cast is the test: this row does not match today's type, which is the situation.
-    const m = withEveryField(ancient as unknown as Parameters<typeof withEveryField>[0]).model
+    const m = withModelDefaults(ancient as unknown as Parameters<typeof withModelDefaults>[0]).model
     // The lists a view calls `.length` on are lists.
     expect(m.dedupe.merged).toEqual([])
     expect(m.dedupe.overlaps).toEqual([])
