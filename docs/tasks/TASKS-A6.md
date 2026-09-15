@@ -17,12 +17,27 @@ asked, not written and announced.
 Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
 above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
 
-**Review pass 2026-09-15 (F-A6-1 to F-A6-29 in section 10).** Every claim in this file was
+**Review pass 2026-09-15 (F-A6-1 to F-A6-32 in section 10).** Every claim in this file was
 checked against both repos. Most held. Three substantive ones did not - the `npm test`
 diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
 several smaller ones were off by a line number or a date. All of them are corrected in place
 and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
 two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Decision round 2026-09-15 (F-A6-31, F-A6-32).** The four open decisions were taken and
+applied. The package name follows the product; `permprobe` was run with authorisation and
+passes; the already-public fixtures are generalised at the tip rather than by rewriting a public
+history; the one quoted run in the task folder is redacted in brackets rather than rewritten; the
+other clone's stray private file is deleted. Section 4's last half is done too: the README read
+against the RUNNING app, which found six things a code read structurally cannot.
+**Five items remain, and every one of them happens during the merge itself** (section 9, plus
+the audit over the final merge diff in section 7).
+
+**CI pass 2026-09-15 (F-A6-30).** CI's first run was red, on two tests that pass on this machine
+and cannot pass on a runner. Neither was a product bug; both were assertions about the
+environment written as assertions about the code. Fixed, and green since. The runner is
+reproducible locally: `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null INVOCATION_ID=x
+npm test`.
 
 **CI and sweep pass 2026-09-15 (F-A6-29).** The repo has CI. The task files are swept. The
 hook's structural limit has a tool beside it rather than only a warning.
@@ -709,18 +724,19 @@ Status as measured 2026-09-15, on the working tree:
 
 | Gate | Result |
 |---|---|
-| `npm test` | exit 0, 1819 tests pass (server 1246/82 files, web 573/52) (was exit 1; fixed 2026-09-15, F-A6-15) |
+| `npm test` | exit 0, 1825 tests pass (server 1252/83 files, web 573/52) (was exit 1; fixed 2026-09-15, F-A6-15) |
 | `npm run typecheck` | exit 0 for both workspaces (was exit 2; fixed 2026-09-15, F-A6-2) |
 | `npm run lint` | exit 0 for both workspaces (the root script covered only `server` until 2026-09-15, F-A6-9) |
 | `npm run build` | exit 0 |
-| CI | `.github/workflows/ci.yml` runs all four on every push and pull request (added 2026-09-15; first run red on two environment-dependent tests, F-A6-30) |
+| CI | **green**, `.github/workflows/ci.yml` runs all four on every push and pull request (added 2026-09-15; its first run was red on two environment-dependent tests, F-A6-30) |
 | `preprocprobe` | **PASS**, "the jail holds", 14 checks (F-A6-5, re-run 2026-09-15) |
 | `permprobe` | **PASS**, run 2026-09-15 with authorisation: both canaries blocked, the expand lock's five checks ok |
 
 - [x] `npm test`, `npm run typecheck`, `npm run lint` green **and exit 0** (section 6). All
       three measured 2026-09-15 after F-A6-15, F-A6-2 and F-A6-9; `lint` covers both
       workspaces now, so the gate is met by intent and not only by the letter of the script.
-      Test count is 1823 (server 1250 / 83 files, web 573 / 52) since the flag-off test.
+      Test count is 1825 (server 1252 / 83 files, web 573 / 52), and CI runs all four on
+      every push, so this line is now measured by something other than memory.
 - [x] **Done 2026-09-15, run with authorisation because it is billable.** `canary outside
       vault: blocked`, `canary in skills/: blocked`, 1 tool denial, and the expand probe's
       five checks all ok in its own throwaway vault. **PASS - confinement and the expand lock.**
