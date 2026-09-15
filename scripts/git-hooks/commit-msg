@@ -6,11 +6,35 @@
 # what the private knowledge base contains. The motivating leak (2026-07-22): a commit body
 # named two X handles from an entity page.
 #
-# What it does: builds a denylist of the distinctive names in the vault's entities/ and
-# sources/ pages (page titles, plus @handles / 0x_ handles found inside them) and rejects the
-# commit if the message contains any of them. Concept pages are intentionally NOT on the list:
-# they hold generic, reusable knowledge (e.g. "Compound Interest") that is not vault-revealing
-# and would false-positive against ordinary technical wording.
+# What it does: builds a denylist of the distinctive names in the vault's entities/, sources/,
+# questions/, comparisons/ and folds/ pages - page titles AND their fragments, plus @handles /
+# 0x_ handles found inside them - and rejects the commit if the message contains any of them.
+#
+# Fragments, because whole stems missed a real case: a page titled "<Something> (<Publisher>)"
+# put only the whole string on the list, so a message naming the parenthetical alone passed.
+# A title is therefore also split on parentheses, colons, dashes and commas, and each part is
+# added when it is at least two words long. Single-word fragments are deliberately dropped:
+# they are where the false positives live ("biologics", "cooking"), and a single distinctive
+# word is usually the whole title anyway, which is on the list in its own right.
+#
+# NOT on the list, both on purpose:
+#   - concepts/, which hold generic reusable knowledge ("Compound Interest") and would
+#     false-positive against ordinary technical wording. The cost is real and known: a concept
+#     title CAN be vault-revealing, and one was found verbatim in a test fixture (2026-09-15).
+#     585 of them against ordinary commit prose is simply the worse trade.
+#   - references/, which come from the upstream claude-obsidian repo and are public already
+#     (they are the `PROTECTED_WIKI_SCOPES` the agent runner refuses to let a run touch), and
+#     meta/, which holds the journals and notebooks - their FILE names are Fellow names from
+#     the product's own suggestion list, not anything the vault is about.
+#
+# WHAT IT STRUCTURALLY CANNOT DO, so nobody trusts it further than it goes:
+#   - It scans the commit MESSAGE. File CONTENT goes past it untouched, and content is where
+#     every leak found in the 2026-09-15 audit actually was: examples in comments, UI
+#     placeholders, test fixtures, and run output quoted into a design record.
+#   - `gh pr create` text is not a commit message either, and the PR body is the likeliest
+#     leak of all. Check it by hand.
+#   - It only knows page TITLES. A standing task's subject lives in SQLite, so a planner
+#     answer quoted into a document names things no title ever carried.
 #
 # Scope: the check only knows about the vault at VAULT_ROOT (env, else ~/vault). No vault
 # present (fresh clone, CI, setup mode) -> the hook passes silently, blocking nothing.
@@ -28,7 +52,7 @@ MSG_FILE="$1"
 [ -n "${ALLOW_VAULT_NAMES:-}" ] && exit 0
 
 VAULT_ROOT="${VAULT_ROOT:-$HOME/vault}"
-[ -d "$VAULT_ROOT/wiki/entities" ] || [ -d "$VAULT_ROOT/wiki/sources" ] || exit 0
+[ -d "$VAULT_ROOT/wiki" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 - "$MSG_FILE" "$VAULT_ROOT" <<'PY'
@@ -59,7 +83,7 @@ STOP = {"data", "code", "test", "page", "user", "index", "log", "hot", "meta", "
 deny = {}  # lowercased term -> canonical form (for the error message)
 
 def add(term: str) -> None:
-    t = term.strip()
+    t = term.strip(" \t-:,")
     if len(t) < 4:
         return
     low = t.lower()
@@ -67,16 +91,51 @@ def add(term: str) -> None:
         return
     deny.setdefault(low, t)
 
+def add_fragment(term: str) -> None:
+    """A part of a title. Two words minimum, because one word is where the false positives are."""
+    t = term.strip(" \t-:,")
+    if len(t.split()) < 2 or len(t) < 8:
+        return
+    add(t)
+
+# Split a title the way a fixture writer would quote a piece of it: what stands before a
+# parenthesis, what stands inside one, and the parts around a colon, a dash or a comma.
+SPLIT_RE = re.compile(r"\s+[-\u2013\u2014]\s+|[:,]")
+
+def add_title(stem: str) -> None:
+    add(stem)
+    depth, buf, parts = 0, [], []
+    for ch in stem:
+        if ch == "(":
+            depth += 1
+            if depth == 1:
+                parts.append("".join(buf))
+                buf = []
+                continue
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                parts.append("".join(buf))
+                buf = []
+                continue
+        buf.append(ch)
+    parts.append("".join(buf))
+    for part in parts:
+        for piece in SPLIT_RE.split(part):
+            add_fragment(piece)
+
 HANDLE_RE = re.compile(r"@[A-Za-z0-9_]{2,}|0x_[A-Za-z0-9]+")
 
-for bucket in ("entities", "sources"):
+# Every bucket a run writes that says something about what this vault is ABOUT. See the header
+# for why concepts/, references/ and meta/ are not here.
+for bucket in ("entities", "sources", "questions", "comparisons", "folds"):
     d = os.path.join(vault_root, "wiki", bucket)
     if not os.path.isdir(d):
         continue
     for name in os.listdir(d):
         if not name.endswith(".md") or name.startswith("_"):
             continue
-        add(name[:-3])  # the page title (filename stem)
+        add_title(name[:-3])  # the page title (filename stem) and its parts
         try:
             body = open(os.path.join(d, name), encoding="utf-8", errors="replace").read()
         except OSError:
