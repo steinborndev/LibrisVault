@@ -27,7 +27,7 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { RecapFeed } from '../components/RecapFeed.tsx'
 import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
-import { CommandCentre, type CcView, type RosterEntry } from '../components/library/CommandCentre.tsx'
+import { CommandCentre, type CcView, type Pane, type RosterEntry } from '../components/library/CommandCentre.tsx'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
@@ -67,6 +67,7 @@ const NO_DURATIONS: Readonly<Record<string, number | null>> = {}
 const ROOM_SHORTCUTS = [
   { keys: ['←', '→'], what: 'the room before or after this one' },
   { keys: ['PgUp', 'PgDn'], what: 'the same step, and the wheel over the room does it too' },
+  { keys: ['wheel'], what: 'with a Fellow card open it walks the Fellows of this room instead' },
   { keys: ['Esc'], what: 'one step back: a Fellow card, then a window, then a wing, out to the main room' },
   { keys: ['click'], what: 'a shelf opens its department; a free one starts a new department' },
   { keys: ['drag'], what: 'a shelf moves to another slot or another room' },
@@ -170,6 +171,8 @@ export function LibraryScreen({
   const [ccFellowId, setCcFellowId] = useState<string | null>(ccFellowIdParam === '' ? null : ccFellowIdParam)
   /** The view the decisions toggle was pressed from, so pressing it again goes back there. */
   const [ccFrom, setCcFrom] = useState<CcView>('tonight')
+  /** Which pane of a dossier is up; the room's Fellow card opens one by name. */
+  const [ccPane, setCcPane] = useState<Pane>('recap')
   /*
    * Only the dossier is a Fellow. `ccFellowId` outlives it - Escape steps back to the shelf
    * and leaves it set, so that the arrows and a later reopen land where you were - and reading
@@ -390,9 +393,10 @@ export function LibraryScreen({
    * the log, the pages and the settings; all four live in the centre now, so the room opens
    * the centre instead of a second version of it.
    */
-  const openFellowAt = useCallback((agentId: string, view: CcView): void => {
+  const openFellowAt = useCallback((agentId: string, view: CcView, pane: Pane = 'recap'): void => {
     setCcFellowId(agentId)
     setCcView(view)
+    setCcPane(pane)
     setCcOpen(true)
     setBoard(null)
     setPopover(null)
@@ -438,6 +442,26 @@ export function LibraryScreen({
   useEffect(() => {
     if (!active) setCcOpen(false)
   }, [active])
+  /*
+   * The figures of the room you are in, in the order they were built. While a Fellow card is
+   * open the wheel walks THESE rather than the rooms: the card is what the wheel is over, and
+   * paging the room out from under an open card would leave it naming a room you had left.
+   */
+  const roomFellows = useMemo(
+    () => actors.filter((a) => a.agentId !== undefined && a.room === current?.id && a.exiting !== true).map((a) => a.agentId!),
+    [actors, current],
+  )
+  const stepFellow = useCallback(
+    (delta: number): void => {
+      if (popover === null || !scene.data || roomFellows.length < 2) return
+      const at = roomFellows.indexOf(popover.fellow.agentId)
+      if (at < 0) return
+      const id = roomFellows[(at + delta + roomFellows.length) % roomFellows.length]!
+      const next = scene.data.fellows.find((f) => f.agentId === id)
+      if (next) setPopover({ fellow: next })
+    },
+    [popover, roomFellows, scene.data],
+  )
   useEffect(() => {
     const el = areaRef.current
     if (!el || windowOpen) return
@@ -448,11 +472,12 @@ export function LibraryScreen({
       if (now - last < 450) return
       last = now
       e.preventDefault()
-      page(e.deltaY > 0 ? 1 : -1)
+      if (popover !== null) stepFellow(e.deltaY > 0 ? 1 : -1)
+      else page(e.deltaY > 0 ? 1 : -1)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [page, windowOpen])
+  }, [page, windowOpen, popover, stepFellow])
   const onKey = (e: KeyboardEvent): void => {
     /*
      * The night shift board is the one window that wants the arrows: left walks back through
@@ -1055,6 +1080,8 @@ export function LibraryScreen({
               onRoster={setCcRoster}
               fellowId={ccFellowId}
               setFellowId={setCcFellowId}
+              pane={ccPane}
+              setPane={setCcPane}
             />
           )}
 
@@ -1142,6 +1169,7 @@ export function LibraryScreen({
               durations={agentsQ.data?.durations ?? NO_DURATIONS}
               costs={agentsQ.data?.costs}
               onDossier={() => openFellowAt(popover.fellow.agentId, 'dossier')}
+              onSettings={() => openFellowAt(popover.fellow.agentId, 'dossier', 'settings')}
               onTonight={() => openFellowAt(popover.fellow.agentId, 'tonight')}
               onDecisions={() => openFellowAt(popover.fellow.agentId, 'decisions')}
               onPause={() => pauseFellow.mutate(popover.fellow)}

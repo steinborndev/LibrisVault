@@ -34,6 +34,7 @@ export function FellowPopover({
   durations,
   costs,
   onDossier,
+  onSettings,
   onTonight,
   onDecisions,
   onPause,
@@ -46,6 +47,7 @@ export function FellowPopover({
   durations: Readonly<Record<string, number | null>>
   costs: Prices | undefined
   onDossier: () => void
+  onSettings: () => void
   onTonight: () => void
   onDecisions: () => void
   onPause: () => void
@@ -86,7 +88,21 @@ export function FellowPopover({
     : 0
   const progress = running ? runProgress(running.startedAt, running.typicalMs, Date.now()) : null
   const undecided = fellow?.undecidedProposals ?? 0
-  const next = scene.next
+
+  /*
+   * The night as the slots it is made of, always at least three of them (2026-09-15). A night
+   * read as one line said what would run FIRST and nothing about the rest, so a Fellow with
+   * three runs standing looked like a Fellow with one. An empty slot says why it is empty,
+   * which is the other half of the answer: the quota can stop short of it, tonight's own
+   * planning can still be about to fill it, or nothing is coming for it at all.
+   */
+  const slots = Array.from({ length: Math.max(3, runs) }, (_, i) => {
+    const proposal = queue[i] ?? null
+    if (proposal !== null) return { proposal, why: '' }
+    if (quota > 0 && i >= quota) return { proposal, why: `past the quota of ${quota} a night` }
+    if (i < runs) return { proposal, why: "tonight's own planning fills this one" }
+    return { proposal, why: 'nothing stands for it' }
+  })
 
   const fact = (value: string, label: string, off = false): React.ReactElement => (
     <span key={label} className={off ? 'off' : undefined}>
@@ -139,20 +155,20 @@ export function FellowPopover({
       </div>
       <div className="lib-pop-line">
         <span className="k">Tonight</span>
-        <span className="v">
-          {next ? (
-            <>
-              <span className="lib-pop-topic" title={next.topic}>
-                {next.topic}
+        <span className="v lib-pop-runs">
+          {slots.map((slot, i) => (
+            <span key={i} className={`lib-pop-run${slot.proposal === null ? ' none' : ''}`}>
+              <span className="t" title={slot.proposal?.topic}>
+                <b>Run {i + 1}:</b> {slot.proposal !== null ? slot.proposal.topic : slot.why}
               </span>
-              <small>
-                {next.status === 'approved' ? 'approved' : 'undecided'}
-                {next.estCostUsd !== null ? ` · about ${usd(next.estCostUsd)}` : ''}
-              </small>
-            </>
-          ) : (
-            'nothing planned'
-          )}
+              {slot.proposal !== null && (
+                <small>
+                  {slot.proposal.status === 'approved' ? 'approved' : 'undecided'}
+                  {slot.proposal.estCostUsd !== null ? ` · about ${usd(slot.proposal.estCostUsd)}` : ''}
+                </small>
+              )}
+            </span>
+          ))}
         </span>
       </div>
       {standing.length > 0 && (
@@ -173,6 +189,9 @@ export function FellowPopover({
       <div className="lib-pop-acts">
         <button className="btn sm primary" onClick={onDossier} title="Its recap, activity, pages, notebook and settings">
           Dossier
+        </button>
+        <button className="btn sm" onClick={onSettings} title="Its standing work, how much of the night it takes, and who decides">
+          Settings
         </button>
         <button className="btn sm" onClick={onTonight} title="The night this shelf works, and who else is on it">
           Tonight

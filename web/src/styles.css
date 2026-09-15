@@ -7686,6 +7686,15 @@ tr:focus-within .rowacts {
 .lib-pop-facts .off b { color: var(--text-faint); }
 /* Two lines of a topic, never ten. The whole of it is in the title attribute. */
 .lib-pop-topic { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+/* The night, run by run: three blocks at least, each two lines of topic over one of what it
+   was decided and what it costs. Equal blocks, so the eye can count them without reading. */
+.lib-pop-runs { display: flex; flex-direction: column; gap: 6px; }
+.lib-pop-run { display: block; min-width: 0; }
+.lib-pop-run .t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.lib-pop-run .t b { font-weight: 600; margin-right: 3px; }
+/* A slot nothing runs in says why in the faint ink: it is an absence, not a run. */
+.lib-pop-run.none .t { color: var(--text-faint); }
+.lib-pop-run.none .t b { color: var(--text-dim); }
 /* The art keeps its own baseline; only the text after it is clamped. */
 .lib-pop-task { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .lib-pop-task + .lib-pop-task { margin-top: 4px; }

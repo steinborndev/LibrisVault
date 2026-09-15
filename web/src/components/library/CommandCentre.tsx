@@ -80,7 +80,7 @@ import { timeAgo, usd } from '../../lib/format.ts'
 import { MODEL_FACTOR, pointsPerUsd, rosterShare, runUsd, shareDetail, weekShare, type Prices } from '../../lib/plan.ts'
 
 export type CcView = 'shelves' | 'tonight' | 'dossier' | 'decisions' | 'spawn'
-type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
+export type Pane = 'notebook' | 'recap' | 'ledger' | 'pages' | 'settings'
 
 /**
  * Two scales, because the two bars answer different questions.
@@ -223,6 +223,13 @@ export interface CommandCentreProps {
   /** Which Fellow's dossier is open. Held by the screen, because the headline needs it too. */
   readonly fellowId: string | null
   readonly setFellowId: (id: string | null) => void
+  /**
+   * Which of the dossier's five panes is up. Held by the screen for the same reason the view
+   * is: the room's Fellow card opens the dossier ON a named pane, and a pane that only exists
+   * inside this component cannot be named from outside it.
+   */
+  readonly pane: Pane
+  readonly setPane: (p: Pane) => void
 }
 
 export interface RosterEntry {
@@ -241,8 +248,9 @@ export function CommandCentre({
   onRoster,
   fellowId,
   setFellowId,
+  pane,
+  setPane,
 }: CommandCentreProps): React.ReactElement {
-  const [pane, setPane] = useState<Pane>('recap')
   const [decIndex, setDecIndex] = useState(0)
   const [optIndex, setOptIndex] = useState(0)
   const [row, setRow] = useState(0)
