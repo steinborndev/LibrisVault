@@ -43,8 +43,7 @@ import {
   renderRecapMessages,
   renderRecapPage,
   summaryInput,
-  type RecapModel,
-} from '../src/pipeline/recap.js'
+  type RecapModel, withEveryField} from '../src/pipeline/recap.js'
 
 const INTENT = 'How well can ground-based transit photometry constrain exoplanet atmospheres, and where do the systematics come from?'
 
@@ -854,5 +853,64 @@ describe('memory stores behave like the sqlite ones', () => {
     values.record({ ts: '2026-09-01T08:00:00.000Z', kind: 'recap_link', agentId: 'a1', page: 'p' })
     expect(values.counts('2026-09-05T00:00:00.000Z', 'a1')).toEqual({ pageOpens: 1, recapLinks: 0 })
     expect(values.counts('2026-08-01T00:00:00.000Z')).toEqual({ pageOpens: 1, recapLinks: 1 })
+  })
+})
+
+/*
+ * A recap is stored as JSON and read back with a cast, never migrated, so a row keeps the
+ * shape it had on the night it was built. The model has gained five fields since A3, each in
+ * its own commit, and several views read them without a guard - `m.dedupe.merged.length`,
+ * `m.usage.week.costUsd`, `m.totals.pages`. A recap from before one of those fields therefore
+ * did not render a gap, it threw, and the screen around it went too.
+ */
+describe('a recap stored by an older version', () => {
+  const ancient = {
+    cycleDate: '2026-09-01',
+    generatedAt: '2026-09-01T07:00:00.000Z',
+    path: 'wiki/meta/recaps/Recap 2026-09-01.md',
+    quiet: false,
+    delivered: {},
+    answeredAt: null,
+    // Exactly what A3 wrote: no dedupe, no plan, no reading lists, no sinceBuilt, and a usage
+    // block with only the half that existed then.
+    model: {
+      cycleDate: '2026-09-01',
+      generatedAt: '2026-09-01T07:00:00.000Z',
+      quiet: false,
+      since: '2026-08-31T07:00:00.000Z',
+      window: { start: '01:00', end: '06:00' },
+      shift: null,
+      totals: { runs: 1, failed: 0, costUsd: 2 },
+      usage: { today: { costUsd: 2, runs: 1 } },
+      value: { pageOpens: 0, recapLinks: 0 },
+      fellows: [],
+      sleeping: [],
+      summaryNote: null,
+      summaryCostUsd: null,
+      unclaimed: [],
+    },
+  }
+
+  it('reads back with every list the views expect, without inventing numbers', () => {
+    // The cast is the test: this row does not match today's type, which is the situation.
+    const m = withEveryField(ancient as unknown as Parameters<typeof withEveryField>[0]).model
+    // The lists a view calls `.length` on are lists.
+    expect(m.dedupe.merged).toEqual([])
+    expect(m.dedupe.overlaps).toEqual([])
+    expect(m.readingFiled).toEqual([])
+    expect(m.readingAdded).toEqual([])
+    expect(m.unclaimed).toEqual([])
+    // The nested numbers a view reads through are readable, and default to zero rather than
+    // to a guess: a night that recorded no week usage did not have zero, it had none, and
+    // zero is the only honest thing to draw.
+    expect(m.usage.week).toEqual({ costUsd: 0, runs: 0 })
+    expect(m.totals.pages).toBe(0)
+    // What the row DID record survives untouched.
+    expect(m.totals.runs).toBe(1)
+    expect(m.totals.costUsd).toBe(2)
+    expect(m.usage.today).toEqual({ costUsd: 2, runs: 1 })
+    // Absent objects stay absent rather than becoming empty shells.
+    expect(m.plan).toBeNull()
+    expect(m.sinceBuilt).toBeNull()
   })
 })

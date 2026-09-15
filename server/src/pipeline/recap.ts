@@ -509,7 +509,55 @@ export function freshenRecap(
    * there was nothing to decide over a body listing six proposals. This is a read-time view;
    * nothing here is written back, so the stored row keeps the night as it was built.
    */
-  return { ...row, quiet, model: { ...row.model, fellows: all, quiet, totals, sinceBuilt: { runs: newRuns, proposals: newProposals } } }
+  return withEveryField({ ...row, quiet, model: { ...row.model, fellows: all, quiet, totals, sinceBuilt: { runs: newRuns, proposals: newProposals } } })
+}
+
+/**
+ * A stored model raised to the shape the current readers expect (2026-09-15).
+ *
+ * The model is written as JSON and read back with a cast, not a schema, and it has never been
+ * migrated - so a recap keeps forever the shape it had on the night it was built. Since A3 the
+ * interface has gained `dedupe`, `plan`, `readingFiled`, `readingAdded` and `sinceBuilt`, each
+ * in its own commit, and the views read several of those without a guard: `m.dedupe.merged`,
+ * `m.usage.week.costUsd`, `m.totals.pages`. A recap from before the field that a view reads
+ * therefore does not render a gap, it throws, and the whole screen goes with it.
+ *
+ * Filling the gaps on READ rather than guarding twenty call sites keeps the views written
+ * against one shape, and it is the only half that can help a row already in someone's
+ * database. Nothing is written back: the stored night stays as it was built.
+ */
+export function withEveryField(row: RecapRow<RecapModel>): RecapRow<RecapModel> {
+  /*
+   * The cast is the point. The interface says every field is present, which is true of a model
+   * built today and is exactly the assumption that breaks on one built a month ago - the type
+   * describes the writer, and this function has to describe the reader.
+   */
+  const m = row.model as { readonly [K in keyof RecapModel]?: RecapModel[K] }
+  return {
+    ...row,
+    model: {
+      ...(m as RecapModel),
+      totals: { runs: 0, failed: 0, costUsd: 0, pages: 0, ...(m.totals ?? {}) },
+      usage: {
+        today: { costUsd: 0, runs: 0 },
+        week: { costUsd: 0, runs: 0 },
+        ...(m.usage ?? {}),
+      },
+      value: m.value ?? { pageOpens: 0, recapLinks: 0 },
+      fellows: m.fellows ?? [],
+      sleeping: m.sleeping ?? [],
+      unclaimed: m.unclaimed ?? [],
+      dedupe: { merged: [], overlaps: [], ...(m.dedupe ?? {}) },
+      shift: m.shift ?? null,
+      window: m.window ?? { start: '01:00', end: '06:00' },
+      plan: m.plan ?? null,
+      readingFiled: m.readingFiled ?? [],
+      readingAdded: m.readingAdded ?? [],
+      sinceBuilt: m.sinceBuilt ?? null,
+      summaryNote: m.summaryNote ?? null,
+      summaryCostUsd: m.summaryCostUsd ?? null,
+    },
+  }
 }
 
 /* --------------------------------- the summary run --------------------------------- */

@@ -1284,8 +1284,16 @@ for (let d = 0; d <= 3; d++) {
     cycleDate: cycle, generatedAt: at(nightOf(d, 7)), quiet: false, since: at(nightOf(d + 1, 7)),
     window: { start: '01:00', end: '06:00' },
     shift: { trigger: 'timer', startedAt: at(night), finishedAt: at(night), executed: runsOfNight.length, planned: 3, skipped: [], costUsd: 4.2 },
-    totals: { runs: runsOfNight.length, failed: 0, costUsd: Math.round(runsOfNight.reduce((a, r) => a + r[4], 0) * 100) / 100 },
-    usage: { today: { costUsd: 6.1, runs: runsOfNight.length + 1 } },
+    totals: {
+      runs: runsOfNight.length, failed: 0,
+      costUsd: Math.round(runsOfNight.reduce((a, r) => a + r[4], 0) * 100) / 100,
+      pages: runsOfNight.reduce((a, r) => a + r[3], 0),
+    },
+    // Service-wide, so it is larger than the night's own total: ingests and manual runs count.
+    usage: {
+      today: { costUsd: Math.round((runsOfNight.reduce((a, r) => a + r[4], 0) + 2.4) * 100) / 100, runs: runsOfNight.length + 1 },
+      week: { costUsd: 41.8 - d * 4, runs: 14 - d },
+    },
     value: { pageOpens: 11 - d, recapLinks: 4 },
     fellows: FELLOWS.filter((f) => runsOfNight.some((r) => r[0] === f.name)).map((f, k) => ({
       index: k + 1, agentId: fellowIds[f.name], name: f.name, homeDomain: f.domain,
@@ -1296,6 +1304,7 @@ for (let d = 0; d <= 3; d++) {
         runId: ulid(700 + d * 10 + j), kind, topic, ok: true, error: null,
         pagesCreated: conceptPaths.slice(j * 5, j * 5 + pageCount), pagesUpdated: [],
         commit: null, costUsd: cost, startedAt: at(night), proposalId: null,
+        planPct: { week: Math.round(cost * 12) / 100, '5h': Math.round(cost * 31) / 100 },
       })),
       found: FOUND[f.name] ?? [],
       openQuestions: FELLOW_QUESTIONS[f.name] ?? [],
@@ -1313,7 +1322,24 @@ for (let d = 0; d <= 3; d++) {
     sleeping: FELLOWS.filter((f) => !runsOfNight.some((r) => r[0] === f.name))
       .map((f) => ({ name: f.name, reason: f.sleep_reason ?? 'nothing it could run tonight' })),
     summaryNote: null, summaryCostUsd: 0.31, unclaimed: [],
-    dedupe: { merged: [] },
+    // Every list the model declares has to BE a list, empty or not: the recap view reads
+    // `.length` on them without a guard, and one missing key takes the whole screen down.
+    dedupe: { merged: [], overlaps: [] },
+    plan: {
+      available: true, reason: null, calibrated: true,
+      windows: [
+        { window: 'week', utilization: 31 + d, resetsAt: at(day(d - 5)) },
+        { window: '5h', utilization: 12 + d * 3, resetsAt: at(nightOf(d, 18)) },
+      ],
+      shares: { unit: 'points', week: 10, fiveHour: 15, reserveWeek: 80, reserveFiveHour: 60 },
+    },
+    readingFiled: d === 0
+      ? [{ title: 'A survey of transit-timing methods', page: 'wiki/sources/Instrument Handbook.md', by: 'Ada' }]
+      : [],
+    readingAdded: d === 0
+      ? [{ title: 'Inventory revisions and the ocean sink', url: 'https://example.invalid/doi/10.0000/demo-ocean-sink', by: 'Casper', page: null }]
+      : [],
+    sinceBuilt: { runs: 0, proposals: 0 },
   }
   const path = `wiki/meta/recaps/Recap ${cycle}.md`
   // The column and the model must agree: a recap is written the morning after its night.
