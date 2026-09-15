@@ -434,8 +434,15 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
 
   return (
     <div className="workspace research">
-      <aside className="gpanel" aria-label="Research controls">
-        {/* The same column in both modes. The lens shapes a web research run only; under a
+      {/*
+        * The control column is three boxes, and each takes its height from what stands beside
+        * it (2026-09-15): the lens against the mode toggle AND the topic field together, the
+        * plan against the run's own section, what research came to against the list of it.
+        * All six are items of ONE grid for that reason - a column laid out on its own can
+        * only guess at heights its neighbour's content decides.
+        */}
+      <aside className="gpanel gp-lens" aria-label="Research lens">
+        {/* The same box in both modes. The lens shapes a web research run only; under a
             vault question it stays where it is, greyed, and says why on hover, so the
             column does not change shape when the mode does. */}
         <div
@@ -474,17 +481,22 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
           </div>
         </div>
 
-        {/* The plan, as the Library states it: which windows are how full, what an unmeasured
-            run has probably added on top, and how old the reading is. */}
-        {corner !== null && (
+      </aside>
+
+      {/* The plan, as the Library states it: which windows are how full, what an unmeasured
+          run has probably added on top, and how old the reading is. */}
+      {corner !== null && (
+        <aside className="gpanel gp-plan" aria-label="Plan usage">
           <div className="gp-sec">
             <div className="gp-head">
               <span className="gp-eyebrow">Plan usage</span>
             </div>
             <PlanCard corner={corner} />
           </div>
-        )}
+        </aside>
+      )}
 
+      <aside className="gpanel gp-facts" aria-label="Research so far">
         {/* What the two ledgers add up to, in the same metric-list shape Home uses. */}
         <div className="gp-sec grow">
           <div className="gp-head">
@@ -674,6 +686,13 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               that starts it. */}
         </div>
 
+        {/*
+          * The run's own section and whatever it has to say about itself, in one wrapper: the
+          * main column is placed row by row against the control column now, so it has to have
+          * one child per row. The banners belong to the run, and a run that ends in a warning
+          * pushes its own row taller rather than opening a row of its own.
+          */}
+        <div className="rrun">
         {/* The agent's own section, above the list: the run in flight, or the question. */}
         {mode === 'research' && <RunActivity live={liveRunning} topic={lastTopic !== '' ? lastTopic : (liveEntry?.topic ?? '')} />}
         {mode === 'ask' && (
@@ -725,6 +744,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             </button>
           </div>
         )}
+        </div>
 
         {/* The region that swaps: the two ledgers, or ONE detail in their place. The
             console above and the backlog below stay mounted either way, so opening a run

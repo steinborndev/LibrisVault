@@ -6680,6 +6680,36 @@ tr:focus-within .rowacts {
   min-width: 0;
   min-height: 0;
 }
+
+/* ---- Research: six boxes on four shared rows (2026-09-15) ----
+   The control column is three boxes and each stands to the same edges as what is beside it:
+   the lens against the mode toggle and the topic field TOGETHER (it spans both rows), the
+   plan against the run's own section, the tally against the list.
+
+   Same construction as Home's: one grid over both columns, with the content column lifted
+   into it by `display: contents`, because a column laid out on its own can only approximate
+   heights that its neighbour's content decides. The main column therefore has to have exactly
+   one child per row, which is what `.rrun` is for. */
+.workspace.research {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+.workspace.research > .gp-lens { grid-area: 1 / 1 / span 2 / auto; }
+.workspace.research > .gp-plan { grid-area: 3 / 1; }
+.workspace.research > .gp-facts { grid-area: 4 / 1; }
+/* No plan card (it is absent until the service has read the plan): the tally takes both rows. */
+.workspace.research:not(:has(> .gp-plan)) > .gp-facts { grid-area: 3 / 1 / span 2 / auto; }
+.workspace.research > .rmain { display: contents; }
+.workspace.research .rmain > .rhead-box { grid-area: 1 / 2; }
+.workspace.research .rmain > .console { grid-area: 2 / 2; }
+.workspace.research .rmain > .rrun { grid-area: 3 / 2; }
+.workspace.research .rmain > .rstack { grid-area: 4 / 2; min-height: 0; }
+/* The run's section and its banners: one row, stacked the way the column used to stack them. */
+.rrun {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
 .rstack {
   flex: 1;
   min-height: 0;
