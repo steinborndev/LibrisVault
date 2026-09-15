@@ -8669,8 +8669,10 @@ tr:focus-within .rowacts {
   min-height: 0;
   overflow: visible;
 }
-.detail-scroll > .detail-foot {
-  margin-top: auto;
+/* The foot is a sibling of the scroller, not the last thing in it: it stays on the box's
+   bottom edge while the article moves under it. */
+.box.detail > .detail-foot {
+  flex: none;
 }
 /* The title, once: large as the article's own heading was, the lens mark before it, and room
    for two lines so a long question is never cut. */

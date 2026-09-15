@@ -1132,6 +1132,11 @@ function DetailShell({
    * band that scrolled on its own, which spent a third of the height on figures the list
    * above had already shown. Everything is in one scrolling element now; only the bar sticks,
    * because the way back should not scroll away with the article.
+   *
+   * The foot is the other half of that (2026-09-15) and sits OUTSIDE the scroller for it. It
+   * carries the two ways out of a result - the graph and the page it wrote - and those are
+   * facts about the result, not the end of the article: scrolling an article to reach the
+   * button that opens what it is about is a scroll the reader should not have to make.
    */
   return (
     <section className="box detail">
@@ -1163,11 +1168,11 @@ function DetailShell({
           </div>
         )}
         <div className="detail-content">{children}</div>
-        <div className="detail-foot">
-          <span className="prov">{provenance}</span>
-          <span className="spacer" />
-          {footAction}
-        </div>
+      </div>
+      <div className="detail-foot">
+        <span className="prov">{provenance}</span>
+        <span className="spacer" />
+        {footAction}
       </div>
     </section>
   )
