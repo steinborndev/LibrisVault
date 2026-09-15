@@ -151,9 +151,9 @@ describe('GraphBuilder', () => {
   })
 
   it('aggregates unresolved targets into ranked gaps grouped case-insensitively', () => {
-    page('wiki/concepts/A.md', 'wants [[Pharmacokinetics]] and [[Zeta Potential]]')
-    page('wiki/concepts/B.md', 'also [[pharmacokinetics]] here') // same gap, different case
-    page('wiki/concepts/C.md', 'again [[Pharmacokinetics]] plus a dupe [[Pharmacokinetics]]')
+    page('wiki/concepts/A.md', 'wants [[Photosynthesis]] and [[Lattice Creep]]')
+    page('wiki/concepts/B.md', 'also [[photosynthesis]] here') // same gap, different case
+    page('wiki/concepts/C.md', 'again [[Photosynthesis]] plus a dupe [[Photosynthesis]]')
     const g = new GraphBuilder(vaultRoot).build()
     const byTitle = new Map(g.nodes.map((n, i) => [n.title, i]))
 
@@ -161,12 +161,12 @@ describe('GraphBuilder', () => {
     expect(g.gaps).toHaveLength(2)
 
     const pk = g.gaps[0]! // most-referenced first
-    expect(pk.title).toBe('Pharmacokinetics') // first-written casing
+    expect(pk.title).toBe('Photosynthesis') // first-written casing
     // refBy is deduped per page (C links twice but appears once) and holds node indices.
     expect(pk.refBy.map((i) => g.nodes[i]!.title).sort()).toEqual(['A', 'B', 'C'])
     expect(pk.refBy).toContain(byTitle.get('A'))
 
-    expect(g.gaps[1]!.title).toBe('Zeta Potential')
+    expect(g.gaps[1]!.title).toBe('Lattice Creep')
     expect(g.gaps[1]!.refBy).toHaveLength(1)
   })
 

@@ -13,9 +13,17 @@
  *   node scripts/vault-name-scan.mjs --file pr-body.txt   # the PR text before it is posted
  *
  * WHAT IT CANNOT SEE, because trusting it further than it goes is how the first audit missed
- * two fixtures. The term list is built from vault page TITLES. A subject that lives only in
- * the database - a Fellow's standing task, a planner's answer quoted into a document - names
- * things no title carries, and passes this clean. Read quoted run output with your own eyes.
+ * two fixtures. The term list is built from vault page TITLES, as they are RIGHT NOW.
+ *
+ *   1. A subject that lives only in the database - a Fellow's standing task, a planner's
+ *      answer quoted into a document - names things no title carries. Read quoted run output
+ *      with your own eyes.
+ *   2. A page the vault has since removed leaves no title to build a term from, so a fixture
+ *      naming it passes clean while still saying what the vault once held. One of the 2026-09-15
+ *      fixtures was exactly that: a real concept page, reverted later, invisible to this scan
+ *      and a leak all the same. `git -C $VAULT_ROOT log -S "<term>"` is the check for a term
+ *      you suspect; there is no way to enumerate them.
+ *   3. It reads text. A PNG cannot be scanned and has to be looked at.
  *
  * Exit code is 0 when nothing matched, 1 when something did. Nothing is judged for you: a hit
  * is a line to look at, not a verdict. Product vocabulary that happens to also be a page title

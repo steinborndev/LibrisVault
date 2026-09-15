@@ -51,22 +51,22 @@ describe('linkifyText — URLs', () => {
 
 describe('linkifyText — patent numbers', () => {
   it('links the compact form the vault uses', () => {
-    const nodes = linkifyText('cf. US8691748B2 and DE102016100455A1', 'k')
+    const nodes = linkifyText('cf. US7000001B2 and DE102099000123A1', 'k')
     expect(hrefs(nodes)).toEqual([
-      espacenetUrl('US8691748B2'),
-      espacenetUrl('DE102016100455A1'),
+      espacenetUrl('US7000001B2'),
+      espacenetUrl('DE102099000123A1'),
     ])
-    expect(anchorText(nodes)).toEqual(['US8691748B2', 'DE102016100455A1'])
+    expect(anchorText(nodes)).toEqual(['US7000001B2', 'DE102099000123A1'])
   })
 
   it('strips grouping commas when building the Espacenet number', () => {
-    expect(hrefs(linkifyText('US9,526,637B2', 'k'))).toEqual([espacenetUrl('US9526637B2')])
+    expect(hrefs(linkifyText('US7,000,002B2', 'k'))).toEqual([espacenetUrl('US7000002B2')])
   })
 
   it('handles application publications and WO numbers', () => {
-    expect(hrefs(linkifyText('US20230077899A1 / WO2015057941A1', 'k'))).toEqual([
-      espacenetUrl('US20230077899A1'),
-      espacenetUrl('WO2015057941A1'),
+    expect(hrefs(linkifyText('US20990012345A1 / WO2099012345A1', 'k'))).toEqual([
+      espacenetUrl('US20990012345A1'),
+      espacenetUrl('WO2099012345A1'),
     ])
   })
 
@@ -85,10 +85,10 @@ describe('linkifyText — patent numbers', () => {
 
 describe('linkifyText — mixed', () => {
   it('links a URL and a patent in the same text', () => {
-    const nodes = linkifyText('src https://patents.example/US1 covers US8691748B2', 'k')
+    const nodes = linkifyText('src https://patents.example/US1 covers US7000001B2', 'k')
     expect(hrefs(nodes)).toEqual([
       'https://patents.example/US1',
-      espacenetUrl('US8691748B2'),
+      espacenetUrl('US7000001B2'),
     ])
   })
 })

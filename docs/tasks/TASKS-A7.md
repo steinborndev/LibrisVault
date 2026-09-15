@@ -502,9 +502,16 @@ approved proposals are three OPTIONS for one task, not three tasks: the top one 
 Measured: three test Fellows, seven tasks, seven planning runs, **two** proposals. The planner
 wrote the reason into its own answer:
 
-> "Tonight's task is the watch for new non-invasive EEG decoding accuracy results. Every
-> candidate offered (C1-C9) traces back to Yuri's other standing task - the invasive BCI
-> clinical trial watch - which the brief explicitly excludes from tonight's proposals."
+> "Tonight's task is the watch for new [subject of task one] results. Every
+> candidate offered (C1-C9) traces back to Yuri's other standing task - the
+> [subject of task two] watch - which the brief explicitly excludes from tonight's proposals."
+
+The two subjects are redacted and nothing else in the quote is: this is a real answer from a
+real run, and the two things it names are what a test Fellow was standing on, which no page
+title carries and therefore no name scan can catch. The brackets are the honest form - editing
+invented subjects into the quotation marks would turn a piece of evidence into a fabrication.
+What the finding rests on survives untouched: nine candidates, all traced to the same wrong
+task, and a planner saying so in its own words.
 
 It was literally true. `plan()` built its candidate list with `this.candidates(agent.id)`, and
 that method chose the task from the ROTATION - `taskForTonight(tasks, taskCursor)`. A sweep

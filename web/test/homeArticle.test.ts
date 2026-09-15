@@ -8,7 +8,7 @@ import { isHubPage, mainArticle, readerPages } from '../src/lib/homeArticle.ts'
 
 const INGEST = [
   'wiki/concepts/Harvest Lag.md',
-  'wiki/concepts/Crowding-Out Effect.md',
+  'wiki/concepts/Seed Price Anchoring.md',
   'wiki/sources/The 2028 Grain Price Shock.md',
   'wiki/concepts/_index.md',
   'wiki/sources/_index.md',
@@ -70,7 +70,7 @@ describe('readerPages', () => {
     expect(readerPages(INGEST)).toEqual([
       'wiki/sources/The 2028 Grain Price Shock.md',
       'wiki/concepts/Harvest Lag.md',
-      'wiki/concepts/Crowding-Out Effect.md',
+      'wiki/concepts/Seed Price Anchoring.md',
     ])
   })
 

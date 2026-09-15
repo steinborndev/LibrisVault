@@ -520,7 +520,10 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       `usageprobe`, `oasweep`, `readingsweep`, `backfill-sources`, `graph-timelapse`), and the
       two probes a hard rule names are also reachable from the repo ROOT, which is where
       someone reads the rule.
-- [ ] Apply D3 to every occurrence of the fork name.
+- [x] **Done 2026-09-15.** D3 was "keep the name, explain it once", so applying it is one
+      sentence and not thirteen edits: root `SPEC.md` 12.10 says the work was built in a
+      private fork called *Curious*, which is why that name appears in the design records
+      under `docs/tasks/`. The 13 occurrences stay where they are, as dated records.
 
 ## 7. Private-content audit (hard rule 7)
 
@@ -592,6 +595,14 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       finding it sits under (the planner said out loud why it had nothing to propose), so
       generalising it costs something real and it is a decision, not a scrub: rewrite it with
       the F-A6-13 vocabulary, or keep it deliberately.
+      **DECIDED 2026-09-15: redact the two subjects in place, and say so under the quote.**
+      They read `[subject of task one]` and `[subject of task two]` now; nothing else in the
+      quotation marks was touched. The third option - editing invented subjects into the quote -
+      was refused on principle: a quotation with substituted content is not a generalised
+      quotation, it is a fabricated one, and this file's whole value is that its findings are
+      dated records of what actually happened. The evidence survives the redaction intact:
+      nine candidates, all traced to the same wrong task, and a planner saying so in its own
+      words.
       **Why nothing caught it, which is the part worth generalising** (F-A6-17): the term list
       of F-A6-7 is built from vault PAGE TITLES, and a standing task's subject is not one - the
       task lives in SQLite, and the pages a watch produces are named for their findings, not
@@ -618,20 +629,41 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       `validator.test.ts` had the handle replaced but still carried two concept pages from
       the same private subject (lines 301 and 302); both are now invented names. A partial
       rename reads as done and is not.
-- [ ] The already-public names are more than the two X handles this file assumed
-      **[corrected]**. LibrisVault's history and current tree carry: three real patent
-      source pages (`web/test/linkify.test.ts`), a real question page title verbatim
-      including its filename form (`web/test/researchRuns.test.ts`), two real concept pages
-      (`server/test/graph.test.ts`), a real concept page title in
-      `web/test/homeArticle.test.ts` that the working-tree pass left behind because it was
-      not the one it was looking for, and the vault's actual domain description with its
-      real tag list in the seed page `scripts/vault-extensions/domains.md:52-57`, one tag of
-      which is a distinctive codename rather than a generic term. Decide whether that is
-      accepted or whether the history gets rewritten, and record the decision - but decide
-      it against this list, not against "two handles". Note that these files are NOT part of
-      the fix made on 2026-09-15: that pass deliberately touched only what this merge would
-      newly publish, because generalising an already-public fixture changes nothing about
-      what is already in the history and pre-empts this decision.
+- [x] **DECIDED 2026-09-15: generalise at the tip, do not rewrite history. Done.** The
+      already-public names were more than the two X handles this file assumed
+      **[corrected]**, and more than the corrected list too. What was actually there, measured
+      against the vault rather than against the earlier note:
+      **five** patent numbers in `web/test/linkify.test.ts`, not three, each of which the vault
+      carries (two in the index and the log, one in a concept page and an entity page, one in a
+      source page, one in an entity page); **one whole concept page title** in
+      `server/test/graph.test.ts` plus a word lifted out of a real source page's title;
+      a **fragment** of a concept page title in `web/test/homeArticle.test.ts`, which is why
+      the earlier pass walked past it - it was looking for whole titles; a page title in
+      `web/test/researchRuns.test.ts` that the vault has since **reverted**; and the domain
+      registry seed page, which shipped one person's actual shelves, descriptions and tag list
+      to every installer.
+      All replaced with invented equivalents that keep every property the tests exercise (the
+      patent numbers still cover a 7-digit grant, a DE application, grouping commas, a US and a
+      WO publication and a kind code). The four gates pass unchanged.
+      **Why the tip and not the history.** These are subject names, not credentials. Rewriting
+      a public repo's history force-pushes over every existing clone to remove something that
+      has already been readable for months, and the A-series merge would have to be rebased
+      onto the rewritten branch. Generalising the tip costs one commit, breaks no hash, and
+      means every future reader and every future clone sees clean fixtures. The history keeps
+      what it recorded, which is the same principle D4 and A7's superseded sections follow.
+      **The seed page got more than a rename**, because a leak and a product defect were the
+      same line: a registry that describes somebody else's reading is worse than none, since
+      every ingest then files against it. It now says the list is a starting example, and it
+      keeps `meta` as the one key every vault wants.
+      **What the scan says afterwards** (`node scripts/vault-name-scan.mjs`, 2032 terms over
+      559 files): nothing but product vocabulary that happens to be a page title (`Cursor`,
+      `Anthropic`, `Assessment Report`, `Reinforcement Learning`), the author's own name in the
+      README, and the four captured research runs under `scripts/demo-research/`. Those last
+      are deliberate: they are real runs commissioned for a demo vault that is meant to be
+      published, and they overlap the vault's subjects because the topics were chosen to.
+      **[kept from the original item]** Note that these files were NOT part of the fix made
+      earlier on 2026-09-15: that pass deliberately touched only what this merge would newly
+      publish, because generalising an already-public fixture pre-empts this decision.
 - [ ] Re-run the audit over the final merge diff, both commit messages and added lines, and
       over `docs/img/`. **The method is written down and rehearsed: F-A6-21 ran exactly this
       over the 41 pre-push commits, five passes, and it is the shape to repeat against the
@@ -648,12 +680,14 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       that belongs in the public repo. **[corrected] They are excluded by
       `.git/info/exclude`, not by `.gitignore`** - a local, per-clone mechanism that travels
       with nothing and that no reviewer can see. Say so wherever this is relied on.
-- [ ] **[added] The LibrisVault clone holds an un-ignored private file.**
-      `~/dev/BrainVault/docs/tasks/TASKS-BIOAGENTKG.md` is untracked and matched by **no**
-      ignore rule (`.git/info/exclude` there is empty), sitting in a directory that is
-      otherwise fully tracked. One `git add -A` in that clone commits it. Its counterpart in
-      this repo is correctly under `docs/local/`. Move it, ignore it, or delete it before
-      the merge is prepared from either clone.
+- [x] **DECIDED 2026-09-15: delete it. Done - that clone is clean (`git status` empty).**
+      It was untracked and matched by **no** ignore rule (`.git/info/exclude` there is empty),
+      sitting in a directory that is otherwise fully tracked, so one `git add -A` in that clone
+      would have committed it into the public repo. Deleting rather than ignoring, because the
+      copy in this repo under `docs/local/` is **byte-identical** (same md5): nothing is lost,
+      and the hazard is gone rather than managed. Ignoring it would have left a private file in
+      the middle of a tracked directory, protected only by a mechanism no clone inherits and no
+      reviewer can see (F-A6-22).
 
 ## 8. Tests and gates
 
@@ -721,6 +755,25 @@ Status as measured 2026-09-15, on the working tree:
       actually delivered, with every deviation recorded below.
 
 ## 10. Findings
+
+- **F-A6-31 (2026-09-15) - a name scan built from page titles cannot see a page the vault
+  deleted.** Generalising the already-public fixtures turned up a limit worth more than the
+  fix. `web/test/researchRuns.test.ts` named a real concept page; the vault reverted that page
+  later; so `vault-name-scan.mjs`, which builds its terms from the titles that exist RIGHT NOW,
+  passes the fixture clean. The fixture still says what the vault once held. A leak does not
+  expire when the page does.
+  There is no way to enumerate this - a deleted page leaves no title to build a term from - so
+  the only check is `git -C $VAULT_ROOT log -S "<term>"` for a term already under suspicion.
+  The tool's header says so now, beside the two limits it already admitted.
+  The same pass found the other two shapes the earlier audit walked past, and both are about
+  what a list of whole titles cannot match: a **fragment** of a title (`homeArticle.test.ts`
+  named the readable half of a long concept page), and a word lifted OUT of a title
+  (`graph.test.ts` used a common scientific term that is one word of a real source page's
+  name). The first is a genuine miss. The second is the false-positive side of the same coin,
+  and the reason the fix replaced it anyway: deciding case by case whether a textbook word is
+  "really" a vault name costs more judgement than replacing it.
+  And the count was wrong in the safe direction, which is the direction to be wrong in: the
+  note said three patent numbers, there were five.
 
 - **F-A6-30 (2026-09-15) - CI failed on its first run, and neither failure was a product bug.**
   Two tests were green on this machine and red on a runner, which is the entire argument for

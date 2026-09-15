@@ -79,7 +79,7 @@ const settle = (over: Partial<MaintenanceAreaState> = {}): MaintenanceAreaState 
 
 describe('splitResearchTitle', () => {
   it('returns null for a page that is not a synthesis page', () => {
-    expect(splitResearchTitle('Sulfide Electrolyte', PROFILES)).toBeNull()
+    expect(splitResearchTitle('Cell Housing Alloy', PROFILES)).toBeNull()
   })
 
   it('strips the longest matching lens suffix, not the empty default', () => {
@@ -132,7 +132,7 @@ describe('buildResearchRuns', () => {
     const entries = buildResearchRuns({
       runs: [run({ id: 'lint-1', kind: 'lint', label: undefined })],
       lastRuns: [],
-      nodes: [node({ title: 'Sulfide Electrolyte', path: 'wiki/concepts/Sulfide Electrolyte.md' })],
+      nodes: [node({ title: 'Cell Housing Alloy', path: 'wiki/concepts/Cell Housing Alloy.md' })],
       profiles: PROFILES,
     })
     expect(entries).toHaveLength(0)
