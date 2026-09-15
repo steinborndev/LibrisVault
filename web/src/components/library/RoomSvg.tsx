@@ -246,8 +246,14 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
   )
 }
 
-function Tag({ text, kind, night, y }: { text: string; kind: Actor['tag']; night: boolean; y: number }): React.ReactElement {
-  const w = text.length * 6.15 + 14
+/*
+ * A figure's bubble. A Fellow's opens with a dot in its shelf's colour - the same dot the card
+ * a click on the bubble opens carries, so the two are recognisably about one Fellow, and the
+ * room says which shelf someone works for without being asked. The pill grows by exactly the
+ * room the dot takes and the text keeps the rest of it, centred in what is left.
+ */
+function Tag({ text, kind, night, y, dot }: { text: string; kind: Actor['tag']; night: boolean; y: number; dot?: string | undefined }): React.ReactElement {
+  const w = text.length * 6.15 + 14 + (dot !== undefined ? 11 : 0)
   const fills = {
     fellow: [night ? '#1b2947' : TOK.accentSoft, night ? '#7fa7ff' : TOK.accent, night ? '#30405f' : '#c5d3f4'],
     visitor: [night ? '#232a3a' : TOK.mutedBg, night ? '#9aa7c2' : TOK.muted, night ? '#30405f' : '#d1d7e2'],
@@ -257,7 +263,8 @@ function Tag({ text, kind, night, y }: { text: string; kind: Actor['tag']; night
   return (
     <g>
       <rect x={-w / 2} y={y - 9} width={w} height={18} rx={9} fill={fills[0]} stroke={fills[2]} />
-      <text x={0} y={y + 3.6} textAnchor="middle" fontFamily={FONT} fontSize={10.5} fontWeight={600} fill={fills[1]}>
+      {dot !== undefined && <circle cx={-w / 2 + 10} cy={y} r={3} fill={dot} />}
+      <text x={dot !== undefined ? 5.5 : 0} y={y + 3.6} textAnchor="middle" fontFamily={FONT} fontSize={10.5} fontWeight={600} fill={fills[1]}>
         {text}
       </text>
     </g>
@@ -707,7 +714,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       const ty = a.pose === 'sleep' || a.pose === 'sit' ? -52 : a.pose === 'desk' ? -46 : -50
       top.push(
         <g key={`tag-${a.id}`} className={`lib-figure${a.exiting ? ' exiting' : ''}`} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`} onClick={props.onActorClick ? (e) => props.onActorClick!(a, e) : undefined} style={{ cursor: a.agentId ? 'pointer' : 'default' }}>
-          <Tag text={a.caption} kind={a.tag} night={night} y={ty} />
+          <Tag text={a.caption} kind={a.tag} night={night} y={ty} dot={a.dot} />
         </g>,
       )
     }

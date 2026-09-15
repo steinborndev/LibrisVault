@@ -159,6 +159,9 @@ describe('scene adapter', () => {
     expect(byId['run:r2']).toMatchObject({ role: 'inspector', pose: 'clipboard' })
     expect(byId['run:r3']).toMatchObject({ role: 'caretaker', pose: 'stand', i: ANCHORS.noticeBoard.i })
     expect(byId['run:r4']).toBeUndefined()
+    // Only a Fellow belongs to a shelf, so only a Fellow's bubble gets that shelf's dot.
+    expect(byId['run:r1']!.dot).toBeUndefined()
+    expect(byId['job:j2']!.dot).toBeUndefined()
     expect(byId['parcel:j1']).toMatchObject({ name: 'parcel', pose: 'wait' })
     expect(byId['job:j2']).toMatchObject({ role: 'clerk', pose: 'carry' })
     expect(byId['job:j3']).toMatchObject({ role: 'clerk', pose: 'desk' })
@@ -181,6 +184,14 @@ describe('scene adapter', () => {
     const actors = buildActors(input(s, { 'maintenance:research-step': '→ Grep({})' }))
     const byName = Object.fromEntries(actors.map((a) => [a.name, a]))
     expect(byName['Ada']).toMatchObject({ role: 'fellow', pose: 'shelf', room: 'w1', tag: 'fellow', book: expect.stringContaining('hsl(') })
+    /*
+     * The dot the bubble opens with, in the shelf's own colour and the same one the card a
+     * click on the bubble carries. Every Fellow has it, whatever it is doing: a Fellow resting
+     * in an armchair belongs to its shelf exactly as much as one reading at it.
+     */
+    for (const who of ['Ada', 'Bo', 'Cy', 'Di', 'Ed', 'Gus', 'Hal']) {
+      expect(byName[who]!.dot, who).toEqual(expect.stringContaining('hsl('))
+    }
     expect(byName['Bo']).toMatchObject({ pose: 'think', room: 'main', caption: 'Bo (planning)' })
     expect(byName['Cy']).toMatchObject({ pose: 'sleep', tag: 'warn', caption: 'Cy (out of quota)' })
     expect(byName['Di']).toMatchObject({ pose: 'sit', tag: 'fellow', caption: 'Di (ready)' })

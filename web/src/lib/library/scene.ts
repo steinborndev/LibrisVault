@@ -32,6 +32,12 @@ export interface Actor {
   readonly color: string
   /** The book in hand for the shelf poses: the department's color. */
   readonly book?: string
+  /**
+   * The shelf's own colour, for the dot the Fellow's bubble opens with. Set for Fellows only:
+   * a clerk and a visiting run belong to no shelf, and a dot on their bubble would claim they
+   * did. It is the same colour the card that a click on the bubble opens carries.
+   */
+  readonly dot?: string
   readonly tag: TagKind
   readonly agentId?: string
   readonly runId?: string
@@ -385,7 +391,7 @@ const POSE_CAPTION: Record<Pose, string> = {
 function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: AdapterInput): Actor | null {
   if (f.state === 'retired') return null
   const color = fellowColor(f.agentId)
-  const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId }
+  const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId, dot: domainColor(f.homeDomain) }
   if (f.run) {
     /*
      * A run exists from the moment it is requested, but one runner executes one run at a
