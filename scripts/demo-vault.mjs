@@ -416,6 +416,152 @@ pages.push({
   body: registry, created: day(SPAN_DAYS), prerendered: true,
 })
 
+/* ------------------------------------------------------------------------- the Fellows
+ *
+ * Defined here rather than beside the database writes below, because both need them: the
+ * vault gets a notebook page per Fellow and the recap pages of the last nights, and the
+ * database gets the records that make them appear in the dashboard. One definition, so a
+ * screenshot cannot show a Fellow whose notebook says something else.
+ */
+const FELLOWS = [
+  {
+    name: 'Ada', domain: 'astronomy', art: 'watch', autonomy: 'veto', nightly: 'sweep',
+    model: 'sonnet-5', quota: 2, priority: 2, state: 'waiting', age: 46,
+    scope: 'Instruments and detections, not the underlying stellar physics.',
+    tasks: [
+      { kind: 'watch', text: 'New transit detections around bright host stars' },
+      { kind: 'watch', text: 'Adaptive optics upgrades on ground-based instruments' },
+    ],
+  },
+  {
+    name: 'Casper', domain: 'climate-science', art: 'custom', autonomy: 'veto', nightly: 'sweep',
+    model: 'sonnet-5', quota: 3, priority: 1, state: 'waiting', age: 31,
+    scope: 'The carbon cycle and the records that constrain it.',
+    tasks: [
+      { kind: 'watch', text: 'Revisions to ocean carbon sink estimates' },
+      { kind: 'explore', text: 'How far do proxy records narrow climate sensitivity?' },
+      { kind: 'deepen', text: 'Feedback mechanisms, which the wiki names more than it explains' },
+    ],
+  },
+  {
+    name: 'Mira', domain: 'machine-learning', art: 'explore', autonomy: 'auto', nightly: 'rotate',
+    model: 'opus-5', quota: 1, priority: 0, state: 'waiting', age: 19,
+    scope: null,
+    tasks: [
+      { kind: 'explore', text: 'When does retrieval beat a longer context window?' },
+      { kind: 'explore', text: 'What makes an evaluation set go stale?' },
+    ],
+  },
+  {
+    name: 'Milo', domain: 'materials-science', art: 'deepen', autonomy: 'veto', nightly: 'sweep',
+    model: 'sonnet-5', quota: 1, priority: 0, state: 'sleeping', age: 12,
+    sleep_code: 'covered', sleep_reason: 'the theme is built out; nothing thin enough to deepen',
+    scope: 'Processing and failure modes, not crystallography.',
+    tasks: [{ kind: 'deepen', text: 'Sintering and the defects it leaves behind' }],
+  },
+]
+
+/**
+ * A notebook page per Fellow: `type: meta` on purpose, the way the service writes them, so
+ * the vault's own tiling and address rules leave them alone.
+ */
+for (const f of FELLOWS) {
+  const slug = f.name.toLowerCase()
+  const created = day(f.age)
+  pages.push({
+    path: `wiki/meta/agents/${slug}.md`, domain: 'meta', type: 'meta',
+    title: f.name, tags: ['meta', 'agent'], related: [], sources: [], status: 'evergreen',
+    created, prerendered: true,
+    body: [
+      '---', 'type: meta', `title: "${f.name}"`, 'domain: meta',
+      `created: ${iso(created)}`, `updated: ${iso(day(1))}`,
+      'tags:', '  - meta', '  - agent', 'status: evergreen', '---', '',
+      `# ${f.name}`, '',
+      `Home domain: \`${f.domain}\`. Works as a ${f.art === 'custom' ? 'custom mix' : f.art} Fellow, `
+        + `${f.nightly === 'sweep' ? 'every standing task each night' : 'one task a night in turn'}, `
+        + `at most ${f.quota} run${f.quota === 1 ? '' : 's'} a day, autonomy \`${f.autonomy}\`.`,
+      ...(f.scope ? ['', `Scope: ${f.scope}`] : []),
+      '', '## Standing work', '',
+      ...f.tasks.map((t) => `- **${t.kind}** - ${t.text}`),
+      '', '## Log', '',
+      '| date | kind | topic | pages | cost |',
+      '| --- | --- | --- | --- | --- |',
+      `| ${iso(day(1))} | research-step | ${f.tasks[0].text.slice(0, 48)} | 2 | 1.94 |`,
+      `| ${iso(day(5))} | research | ${f.tasks[f.tasks.length - 1].text.slice(0, 48)} | 6 | 4.12 |`,
+      '', '## Open Questions', '',
+      '- Which of the two follow-ups would settle the ambiguous case first?',
+      '- Does the newer method actually supersede the older one, or only for bright targets?',
+      '', '## Plan', '',
+      '- Standing, undecided: one step on the question the last run left behind.',
+      '',
+    ].join('\n'),
+  })
+}
+
+/** The recap pages of the last three nights, as the recap service renders them. */
+for (let d = 1; d <= 3; d++) {
+  const night = day(d)
+  const cycle = iso(night)
+  pages.push({
+    path: `wiki/meta/recaps/Recap ${cycle}.md`, domain: 'meta', type: 'meta',
+    title: `Recap ${cycle}`, tags: ['meta', 'recap'], related: [], sources: [],
+    status: 'evergreen', created: night, prerendered: true,
+    body: [
+      '---', 'type: meta', `title: "Recap ${cycle}"`, 'domain: meta',
+      `created: ${cycle}`, `updated: ${cycle}`,
+      'tags:', '  - meta', '  - recap', 'status: evergreen', '---', '',
+      `# Recap ${cycle}`, '',
+      `The night ran ${2 + (d % 2)} of 3 planned runs and spent about ${(2.1 * (2 + (d % 2))).toFixed(2)} USD.`, '',
+      '## Ada - astronomy', '',
+      '- **research-step** - a bright-host transit candidate and its follow-up photometry (2 pages)',
+      '', 'Open question: which follow-up would settle the ambiguous candidate?', '',
+      '## Casper - climate-science', '',
+      '- **research-expand** - feedback pages, built out from their own open questions (4 pages)',
+      '', '## Waiting for you', '',
+      '- **1a** research-step: follow-up spectroscopy on the brightest candidate. Runs tonight unless vetoed.',
+      '- **1b** research-expand: the three feedback pages the wiki links to most and explains least.',
+      '', '## Asleep', '',
+      '- Milo: the theme is built out; nothing thin enough to deepen.', '',
+    ].join('\n'),
+  })
+}
+
+/** The reading list: publications a run could not read, two with an open copy found. */
+pages.push({
+  path: 'wiki/meta/reading-list.md', domain: 'meta', type: 'meta', title: 'Reading list',
+  tags: ['meta', 'reading-list'], related: [], sources: [], status: 'evergreen',
+  created: day(40), prerendered: true,
+  body: [
+    '---', 'type: meta', 'title: "Reading list"', 'domain: meta',
+    `created: ${iso(day(40))}`, `updated: ${iso(day(1))}`,
+    'tags:', '  - meta', '  - reading-list', 'status: evergreen', '---', '',
+    '# Reading list', '',
+    'Publications worth having in the original. A run adds an entry when it could not read one',
+    'itself; the nightly sweep looks for a legal open copy and marks what it finds.', '',
+    '## Entries', '',
+    '- title: A survey of transit-timing methods',
+    '  url: https://example.invalid/doi/10.0000/demo-transit-timing',
+    '  why: The review the follow-up question keeps pointing at.',
+    '  by: Ada',
+    `  at: ${iso(day(6))}`,
+    '  oa: open copy found, repository version',
+    '',
+    '- title: Inventory revisions and the ocean sink',
+    '  url: https://example.invalid/doi/10.0000/demo-ocean-sink',
+    '  why: Paywalled; the abstract alone does not settle the disagreement.',
+    '  by: Casper',
+    `  at: ${iso(day(3))}`,
+    '',
+    '- title: Sintering defects in pressed ceramics',
+    '  url: https://example.invalid/doi/10.0000/demo-sintering',
+    '  why: Named on three pages, read by none of them.',
+    '  by: ingest',
+    `  at: ${iso(day(9))}`,
+    '  oa: open copy found, publisher version',
+    '',
+  ].join('\n'),
+})
+
 /* --------------------------------------------------------------------------- timeline */
 
 /**
@@ -687,6 +833,190 @@ CONVOS.forEach(([title, daysAgo], i) => {
     at(new Date(when.getTime() + 60_000)))
 })
 
+/*
+ * ---------------------------------------------------------------- the research agents
+ *
+ * Four Fellows, so the Library screen and the command centre have something to draw. They
+ * exist only in the database; nothing here runs an agent. The shapes are picked to cover the
+ * range a screenshot should show rather than to be typical: one observer sweeping two watch
+ * tasks, one custom Fellow mixing all three arts, one researcher on auto, and one librarian
+ * asleep because its theme is built out. Names follow the product's own suggestion rule -
+ * the initial matches the domain - and the subject matter is invented like everything else.
+ */
+const fellowStmt = db.prepare(
+  `INSERT INTO agents (id, user_id, name, slug, intent, scope, home_domain, extra_domains, lens,
+                       model, effort, step, quota_runs_per_day, autonomy, priority, state,
+                       sleep_reason, sleep_code, notebook_path, created_at, updated_at,
+                       tasks, task_cursor, art, nightly)
+   VALUES (@id, 'local', @name, @slug, @intent, @scope, @home_domain, '[]', @lens,
+           @model, 'high', 'standard', @quota, @autonomy, @priority, @state,
+           @sleep_reason, @sleep_code, @notebook_path, @created_at, @updated_at,
+           @tasks, 0, @art, @nightly)`,
+)
+
+
+const fellowIds = {}
+FELLOWS.forEach((f, i) => {
+  const slug = f.name.toLowerCase()
+  const id = ulid(400 + i)
+  fellowIds[f.name] = id
+  const created = day(f.age)
+  fellowStmt.run({
+    id, name: f.name, slug, intent: f.tasks[0].text, scope: f.scope,
+    home_domain: f.domain, lens: 'broad', model: f.model, quota: f.quota,
+    autonomy: f.autonomy, priority: f.priority, state: f.state,
+    sleep_reason: f.sleep_reason ?? null, sleep_code: f.sleep_code ?? null,
+    notebook_path: `wiki/meta/agents/${slug}.md`,
+    created_at: at(created), updated_at: at(day(1)),
+    tasks: JSON.stringify(f.tasks.map((t, k) => ({ id: `t${k + 1}`, text: t.text, kind: t.kind, state: 'active' }))),
+    art: f.art, nightly: f.nightly,
+  })
+})
+
+/** The order the night walks the shelves, which the command centre's arrows set. */
+const shelfStmt = db.prepare(`INSERT INTO shelf_order (user_id, domain, rank, updated_at) VALUES ('local', ?, ?, ?)`)
+;['astronomy', 'climate-science', 'machine-learning', 'materials-science'].forEach((d, i) => shelfStmt.run(d, i, at(day(3))))
+
+/** Runs the Fellows made, which the ledger, the dossier and the night's arithmetic read. */
+const FELLOW_RUNS = [
+  ['Ada', 'research-step', 'A bright-host transit candidate and its follow-up photometry', 2, 1.94, 1],
+  ['Ada', 'research-step', 'Wavefront sensing upgrades reported this quarter', 1, 1.71, 2],
+  ['Ada', 'research', 'Ground-based transit photometry: what limits the precision', 6, 4.12, 5],
+  ['Casper', 'research-step', 'Where the sink estimates disagree, and on what data', 3, 2.08, 1],
+  ['Casper', 'research-expand', 'Feedback pages, built out from their own open questions', 4, 2.31, 3],
+  ['Casper', 'research', 'Proxy records and the spread they leave on sensitivity', 7, 4.48, 8],
+  ['Mira', 'research-step', 'Retrieval against long context, on the cases where it loses', 2, 2.22, 2],
+  ['Mira', 'research', 'What makes an evaluation set go stale', 5, 4.02, 9],
+  ['Milo', 'research-expand', 'Sintering defects, built out where the wiki was thinnest', 3, 2.19, 11],
+]
+const fellowRunIds = {}
+FELLOW_RUNS.forEach(([who, kind, topic, pageCount, cost, daysAgo], i) => {
+  const started = day(daysAgo)
+  const id = ulid(500 + i)
+  fellowRunIds[`${who}:${i}`] = id
+  db.prepare(
+    `INSERT INTO agent_runs (id, user_id, agent_id, kind, label, model, ok, pages, tokens_in, tokens_out,
+                             cost_usd, error, started_at, finished_at, answer)
+     VALUES (?, 'local', ?, ?, ?, ?, 1, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+  ).run(
+    id, fellowIds[who], kind, topic, who === 'Mira' ? 'opus-5' : 'sonnet-5',
+    JSON.stringify(conceptPaths.slice(60 + i * 11, 60 + i * 11 + pageCount)),
+    140_000 + i * 9_000, 11_000 + i * 700, cost,
+    at(started), at(new Date(started.getTime() + 300_000 + i * 55_000)),
+    'Filed what it found and left the open questions on the page.',
+  )
+})
+
+/*
+ * Proposals. Three standing and undecided, which is what a veto window looks like from the
+ * outside: they will run tonight unless someone says otherwise. One vetoed, so the dossier
+ * has a decision in it, and one already executed and tied to its run.
+ */
+const propStmt = db.prepare(
+  `INSERT INTO agent_proposals (id, user_id, agent_id, created_at, cycle_date, kind, topic, lens,
+                                rationale, provenance, page_set, est_cost_usd, est_plan_pct,
+                                scope_score, rank, status, decided_at, decided_via, run_id)
+   VALUES (@id, 'local', @agent_id, @created_at, @cycle_date, @kind, @topic, 'broad',
+           @rationale, @provenance, '[]', @est_cost_usd, @est_plan_pct,
+           @scope_score, @rank, @status, @decided_at, @decided_via, @run_id)`,
+)
+const taskText = (who, i) => FELLOWS.find((f) => f.name === who).tasks[i].text
+const PROPOSALS = [
+  ['Ada', 0, 'research-step', 'Follow-up spectroscopy on the brightest of this quarter\'s candidates',
+   'The watch filed three candidates and the wiki has no page on what follow-up would settle them.',
+   'open-question', 0.81, 1, 'proposed'],
+  ['Casper', 2, 'research-expand', 'The three feedback pages the wiki links to most and explains least',
+   'Ranked by backlinks against page length: much demanded, little substance.',
+   'stub', 0.74, 1, 'proposed'],
+  ['Casper', 0, 'research-step', 'Which sink estimate the newer inventories actually support',
+   'Left over from the last run as its own open question.',
+   'open-question', 0.69, 1, 'proposed'],
+  ['Ada', 1, 'research', 'A survey of every detection method at once',
+   'Broad enough to restate what the wiki already holds; the scope score says so.',
+   'sweep', 0.17, 2, 'vetoed'],
+  ['Mira', 0, 'research-step', 'Retrieval against long context, on the cases where it loses',
+   'The open question its own last run left behind.',
+   'open-question', 0.88, 1, 'executed'],
+]
+PROPOSALS.forEach(([who, taskIndex, kind, topic, rationale, candidate, score, rank, status], i) => {
+  const created = day(status === 'executed' ? 3 : 1)
+  propStmt.run({
+    id: ulid(600 + i), agent_id: fellowIds[who], created_at: at(created), cycle_date: iso(created),
+    kind, topic, rationale,
+    // `task` is the task's TEXT, which is what the planner writes and what the night's
+    // schedule groups a Fellow's standing proposals by.
+    provenance: JSON.stringify({ candidate, text: topic, sourcePages: conceptPaths.slice(i * 7, i * 7 + 2), task: taskText(who, taskIndex) }),
+    est_cost_usd: kind === 'research' ? 4.2 : kind === 'research-expand' ? 2.3 : 2.0,
+    est_plan_pct: kind === 'research' ? 1.1 : 0.6,
+    scope_score: score, rank, status,
+    decided_at: status === 'proposed' ? null : at(day(status === 'executed' ? 2 : 1)),
+    decided_via: status === 'proposed' ? null : 'dashboard',
+    run_id: status === 'executed' ? fellowRunIds['Mira:6'] : null,
+  })
+})
+
+/** One row per night, so the shift board has a week to walk. */
+const shiftStmt = db.prepare(
+  `INSERT INTO agent_shifts (cycle_date, user_id, trigger, started_at, finished_at, summary)
+   VALUES (?, 'local', 'timer', ?, ?, ?)`,
+)
+for (let d = 1; d <= 7; d++) {
+  const night = day(d)
+  const started = new Date(night.getTime())
+  started.setHours(1, 0, 0, 0)
+  const executed = d === 4 ? 0 : 2 + (d % 2)
+  shiftStmt.run(
+    iso(night), at(started), at(new Date(started.getTime() + (25 + d * 4) * 60_000)),
+    JSON.stringify({
+      executed, planned: 3, skipped: d === 4 ? [{ agentName: 'Milo', reason: 'nothing to deepen' }] : [],
+      costUsd: Math.round(executed * 2.1 * 100) / 100,
+    }),
+  )
+}
+
+/*
+ * The recap, as a database row AND as the vault page it renders to. The model carries the
+ * fields the dashboard reads; it is a rendering, never read back, so a demo row only has to
+ * be shaped right.
+ */
+const recapStmt = db.prepare(
+  `INSERT INTO recaps (cycle_date, user_id, generated_at, path, quiet, model, delivered)
+   VALUES (?, 'local', ?, ?, 0, ?, '{}')`,
+)
+for (let d = 1; d <= 3; d++) {
+  const night = day(d)
+  const cycle = iso(night)
+  const runsOfNight = FELLOW_RUNS.filter(([, , , , , ago]) => ago === d)
+  const model = {
+    cycleDate: cycle, generatedAt: at(day(d - 1)), quiet: false, since: at(day(d + 1)),
+    window: { start: '01:00', end: '06:00' },
+    shift: { trigger: 'timer', startedAt: at(night), finishedAt: at(night), executed: runsOfNight.length, planned: 3, skipped: [], costUsd: 4.2 },
+    totals: { runs: runsOfNight.length, failed: 0, costUsd: Math.round(runsOfNight.reduce((a, r) => a + r[4], 0) * 100) / 100 },
+    usage: { today: { costUsd: 6.1, runs: runsOfNight.length + 1 } },
+    value: { pageOpens: 11 - d, recapLinks: 4 },
+    fellows: FELLOWS.filter((f) => runsOfNight.some((r) => r[0] === f.name)).map((f, k) => ({
+      index: k + 1, agentId: fellowIds[f.name], name: f.name, homeDomain: f.domain,
+      model: f.model, autonomy: f.autonomy, state: f.state, sleepCode: f.sleep_code ?? null,
+      sleepReason: f.sleep_reason ?? null, skipUntil: null,
+      notebookPath: `wiki/meta/agents/${f.name.toLowerCase()}.md`,
+      runs: runsOfNight.filter((r) => r[0] === f.name).map(([, kind, topic, pageCount, cost], j) => ({
+        runId: ulid(700 + d * 10 + j), kind, topic, ok: true, error: null,
+        pagesCreated: conceptPaths.slice(j * 5, j * 5 + pageCount), pagesUpdated: [],
+        commit: null, costUsd: cost, startedAt: at(night), proposalId: null,
+      })),
+      found: ['Filed the detections it could verify.', 'Left two questions it could not settle.'],
+      openQuestions: ['Which follow-up would settle the ambiguous candidate?'],
+      proposals: [], value: { pageOpens: 3, recapLinks: 1 },
+    })),
+    sleeping: [{ name: 'Milo', reason: 'the theme is built out' }],
+    summaryNote: null, summaryCostUsd: 0.31, unclaimed: [],
+    dedupe: { merged: [] },
+  }
+  const path = `wiki/meta/recaps/Recap ${cycle}.md`
+  recapStmt.run(cycle, at(day(d - 1)), path, JSON.stringify(model))
+}
+
 db.close()
 console.log(`db:     ${DB}`)
-console.log(`        ${recentJobs.length + 2} jobs, ${RUNS.length} runs, ${CONVOS.length} conversations`)
+console.log(`        ${recentJobs.length + 2} jobs, ${RUNS.length + FELLOW_RUNS.length} runs, ${CONVOS.length} conversations`)
+console.log(`        ${FELLOWS.length} Fellows, ${PROPOSALS.length} proposals, 7 nights, 3 recaps`)
