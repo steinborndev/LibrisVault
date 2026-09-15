@@ -228,6 +228,28 @@ export function runsTonight(f: FellowSummary): number {
 }
 
 /**
+ * What the roster pill means, spelled out (2026-09-15).
+ *
+ * The pill shows {@link runsTonight}, which is a FORECAST: what has run plus what stands to.
+ * Its tooltip used to call the whole figure "carried out", so a Fellow with nothing run and two
+ * runs standing read as a Fellow that had already done its night - the same two words the
+ * quota figure elsewhere uses for a count that really is spent. The two halves are separate
+ * facts and the tooltip now names both.
+ */
+export function runsPillTitle(f: FellowSummary, tasks: number): string {
+  const total = runsTonight(f)
+  const done = Math.min(Math.max(0, f.runsTonight), total)
+  const standing = total - done
+  const quota = f.agent.quotaRunsPerDay
+  const many = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
+  const head = `${many(tasks, 'task')} planned tonight.`
+  if (total === 0) return `${head} Nothing stands to run: tonight is a planning night. The quota is ${many(quota, 'run')} a night.`
+  if (done === 0) return `${head} ${many(standing, 'research run')} of the quota's ${quota} stand to run; none carried out yet.`
+  if (standing === 0) return `${head} ${many(done, 'research run')} of the quota's ${quota} carried out; nothing more stands.`
+  return `${head} Of the quota's ${quota} research runs, ${done} carried out and ${standing} still standing.`
+}
+
+/**
  * How the night's runs fall across a Fellow's tasks: round robin over the ones that can still
  * run, so with fewer runs than tasks the ones at the front of the list get them and with more
  * the list comes round again.

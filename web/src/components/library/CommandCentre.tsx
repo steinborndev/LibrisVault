@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../api/client.ts'
+import { ApiError, api } from '../../api/client.ts'
 import type {
   AgentPatchBody,
   FellowCard,
@@ -38,6 +38,7 @@ import type {
 } from '../../api/types.ts'
 import {
   runsTonight,
+  runsPillTitle,
   shortfall,
   type ShortfallCode,
   type Shortfall,
@@ -73,6 +74,7 @@ import { navigate, pageRoute } from '../../lib/router.ts'
 import { SpawnForm } from './SpawnForm.tsx'
 import { WeekRelease } from './WeekRelease.tsx'
 import { queryState } from '../QueryState.tsx'
+import { quotaLine, stepButton } from '../../lib/stepAction.ts'
 import { Markdown } from '../Markdown.tsx'
 import { timeAgo, usd } from '../../lib/format.ts'
 import { MODEL_FACTOR, pointsPerUsd, rosterShare, runUsd, shareDetail, weekShare, type Prices } from '../../lib/plan.ts'
@@ -484,13 +486,25 @@ export function CommandCentre({
       void qc.invalidateQueries({ queryKey: ['recaps'] })
     },
   })
+  /*
+   * The daily quota is spent and the dossier is asking whether to run anyway (section 8.4).
+   * The card has had this since the button existed; the command centre sent the same request
+   * without the override and had nowhere to put the 409, so the click did nothing at all.
+   */
+  const [confirmStep, setConfirmStep] = useState(false)
   const act = useMutation({
-    mutationFn: async (v: { id: string; what: 'step' | 'plan' | 'pause' | 'resume' | 'retire' }): Promise<void> => {
-      if (v.what === 'step') await api.stepAgent(v.id)
+    mutationFn: async (v: { id: string; what: 'step' | 'plan' | 'pause' | 'resume' | 'retire'; override?: boolean }): Promise<void> => {
+      if (v.what === 'step') await api.stepAgent(v.id, v.override === true ? { override: true } : {})
       else if (v.what === 'plan') await api.planAgent(v.id)
       else await api.agentAction(v.id, v.what)
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: ['agents'] }),
+    onSuccess: () => setConfirmStep(false),
+    // The quota ran out between the render and the click: ask instead of just refusing.
+    onError: (err) => { if (err instanceof ApiError && err.code === 'quota') setConfirmStep(true) },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['agents'] })
+      void qc.invalidateQueries({ queryKey: ['agent-card'] })
+    },
   })
   const patch = useMutation({
     mutationFn: (v: { id: string; body: AgentPatchBody }) => api.patchAgent(v.id, v.body),
@@ -1090,14 +1104,7 @@ export function CommandCentre({
                             {/* Runs against the quota, not tasks against tasks: one standing
                                 task can carry a whole night, because its planning run puts up
                                 three proposals and the shift works through them in rounds. */}
-                            <span
-                              className={`sev ${runs === 0 ? 'due' : 'ok'}`}
-                              title={
-                                `${tonight.length} task${tonight.length === 1 ? '' : 's'} planned tonight, ${runs} research run${runs === 1 ? '' : 's'} carried out. ` +
-                                `The quota is ${f.agent.quotaRunsPerDay} run(s) a night` +
-                                (runs === 0 ? ', and nothing stands to run: tonight is a planning night.' : '.')
-                              }
-                            >
+                            <span className={`sev ${runs === 0 ? 'due' : 'ok'}`} title={runsPillTitle(f, tonight.length)}>
                               {runs} of {f.agent.quotaRunsPerDay}
                             </span>
                             <span className="mono-meta">{minutes} min</span>
@@ -1209,11 +1216,16 @@ export function CommandCentre({
           durations={durations}
           setPane={setPane}
           onBack={back}
-          onAct={(what) => act.mutate({ id: fellow.agent.id, what })}
+          onAct={(what, opts) => act.mutate({ id: fellow.agent.id, what, ...(opts?.override === true ? { override: true } : {}) })}
           onPatch={(body) => patch.mutate({ id: fellow.agent.id, body })}
           onOpenPage={openPage}
           held={blocked === null ? null : blocked.reason}
           nextShift={agents.data?.shift?.nextStartsAt ?? null}
+          inWindow={agents.data?.shift?.inWindow ?? false}
+          windowStart={agents.data?.shift?.window.start ?? set?.nightWindowStart ?? '23:15'}
+          confirmStep={confirmStep}
+          setConfirmStep={setConfirmStep}
+          actError={act.error === null ? null : (act.error as Error).message}
           patching={patch.isPending}
           refused={patch.error === null ? null : (patch.error as Error).message}
           busy={act.isPending}
@@ -1654,6 +1666,11 @@ function Dossier({
   onOpenPage,
   held,
   nextShift,
+  inWindow,
+  windowStart,
+  confirmStep,
+  setConfirmStep,
+  actError,
   patching,
   refused,
   busy,
@@ -1665,13 +1682,22 @@ function Dossier({
   durations: Readonly<Record<string, number | null>>
   setPane: (p: Pane) => void
   onBack: () => void
-  onAct: (what: 'step' | 'plan' | 'pause' | 'resume' | 'retire') => void
+  onAct: (what: 'step' | 'plan' | 'pause' | 'resume' | 'retire', opts?: { override?: boolean }) => void
   onPatch: (body: AgentPatchBody) => void
   onOpenPage: (page: string) => void
   /** Why nothing will run tonight, if anything: the state line says so where it applies. */
   held: string | null
   /** When the next shift starts, so a waiting Fellow can name what it waits for. */
   nextShift: string | null
+  /** Whether the shift is running right now; it decides which night the quota figure is about. */
+  inWindow: boolean
+  /** Local `HH:MM` the window opens at, for the line that says when the count turns. */
+  windowStart: string
+  /** The quota is spent and the run button is asking whether to pass it anyway. */
+  confirmStep: boolean
+  setConfirmStep: (v: boolean) => void
+  /** Why the last action was refused; a gate answers in a sentence and it has to be shown. */
+  actError: string | null
   patching: boolean
   refused: string | null
   busy: boolean
@@ -1711,6 +1737,9 @@ function Dossier({
   const tonight = tasksTonight(a)
   const carried = runsTonight(fellow)
   const short = shortfall(fellow)
+  const quota = card?.quota ?? { used: 0, runsPerDay: a.quotaRunsPerDay }
+  const spent = quotaLine(quota, inWindow, windowStart)
+  const step = stepButton(quota, confirmStep, 'task')
 
   return (
     <>
@@ -1783,12 +1812,31 @@ function Dossier({
               {a.state === 'paused' ? 'Resume' : 'Pause'}
             </button>
             <button className="btn sm" disabled={busy} onClick={() => onAct('plan')}>Plan now</button>
-            <button className="btn primary sm" disabled={busy || a.state === 'paused'} onClick={() => onAct('step')}>
-              Run a task now
+            {confirmStep && (
+              <button className="btn sm" disabled={busy} onClick={() => setConfirmStep(false)}>Cancel</button>
+            )}
+            <button
+              className="btn primary sm"
+              disabled={busy || a.state === 'paused'}
+              title={step.asks ? spent.title : undefined}
+              onClick={() => (step.asks ? setConfirmStep(true) : onAct('step', { override: step.override }))}
+            >
+              {step.label}
             </button>
           </>
         )}
       </div>
+      {/*
+        * What the gate said, where the click was. Every refusal but the quota's is a fact about
+        * the user's own capacity that no button may pass, so the only thing to do with it is to
+        * show it; the quota's turns the button into a question instead, and the note explains
+        * what the confirmed click does and does not override.
+        */}
+      {(step.note !== null || actError !== null) && (
+        <div className="cc-said">
+          <span className="cc-sub">{step.note ?? actError}</span>
+        </div>
+      )}
 
       <div className="cc-fixed">
         <div className="cc-upnext">
@@ -1798,7 +1846,8 @@ function Dossier({
               <span className={`cc-art a-${upNext.kind}`}>{upNext.kind}</span>
               <span className="cc-upnext-t">{upNext.text}</span>
               <span className="grow" />
-              <span className="mono-meta">{nightly} min tonight · {card ? `${card.quota.used} of ${card.quota.runsPerDay} runs used` : ''}</span>
+              <span className="mono-meta">{nightly} min tonight</span>
+              {card && <span className="mono-meta" title={spent.title}>{spent.text}</span>}
             </>
           ) : (
             <>
@@ -2001,7 +2050,8 @@ function Dossier({
                         +
                       </button>
                     </span>
-                    <span className="mono-meta">{nightly} min tonight{card ? ` · ${card.quota.used} of ${card.quota.runsPerDay} used` : ''}</span>
+                    <span className="mono-meta">{nightly} min tonight</span>
+                    {card && <span className="mono-meta" title={spent.title}>{spent.text}</span>}
                   </div>
                   {/*
                     * The warning tone and the button belong to the ONE cause the button can

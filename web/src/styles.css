@@ -9072,6 +9072,16 @@ tr:focus-within .rowacts {
 
 .cc-night { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .cc-night h2 { margin: 0; font-size: 15px; font-weight: 650; }
+/*
+ * What the last action answered, under the row the click was in: a gate's refusal, or the note
+ * that explains what passing the spent quota does and does not override. Only drawn when there
+ * is something to say, so the action row never carries a permanent empty slot, and shallower
+ * than `.cc-line2` because it holds one sentence rather than a row of controls.
+ */
+.cc-said {
+  display: flex; align-items: center; gap: 8px; flex: none; padding: 7px 18px;
+  border-bottom: 1px solid var(--border); background: var(--warn-bg); box-sizing: border-box;
+}
 .cc-sub { font-size: 12px; color: var(--text-dim); }
 .cc-sub b { color: var(--text); }
 
@@ -9339,6 +9349,13 @@ tr:focus-within .rowacts {
   padding: 10px 18px; border-bottom: 1px solid var(--border);
 }
 .cc-upnext-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * Two figures in one meta line get the dot between them that a single string used to carry.
+ * Drawn by the line, so neither span has to know it has a neighbour: they are separate facts
+ * about separate nights and each needs its own tooltip.
+ */
+.cc-upnext .mono-meta + .mono-meta::before,
+.cc-quota .mono-meta + .mono-meta::before { content: '\00b7'; margin-right: 7px; color: var(--text-faint); }
 .cc-upnext .k { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
 .cc-bar-row { display: flex; align-items: center; gap: 10px; padding: 12px 18px 10px; flex: none; flex-wrap: wrap; }
 /* Prose gets a measure; a 66ch column is the difference between a page and a wall of text. */

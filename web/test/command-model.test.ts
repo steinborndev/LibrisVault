@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest'
 import {
   artOf,
   runsTonight,
+  runsPillTitle,
   isSystemPage,
   fellowMinutes,
   minutesFor,
@@ -666,6 +667,41 @@ describe('nightRows', () => {
  * what the night's own planning puts up, the quota is one reason among several and no longer
  * the usual one - and raising a quota that is not binding changes nothing at all.
  */
+describe('runsPillTitle', () => {
+  const swept = (a: FellowRecord, standing: number, done: number): FellowSummary =>
+    ({ ...withStanding(a, standing), runsTonight: done }) as FellowSummary
+
+  it('does not call a run that has not happened "carried out"', () => {
+    // The bug: the pill shows the forecast, and its tooltip called the whole of it carried out,
+    // so a Fellow with two runs standing read as one that had already done its night.
+    const a = agent({ id: 'a', name: 'A', autonomy: 'veto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    const title = runsPillTitle(swept(a, 2, 0), 1)
+    expect(title).toContain('2 research runs of the quota\'s 2 stand to run')
+    expect(title).toContain('none carried out yet')
+    expect(title).not.toContain('2 research runs carried out')
+  })
+
+  it('names both halves once the night has run some of them', () => {
+    const a = agent({ id: 'b', name: 'B', autonomy: 'veto', quotaRunsPerDay: 3, tasks: [task('watch', 'a'), task('watch', 'b')] })
+    expect(runsPillTitle(swept(a, 2, 1), 2)).toContain('1 carried out and 2 still standing')
+  })
+
+  it('a night with nothing to run says so, and says what the quota is', () => {
+    const a = agent({ id: 'c', name: 'C', autonomy: 'veto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    const title = runsPillTitle(summary(a), 1)
+    expect(title).toContain('tonight is a planning night')
+    expect(title).toContain('quota is 2 runs a night')
+  })
+
+  it('counts only what the quota can still carry, so the two halves add up to the pill', () => {
+    // Four standing, a quota of two: the pill says 2, and so must the sentence under it.
+    const a = agent({ id: 'd', name: 'D', autonomy: 'veto', quotaRunsPerDay: 2, tasks: [task('watch', 'a')] })
+    const f = swept(a, 4, 0)
+    expect(runsTonight(f)).toBe(2)
+    expect(runsPillTitle(f, 1)).toContain('2 research runs of the quota\'s 2')
+  })
+})
+
 describe('shortfall', () => {
   const stands = (t: string) => proposal({ status: 'approved', provenance: { candidate: 'sweep', text: 'x', sourcePages: [], task: t } })
 
