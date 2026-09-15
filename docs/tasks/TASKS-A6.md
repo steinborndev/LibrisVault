@@ -240,16 +240,15 @@ gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quote
       because this one writes to the vault. D1 has to name it; decide whether the block and
       the attribution move behind the flag, or whether the reading list is declared part of
       the base product and documented as such.
-- [ ] Migrations: the agent tables are created regardless of the flag (schema present, no
-      behaviour). **The confirming half is done (F-A6-6): 29 migrations, gated by
-      `PRAGMA user_version`, none steps down.** What is left is the writing half, which waits
-      on section 2: state it in 12.10 rather than leave a
-      reader to discover a `fellows` table in a vault that has no Fellows.
-      **[added] And state that the migration is one-way.** There are 29 migrations gated by
-      `PRAGMA user_version`; nothing steps back down. A LibrisVault user who upgrades, finds
-      the Fellows are not for them and wants the previous release cannot run the old binary
-      against the same database. That belongs in 12.10 beside "the tables exist anyway",
-      because it is the part that costs the user something.
+- [x] **Done 2026-09-15.** Both halves. The confirming half was F-A6-6 (29 migrations, gated
+      by `PRAGMA user_version`, none steps down); the writing half is the paragraph "The tables
+      exist either way, and the migration is one-way" in root `SPEC.md` 12.10, which states both
+      the harmless part (a vault with no Fellows still has a `fellows` table - schema, not
+      behaviour) and the part that costs the user something (a downgrade cannot run the old
+      binary against the same database; keep a copy of `jobs.db` before upgrading).
+      **[corrected] That paragraph said 30 migrations and there are 29**, which is the hazard of
+      writing a count into prose: it was right when written and wrong one migration later. It
+      names the file to re-check now instead of asking to be believed.
 - [x] **Done 2026-09-15 (F-A6-22), and the second half was false until it was.**
       Web: with the flag off no Fellow surface may render and no request to a gated route
       may be issued. Check `client.ts:401`, `:431` and the Library screen.
