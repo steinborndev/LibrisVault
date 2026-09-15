@@ -28,6 +28,15 @@ Both drivers need the dashboard running on `localhost:8421`; they intercept `/ap
 to serve the snapshots and drive the reload through the app's own SSE path, so what gets
 photographed is the real renderer on real data.
 
+They also need **Playwright**, which is deliberately not a dependency of this repo: these are
+a promo tool run by hand a few times a year, and a browser download in everyone's `npm ci` is
+a steep price for that. `playwright.cjs` resolves it at run time, from an ordinary
+`require('playwright')` or from `PLAYWRIGHT_MODULE`:
+
+```
+PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.js node ../scripts/timelapse/frames.cjs ...
+```
+
 ## The two things that make it watchable
 
 **Sampling is by page count, not by time.** This vault grew 47 pages in April, 3 in May and

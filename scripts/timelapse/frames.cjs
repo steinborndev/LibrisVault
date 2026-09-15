@@ -1,53 +1,53 @@
-const { chromium } = require('/home/benjamin/.npm/_npx/705bc6b22212b352/node_modules/playwright/index.js');
+const { chromium } = require('./playwright.cjs')();
 const fs = require('fs'), path = require('path');
 const FRAMES = process.argv[2], OUT = process.argv[3];
-const HOLD = Number(process.argv[4] || 5);      // Aufnahmen pro Datenstand
+const HOLD = Number(process.argv[4] || 5);      // stills per snapshot
 const SIZE = 1080;
 
 (async () => {
   const files = fs.readdirSync(FRAMES).filter((f) => /^\d+\.json$/.test(f)).sort();
   const graphs = files.map((f) => fs.readFileSync(path.join(FRAMES, f), 'utf8'));
-  console.log(`${graphs.length} Datenstaende, ${HOLD} Aufnahmen je Stand = ${graphs.length * HOLD} Bilder`);
+  console.log(`${graphs.length} snapshots, ${HOLD} stills each = ${graphs.length * HOLD} frames`);
   fs.mkdirSync(OUT, { recursive: true });
 
   const browser = await chromium.launch({ args: ['--force-device-scale-factor=1'] });
   const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, colorScheme: 'dark' });
   let idx = 0;
 
-  // Der Graph kommt aus den Snapshots.
+  // The graph comes from the snapshots.
   await page.route('**/api/v1/graph', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: graphs[idx] }));
   /*
-   * Der Auslöser zum Nachladen: die App invalidiert ['graph'] auf ein `vault`-Ereignis des
-   * SSE-Stroms. Playwright kann keinen offenen Strom bedienen, also liefert jede Verbindung
-   * genau ein Ereignis und schliesst; `retry:` setzt die Wiederverbindung auf 120 ms. Jede
-   * Wiederverbindung ist damit ein Frame - über den echten Pfad der App, nicht daran vorbei.
+   * What triggers a reload: the app invalidates ['graph'] on a `vault` event of the SSE
+   * stream. Playwright cannot serve an open stream, so every connection delivers exactly one
+   * event and closes; `retry:` sets the reconnect to 120 ms. Each reconnect is therefore one
+   * frame - through the app's own path rather than around it.
    */
   await page.route('**/api/v1/events', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'retry: 120\n\nevent: vault\ndata: {}\n\n' }));
 
-  // Ansicht vorbereiten: Domain-Lens (Farbe traegt das Bild, sobald die Beschriftung weg ist),
-  // keine Huellen, keine Systemseiten.
+  // Prepare the view: domain lens (colour carries the picture once the labels are off), no
+  // hulls, no system pages.
   await page.addInitScript(() => {
     try {
       localStorage.setItem('vault.graphPrefs', JSON.stringify({ v: 1, lens: 'domain', showClusters: false, showGaps: false, showNetwork: false, spotlight: false, showSystem: false, selectedTypes: [], selectedDomains: [] }));
-    } catch { /* ohne localStorage laeuft die Ansicht auf ihren Vorgaben */ }
+    } catch { /* without localStorage the view runs on its defaults */ }
   });
 
-  await page.goto('http://localhost:8421/graph?labels=off', { waitUntil: 'domcontentloaded' });   // nicht networkidle: der SSE-Strom verbindet sich alle 120 ms neu
+  await page.goto('http://localhost:8421/graph?labels=off', { waitUntil: 'domcontentloaded' });   // not networkidle: the SSE stream reconnects every 120 ms
   await page.locator('canvas.graph-canvas').waitFor({ timeout: 40000 });
   await page.waitForTimeout(3000);
 
-  // Nur die Zeichenflaeche: der Vollbildmodus der App blendet das Bedienfeld aus, Minimap und
-  // Statusmarke gehen per CSS - was bleibt, ist das Bild.
+  // The drawing area alone: the app's full-screen mode hides the control panel, minimap and
+  // status chip go by CSS - what is left is the picture.
   await page.getByTitle(/Show the graph on its own/).click();
   await page.addStyleTag({ content: '.graph-minimap,.graph-status,.graph-controls{display:none!important}' });
   await page.waitForTimeout(1500);
 
   /*
-   * Feste Kamera. Der letzte Stand wird zuerst geladen und eingepasst, dann wird
-   * zurueckgespult: die Kamera bleibt, und die Positionskarte (nach Seitenpfad) kennt schon
-   * jeden Knoten. Ein Knoten erscheint damit an dem Platz, den er behalten wird, statt dass
-   * das ganze Layout bei jedem Zuwachs neu zuckt - anders waere es nicht anzusehen.
+   * A fixed camera. The last snapshot is loaded and fitted first, then the film is rewound:
+   * the camera stays, and the position map (by page path) already knows every node. A node
+   * therefore appears in the place it will keep, instead of the whole layout twitching on
+   * every addition - which is the difference between a growth animation and a seizure.
    */
   idx = graphs.length - 1;
   await page.waitForTimeout(2500);
@@ -56,7 +56,7 @@ const SIZE = 1080;
 
   const canvas = page.locator('canvas.graph-canvas').first();
   let box = await canvas.boundingBox();
-  console.log('Zeichenflaeche:', JSON.stringify(box && { w: Math.round(box.width), h: Math.round(box.height) }));
+  console.log('drawing area:', JSON.stringify(box && { w: Math.round(box.width), h: Math.round(box.height) }));
 
   let shot = 0;
   for (idx = 0; idx < graphs.length; idx++) {
@@ -64,8 +64,8 @@ const SIZE = 1080;
       await page.screenshot({ path: path.join(OUT, `f${String(shot).padStart(5, '0')}.png`), clip: box });
       shot++;
     }
-    if (idx % 20 === 0) console.log(`  Stand ${idx + 1}/${graphs.length}, ${shot} Bilder`);
+    if (idx % 20 === 0) console.log(`  snapshot ${idx + 1}/${graphs.length}, ${shot} frames`);
   }
-  console.log(`${shot} Bilder geschrieben`);
+  console.log(`${shot} frames written`);
   await browser.close();
 })().catch((e) => { console.error('FAILED:', e.message); process.exit(1); });
