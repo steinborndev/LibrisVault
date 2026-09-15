@@ -88,6 +88,13 @@ export function FellowPopover({
     : 0
   const progress = running ? runProgress(running.startedAt, running.typicalMs, Date.now()) : null
   const undecided = fellow?.undecidedProposals ?? 0
+  /*
+   * The backlog: every proposal that has been approved and has not run yet, whether or not
+   * tonight can reach it. A Fellow whose quota is two and whose queue is five is a Fellow
+   * working a night behind, and neither the tasks nor the runs-tonight figure says so - the
+   * first counts the standing work, the second only what this one night takes of it.
+   */
+  const approved = Math.max(0, (fellow?.pendingProposals ?? 0) - undecided)
 
   /*
    * The night as the slots it is made of, always at least three of them (2026-09-15). A night
@@ -104,8 +111,8 @@ export function FellowPopover({
     return { proposal, why: 'nothing stands for it' }
   })
 
-  const fact = (value: string, label: string, off = false): React.ReactElement => (
-    <span key={label} className={off ? 'off' : undefined}>
+  const fact = (value: string, label: string, off = false, title?: string): React.ReactElement => (
+    <span key={label} className={off ? 'off' : undefined} title={title}>
       <b>{value}</b>
       <i>{label}</i>
     </span>
@@ -140,6 +147,17 @@ export function FellowPopover({
         <div className="lib-pop-facts">
           {fact(String(standing.length), `standing task${standing.length === 1 ? '' : 's'}`)}
           {fact(`${runs} of ${quota}`, 'runs tonight', spent)}
+          {fact(
+            String(approved),
+            'approved',
+            approved === 0,
+            approved === 0
+              ? 'Nothing approved is waiting. A proposal stands for two nights and then expires.'
+              : approved <= runs
+                ? `${approved} approved and waiting, and tonight runs all of them.`
+                : `${approved} approved and waiting. Tonight runs ${runs}; the other ${approved - runs} stand for ` +
+                  'the nights after, or until they expire two nights on.',
+          )}
           {fact(String(minutes), 'minutes', minutes === 0)}
           {fact(agent.model, 'model')}
           {fact(usd(night), 'tonight', night === 0)}

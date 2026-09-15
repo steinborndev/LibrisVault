@@ -7685,7 +7685,9 @@ tr:focus-within .rowacts {
 .lib-pop-facts > span { flex: 1 1 0; min-width: 0; padding: 6px 9px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; }
 .lib-pop-facts > span:first-child { border-left: 0; }
 .lib-pop-facts b { font-size: 14px; font-variant-numeric: tabular-nums; }
-.lib-pop-facts i { font-style: normal; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
+/* Six columns share the width now, so the labels are set a touch tighter to stay on one line
+   each; one label wrapping while five do not reads as a fault rather than as a long word. */
+.lib-pop-facts i { font-style: normal; font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lib-pop-facts .off b { color: var(--text-faint); }
 /* Two lines of a topic, never ten. The whole of it is in the title attribute. */
 .lib-pop-topic { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
