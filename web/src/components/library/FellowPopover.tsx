@@ -161,12 +161,16 @@ export function FellowPopover({
               <span className="t" title={slot.proposal?.topic}>
                 <b>Run {i + 1}:</b> {slot.proposal !== null ? slot.proposal.topic : slot.why}
               </span>
-              {slot.proposal !== null && (
-                <small>
-                  {slot.proposal.status === 'approved' ? 'approved' : 'undecided'}
-                  {slot.proposal.estCostUsd !== null ? ` · about ${usd(slot.proposal.estCostUsd)}` : ''}
-                </small>
-              )}
+              {/* Always drawn, empty or not: every slot is the same three lines high, so the
+                  card does not change height as the wheel walks from Fellow to Fellow. */}
+              <small>
+                {slot.proposal !== null && (
+                  <>
+                    {slot.proposal.status === 'approved' ? 'approved' : 'undecided'}
+                    {slot.proposal.estCostUsd !== null ? ` · about ${usd(slot.proposal.estCostUsd)}` : ''}
+                  </>
+                )}
+              </small>
             </span>
           ))}
         </span>

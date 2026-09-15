@@ -7687,10 +7687,17 @@ tr:focus-within .rowacts {
 /* Two lines of a topic, never ten. The whole of it is in the title attribute. */
 .lib-pop-topic { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 /* The night, run by run: three blocks at least, each two lines of topic over one of what it
-   was decided and what it costs. Equal blocks, so the eye can count them without reading. */
+   was decided and what it costs.
+
+   Every block is those three lines whether or not anything runs in it. A slot that shrank to
+   its one line of explanation made the card change height as the wheel walked from Fellow to
+   Fellow, which is the one motion a card standing still in the middle of the room must not
+   have. The line-height is pinned here for the same reason the min-heights are measured in
+   it: both halves have to agree on what a line is. */
 .lib-pop-runs { display: flex; flex-direction: column; gap: 6px; }
-.lib-pop-run { display: block; min-width: 0; }
-.lib-pop-run .t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.lib-pop-run { display: block; min-width: 0; line-height: 1.45; }
+.lib-pop-run .t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; min-height: 2.9em; }
+.lib-pop-run small { display: block; min-height: 1.45em; }
 .lib-pop-run .t b { font-weight: 600; margin-right: 3px; }
 /* A slot nothing runs in says why in the faint ink: it is an absence, not a run. */
 .lib-pop-run.none .t { color: var(--text-faint); }
