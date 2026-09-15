@@ -1,0 +1,646 @@
+# TASKS-A6 - Merge preparation (2026-09-15)
+
+Goal: everything the `research-agents` fork has built since the public base becomes part of
+LibrisVault without a private page, a local path or an undocumented subsystem going with it.
+**Acceptance (docs/agents/SPEC.md section 15, corrected in D1): with `AGENTS_ENABLED` unset
+LibrisVault behaves as it does today and a test asserts it; the root `SPEC.md`, `CLAUDE.md`,
+`README.md` and `SECURITY.md` describe both new subsystems; every screenshot comes from the
+synthetic vault; `npm test`, `npm run typecheck`, `npm run lint` green AND exit 0;
+`permprobe` reports `canary outside vault: blocked`; `preprocprobe` passes; the
+private-content audit over the final merge diff is clean.**
+
+Extension milestone in the Curious fork (branch `research-agents`), everything server-side
+behind `AGENTS_ENABLED=1`. Findings recorded here, spec first when the code disagrees. The
+root `SPEC.md` carries "do not edit without being asked", so section 2 is drafted and then
+asked, not written and announced.
+
+Scale of the merge, measured 2026-09-15: shared base `156660f1` (2026-09-06), 280 commits
+above it, LibrisVault one commit ahead (`70b55fa7`, a dependency patch).
+
+**Review pass 2026-09-15 (F-A6-1 to F-A6-17 in section 10).** Every claim in this file was
+checked against both repos. Most held. Three substantive ones did not - the `npm test`
+diagnosis, the `health.fellows` contract, and the size of the private-content finding - and
+several smaller ones were off by a line number or a date. All of them are corrected in place
+and marked `[corrected]`; what the file did not have at all is marked `[added]`, including
+two new decisions (D5, D6). The gate status as measured is at the top of section 8.
+
+**Second pass 2026-09-15, from the A7 review (F-A6-15, F-A6-16).** Three items closed: the
+`npm test` exit (section 6, and it was a service bug as well as a test bug), the fork's own
+detail spec, which described a component deleted the same day (section 2), and D6, which
+turned out to rest on a list of A7's open items that was wrong in both directions. All three
+gates now exit 0. One item was opened: F-A6-17, the audit's blind spot for quoted run output.
+
+## 0. Decisions before the work starts
+
+- [ ] **D1 - the acceptance criterion is wrong as written; correct it first.** Section 15
+      promises "LibrisVault unchanged with the flag off". That holds for the Fellows and
+      not for the rest: the source-integrity work (`docs/sources/SPEC.md`, TASKS-SOURCES,
+      55 tasks) is behind no flag at all and changes ingest behaviour with `AGENTS_ENABLED`
+      unset - the untrusted fence, PDF URL handling, open-access recovery, quote integrity
+      in the validator, the expand lock. Proposal: name the two halves separately rather
+      than flag the second one, because it is a correctness fix to the existing pipeline
+      and putting it behind a flag would ship the known-weaker path as the default. Record
+      the decision here and amend section 15.
+      **[corrected] Verified in code (F-A6-3), with one exception:** `fenceWithWarnings` is
+      wired unconditionally into all four preprocessing plugins (`office.ts`, `pdf.ts`,
+      `text.ts`, `web.ts`) and `DEFAULT_OA_RECOVERY = true`, so the unflagged half is real.
+      But the **reading-list sweep is already behind the flag** - it lives inside
+      `NightShift` (`main.ts:370`, the `openCopies` hook), which only exists when
+      `fellows !== undefined`. So the split is not "Fellows flagged, source integrity
+      unflagged": the sweep is source-integrity work running on the Fellows' schedule.
+      D1 has to name that seam explicitly, and section 1's background-work bullet must
+      stop demanding the opposite.
+- [ ] **D2 - one spec or two: follow the established pattern.** Root `SPEC.md` gets a
+      summarising `12.x` per subsystem and the detail lives in `docs/<area>/SPEC.md`, the
+      way 12.6 (retrieval), 12.7 (vault check), 12.8 (demo mode) and 12.9 (dedupe) already
+      do. So: **12.10 Fellows**, **12.11 Source integrity**, with `docs/agents/SPEC.md` and
+      `docs/sources/SPEC.md` unchanged as the detail specs. Not a second top-level spec.
+      Note that the pattern was already broken once: source integrity shipped without a
+      root section, which is why 12.11 is part of this milestone and not of TASKS-SOURCES.
+- [ ] **D3 - what happens to the fork's name.** "Curious" names the private branch in 10
+      tracked documents, 13 occurrences (`docs/agents/SPEC.md` 3, `docs/agents/ideas.md` 2,
+      `docs/sources/SPEC.md` 1, `docs/tasks/TASKS-A0..A5,A7` 1 each). Decide once: keep it
+      as the historical name of the work and say so in one place, or rewrite to "the
+      `research-agents` branch" throughout. Do not leave both readings in the repo.
+- [ ] **D4 - how much of the A-series history the public repo gets.** The 280 commits carry
+      the full design record. Decide: merge the history as it stands (preferred, the commit
+      messages are the record and the audit in section 7 found them clean - confirmed
+      independently, F-A6-7), or squash. If squashed, the design rounds in
+      `docs/agents/ideas.md` become the only record and that has to be a deliberate choice,
+      not a side effect.
+- [ ] **D5 [added] - open-access recovery is on by default and makes outbound requests
+      during ingest.** `DEFAULT_OA_RECOVERY = true` (`server/src/db/settings.ts:168`), and
+      the recovery path contacts `api.openalex.org`, `api.core.ac.uk` and
+      `www.ebi.ac.uk` (Europe PMC). Every existing LibrisVault install gets that silently
+      on upgrade: an ingest that used to touch only the material now asks three third
+      parties about a DOI. This is *service* egress, not agent egress, so hard rule 4 is
+      untouched - but it is a new network behaviour in the default path and nothing in the
+      public docs says so. Decide: document it in 12.11 and the README security model (SPEC
+      section 9 already has the exact precedent, the Telegram "service egress, not agent
+      egress" paragraph), or default it off for installs that upgrade. Do not merge it
+      undocumented either way.
+- [x] **D6 [added] - A7 is open while A6 runs. Settled 2026-09-15 (F-A6-15): merge it as a
+      stated roadmap, with the open items rewritten as design questions.** A7 is updated and
+      its section 9 is the list this decision rests on.
+
+      **The four items this decision was first written against were the wrong four.** The file
+      said 1 (deepen without a planning run), 1b (intra-domain handoff), 3.5 (what a drag on
+      the night bar orders) and 5 (a log channel per run). Checked at the source on 2026-09-15:
+      **3.5 was decided AND built** in A7 stage B (the `shelf_order` table,
+      `byShelfThenPriority`, `PUT /api/v1/agents/shelf-order`) and was only still listed
+      because its heading kept the words "Decision needed"; and the list **missed** splitting
+      an overgrown page (A7 section 7), which the agents spec already points at as open. So
+      the count was right by accident and wrong in both directions.
+
+      What is actually open is four DESIGN QUESTIONS - 1, 1b, 5 and 7 - each with the property
+      that makes merging them defensible: none is a half-built feature, each changes behaviour
+      rather than finishing it, and each has its unsettled points written out. A7 section 9
+      carries them as a table, alongside what had to be fixed before the milestone could be
+      called done (the `npm test` exit, section 6; the agents spec, section 2) and two small
+      gaps in the window itself.
+
+      The working agreement's concern is answered on its own terms: A7's acceptance IS met.
+      Its goal was one window that manages the Fellows so the docked card can be retired, and
+      `FellowCard.tsx` was deleted on 2026-09-15.
+
+## 1. Feature flag review
+
+- [ ] Enumerate every surface `AGENTS_ENABLED` gates and check each one for a path that
+      still runs with the flag off: routes `agents.ts`, `library.ts`, `reading-list.ts`,
+      `recaps.ts`, `usage.ts`; `api/server.ts:105`; `main.ts:245` (night shift), `:284`
+      and `:289` (Fellows), `:507` (reading list); `config.ts:102`, `:327`, `:352`, `:389`.
+      (Every line reference verified 2026-09-15.) Note the shape while you are there: the
+      routes are gated by **presence of the injected service** (`server.ts:180-207`,
+      `if (ctx.fellows !== undefined) ...`), not by reading the flag, and `main.ts` is what
+      turns the flag into presence. That is fine, but it means a test may construct a server
+      with Fellows present and the flag false; only `main.ts` ties the two together.
+- [ ] Assert the background work does not start with the flag off: the night shift, the
+      usage monitor and its sampling, the recap scheduler.
+      **[corrected]** The reading-list **sweep** was in this list and does not belong here:
+      it is inside `NightShift` and therefore already gated (see D1). What is NOT gated is
+      the `ReadingListService` itself - it is constructed unconditionally at `main.ts:152`
+      and handed to the maintenance runner at `:185`. Check what that costs with the flag
+      off: a service that only holds state is fine, a service that writes during ingest is
+      the unflagged behaviour change D1 is about. A timer that starts and finds nothing to
+      do is still a behaviour change.
+- [ ] Migrations: the agent tables are created regardless of the flag (schema present, no
+      behaviour). Confirm that is what happens, and state it in 12.10 rather than leave a
+      reader to discover a `fellows` table in a vault that has no Fellows.
+      **[added] And state that the migration is one-way.** There are 29 migrations gated by
+      `PRAGMA user_version`; nothing steps back down. A LibrisVault user who upgrades, finds
+      the Fellows are not for them and wants the previous release cannot run the old binary
+      against the same database. That belongs in 12.10 beside "the tables exist anyway",
+      because it is the part that costs the user something.
+- [ ] Web: with the flag off no Fellow surface may render and no request to a gated route
+      may be issued. Check `client.ts:401`, `:431` and the Library screen.
+      **[corrected] The contract is a boolean, not the string this file used to name.**
+      `health.fellows` is `ctx.fellows !== undefined`
+      (`server/src/api/routes/health.ts:21`), typed `fellows?: boolean` in
+      `web/src/api/types.ts`, and read as `health.data?.fellows === true`
+      (`App.tsx:215`, `Home.tsx:161`, `System.tsx:309`). The `'on'` / `'off'` strings at
+      `config.ts:389` are the **startup log banner**, a different object. A test written
+      against `health.fellows === 'off'` would assert a contract that does not exist.
+- [ ] **The test that is missing entirely.** No test file mentions `AGENTS_ENABLED` today
+      (confirmed: the only test occurrences are of the config field `agentsEnabled`, and of
+      those only `commit-dismissals.test.ts:67` sets it false, incidentally and without
+      asserting anything about it), so the milestone's own acceptance criterion has no
+      automated check. Add one: boot the server with the flag unset, assert the gated routes
+      404, `health.fellows` is falsy (see the correction above), no scheduler registered, no
+      usage sampling, and the dashboard renders without a Fellow surface.
+
+## 2. Root SPEC.md (draft, then ask)
+
+- [ ] **New 12.10 "Research agents (Fellows)"**: what a Fellow is, the notebook page in the
+      vault, the four task arts, planning from vault-internal candidates, the veto window,
+      the night shift and its quota in plan-utilization points, the recap, the Library
+      screen, and `AGENTS_ENABLED` as the gate with its default. Pointer to
+      `docs/agents/SPEC.md` for the detail. Include the one-way migration note (section 1).
+- [ ] **New 12.11 "Source integrity"**: PDF URLs, the untrusted-content fence,
+      open-access recovery, the reading-list sweep, quote integrity in the validator, the
+      expand lock. Say plainly that this one is NOT behind a flag (D1), and name the one
+      part of it that IS (the sweep, which runs inside the night shift). Say what OA
+      recovery talks to over the network and that it defaults on (D5). Pointer to
+      `docs/sources/SPEC.md`.
+- [ ] **Section 5 still describes the preprocessing chain as it was** (a plugin chain of
+      external tools, no word about what contains them), which `docs/agents/ideas.md` has
+      recorded as A6 work since 2026-09-08. Add one paragraph beside the tool table:
+      converters run through `runConverter`, not `runTool`; the jail is bubblewrap with no
+      network, no `$HOME`, a read-only `/usr` and `/etc`, the input file and one writable
+      output directory; the tool's own prefix is bound when it lives outside `/usr`, never
+      a home directory; `yt-dlp` is the documented exception; a missing bubblewrap fails
+      the conversion unless `PREPROCESS_SANDBOX=off`; and `preprocprobe` is to this what
+      `permprobe` is to section 7.
+- [ ] Section 6: the dashboard description predates the Library screen's Fellow surfaces.
+      Bring the screen list and the tab descriptions up to what is built.
+- [ ] Section 9 (security): add the preprocessing containment and both probes, so the
+      security section names every boundary the code actually has.
+- [ ] **[added] Section 9 also contradicts CLAUDE.md hard rule 4 and has to be corrected,
+      not only extended.** It still says agent runs get "bash on a script allowlist". Hard
+      rule 4 says the opposite in as many words ("NOT a `scripts/*.sh` whitelist", with the
+      M0 measurement behind it: 14 of 68 bash calls in the validated run were
+      `find`/`ls`/`cat`/`python3`). A public reviewer reading the spec would take the
+      allowlist as the boundary and miss that the sandbox is. Fix the sentence to say what
+      the code does: the sandbox is the boundary, the denylist is defense in depth.
+- [ ] **[added] Section 9 is also missing the OA egress** (D5). Write it the way the
+      Telegram paragraph in the same section is written: service egress, not agent egress,
+      naming the hosts and saying the rule "no web egress in ingest runs" is about agent
+      runs and stands unchanged.
+- [ ] Section 10 / milestones: reconcile the M0-M5 table with the A-series, so a reader can
+      see that the A work sits on top of a finished M5 rather than inside it.
+- [x] **[added] `docs/agents/SPEC.md` was not "unchanged" as D2 assumed - it described a
+      component that had been deleted. Fixed 2026-09-15 (F-A6-16).** Section 10.5 "Fellow
+      card" and the "Open card (switches to full mode with the docked card)" action in 10.6
+      were the docked sidebar A7 removed the same day, and the command centre - the whole of
+      A7 - had no section at all, one line in 8.6a being its only mention. Corrected in
+      place, following this spec's own pattern (a design-era section kept, an "(as built)"
+      section beside it): 10.5 and 10.6 carry a superseded/corrected note pointing forward,
+      **new 10.12 "The Fellow command centre (as built, 2026-09-15)"** describes what exists,
+      and three more claims that had the same single cause were corrected with it - 10.11's
+      "one task a night, in turn" (`sweep` is the default since A7 stage B, `rotate` is the
+      setting that keeps the old behaviour) and its task-state labels, 8.6a's comparison to
+      "the Fellow card's quota override" (a two-step that is now one button in the dossier),
+      10.8's level-of-detail example naming "the docked-card view", and 10.10's deepen entry
+      points (the shelf window, not the card). D2's sentence about the detail specs being
+      unchanged should be read as "no restructuring", not "no edits".
+
+## 3. CLAUDE.md
+
+- [ ] "What this project is" describes neither subsystem. Add both, in the register of the
+      existing text: what they are, where their specs live, which one is flagged.
+- [ ] Hard rules: state `AGENTS_ENABLED` as the extension gate and that the Fellows are the
+      only agents with web access (today only hard rule 4 says web is autoresearch-only,
+      which the Fellows have since widened).
+- [ ] Hard rule 7 says "This repo is PUBLIC". True again after the merge, so the wording
+      stands, but the rule needs the findings from section 7: the `commit-msg` hook matches
+      **whole page-title stems** and therefore misses a title's substring, it reads only
+      `wiki/entities/` and `wiki/sources/` and therefore knows nothing of the page types the
+      Fellows write, and it scans **commit messages only** and therefore cannot see a name
+      that leaks in file content or in PR text.
+- [ ] Conventions: the job lifecycle list, the plugin-chain sentence and the test paragraph
+      predate the A-series. Check each against what the code does now.
+      (Checked 2026-09-15: the **job lifecycle list is still exact** - `JobStatus` in
+      `server/src/db/jobs.ts:20-28` is the same eight states in the same order. The other
+      two still need the pass.)
+
+## 4. README and SECURITY.md
+
+- [ ] **New section "Research agents"**: what a Fellow does, the night shift, the recap, the
+      quota, how to turn it on (`AGENTS_ENABLED=1`), and that it is off by default. It is
+      the single largest undocumented feature in the repo. (Measured: the README has **zero**
+      occurrences of `AGENTS_ENABLED`, "Fellow", "night shift", "recap" and "reading list".)
+- [ ] **New section "Source integrity"**: the fence, quote checking, open-access recovery.
+      This is the subsystem a reviewer arriving from a provenance question will look for,
+      and today the README does not mention it (zero occurrences of "source integrity",
+      "fence", "open-access", "expand lock").
+- [ ] "The dashboard" (line 210): the Library screen's Fellow surfaces, the reading list,
+      the recap inbox.
+- [ ] "Configuration" (line 377): `AGENTS_ENABLED` and every setting the A-series added
+      (research shares, reserves, plan USD, runs-per-day quota). While there: `DEMO_MODE`
+      and `PREPROCESS_SANDBOX` are also undocumented, the second one although CLAUDE.md
+      hard rule 6 tells the reader to use it.
+- [ ] "Security model" (line 487): the preprocessing sandbox and `preprocprobe`, beside the
+      agent-run sandbox and `permprobe` that are already there.
+- [ ] **[added] "Security model" item 1 is stale and says something no longer true**: "The
+      service writes to the vault only through agent runs and git commits". CLAUDE.md hard
+      rule 1 has carried the corrections since 2026-07-18 and 2026-07-23: user-initiated
+      page edits and deletes via `PUT`/`DELETE /api/v1/pages`, the retrieval-index scripts,
+      and `discardUntrackedDir` for a duplicate job's own staging directory. Bring the item
+      to the hard rule, not the other way round.
+- [ ] **[added] `SECURITY.md` is untouched by this milestone and needs both subsystems.**
+      The README points at it for "the full threat model - including what a malicious
+      *document* can and cannot make the ingest agent do". That is precisely what the
+      A-series built, and the file mentions none of it: zero occurrences of "fence",
+      "runConverter", "preprocprobe", "open-access", "Fellow" and `AGENTS_ENABLED`, and one
+      of "bubblewrap". At minimum: the untrusted-content fence as the prompt-injection
+      boundary, the preprocessing sandbox as the parser boundary with `preprocprobe` as its
+      probe, the Fellows' web access as a widening of the agent-egress rule, and the OA
+      egress from D5. This is the file a security reviewer opens first.
+- [ ] "Status & license" (line 789): bring the status paragraph up to the merged state.
+- [ ] Read the whole file once against the running app. It was written for the pre-A state
+      and 280 commits of UI work have landed since.
+
+## 5. Demo vault and screenshots
+
+- [ ] **`scripts/demo-vault.mjs` seeds zero Fellows** (`grep -ci fellow` returns 0, and so
+      do recap, notebook, shift and proposal; it seeds jobs, agent runs, sessions and
+      messages), so the Library screen with Fellows cannot be shot synthetically today. Seed
+      the demo DB: agents with home domains, notebook pages in the demo vault, past runs
+      with costs and durations, a night's shift history, proposals awaiting a veto, recap
+      pages, a few reading-list entries. Invented throughout, like the rest of the generator.
+- [ ] Note for whoever wires this: Fellows never run in demo mode (`main.ts:289` requires
+      `!config.demoMode`), and the screenshot procedure does not use demo mode - it runs a
+      normal service against the demo vault and a demo DB. Seeding the DB is the path;
+      turning demo mode on is not.
+- [ ] `scripts/shoot-screens.mjs` knows five screens and none of the new Fellow surfaces.
+      Add them: the Fellow command centre, the recap, the night view, the reading list.
+- [ ] Re-shoot every existing image. **[corrected] They are older than "dated 2026-09-05"
+      suggests** - that is the working-tree mtime from a checkout, not the content. By
+      commit date `home.png`, `graph.png`, `research.png`, `library.png` and `system.png`
+      are from **2026-08-27** (`f77548d`, the redesign merge) and `social-preview.png` from
+      **2026-07-19** (`b52c19e`). So `library.png` predates everything now in the Library
+      screen, and the re-shoot is a bigger job than a refresh.
+- [ ] Check every image before committing: no real page title, no real domain name, nothing
+      from `~/vault`. The generator invents its subject matter, but the screenshot is taken
+      against whatever `VAULT_ROOT` points at, and pointing it at the wrong vault is one
+      environment variable away. (The current images were checked byte-wise for the terms
+      the audit found and carry none of them, but a PNG cannot be grepped for what it
+      *shows* - the only reliable check is looking at each one.)
+
+## 6. Repo hygiene
+
+- [ ] `.claude/settings.local.json` is **tracked** although `.gitignore:39` lists it
+      **[corrected: the file said `.gitignore:21`]** (it was committed before the rule, and
+      an ignore rule does not reach a tracked file). It carries a local path
+      (`/home/benjamin/.config/vault-service/**`). `git rm --cached` it.
+- [ ] `scripts/timelapse/frames.cjs` and `video.cjs` hold hardcoded `/home/benjamin` paths.
+      Take them from the environment or from an argument. (Both are `require()` of a
+      playwright inside an npx cache directory, so they are broken for anyone else anyway,
+      not merely leaky.)
+- [ ] `package.json` is named `vault-service` while the product is LibrisVault. The
+      `repository` field is already correct. Decide whether the package name follows.
+- [x] **`npm test` exits 1 although all 1819 tests pass**: an unhandled rejection in
+      teardown, "TypeError: The database connection is not open".
+      **Fixed 2026-09-15 (F-A6-15). `npm test` now exits 0, 1819 tests, no errors.**
+      **[corrected] This IS A-series fallout, contrary to what this file said.** The earlier
+      "reproduces with the branch stashed" reading was a stash of the four modified working
+      -tree files, not of the 280 commits. Proven 2026-09-15 (F-A6-1): the failing frame is
+      `FellowService.planAfterFirst` (`server/src/pipeline/fellows.ts:773`) calling
+      `SqliteAgentStore.get` (`server/src/db/agents.ts:364`), raised from
+      `server/test/collaboration.test.ts`; **none of those three files exists at the base
+      commit** (`collaboration.test.ts` arrived with `85bd9e7`, A3), and the LibrisVault
+      baseline suite exits **0** with 1027 tests. The handle that outlives its close is the
+      fire-and-forget at `fellows.ts:747`, `this.enqueue(this.planAfterFirst(...))`: the
+      chained planning run resolves after the test has closed its database. Fix it at the
+      source (await or cancel the enqueued work on shutdown), not by silencing the reporter.
+
+      **How it was fixed, and why "await on shutdown" is only half of it.** Two changes, and
+      the reporter was not touched. (a) `collaboration.test.ts` awaits `service.flush()` in
+      its `afterEach` before closing the database - the service already had `flush` for
+      exactly this, the suite just never called it, so the chained plan finishes against an
+      open handle. (b) `FellowService.enqueue` now catches and logs, which is what `track`
+      already did inside its own handler; everything routed through `enqueue` is work the
+      caller returned without ("a courtesy and not a promise" is the code's own wording for
+      the chained plan).
+
+      (b) is not belt-and-braces, it closes the same hole in the SERVICE. `main.ts`'s `stop()`
+      calls `db.close()` and never flushes, there is no `process.on('unhandledRejection')`
+      anywhere in `server/src`, and Node's default has been to end the process on one since
+      v15. So a Fellow spawned shortly before a restart could take the shutdown down with it.
+      And awaiting on shutdown, which this entry proposed, would be the wrong half: the
+      chained work awaits `settled(runId)` on a RESEARCH run, so a `stop()` that waited for it
+      would hang for minutes. The enqueued work is meant to be lost on shutdown; it just must
+      not be lost loudly.
+- [x] **[added] `npm run typecheck` was red**, four errors, all in server test files, all
+      stale fixtures against types that moved. **Fixed 2026-09-15**, each one by following
+      the type rather than widening it:
+      `collaboration.test.ts:172` `runsLeftToday` -> `runsLeftTonight` (the quota counts the
+      night, not the calendar day, since 2026-09-14);
+      `library.test.ts:181` and `:267` `runsToday` -> `runsTonight`, and the two fields
+      `FellowSummary` has gained since the fixture was written (`queue`, `skipsTonight`)
+      added to both;
+      `shift.test.ts:188` the reading stub now returns `held`, derived honestly as
+      `e.filed !== null` - an entry that was filed is one whose document the vault holds,
+      which is what `locate()` decides in the real service.
+      Note why nothing else caught these: `tsconfig.build.json` excludes `test/`, so the
+      build stayed green, and vitest does not typecheck, so the suite stayed green.
+      `npm run typecheck` now exits 0 for both workspaces.
+- [ ] **[added] `npm run lint` at the root never lints `web`.** Root is
+      `"lint": "npm run lint --workspace server"`, while `web/package.json` does carry
+      `"lint": "eslint ."` and the A-series added the whole eslint toolchain to that
+      workspace (the only dependency change on the web side). It passes when run by hand,
+      but the acceptance gate in section 8 does not cover it. Make the root script run both.
+- [ ] `preprocprobe` has no npm script although CLAUDE.md hard rule 6 mandates running it
+      after any change to the converter wiring. Add it beside `permprobe`, and while there
+      check the other CLI entry points that hard rules or task files reference
+      (`quoteprobe`, `oasweep`, `usageprobe`, `readingsweep`, and also `backfill-sources`
+      and `graph-timelapse`, which likewise have none).
+- [ ] Apply D3 to every occurrence of the fork name.
+
+## 7. Private-content audit (hard rule 7)
+
+- [ ] **The hook has three blind spots, not one, and content has already gone through all
+      of them.** **[corrected and widened from the original single finding.]**
+      1. It builds its denylist from **whole page-title stems**, so a fixture naming a
+         substring of a title passes: the vault page's title ends in a parenthesised
+         publisher, and the fixture wrote that parenthetical on its own, which is a stem of
+         nothing.
+      2. It reads only `wiki/entities/` and `wiki/sources/`. The A-series made the Fellows
+         write `wiki/questions/`, `wiki/comparisons/`, `wiki/folds/` and
+         `wiki/references/` - **none of them on the denylist**, and the single most verbatim
+         leak found below is exactly a `questions/` title.
+      3. It scans **commit messages only**. Every finding below is in *file content*, which
+         the hook structurally cannot see, and `gh pr create` text is not a commit message
+         either, so the PR body - which section 9 correctly calls the likeliest leak - is
+         unguarded.
+      Extend the hook where it is cheap (fragments, all buckets), and document the limit in
+      the hook header for the rest, so the next person does not trust it further than it
+      goes. A file-content check before the PR is the part that actually protects this merge.
+- [x] **Generalise the names the A-series would newly add. Done 2026-09-15 (F-A6-13).**
+      Found by matching title fragments (parenthetical parts, the part before the
+      parenthesis, comma-separated parts, handles) from **every** vault bucket against the
+      files this merge adds. Seven sites, two of them production code, two of them found
+      only on the second pass:
+      - `web/src/components/library/SpawnForm.tsx` - **both placeholders**, not one. The
+        deepen example named a real vault research subject; the watch example was the
+        opening words of a real `wiki/questions/` page title, verbatim. These ship to every
+        user.
+      - `server/src/pipeline/deepen-rank.ts:9` - production comment, same subject.
+      - `server/test/tasks.test.ts` - the same subject as scope-score and ranking fixtures.
+      - `server/test/dedupe-judge.test.ts` - a near-verbatim `wiki/questions/` title as the
+        judge's first pair. Missed by the first pass because the real title is long and
+        comma-separated; caught once the fragmenter split on commas too.
+      - `web/test/markdown.test.tsx` - a real concept page title verbatim, with a comment
+        that said "Found in the wild", which marked its own provenance.
+      - `server/test/fellows.test.ts` - a real source page title, four times as a run label.
+      - `server/test/command-model.test.ts` - already generalised in the working tree before
+        this pass; kept.
+      **The replacement vocabulary, so the next fixture follows it rather than inventing a
+      third convention:** an invented materials-engineering register (sintering shrinkage,
+      ceramic electrolytes, weld porosity, creep resistance, adaptive mesh refinement), each
+      term checked to appear **zero** times anywhere under `~/vault/wiki` before use. Where a
+      fixture needed a specific shape it was preserved: the markdown test still carries a
+      parenthesised abbreviation inside a bold wikilink, because that shape is the bug it
+      pins; the dedupe-judge pair is still one formal phrasing against one colloquial
+      paraphrase. Domain keys moved from a real registry key to a neutral one where the key
+      itself carried the subject. All 1819 tests still pass and both lints are clean.
+- [ ] **[added] The audit covered code and fixtures; the TASK FILES were not swept, and at
+      least one carries a verbatim quote naming two real research subjects.**
+      `docs/tasks/TASKS-A7.md` 6.4 quotes a planning run against the production vault, and the
+      quote names the two standing tasks of one Fellow. That quote is the EVIDENCE for the
+      finding it sits under (the planner said out loud why it had nothing to propose), so
+      generalising it costs something real and it is a decision, not a scrub: rewrite it with
+      the F-A6-13 vocabulary, or keep it deliberately.
+      **Why nothing caught it, which is the part worth generalising** (F-A6-17): the term list
+      of F-A6-7 is built from vault PAGE TITLES, and a standing task's subject is not one - the
+      task lives in SQLite, and the pages a watch produces are named for their findings, not
+      for the watch. So the audit is blind to exactly the material the A-series generates most
+      of: run output quoted into a design record. Sweep the other task files for the same
+      shape - a quoted run, recap or planner answer - rather than for names.
+      **This file was the first one swept, 2026-09-15.** It quoted, as evidence for its own
+      findings, two of the very strings section 7 had just removed from the code: a vault
+      entity name illustrating the hook's stem matching, and the opening words of a
+      `wiki/questions/` title, twice. All three now describe the SHAPE of what was found
+      instead of reproducing it, and none of the findings lost anything - the hook's blind
+      spot is that a parenthetical is a stem of nothing, not which publisher it named.
+      Which is the argument for doing the same to the rest: an audit record that quotes its
+      own findings is a leak with a footnote.
+      **Not a finding: the Fellow names.** 6.3 and 6.4 name two Fellows, and both names come
+      from `web/src/lib/fellowNames.ts`, the product's own suggestion list. They ship in this
+      repo already and say nothing about anyone's vault. Only the subjects matter.
+- [x] **Finish the generalisation already in the working tree. Done 2026-09-15.**
+      `validator.test.ts` had the handle replaced but still carried two concept pages from
+      the same private subject (lines 301 and 302); both are now invented names. A partial
+      rename reads as done and is not.
+- [ ] The already-public names are more than the two X handles this file assumed
+      **[corrected]**. LibrisVault's history and current tree carry: three real patent
+      source pages (`web/test/linkify.test.ts`), a real question page title verbatim
+      including its filename form (`web/test/researchRuns.test.ts`), two real concept pages
+      (`server/test/graph.test.ts`), a real concept page title in
+      `web/test/homeArticle.test.ts` that the working-tree pass left behind because it was
+      not the one it was looking for, and the vault's actual domain description with its
+      real tag list in the seed page `scripts/vault-extensions/domains.md:52-57`, one tag of
+      which is a distinctive codename rather than a generic term. Decide whether that is
+      accepted or whether the history gets rewritten, and record the decision - but decide
+      it against this list, not against "two handles". Note that these files are NOT part of
+      the fix made on 2026-09-15: that pass deliberately touched only what this merge would
+      newly publish, because generalising an already-public fixture changes nothing about
+      what is already in the history and pre-empts this decision.
+- [ ] Re-run the audit over the final merge diff, both commit messages and added lines, and
+      over `docs/img/`. Record the method and the result under Findings so the next merge
+      can repeat it rather than reinvent it. (Method and first result: F-A6-7.)
+- [ ] Confirm `docs/local/` and `docs/studio/` are still excluded and still hold nothing
+      that belongs in the public repo. **[corrected] They are excluded by
+      `.git/info/exclude`, not by `.gitignore`** - a local, per-clone mechanism that travels
+      with nothing and that no reviewer can see. Say so wherever this is relied on.
+- [ ] **[added] The LibrisVault clone holds an un-ignored private file.**
+      `~/dev/BrainVault/docs/tasks/TASKS-BIOAGENTKG.md` is untracked and matched by **no**
+      ignore rule (`.git/info/exclude` there is empty), sitting in a directory that is
+      otherwise fully tracked. One `git add -A` in that clone commits it. Its counterpart in
+      this repo is correctly under `docs/local/`. Move it, ignore it, or delete it before
+      the merge is prepared from either clone.
+
+## 8. Tests and gates
+
+Status as measured 2026-09-15, on the working tree:
+
+| Gate | Result |
+|---|---|
+| `npm test` | exit 0, 1819 tests pass (server 1246/82 files, web 573/52) (was exit 1; fixed 2026-09-15, F-A6-15) |
+| `npm run typecheck` | exit 0 for both workspaces (was exit 2; fixed 2026-09-15, F-A6-2) |
+| `npm run lint` | exit 0, but does not cover `web`; `web` lints clean when run directly (F-A6-9) |
+| `npm run build` | exit 0 |
+| `preprocprobe` | **PASS**, "the jail holds" (F-A6-5) |
+| `permprobe` | not run - it starts a real, billable agent run |
+
+- [x] `npm test`, `npm run typecheck`, `npm run lint` green **and exit 0** (section 6). All
+      three measured 2026-09-15 after F-A6-15 and F-A6-2. `lint` still does not cover `web`
+      (F-A6-9), so this gate is met by the letter of the script and not yet by its intent.
+- [ ] `npm run permprobe --workspace server`: expect `canary outside vault: blocked`.
+- [ ] `preprocprobe`: **[corrected] expect 14 ok lines**, not the 13 that
+      `docs/agents/ideas.md:829` records from an earlier run. Reconcile the number in
+      ideas.md with what the probe prints, or say which line is not a check.
+- [ ] The flag-off test from section 1.
+- [ ] A build from a clean clone: `npm ci && npm run build` on a machine that has never seen
+      this repo, so the README's quick start is verified rather than remembered.
+- [ ] **[added] Neither repo has any CI** (no `.github/` at all in either). Every gate above
+      is caught only by whoever remembers to run it, which is how a red `npm test` and a red
+      `npm run typecheck` both survived into merge preparation. A minimal workflow running
+      test, typecheck, lint and build on push is the cheap way to make section 8 hold after
+      the merge rather than only during it.
+
+## 9. The pull request
+
+- [ ] Rebase onto LibrisVault `main`, which is one commit ahead (`70b55fa7`, dependencies).
+      **[added] The conflict is known and carries a security regression risk.** That commit
+      touches exactly `package-lock.json` and `server/package.json`, and those are the only
+      two files both sides changed. It is a security patch set: fastify 5.12.3, qs 6.16.0,
+      vitest 4.1.11 (mocker path traversal in the dev server), postcss, browserslist. This
+      branch still runs **vitest 4.1.10**. Resolving the conflict in favour of our lockfile
+      would silently revert all of it. Take upstream's versions and re-resolve on top; then
+      re-run the gates, because the vitest bump crosses a patch version under 82 test files.
+- [ ] **[added] Worth stating in the PR body, because it is the strongest thing about this
+      merge:** the A-series added **zero new server dependencies**. The web workspace gained
+      only lint tooling (`eslint`, `eslint-plugin-react-hooks`,
+      `eslint-plugin-react-refresh`, `typescript-eslint`, `globals`, `@eslint/js`). 303
+      files and 61k added lines, no new runtime supply chain.
+- [ ] PR title and description describe the change by its mechanism, never by a vault
+      subject (hard rule 7). This is the text most likely to leak, because it is the one
+      written last and in a hurry - **and the `commit-msg` hook does not see it at all**
+      (section 7). Read it once against the audit term list before opening the PR.
+- [ ] After the merge: tag it, and update `docs/agents/SPEC.md` section 15 to what was
+      actually delivered, with every deviation recorded below.
+
+## 10. Findings
+
+- **F-A6-17 (2026-09-15) - the private-content audit is blind to quoted run output, which is
+  what the A-series produces most of.** F-A6-7 built its 2325 terms from vault page titles in
+  every bucket. A Fellow's standing task is not a page title: it lives in `agents.tasks` in
+  SQLite, and the pages a watch task produces are named for what they found, not for the watch.
+  So a design record that quotes a planning run verbatim - which is the most persuasive kind of
+  evidence in these task files, and the reason several findings are believable at all - passes
+  the audit untouched. `docs/tasks/TASKS-A7.md` 6.4 is one such quote, naming two real research
+  subjects. The generalisation: sweep the task files for quoted RUN OUTPUT (planner answers,
+  recap text, log lines), not for names, and add the term source the audit cannot see -
+  `agents.tasks`, `agents.intent`, `agents.scope` out of the operational database.
+- **F-A6-15 (2026-09-15, FIXED same day) - the `npm test` exit is closed, and it was a
+  service bug as well as a test bug.** F-A6-1 identified the frame; this is the fix. The test
+  half: `collaboration.test.ts` never called `FellowService.flush`, which exists for this, so
+  its `afterEach` closed the database under a spawn's chained planning run (the spawn happens
+  through the recap answer path `spawn u1 <name>`, where `runFirstStep` is not set and
+  therefore defaults to on - which is why the tests that pass `runFirstStep: false`
+  explicitly, and the test named in the reporter, were all innocent). The service half:
+  `enqueue` pushed unguarded promises, `main.ts`'s `stop()` closes the database without
+  flushing, and nothing in `server/src` handles `unhandledRejection` - so the same frame ends
+  the PROCESS if a Fellow is spawned shortly before a restart. `enqueue` now catches and logs,
+  the way `track` already did one level down. Awaiting the work on shutdown instead would hang
+  `stop()` for minutes, because the chained plan awaits a research run's `settled`.
+  Verified: `npm test` exits 0 (server 82 files / 1246 tests, web 52 / 573), `npm run
+  typecheck` exits 0 for both workspaces.
+- **F-A6-16 (2026-09-15, FIXED same day) - the fork's own detail spec described a deleted
+  component, and D2 assumed it would need no edits.** `docs/agents/SPEC.md` 10.5 "Fellow card"
+  and 10.6's "Open card (switches to full mode with the docked card)" were the sidebar that
+  `FellowCard.tsx` deletion removed the same day; the Fellow command centre, which is the
+  entire A7 milestone, had no section of its own (one line in 8.6a). Three further claims
+  shared the single cause and were corrected with it: 10.11 still specified "one task a night,
+  in turn" as built behaviour although `nightly` defaults to `sweep` since A7 stage B, 8.6a
+  compared its two-step grant to a quota override on the card that is now one button in the
+  dossier, 10.8 illustrated a tile size with "the docked-card view", and 10.10 named the card
+  as a deepen entry point (it is the shelf window). Method: the pattern the spec already uses,
+  a design-era section kept with a dated superseded note and an "(as built)" section beside
+  it; new 10.12. Worth stating because of what it implies for the merge: **a spec section that
+  says "(as built)" ages exactly like code and nothing checks it** - 10.11 was written
+  2026-09-07 and was wrong by 2026-09-09, two days later, with no test able to notice.
+- **F-A6-1 (2026-09-15) - the `npm test` exit 1 is A-series fallout, not pre-existing.**
+  Frame: `FellowService.planAfterFirst` (`server/src/pipeline/fellows.ts:773`) ->
+  `SqliteAgentStore.get` (`server/src/db/agents.ts:364`), raised from
+  `server/test/collaboration.test.ts` ("a question for a domain nobody covers is unclaimed at
+  once"). Method: `git cat-file -e 156660f1:<path>` for all three files - none exists at the
+  base; `collaboration.test.ts` was added by `85bd9e7` (A3, 2026-09-06). Counter-check: the
+  LibrisVault clone at `156660f1` runs `npm test` to **exit 0**, 1027 tests (server 747/53
+  files, web 280/25). Cause: `fellows.ts:747` enqueues `planAfterFirst` fire-and-forget; the
+  chained plan resolves after the test closes its database. The earlier "pre-existing"
+  reading came from stashing the four modified files rather than the 280 commits.
+- **F-A6-2 (2026-09-15, FIXED same day) - `npm run typecheck` exited 2.** Four errors, all
+  stale test fixtures: `PlannerInput` renamed `runsLeftToday` to `runsLeftTonight`,
+  `FellowSummary` renamed `runsToday` to `runsTonight` and gained `queue` and `skipsTonight`
+  (twice), `ReadingEntry` gained a required `held`. Fixed by following the types, not by
+  widening them or casting. Invisible to build (tests excluded from `tsconfig.build.json`)
+  and to vitest (no typecheck), which is why they survived: **a green suite is not a green
+  typecheck in this repo**, and the milestone gate has to run both.
+- **F-A6-3 (2026-09-15) - D1's split is real but has a seam.** The fence is wired
+  unconditionally into `preprocess/plugins/office.ts:65,84`, `pdf.ts:148`, `text.ts:93` and
+  `preprocess/web.ts:519`; `DEFAULT_OA_RECOVERY = true` (`db/settings.ts:168`). But the
+  reading-list sweep runs inside `NightShift` (`main.ts:370`) and is therefore behind the
+  flag, so it is source-integrity work on the Fellows' schedule. Section 1 demanded the
+  opposite of D1 on this point; both are corrected above.
+- **F-A6-4 (2026-09-15) - `health.fellows` is a boolean.** `routes/health.ts:21` sends
+  `ctx.fellows !== undefined`; `web/src/api/types.ts` types it `fellows?: boolean`; three
+  call sites read `=== true`. The `'on'`/`'off'` at `config.ts:389` belongs to the startup
+  log banner. A flag-off test must assert falsy, not `'off'`.
+- **F-A6-5 (2026-09-15) - `preprocprobe` passes, 14 ok lines.** bubblewrap available;
+  credential file, vault and `$HOME` blocked; the service API and the internet blocked; a
+  write outside the output directory allowed *and* verified not to reach the host; pandoc,
+  pandoc-JATS, pdftotext, python3 packages and defuddle all run. "PASS - the jail holds."
+  `docs/agents/ideas.md:829` records 13 from an earlier run.
+- **F-A6-6 (2026-09-15) - the flag surfaces in this file are all accurate.** Every line
+  reference in section 1 was checked and every one matches. Route registration is by injected
+  presence (`server.ts:180-207`), with `main.ts` turning the flag into presence. The agent
+  tables are created by migrations regardless of the flag; there are 29, gated by
+  `PRAGMA user_version`, and none steps down.
+- **F-A6-7 (2026-09-15) - private-content audit, method and result.** Method: build a term
+  list from every `wiki/*` bucket (not only entities and sources) as page-title stems **plus
+  fragments** - the part before a parenthesis, each parenthetical part, the part before a
+  colon or dash - plus `@handle` and `0x_` handles found in page bodies; drop terms under
+  five characters and terms that are entirely generic vocabulary; match case-insensitively
+  with word boundaries against (a) all 280 commit messages, (b) the added lines of
+  `git diff 156660f1...HEAD`, (c) the full tracked tree. 2325 terms.
+  Result: **commit messages clean** - the only matches were attribution trailers
+  ("Claude", "Anthropic"), "hot cache" and "Claude Code", all legitimate product or
+  attribution vocabulary. **No secrets anywhere**: no `sk-ant-`, no token assignment, no
+  bot token, no chat id. **File content not clean**: five places the A-series would newly
+  publish, listed in section 7, of which two are production code rather than tests; plus a
+  wider set already public in LibrisVault, also listed there. Re-run this with the same
+  method over the final diff before opening the PR.
+- **F-A6-8 (2026-09-15) - the `commit-msg` hook cannot catch any of F-A6-7.** It scans the
+  message only, builds its list from `wiki/entities/` and `wiki/sources/` only, and matches
+  whole stems only. Each of the three limits is independently sufficient to miss the findings
+  above. The vault currently holds 35 `questions/`, 3 `comparisons/`, 1 `folds/` and 2
+  `references/` pages, all written by A-series runs, all invisible to the hook.
+- **F-A6-13 (2026-09-15) - the fix pass, and the two sites the first audit missed.** Seven
+  sites generalised in files this merge adds; the full list and the replacement vocabulary
+  are in section 7. Two were found only on the second pass and both matter for how the next
+  audit is run: `SpawnForm.tsx`'s **watch** placeholder (the first pass reported only the
+  deepen one, because the phrase reads as ordinary vocabulary of its field until you grep the
+  vault and find 21 files and a `questions/` page opening with exactly those words), and `server/test/dedupe-judge.test.ts` (missed because the real page title is long
+  and comma-separated, so no fragment of it matched until the fragmenter split on commas).
+  **Lesson for the re-run in section 7: a generic-sounding phrase is not evidence of
+  anything - grep the vault for it before dismissing it, and split title fragments on commas
+  as well as on parentheses, colons and dashes.** After the pass, a re-scan of all 187 added
+  files against 2509 title fragments returns five matches, all product vocabulary: "hot
+  cache" (a documented LibrisVault feature), "Claude Code", "AI assistant" in a
+  prompt-injection fixture, "assessment report" in a deliberately generic fixture, and one
+  parenthetical fragment matching ordinary prose. Tests stayed at 1819 passing, both lints
+  clean, typecheck 0.
+- **F-A6-14 (2026-09-15) - a shell trap that corrupted the first classification, recorded so
+  the re-run does not repeat it.** Under zsh, `git cat-file -e $B:server/test/x.ts` does
+  **not** mean what it reads as: `:s` and `:w` are history modifiers, so the parameter
+  expansion is mangled and the command reports a file as absent from the base commit
+  whatever the truth is. The first pass used that form to decide "new in the A-series" vs
+  "already public" and got answers that happened to be right, which is worse than being
+  wrong. **Use `git diff --name-status <base>...HEAD | awk '$1=="A"'` as the authority on
+  what a merge adds**, or quote the argument (`"$B:$f"`). Re-verified with the name-status
+  list: all seven fixed sites are genuinely added by this merge, and
+  `web/test/homeArticle.test.ts`, `web/test/researchRuns.test.ts`, `web/test/linkify.test.ts`
+  and `server/test/validator.test.ts` are genuinely already in LibrisVault.
+- **F-A6-9 (2026-09-15) - the root lint gate skips the web workspace.** `web` has its own
+  `lint` script and its own eslint toolchain; the root script names only `server`. Web lints
+  clean today, so this is a gap in the gate rather than a defect.
+- **F-A6-10 (2026-09-15) - OA recovery is default-on and talks to three external services**
+  during ingest: `api.openalex.org`, `api.core.ac.uk`, `www.ebi.ac.uk`. Service egress, not
+  agent egress, so hard rule 4 stands - but it is undocumented and reaches every install
+  that upgrades. See D5.
+- **F-A6-11 (2026-09-15) - the screenshots are from 2026-08-27, not 2026-09-05.** The later
+  date is the working-tree mtime; by commit the five screens are `f77548d` (2026-08-27) and
+  `social-preview.png` is `b52c19e` (2026-07-19).
+- **F-A6-12 (2026-09-15) - no CI in either repo, and the LibrisVault clone holds an
+  un-ignored private task file** at `docs/tasks/TASKS-BIOAGENTKG.md`. See sections 8 and 7.
