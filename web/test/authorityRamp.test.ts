@@ -1,0 +1,86 @@
+/**
+ * The authority lens's colour ramp.
+ *
+ * Worth its own test because the whole point of the ramp is a property, not an appearance:
+ * more backlinks must never be harder to see than fewer, and the difference has to live in
+ * the channel a six-pixel dot is actually read by. The version this replaced spanned a
+ * quarter of the lightness axis and mixed in raw sRGB, which is why a dense domain came out
+ * as one colour with a few bright dots.
+ */
+
+import { describe, expect, it } from 'vitest'
+import { authorityGradient, authorityRamp, isDarkSurface } from '../src/components/GraphCanvas.tsx'
+
+const rgb = (css: string): [number, number, number] => {
+  const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(css)
+  if (m === null) throw new Error(`not an rgb() colour: ${css}`)
+  return [Number(m[1]), Number(m[2]), Number(m[3])]
+}
+/** Relative luminance, which is what "lighter or darker" means to an eye. */
+const lum = ([r, g, b]: [number, number, number]): number => {
+  const lin = (u: number): number => (u / 255 <= 0.04045 ? u / 255 / 12.92 : ((u / 255 + 0.055) / 1.055) ** 2.4)
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+const BLUE = '#3059c8'
+const steps = (base: string, dark: boolean): number[] =>
+  [0, 0.25, 0.5, 0.75, 1].map((t) => lum(rgb(authorityRamp(base, t, dark))))
+
+describe('the authority ramp', () => {
+  it('moves monotonically through lightness, in both themes', () => {
+    // Light theme: more backlinks, darker page. Dark theme: the other way round. Either way
+    // the order is strict - two pages that differ in backlinks differ on the axis.
+    const light = steps(BLUE, false)
+    expect(light).toEqual([...light].sort((a, b) => b - a))
+    expect(new Set(light).size).toBe(light.length)
+    const dark = steps(BLUE, true)
+    expect(dark).toEqual([...dark].sort((a, b) => a - b))
+    expect(new Set(dark).size).toBe(dark.length)
+  })
+
+  it('uses most of the lightness axis, not a corner of it', () => {
+    // The number that decides whether the lens works. The old ramp managed ~0.15 of relative
+    // luminance end to end in the light theme; anything under about half that is a repeat of
+    // the bug this replaced.
+    for (const dark of [false, true]) {
+      const s = steps(BLUE, dark)
+      expect(Math.abs(s[s.length - 1]! - s[0]!)).toBeGreaterThan(0.35)
+    }
+  })
+
+  it('keeps each domain on its own hue', () => {
+    // The palette hands out `hsl(...)`, which is the format the ramp has to be able to read -
+    // a base it cannot parse would fall back to one colour and collapse every domain into it.
+    const a = rgb(authorityRamp('hsl(20 62% 52%)', 0.8, false))
+    const b = rgb(authorityRamp('hsl(200 62% 52%)', 0.8, false))
+    expect(a).not.toEqual(b)
+    // Warm base stays warm (more red than blue), cool base stays cool.
+    expect(a[0]).toBeGreaterThan(a[2])
+    expect(b[2]).toBeGreaterThan(b[0])
+    // ...and both still sit at the same point on the lightness axis, so the hue says WHERE
+    // and the lightness says HOW MUCH, without the two reading each other's message.
+    expect(Math.abs(lum(a) - lum(b))).toBeLessThan(0.08)
+  })
+
+  it('falls back rather than throwing on a colour it cannot read', () => {
+    expect(authorityRamp('not a colour', 0.5, false)).toMatch(/^rgb\(/)
+  })
+
+  it('renders as a gradient with a stop at each quarter', () => {
+    const g = authorityGradient(BLUE, false)
+    expect(g.startsWith('linear-gradient(90deg, ')).toBe(true)
+    expect(g.match(/rgb\(/g)).toHaveLength(5)
+    expect(g).toContain('0%')
+    expect(g).toContain('100%')
+  })
+})
+
+describe('isDarkSurface', () => {
+  it('reads the surface colour rather than the media query', () => {
+    // Asked of the token in force, so the ramp follows the theme however the theme is chosen.
+    expect(isDarkSurface('#131928')).toBe(true)
+    expect(isDarkSurface('#ffffff')).toBe(false)
+    expect(isDarkSurface('rgb(236, 239, 246)')).toBe(false)
+    // Unreadable input assumes dark, which is this app's base theme.
+    expect(isDarkSurface('')).toBe(true)
+  })
+})

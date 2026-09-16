@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { staleLinks, useStaleLinks } from '../lib/staleLinks.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
-import { GraphCanvas, domainColor, TYPE_VARS, type Lens } from '../components/GraphCanvas.tsx'
+import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
@@ -731,7 +731,7 @@ function GraphView({
   // of the focused page. Indices are remapped so the canvas gets a dense, self-contained
   // graph - that is also what keeps the force layout small in local mode on a huge vault.
   // When the gaps view is on, the unresolved targets are appended as synthetic ghost nodes.
-  const { nodes, edges, focusIndex, ghostIndices, realCount, matches, typeCounts } = useMemo(() => {
+  const { nodes, edges, focusIndex, ghostIndices, realCount, matches, typeCounts, authority } = useMemo(() => {
     /*
      * Two masks through one pipeline (2026-09-16). `keep` is what gets drawn. `pool` is the
      * same set MINUS the type filter, and it is what the type chips count: a section that
@@ -914,13 +914,23 @@ function GraphView({
     // What the type chips show: the drawn set counted by type, with the type filter itself
     // left out of it. A type the other filters leave nothing of reads 0 rather than vanishing -
     // six chips are a shelf you learn the position of, unlike the domain rows below them.
+    /*
+     * The backlink range of what is DRAWN, for the authority legend. A gradient labelled "few
+     * to many" cannot be read back: a reader looking at a dot has no way to turn its colour
+     * into a count, which is the one question that lens exists to answer.
+     */
+    const ins: number[] = []
+    for (let i = 0; i < realCount; i++) ins.push(nodes[i]!.in)
+    ins.sort((a, b) => a - b)
+    const authority = ins.length > 0 ? { min: ins[0]!, median: ins[ins.length >> 1]!, max: ins[ins.length - 1]! } : null
+
     const typeCounts = new Map<string, number>()
     const counted = pool ?? keep
     graph.nodes.forEach((n, i) => {
       if (counted[i]) typeCounts.set(n.type, (typeCounts.get(n.type) ?? 0) + 1)
     })
 
-    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, typeCounts }
+    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, typeCounts, authority }
   }, [graph, selectedTypes, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
 
   /*
@@ -1488,7 +1498,15 @@ function GraphView({
                   </button>
                 </div>
               )}
-              <LensLegend lens={effectiveLens} types={drawnTypes} offered={types} />
+              <LensLegend
+                lens={effectiveLens}
+                types={drawnTypes}
+                offered={types}
+                authority={authority}
+                /* One domain filtered = one hue on screen, so the bar can wear it. With
+                   several there is no single hue and the accent stands for the ramp's shape. */
+                authorityHue={selectedDomains.size === 1 ? domainColor([...selectedDomains][0]!) : null}
+              />
               {/*
                 * Both in the bottom RIGHT corner, side by side: these two are about the canvas
                 * rather than about what it shows, and the bottom left belongs to the trail,
@@ -2374,7 +2392,9 @@ const LENS_PAIRS: ReadonlyArray<readonly [Lens, Lens]> = [
 
 const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
   { key: 'domain', label: 'Domain', desc: 'one colour per field of knowledge' },
-  { key: 'authority', label: 'Authority', desc: 'brighter = more pages link here' },
+  // Not "brighter": since 2026-09-16 the ramp runs the other way in the light theme, where
+  // the most-linked page is the darkest one. "Stronger" holds in both.
+  { key: 'authority', label: 'Authority', desc: 'stronger colour = more pages link here' },
   { key: 'recency', label: 'Recency', desc: 'green = edited recently' },
   { key: 'type', label: 'Page type', desc: 'a colour per wiki bucket' },
   { key: 'orphans', label: 'Orphans', desc: 'red = nothing links here' },
@@ -2394,6 +2414,11 @@ const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
  * references, comparisons, folds, …) collapses to one muted "Meta / other" row - mirroring
  * colorFor(), which paints exactly those buckets muted.
  */
+/** The accent and the surface as the page renders them right now; both follow the theme. */
+const cssNow = (name: string, fallback: string): string => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+const accentNow = (): string => cssNow('--accent', '#5b8def')
+const darkNow = (): boolean => isDarkSurface(cssNow('--bg-elev', '#131928'))
+
 function typeRows(types: Array<[string, number]>): Array<{ label: string; cssVar: string }> {
   const present = new Set(types.map(([t]) => t))
   const colored = Object.entries(TYPE_VARS).filter(([, v]) => v !== '--muted')
@@ -2407,11 +2432,17 @@ function LensLegend({
   lens,
   types,
   offered,
+  authority,
+  authorityHue,
 }: {
   lens: Lens
   types: Array<[string, number]>
   /** Every type the panel offers here - what the legend RESERVES room for, see below. */
   offered: Array<[string, number]>
+  /** The backlink range of what is drawn; the authority bar's three labels. */
+  authority: { min: number; median: number; max: number } | null
+  /** The hue the ramp is built on when a single domain is filtered; null = the accent. */
+  authorityHue: string | null
 }): React.ReactElement | null {
   let body: React.ReactNode = null
   if (lens === 'type') {
@@ -2446,10 +2477,25 @@ function LensLegend({
         </>
       ) : null
   } else if (lens === 'authority')
+    /*
+     * The bar carries the numbers it stands for (2026-09-16): the least and most linked page
+     * on screen, and the median between them. Each label sits at the position its value
+     * actually maps to, not at an even third, so reading a dot back off the bar is possible
+     * at all. The bar itself is the live ramp, in the filtered domain's own colour where
+     * there is one.
+     */
     body = (
       <>
         <span className="ll-title">Authority</span>
-        <span className="ll-row"><i className="ll-grad ll-authority" /> few → many backlinks</span>
+        <span className="ll-auth">
+          <i className="ll-grad ll-auth-bar" style={{ background: authorityGradient(authorityHue ?? accentNow(), darkNow()) }} />
+          <span className="ll-auth-ticks">
+            <span>{authority?.min ?? 0}</span>
+            <span>{authority?.median ?? 0}</span>
+            <span>{authority?.max ?? 0}</span>
+          </span>
+          <span className="ll-auth-cap">backlinks</span>
+        </span>
       </>
     )
   else if (lens === 'orphans')

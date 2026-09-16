@@ -202,10 +202,101 @@ function parseRgb(color: string): [number, number, number] | null {
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
   }
   const rgb = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i.exec(s)
-  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : null
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
+  // The domain palette is generated as `hsl(<hue> 62% 52%)`, so anything that wants to do
+  // arithmetic on a domain colour has to be able to read one (2026-09-16).
+  const hsl = /^hsla?\(\s*([\d.]+)(?:deg)?[,\s]+([\d.]+)%[,\s]+([\d.]+)%/i.exec(s)
+  if (!hsl) return null
+  const h = Number(hsl[1]) / 360
+  const sat = Number(hsl[2]) / 100
+  const li = Number(hsl[3]) / 100
+  const q = li < 0.5 ? li * (1 + sat) : li + sat - li * sat
+  const base = 2 * li - q
+  const channel = (t: number): number => {
+    const x = t < 0 ? t + 1 : t > 1 ? t - 1 : t
+    if (x < 1 / 6) return base + (q - base) * 6 * x
+    if (x < 1 / 2) return q
+    if (x < 2 / 3) return base + (q - base) * (2 / 3 - x) * 6
+    return base
+  }
+  return [Math.round(channel(h + 1 / 3) * 255), Math.round(channel(h) * 255), Math.round(channel(h - 1 / 3) * 255)]
 }
 
 /** Linear RGB interpolation between two CSS colors; falls back to `b` if either can't parse. */
+/**
+ * OKLab, for the one thing this file does that needs a perceptual colour space: the authority
+ * ramp. Mixing two colours channel-by-channel in sRGB (what `mixColor` does, and what the
+ * ramp used to do) bunches its steps - the middle sags into a muddy low-chroma stretch while
+ * the ends barely move - so pages a few backlinks apart came out the same colour.
+ */
+function srgbToLinear(u: number): number {
+  const v = u / 255
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+}
+function linearToSrgb(v: number): number {
+  const u = v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055
+  return Math.max(0, Math.min(255, Math.round(u * 255)))
+}
+function rgbToOklab(rgb: readonly number[]): [number, number, number] {
+  const r = srgbToLinear(rgb[0] ?? 0)
+  const g = srgbToLinear(rgb[1] ?? 0)
+  const b = srgbToLinear(rgb[2] ?? 0)
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
+}
+function oklabToCss(L: number, a: number, b: number): string {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
+  const r8 = linearToSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)
+  const g8 = linearToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)
+  const b8 = linearToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)
+  return `rgb(${r8}, ${g8}, ${b8})`
+}
+
+/** Whether the tokens currently in force are the dark set - asked of the colour, not of the
+ *  media query, so it follows the theme however the theme is decided. */
+export function isDarkSurface(bg: string): boolean {
+  const rgb = parseRgb(bg)
+  return rgb === null ? true : rgbToOklab(rgb)[0] < 0.5
+}
+
+/**
+ * A page's authority as a colour: `t` (0 = least linked, 1 = most) on a ramp built around one
+ * hue, which is the page's own DOMAIN (2026-09-16). Two facts in one channel - where a page
+ * belongs, and how much of the vault leans on it.
+ *
+ * LIGHTNESS carries the metric, and it carries it across the whole usable range. The old ramp
+ * mixed a grey toward the accent and spanned 26 of 100 L*, which is a quarter of the axis a
+ * six-pixel dot is read by: at that size the eye resolves lightness long before hue or chroma,
+ * so the lens showed a field of one colour with a few bright dots. This spans about 70, and
+ * chroma rises with it so the top of the ramp is the domain's colour at full strength.
+ *
+ * The low end is deliberately close to the background. That is the cost of the range, and it
+ * is the right way round: a page nothing links to should be the one that recedes.
+ */
+export function authorityRamp(base: string, t: number, dark: boolean): string {
+  const [, a, b] = rgbToOklab(parseRgb(base) ?? [90, 140, 240])
+  const chroma = Math.hypot(a, b) || 0.001
+  const L = dark ? 0.34 + 0.54 * t : 0.9 - 0.52 * t
+  // Scaled by the base's own chroma, so a muted domain colour stays muted and a vivid one
+  // reaches its full strength at the top of the ramp rather than being flattened to a norm.
+  const C = (dark ? 0.02 + 0.1 * t : 0.015 + 0.13 * t) * Math.min(1.6, 0.5 + chroma * 6)
+  return oklabToCss(L, (a / chroma) * C, (b / chroma) * C)
+}
+
+/** The same ramp as a CSS gradient, for the legend that has to explain it. */
+export function authorityGradient(base: string, dark: boolean): string {
+  const stops = [0, 0.25, 0.5, 0.75, 1].map((t) => `${authorityRamp(base, t, dark)} ${t * 100}%`)
+  return `linear-gradient(90deg, ${stops.join(', ')})`
+}
+
 function mixColor(a: string, b: string, t: number): string {
   const pa = parseRgb(a)
   const pb = parseRgb(b)
@@ -500,6 +591,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // Neutral floor for the metric-gradient lenses (a dim, low-contrast base the metric lifts from).
     const dimBase = mixColor(cssVar('--bg-elev-2', '#1f2637'), muted, 0.55)
     const nowMs = Date.now()
+    const darkSurface = isDarkSurface(cssVar('--bg-elev', '#131928'))
     const colorFor = (n: GraphNode): string => {
       switch (lens) {
         case 'domain':
@@ -507,9 +599,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         case 'type':
           return cssVar(TYPE_VARS[n.type] ?? '--muted', '#888')
         case 'authority':
-          // Rank-and-magnitude position on the ramp → dim-to-accent gradient: the vault's
-          // authorities light up, and the crowded middle still separates.
-          return mixColor(dimBase, cssVar('--accent', '#5b8def'), 0.1 + 0.9 * authorityT(n.in))
+          // On the page's own domain hue, with the accent standing in for a page that has no
+          // domain - see `authorityRamp` for why lightness carries the metric.
+          return authorityRamp(n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'), authorityT(n.in), darkSurface)
         case 'orphans':
           // No backlinks = unreachable except by search. Everything else recedes.
           return n.in === 0 ? cssVar('--err', '#e0645b') : dimBase

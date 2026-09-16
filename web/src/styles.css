@@ -3509,12 +3509,28 @@ span.head-slot { display: inline-block; }
 }
 /* Mirrors the ramp in GraphCanvas, which starts a touch off the neutral floor (t = 0.1)
    so the least-linked pages still read as pages rather than as background. */
-.lens-legend .ll-authority {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, color-mix(in srgb, var(--bg-elev-2) 45%, var(--muted)) 90%, var(--accent)),
-    var(--accent)
-  );
+/* The authority bar is painted from the live ramp, so there is no gradient here to keep in
+   step with the canvas - only the shape of the block and its three labels. */
+.lens-legend .ll-auth {
+  display: grid;
+  gap: 2px;
+  width: 132px;
+}
+.lens-legend .ll-grad.ll-auth-bar {
+  width: 132px;
+  height: 10px;
+  border-radius: 3px;
+}
+.lens-legend .ll-auth-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+.lens-legend .ll-auth-cap {
+  font-size: 10px;
+  color: var(--text-faint);
 }
 .lens-legend .ll-recency {
   background: linear-gradient(90deg, color-mix(in srgb, var(--bg-elev-2) 45%, var(--muted)), var(--ok));
