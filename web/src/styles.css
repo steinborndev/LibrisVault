@@ -2321,9 +2321,11 @@ details.hot-cache[open] summary {
    what a 222px head leaves beside the label, the clear × and the gaps (with 2px to spare),
    and gives each half 57px for a 42px label; no spacer element, since one would cost a
    gap of its own. */
-.gp-head .seg.dom-mode { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 122px; margin-left: auto; }
-.gp-head .seg.dom-mode button { justify-content: center; padding-inline: 0; min-width: 0; }
 .gp-head .dom-state { margin-left: auto; }
+/* The domain list's mode toggle: the View section's strip, one row under the heading. The
+   8px it stands off the heading is the head's own margin, so the two sections line up down
+   the panel without either of them naming a number. */
+.gp-lenses .lib-strip.gp-lens.dom-mode { margin-bottom: 8px; }
 /* The clear action beside the label: the × alone, square, in the head's height. Two sections
    carry one now (domains, and the Catalog's source types), and they must look the same. */
 .gp-head .btn.dom-clear,

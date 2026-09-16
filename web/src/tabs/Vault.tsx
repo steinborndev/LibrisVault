@@ -658,27 +658,24 @@ function GraphView({
   )
 
   /*
-   * The page-type chips, counted inside the domain scope - it sits below the domain rows in the
-   * file only because the room on show is needed to say what that scope is.
+   * Which page-type chips exist, and in what order: every type the vault holds, ranked by how
+   * much of it there is. Deliberately the WHOLE vault and not the current view (2026-09-16) -
+   * the numbers on the chips follow the view (`typeCounts`), the shelf itself does not. A list
+   * that dropped a type the moment a domain or a tag held none of it would rearrange itself
+   * under your hand on every arrow press, and the position of a chip is half of how you find
+   * it. A type the view has nothing of reads 0 and greys out instead.
    *
-   * The ORDER is the whole vault's, not the scope's: the chips are a fixed shelf you learn the
-   * position of, and re-sorting six of them under the cursor every time a domain is picked
-   * would make the list unreadable for the sake of a ranking nobody reads it for.
+   * The system filter still applies: with system pages hidden, the meta and root buckets are
+   * not dead chips, they are pages you have asked not to see.
    */
   const types = useMemo(() => {
     const counts = new Map<string, number>()
-    const overall = new Map<string, number>()
     for (const n of graph.nodes) {
       if (!showSystem && !isKnowledge(n)) continue
-      overall.set(n.type, (overall.get(n.type) ?? 0) + 1)
-      if (!inDomainScope(n)) continue
       counts.set(n.type, (counts.get(n.type) ?? 0) + 1)
     }
-    // A type you have PICKED stays listed at zero, the same rule the domain rows follow: it is
-    // still filtering the drawing, and a filter that has left the panel cannot be undone there.
-    for (const t of selectedTypes) if (!counts.has(t)) counts.set(t, 0)
-    return [...counts.entries()].sort((a, b) => (overall.get(b[0]) ?? 0) - (overall.get(a[0]) ?? 0) || a[0].localeCompare(b[0]))
-  }, [graph, showSystem, inDomainScope, selectedTypes])
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  }, [graph, showSystem])
   /** Turning the page drops any selection outside it: the room is the filter now. */
   const pickWing = useCallback(
     (id: string): void => {

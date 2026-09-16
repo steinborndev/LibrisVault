@@ -126,21 +126,37 @@ export function DomainSection({ domains, label, color, selected, onToggle, onPic
             <Icon name="x" />
           </button>
         )}
-        {/* The toggle, in two equal halves, at the right edge; without rooms there is only
-            the flat list. */}
-        {groups.length > 0 ? (
-          <div className="seg sm ink dom-mode" role="radiogroup" aria-label="Domain list">
-            <button role="radio" aria-checked={mode === 'all'} onClick={() => onMode('all')} title="Every domain in one list">
-              show all
+        {groups.length === 0 && <span className="gp-state dom-state">showing all</span>}
+      </div>
+      {/* A row of its own under the heading since 2026-09-16, in the same two-sided strip the
+          View section's lenses use and at the same distance from its heading: it is a choice
+          between two ways of listing, which is exactly what those strips say elsewhere, and
+          squeezed into the head it had 122px to say it in. Without rooms there is nothing to
+          choose and the head carries the state instead. */}
+      {groups.length > 0 && (
+        <div className="gp-lenses">
+          <div className="lib-strip gp-lens dom-mode" role="radiogroup" aria-label="Domain list">
+            <button
+              className={`rp${mode === 'all' ? ' on' : ''}`}
+              role="radio"
+              aria-checked={mode === 'all'}
+              onClick={() => onMode('all')}
+              title="Every domain in one list"
+            >
+              Show all
             </button>
-            <button role="radio" aria-checked={mode === 'wing'} onClick={() => onMode('wing')} title="One wing at a time: the room is the filter, and the arrows walk the rooms">
-              by wing
+            <button
+              className={`rp${mode === 'wing' ? ' on' : ''}`}
+              role="radio"
+              aria-checked={mode === 'wing'}
+              onClick={() => onMode('wing')}
+              title="One wing at a time: the room is the filter, and the arrows walk the rooms"
+            >
+              By wing
             </button>
           </div>
-        ) : (
-          <span className="gp-state dom-state">showing all</span>
-        )}
-      </div>
+        </div>
+      )}
       {group !== undefined && (
         <div className="dom-wing">
           <button className="prev" aria-label="Previous wing" title="Previous wing · ←" disabled={at <= 0} onClick={() => onWing(stepWing(groups, group.id, -1) ?? group.id)}>
