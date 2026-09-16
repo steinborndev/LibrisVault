@@ -185,9 +185,10 @@ export function Dropzone({
     <div className="intake-panel">
       <div
         className={`dropzone slim${over ? ' over' : ''}`}
-        // The window-level GlobalDrop also hears every drop. Without this mark a file dropped
-        // HERE was uploaded twice - once by this handler, once by the window's - and the
-        // second upload came back as a "duplicate" of the first, 30 ms apart (2026-09-05).
+        // The mark that tells the window-level guard this drop has an owner. It used to keep
+        // a second uploader off the file (a drop here went up twice, 30 ms apart, and the
+        // second came back a "duplicate" of the first, 2026-09-05); since that uploader was
+        // removed in 2026-09-16 it keeps the guard from swallowing what this handler wants.
         data-drop-target
         onDragOver={(e) => {
           e.preventDefault()

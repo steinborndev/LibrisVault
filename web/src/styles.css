@@ -4589,39 +4589,6 @@ kbd {
   text-align: center;
 }
 
-/* ---- Window-level drop overlay ---- */
-.dropveil {
-  position: fixed;
-  inset: 10px;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  border: 3px dashed var(--accent);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--accent) 10%, color-mix(in srgb, var(--bg) 72%, transparent));
-  pointer-events: none;
-}
-.dropveil-msg {
-  text-align: center;
-  color: var(--text);
-}
-.dropveil-msg svg {
-  width: 26px;
-  height: 26px;
-  color: var(--accent);
-}
-.dropveil-msg .big {
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 24px;
-  margin-top: 8px;
-}
-.dropveil-msg .small {
-  color: var(--text-dim);
-  margin-top: 5px;
-  font-size: 13.5px;
-}
-
 /* ---- Library ----
    It used to carry its own copy of the workspace grid and its own copy of the content box
    (`.lib-main`, which differed from `.box` by having a drop shadow - so the Library box sat

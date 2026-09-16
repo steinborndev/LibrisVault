@@ -7,7 +7,7 @@ import { useActiveRuns } from './hooks/useActiveRuns.ts'
 import { StatusPopover } from './components/StatusPopover.tsx'
 import { HoverTip } from './components/Tip.tsx'
 import { CommandPalette } from './components/CommandPalette.tsx'
-import { GlobalDrop } from './components/GlobalDrop.tsx'
+import { DropGuard } from './components/DropGuard.tsx'
 import { DemoNotice } from './components/DemoNotice.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Home } from './tabs/Home.tsx'
@@ -441,7 +441,7 @@ export function App(): React.ReactElement {
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      {!demoMode && <GlobalDrop />}
+      {!demoMode && <DropGuard />}
     </div>
   )
 }
