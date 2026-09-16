@@ -1056,17 +1056,38 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const [minX, maxX] = bounds(xs)
     const [minY, maxY] = bounds(ys)
-    const spanX = Math.max(1, maxX - minX)
-    const spanY = Math.max(1, maxY - minY)
-    const pad = 110 // room for the labels that sit around the rim
-    const k = Math.min(8, Math.max(0.15, Math.min((w - pad) / spanX, (h - pad) / spanY)))
+    /*
+     * A node is not its centre (fixed 2026-09-16). The extent above was the centres alone, and
+     * the frame then cut the outermost circles in half and their labels off entirely - worst
+     * on a small subgraph, where a handful of nodes zooms in far enough that a 12-unit radius
+     * is most of a hundred screen pixels. Two corrections, in the two spaces they belong to:
+     *
+     *   the RADIUS is world-space, so it widens the span;
+     *   the LABEL is screen-space (11px text, 13px line, 3px gap, whatever the zoom), so it
+     *   is a pad - and it hangs BELOW its node, which is why the pads are asymmetric.
+     */
+    let rMax = 0
+    for (let i = 0; i < pos.length; i += 2) {
+      if (Number.isNaN(pos[i]!)) continue
+      rMax = Math.max(rMax, radius(i / 2))
+    }
+    const spanX = Math.max(1, maxX - minX + 2 * rMax)
+    const spanY = Math.max(1, maxY - minY + 2 * rMax)
+    // Sideways the labels are centred on their nodes and reach further than any radius does;
+    // this is the old flat pad, kept, because a title's width is not worth measuring here.
+    const padX = 110
+    const padTop = 18
+    const padBottom = 40 // the label's own line, plus the gap above it and air below
+    const k = Math.min(8, Math.max(0.15, Math.min((w - padX) / spanX, (h - padTop - padBottom) / spanY)))
     transformRef.current = {
       k,
       x: -((minX + maxX) / 2) * k,
-      y: -((minY + maxY) / 2) * k,
+      // The usable box sits above the viewport's middle by half the difference of the pads,
+      // so the content has to move with it or the room made at the bottom is spent at the top.
+      y: -((minY + maxY) / 2) * k - (padBottom - padTop) / 2,
     }
     scheduleDraw()
-  }, [scheduleDraw, positionsRef, transformRef])
+  }, [scheduleDraw, positionsRef, transformRef, radius])
 
   // ---------------------------------------------------------------- layout worker session
   //
