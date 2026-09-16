@@ -8881,9 +8881,13 @@ tr:focus-within .rowacts {
  * what is left over: the right-hand slot swaps "Night shift" for a decisions count, and a
  * middle centred on the remainder would slide sideways every time it did.
  */
-.lib-headline.cc .lib-head-left, .lib-headline.cc .lib-head-right { flex: 1 1 0; min-width: 0; }
-.lib-headline.cc .lib-head-right { justify-content: flex-end; }
-.lib-headline.cc .lib-head-mid { flex: none; }
+/* The reading list's ring is the same thing in the same slot and wants the same centring:
+   its right-hand slot carries a line whose length nobody controls. Written as one rule with
+   both classes so the two cannot drift apart. */
+.lib-headline.cc .lib-head-left, .lib-headline.cc .lib-head-right,
+.lib-headline.rl .lib-head-left, .lib-headline.rl .lib-head-right { flex: 1 1 0; min-width: 0; }
+.lib-headline.cc .lib-head-right, .lib-headline.rl .lib-head-right { justify-content: flex-end; }
+.lib-headline.cc .lib-head-mid, .lib-headline.rl .lib-head-mid { flex: none; }
 .lib-headline .seg,
 .lib-headline .btn,
 .lib-headline .lib-strip { height: 28px; }

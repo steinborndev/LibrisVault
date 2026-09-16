@@ -874,7 +874,7 @@ export function LibraryScreen({
          * on the left, where you are in the middle, the one thing you can do here on the
          * right. Escape and the arrow keys do the rest, so no button repeats a key.
          */}
-        <div className={`graph-controls lib-headline${ccOpen ? ' cc' : ''}`}>
+        <div className={`graph-controls lib-headline${ccOpen ? ' cc' : board === 'reading' && shelf === null ? ' rl' : ''}`}>
           <div className="lib-head-left">
             {/*
              * One slot, whatever stands in it. The room's toggle when a room is what you are
@@ -1023,7 +1023,7 @@ export function LibraryScreen({
                 {...(createWing.isPending ? {} : { onNewWing: () => createWing.mutate() })}
               />
             )}
-            {!ccOpen && shelf === null && board !== null && (
+            {!ccOpen && shelf === null && board !== null && board !== 'reading' && (
               <span className={`lib-open${board === 'recap' ? ' home-where' : ''}`}>
                 {board === 'recap' ? (
                   <>
@@ -1081,6 +1081,10 @@ export function LibraryScreen({
             )}
           </div>
           <div className="lib-head-right">
+            {/* The reading list's own line. It stood in the middle beside the board's title,
+                where it shared the row with the ring and pushed the name off centre; here it
+                has the width to be read and the centre belongs to the one thing that moves. */}
+            {!ccOpen && shelf === null && board === 'reading' && <span className="box-sub">{BOARD_SUBS.reading}</span>}
             {!ccOpen && shelf !== null && shelfPage === null && (
               /* Same width and same right edge as "Deepen this domain" in the band below:
                  the two controls of a department stand in one column. */
