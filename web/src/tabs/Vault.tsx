@@ -1755,40 +1755,15 @@ function GraphPanel({
     <aside className="gpanel" aria-label="Graph view controls">
       <div className="gp-sec">
         <div className="gp-head">
-          <span className="gp-eyebrow">View</span>
+          <span className="gp-eyebrow">Overlays</span>
           <span className="spacer" />
+          {/* The one control that takes the whole panel back, in the head that is now the
+              panel's first: it undoes the filters, the lens, the overlays, the drill-down and
+              the search, so it belongs where somebody looks for a way out, not inside the
+              second section it happens to have been written in. */}
           <button className="btn ghost" onClick={onReset} title="Back to the whole vault, coloured by domain">
             Reset
           </button>
-        </div>
-        <div className="pillrow" role="radiogroup" aria-label="Colour by">
-          {LENSES.map((l) => {
-            const disabled = l.key === 'domain' && !hasDomains
-            return (
-              <button
-                key={l.key}
-                className="viewpill"
-                role="radio"
-                aria-checked={lens === l.key}
-                disabled={disabled}
-                onClick={() => onLens(l.key)}
-                onMouseEnter={() => setLensPreview(l.key)}
-                onMouseLeave={() => setLensPreview(null)}
-                onFocus={() => setLensPreview(l.key)}
-                onBlur={() => setLensPreview(null)}
-              >
-                <span className="pd" aria-hidden />
-                {l.label}
-              </button>
-            )
-          })}
-        </div>
-        <div className="pillhint">{shownLens.desc}</div>
-      </div>
-
-      <div className="gp-sec">
-        <div className="gp-head">
-          <span className="gp-eyebrow">Overlays</span>
         </div>
         <div className="gp-toggles">
           <RowToggle
@@ -1833,6 +1808,50 @@ function GraphPanel({
             />
           </div>
         </Fold>
+      </div>
+
+      <div className="gp-sec">
+        <div className="gp-head">
+          <span className="gp-eyebrow">View</span>
+        </div>
+        {/*
+          * Three strips instead of six pills (2026-09-16). The six were a radio group already -
+          * exactly one lens colours the graph - but read as six independent switches, and six
+          * of anything in a column reads as a list to work through rather than a choice to make.
+          * Paired, each strip is one question: by what kind, by what measure, by what is wrong.
+          *
+          * The radio stays the radio: picking either half of any strip turns the other five off,
+          * so the two strips that are not carrying the lens show both halves plain. That is
+          * honest - nothing in them is active - and it is what the intake's own strip does
+          * before the first choice.
+          */}
+        <div className="gp-lenses" role="radiogroup" aria-label="Colour by">
+          {LENS_PAIRS.map(([a, b]) => (
+            <div className="lib-strip gp-lens" key={a}>
+              {[a, b].map((key) => {
+                const l = LENSES.find((x) => x.key === key)!
+                return (
+                  <button
+                    key={key}
+                    className={`rp${lens === key ? ' on' : ''}`}
+                    role="radio"
+                    aria-checked={lens === key}
+                    disabled={key === 'domain' && !hasDomains}
+                    title={l.desc}
+                    onClick={() => onLens(key)}
+                    onMouseEnter={() => setLensPreview(key)}
+                    onMouseLeave={() => setLensPreview(null)}
+                    onFocus={() => setLensPreview(key)}
+                    onBlur={() => setLensPreview(null)}
+                  >
+                    {l.label}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+        <div className="pillhint">{shownLens.desc}</div>
       </div>
 
       <div className="gp-sec">
@@ -1964,6 +1983,17 @@ function Fold({
  * a description that wraps for some lenses and not others makes everything below it jump
  * as the pointer crosses the row. The pill carries the name, so the hint never repeats it.
  */
+/**
+ * The six, two at a time, in the order the panel offers them: by what kind of thing a page is,
+ * by what measure it carries, by what is wrong with it. The pairing is the panel's, not the
+ * model's - the lens is still one of six and the radio still spans all three strips.
+ */
+const LENS_PAIRS: ReadonlyArray<readonly [Lens, Lens]> = [
+  ['domain', 'type'],
+  ['authority', 'recency'],
+  ['orphans', 'stubs'],
+]
+
 const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
   { key: 'domain', label: 'Domain', desc: 'one colour per field of knowledge' },
   { key: 'authority', label: 'Authority', desc: 'brighter = more pages link here' },

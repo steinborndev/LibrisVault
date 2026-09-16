@@ -2705,6 +2705,49 @@ details.hot-cache[open] summary {
 .typechips.stacked .chip .chip-n {
   margin-left: auto;
 }
+
+/*
+ * The graph panel's three lens strips (2026-09-16). Sized off the page-type chip directly
+ * below them, because they stand in the same column and a control that is nearly the same
+ * size as its neighbour reads as a mistake: 25px tall, full width, the same 4px between them
+ * that the chips have between themselves.
+ *
+ * The strip itself is the intake's - one border, two halves, the chosen half in the accent -
+ * so "which lens" and "where this goes" are the same gesture in two places.
+ *
+ * Written as `.lib-strip.gp-lens`, both classes on the one element, the way `.ip-strip` is:
+ * the base `.lib-strip` rules live further down this file, so a single-class selector here
+ * loses to them on source order and the chosen half came out as a pale pill instead of the
+ * accent. Same specificity, later wins - which is a rule about this file, not about the panel.
+ */
+.gp-lenses {
+  display: grid;
+  gap: 4px;
+}
+.lib-strip.gp-lens {
+  display: flex;
+  width: 100%;
+  height: 25px;
+  padding: 0;
+  gap: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  box-shadow: none;
+  overflow: hidden;
+}
+.lib-strip.gp-lens .rp {
+  flex: 1;
+  height: 100%;
+  justify-content: center;
+  border-radius: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lib-strip.gp-lens .rp:hover:not(.on):not(:disabled) { background: var(--bg-elev); color: var(--text); }
+.lib-strip.gp-lens .rp.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+/* A vault with no domains cannot be coloured by one; the half says so rather than lying. */
+.lib-strip.gp-lens .rp:disabled { opacity: 0.45; cursor: default; }
 .chip.dimmed,
 .domrow.dimmed {
   opacity: 0.45;
