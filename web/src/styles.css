@@ -8042,8 +8042,9 @@ tr:focus-within .rowacts {
 /* ---- The reading list board (section 10.6) ---- */
 .lib-window-body.reading { padding: 14px 18px 22px; }
 /* No measure on the lede: it is one line beside the toggle, and only a narrow window wraps it. */
-.reading-lede { margin: 0; color: var(--text-dim); font-size: 13px; }
-/* The lede and the paywalled toggle share one line: the toggle belongs to the whole list. */
+.reading-lede { margin: 0; color: var(--text-dim); font-size: 13px; min-width: 0; }
+/* The lede and the board's caption share one line. The caption is one fixed sentence and the
+   lede is the one that can afford to wrap, so the caption keeps its width and the lede gives. */
 .reading-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 /* Where the publication ended up, once it is in the vault by any route. */
 .rl-filed { margin: 4px 0 0; font-size: 12px; color: var(--text-dim); }
@@ -8052,6 +8053,7 @@ tr:focus-within .rowacts {
 .rl-filed.rl-summary { color: var(--text-faint); font-style: italic; }
 .rl-filed.rl-summary span { cursor: help; }
 .reading-head .chip { flex: none; cursor: pointer; }
+.reading-what { flex: none; text-align: right; white-space: nowrap; }
 .reading-head .chip[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .reading-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .reading-rows li {
@@ -8081,10 +8083,6 @@ tr:focus-within .rowacts {
  * the board is already a window over the room, and a second layer inside it would make Escape
  * ambiguous exactly where the ladder has to be obvious.
  */
-.rl-detail { display: grid; gap: 14px; align-content: start; }
-.rl-detail .rl-main.full .rl-why { max-width: none; font-size: 13px; color: var(--text); }
-.rl-detail .rl-act.detail { flex-wrap: wrap; }
-.rl-esc { margin: 0; font-size: 11.5px; color: var(--text-faint); }
 
 /*
  * A sortable column heading (2026-09-14). It is a button, because that is what it does, but it
@@ -8124,6 +8122,9 @@ tr:focus-within .rowacts {
  * service wrote is the title.
  */
 .rl-miss { color: var(--err); }
+/* The other half of the same sentence: the search found a copy, which is the answer that
+   changes what the row can do next. Grey for both would hide the difference. */
+.rl-found { color: var(--ok); }
 
 /*
  * The archive button is the quiet one in the row: it sits beside whatever the row's real

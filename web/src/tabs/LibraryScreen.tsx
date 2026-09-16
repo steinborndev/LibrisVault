@@ -22,6 +22,7 @@ import { RoomStrip } from '../components/library/RoomStrip.tsx'
 import { FellowPopover } from '../components/library/FellowPopover.tsx'
 import { SpawnForm } from '../components/library/SpawnForm.tsx'
 import { Icon } from '../components/Icon.tsx'
+import { FootKeys } from '../components/FootKeys.tsx'
 import { Shortcuts } from '../components/Shortcuts.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { PageLink } from '../components/PageLink.tsx'
@@ -32,7 +33,7 @@ import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
 import type { BoardId } from '../components/library/RoomSvg.tsx'
-import type { ReadingTab } from '../lib/readingList.ts'
+import type { ReadingReach, ReadingTab } from '../lib/readingList.ts'
 import { queryState } from '../components/QueryState.tsx'
 import { logStore } from '../lib/logStore.ts'
 import { domainColor } from '../lib/domains.ts'
@@ -199,13 +200,15 @@ export function LibraryScreen({
   /** The row the arrows are on, and the rows themselves, in the order the board shows them. */
   const [readingRow, setReadingRow] = useState(0)
   const [readingRows, setReadingRows] = useState<readonly string[]>([])
-  /** The entry whose detail is up, by url; null is the list. Escape closes it first. */
-  const [readingOpen, setReadingOpen] = useState<string | null>(null)
+  /**
+   * Which side of the paywall the board shows. Up here with the ring because its toggle is a
+   * control of the board and stands in the headline with the others, not inside the list.
+   */
+  const [readingReach, setReadingReach] = useState<ReadingReach>('open')
   /** Stepping the ring or the list starts at the top of what you land on. */
   const readingGo = (d: string | null): void => {
     setReadingDomain(d)
     setReadingRow(0)
-    setReadingOpen(null)
   }
   /*
    * A stop that no longer has entries - the last one was ingested, or the access toggle moved -
@@ -222,6 +225,15 @@ export function LibraryScreen({
   }
   /** A board on the main room's wall, opened as a window over the room. Escape closes it. */
   const [board, setBoard] = useState<BoardId | null>(boardParam === 'hot' || boardParam === 'recap' || boardParam === 'reading' ? boardParam : null)
+  /*
+   * A visit starts at the overview. The ring is where you are in a list, not a preference, and
+   * coming back to a board still standing on the domain you left is the kind of memory that
+   * reads as the screen having its own ideas. Leaving the SCREEN counts as leaving: the tabs
+   * only hide it, so without `active` the state would outlive a walk through the other four.
+   */
+  useEffect(() => {
+    if (!active || board !== 'reading') readingGo(null)
+  }, [active, board])
   /** A department opened over the room: its graph and its catalog, filtered (section 10.5). */
   const [shelf, setShelf] = useState<string | null>(shelfParam !== '' ? shelfParam : null)
   /** A free slot clicked in the room: the form for the department that would stand there. */
@@ -533,28 +545,29 @@ export function LibraryScreen({
       }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
-        // Inside an open entry the rows are not what the arrows are for; stepping the list
-        // underneath a detail you are reading moves something you cannot see.
-        if (readingOpen === null && readingRows.length > 0) {
+        if (readingRows.length > 0) {
           setReadingRow((r) => Math.min(readingRows.length - 1, Math.max(0, r + (e.key === 'ArrowDown' ? 1 : -1))))
         }
         return
       }
-      if (e.key === 'Enter' && readingOpen === null) {
+      if (e.key === 'Enter') {
         e.preventDefault()
+        /*
+         * The same thing a click on the title does, and deliberately nothing more: an entry is
+         * a pointer at a publication, and what you want from it is the publication. `noreferrer`
+         * carries `noopener` with it, so the page that opens cannot reach back into this one.
+         */
         const url = readingRows[readingRow]
-        if (url !== undefined) setReadingOpen(url)
+        if (url !== undefined) window.open(url, '_blank', 'noreferrer')
         return
       }
       if (e.key === 'Escape') {
         /*
-         * Three rungs, each one step outward: the open entry, then the domain, then the window
-         * itself - which is what Escape has always done here, and still does once the two new
-         * rungs are used up.
+         * Two rungs, each one step outward: the domain, then the window itself - which is what
+         * Escape has always done here, and still does once the new rung is used up.
          */
         e.preventDefault()
-        if (readingOpen !== null) setReadingOpen(null)
-        else if (readingDomain !== null) readingGo(null)
+        if (readingDomain !== null) readingGo(null)
         else setBoard(null)
         return
       }
@@ -1084,7 +1097,24 @@ export function LibraryScreen({
             {/* The reading list's own line. It stood in the middle beside the board's title,
                 where it shared the row with the ring and pushed the name off centre; here it
                 has the width to be read and the centre belongs to the one thing that moves. */}
-            {!ccOpen && shelf === null && board === 'reading' && <span className="box-sub">{BOARD_SUBS.reading}</span>}
+            {!ccOpen && shelf === null && board === 'reading' && (
+              <div className="seg sm ink reading-reach" role="radiogroup" aria-label="Access">
+                <button role="radio" aria-checked={readingReach === 'open'} onClick={() => setReadingReach('open')} title="Open access, and hosts the service knows nothing about: what Ingest can fetch">
+                  Open source
+                </button>
+                <button
+                  role="radio"
+                  aria-checked={readingReach === 'paywalled'}
+                  onClick={() => setReadingReach('paywalled')}
+                  title="Behind a subscription, or a run could not fetch it. The service cannot get these either; the link and your own access can."
+                >
+                  Paywalled
+                </button>
+                <button role="radio" aria-checked={readingReach === 'both'} onClick={() => setReadingReach('both')} title="Every entry, whatever its access">
+                  Both
+                </button>
+              </div>
+            )}
             {!ccOpen && shelf !== null && shelfPage === null && (
               /* Same width and same right edge as "Deepen this domain" in the band below:
                  the two controls of a department stand in one column. */
@@ -1243,19 +1273,33 @@ export function LibraryScreen({
           {shelf === null && board !== null && (
             <div className="lib-window" role="dialog" aria-label={BOARD_TITLES[board]}>
               {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} day={shownNight} /> : (
-                <ReadingList
-                  vaultName={vaultName}
-                  tab={readingTab}
-                  domain={readingDomain}
-                  row={readingRow}
-                  openUrl={readingOpen}
-                  onDomains={setReadingStops}
-                  onRows={setReadingRows}
-                  onOpen={(url) => {
-                    setReadingOpen(url)
-                    if (url !== null) setReadingRow(0)
-                  }}
-                />
+                <>
+                  <ReadingList
+                    vaultName={vaultName}
+                    tab={readingTab}
+                    domain={readingDomain}
+                    reach={readingReach}
+                    row={readingRow}
+                    onDomains={setReadingStops}
+                    onRows={setReadingRows}
+                    onPick={setReadingRow}
+                  />
+                  {/* The catalog's foot, for the same reason it has one: a screen walked with
+                      the keys has to say which keys, and the one place a reader looks for that
+                      is the bottom edge. Outside the scrolling body, so it stays put. */}
+                  <div className="box-foot keys">
+                    <span className="fl" />
+                    <FootKeys
+                      items={[
+                        '↑ ↓ walk the rows',
+                        ...(readingStops.length > 0 ? ['← → step the domain'] : []),
+                        'Enter opens the source',
+                        readingDomain !== null ? 'Esc back to all domains' : 'Esc closes the list',
+                      ]}
+                    />
+                    <span className="fr" />
+                  </div>
+                </>
               )}
             </div>
           )}

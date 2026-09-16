@@ -9,10 +9,14 @@
  *
  * Walked with the keys since 2026-09-16, on the night shift's model: the headline draws a ring
  * of stops - all domains first, then one per domain that has something here - the arrows step
- * it, up and down walk the rows, Enter opens one and Escape steps back out. The ring and the
- * selection live in the screen above, because the headline draws them and the screen owns the
- * keys; what this component owns is which entries exist, so it reports the ring upward rather
- * than being told what it is.
+ * it, up and down walk the rows, Enter opens the source and Escape steps back out. The ring,
+ * the selection and the access toggle live in the screen above, because the headline draws them
+ * and the screen owns the keys; what this component owns is which entries exist, so it reports
+ * the ring upward rather than being told what it is.
+ *
+ * Enter opens the PUBLICATION and not a detail of the entry. An entry is a pointer at something
+ * on the web, and a pane that repeated the row in a larger typeface was a stop on the way to the
+ * only thing anybody opens it for.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -50,20 +54,20 @@ export function ReadingList({
   vaultName,
   tab = 'current',
   domain = null,
+  reach = 'open',
   row = 0,
-  openUrl = null,
   onDomains,
   onRows,
-  onOpen,
+  onPick,
 }: {
   vaultName: string
   tab?: ReadingTab
   /** One stop of the domain ring; null is "all domains", the stop the board opens on. */
   domain?: string | null
-  /** The row the keys are on. The mouse opens any row and does not move it. */
+  /** Which side of the paywall to show; its toggle stands in the headline with the others. */
+  reach?: ReadingReach
+  /** The row the keys are on. A click moves it; the title opens the source. */
   row?: number
-  /** The entry whose detail is up, by url; null is the list itself. */
-  openUrl?: string | null
   /** The ring, reported up: the headline draws it and the arrows walk it. */
   onDomains?: (domains: readonly string[]) => void
   /**
@@ -71,7 +75,8 @@ export function ReadingList({
    * move and has to be able to say WHICH entry that is without knowing how the board sorts.
    */
   onRows?: (urls: readonly string[]) => void
-  onOpen?: (url: string | null) => void
+  /** A click on a row moves the keys' selection to it. */
+  onPick?: (row: number) => void
 }): React.ReactElement {
   const qc = useQueryClient()
   const list = useQuery({ queryKey: ['reading-list'], queryFn: api.readingList, refetchInterval: 20_000 })
@@ -94,16 +99,18 @@ export function ReadingList({
   const findOa = useMutation({
     mutationFn: (url: string) => api.findOpenAccess(url),
     onSuccess: (res, url) => {
-      setSearched((prev) => ({ ...prev, [url]: res.found ? '' : (res.reason ?? 'no open copy found') }))
+      setSearched((prev) => ({ ...prev, [url]: { ok: res.found, text: res.found ? 'open copy found' : (res.reason ?? 'no open copy found') } }))
       void qc.invalidateQueries({ queryKey: ['reading-list'] })
     },
-    onError: (err: Error, url) => setSearched((prev) => ({ ...prev, [url]: err.message })),
+    onError: (err: Error, url) => setSearched((prev) => ({ ...prev, [url]: { ok: false, text: err.message } })),
   })
-  // Opens on what the service can fetch: a paywalled row's Ingest would fail the same way
-  // the run did, so those wait behind their own third of the toggle.
-  const [reach, setReach] = useState<ReadingReach>('open')
-  /** What the last search said, per entry url, so a miss is visible until the next look. */
-  const [searched, setSearched] = useState<Record<string, string>>({})
+  /**
+   * What the last search said, per entry url, so its answer is visible until the next look.
+   * A find and a miss are different events and read differently: green for a copy that exists,
+   * red for one that does not, because a line in the same grey as everything else made a
+   * button that had just done real work look like a button that had done nothing.
+   */
+  const [searched, setSearched] = useState<Record<string, { ok: boolean; text: string }>>({})
   const state = queryState(list, 'the reading list')
   const entries = list.data?.entries ?? []
   const view = readingView(entries, reach, tab, domain)
@@ -134,36 +141,14 @@ export function ReadingList({
   const selected = useRef<HTMLLIElement>(null)
   useEffect(() => {
     selected.current?.scrollIntoView({ block: 'nearest' })
-  }, [row, openUrl])
+  }, [row])
 
-  const open = openUrl === null ? null : (entries.find((e) => e.url === openUrl) ?? null)
-  const actionsOf = (e: ReadingItem): React.ReactElement => (
-    <RowActions
-      e={e}
-      tab={tab}
-      ingest={ingest}
-      archive={archive}
-      findOa={findOa}
-      onArchived={() => onOpen?.(null)}
-    />
-  )
+  const actionsOf = (e: ReadingItem): React.ReactElement => <RowActions e={e} tab={tab} ingest={ingest} archive={archive} findOa={findOa} />
 
   return (
     <div className="lib-window-body reading">
       {state ??
-        (open !== null ? (
-          /*
-           * One entry, the whole of it. The list shows what a row has room for; this shows what
-           * the Fellow actually wrote down - the reason in full, who wanted it and when, what
-           * the service could and could not do with it - and offers the same actions, so that
-           * opening an entry never means going back to act on it.
-           */
-          <div className="rl-detail">
-            <RowBody e={open} vaultName={vaultName} searched={searched} detail />
-            <div className="rl-act detail">{actionsOf(open)}</div>
-            <p className="rl-esc">Esc closes this entry.</p>
-          </div>
-        ) : view.shown.length === 0 && view.hidden === 0 ? (
+        (view.shown.length === 0 && view.hidden === 0 ? (
           <div className="empty">
             <h2>{tab === 'archived' ? 'Nothing archived' : domain !== null ? `Nothing in ${signText(domain)}` : 'Nothing on the list yet'}</h2>
             <p className="qs-line">
@@ -190,22 +175,9 @@ export function ReadingList({
                   </>
                 )}
               </p>
-              <div className="seg sm ink reading-reach" role="radiogroup" aria-label="Access">
-                <button role="radio" aria-checked={reach === 'open'} onClick={() => setReach('open')} title="Open access, and hosts the service knows nothing about: what Ingest can fetch">
-                  Open source
-                </button>
-                <button
-                  role="radio"
-                  aria-checked={reach === 'paywalled'}
-                  onClick={() => setReach('paywalled')}
-                  title="Behind a subscription, or a run could not fetch it. The service cannot get these either; the link and your own access can."
-                >
-                  Paywalled
-                </button>
-                <button role="radio" aria-checked={reach === 'both'} onClick={() => setReach('both')} title="Every entry, whatever its access">
-                  Both
-                </button>
-              </div>
+              {/* The board's own line, where the access toggle used to stand: the toggle is a
+                  control and belongs in the headline with the others, and this is a caption. */}
+              <span className="box-sub reading-what">what the Fellows read on the web; ingesting one is your call</span>
             </div>
             <ul className="reading-rows">
               {view.shown.map((e, i) => (
@@ -215,10 +187,11 @@ export function ReadingList({
                   className={i === row ? 'on' : ''}
                   aria-current={i === row ? 'true' : undefined}
                   onClick={(ev) => {
-                    // A click on a link or a button is that control's, not the row's: opening
-                    // the detail under an Ingest the user just pressed would hide its answer.
+                    // A click on a link or a button is that control's, not the row's. The row
+                    // itself only moves the selection: the title is what opens the source, and
+                    // a click anywhere opening a new tab is a surprise nobody asked for.
                     if ((ev.target as HTMLElement).closest('a, button')) return
-                    onOpen?.(e.url)
+                    onPick?.(i)
                   }}
                 >
                   <RowBody e={e} vaultName={vaultName} searched={searched} />
@@ -243,7 +216,7 @@ function RowBody({
 }: {
   e: ReadingItem
   vaultName: string
-  searched: Record<string, string>
+  searched: Record<string, { ok: boolean; text: string }>
   detail?: boolean
 }): React.ReactElement {
   return (
@@ -261,13 +234,12 @@ function RowBody({
         {e.domain !== null ? ` · ${signText(e.domain)}` : ''}
         {e.by !== null ? ` · found by ${e.by}${e.at !== null ? `, ${e.at}` : ''}` : e.found !== null ? ` · found by ${e.found}` : ''}
         {reachLabel(e) !== null ? ` · ${reachLabel(e)}` : ''}
-        {/* What the last search said, until the next one: a miss is worth seeing. */}
+        {/* What the last search said, until the next one. Both answers are worth seeing, and
+            they are not the same answer: one means there is a copy to fetch. */}
         {searched[e.url] ? (
-          /* In the warning tone: the click DID something, and a row that looks
-             unchanged after a search reads as a button that did nothing. */
-          <span className="rl-miss" title={searched[e.url]!}>
+          <span className={searched[e.url]!.ok ? 'rl-found' : 'rl-miss'} title={searched[e.url]!.text}>
             {' · '}
-            {searchMiss(searched[e.url]!)}
+            {searched[e.url]!.ok ? searched[e.url]!.text : searchMiss(searched[e.url]!.text)}
           </span>
         ) : (
           ''
@@ -314,14 +286,12 @@ function RowActions({
   ingest,
   archive,
   findOa,
-  onArchived,
 }: {
   e: ReadingItem
   tab: ReadingTab
   ingest: { mutate: (url: string) => void; isPending: boolean }
   archive: { mutate: (v: { url: string; archived: boolean }) => void; isPending: boolean }
   findOa: { mutate: (url: string) => void; isPending: boolean; variables?: string | undefined }
-  onArchived: () => void
 }): React.ReactElement {
   return (
     <>
@@ -421,12 +391,7 @@ function RowActions({
             ? 'Put it back on the current list'
             : 'Out of the current list and into Archived. The entry is kept, with what it asked for and why.'
         }
-        onClick={() => {
-          archive.mutate({ url: e.url, archived: tab !== 'archived' })
-          // An entry that just left this list has no detail to stand in; the board goes back
-          // to the list rather than showing one that is no longer part of it.
-          onArchived()
-        }}
+        onClick={() => archive.mutate({ url: e.url, archived: tab !== 'archived' })}
       >
         <Icon name={tab === 'archived' ? 'retry' : 'archive'} />
       </button>
