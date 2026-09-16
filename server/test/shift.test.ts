@@ -108,12 +108,35 @@ const sdkUsage = (five: number, week: number): Record<string, unknown> => ({
   rate_limits: { five_hour: { utilization: five, resets_at: null }, seven_day: { utilization: week, resets_at: null } },
 })
 
+/**
+ * Removes a test vault, retrying rather than giving up.
+ *
+ * A recursive remove walks the tree and then rmdirs what it walked; anything that appears in
+ * between - a git object, a lock file, a directory entry the filesystem had not caught up on -
+ * makes the rmdir fail with ENOTEMPTY, and vitest reports it as the TEST failing, several
+ * frames from anything the test did. It happened once in 36 CI runs and never on a laptop.
+ * `maxRetries` is Node's own answer to this error class (EBUSY, EMFILE, ENFILE, ENOTEMPTY,
+ * EPERM); a teardown that takes 50ms longer on a busy runner costs nothing.
+ */
+function rmVault(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+}
+
 function makeHarness(withUsage = false): Harness {
   const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-'))
   fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
   fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# index\n')
   const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, ...args], { encoding: 'utf8' })
   git('init', '-q')
+  /*
+   * No housekeeping in a throwaway repo (2026-09-16). `git commit` calls `git gc --auto`, and
+   * with `gc.autoDetach` on - which is the default - that gc FORKS and keeps working on `.git`
+   * after the commit has returned. A test that then deletes its vault is racing a process it
+   * never started, and it loses on a slow enough disk: CI run #16 died in the teardown with
+   * `ENOTEMPTY: rmdir '.git'`, nowhere near an assertion. Turning it off costs a test repo of
+   * a dozen objects nothing and removes one writer nobody was waiting for.
+   */
+  git('config', 'gc.auto', '0')
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A')
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed')
   const db = openDb(MEMORY_DB)
@@ -232,7 +255,7 @@ describe('plan points through the whole path (A5)', () => {
   })
   afterEach(() => {
     h.db.close()
-    fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+    rmVault(h.vaultRoot)
   })
 
   it('deltas land on the run rows, three runs calibrate, proposals and the card carry points, the gate refuses in points', async () => {
@@ -333,7 +356,7 @@ describe('planning, proposals and the night shift', () => {
   })
   afterEach(() => {
     h.db.close()
-    fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+    rmVault(h.vaultRoot)
   })
 
   const spawn = async (over: Partial<Parameters<FellowService['spawn']>[0]> = {}): Promise<AgentRecord> => {
@@ -1159,7 +1182,7 @@ describe('proposal and shift routes', () => {
   afterEach(async () => {
     await app.close()
     h.db.close()
-    fs.rmSync(h.vaultRoot, { recursive: true, force: true })
+    rmVault(h.vaultRoot)
   })
 
   it('plans, lists and decides proposals, and runs the shift by hand', async () => {
