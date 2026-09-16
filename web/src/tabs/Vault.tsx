@@ -2353,14 +2353,18 @@ function LensLegend({
   if (lens === 'type') {
     const rows = typeRows(types)
     /*
-     * The heading holds its line whatever is filtered (2026-09-16). The legend is anchored to
-     * the bottom corner, so a shorter list used to slide the title down the canvas after it -
-     * the reader's eye follows a key that moves, and it moves on every chip. So the box keeps
-     * the height of the FULL offer: the rows that are not drawn stay as blank space at the
-     * end, the drawn ones pack under the title, and the list grows downward as types come
-     * back. Spacers rather than a pixel height, because the row height is the font's to decide.
+     * The legend holds its CORNER whatever is filtered (2026-09-16). It is anchored bottom and
+     * right, so its size is its position: a shorter list slid the heading down the canvas, and
+     * a narrower one slid every line of it sideways, on every chip - and the reader's eye
+     * follows a key that moves. So the box keeps the shape of the FULL offer. The types that
+     * are not drawn are still rendered, at the end and invisible, which holds both the height
+     * (one line each) and the width (their labels are what the box is as wide as). The drawn
+     * ones pack under the heading, and the list grows back downward as types return.
+     *
+     * Spacers rather than a fixed size, because a row's height is the font's to decide and the
+     * width is the longest label's - neither is a number this file should be guessing at.
      */
-    const spare = Math.max(0, typeRows(offered).length - rows.length)
+    const spare = typeRows(offered).filter((o) => !rows.some((r) => r.label === o.label))
     body =
       rows.length > 0 ? (
         <>
@@ -2370,9 +2374,9 @@ function LensLegend({
               <i className="ll-sw" style={{ background: `var(${r.cssVar})` }} /> {r.label}
             </span>
           ))}
-          {Array.from({ length: spare }, (_, i) => (
-            <span className="ll-row ll-spare" key={`spare-${i}`} aria-hidden>
-              <i className="ll-sw" /> —
+          {spare.map((r) => (
+            <span className="ll-row ll-spare" key={r.label} aria-hidden>
+              <i className="ll-sw" /> {r.label}
             </span>
           ))}
         </>
