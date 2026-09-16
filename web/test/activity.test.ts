@@ -168,6 +168,30 @@ describe('matchesFilter', () => {
     expect(filterActivity(events, filter({ kind: 'edit' }), NOW)).toHaveLength(1)
   })
 
+  /**
+   * The chip the stream opens on (2026-09-16). Not a fifth kind but a reading of the four: the
+   * material you gave the vault and the runs you started, without the bookkeeping it does for
+   * itself. It opened on everything before, and on a quiet day everything was mostly the
+   * vault's own notebooks, recaps and lint with one real event among them.
+   */
+  it('reads ingests and research as one chip, and leaves the vault\'s own work out', () => {
+    const withMaintenance = buildActivity({
+      jobs: [job(), job({ id: 'j2', status: 'failed', source: 'url', original_name: null, url: 'https://example.org/a' })],
+      activeRuns: [run()],
+      lastRuns: [],
+      commits: [commit(), commit({ hash: 'aaaaaaaaaaaa', subject: 'maintenance: lint', pages: [] })],
+    })
+    expect(filterActivity(withMaintenance, filter({ kind: 'all' }), NOW)).toHaveLength(5)
+    // Two ingests and one research run; the hand edit and the lint stay out.
+    const picked = filterActivity(withMaintenance, filter({ kind: 'ingest+research' }), NOW)
+    expect(picked.map((e) => e.kind).sort()).toEqual(['ingest', 'ingest', 'research'])
+    // And it is exactly the two chips added together, so a reader can check it by eye.
+    expect(picked).toHaveLength(
+      filterActivity(withMaintenance, filter({ kind: 'ingest' }), NOW).length +
+        filterActivity(withMaintenance, filter({ kind: 'research' }), NOW).length,
+    )
+  })
+
   it('filters by state and channel', () => {
     expect(filterActivity(events, filter({ state: 'failed' }), NOW)).toHaveLength(1)
     expect(filterActivity(events, filter({ channel: 'url' }), NOW)).toHaveLength(1)

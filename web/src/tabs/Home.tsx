@@ -56,7 +56,7 @@ import {
   filterActivity,
   type ActivityEvent,
   type ActivityFilter,
-  type ActivityKind,
+  type ActivityKindFilter,
   type ActivityState,
 } from '../lib/activity.ts'
 import { navigate } from '../lib/router.ts'
@@ -67,13 +67,22 @@ import { TYPE_VARS, domainColor } from '../lib/domains.ts'
 import { timeAgo } from '../lib/format.ts'
 import { addDays, fmtDay, localDate, runsInWeek, weekStartOf } from '../lib/recapFeed.ts'
 
-/** The event kinds as one choice - the same four the model distinguishes, plus "all". */
-const KINDS: Array<{ id: ActivityKind | 'all'; label: string; hint: string }> = [
-  { id: 'all', label: 'Everything', hint: 'Every change to the vault, whoever made it.' },
+/**
+ * The event kinds as one choice - the same four the model distinguishes, the pair that is the
+ * default, and "all".
+ *
+ * Order is the answer to "what did I ask for" first and "what happened at all" last, because
+ * that is the order the questions come in. The stream used to open on everything, and on a
+ * quiet day everything was five rows of the vault's own bookkeeping with one real event in
+ * the middle of them.
+ */
+const KINDS: Array<{ id: ActivityKindFilter; label: string; hint: string }> = [
+  { id: 'ingest+research', label: 'Ingests & Research', hint: 'What you asked the vault for: material you gave it, and runs you started.' },
   { id: 'ingest', label: 'Ingests', hint: 'Files, links and messages that became pages.' },
   { id: 'research', label: 'Research', hint: 'Web-enabled runs you started on purpose.' },
   { id: 'maintenance', label: 'Maintenance', hint: 'What the vault does to itself: lint, cache, domains.' },
   { id: 'edit', label: 'Edits', hint: 'Pages you edited or deleted by hand.' },
+  { id: 'all', label: 'Everything', hint: 'Every change to the vault, whoever made it.' },
 ]
 
 /** The state filter, in pipeline order: what is happening, then how it ended. */
@@ -95,7 +104,7 @@ const WINDOW_STEP = 300
 const WINDOW_MAX = 500
 
 /* The time axis is the week list in the column, not this filter's `days` - it stays null. */
-const DEFAULT_FILTER: ActivityFilter = { kind: 'all', state: null, channel: null, days: null, query: '' }
+const DEFAULT_FILTER: ActivityFilter = { kind: 'ingest+research', state: null, channel: null, days: null, query: '' }
 
 /** The local calendar day an event settled on - the same shape a recap's cycleDate has. */
 const eventDay = (e: ActivityEvent): string => localDate(new Date(e.whenIso))
@@ -250,7 +259,10 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const heldStates = STATES.filter((s) => stateCount(s.id) > 0 || filter.state === s.id)
   const stateChips = heldStates.some((s) => s.id !== 'done') ? heldStates : []
 
-  const filtered = filter.kind !== 'all' || filter.state !== null || filter.channel !== null || filter.query !== ''
+  // Measured against the DEFAULT, not against "nothing": with a default kind, `!== 'all'` would
+  // light the Reset button on a screen nobody has touched.
+  const filtered =
+    filter.kind !== DEFAULT_FILTER.kind || filter.state !== null || filter.channel !== null || filter.query !== ''
   const reset = (): void => setFilter(DEFAULT_FILTER)
 
   /*

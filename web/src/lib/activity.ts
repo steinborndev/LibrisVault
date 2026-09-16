@@ -312,8 +312,27 @@ function nearestHashlessSlot(slots: readonly SettleSlot[], commitMs: number): Se
   return best
 }
 
+/**
+ * What the TYPE chips offer: each kind on its own, the PAIR a person asked the vault for, and
+ * everything.
+ *
+ * `ingest+research` is not a fifth kind of event, it is a reading of the stream: a file you
+ * dropped in and a run you started are the two things you did, and the rest - the lint, the
+ * hot cache, the notebooks and recaps the service writes for itself - is the vault talking to
+ * itself. That reading is the default view (2026-09-16), because the stream opened on
+ * everything and the everything was mostly the vault's own bookkeeping.
+ */
+export type ActivityKindFilter = ActivityKind | 'all' | 'ingest+research'
+
+/** One place decides what a chip matches, so the count on it and the rows under it agree. */
+export function kindMatches(kind: ActivityKind, want: ActivityKindFilter): boolean {
+  if (want === 'all') return true
+  if (want === 'ingest+research') return kind === 'ingest' || kind === 'research'
+  return kind === want
+}
+
 export interface ActivityFilter {
-  readonly kind: ActivityKind | 'all'
+  readonly kind: ActivityKindFilter
   readonly state: ActivityState | null
   readonly channel: string | null
   /** Time window in days for settled rows; null = everything the store still holds. */
@@ -327,7 +346,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 /** Does this event survive the filter? Live rows ignore the time range on purpose. */
 export function matchesFilter(e: ActivityEvent, f: ActivityFilter, now: Date): boolean {
-  if (f.kind !== 'all' && e.kind !== f.kind) return false
+  if (!kindMatches(e.kind, f.kind)) return false
   if (f.state !== null && e.state !== f.state) return false
   if (f.channel !== null && e.channel !== f.channel) return false
   const q = f.query.trim().toLowerCase()
