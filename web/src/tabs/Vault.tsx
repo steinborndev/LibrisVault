@@ -938,6 +938,13 @@ function GraphView({
         return
       }
       if (input !== '') setInput('')
+      /*
+       * The trail is its own rung, ahead of the panel (2026-09-16). It is the thing running
+       * along the bottom of the drawing, and stepping out of a walk should drop the walk
+       * before it drops the page you walked to - one press to forget the way you came, a
+       * second to close what you arrived at.
+       */
+      else if (trail.length > 1) setTrail(selection?.kind === 'page' ? [selection.path] : [])
       else if (selection !== null) closeExplorer()
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
       else if (showGaps) setShowGaps(false)
@@ -1231,17 +1238,22 @@ function GraphView({
                 </div>
               )}
               <LensLegend lens={effectiveLens} types={types} />
-              {/* The drawing's two bottom corners, and the pair is deliberate: both of these
-                  are about the CANVAS rather than about what it is showing, which is what the
-                  bar between them is for. Same pill, one at each end. */}
-              <button
-                className="canvas-corner corner-left"
-                onClick={() => setFullscreen((v) => !v)}
-                title={fullscreen ? 'Back to the full view (Esc)' : 'Show the graph on its own - Esc returns'}
-              >
-                <Icon name={fullscreen ? 'shrink' : 'expand'} /> {fullscreen ? 'Exit' : 'Fullscreen'}
-              </button>
-              <Shortcuts rows={GRAPH_SHORTCUTS} corner />
+              {/*
+                * Both in the bottom RIGHT corner, side by side: these two are about the canvas
+                * rather than about what it shows, and the bottom left belongs to the trail,
+                * which walks out from under the panel as you follow links and would sit on top
+                * of anything standing there.
+                */}
+              <div className="canvas-corners">
+                <button
+                  className="canvas-corner"
+                  onClick={() => setFullscreen((v) => !v)}
+                  title={fullscreen ? 'Back to the full view (Esc)' : 'Show the graph on its own - Esc returns'}
+                >
+                  <Icon name={fullscreen ? 'shrink' : 'expand'} /> {fullscreen ? 'Exit' : 'Fullscreen'}
+                </button>
+                <Shortcuts rows={GRAPH_SHORTCUTS} corner />
+              </div>
               {trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">
                   {trail.map((p, i) => {
@@ -1269,6 +1281,7 @@ function GraphView({
           health={health}
           onSelectPage={selectPage}
           onSelectGap={selectGap}
+          onTag={(t) => setInput(t)}
           onClose={closeExplorer}
         />
           </div>
@@ -1294,6 +1307,7 @@ function GraphExplorer({
   health,
   onSelectPage,
   onSelectGap,
+  onTag,
   onClose,
 }: {
   graph: VaultGraph
@@ -1302,6 +1316,7 @@ function GraphExplorer({
   health: GraphHealth
   onSelectPage: (path: string) => void
   onSelectGap: (title: string) => void
+  onTag: (tag: string) => void
   onClose: () => void
 }): React.ReactElement | null {
   // A ranked gaps list shows when the gaps view is on but nothing specific is selected.
@@ -1315,7 +1330,7 @@ function GraphExplorer({
         <Icon name="x" />
       </button>
       {selection?.kind === 'page' ? (
-        <PageExplorer graph={graph} path={selection.path} health={health} onSelectPage={onSelectPage} />
+        <PageExplorer graph={graph} path={selection.path} health={health} onSelectPage={onSelectPage} onTag={onTag} />
       ) : selection?.kind === 'gap' ? (
         <GapExplorer graph={graph} title={selection.title} onSelectPage={onSelectPage} />
       ) : (
@@ -1330,11 +1345,14 @@ function PageExplorer({
   path,
   health,
   onSelectPage,
+  onTag,
 }: {
   graph: VaultGraph
   path: string
   health: GraphHealth
   onSelectPage: (path: string) => void
+  /** A tag in the head, pressed: the screen turns it into the search that narrows the graph. */
+  onTag: (tag: string) => void
 }): React.ReactElement {
   const idx = useMemo(() => graph.nodes.findIndex((n) => n.path === path), [graph, path])
   const node = idx >= 0 ? graph.nodes[idx] : undefined
@@ -1445,8 +1463,16 @@ function PageExplorer({
               {node.domain}
             </span>
           )}
+          {/*
+            * A tag is a filter you can press (2026-09-16). The search already matches tags -
+            * it always has - so a click is the query for that tag and nothing new has to be
+            * taught to the graph: the drawing narrows to the pages carrying it, with their
+            * direct neighbours for context, the same as typing it would.
+            */}
           {node.tags.map((t) => (
-            <span key={t} className="gx-tag">#{t}</span>
+            <button key={t} className="gx-tag pressable" onClick={() => onTag(t)} title={`Show the pages tagged #${t}`}>
+              #{t}
+            </button>
           ))}
         </div>
       </div>
@@ -1509,11 +1535,16 @@ function PageExplorer({
         <LinkSection title="Related by tag" list={related} onSelect={onSelectPage} />
       </div>
       <div className="gx-actions">
-        <button className="btn primary" onClick={() => navigate(pageRoute(node.path))}>
-          Open page <Icon name="link" />
-        </button>
         <button className="btn" onClick={() => navigate(`/graph?focus=${encodeURIComponent(node.path)}`)}>
           Focus neighborhood
+        </button>
+        {/*
+          * No link glyph. It always opened the page IN the dashboard - the same route a
+          * double-click on the node takes - but the outbound arrow read as "this leaves for
+          * Obsidian", which is a promise about somewhere else entirely.
+          */}
+        <button className="btn primary" onClick={() => navigate(pageRoute(node.path))}>
+          Open page
         </button>
       </div>
     </>

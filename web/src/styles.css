@@ -3488,6 +3488,10 @@ span.head-slot { display: inline-block; }
   color: var(--text-dim);
   border: 1px solid var(--border);
 }
+/* A tag that filters: the same chip, but it says so on hover and takes a pointer. The ones
+   that are not pressable - the domain - keep the plain chip, because they do nothing. */
+.gx-tag.pressable { cursor: pointer; font: inherit; }
+.gx-tag.pressable:hover { border-color: var(--accent); color: var(--accent); }
 .gx-tag.dom {
   background: transparent;
 }
@@ -4222,14 +4226,24 @@ kbd {
  *
  * One rule for the look of both, so the pair cannot drift into two nearly-identical pills.
  */
-.shortcut-wrap.corner,
-.canvas-corner {
+/*
+ * One row, anchored once. The pair used to be positioned separately and the inner one carried
+ * a `right` offset measured off the outer one's width - a number that is wrong the moment a
+ * label changes. A flex row with a gap has no such number in it.
+ *
+ * The bottom LEFT is the trail's: it grows out from under the panel as you follow links, and
+ * anything parked there ends up underneath it.
+ */
+.canvas-corners {
   position: absolute;
+  right: 12px;
   bottom: 10px;
   z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.shortcut-wrap.corner { right: 12px; }
-.canvas-corner.corner-left { left: 12px; }
+.shortcut-wrap.corner { position: relative; }
 .shortcut-wrap.corner .btn,
 .canvas-corner {
   display: inline-flex;
