@@ -734,10 +734,37 @@ function GraphView({
   // of the focused page. Indices are remapped so the canvas gets a dense, self-contained
   // graph - that is also what keeps the force layout small in local mode on a huge vault.
   // When the gaps view is on, the unresolved targets are appended as synthetic ghost nodes.
-  const { nodes, edges, focusIndex, ghostIndices, realCount, matches } = useMemo(() => {
+  const { nodes, edges, focusIndex, ghostIndices, realCount, matches, typeCounts } = useMemo(() => {
+    /*
+     * Two masks through one pipeline (2026-09-16). `keep` is what gets drawn. `pool` is the
+     * same set MINUS the type filter, and it is what the type chips count: a section that
+     * counted through its own filter would answer its own question - pick Concepts and every
+     * other chip reads 0, with no way back. Every narrowing below is applied to both, so the
+     * chips always say "of what the rest of the filters leave, this many are of that type",
+     * whether the rest is a domain, a tag, a search or a neighbourhood.
+     *
+     * With no type picked the two are the same set, and the second walk is skipped: `pool` stays
+     * null and the counting reads `keep` at the end. It cannot be aliased to `keep` up here -
+     * every step below REBINDS `keep` to a new array, so an alias would keep pointing at the
+     * unnarrowed one and the chips would go on reporting the whole vault.
+     *
+     * One second-order effect, named rather than chased: with a search running, picking a type
+     * also shrinks the context each hit pulls in, so the drawing can come out a little under
+     * the number on the chip. The chip answers what the OTHER filters leave, which is the
+     * question a control has to answer to be worth pressing.
+     */
     let keep: boolean[] = graph.nodes.map(
       (n) => (showSystem || isKnowledge(n)) && inTypeScope(n) && inDomainScope(n) && (clusterFocus === null || clusterFocus.paths.has(n.path)),
     )
+    let pool: boolean[] | null =
+      selectedTypes.size > 0
+        ? graph.nodes.map((n) => (showSystem || isKnowledge(n)) && inDomainScope(n) && (clusterFocus === null || clusterFocus.paths.has(n.path)))
+        : null
+    /** Narrows both masks the same way; the type filter is the one thing they disagree on. */
+    const narrow = (fn: (mask: boolean[]) => boolean[]): void => {
+      keep = fn(keep)
+      if (pool !== null) pool = fn(pool)
+    }
 
     if (localDepth > 0 && focusIndexFull >= 0) {
       const adj = new Map<number, number[]>()
@@ -761,8 +788,11 @@ function GraphView({
         }
         frontier = next
       }
-      keep = keep.map((k, i) => k && within.has(i))
-      keep[focusIndexFull] = true // the focus survives its own type/domain filter
+      narrow((mask) => {
+        const next = mask.map((k, i) => k && within.has(i))
+        next[focusIndexFull] = true // the focus survives its own type/domain filter
+        return next
+      })
     }
 
     /*
@@ -786,14 +816,16 @@ function GraphView({
           if (b === around) touching.add(a)
         }
       }
-      keep = keep.map((k, i) => {
-        if (!k) return false
-        if (around >= 0 && !touching.has(i)) return false
-        // The page the question is about stays, whatever it is tagged with: dropping it would
-        // answer "which of these touch it" with a picture that no longer contains it.
-        if (i === around) return true
-        return graph.nodes[i]!.tags.some((t) => t.toLowerCase() === tagFilter.tag.toLowerCase())
-      })
+      narrow((mask) =>
+        mask.map((k, i) => {
+          if (!k) return false
+          if (around >= 0 && !touching.has(i)) return false
+          // The page the question is about stays, whatever it is tagged with: dropping it would
+          // answer "which of these touch it" with a picture that no longer contains it.
+          if (i === around) return true
+          return graph.nodes[i]!.tags.some((t) => t.toLowerCase() === tagFilter.tag.toLowerCase())
+        }),
+      )
     }
 
     // Search NARROWS the graph, it does not merely highlight (the old behaviour): with a
@@ -818,12 +850,20 @@ function GraphView({
       graph.nodes.forEach((n, i) => {
         if (keep[i] && hit(n)) matchFull.add(i)
       })
-      const related = new Set<number>(matchFull)
-      for (const [a, b] of graph.edges) {
-        if (matchFull.has(a) && keep[b]) related.add(b)
-        if (matchFull.has(b) && keep[a]) related.add(a)
-      }
-      keep = keep.map((k, i) => k && related.has(i))
+      // Read off the mask being narrowed, not off `keep`: the pool's context is its own, or a
+      // type the filter hides would drop a neighbour out of the count it is meant to offer.
+      narrow((mask) => {
+        const hits = new Set<number>()
+        graph.nodes.forEach((n, i) => {
+          if (mask[i] && hit(n)) hits.add(i)
+        })
+        const related = new Set<number>(hits)
+        for (const [a, b] of graph.edges) {
+          if (hits.has(a) && mask[b]) related.add(b)
+          if (hits.has(b) && mask[a]) related.add(a)
+        }
+        return mask.map((k, i) => k && related.has(i))
+      })
     }
 
     const remap = new Map<number, number>()
@@ -874,8 +914,17 @@ function GraphView({
       if (r !== undefined) matches.add(r)
     }
 
-    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches }
-  }, [graph, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
+    // What the type chips show: the drawn set counted by type, with the type filter itself
+    // left out of it. A type the other filters leave nothing of reads 0 rather than vanishing -
+    // six chips are a shelf you learn the position of, unlike the domain rows below them.
+    const typeCounts = new Map<string, number>()
+    const counted = pool ?? keep
+    graph.nodes.forEach((n, i) => {
+      if (counted[i]) typeCounts.set(n.type, (typeCounts.get(n.type) ?? 0) + 1)
+    })
+
+    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, typeCounts }
+  }, [graph, selectedTypes, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
 
   /*
    * The page types actually DRAWN, for the corner legend. Not the panel's chip list (2026-09-16):
@@ -1299,6 +1348,7 @@ function GraphView({
           onLens={setLens}
           hasDomains={hasDomains}
           types={types}
+          typeCounts={typeCounts}
           selectedTypes={selectedTypes}
           onToggleType={toggleType}
           domains={domainRows}
@@ -1956,6 +2006,7 @@ function GraphPanel({
   onLens,
   hasDomains,
   types,
+  typeCounts,
   selectedTypes,
   onToggleType,
   domains,
@@ -1988,6 +2039,8 @@ function GraphPanel({
   onLens: (l: Lens) => void
   hasDomains: boolean
   types: Array<[string, number]>
+  /** What each chip SHOWS: the count inside the current view, the type filter itself aside. */
+  typeCounts: ReadonlyMap<string, number>
   selectedTypes: ReadonlySet<string>
   onToggleType: (t: string) => void
   /** In the flat list's order. */
@@ -2177,16 +2230,30 @@ function GraphPanel({
             height changed with the type mix, and the counts ended wherever each label
             happened to stop; as rows they read as the list they are. Same shape the panel's
             stacked pills already use elsewhere. */}
+        {/* `types` says which chips exist and in what order (the whole vault's ranking, so the
+            shelf never reshuffles); `typeCounts` says what each one is worth in the view on
+            screen. A chip the current view holds nothing of cannot narrow anything, so it is
+            disabled rather than offering a click that can only empty the canvas. */}
         <div className="typechips stacked">
-          {types.map(([t, count]) => {
+          {types.map(([t]) => {
             const active = selectedTypes.has(t)
+            const count = typeCounts.get(t) ?? 0
             return (
               <button
                 key={t}
                 className={`chip${active ? ' active' : ''}${selectedTypes.size > 0 && !active ? ' dimmed' : ''}`}
                 aria-pressed={active}
+                disabled={count === 0 && !active}
                 onClick={() => onToggleType(t)}
-                title={active ? `Remove ${TYPE_LABELS[t] ?? t}` : selectedTypes.size === 0 ? 'Show only this type' : `Add ${TYPE_LABELS[t] ?? t}`}
+                title={
+                  count === 0 && !active
+                    ? `Nothing of this type in the current view`
+                    : active
+                      ? `Remove ${TYPE_LABELS[t] ?? t}`
+                      : selectedTypes.size === 0
+                        ? 'Show only this type'
+                        : `Add ${TYPE_LABELS[t] ?? t}`
+                }
               >
                 <span className="chip-dot" style={{ background: `var(${TYPE_VARS[t] ?? '--type-meta'})` }} aria-hidden />
                 {TYPE_LABELS[t] ?? t} <span className="chip-n">{count}</span>
