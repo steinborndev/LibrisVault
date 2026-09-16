@@ -1181,6 +1181,23 @@ function GraphView({
                 {realCount} of {pagePool}
               </strong>{' '}
               pages and <strong>{realEdgeCount}</strong> links
+              {/*
+                * What the two numbers mean, when they disagree (2026-09-16). A search keeps the
+                * pages that MATCH plus their direct neighbours, so a hit is never a dot on its
+                * own - and the drawing then holds several times what the result list counts.
+                * Reading "3 matches" over nineteen labelled nodes invites exactly one question,
+                * and this is the answer to it, in the place the question is asked.
+                *
+                * `realCount` excludes the ghosts (they are appended after it is taken) and
+                * `matches` only ever holds real pages, so the subtraction is sound.
+                */}
+              {matches.size > 0 && realCount > matches.size && (
+                <span className="scope-why">
+                  {' · '}
+                  {matches.size} match{matches.size === 1 ? '' : 'es'} + {realCount - matches.size} neighbour
+                  {realCount - matches.size === 1 ? '' : 's'}
+                </span>
+              )}
             </span>
           }
           barMid={<ScopeMid heading={scopeMid} />}

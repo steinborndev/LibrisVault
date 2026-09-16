@@ -2863,6 +2863,8 @@ details.hot-cache[open] summary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The breakdown behind the two figures, quieter than them: it explains, it does not report. */
+.scope-why { color: var(--text-faint); }
 .scopeline strong {
   color: var(--text);
   font-weight: 600;
