@@ -603,12 +603,32 @@ function GraphView({
     const counts = new Map<string, number>()
     for (const n of graph.nodes) {
       if (!showSystem && !isKnowledge(n)) continue
+      // The page-type chips above narrow these counts (2026-09-16): with Sources picked, a
+      // domain's figure is its SOURCES, not its pages - otherwise the section reports on a
+      // vault the drawing beside it is no longer showing.
+      if (selectedTypes.size > 0 && !selectedTypes.has(n.type)) continue
       const d = n.domain ?? NO_DOMAIN
       counts.set(d, (counts.get(d) ?? 0) + 1)
     }
+    /*
+     * A domain you have PICKED stays on the list at zero rather than disappearing: it is still
+     * filtering the graph, and a filter that has vanished from the panel is one you cannot see
+     * to undo. A domain nobody picked and that holds nothing of this type is simply gone - a
+     * chip that filters nothing is the dead entry the system-page rule above already avoids.
+     */
+    for (const d of selectedDomains) if (!counts.has(d)) counts.set(d, 0)
     return [...counts.entries()].sort((a, b) => (a[0] === NO_DOMAIN ? 1 : b[0] === NO_DOMAIN ? -1 : b[1] - a[1]))
-  }, [graph, showSystem])
-  const hasDomains = domains.some(([d]) => d !== NO_DOMAIN)
+  }, [graph, showSystem, selectedTypes, selectedDomains])
+  /*
+   * Whether the vault HAS domains at all - deliberately read from the whole graph, not from the
+   * counted list above. It decides whether the section and the domain lens exist, and those two
+   * must not blink out of the panel because a type chip happens to select pages that carry no
+   * `domain:`. What a filter empties it shows as empty; it does not take the control away.
+   */
+  const hasDomains = useMemo(
+    () => graph.nodes.some((n) => (showSystem || isKnowledge(n)) && n.domain != null && n.domain !== NO_DOMAIN),
+    [graph, showSystem],
+  )
   /** The flat list's order: alphabetical, the no-domain bucket last. */
   const domainRows = useMemo(() => [...domains].sort(([a], [b]) => (a === NO_DOMAIN ? 1 : b === NO_DOMAIN ? -1 : a.localeCompare(b))), [domains])
   /*
