@@ -1046,23 +1046,8 @@ function GraphView({
      * button that grows into a field, moves everything left of it by 260 pixels.
      */
     <div className={`graph-search-slot${searchOpen ? ' open' : ''}`}>
-      {!searchOpen && (
-        <button
-          className="canvas-corner search-open"
-          onClick={() => {
-            setSearchOpen(true)
-            // Focus after the field exists; without the frame the ref is still null.
-            requestAnimationFrame(() => searchRef.current?.focus())
-          }}
-          aria-label="Search the graph"
-          title="Search pages or tags · /"
-        >
-          <Icon name="search" />
-        </button>
-      )}
       {searchOpen && (
     <div className="graph-search graph-search-inbar" ref={searchBoxRef}>
-      <Icon name="search" />
       <input
         ref={searchRef}
         type="search"
@@ -1135,6 +1120,30 @@ function GraphView({
       )}
     </div>
       )}
+      {/*
+        * One magnifier, always at the right edge, open or closed: it is the same control in
+        * both states, so it does not move between them. Closing clears the text - a query
+        * still narrowing the graph from behind a folded-away box is a filter you cannot see
+        * and therefore cannot undo.
+        */}
+      <button
+        className="canvas-corner search-open"
+        aria-expanded={searchOpen}
+        onClick={() => {
+          if (searchOpen) {
+            setInput('')
+            setSearchOpen(false)
+            return
+          }
+          setSearchOpen(true)
+          // Focus after the field exists; without the frame the ref is still null.
+          requestAnimationFrame(() => searchRef.current?.focus())
+        }}
+        aria-label={searchOpen ? 'Close the search' : 'Search the graph'}
+        title={searchOpen ? 'Close the search · Esc' : 'Search pages or tags · /'}
+      >
+        <Icon name="search" />
+      </button>
     </div>
   )
 
@@ -1679,7 +1688,13 @@ function PageExplorer({
           )}
         </div>
       )}
-      <div className="gx-body">
+      {/*
+        * Equal shares, each scrolling on its own (2026-09-16). One scroll over all three meant
+        * a page with forty backlinks pushed "Links to" and "Related by tag" out of the panel
+        * entirely - you could not tell whether they were empty or merely below. The modifier
+        * is on this body alone: the gap explorer's has one list and the gap list is a list.
+        */}
+      <div className="gx-body thirds">
         <LinkSection title="Backlinks" list={backlinks} onSelect={onSelectPage} />
         <LinkSection title="Links to" list={outgoing} onSelect={onSelectPage} />
         <LinkSection title="Related by tag" list={related} onSelect={onSelectPage} />
