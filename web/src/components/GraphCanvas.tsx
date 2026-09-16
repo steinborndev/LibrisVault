@@ -125,6 +125,8 @@ export interface GraphCanvasProps {
    * Live SSE updates leave this key alone, so mid-ingest arrivals still never move the camera.
    */
   fitKey?: string
+  /** The bar's own Fit button. Off where the screen offers the action somewhere better. */
+  showFit?: boolean
   /**
    * Which graph this canvas is - the key its camera and its laid-out positions are kept
    * under. Two canvases are mounted at once (every screen stays in the DOM behind `hidden`),
@@ -304,7 +306,7 @@ function viewMemory(view: string): ViewMemory {
  */
 const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -1927,17 +1929,22 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       <div className="graph-controls scope-bar">
         <span className="bar-l">
           {/* The first slot has one width in every bar that copies this one (the
-              Catalog's), so "Showing" starts at the same x on both screens. */}
-          <button
-            className="btn ghost head-slot"
-            onClick={() => {
-              userMovedRef.current = false
-              fitToView()
-            }}
-            title="Fit the view to the graph (f)"
-          >
-            Fit
-          </button>
+              Catalog's), so "Showing" starts at the same x on both screens.
+              Off where the screen has a control panel of its own: the graph screen moved Fit
+              into it on 2026-09-16, beside Reset, because the two are one pair of actions and
+              a bar is for saying what is drawn. The shelf window has no panel and keeps it. */}
+          {showFit && (
+            <button
+              className="btn ghost head-slot"
+              onClick={() => {
+                userMovedRef.current = false
+                fitToView()
+              }}
+              title="Fit the view to the graph (f)"
+            >
+              Fit
+            </button>
+          )}
           {barLeft}
         </span>
         {barMid}

@@ -484,6 +484,12 @@ function GraphView({
   const [tagFilter, setTagFilter] = useState<{ tag: string; around: string | null } | null>(null)
   /** Whether the search box is out. Collapsed it is a magnifier; the slot keeps its width either way. */
   const [searchOpen, setSearchOpen] = useState(false)
+  /**
+   * "Fit graph", as a number. The canvas already re-frames whenever `fitKey` changes and
+   * clears the panned-away flag while it does - which is exactly what the button has to do -
+   * so asking for a fit is bumping this rather than reaching into the canvas for its method.
+   */
+  const [fitNonce, setFitNonce] = useState(0)
 
   /**
    * `?gaps=1` (Home's Gaps card) lands here with the gaps overlay on. It is a one-shot
@@ -1257,6 +1263,7 @@ function GraphView({
           }}
           gapCount={graph.gaps.length}
           onReset={resetView}
+          onFit={() => setFitNonce((n) => n + 1)}
         />
         <div className="graph-main">
       {/* While the search's list is open it has the corner: the minimap steps out of sight. */}
@@ -1284,7 +1291,8 @@ function GraphView({
           // The tag filter belongs here for the sharpest version of the same reason: it cuts a
           // thousand pages down to a handful, and without a re-fit those few keep the scale the
           // whole vault had and sit in one corner as a speck of their own drawing.
-          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}`}
+          showFit={false}
+          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}`}
           barLeft={
             <span className="scopeline">
               Showing{' '}
@@ -1375,6 +1383,7 @@ function GraphView({
                 * of anything standing there.
                 */}
               <div className="canvas-corners">
+                <Shortcuts rows={GRAPH_SHORTCUTS} corner />
                 <button
                   className="canvas-corner"
                   onClick={() => setFullscreen((v) => !v)}
@@ -1382,7 +1391,6 @@ function GraphView({
                 >
                   <Icon name={fullscreen ? 'shrink' : 'expand'} /> {fullscreen ? 'Exit' : 'Fullscreen'}
                 </button>
-                <Shortcuts rows={GRAPH_SHORTCUTS} corner />
               </div>
               {trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">
@@ -1907,6 +1915,7 @@ function GraphPanel({
   onGaps,
   gapCount,
   onReset,
+  onFit,
 }: {
   lens: Lens
   onLens: (l: Lens) => void
@@ -1938,27 +1947,68 @@ function GraphPanel({
   onGaps: () => void
   gapCount: number
   onReset: () => void
+  /** Re-frame the drawing. The action, not a state - the strip flashes rather than latches. */
+  onFit: () => void
 }): React.ReactElement {
   const includeOn = (showSystem ? 1 : 0) + (showGaps ? 1 : 0)
   /** Hovering a pill previews its meaning; leaving falls back to the one in force. */
   const [lensPreview, setLensPreview] = useState<Lens | null>(null)
   const shownLens = LENSES.find((l) => l.key === (lensPreview ?? lens)) ?? LENSES[0]!
 
+  /*
+   * The action strip's acknowledgement. An action has no state to show, so the half lights for
+   * a moment and goes out - long enough to read as "that one", short enough that nobody reads
+   * it as "that one is on". The timer is cleared on the next press and on unmount, so a quick
+   * double press cannot leave a half lit behind it.
+   */
+  const [flash, setFlash] = useState<'reset' | 'fit' | null>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (flashTimer.current !== null) clearTimeout(flashTimer.current) }, [])
+  const blink = (which: 'reset' | 'fit'): void => {
+    if (flashTimer.current !== null) clearTimeout(flashTimer.current)
+    setFlash(which)
+    flashTimer.current = setTimeout(() => setFlash(null), 260)
+  }
+
   const label = (d: string): string => (d === NO_DOMAIN ? 'no domain' : d)
 
   return (
     <aside className="gpanel" aria-label="Graph view controls">
+      {/*
+        * The panel's two ACTIONS, above everything that is a setting (2026-09-16). They wear
+        * the lens strip's shape because they stand in the same column and a second shape for
+        * two buttons would be a second vocabulary - but they are not a choice, so neither half
+        * latches. A press flashes and lets go, which is the whole difference between "this is
+        * how the graph is drawn" and "do this to the graph now".
+        */}
+      <div className="gp-sec">
+        <div className="lib-strip gp-lens gp-actions">
+          <button
+            className={`rp${flash === 'reset' ? ' on' : ''}`}
+            onClick={() => {
+              onReset()
+              blink('reset')
+            }}
+            title="Back to the whole vault, coloured by domain: filters, lens, overlays, drill-down and search"
+          >
+            Reset filters
+          </button>
+          <button
+            className={`rp${flash === 'fit' ? ' on' : ''}`}
+            onClick={() => {
+              onFit()
+              blink('fit')
+            }}
+            title="Frame the drawing to what it is showing · f"
+          >
+            Fit graph
+          </button>
+        </div>
+      </div>
+
       <div className="gp-sec">
         <div className="gp-head">
           <span className="gp-eyebrow">Overlays</span>
-          <span className="spacer" />
-          {/* The one control that takes the whole panel back, in the head that is now the
-              panel's first: it undoes the filters, the lens, the overlays, the drill-down and
-              the search, so it belongs where somebody looks for a way out, not inside the
-              second section it happens to have been written in. */}
-          <button className="btn ghost" onClick={onReset} title="Back to the whole vault, coloured by domain">
-            Reset
-          </button>
         </div>
         <div className="gp-toggles">
           <RowToggle

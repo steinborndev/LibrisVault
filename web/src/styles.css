@@ -2752,6 +2752,13 @@ details.hot-cache[open] summary {
 }
 .lib-strip.gp-lens .rp:hover:not(.on):not(:disabled) { background: var(--bg-elev); color: var(--text); }
 .lib-strip.gp-lens .rp.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+/*
+ * The action strip. Same shape as the lenses above it, but its lit state is a flash and not a
+ * state, so it fades OUT on its own: no transition going in (the press must feel immediate)
+ * and a slow one coming back (the eye needs to catch it).
+ */
+.gp-actions .rp { transition: background 260ms ease, color 260ms ease; }
+.gp-actions .rp.on { transition: none; }
 /* A vault with no domains cannot be coloured by one; the half says so rather than lying. */
 .lib-strip.gp-lens .rp:disabled { opacity: 0.45; cursor: default; }
 .chip.dimmed,
