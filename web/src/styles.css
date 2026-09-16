@@ -2774,6 +2774,17 @@ details.hot-cache[open] summary {
 .domrow.dimmed {
   opacity: 0.45;
 }
+/* A type the current view holds none of: the chip itself goes grey and faint, and the dot
+   keeps its own colour. Fading the whole chip is what says "not available here" - recolouring
+   the dot would say something about the TYPE, and the type has not changed, only what is on
+   screen. The fill is the panel's own recessed surface, so the chip reads as a slot rather
+   than as a control that has stopped working. */
+.typechips .chip:disabled {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+  opacity: 0.5;
+  cursor: default;
+}
 .domlist {
   display: grid;
   align-content: start;
