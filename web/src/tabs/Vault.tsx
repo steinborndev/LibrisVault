@@ -76,18 +76,20 @@ const TYPE_LABELS: Record<string, string> = {
 
 /**
  * The graph's key bindings, in the order someone learning the view meets them. Kept by
- * hand against the handlers (the window-level ladder below, the canvas's own keys, the
- * wing keys in the domain section): the list is documentation, and a row that names a key
- * nothing binds any more is worse than no list.
+ * hand against the handlers (the window-level ladder below, the canvas's own keys, the two
+ * arrow effects in the domain section): the list is documentation, and a row that names a key
+ * nothing binds any more is worse than no list - as is a key that nothing names, which is what
+ * the arrows were in the flat domain list until 2026-09-16.
  */
 const GRAPH_SHORTCUTS = [
   { keys: ['2x click'], what: 'open a page from the graph' },
   { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens' },
+  { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
-  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, the panel, a cluster, the gaps, a focus' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a tag, the trail, the panel, a cluster, the gaps, a focus' },
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
-  { keys: ['/'], what: 'search pages and tags; a click outside folds the list, the filter stays' },
-  { keys: ['←', '→'], what: 'previous or next wing, while the domains are listed by wing' },
+  { keys: ['/'], what: 'open the search for pages and tags; a click outside folds the list, the filter stays' },
+  { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
   { keys: ['f'], what: 'fit the view' },
   { keys: ['+', '-'], what: 'zoom in and out' },
   { keys: ['wheel'], what: 'zoom towards the pointer' },
@@ -585,17 +587,18 @@ function GraphView({
     [graph, focusPath],
   )
 
+  /*
+   * The two scopes the panel filters by, named once and used three times: by the type chips'
+   * counts, by the domain rows' counts, and by the drawing itself. Each list is counted through
+   * the OTHER scope (2026-09-16), so a section always reports on what is actually on screen -
+   * with Sources picked a domain's figure is its sources, and with a domain picked a type's
+   * figure is that domain's pages. Sharing the predicates is the point: a list that counted by
+   * its own copy of the rule would drift from the canvas the first time either rule changed.
+   */
+  const inTypeScope = useCallback((n: GraphNode): boolean => selectedTypes.size === 0 || selectedTypes.has(n.type), [selectedTypes])
+
   // Type/domain lists reflect the system filter: with system pages hidden, the meta/root
   // buckets and the `meta` domain would be dead entries - chips that filter nothing.
-  const types = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const n of graph.nodes) {
-      if (!showSystem && !isKnowledge(n)) continue
-      counts.set(n.type, (counts.get(n.type) ?? 0) + 1)
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])
-  }, [graph, showSystem])
-
   // Meta-categories from frontmatter `domain:`. Pages without one gather under NO_DOMAIN -
   // deliberately a visible bucket, not a blind spot: it shows how much of the vault is still
   // uncategorized (the evidence base for the domain-registry backfill, SPEC §12.4).
@@ -603,10 +606,7 @@ function GraphView({
     const counts = new Map<string, number>()
     for (const n of graph.nodes) {
       if (!showSystem && !isKnowledge(n)) continue
-      // The page-type chips above narrow these counts (2026-09-16): with Sources picked, a
-      // domain's figure is its SOURCES, not its pages - otherwise the section reports on a
-      // vault the drawing beside it is no longer showing.
-      if (selectedTypes.size > 0 && !selectedTypes.has(n.type)) continue
+      if (!inTypeScope(n)) continue
       const d = n.domain ?? NO_DOMAIN
       counts.set(d, (counts.get(d) ?? 0) + 1)
     }
@@ -618,7 +618,7 @@ function GraphView({
      */
     for (const d of selectedDomains) if (!counts.has(d)) counts.set(d, 0)
     return [...counts.entries()].sort((a, b) => (a[0] === NO_DOMAIN ? 1 : b[0] === NO_DOMAIN ? -1 : b[1] - a[1]))
-  }, [graph, showSystem, selectedTypes, selectedDomains])
+  }, [graph, showSystem, inTypeScope, selectedDomains])
   /*
    * Whether the vault HAS domains at all - deliberately read from the whole graph, not from the
    * counted list above. It decides whether the section and the domain lens exist, and those two
@@ -650,6 +650,35 @@ function GraphView({
   const wingMode = useWingMode('vault.domainMode.graph', wings)
   const wing = wingMode.wing
   const wingScope = useMemo(() => (wing === null ? null : new Set(wings.find((g) => g.id === wing)?.domains ?? [])), [wing, wings])
+  /** The domain half of the scope: the picked domains, or the room on show when none is picked. */
+  const inDomainScope = useCallback(
+    (n: GraphNode): boolean =>
+      selectedDomains.size > 0 ? selectedDomains.has(n.domain ?? NO_DOMAIN) : wingScope === null || wingScope.has(n.domain ?? NO_DOMAIN),
+    [selectedDomains, wingScope],
+  )
+
+  /*
+   * The page-type chips, counted inside the domain scope - it sits below the domain rows in the
+   * file only because the room on show is needed to say what that scope is.
+   *
+   * The ORDER is the whole vault's, not the scope's: the chips are a fixed shelf you learn the
+   * position of, and re-sorting six of them under the cursor every time a domain is picked
+   * would make the list unreadable for the sake of a ranking nobody reads it for.
+   */
+  const types = useMemo(() => {
+    const counts = new Map<string, number>()
+    const overall = new Map<string, number>()
+    for (const n of graph.nodes) {
+      if (!showSystem && !isKnowledge(n)) continue
+      overall.set(n.type, (overall.get(n.type) ?? 0) + 1)
+      if (!inDomainScope(n)) continue
+      counts.set(n.type, (counts.get(n.type) ?? 0) + 1)
+    }
+    // A type you have PICKED stays listed at zero, the same rule the domain rows follow: it is
+    // still filtering the drawing, and a filter that has left the panel cannot be undone there.
+    for (const t of selectedTypes) if (!counts.has(t)) counts.set(t, 0)
+    return [...counts.entries()].sort((a, b) => (overall.get(b[0]) ?? 0) - (overall.get(a[0]) ?? 0) || a[0].localeCompare(b[0]))
+  }, [graph, showSystem, inDomainScope, selectedTypes])
   /** Turning the page drops any selection outside it: the room is the filter now. */
   const pickWing = useCallback(
     (id: string): void => {
@@ -707,11 +736,7 @@ function GraphView({
   // When the gaps view is on, the unresolved targets are appended as synthetic ghost nodes.
   const { nodes, edges, focusIndex, ghostIndices, realCount, matches } = useMemo(() => {
     let keep: boolean[] = graph.nodes.map(
-      (n) =>
-        (showSystem || isKnowledge(n)) &&
-        (selectedTypes.size === 0 || selectedTypes.has(n.type)) &&
-        (selectedDomains.size > 0 ? selectedDomains.has(n.domain ?? NO_DOMAIN) : wingScope === null || wingScope.has(n.domain ?? NO_DOMAIN)) &&
-        (clusterFocus === null || clusterFocus.paths.has(n.path)),
+      (n) => (showSystem || isKnowledge(n)) && inTypeScope(n) && inDomainScope(n) && (clusterFocus === null || clusterFocus.paths.has(n.path)),
     )
 
     if (localDepth > 0 && focusIndexFull >= 0) {
@@ -850,7 +875,23 @@ function GraphView({
     }
 
     return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches }
-  }, [graph, selectedTypes, selectedDomains, wingScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
+  }, [graph, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
+
+  /*
+   * The page types actually DRAWN, for the corner legend. Not the panel's chip list (2026-09-16):
+   * the chips are the offer, the legend is the key to the picture, and a key that explains four
+   * colours when three are on screen sends you looking for a colour that is not there. Read off
+   * the subgraph, so every narrowing shortens it - the type chips first of all, but the domain,
+   * the search and a focus just the same. Ghosts are excluded; they carry no page type.
+   */
+  const drawnTypes = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (let i = 0; i < realCount; i++) {
+      const t = nodes[i]!.type
+      counts.set(t, (counts.get(t) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+  }, [nodes, realCount])
 
   // Subgraph index of the explorer selection, for the canvas ring + spotlight. Null when the
   // selected page/gap is currently filtered out of view (the panel still shows regardless).
@@ -920,6 +961,8 @@ function GraphView({
     else next.add(d)
     setSelectedDomains(next)
   }
+  /** One domain, replacing whatever was selected - what an arrow step through the list means. */
+  const pickDomain = useCallback((d: string): void => setSelectedDomains(new Set([d])), [])
 
   /** What the "System pages" toggle would add - the number it shows has to be that. */
   const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
@@ -1261,6 +1304,7 @@ function GraphView({
           domains={domainRows}
           selectedDomains={selectedDomains}
           onToggleDomain={toggleDomain}
+          onPickDomain={pickDomain}
           onClearDomains={() => setSelectedDomains(new Set())}
           wings={wings}
           wingMode={wingMode.mode}
@@ -1397,7 +1441,7 @@ function GraphView({
                   </button>
                 </div>
               )}
-              <LensLegend lens={effectiveLens} types={types} />
+              <LensLegend lens={effectiveLens} types={drawnTypes} />
               {/*
                 * Both in the bottom RIGHT corner, side by side: these two are about the canvas
                 * rather than about what it shows, and the bottom left belongs to the trail,
@@ -1917,6 +1961,7 @@ function GraphPanel({
   domains,
   selectedDomains,
   onToggleDomain,
+  onPickDomain,
   onClearDomains,
   wings,
   wingMode,
@@ -1949,6 +1994,7 @@ function GraphPanel({
   domains: ReadonlyArray<readonly [string, number]>
   selectedDomains: ReadonlySet<string>
   onToggleDomain: (d: string) => void
+  onPickDomain: (d: string) => void
   onClearDomains: () => void
   wings: readonly WingGroup[]
   wingMode: WingListMode
@@ -2159,6 +2205,7 @@ function GraphPanel({
           color={(d) => (d === NO_DOMAIN ? 'var(--muted)' : domainColor(d))}
           selected={selectedDomains}
           onToggle={onToggleDomain}
+          onPick={onPickDomain}
           onClear={onClearDomains}
           groups={wings}
           mode={wingMode}
@@ -2271,10 +2318,12 @@ const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
 ]
 
 /**
- * A small canvas-corner legend (bottom-right). The metric lenses each get a one-line key; the
- * `type` lens gets a swatch per page-type color present. The `domain` lens has no legend here -
- * the domain filter chips at the top ARE its legend. `types` is the [type, count] list of what
- * is currently visible, so the legend lists only colors actually on screen.
+ * A small canvas-corner legend (bottom-right), drawn bare on the canvas since 2026-09-16: a
+ * framed box in the corner of a drawing reads as a second panel, and this is a caption. The
+ * metric lenses each get a one-line key; the `type` lens gets a swatch per page-type colour
+ * present. The `domain` lens has no legend here - the domain filter chips at the top ARE its
+ * legend. `types` is the [type, count] list of what is actually DRAWN, so the legend is as
+ * short as the picture is narrow, and it grows up from a fixed bottom-right corner.
  */
 function LensLegend({
   lens,

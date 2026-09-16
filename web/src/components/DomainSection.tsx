@@ -11,11 +11,17 @@
  * walk the rooms; the room on show is the screen's filter, so walking the rooms is browsing
  * the vault. "show all" is the flat list the screen hands over. There is no filter box any
  * more: with a room a page, the list is short enough to read.
+ *
+ * Left and right walk BOTH modes (2026-09-16). By wing they turn the page of rooms; in the
+ * flat list they walk the domains one at a time, each step replacing the selection, so the
+ * same two keys mean the same thing in both: move to the next thing this section filters by.
+ * The flat list treats "no domain picked" as the position before the first, which is how left
+ * gets you back out to the whole vault.
  */
 
-import { useEffect, type Ref } from 'react'
+import { useCallback, useEffect, useRef, type Ref } from 'react'
 import { Icon } from './Icon.tsx'
-import { stepWing, type WingGroup, type WingListMode } from '../lib/wings.ts'
+import { stepDomain, stepWing, type WingGroup, type WingListMode } from '../lib/wings.ts'
 
 export interface DomainSectionProps {
   /** Every domain the screen knows, with its count, in the order the flat list shows them. */
@@ -24,6 +30,8 @@ export interface DomainSectionProps {
   readonly color: (key: string) => string
   readonly selected: ReadonlySet<string>
   readonly onToggle: (key: string) => void
+  /** Make this domain the only one selected - what an arrow step means, unlike a click. */
+  readonly onPick: (key: string) => void
   readonly onClear: () => void
   /** The rooms, from `wingGroups`; empty when the Library offers none, and then there is no wing mode. */
   readonly groups: readonly WingGroup[]
@@ -47,11 +55,23 @@ function inField(target: EventTarget | null): boolean {
   )
 }
 
-export function DomainSection({ domains, label, color, selected, onToggle, onClear, groups, mode, onMode, wing, onWing, active, rowTitle, listRef }: DomainSectionProps): React.ReactElement {
+export function DomainSection({ domains, label, color, selected, onToggle, onPick, onClear, groups, mode, onMode, wing, onWing, active, rowTitle, listRef }: DomainSectionProps): React.ReactElement {
+  const list = useRef<HTMLDivElement>(null)
+  // The section scrolls its own list (the arrow step, below); the screen gets the same node
+  // for its own reasons (the Catalog scrolls to a domain arriving from another screen).
+  const setList = useCallback(
+    (el: HTMLDivElement | null): void => {
+      list.current = el
+      if (typeof listRef === 'function') listRef(el)
+      else if (listRef !== null && listRef !== undefined) (listRef as { current: HTMLDivElement | null }).current = el
+    },
+    [listRef],
+  )
   const group = wing === null ? undefined : groups.find((g) => g.id === wing)
   const at = group === undefined ? -1 : groups.indexOf(group)
   const counts = new Map(domains)
   const rows: ReadonlyArray<readonly [string, number]> = group === undefined ? domains : group.domains.map((d) => [d, counts.get(d) ?? 0] as const)
+  const order = rows.map(([d]) => d)
 
   // Left and right walk the rooms, in wing mode, on the screen in front, never over a field.
   useEffect(() => {
@@ -67,6 +87,30 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [active, wing, groups, onWing])
+
+  /*
+   * The same two keys in the flat list, walking the domains (`stepDomain` holds the rules). The
+   * step is a SOLO select and not a click: a click builds a set up, an arrow moves along, and a
+   * key that grew the selection with every press would give no way to walk past a domain
+   * without picking it up.
+   */
+  useEffect(() => {
+    if (!active || wing !== null) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      if (inField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
+      const step = stepDomain(order, selected, e.key === 'ArrowLeft' ? -1 : 1)
+      if (step === null) return
+      e.preventDefault()
+      if (step === 'clear') onClear()
+      else onPick(step.pick)
+      // The list is taller than its slot: a step that lands out of sight has not shown you
+      // anything. React flushes a key press before paint, so the row is already marked here.
+      requestAnimationFrame(() => list.current?.querySelector('.domrow.active')?.scrollIntoView({ block: 'nearest' }))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, wing, order, selected, onPick, onClear])
 
   return (
     <div className="gp-sec grow">
@@ -113,7 +157,7 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
           </button>
         </div>
       )}
-      <div className="domlist" ref={listRef}>
+      <div className="domlist" ref={setList}>
         {rows.map(([d, count]) => {
           const on = selected.has(d)
           return (

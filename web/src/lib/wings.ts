@@ -65,3 +65,23 @@ export function resolveWing(mode: WingListMode, id: string | null, groups: reado
   if (mode !== 'wing' || groups.length === 0) return null
   return groups.some((g) => g.id === id) ? id : (groups[0]?.id ?? null)
 }
+
+/**
+ * One step through the FLAT domain list, the counterpart of `stepWing` for "show all": the
+ * arrows walk the domains there since 2026-09-16, so the same two keys mean the same thing in
+ * both modes - move to the next thing this section filters by.
+ *
+ * Three rules worth naming, because none of them is what a plain index walk would do:
+ *   - the anchor is the LAST selected row, so stepping out of a set built by clicking carries
+ *     on from its far end rather than from wherever the set happens to start;
+ *   - the right end HOLDS (null), the way the wing arrows stop at the last room;
+ *   - the left end steps OFF the list and clears, because "all domains" is a real position
+ *     here - it is where the list starts - and no other key gets you back to it.
+ */
+export function stepDomain(rows: readonly string[], selected: ReadonlySet<string>, delta: -1 | 1): { pick: string } | 'clear' | null {
+  let at = -1
+  for (let i = 0; i < rows.length; i++) if (selected.has(rows[i]!)) at = i
+  if (delta === 1) return at >= rows.length - 1 ? null : { pick: rows[at + 1]! }
+  if (at < 0) return null
+  return at === 0 ? 'clear' : { pick: rows[at - 1]! }
+}

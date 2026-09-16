@@ -510,6 +510,7 @@ export function Catalog({
             const key = d === '' ? 'none' : d
             setDomain((cur) => (cur === key ? null : key))
           }}
+          onPick={(d) => setDomain(d === '' ? 'none' : d)}
           onClear={() => setDomain(null)}
           groups={wings}
           mode={wingMode.mode}
