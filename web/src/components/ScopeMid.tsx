@@ -11,14 +11,17 @@ import { domainColor } from '../lib/domains.ts'
 import type { ScopeHeading } from '../lib/scopeHeading.ts'
 
 export function ScopeMid({ heading }: { heading: ScopeHeading }): React.ReactElement {
-  const { text, domain } = heading
+  const { text, domain, tag } = heading
   // A hollow ring where no one colour applies: a count, a wing, the whole vault.
   const dotClass = domain === null ? 'chip-dot mid-dot none' : 'chip-dot mid-dot'
   const dotStyle = domain === null ? undefined : { background: domain === '' ? 'var(--muted)' : domainColor(domain) }
   return (
-    <span className="bar-mid" title={text}>
+    <span className={tag ? 'bar-mid has-tag' : 'bar-mid'} title={tag?.around != null ? `${text} around ${tag.around}` : text}>
       <span className={dotClass} style={dotStyle} aria-hidden />
-      <span className="mid-name">{text}</span>
+      <span className={tag ? 'mid-name mid-tag' : 'mid-name'}>{text}</span>
+      {/* The page the tag was scoped to, quieter than the tag: the tag is what you chose,
+          this is where you chose it. Truncated rather than wrapped - the bar is one line. */}
+      {tag?.around != null && <span className="mid-around">around {tag.around}</span>}
     </span>
   )
 }

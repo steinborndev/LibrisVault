@@ -11,6 +11,13 @@
 export interface ScopeHeading {
   readonly text: string
   /**
+   * A tag filter, when one is on (2026-09-16). It OUTRANKS the domain heading, because it is
+   * the narrower statement: with a tag on, "all domains" is true of the vault and false of
+   * the drawing, and the middle of the bar is where a reader looks to find out what they are
+   * looking at. `around` names the page the tag was scoped to, when it was.
+   */
+  readonly tag?: { readonly name: string; readonly around: string | null }
+  /**
    * Which domain colours the dot ahead of the text: the named one, the empty key for the
    * pages without a domain, or null when the heading is a count, a wing or the whole vault
    * - none of which is one colour.
@@ -18,7 +25,14 @@ export interface ScopeHeading {
   readonly domain: string | null
 }
 
-export function scopeHeading(selected: ReadonlySet<string>, wingName: string | null): ScopeHeading {
+export function scopeHeading(
+  selected: ReadonlySet<string>,
+  wingName: string | null,
+  tag: { name: string; around: string | null } | null = null,
+): ScopeHeading {
+  // The tag first: it is the thing the reader just did, and the domain heading behind it
+  // would describe a wider view than the one on screen.
+  if (tag !== null) return { text: `#${tag.name}`, domain: null, tag }
   if (selected.size === 1) {
     const only = [...selected][0]!
     return { text: only === '' ? 'no domain' : only, domain: only }

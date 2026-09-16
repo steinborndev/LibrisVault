@@ -2867,16 +2867,41 @@ details.hot-cache[open] summary {
 .scope-why { color: var(--text-faint); }
 /* The tag filter, in the line that says what is drawn - the one place a reader already looks
    to find out why the graph is this small. Its own colour, because it is a thing you set. */
-.scope-tag { color: var(--accent); font-weight: 600; }
-.scope-around { color: var(--text-faint); font-weight: 400; }
-.scope-tag-x {
-  all: unset;
-  cursor: pointer;
-  margin-left: 4px;
-  vertical-align: -1px;
-  opacity: 0.7;
+/*
+ * The tag scope, in the middle of the bar where the scope belongs. The slot is sized for a
+ * domain name; a tag plus the page it is scoped to needs more, and the padding that optically
+ * centres a short heading is exactly the room it needs, so the tag case takes it back.
+ */
+.bar-mid.has-tag { width: auto; min-width: 320px; max-width: 620px; padding-left: 0; }
+/* The tag NEVER shrinks: it is short, it is what you pressed, and truncating it to "#…" while
+   the page name beside it keeps its width is the wrong half to lose. The page name gives. */
+.mid-tag { color: var(--accent); flex: none; }
+.mid-around {
+  flex: 1 1 auto;
+  margin-left: 6px;
+  color: var(--text-faint);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
-.scope-tag-x:hover { opacity: 1; }
+/*
+ * The search's slot keeps the box's width whether the box is out or not, so opening it moves
+ * nothing to its left. Collapsed, the magnifier sits at the right edge of that reserved space.
+ */
+.graph-search-slot {
+  flex: 0 1 300px;
+  width: 300px;
+  min-width: 140px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.graph-search-slot.open { display: block; }
+.graph-search-slot .graph-search-inbar { width: 100%; flex: 1 1 auto; }
+/* The canvas pill, in the bar: same shape, no blur - there is nothing behind it to blur. */
+.canvas-corner.search-open { position: static; backdrop-filter: none; padding: 0 9px; }
 .scopeline strong {
   color: var(--text);
   font-weight: 600;

@@ -482,6 +482,8 @@ function GraphView({
    * page" - the question you are actually asking when you press a tag while reading a page.
    */
   const [tagFilter, setTagFilter] = useState<{ tag: string; around: string | null } | null>(null)
+  /** Whether the search box is out. Collapsed it is a magnifier; the slot keeps its width either way. */
+  const [searchOpen, setSearchOpen] = useState(false)
 
   /**
    * `?gaps=1` (Home's Gaps card) lands here with the gaps overlay on. It is a one-shot
@@ -546,6 +548,29 @@ function GraphView({
     setSelection(null)
     setTrail([])
   }
+
+  /*
+   * A visit starts clean (2026-09-16). `viewMemory` exists so that a graph → article → Escape
+   * round trip comes back to what it left - that trip UNMOUNTS this screen, which is the case
+   * it was written for. Walking to another TAB is a different journey: the screen only goes
+   * inactive, and coming back to somebody else's half-finished exploration - a node still
+   * ringed, a trail along the bottom, a tag still narrowing the drawing - is the screen
+   * keeping a train of thought that is no longer yours.
+   *
+   * What is dropped is the EXPLORATION: selection, trail, tag filter, search, cluster
+   * drill-down and focus depth. What stays is the set of view PREFERENCES - lens, overlays,
+   * domain and type filters - which persist across reloads on purpose; clearing them on a tab
+   * switch while a reload restores them would be two rules disagreeing.
+   */
+  useEffect(() => {
+    if (active) return
+    closeExplorer()
+    setTagFilter(null)
+    setInput('')
+    setSearchOpen(false)
+    setClusterStack([])
+    setLocalDepth(0)
+  }, [active])
 
   const focusIndexFull = useMemo(
     () => (focusPath ? graph.nodes.findIndex((n) => n.path === focusPath) : -1),
@@ -887,8 +912,15 @@ function GraphView({
    * while the domains are listed by wing, and "all domains" otherwise.
    */
   const scopeMid = useMemo(
-    () => scopeHeading(selectedDomains, wing === null ? null : (wings.find((g) => g.id === wing)?.name ?? 'one wing')),
-    [selectedDomains, wing, wings],
+    () =>
+      scopeHeading(
+        selectedDomains,
+        wing === null ? null : (wings.find((g) => g.id === wing)?.name ?? 'one wing'),
+        tagFilter === null
+          ? null
+          : { name: tagFilter.tag, around: tagFilter.around === null ? null : (graph.nodes.find((n) => n.path === tagFilter.around)?.title ?? null) },
+      ),
+    [selectedDomains, wing, wings, tagFilter, graph],
   )
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
@@ -993,7 +1025,8 @@ function GraphView({
       navigate(pageRoute(selection.path))
     } else if (e.key === '/') {
       e.preventDefault()
-      searchRef.current?.focus()
+      setSearchOpen(true)
+      requestAnimationFrame(() => searchRef.current?.focus())
     }
   }
   useEffect(() => {
@@ -1006,6 +1039,28 @@ function GraphView({
   // canvas, and a second floating box was claiming the same corner as the bar.
   const resultsShown = resultsOpen && query.trim() !== '' && (results.length > 0 || domainResults.length > 0)
   const searchOverlay = (
+    /*
+     * A slot of the box's own width, whatever is standing in it (2026-09-16). Collapsed, the
+     * bar shows a magnifier at the right edge; open, the box fills the slot. The slot is why
+     * the heading in the middle does not slide sideways when it opens - the alternative, a
+     * button that grows into a field, moves everything left of it by 260 pixels.
+     */
+    <div className={`graph-search-slot${searchOpen ? ' open' : ''}`}>
+      {!searchOpen && (
+        <button
+          className="canvas-corner search-open"
+          onClick={() => {
+            setSearchOpen(true)
+            // Focus after the field exists; without the frame the ref is still null.
+            requestAnimationFrame(() => searchRef.current?.focus())
+          }}
+          aria-label="Search the graph"
+          title="Search pages or tags · /"
+        >
+          <Icon name="search" />
+        </button>
+      )}
+      {searchOpen && (
     <div className="graph-search graph-search-inbar" ref={searchBoxRef}>
       <Icon name="search" />
       <input
@@ -1028,8 +1083,13 @@ function GraphView({
           // field - so the next press reaches the window-level Escape ladder.
           if (e.key === 'Escape') {
             e.preventDefault()
+            // Text first, then the box itself, then the window's own ladder: one step out per
+            // press, the same shape Escape has everywhere else on this screen.
             if (input !== '') setInput('')
-            else e.currentTarget.blur()
+            else {
+              e.currentTarget.blur()
+              setSearchOpen(false)
+            }
           }
         }}
         aria-label="Search the graph for a page or tag"
@@ -1072,6 +1132,8 @@ function GraphView({
             </li>
           ))}
         </ul>
+      )}
+    </div>
       )}
     </div>
   )
@@ -1231,19 +1293,8 @@ function GraphView({
                 * `realCount` excludes the ghosts (they are appended after it is taken) and
                 * `matches` only ever holds real pages, so the subtraction is sound.
                 */}
-              {/* A filter you cannot see is a filter you cannot undo. It says what it is and
-                  what it is scoped to, and the ✕ is the way out that does not need a key. */}
-              {tagFilter !== null && (
-                <span className="scope-tag">
-                  {' · '}#{tagFilter.tag}
-                  {tagFilter.around !== null && (
-                    <span className="scope-around"> around {graph.nodes.find((n) => n.path === tagFilter.around)?.title ?? 'a page'}</span>
-                  )}
-                  <button className="scope-tag-x" onClick={() => setTagFilter(null)} aria-label="Clear the tag filter" title="Clear the tag filter · Esc">
-                    <Icon name="x" />
-                  </button>
-                </span>
-              )}
+              {/* The tag itself now stands in the MIDDLE of the bar, where the scope belongs:
+                  the left slot is the count, and the two together did not fit on one line. */}
               {matches.size > 0 && realCount > matches.size && (
                 <span className="scope-why">
                   {' · '}
@@ -1351,7 +1402,16 @@ function GraphView({
           health={health}
           onSelectPage={selectPage}
           onSelectGap={selectGap}
-          onTag={(t) => setTagFilter({ tag: t, around: selection?.kind === 'page' ? selection.path : null })}
+          onTag={(t) => {
+            // The path FIRST: closing the explorer clears the selection this reads.
+            const around = selection?.kind === 'page' ? selection.path : null
+            setTagFilter({ tag: t, around })
+            /* And out of the way. The filter answers a question about that page, the answer is
+               a handful of nodes, and the panel is a third of the width they would be drawn in
+               - the fit that follows should have the room. The page is named in the heading,
+               so closing the panel does not lose track of what this is about. */
+            closeExplorer()
+          }}
           showSystem={showSystem}
           onClose={closeExplorer}
         />
