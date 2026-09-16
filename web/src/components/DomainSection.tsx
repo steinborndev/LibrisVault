@@ -4,7 +4,9 @@
  * the same twenty lines with different selection rules; the rules stay with the screens (a
  * set here, one domain there) and the section only draws and walks.
  *
- * Two modes, switched by a toggle in the head. "by wing", the default, shows one Library
+ * Two modes, switched by a toggle in the head. "show all", the default since 2026-09-16, is
+ * the flat list of every domain; it stands on the left because it is where the section starts
+ * and the wings are the narrowing. "by wing" shows one Library
  * room at a time, its domains in shelf order, with two arrows and the left and right keys to
  * walk the rooms; the room on show is the screen's filter, so walking the rooms is browsing
  * the vault. "show all" is the flat list the screen hands over. There is no filter box any
@@ -84,11 +86,11 @@ export function DomainSection({ domains, label, color, selected, onToggle, onCle
             the flat list. */}
         {groups.length > 0 ? (
           <div className="seg sm ink dom-mode" role="radiogroup" aria-label="Domain list">
-            <button role="radio" aria-checked={mode === 'wing'} onClick={() => onMode('wing')} title="One wing at a time: the room is the filter, and the arrows walk the rooms">
-              by wing
-            </button>
             <button role="radio" aria-checked={mode === 'all'} onClick={() => onMode('all')} title="Every domain in one list">
               show all
+            </button>
+            <button role="radio" aria-checked={mode === 'wing'} onClick={() => onMode('wing')} title="One wing at a time: the room is the filter, and the arrows walk the rooms">
+              by wing
             </button>
           </div>
         ) : (

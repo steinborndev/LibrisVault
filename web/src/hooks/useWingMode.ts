@@ -1,8 +1,12 @@
 /**
- * The domain section's mode and wing, remembered per screen (second sweep, chunk 3): "by
- * wing" is the default, "show all" the flat list, and whoever switched or walked to a room
- * finds it again on the next load. The wing itself is derived from the rooms at hand, so a
- * remembered room that no longer exists falls back to the first.
+ * The domain section's mode and wing, remembered per screen (second sweep, chunk 3): "show all"
+ * is the default since 2026-09-16 - the flat list of every domain - and "by wing" the one room
+ * at a time. Whoever switched or walked to a room finds it again on the next load, so the
+ * default decides only what a screen nobody has touched opens on. The wing itself is derived
+ * from the rooms at hand, so a remembered room that no longer exists falls back to the first.
+ *
+ * One hook, two screens (`vault.domainMode.graph` and `.catalog`), separate keys: the choice
+ * is per screen, the default is not.
  */
 
 import { useCallback, useState } from 'react'
@@ -16,11 +20,13 @@ interface Stored {
 function load(key: string): Stored {
   try {
     const raw = localStorage.getItem(key)
-    if (raw === null) return { mode: 'wing', id: null }
+    if (raw === null) return { mode: 'all', id: null }
     const p = JSON.parse(raw) as Partial<Stored>
-    return { mode: p.mode === 'all' ? 'all' : 'wing', id: typeof p.id === 'string' ? p.id : null }
+    // Only a stored 'wing' means "by wing": anything else - an older value, a truncated
+    // write, a hand-edited entry - falls to the default rather than to the other mode.
+    return { mode: p.mode === 'wing' ? 'wing' : 'all', id: typeof p.id === 'string' ? p.id : null }
   } catch {
-    return { mode: 'wing', id: null }
+    return { mode: 'all', id: null }
   }
 }
 
