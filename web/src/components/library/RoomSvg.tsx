@@ -153,6 +153,30 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
       {spines.map((s, k) => (
         <polygon key={k} points={s.points} fill={s.fill} />
       ))}
+      {/*
+       * The lit top edge, revealed under the pointer (2026-09-16). A shelf opens its
+       * department and can be dragged to another slot, and nothing said so: the cursor turned
+       * to a grab hand and the drawing did not move a pixel, so the cases read as scenery.
+       *
+       * Light rather than motion, and on the EDGE rather than on a face: the room is already
+       * drawn as lit and shaded surfaces, so a rim along the top is the one highlight that
+       * speaks its language, and it marks exactly this object without touching its material -
+       * which a brightened face cannot, since every case shares the same three colours.
+       *
+       * It traces the front edge and the right one, the two the viewer is on the outside of.
+       * Drawn for a free slot too: that one starts a department, so it is as clickable as its
+       * neighbours, and a slot that stayed dead while the others lit up would teach the
+       * opposite. The line is always in the tree and only its opacity moves, so hovering
+       * never re-lays the room out.
+       */}
+      <polyline
+        className="bc-rim"
+        points={pts([P(i0, j0 + b, h), P(i0 + a, j0 + b, h), P(i0 + a, j0, h)])}
+        fill="none"
+        stroke={night ? '#ffd9a8' : '#fff4e2'}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
       {selected && <polygon points={pts([P(i0 - 0.1, j0 - 0.1, 0), P(i0 + a + 0.1, j0 - 0.1, 0), P(i0 + a + 0.1, j0 + b + 0.1, 0), P(i0 - 0.1, j0 + b + 0.1, 0)])} fill="none" stroke={TOK.accent} strokeWidth={2} strokeDasharray="5 4" />}
     </g>
   )

@@ -7462,6 +7462,21 @@ tr:focus-within .rowacts {
 }
 .lib-figure.selected > g > ellipse:first-child { stroke: var(--accent); stroke-width: 2; }
 .lib-slot.free { opacity: 0.85; }
+/* The shelf under the pointer lights along its top edge; see the note in RoomSvg. Guarded on
+   `hover: hover`, because on a touch screen `:hover` sticks to whatever was tapped last and
+   would leave one case lit with nothing pointing at it. It is deliberately NOT the accent:
+   the accent is what a SELECTED shelf glows in and what a drop target is dashed in, and a
+   third state saying the same colour as those two would be a third state saying nothing. */
+.bc-rim { opacity: 0; }
+@media (hover: hover) {
+  .lib-slot:hover .bc-rim { opacity: 0.95; }
+}
+/* Light appearing is not motion, but a fade is an animation; whoever asked for less of it
+   gets the edge switched rather than eased. */
+.bc-rim { transition: opacity 140ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .bc-rim { transition: none; }
+}
 .lib-slot.drop polygon { transition: opacity 200ms; }
 .lib-case.selected { filter: drop-shadow(0 0 4px var(--accent)); }
 /* The gap in a row: the doorway in the back one, the aisle in the front. It is floor until you
