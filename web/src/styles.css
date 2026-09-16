@@ -8530,6 +8530,11 @@ tr:focus-within .rowacts {
   font-size: 12px;
   color: var(--text-dim);
 }
+/* Holds a line open that the log has not filled, so the box is one height in both modes and
+   in both states; see the note above `ActivityBox`. */
+.actlog li.spare {
+  visibility: hidden;
+}
 .actlog li .t {
   flex: none;
   width: 54px;

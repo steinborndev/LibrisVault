@@ -59,9 +59,16 @@ interface StageView {
 }
 
 /**
- * The box itself. Always on the screen in its mode, idle or not, and the same height in both
- * states, so work starting lights it up instead of pushing the list down - the screen does
- * not rearrange itself at the one moment the reader is watching it.
+ * The box itself. Always on the screen in its mode, idle or not, and the same height in every
+ * state, so work starting lights it up instead of pushing the list down - the screen does not
+ * rearrange itself at the one moment the reader is watching it.
+ *
+ * "Every state" includes the one the two modes disagree on (2026-09-16). The log keeps the
+ * last four lines of the run it belongs to, and each mode has its own: after a vault question
+ * and before any web run, one box carried four lines and the other carried the empty line, so
+ * switching between them resized the box and moved everything under it. The list now always
+ * stands four rows tall and pads with blanks, which is also what makes a run's second line
+ * appear under its first instead of pushing it up.
  */
 function ActivityBox({
   live,
@@ -116,6 +123,15 @@ function ActivityBox({
             </li>
           ))
         )}
+        {/* The rows the log does not have yet, held open. A blank rather than a fixed height
+            on the list, because a row is as tall as the font says and this file should not be
+            the second place that number is written down. */}
+        {Array.from({ length: Math.max(0, ACTIVITY_LINES - Math.max(1, recent.length)) }, (_, i) => (
+          <li className="spare" key={`spare-${i}`} aria-hidden>
+            <span className="t" />
+            <span>&nbsp;</span>
+          </li>
+        ))}
       </ul>
       {/* Centred under its own segment, and unnumbered: the strip reads left to right, so an
           ordinal restated the reading order. The current stage is the only lit one. */}
