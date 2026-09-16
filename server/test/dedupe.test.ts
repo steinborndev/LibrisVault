@@ -271,7 +271,7 @@ describe('stage 1: the vault remembers a hash the history forgot', () => {
     const row = store.getOrThrow(created.job.id)
     expect(row.status).toBe('duplicate')
     expect(row.duplicate_of).toBe('JOBOLD')
-    expect(row.error).toMatch(/already in the vault/)
+    expect(row.error).toMatch(/already ingested from/)
     expect(row.sha256).toBeNull()
     expect(runs).toBe(0)
     // Nothing was staged for a duplicate.
@@ -285,14 +285,17 @@ describe('stage 1: the vault remembers a hash the history forgot', () => {
     // The same hash is ALSO still in the history, under a different job id: that row is
     // the one the dashboard can open, so it is the one the duplicate points at.
     const inDb = store.create({ source: 'drop', type: 'pdf', originalName: 'x.pdf', sha256: await sha256File(src) })
-    // Failed, not cancelled: a failed job is one retry away from a run and keeps its content.
-    store.transition(inDb.job.id, 'failed')
+    // Done, and only done. A failed row used to be enough here, which is precisely how a
+    // half-finished run came to own a document for good (see the retry cases below).
+    store.transition(inDb.job.id, 'preprocessing')
+    store.transition(inDb.job.id, 'ingesting')
+    store.transition(inDb.job.id, 'done')
     const q = makeQueue()
     q.start()
     const again = await q.enqueueFile({ sourcePath: src, source: 'drop' })
     await q.onIdle()
     expect(again.duplicateOf).toBe(inDb.job.id)
-    expect(store.getOrThrow(again.job.id).error).toMatch(/still in the history/)
+    expect(store.getOrThrow(again.job.id).error).toMatch(/already ingested by job/)
   })
 
   it('lets a cancelled job go: what was taken out of the way can be added again', async () => {
@@ -308,7 +311,9 @@ describe('stage 1: the vault remembers a hash the history forgot', () => {
     const held = store.create({ source: 'drop', type: 'pdf', originalName: 'night.pdf', sha256: sha, hold: 'night' })
     expect(held.job.status).toBe('queued')
     store.transition(held.job.id, 'cancelled')
-    expect(store.getOrThrow(held.job.id).sha256).toBeNull()
+    // The row keeps its hash since v30 - it no longer has to give it up, because the lookup
+    // asks what the row still stands for rather than what it once held.
+    expect(store.getOrThrow(held.job.id).sha256).toBe(sha)
 
     const again = store.create({ source: 'drop', type: 'pdf', originalName: 'night.pdf', sha256: sha })
     expect(again.job.status).toBe('queued')
@@ -488,5 +493,132 @@ describe('JobStore.remove', () => {
     expect(store.get(job.id)).toBeUndefined()
     expect(store.logs(job.id)).toEqual([])
     expect(store.remove(job.id)).toBe(false)
+  })
+})
+
+/**
+ * Retrying a document whose first attempt did not finish (2026-09-16).
+ *
+ * Every stage of dedupe used to ask "have I seen these bytes / this DOI before" and none of
+ * them asked whether the earlier attempt produced anything. The result was that a run
+ * interrupted a second after it started - a crash, a restart, a failed agent call - claimed
+ * the document forever: re-dropping the file came back as a duplicate of a run that wrote
+ * nothing, and tidying the failed row out of the history made it worse rather than better,
+ * because the vault-side memory then answered "already in the vault" with no row left to
+ * retry. These cover all three stages and the sentence each of them shows.
+ */
+describe('a document whose first attempt did not finish', () => {
+  it('can be dropped in again after the attempt failed', () => {
+    const first = store.create({ source: 'drop', type: 'pdf', originalName: 'p.pdf', sha256: SHA_OF_SAME })
+    store.transition(first.job.id, 'preprocessing')
+    store.transition(first.job.id, 'ingesting')
+    store.transition(first.job.id, 'failed', { patch: { error: 'interrupted by a service restart' } })
+
+    const again = store.create({ source: 'drop', type: 'pdf', originalName: 'p.pdf', sha256: SHA_OF_SAME })
+    expect(again.job.status).toBe('queued')
+    expect(again.duplicateOf).toBeUndefined()
+    // The failed row keeps its hash - it is what that job WAS - and simply no longer speaks
+    // for the content. Both rows carry it, which the UNIQUE column used to forbid (v30).
+    expect(store.get(first.job.id)?.sha256).toBe(SHA_OF_SAME)
+  })
+
+  it('can be dropped in again after the attempt was cancelled', () => {
+    const first = store.create({ source: 'drop', type: 'pdf', sha256: SHA_OF_SAME, hold: 'night' })
+    store.transition(first.job.id, 'cancelled')
+    expect(store.create({ source: 'drop', type: 'pdf', sha256: SHA_OF_SAME }).job.status).toBe('queued')
+  })
+
+  it('is still stopped by an attempt that succeeded, or by one still running', () => {
+    const done = store.create({ source: 'drop', type: 'pdf', sha256: SHA_OF_SAME })
+    store.transition(done.job.id, 'preprocessing')
+    store.transition(done.job.id, 'ingesting')
+    store.transition(done.job.id, 'done')
+    const second = store.create({ source: 'drop', type: 'pdf', sha256: SHA_OF_SAME })
+    expect(second.job.status).toBe('duplicate')
+    // D: the line under the row says which case this is and where to look.
+    expect(store.get(second.job.id)?.error).toMatch(/already ingested by job/)
+
+    const other = 'b'.repeat(64)
+    const running = store.create({ source: 'drop', type: 'pdf', sha256: other })
+    store.transition(running.job.id, 'preprocessing')
+    const third = store.create({ source: 'drop', type: 'pdf', sha256: other })
+    expect(third.job.status).toBe('duplicate')
+    expect(store.get(third.job.id)?.error).toMatch(/is already ingesting this file \(preprocessing\)/)
+  })
+
+  it('is not claimed by a staged `.raw/` dir whose run wrote nothing', async () => {
+    // The vault-side memory, with history cleared: a job dir with the hash, and a delta
+    // tracker that credits it with no page. Preprocessing writes that manifest, so this is
+    // exactly what an interrupted run leaves behind.
+    const src = writeSource('p.pdf', 'interrupted bytes')
+    const { sha256File } = await import('../src/pipeline/hash.js')
+    write(
+      '.raw/JOBDEAD/manifest.json',
+      JSON.stringify({ jobId: 'JOBDEAD', source: 'drop', type: 'pdf', originalName: 'p.pdf', sha256: await sha256File(src) }),
+    )
+    write('.raw/.manifest.json', JSON.stringify({ sources: {} }))
+    const q = makeQueue()
+    q.start()
+    const { job, duplicateOf } = await q.enqueueFile({ sourcePath: src, source: 'drop' })
+    await q.onIdle()
+    expect(duplicateOf).toBeUndefined()
+    expect(store.getOrThrow(job.id).status).not.toBe('duplicate')
+  })
+
+  it('is still claimed by a `.raw/` dir the tracker credits with pages', async () => {
+    const src = writeSource('p.pdf', 'ingested bytes')
+    const { sha256File } = await import('../src/pipeline/hash.js')
+    seedPriorIngest({ sha256: await sha256File(src) })
+    const q = makeQueue()
+    q.start()
+    const { job, duplicateOf } = await q.enqueueFile({ sourcePath: src, source: 'drop' })
+    await q.onIdle()
+    expect(duplicateOf).toBe('JOBOLD')
+    expect(store.getOrThrow(job.id).status).toBe('duplicate')
+    expect(store.getOrThrow(job.id).error).toMatch(/already ingested from/)
+  })
+
+  it('is not claimed by a source page an earlier failed attempt left behind', async () => {
+    // Same paper, different bytes (a publisher watermark), so only the DOI can match it -
+    // and the page it matches was written by a run that then failed.
+    const doi = '10.1002/half.written'
+    write('wiki/sources/Half.md', `---\ntype: source\ntitle: Half\ndoi: ${doi}\n---\n# Half\n`)
+    const half = store.create({ source: 'drop', type: 'pdf', originalName: 'half.pdf', sha256: 'c'.repeat(64) })
+    store.transition(half.job.id, 'preprocessing')
+    store.transition(half.job.id, 'ingesting')
+    store.transition(half.job.id, 'failed', { patch: { error: 'interrupted' } })
+    // The tracker credits the page to THAT job, which is what makes the page its leftover.
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({ sources: { [`.raw/${half.job.id}/normalized.txt`]: { pages_created: ['wiki/sources/Half.md'] } } }),
+    )
+
+    const q = makeQueue({ doiDedupe: () => true })
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource('r.pdf', `Paper\nDOI: ${doi}\n`), source: 'drop' })
+    await q.onIdle()
+    expect(store.getOrThrow(job.id).status).not.toBe('duplicate')
+  })
+})
+
+describe('DedupeIndex.producedPages', () => {
+  it('is true only for a job dir the delta tracker credits with a page', () => {
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        sources: {
+          '.raw/JOBOK/normalized.txt': { pages_created: ['wiki/sources/A.md'] },
+          '.raw/JOBNONE/normalized.txt': { pages_created: [] },
+          '.raw/JOBMISSING/normalized.txt': {},
+        },
+      }),
+    )
+    const index = new DedupeIndex(vaultRoot)
+    expect(index.producedPages('JOBOK')).toBe(true)
+    expect(index.producedPages('JOBNONE')).toBe(false)
+    expect(index.producedPages('JOBMISSING')).toBe(false)
+    expect(index.producedPages('JOBUNKNOWN')).toBe(false)
+    // A prefix match, not a substring one: JOBOK must not answer for JOBOK2.
+    expect(index.producedPages('JOBOK2')).toBe(false)
   })
 })

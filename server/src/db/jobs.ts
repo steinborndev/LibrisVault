@@ -68,6 +68,19 @@ export const FINISHED_STATES: readonly JobStatus[] = [
  * `failed`/`deferred` route back to `queued` - that is how a retry (SPEC.md §3.1) and a
  * later manual re-trigger of a deferred job re-enter the pipeline.
  */
+/**
+ * The statuses in which a job still stands for its content, so that a second drop of the same
+ * bytes is a duplicate of it rather than a fresh attempt (2026-09-16). `done` is the vault
+ * holding it; the three working states are it being on its way there; `deferred` is a job set
+ * aside with its original staged, which a re-drop would only duplicate.
+ *
+ * What is NOT here is the point: `failed` and `cancelled` wrote nothing and will write nothing
+ * without a person, and `duplicate` never stood for anything. A row in one of those states owns
+ * no bytes, and the file can be dropped in again - which is what anyone does after a run that
+ * did not finish.
+ */
+export const SOLE_OWNERS: readonly JobStatus[] = ['done', 'queued', 'preprocessing', 'ingesting', 'deferred']
+
 export const ALLOWED_TRANSITIONS: Readonly<Record<JobStatus, readonly JobStatus[]>> = {
   queued: ['preprocessing', 'cancelled', 'failed'],
   preprocessing: ['ingesting', 'deferred', 'failed', 'cancelled', 'duplicate'],
@@ -199,12 +212,22 @@ export class JobStore {
   ) {}
 
   /**
-   * Creates a job. If `sha256` matches an existing job that still owns its hash, the new
-   * job is recorded as a `duplicate` (visible in history, SPEC.md §3.2) and skipped.
+   * Creates a job. If `sha256` matches an earlier job that still STANDS FOR this content, the
+   * new job is recorded as a `duplicate` (visible in history, SPEC.md §3.2) and skipped.
    *
-   * The duplicate row stores `sha256 = NULL`: the column is UNIQUE, so only the first
-   * job keeps the hash and later dupes point at it via a log line. This keeps dedupe a
-   * single indexed lookup while still leaving every attempt visible in the dashboard.
+   * "Still stands for it" is the whole rule, and it is narrower than "has the same hash"
+   * (2026-09-16). An earlier row blocks when its content either already reached the vault
+   * (`done`) or is still on its way there without anyone lifting a finger (`queued`,
+   * `preprocessing`, `ingesting`). A `failed` or `cancelled` attempt wrote nothing and will
+   * write nothing until a person says so, and until 2026-09-16 it still owned the bytes: a
+   * file whose ingest failed could not be dropped in again, and the answer it got back -
+   * "same content as job X" - read as if the vault held it. `deferred` keeps blocking; it is
+   * a job waiting on a decision with its original staged, and re-dropping the file would make
+   * a second one of it. See `SOLE_OWNERS`.
+   *
+   * The duplicate row itself stores `sha256 = NULL`. Not a constraint any more (v30 dropped
+   * the UNIQUE) but a statement: a duplicate produced nothing, so it stands for nothing, and
+   * the next drop of those bytes should find the job that does.
    */
   create(input: CreateJobInput): CreateJobResult {
     const id = ulid()
@@ -215,20 +238,32 @@ export class JobStore {
       // The service's own row wins over the vault's memory of the same hash: while the row
       // exists it is the better link (it opens in the dashboard). The vault answer takes
       // over exactly when history has been cleared, which is the case it exists for.
+      //
+      // Newest first: with the UNIQUE gone (v30) several rows can carry one hash - a failed
+      // attempt and the retry that followed it - and the one that still stands for the
+      // content is the last one to have tried.
       const inDb =
         input.sha256 !== undefined
           ? (this.db
-              .prepare('SELECT id FROM jobs WHERE sha256 = ?')
-              .get(input.sha256) as { id: string } | undefined)
+              .prepare(
+                `SELECT id, status FROM jobs
+                  WHERE sha256 = ? AND status IN (${SOLE_OWNERS.map(() => '?').join(',')})
+                  ORDER BY created_at DESC LIMIT 1`,
+              )
+              .get(input.sha256, ...SOLE_OWNERS) as { id: string; status: JobStatus } | undefined)
           : undefined
       const original = inDb ?? (input.duplicateOf !== undefined ? { id: input.duplicateOf } : undefined)
 
       const isDuplicate = original !== undefined
       const status: JobStatus = isDuplicate ? 'duplicate' : 'queued'
+      // The one line under the row in the dashboard, so it says what happened and what to do
+      // about it rather than just naming an id.
       const note = !isDuplicate
         ? null
         : inDb !== undefined
-          ? `same content as job ${original.id}, which is still in the history`
+          ? inDb.status === 'done'
+            ? `already ingested by job ${original.id} — open that job to see the pages it wrote`
+            : `job ${original.id} is already ingesting this file (${inDb.status}) — this copy would repeat it`
           : (input.duplicateNote ?? `same content as job ${original.id}, whose original the vault still holds`)
 
       this.db
@@ -629,16 +664,14 @@ export class JobStore {
   /**
    * Moves a job to another state, logging the step.
    *
-   * A CANCELLED job also gives up its content hash (2026-09-14). The hash is what dedupe looks
-   * up, so whoever holds it owns that content - and a cancelled job owns nothing: it wrote
-   * nothing, and it will write nothing, cancelled being terminal. Holding on to it turned
-   * "take this out of my way" into "and never let it back in": a paper queued for the night,
-   * taken out of the night again, then dropped in with Add now came back as a duplicate of the
-   * job that had just been cancelled - of a run that never happened.
+   * A cancelled job used to give up its content hash here (2026-09-14), because a cancelled
+   * job owns nothing and holding the hash turned "take this out of my way" into "and never let
+   * it back in". It was cleared rather than filtered in the lookup for one reason: the column
+   * was UNIQUE, so a lookup that skipped the row would have collided with it on the insert.
    *
-   * Cleared here rather than filtered in the lookup because the column is UNIQUE: a lookup
-   * that skipped the row would collide with it on the insert instead. Failed and deferred jobs
-   * keep theirs, both being one retry away from a run.
+   * v30 dropped the UNIQUE and `create` filters by status (see `SOLE_OWNERS`), which says the
+   * same thing about failed attempts too. So the hash stays on the row: it is what the job
+   * WAS, and a retry that succeeds should be able to say so.
    */
   transition(
     id: string,
@@ -681,9 +714,7 @@ export class JobStore {
              finished_at = CASE WHEN @set_finished = 1 THEN @now ELSE NULL END,
              -- A cancelled job leaves tonight's ingest queue (v26); every other move keeps
              -- its place until the queue says it is through.
-             night_released_at = CASE WHEN @status = 'cancelled' THEN NULL ELSE night_released_at END,
-             -- ...and gives up its content hash with it; see the note above the method.
-             sha256 = CASE WHEN @status = 'cancelled' THEN NULL ELSE sha256 END
+             night_released_at = CASE WHEN @status = 'cancelled' THEN NULL ELSE night_released_at END
            WHERE id = @id`,
         )
         .run({

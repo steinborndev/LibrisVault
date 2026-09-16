@@ -198,13 +198,15 @@ describe('v7 — telegram channel (SPEC.md §4.3)', () => {
     expect(big.first_at <= big.last_at).toBe(true)
   })
 
-  it('recreates all four jobs indexes after the rebuild', () => {
+  it('recreates every jobs index after a rebuild', () => {
     const db = openDb(MEMORY_DB)
     const indexes = db
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='jobs' AND name LIKE 'idx_%' ORDER BY name")
       .all()
       .map((r) => (r as { name: string }).name)
-    expect(indexes).toEqual(['idx_jobs_batch', 'idx_jobs_created', 'idx_jobs_finished', 'idx_jobs_status'])
+    // Four from v7, plus the one v30 added when sha256 stopped being UNIQUE (the implicit
+    // index went with the constraint, and dedupe still looks the hash up on every enqueue).
+    expect(indexes).toEqual(['idx_jobs_batch', 'idx_jobs_created', 'idx_jobs_finished', 'idx_jobs_sha256', 'idx_jobs_status'])
   })
 })
 
@@ -246,10 +248,16 @@ describe('schema constraints', () => {
     }
   })
 
-  it('enforces sha256 uniqueness for dedupe', () => {
+  it('lets two jobs carry one sha256, since v30 (dedupe is a rule, not a constraint)', () => {
+    /*
+     * The column was UNIQUE until v30, which made "I have seen these bytes" binding: whoever
+     * held the hash owned the content, whatever became of that job. The rule now lives in the
+     * lookup (`SOLE_OWNERS`), and a failed attempt plus the retry that follows it legitimately
+     * carry the same hash - which the constraint forbade.
+     */
     const db = openDb(MEMORY_DB)
-    insertJob(db, 'queued', { id: 'a', sha256: 'deadbeef' })
-    expect(() => insertJob(db, 'queued', { id: 'b', sha256: 'deadbeef' })).toThrow(/UNIQUE/i)
+    insertJob(db, 'failed', { id: 'a', sha256: 'deadbeef' })
+    expect(() => insertJob(db, 'queued', { id: 'b', sha256: 'deadbeef' })).not.toThrow()
   })
 
   it('cascades job_logs deletion with the job', () => {

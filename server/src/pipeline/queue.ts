@@ -664,14 +664,33 @@ export class IngestQueue {
    * Stage one of dedupe (SPEC.md §12.9): the vault's own memory of this hash. `jobs.sha256`
    * forgets when history is cleared; `.raw/<job-id>/manifest.json` does not. A hit becomes a
    * `duplicate` row at creation, exactly like a hash still present in `jobs`.
+   *
+   * What the hash alone cannot say is whether that earlier job ever produced anything, and
+   * until 2026-09-16 this did not ask (the mirror of the same omission in `create`). The job
+   * dir's manifest is written by PREPROCESSING, so a run that was interrupted a second later
+   * left a permanent claim on those bytes - and the sentence it produced, "already in the
+   * vault", was false: nothing of that document was in the vault, and once the failed row had
+   * been tidied out of the history there was no retry left either. The file could then never
+   * be ingested again, through any door.
+   *
+   * So the claim has to be backed. The job history answers first and answers exactly (a row
+   * that failed or was cancelled owns nothing); when history no longer knows the job, the
+   * vault's own delta tracker does. Neither says yes for an unfinished run. The deliberate
+   * cost is at the other end: a document ingested long enough ago that its row is gone AND no
+   * tracker entry survives can be taken in a second time. That is one agent run, and the
+   * ingest skill itself recognises the case - against a document that could never be taken in
+   * at all, it is the right way round.
    */
   private vaultKnows(sha256: string): { duplicateOf: string; duplicateNote: string } | Record<never, never> {
     const known = this.dedupe.byHash(sha256)
     if (known === undefined) return {}
+    const row = this.store.get(known.jobId)
+    const ingested = row !== undefined ? row.status === 'done' : this.dedupe.producedPages(known.jobId)
+    if (!ingested) return {}
     const what = known.originalName !== null ? `"${known.originalName}"` : 'an original'
     return {
       duplicateOf: known.jobId,
-      duplicateNote: `already in the vault: .raw/${known.jobId}/ holds ${what} with the same content`,
+      duplicateNote: `already ingested from ${what}: .raw/${known.jobId}/ holds the same content and its run wrote pages`,
     }
   }
 
@@ -704,6 +723,18 @@ export class IngestQueue {
     if (match === undefined) return undefined
     if (match.jobId === job.id) return undefined
     if (match.jobId === null && match.pageMtimeMs >= Date.parse(job.created_at)) return undefined
+    /*
+     * ...nor is a page left behind by an attempt that did not finish (2026-09-16). A run
+     * interrupted after it wrote the source page and before it was through leaves exactly the
+     * evidence this check looks for, and the bytes of a second download differ (watermarks),
+     * so the hash stage waves it past and this one stops it - which makes the DOI the reason
+     * a paper cannot be retried. A failed or cancelled job's page is a fragment, not an
+     * ingest; whoever is dropping the document again is saying so.
+     */
+    if (match.jobId !== null) {
+      const by = this.store.get(match.jobId)
+      if (by !== undefined && (by.status === 'failed' || by.status === 'cancelled')) return undefined
+    }
     return { page: match.page, jobId: match.jobId, doi }
   }
 

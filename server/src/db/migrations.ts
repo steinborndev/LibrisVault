@@ -701,6 +701,81 @@ const V29 = `
 UPDATE jobs SET sha256 = NULL WHERE status = 'cancelled' AND sha256 IS NOT NULL;
 `
 
+/**
+ * v30 - the content hash stops being UNIQUE, so dedupe can ask a better question.
+ *
+ * The hash was the whole answer to "have I seen this before", and the column being UNIQUE
+ * made that answer binding: whoever held the hash owned those bytes forever. v29 loosened it
+ * for cancelled jobs by clearing the hash, which is a workaround for the constraint rather
+ * than a rule - and it could not be extended to FAILED jobs, because a failed job is one
+ * retry away from a run and must keep its identity.
+ *
+ * The rule belongs in the lookup ("does an earlier row still stand for this content?"), and a
+ * lookup that skips a row cannot live under a UNIQUE column: skipping the row only moves the
+ * collision to the insert. So the constraint goes and `create` filters by status instead.
+ * Nothing else about the column changes; a plain index keeps the lookup fast.
+ *
+ * A full table rebuild, the documented SQLite procedure (create new, copy, drop old, rename),
+ * for the same reason V7 needed one: a column constraint cannot be altered in place. It RELIES
+ * on foreign keys being OFF while migrations run (see openDb) - with enforcement on, DROP
+ * TABLE jobs would cascade-delete every job_logs row. The indexes die with the old table, so
+ * all four are recreated. Every column of the live table is carried over by name.
+ */
+const V30 = `
+CREATE TABLE jobs_v30 (
+  id            TEXT PRIMARY KEY,                 -- ulid
+  user_id       TEXT NOT NULL DEFAULT 'local' REFERENCES users(id),
+  batch_id      TEXT,                             -- shared batches (SPEC.md §4.1)
+  source        TEXT NOT NULL CHECK (source IN ('drop','watch','url','telegram')),
+  type          TEXT NOT NULL CHECK (type IN ('pdf','office','web','image','text','av','other')),
+  original_name TEXT,
+  url           TEXT,
+  sha256        TEXT,                             -- dedupe (SPEC.md §3.2); NOT unique, see v30
+  status        TEXT NOT NULL CHECK (status IN (
+                  'queued','preprocessing','ingesting','done',
+                  'failed','deferred','duplicate','cancelled')),
+  raw_path      TEXT,                             -- .raw/<job-id>/
+  created_pages TEXT,                             -- JSON array of wiki pages created/updated
+  error         TEXT,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  tokens_in     INTEGER,
+  tokens_out    INTEGER,
+  cost_usd      REAL,
+  created_at    TEXT NOT NULL,
+  started_at    TEXT,
+  finished_at   TEXT,
+  notify_channel TEXT,                            -- e.g. 'telegram:<chat_id>' (SPEC.md §4.3)
+  commit_hash   TEXT,
+  reverted_at   TEXT,
+  duplicate_of  TEXT,
+  outcome       TEXT,
+  hold          TEXT,
+  night_released_at TEXT,
+  validation    TEXT
+);
+
+INSERT INTO jobs_v30
+  (id, user_id, batch_id, source, type, original_name, url, sha256, status, raw_path,
+   created_pages, error, attempts, tokens_in, tokens_out, cost_usd, created_at, started_at,
+   finished_at, notify_channel, commit_hash, reverted_at, duplicate_of, outcome, hold,
+   night_released_at, validation)
+SELECT
+   id, user_id, batch_id, source, type, original_name, url, sha256, status, raw_path,
+   created_pages, error, attempts, tokens_in, tokens_out, cost_usd, created_at, started_at,
+   finished_at, notify_channel, commit_hash, reverted_at, duplicate_of, outcome, hold,
+   night_released_at, validation
+FROM jobs;
+
+DROP TABLE jobs;
+ALTER TABLE jobs_v30 RENAME TO jobs;
+
+CREATE INDEX idx_jobs_status   ON jobs(status);
+CREATE INDEX idx_jobs_batch    ON jobs(batch_id);
+CREATE INDEX idx_jobs_created  ON jobs(created_at);
+CREATE INDEX idx_jobs_finished ON jobs(finished_at);
+CREATE INDEX idx_jobs_sha256   ON jobs(sha256);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -731,4 +806,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 27, up: V27 },
   { version: 28, up: V28 },
   { version: 29, up: V29 },
+  { version: 30, up: V30 },
 ]

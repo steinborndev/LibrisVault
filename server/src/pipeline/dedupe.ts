@@ -291,6 +291,31 @@ export class DedupeIndex {
   }
 
   /**
+   * Whether the vault's own delta tracker credits any wiki page to this job (2026-09-16).
+   *
+   * `.raw/<job-id>/manifest.json` is written by PREPROCESSING, before an agent has read a
+   * word, so its mere existence says a file was staged here - not that anything came of it.
+   * `.raw/.manifest.json` is the other half: the ingest skill records what each raw file
+   * produced. A job dir the tracker credits with pages is an ingest that happened; one it
+   * credits with nothing is a file the vault took in and never wrote up.
+   *
+   * Measured over this vault's 120 hash-bearing job dirs: 114 are credited, and the handful
+   * that are not are either genuinely unfinished or old enough that no tracker entry was
+   * kept. So this is evidence FOR an ingest, never against one - the caller asks the job
+   * history first and only falls back here.
+   */
+  producedPages(jobId: string): boolean {
+    const manifest = readJson<RawManifest>(path.join(this.vaultRoot, '.raw', '.manifest.json'))
+    if (manifest?.sources === undefined) return false
+    const prefix = `.raw/${jobId}/`
+    for (const [rawPath, entry] of Object.entries(manifest.sources)) {
+      if (!rawPath.startsWith(prefix)) continue
+      if (Array.isArray(entry.pages_created) && entry.pages_created.length > 0) return true
+    }
+    return false
+  }
+
+  /**
    * Which job created a page, read from `.raw/.manifest.json` (the skill records every
    * page a raw file produced under `sources[<raw path>].pages_created`). The job id is the
    * `.raw/<job-id>/` directory the raw path sits in; pre-service ingests (`.raw/m0-test/`)
