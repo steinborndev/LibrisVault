@@ -2712,8 +2712,10 @@ details.hot-cache[open] summary {
  * size as its neighbour reads as a mistake: 25px tall, full width, the same 4px between them
  * that the chips have between themselves.
  *
- * The strip itself is the intake's - one border, two halves, the chosen half in the accent -
- * so "which lens" and "where this goes" are the same gesture in two places.
+ * The strip's SHAPE is the intake's - one border, two halves, a divider between them - but its
+ * colours are the page-type chip's, because that is what it stands next to: the same white
+ * ground, and the chosen half filled in the soft accent with accent lettering, exactly as an
+ * active chip is. A solid accent fill made the one lit half shout over the five chips under it.
  *
  * Written as `.lib-strip.gp-lens`, both classes on the one element, the way `.ip-strip` is:
  * the base `.lib-strip` rules live further down this file, so a single-class selector here
@@ -2732,10 +2734,14 @@ details.hot-cache[open] summary {
   gap: 0;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: var(--bg-elev-2);
+  /* The chip's ground, not the intake's: these two controls share a column. */
+  background: var(--bg-elev);
   box-shadow: none;
   overflow: hidden;
 }
+/* The two halves are two choices, and a line says so - without it the pair read as one wide
+   button whose left end happened to be coloured. */
+.lib-strip.gp-lens .rp + .rp { border-left: 1px solid var(--border-strong); }
 .lib-strip.gp-lens .rp {
   flex: 1;
   height: 100%;
@@ -2745,7 +2751,7 @@ details.hot-cache[open] summary {
   color: var(--text-dim);
 }
 .lib-strip.gp-lens .rp:hover:not(.on):not(:disabled) { background: var(--bg-elev); color: var(--text); }
-.lib-strip.gp-lens .rp.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.lib-strip.gp-lens .rp.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 /* A vault with no domains cannot be coloured by one; the half says so rather than lying. */
 .lib-strip.gp-lens .rp:disabled { opacity: 0.45; cursor: default; }
 .chip.dimmed,
