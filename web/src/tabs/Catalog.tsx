@@ -37,7 +37,9 @@ const BUCKET_LABELS: Record<string, string> = {
   sources: 'Sources',
   meta: 'Meta',
   root: 'Root',
-  questions: 'Questions',
+  // Renamed 2026-09-16: the bucket keeps its key `questions` - the vault's folder, the
+  // frontmatter, every route and filter are unchanged - and only what a reader sees moves.
+  questions: 'Research',
   references: 'References',
   comparisons: 'Comparisons',
   folds: 'Folds',

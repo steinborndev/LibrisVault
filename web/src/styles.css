@@ -2757,6 +2757,13 @@ details.hot-cache[open] summary {
  * state, so it fades OUT on its own: no transition going in (the press must feel immediate)
  * and a slow one coming back (the eye needs to catch it).
  */
+/*
+ * The action section's rule ends on the same line as the bar's does, because the two sit side
+ * by side at the top of the screen and a divider that misses its neighbour by eight pixels
+ * reads as a mistake rather than as a boundary. The arithmetic: the bar is 1px border + 7px
+ * + its 26px control + 7px = 41; this is 1px + 7px + the 25px strip + 8px = 41 as well.
+ */
+.gp-sec.gp-sec-actions { padding: 7px 14px 8px; }
 .gp-actions .rp { transition: background 260ms ease, color 260ms ease; }
 .gp-actions .rp.on { transition: none; }
 /* A vault with no domains cannot be coloured by one; the half says so rather than lying. */
@@ -2905,8 +2912,20 @@ details.hot-cache[open] summary {
   justify-content: flex-end;
   align-items: center;
 }
-.graph-search-slot { gap: 6px; }
-.graph-search-slot .graph-search-inbar { width: auto; flex: 1 1 auto; min-width: 0; }
+/*
+ * The slot is the pill's height as well as its width (2026-09-16). The open box was six
+ * pixels taller than the collapsed magnifier, which made the BAR six pixels taller, which
+ * took six pixels off the canvas below it - so opening the search nudged the whole drawing
+ * down and closing it nudged it back. Measured: bar 41 → 47, canvas 781 → 775.
+ */
+.graph-search-slot { gap: 6px; height: 26px; }
+.graph-search-slot .graph-search-inbar {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding-block: 0;
+}
 /* The canvas pill, in the bar: same shape, no blur - there is nothing behind it to blur. */
 .canvas-corner.search-open { position: static; backdrop-filter: none; padding: 0 9px; }
 .scopeline strong {

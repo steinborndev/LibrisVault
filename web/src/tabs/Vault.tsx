@@ -66,7 +66,9 @@ const TYPE_LABELS: Record<string, string> = {
   sources: 'Sources',
   meta: 'Meta',
   root: 'Root',
-  questions: 'Questions',
+  // Renamed 2026-09-16: the bucket keeps its key `questions` - the vault's folder, the
+  // frontmatter, every route and filter are unchanged - and only what a reader sees moves.
+  questions: 'Research',
   references: 'References',
   comparisons: 'Comparisons',
   folds: 'Folds',
@@ -1981,7 +1983,7 @@ function GraphPanel({
         * latches. A press flashes and lets go, which is the whole difference between "this is
         * how the graph is drawn" and "do this to the graph now".
         */}
-      <div className="gp-sec">
+      <div className="gp-sec gp-sec-actions">
         <div className="lib-strip gp-lens gp-actions">
           <button
             className={`rp${flash === 'reset' ? ' on' : ''}`}
