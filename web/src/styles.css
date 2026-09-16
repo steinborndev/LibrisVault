@@ -3276,6 +3276,13 @@ details.hot-cache[open] summary {
    its empty stand-in, so "Showing" starts at the same x whichever tab is in front. */
 .graph-controls .head-slot { flex: none; width: 58px; min-width: 58px; justify-content: center; padding: 0; }
 span.head-slot { display: inline-block; }
+/* The Catalog's Reset, AFTER the sentence it undoes (2026-09-16). It used to stand in a slot
+   ahead of it, which held the count 58px off the bar's left edge while the graph's started at
+   the edge - one sentence, two positions, and the tab switch between them was a jump.
+   Its height is the search slot's, not `--control-h`: a 32px button in a 26px row made the
+   bar 6px taller the moment a filter was set, and the table below it moved down with it -
+   measured 41 -> 47, the same six pixels the search box cost the canvas before it was pinned. */
+.graph-controls .btn.head-reset { flex: none; height: 26px; min-height: 26px; padding: 0 10px; }
 /* The scope bar's three groups (2026-09-11), the headline's rule: the left and right groups
    share what the middle leaves, in equal halves, so the middle sits at the bar's true
    centre whatever stands beside it - a Fit and a sentence on one side, a fullscreen button

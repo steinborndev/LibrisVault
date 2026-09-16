@@ -116,6 +116,22 @@ export function Catalog({
   const [sortHover, setSortHover] = useState<CatalogSortKey | null>(null)
   const [kindHover, setKindHover] = useState<string | null>(null)
   const domListRef = useRef<HTMLDivElement>(null)
+  /*
+   * The filter box folds away behind a magnifier, the way the graph's does (2026-09-16): the
+   * two screens draw the same bar, and one of them growing a 300px field out of the right edge
+   * while the other showed an icon was the only thing that still moved when you switched tabs.
+   */
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const openSearch = useCallback((): void => {
+    setSearchOpen(true)
+    // Focus after the field exists; without the frame the ref is still null.
+    requestAnimationFrame(() => searchRef.current?.focus())
+  }, [])
+  const closeSearch = useCallback((): void => {
+    setQuery('')
+    setSearchOpen(false)
+  }, [])
 
   /**
    * "Show me this domain", from Home's domain bars. The other narrowing filters are cleared
@@ -158,6 +174,32 @@ export function Catalog({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [active, openPage])
+
+  /*
+   * The same two keys the graph binds: `/` opens the box, Escape folds it away again. Without
+   * them the filter would be strictly harder to reach than the always-open field it replaces,
+   * and the point of folding it is the bar, not the keyboard.
+   */
+  useEffect(() => {
+    if (!active || openPage !== null) return
+    const onKey = (e: KeyboardEvent): void => {
+      const t = e.target
+      const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement
+      if (e.key === '/' && !inField && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        openSearch()
+        return
+      }
+      // The field owns its own Escape (clear, then close); this is the way out when the
+      // focus has moved on and the box is still standing there filtering.
+      if (e.key === 'Escape' && searchOpen && !inField) {
+        e.preventDefault()
+        closeSearch()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, openPage, searchOpen, openSearch, closeSearch])
 
   /*
    * Up and down walk the table's rows (2026-09-11), the Research ledger's mechanic: the rows
@@ -529,19 +571,16 @@ export function Catalog({
           <CatalogArticle path={openPage} vaultName={vaultName} nodes={nodes ?? []} onBack={() => navigate('/catalog')} />
         ) : (
           <>
-        {/* The same bar the graph draws over its canvas, in the same three groups: a slot
-            as wide as the graph's Fit button (the reset stands in it once a filter is set)
-            and the count on the left, the domain in the middle, the search at the right
-            edge. Switching the tabs moves neither the sentence, the heading nor the box. */}
+        {/* The same bar the graph draws over its canvas, in the same three groups: the count
+            on the left, the domain in the middle, the search folded into a magnifier at the
+            right edge. The count starts at the bar's left edge exactly as the graph's does -
+            it used to stand behind a 58px slot held for the Reset, which was the width the
+            graph's Fit button had before that pair moved into the panel, so the one sentence
+            both screens show sat 58px apart on them. Reset now follows the sentence instead:
+            it appears and disappears with a filter, and nothing that appears may push what
+            was already being read. */}
         <div className="graph-controls scope-bar catalog-head">
           <span className="bar-l">
-            {dirty ? (
-              <button className="btn ghost head-slot" onClick={reset} title="Back to every page, newest first">
-                Reset
-              </button>
-            ) : (
-              <span className="head-slot" aria-hidden />
-            )}
             <span className="scopeline">
               Showing{' '}
               <strong>
@@ -549,18 +588,50 @@ export function Catalog({
               </strong>{' '}
               {noun}
             </span>
+            {dirty && (
+              <button className="btn ghost head-reset" onClick={reset} title="Back to every page, newest first">
+                Reset
+              </button>
+            )}
           </span>
           <ScopeMid heading={scopeMid} />
           <span className="bar-r">
-            <div className="graph-search graph-search-inbar">
-              <Icon name="search" />
-              <input
-                type="search"
-                placeholder="Filter by title, tag or domain…"
-                aria-label="Filter pages by title, tag or domain"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
+            <div className={`graph-search-slot${searchOpen ? ' open' : ''}`}>
+              {searchOpen && (
+                <div className="graph-search graph-search-inbar">
+                  <input
+                    ref={searchRef}
+                    type="search"
+                    placeholder="Filter by title, tag or domain…"
+                    aria-label="Filter pages by title, tag or domain"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Escape') return
+                      e.preventDefault()
+                      // Text first, then the box: one step out per press, the shape Escape
+                      // has on the graph and everywhere else here.
+                      if (query !== '') setQuery('')
+                      else {
+                        e.currentTarget.blur()
+                        setSearchOpen(false)
+                      }
+                    }}
+                  />
+                </div>
+              )}
+              {/* One magnifier, at the right edge in both states, so it does not move between
+                  them. Closing clears the text: a filter narrowing the table from behind a
+                  folded-away box is one you cannot see and therefore cannot undo. */}
+              <button
+                className="canvas-corner search-open"
+                aria-expanded={searchOpen}
+                onClick={() => (searchOpen ? closeSearch() : openSearch())}
+                aria-label={searchOpen ? 'Close the filter' : 'Filter the list'}
+                title={searchOpen ? 'Close the filter · Esc' : 'Filter by title, tag or domain · /'}
+              >
+                <Icon name="search" />
+              </button>
             </div>
           </span>
         </div>
@@ -591,7 +662,7 @@ export function Catalog({
           <span className="fl" />
           {/* The wing keys are bound only while the domains are listed by wing, and the
               hint says only what the keys do. */}
-          <FootKeys items={['↑ ↓ walk the rows', ...(wing !== null ? ['← → step the wing'] : []), 'Enter opens a row', 'Esc closes a page']} />
+          <FootKeys items={['↑ ↓ walk the rows', ...(wing !== null ? ['← → step the wing'] : []), 'Enter opens a row', '/ filters the list', 'Esc closes a page']} />
           <span className="fr">
             {/* Only with a domain filter on: a deepening run is bounded by a domain, and this
                 is where the domain is already the thing you are looking at. */}
