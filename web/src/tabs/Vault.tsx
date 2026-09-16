@@ -1072,10 +1072,23 @@ function GraphView({
     setShowGaps(false)
     setShowNetwork(false)
     setSpotlight(false)
+    // The system pages go back out of sight too (2026-09-16). It is a filter like the others,
+    // and one of the quieter ones: it changes the page count without naming itself anywhere on
+    // the drawing, so a reset that left it on would leave the graph saying a number nobody
+    // asked for - and it is the switch you are least likely to remember pressing.
+    setShowSystem(false)
     setClusterStack([])
     setLocalDepth(0)
     closeExplorer() // selection + trail
     if (focusPath !== null) navigate('/graph')
+    /*
+     * ...and the drawing is framed to what is left. The fit key already re-frames when a
+     * filter changes, so most resets would fit by themselves - but a reset from a view that
+     * was ALREADY reset changes no key, and that is exactly the press where someone has
+     * panned or zoomed away and wants the whole vault back in the box. Asking for it outright
+     * makes the button mean one thing in both cases.
+     */
+    setFitNonce((n) => n + 1)
   }
 
   // ---- keyboard layer. Window-level (the canvas isn't focusable), via the same stable-
@@ -2125,7 +2138,7 @@ function GraphPanel({
               onReset()
               blink('reset')
             }}
-            title="Back to the whole vault, coloured by domain: filters, lens, overlays, drill-down and search"
+            title="Back to the whole vault, coloured by domain and framed in the box: filters, lens, overlays, system pages, drill-down and search"
           >
             Reset filters
           </button>
