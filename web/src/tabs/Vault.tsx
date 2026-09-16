@@ -2063,10 +2063,39 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
   const [saveFindings, setSaveFindings] = useState<ValidationFinding[]>([])
   useEffect(() => setSaveFindings([]), [path])
 
+  /**
+   * The optimistic lock's reference point, taken WITH the draft and never refreshed on its own.
+   *
+   * It used to be read from the live query at save time (`pageQ.data?.mtime`), which made it
+   * follow the very thing it locks against: any refetch between opening the editor and saving
+   * moved it past the change it exists to catch, and the save then overwrote that change in
+   * silence. `useEvents.ts` closes one of those doors deliberately (no `page-full`
+   * invalidation on a vault event) - but a reference point that can move at all leaves the
+   * rest of them open. Measured 2026-09-16: one such save dropped four marks the service had
+   * written into the reading list, and a Fellow was told the same thing twice two nights later.
+   */
+  const [baseMtime, setBaseMtime] = useState<string | null>(null)
+
   const save = useMutation({
-    mutationFn: () => api.savePage(path, draft, pageQ.data?.mtime),
+    /*
+     * `force` is the informed overwrite after a conflict: it takes a FRESH lock rather than no
+     * lock, so a third change landing between the reload and the save still conflicts.
+     *
+     * Fetched straight from the API and NOT through the query cache: `fetchQuery` honours
+     * `staleTime`, so within 30 seconds it hands back the very mtime that just lost the
+     * conflict and the overwrite 409s against itself. Measured, the first time this path was
+     * run end to end.
+     */
+    mutationFn: async (opts: { force?: boolean } = {}) => {
+      const lock = opts.force === true ? (await api.pageFull(path)).mtime : baseMtime
+      // No lock is not a fallback. A page whose mtime never arrived is a page this editor
+      // cannot safely write, and saying so beats writing blind.
+      if (lock === null || lock === undefined) throw new Error('this page was not fully loaded - reopen it before saving')
+      return api.savePage(path, draft, lock)
+    },
     onSuccess: (res) => {
       setEditing(false)
+      setBaseMtime(null)
       setSaveFindings(res.validation ?? [])
       void qc.invalidateQueries({ queryKey: ['page-full', path] })
       void qc.invalidateQueries({ queryKey: ['page', path] }) // the citation-preview cache
@@ -2088,7 +2117,11 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
   })
 
   const startEdit = (): void => {
-    setDraft(pageQ.data?.markdown ?? '')
+    // Both halves of the edit come from the same load: the text, and the mtime that dates it.
+    const loaded = pageQ.data
+    if (loaded === undefined) return
+    setDraft(loaded.markdown)
+    setBaseMtime(loaded.mtime ?? null)
     save.reset()
     setEditing(true)
   }
@@ -2297,7 +2330,7 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
           <Icon name="book" /> In catalog
         </button>
         {!editing && pageQ.data && (
-          <button className="btn" onClick={startEdit} title="Edit page (every change becomes a git commit)">
+          <button className="btn" onClick={startEdit} disabled={pageQ.data === undefined} title="Edit page (every change becomes a git commit)">
             <Icon name="edit" /> Edit
           </button>
         )}
@@ -2387,7 +2420,7 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
             <EditorPreview draft={draft} linkTo={linkTo} />
           </div>
           <div className="editor-actions">
-            <button className="btn primary" onClick={() => save.mutate()} disabled={save.isPending}>
+            <button className="btn primary" onClick={() => save.mutate({})} disabled={save.isPending}>
               {save.isPending ? 'Saving…' : 'Save (commit)'}
             </button>
             <button
@@ -2399,17 +2432,33 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
               {confirmLeave ? 'Discard draft?' : 'Cancel'}
             </button>
             {saveConflict && (
+              /*
+               * The draft survives the conflict. A working lock is only half the fix: the
+               * banner used to offer one action and that action threw the edit away, which
+               * trades a silent loss in the vault for a visible loss of your work. Now the
+               * choice is yours and both sides of it are named.
+               */
               <span className="toast err">
-                The page changed in the meantime (e.g. through an agent run).{' '}
+                The page changed since you opened it - an agent run, or another tab. Your draft is still here.{' '}
+                <button
+                  className="btn ghost"
+                  onClick={() => save.mutate({ force: true })}
+                  disabled={save.isPending}
+                  title="Replace what landed in the meantime with your draft. It is one commit, so it stays revertable."
+                >
+                  Save anyway
+                </button>{' '}
                 <button
                   className="btn ghost"
                   onClick={() => {
                     save.reset()
                     setEditing(false)
+                    setBaseMtime(null)
                     void qc.invalidateQueries({ queryKey: ['page-full', path] })
                   }}
+                  title="Throw your draft away and load what is on disk"
                 >
-                  Reload
+                  Discard mine and reload
                 </button>
               </span>
             )}

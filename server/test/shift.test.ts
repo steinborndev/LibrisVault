@@ -1032,6 +1032,51 @@ describe('planning, proposals and the night shift', () => {
     expect(ada.name).toBe('Ada')
   })
 
+  /**
+   * The mark on the reading-list entry is what normally stops a second telling, and it lives
+   * in a vault page a human can edit. One stale save took four marks with it on 2026-09-14,
+   * and two nights later a Fellow was told the same thing again - so the note has to be
+   * idempotent on its own, keyed on the page rather than on the sentence around it (the Notes
+   * section is the user's to reword).
+   */
+  it('tells a Fellow about a publication once, however often its entry is marked', async () => {
+    const ada = await spawn({})
+    const entry: ReadingEntry = {
+      title: 'The preprint Ada asked for',
+      url: 'https://arxiv.invalid/1',
+      ref: 'arXiv:2506.20907',
+      domain: 'astronomy',
+      why: 'The only per-facility scatter.',
+      found: null,
+      by: 'Ada',
+      at: '2026-09-06',
+      access: 'paywalled',
+      blocked: 'HTTP 403',
+      filed: 'wiki/sources/The Preprint.md',
+      filedAt: '2026-09-08',
+      archivedAt: null,
+      oa: null,
+    }
+    h.readingFiled = [{ entry, page: 'wiki/sources/The Preprint.md' }]
+    expect(await h.service.noteFiledReading('2026-09-08')).toBe(1)
+    const notebook = path.join(h.vaultRoot, ada.notebookPath)
+    const once = fs.readFileSync(notebook, 'utf8')
+    expect(once.split('The publication you asked for').length - 1).toBe(1)
+
+    // The mark was lost and the entry marked again: same publication, same page, and the
+    // `why` reworded on the way, which is exactly what a full-text match would miss.
+    h.readingFiled = [{ entry: { ...entry, why: 'Reworded since.', filedAt: '2026-09-10' }, page: 'wiki/sources/The Preprint.md' }]
+    expect(await h.service.noteFiledReading('2026-09-10')).toBe(1)
+    const twice = fs.readFileSync(notebook, 'utf8')
+    expect(twice.split('The publication you asked for').length - 1).toBe(1)
+    expect(twice).not.toContain('Reworded since.')
+
+    // A different publication is a different note; the key narrows, it does not mute.
+    h.readingFiled = [{ entry: { ...entry, title: 'Another one', why: 'Other reason.' }, page: 'wiki/sources/Another One.md' }]
+    expect(await h.service.noteFiledReading('2026-09-11')).toBe(1)
+    expect(fs.readFileSync(notebook, 'utf8').split('The publication you asked for').length - 1).toBe(2)
+  })
+
   it('the gate refuses on the daily budget and the shift records a budget sleep; a timer shift respects the window', async () => {
     const ada = await spawn({})
     await h.shift.run('timer')

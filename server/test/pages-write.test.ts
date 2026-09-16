@@ -115,6 +115,22 @@ describe('PUT /api/v1/pages', () => {
     expect(fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Beta.md'), 'utf8')).toContain('original content')
   })
 
+  /**
+   * The lock is deliberately OPTIONAL (SPEC.md 12.4), and this test exists so that stays a
+   * decision rather than an accident: a write with no `baseMtime` is accepted, and the server
+   * says so in its log because it is an overwrite nobody checked. Making it mandatory is an
+   * API change, and it should break this test on the way in.
+   */
+  it('accepts a write with no baseMtime at all - the lock is opt-in, by contract', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/pages',
+      payload: { path: 'wiki/concepts/Beta.md', markdown: '# Beta\n\nno lock\n' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Beta.md'), 'utf8')).toContain('no lock')
+  })
+
   it('refuses traversal and non-wiki targets', async () => {
     for (const bad of ['../.git/config', '/etc/passwd', 'wiki/../SPEC.md', 'wiki/concepts/Beta.txt']) {
       const res = await app.inject({ method: 'PUT', url: '/api/v1/pages', payload: { path: bad, markdown: 'x' } })

@@ -126,6 +126,19 @@ export function registerPagesRoute(app: FastifyInstance, ctx: AppContext, graph?
     const page = resolveWikiPage(config.vaultRoot, raw)
     if (!page.ok) return reply.code(page.status).send({ error: page.error })
 
+    /*
+     * The lock stays OPTIONAL by contract (SPEC.md 12.4) - making it mandatory is an API
+     * change and would break every caller that does not send one. But a write to an existing
+     * page without it is an overwrite nobody checked, and `resolveWikiPage` has already
+     * refused anything that does not exist, so there is no create case to excuse it. Said out
+     * loud, because the one time this mattered it was invisible: a save without a current
+     * lock dropped four marks the service had written into the reading list, and the only
+     * trace was a Fellow being told the same thing twice, two nights later.
+     */
+    if (typeof body.baseMtime !== 'string') {
+      req.log.warn({ page: page.rel }, 'pages: write with no baseMtime - the optimistic lock was skipped, this overwrote whatever was there')
+    }
+
     // Check-and-write happens INSIDE the commit mutex so no agent commit (which also holds
     // it) can land between the staleness check and the write.
     const result = await commitMutex.runExclusive(async () => {

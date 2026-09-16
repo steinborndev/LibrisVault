@@ -1318,6 +1318,14 @@ the vault, and the Fellow that asked for it never learned it had arrived.
   `filedAt` written into them - the link the row shows and the record that the Fellow has been
   told, so the note goes out once. The Fellow that asked gets one line in its notebook: the
   title, the page, and its own reason for wanting it.
+- **And the note is idempotent on its own, keyed on the page** (corrected 2026-09-16). The
+  mark is the record that the Fellow was told, and it lives in a vault page a human may edit:
+  one stale editor save dropped four marks on 2026-09-14, the next shift marked those entries
+  again, and a Fellow read the same sentence twice. A note the service writes with a key is
+  not written again while that key is in the section - the key is the PAGE, not the sentence,
+  because Notes is the user's to reword. A suppressed note is logged as a warning rather than
+  swallowed: it means a mark was lost, and that is otherwise invisible. A recap answer carries
+  no key and is appended every time - two notes on one day are two notes.
 - **A wikilink never breaks across a line**, and the hygiene checklist says so for every
   writing run. A link split by a paragraph wrap stops resolving and reads as dead to every
   check; a lint run over the demo vault found 36 of its 87 dead links were working pages

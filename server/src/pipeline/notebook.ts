@@ -153,6 +153,30 @@ export interface NotebookWriteResult {
   readonly commit: string | null
   /** Intent and scope read back from the page before it was rewritten (user edits). */
   readonly readBack: { intent?: string; scope?: string }
+  /** Keys of `once` notes the page already carried, so the caller can say it out loud. */
+  readonly skippedNotes: readonly string[]
+}
+
+/**
+ * A line the service adds under Notes.
+ *
+ * `once` makes it idempotent: a note whose key already appears in the section is not written
+ * again. The key has to be the MACHINE-written part of the line - a vault page path - and not
+ * the prose around it, because the page says that section is the user's and the Fellow's, and
+ * a reworded line would defeat a full-text match.
+ *
+ * Without `once` the note is appended every time, which is what a recap answer wants: two
+ * notes on one day are two notes.
+ *
+ * Why this exists (2026-09-16): the reading-list note is written when an entry is marked
+ * `filed`, and that mark lives only in the vault page. Lose the mark - a stale editor save,
+ * a revert, a restore - and the next shift marks the entry again and tells the Fellow the
+ * same thing a second time. Idempotence here is the cheap half; the mark's own safety is a
+ * different fix.
+ */
+export interface NotebookNote {
+  readonly text: string
+  readonly once?: string
 }
 
 /** Renders and commits a Fellow's notebook. One commit per write, behind the commit mutex. */
@@ -182,26 +206,34 @@ export class NotebookWriter {
     agent: AgentRecord,
     runs: readonly AgentRunRecord[],
     plan: string | null = null,
-    opts: { readonly forceIntentScope?: boolean; readonly appendNotes?: readonly string[] } = {},
+    opts: { readonly forceIntentScope?: boolean; readonly appendNotes?: readonly NotebookNote[] } = {},
   ): Promise<NotebookWriteResult> {
     return this.commitMutex.runExclusive(async () => {
       const abs = path.join(this.vaultRoot, agent.notebookPath)
       const existing = this.read(agent)
       const readBack = existing && !opts.forceIntentScope ? readBackNotebook(existing) : {}
+      /*
+       * The dedupe happens HERE and not in the renderer, because it is a question about the
+       * file on disk and this is the method that holds it - under the commit mutex, so no
+       * other write can land between the check and the write.
+       */
+      const notesNow = existing === undefined ? '' : (parseNotebook(existing).sections.get('Notes') ?? '')
+      const skippedNotes = (opts.appendNotes ?? []).filter((n) => n.once !== undefined && notesNow.includes(n.once)).map((n) => n.once!)
+      const fresh = (opts.appendNotes ?? []).filter((n) => n.once === undefined || !notesNow.includes(n.once)).map((n) => n.text)
       const markdown = renderNotebook({
         agent,
         runs,
         plan,
         ...(existing !== undefined ? { existing } : {}),
         ...(opts.forceIntentScope ? { forceIntentScope: true } : {}),
-        ...(opts.appendNotes !== undefined ? { appendNotes: opts.appendNotes } : {}),
+        ...(fresh.length > 0 ? { appendNotes: fresh } : {}),
       })
       fs.mkdirSync(path.dirname(abs), { recursive: true })
       fs.writeFileSync(abs, markdown, 'utf8')
       const commit = this.autoCommit()
         ? await this.commit(this.vaultRoot, `fellow: notebook of ${agent.name}`, [agent.notebookPath])
         : undefined
-      return { path: agent.notebookPath, commit: commit?.committed ? (commit.hash ?? null) : null, readBack }
+      return { path: agent.notebookPath, commit: commit?.committed ? (commit.hash ?? null) : null, readBack, skippedNotes }
     })
   }
 }

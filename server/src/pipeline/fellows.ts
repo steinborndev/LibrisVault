@@ -49,7 +49,7 @@ import {
 import type { MaintenanceRunner, MaintenanceRun } from './maintenance.js'
 import { PLAN_TIMEOUT_MS, EXPAND_TIMEOUT_MS } from './maintenance.js'
 import { DEFAULT_TIMEOUT_MS } from './agent-runner.js'
-import { notebookPath, renderLogLines, type NotebookWriter } from './notebook.js'
+import { notebookPath, renderLogLines, type NotebookNote, type NotebookWriter } from './notebook.js'
 import { READING_LIST_PAGE, type ReadingEntry as ReadingEntryInput } from './reading-list.js'
 import type { FellowRunContext } from './fellow-prompts.js'
 import { startOfToday } from './budget.js'
@@ -584,7 +584,7 @@ export class FellowService {
     if (clean === '') return agent
     // A retired Fellow plans no more; a note for its next plan has nowhere to go.
     if (agent.state === 'retired') return agent
-    await this.writeNotebook(agent, { appendNotes: [`Recap note ${date}: ${clean}`] })
+    await this.writeNotebook(agent, { appendNotes: [{ text: `Recap note ${date}: ${clean}` }] })
     if (agent.state === 'sleeping' && (agent.sleepCode === 'covered' || agent.sleepCode === 'stalled')) {
       return this.agents.update(id, { sleepReason: 'a recap note arrived; the planner reconsiders in the next night shift', sleepCode: 'idle' }, this.now().toISOString())
     }
@@ -1433,7 +1433,7 @@ export class FellowService {
       return 0
     }
     if (filed.length === 0) return 0
-    const byAgent = new Map<string, string[]>()
+    const byAgent = new Map<string, NotebookNote[]>()
     for (const f of filed) {
       const agent = this.agents.list().find((a) => a.name.toLowerCase() === (f.entry.by ?? '').toLowerCase())
       this.log('info', `fellows: "${f.entry.title}" from the reading list is in the vault as ${f.page}`)
@@ -1442,11 +1442,26 @@ export class FellowService {
       // entry's own `filed` mark is the record that the publication arrived.
       if (agent.state === 'retired') continue
       const line = `The publication you asked for is in the vault: "${f.entry.title}" as ${f.page}${f.entry.why ? ` - you wanted it because: ${f.entry.why}` : ''}`
-      byAgent.set(agent.id, [...(byAgent.get(agent.id) ?? []), line])
+      /*
+       * Keyed on the page, so the note is written once per publication however often the
+       * entry is marked. The mark itself is the only thing that normally prevents a repeat,
+       * and it lives in a vault page a human can edit: one stale save took four marks with
+       * it on 2026-09-14 and a Fellow was told the same thing twice two nights later.
+       */
+      byAgent.set(agent.id, [...(byAgent.get(agent.id) ?? []), { text: line, once: f.page }])
     }
     for (const [agentId, notes] of byAgent) {
       const agent = this.agents.get(agentId)
-      if (agent) await this.writeNotebook(agent, { appendNotes: notes })
+      if (!agent) continue
+      const res = await this.writeNotebook(agent, { appendNotes: notes })
+      /*
+       * Said out loud rather than swallowed. A suppressed note means a mark was lost and
+       * written again, and that is the only trace of it - dedupe without this line would
+       * make the next such loss invisible, which is how this one nearly stayed invisible.
+       */
+      for (const key of res?.skippedNotes ?? []) {
+        this.log('warn', `fellows: ${agent.name} was already told about ${key}; the reading list entry was marked again, so its mark was lost in between`)
+      }
     }
     return filed.length
   }
@@ -1744,7 +1759,7 @@ export class FellowService {
   /** Renders and commits the notebook with the current Plan section; never throws. */
   private async writeNotebook(
     agent: AgentRecord,
-    opts: { readonly forceIntentScope?: boolean; readonly appendNotes?: readonly string[] } = {},
+    opts: { readonly forceIntentScope?: boolean; readonly appendNotes?: readonly NotebookNote[] } = {},
   ): Promise<Awaited<ReturnType<NotebookWriter['write']>> | undefined> {
     try {
       const plan = renderPlanSection({
