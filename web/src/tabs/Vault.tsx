@@ -1178,18 +1178,9 @@ function GraphView({
           }
           barMid={<ScopeMid heading={scopeMid} />}
           barRight={
-            <>
-              <button
-                className="btn ghost"
-                onClick={() => setFullscreen((v) => !v)}
-                title={fullscreen ? 'Back to the full view (Esc)' : 'Show the graph on its own - Esc returns'}
-              >
-                <Icon name={fullscreen ? 'shrink' : 'expand'} /> {fullscreen ? 'Exit' : 'Fullscreen'}
-              </button>
-              {/* Last in the row: search is the control you come back to, and its result
-                  list drops out of the field - at the end of the bar it has room to. */}
-              {searchOverlay}
-            </>
+            /* Search is the control you come back to, and its result list drops out of the
+               field - at the end of the bar it has room to. */
+            searchOverlay
           }
           onSelect={(n) =>
             n.path.startsWith(GAP_PATH_PREFIX) ? selectGap(n.title) : selectPage(n.path)
@@ -1240,8 +1231,16 @@ function GraphView({
                 </div>
               )}
               <LensLegend lens={effectiveLens} types={types} />
-              {/* Bottom-right of the drawing, with the legend: the reference is about the
-                  canvas, and the bar is for what the canvas shows. */}
+              {/* The drawing's two bottom corners, and the pair is deliberate: both of these
+                  are about the CANVAS rather than about what it is showing, which is what the
+                  bar between them is for. Same pill, one at each end. */}
+              <button
+                className="canvas-corner corner-left"
+                onClick={() => setFullscreen((v) => !v)}
+                title={fullscreen ? 'Back to the full view (Esc)' : 'Show the graph on its own - Esc returns'}
+              >
+                <Icon name={fullscreen ? 'shrink' : 'expand'} /> {fullscreen ? 'Exit' : 'Fullscreen'}
+              </button>
               <Shortcuts rows={GRAPH_SHORTCUTS} corner />
               {trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">

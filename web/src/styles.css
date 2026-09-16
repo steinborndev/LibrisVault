@@ -4214,13 +4214,27 @@ kbd {
 /* In the drawing's bottom-right corner (2026-09-11), the trail's corner mirrored: the
    button wears the crumbs' pill, and the panel opens upward over the canvas - downward
    from here is into the clipped region. */
-.shortcut-wrap.corner {
+/*
+ * The drawing's bottom corners. Two controls that are about the CANVAS - how big it is, and
+ * how to drive it - rather than about what it is showing, which is the bar between them.
+ * Shortcuts took the right in 2026-09-11; Fullscreen joined it on the left on 2026-09-16,
+ * out of the bar, where it sat among the figures it has nothing to do with.
+ *
+ * One rule for the look of both, so the pair cannot drift into two nearly-identical pills.
+ */
+.shortcut-wrap.corner,
+.canvas-corner {
   position: absolute;
-  right: 12px;
   bottom: 10px;
   z-index: 7;
 }
-.shortcut-wrap.corner .btn {
+.shortcut-wrap.corner { right: 12px; }
+.canvas-corner.corner-left { left: 12px; }
+.shortcut-wrap.corner .btn,
+.canvas-corner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 26px;
   padding: 0 10px;
   font-size: 12px;
@@ -4229,9 +4243,11 @@ kbd {
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
   backdrop-filter: blur(6px);
+  cursor: pointer;
 }
 .shortcut-wrap.corner .btn:hover,
-.shortcut-wrap.corner .btn[aria-expanded='true'] {
+.shortcut-wrap.corner .btn[aria-expanded='true'],
+.canvas-corner:hover {
   color: var(--text);
   border-color: var(--accent);
 }
