@@ -1441,7 +1441,7 @@ function GraphView({
                   </button>
                 </div>
               )}
-              <LensLegend lens={effectiveLens} types={drawnTypes} />
+              <LensLegend lens={effectiveLens} types={drawnTypes} offered={types} />
               {/*
                 * Both in the bottom RIGHT corner, side by side: these two are about the canvas
                 * rather than about what it shows, and the bottom left belongs to the trail,
@@ -2325,25 +2325,42 @@ const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
  * legend. `types` is the [type, count] list of what is actually DRAWN, so the legend is as
  * short as the picture is narrow, and it grows up from a fixed bottom-right corner.
  */
+/**
+ * Distinct colour buckets present, in a stable order; everything without its own colour (meta,
+ * references, comparisons, folds, …) collapses to one muted "Meta / other" row - mirroring
+ * colorFor(), which paints exactly those buckets muted.
+ */
+function typeRows(types: Array<[string, number]>): Array<{ label: string; cssVar: string }> {
+  const present = new Set(types.map(([t]) => t))
+  const colored = Object.entries(TYPE_VARS).filter(([, v]) => v !== '--muted')
+  const rows = colored.filter(([t]) => present.has(t)).map(([t, cssVar]) => ({ label: TYPE_LABELS[t] ?? t, cssVar }))
+  const coloredKeys = new Set(colored.map(([t]) => t))
+  if (types.some(([t]) => !coloredKeys.has(t))) rows.push({ label: 'Meta / other', cssVar: '--muted' })
+  return rows
+}
+
 function LensLegend({
   lens,
   types,
+  offered,
 }: {
   lens: Lens
   types: Array<[string, number]>
+  /** Every type the panel offers here - what the legend RESERVES room for, see below. */
+  offered: Array<[string, number]>
 }): React.ReactElement | null {
   let body: React.ReactNode = null
   if (lens === 'type') {
-    // Distinct color buckets present, in a stable order; everything without its own color
-    // (meta, references, comparisons, folds, …) collapses to one muted "Meta / other" row -
-    // mirroring colorFor(), which paints exactly those buckets muted.
-    const present = new Set(types.map(([t]) => t))
-    const colored = Object.entries(TYPE_VARS).filter(([, v]) => v !== '--muted')
-    const rows = colored
-      .filter(([t]) => present.has(t))
-      .map(([t, cssVar]) => ({ label: TYPE_LABELS[t] ?? t, cssVar }))
-    const coloredKeys = new Set(colored.map(([t]) => t))
-    if (types.some(([t]) => !coloredKeys.has(t))) rows.push({ label: 'Meta / other', cssVar: '--muted' })
+    const rows = typeRows(types)
+    /*
+     * The heading holds its line whatever is filtered (2026-09-16). The legend is anchored to
+     * the bottom corner, so a shorter list used to slide the title down the canvas after it -
+     * the reader's eye follows a key that moves, and it moves on every chip. So the box keeps
+     * the height of the FULL offer: the rows that are not drawn stay as blank space at the
+     * end, the drawn ones pack under the title, and the list grows downward as types come
+     * back. Spacers rather than a pixel height, because the row height is the font's to decide.
+     */
+    const spare = Math.max(0, typeRows(offered).length - rows.length)
     body =
       rows.length > 0 ? (
         <>
@@ -2351,6 +2368,11 @@ function LensLegend({
           {rows.map((r) => (
             <span className="ll-row" key={r.label}>
               <i className="ll-sw" style={{ background: `var(${r.cssVar})` }} /> {r.label}
+            </span>
+          ))}
+          {Array.from({ length: spare }, (_, i) => (
+            <span className="ll-row ll-spare" key={`spare-${i}`} aria-hidden>
+              <i className="ll-sw" /> —
             </span>
           ))}
         </>

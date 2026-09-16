@@ -3463,6 +3463,10 @@ span.head-slot { display: inline-block; }
   align-items: center;
   gap: 7px;
 }
+/* Holds a line open for a page type the filter is hiding, so the heading above never moves. */
+.lens-legend .ll-spare {
+  visibility: hidden;
+}
 .lens-legend .ll-sw {
   width: 11px;
   height: 11px;
