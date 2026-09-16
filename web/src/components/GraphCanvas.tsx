@@ -911,8 +911,18 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         candidates.push(i)
       }
     }
+    /*
+     * A handful of matches belong in the top tier with hover and selection: you searched for
+     * them, and three labels among a hundred nodes is the answer. Eighty of them is not - the
+     * tier has no collision budget of its own, so every match then fights every other match
+     * for the same space and the drawing reads as a word cloud (measured 2026-09-16 on a tag
+     * search). Past the threshold they fall back into the ordinary ranking, where degree and
+     * the collision check decide, and the picture labels its hubs again.
+     */
+    const MATCH_LABEL_LIMIT = 8
+    const matchesLead = matches.size <= MATCH_LABEL_LIMIT
     const interactive = (i: number): boolean =>
-      i === hovered || i === selectedIndex || i === focusIndex || matches.has(i)
+      i === hovered || i === selectedIndex || i === focusIndex || (matchesLead && matches.has(i))
     const prio = (i: number): number =>
       interactive(i) ? 4
       : highlight !== null && highlight.has(i) ? 3

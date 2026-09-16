@@ -472,6 +472,12 @@ function GraphView({
    * restoring a session into a chromeless screen is disorienting.
    */
   const [fullscreen, setFullscreen] = useState(false)
+  /**
+   * A tag pressed in the explorer's head. `around` is the page that was selected at the time,
+   * which turns the filter from "every page with this tag" into "the ones that touch this
+   * page" - the question you are actually asking when you press a tag while reading a page.
+   */
+  const [tagFilter, setTagFilter] = useState<{ tag: string; around: string | null } | null>(null)
 
   /**
    * `?gaps=1` (Home's Gaps card) lands here with the gaps overlay on. It is a one-shot
@@ -647,7 +653,7 @@ function GraphView({
   // of the focused page. Indices are remapped so the canvas gets a dense, self-contained
   // graph - that is also what keeps the force layout small in local mode on a huge vault.
   // When the gaps view is on, the unresolved targets are appended as synthetic ghost nodes.
-  const { nodes, edges, focusIndex, ghostIndices, realCount, realEdgeCount, matches } = useMemo(() => {
+  const { nodes, edges, focusIndex, ghostIndices, realCount, matches } = useMemo(() => {
     let keep: boolean[] = graph.nodes.map(
       (n) =>
         (showSystem || isKnowledge(n)) &&
@@ -680,6 +686,37 @@ function GraphView({
       }
       keep = keep.map((k, i) => k && within.has(i))
       keep[focusIndexFull] = true // the focus survives its own type/domain filter
+    }
+
+    /*
+     * A TAG is a set, not a search (2026-09-16). Typing narrows to what matches plus each
+     * match's neighbours, because a hit alone in the white is a dot without a statement. A
+     * tag has no such problem: the tagged pages ARE the answer, and pulling their neighbours
+     * in tripled the drawing and buried it in labels.
+     *
+     * And a tag pressed while a page is selected is a question about THAT page - "which of
+     * these touch what I am looking at" - so it keeps the selection and the tagged pages that
+     * link to or from it, and drops the rest of the tag. That is why this is its own filter
+     * and not text in the search box: a query cannot know what is selected.
+     */
+    if (tagFilter !== null) {
+      const around = tagFilter.around === null ? -1 : graph.nodes.findIndex((n) => n.path === tagFilter.around)
+      const touching = new Set<number>()
+      if (around >= 0) {
+        touching.add(around)
+        for (const [a, b] of graph.edges) {
+          if (a === around) touching.add(b)
+          if (b === around) touching.add(a)
+        }
+      }
+      keep = keep.map((k, i) => {
+        if (!k) return false
+        if (around >= 0 && !touching.has(i)) return false
+        // The page the question is about stays, whatever it is tagged with: dropping it would
+        // answer "which of these touch it" with a picture that no longer contains it.
+        if (i === around) return true
+        return graph.nodes[i]!.tags.some((t) => t.toLowerCase() === tagFilter.tag.toLowerCase())
+      })
     }
 
     // Search NARROWS the graph, it does not merely highlight (the old behaviour): with a
@@ -728,7 +765,6 @@ function GraphView({
     }
 
     const realCount = nodes.length
-    const realEdgeCount = edges.length
     const ghostIndices = new Set<number>()
     if (showGaps) {
       for (const gap of graph.gaps) {
@@ -761,8 +797,8 @@ function GraphView({
       if (r !== undefined) matches.add(r)
     }
 
-    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, realEdgeCount, matches }
-  }, [graph, selectedTypes, selectedDomains, wingScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query])
+    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches }
+  }, [graph, selectedTypes, selectedDomains, wingScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
 
   // Subgraph index of the explorer selection, for the canvas ring + spotlight. Null when the
   // selected page/gap is currently filtered out of view (the panel still shows regardless).
@@ -869,6 +905,7 @@ function GraphView({
   const resetView = (): void => {
     setFullscreen(false)
     setInput('')
+    setTagFilter(null)
     setSelectedTypes(new Set())
     setSelectedDomains(new Set())
     wingMode.setMode('all')
@@ -944,6 +981,7 @@ function GraphView({
        * before it drops the page you walked to - one press to forget the way you came, a
        * second to close what you arrived at.
        */
+      else if (tagFilter !== null) setTagFilter(null)
       else if (trail.length > 1) setTrail(selection?.kind === 'page' ? [selection.path] : [])
       else if (selection !== null) closeExplorer()
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
@@ -1180,7 +1218,7 @@ function GraphView({
               <strong>
                 {realCount} of {pagePool}
               </strong>{' '}
-              pages and <strong>{realEdgeCount}</strong> links
+              pages
               {/*
                 * What the two numbers mean, when they disagree (2026-09-16). A search keeps the
                 * pages that MATCH plus their direct neighbours, so a hit is never a dot on its
@@ -1191,6 +1229,19 @@ function GraphView({
                 * `realCount` excludes the ghosts (they are appended after it is taken) and
                 * `matches` only ever holds real pages, so the subtraction is sound.
                 */}
+              {/* A filter you cannot see is a filter you cannot undo. It says what it is and
+                  what it is scoped to, and the ✕ is the way out that does not need a key. */}
+              {tagFilter !== null && (
+                <span className="scope-tag">
+                  {' · '}#{tagFilter.tag}
+                  {tagFilter.around !== null && (
+                    <span className="scope-around"> around {graph.nodes.find((n) => n.path === tagFilter.around)?.title ?? 'a page'}</span>
+                  )}
+                  <button className="scope-tag-x" onClick={() => setTagFilter(null)} aria-label="Clear the tag filter" title="Clear the tag filter · Esc">
+                    <Icon name="x" />
+                  </button>
+                </span>
+              )}
               {matches.size > 0 && realCount > matches.size && (
                 <span className="scope-why">
                   {' · '}
@@ -1298,7 +1349,7 @@ function GraphView({
           health={health}
           onSelectPage={selectPage}
           onSelectGap={selectGap}
-          onTag={(t) => setInput(t)}
+          onTag={(t) => setTagFilter({ tag: t, around: selection?.kind === 'page' ? selection.path : null })}
           onClose={closeExplorer}
         />
           </div>
