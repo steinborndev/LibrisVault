@@ -46,22 +46,48 @@ export const inReach = (e: ReadingItem, reach: ReadingReach): boolean => reach =
  */
 export const isArchived = (e: ReadingItem): boolean => (e.archivedAt ?? null) !== null
 
-export function readingView(entries: readonly ReadingItem[], reach: ReadingReach, tab: ReadingTab = 'current'): ReadingView {
+/**
+ * The domains the board's ring stops at, after "all domains" (2026-09-16).
+ *
+ * Read off the entries the board is SHOWING - the tab and the access toggle have already cut -
+ * so the ring never offers a stop with nothing behind it. An entry without a domain is on no
+ * stop of its own and is reachable through "all domains", which is where it belongs: the ring
+ * is a way through the subjects, and "no subject" is not one.
+ *
+ * Alphabetical, deliberately, and not by size: a ring whose order followed the counts would
+ * reshuffle itself the moment an entry is ingested, and an order you cannot predict is worse
+ * than one you would not have chosen.
+ */
+export function readingDomains(shown: readonly ReadingItem[]): string[] {
+  return [...new Set(shown.map((e) => e.domain).filter((d): d is string => d !== null))].sort((a, b) => a.localeCompare(b))
+}
+
+export function readingView(
+  entries: readonly ReadingItem[],
+  reach: ReadingReach,
+  tab: ReadingTab = 'current',
+  /** One stop of the domain ring; null is "all domains", the stop the board opens on. */
+  domain: string | null = null,
+): ReadingView {
   // The archive is the outer cut: it decides which list you are looking at, and the access
   // toggle then filters within it. An archived entry is never counted as held back by that
   // toggle - it is not hidden, it is somewhere else.
   const inTab = entries.filter((e) => (tab === 'archived' ? isArchived(e) : !isArchived(e)))
+  // The ring sits between the two: which list, then which subject, then which side of the
+  // paywall. So `hidden` stays what it always was - what the TOGGLE is holding back - and
+  // counts what it holds back inside the domain you are looking at.
+  const inDomain = domain === null ? inTab : inTab.filter((e) => e.domain === domain)
   // One side of the paywall at a time, by the entry's access alone: a paywalled paper the
   // user fetched by hand stands with the paywalled ones, where it says it is in the vault.
-  const shown = inTab.filter((e) => inReach(e, reach))
+  const shown = inDomain.filter((e) => inReach(e, reach))
   return {
     shown,
-    hidden: inTab.length - shown.length,
+    hidden: inDomain.length - shown.length,
     // Not ingested means the DOCUMENT is not here. An entry matched by its identifier is done
     // even though no ingest ever ran for its url; an entry that only has a page written ABOUT
     // it is not, however completely that page reads - the lede offers to fetch the original.
     waiting: shown.filter((e) => !e.held).length,
-    total: inTab.length,
+    total: inDomain.length,
     /** How many sit in the other tab, for the toggle's own count. */
     archived: entries.filter(isArchived).length,
   }

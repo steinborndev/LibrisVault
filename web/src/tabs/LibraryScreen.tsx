@@ -188,6 +188,33 @@ export function LibraryScreen({
    * whatever is relevant to what you have open.
    */
   const [readingTab, setReadingTab] = useState<ReadingTab>('current')
+  /*
+   * The reading list's own ring, on the night shift's model (2026-09-16). It lives here for the
+   * same two reasons the command centre's does: the HEADLINE draws it, and this screen owns the
+   * keys. What the board owns is which entries exist, so it reports the stops upward and this
+   * only remembers where you are standing.
+   */
+  const [readingDomain, setReadingDomain] = useState<string | null>(null)
+  const [readingStops, setReadingStops] = useState<readonly string[]>([])
+  /** The row the arrows are on, and the rows themselves, in the order the board shows them. */
+  const [readingRow, setReadingRow] = useState(0)
+  const [readingRows, setReadingRows] = useState<readonly string[]>([])
+  /** The entry whose detail is up, by url; null is the list. Escape closes it first. */
+  const [readingOpen, setReadingOpen] = useState<string | null>(null)
+  /** Stepping the ring or the list starts at the top of what you land on. */
+  const readingGo = (d: string | null): void => {
+    setReadingDomain(d)
+    setReadingRow(0)
+    setReadingOpen(null)
+  }
+  /*
+   * A stop that no longer has entries - the last one was ingested, or the access toggle moved -
+   * would leave the board standing on a domain the ring no longer draws, showing nothing and
+   * offering no way back but Escape. Step to "all domains" instead, which always has something.
+   */
+  useEffect(() => {
+    if (readingDomain !== null && !readingStops.includes(readingDomain)) readingGo(null)
+  }, [readingStops, readingDomain])
   /** Every visit opens on the newest night, whatever night the last visit ended on. */
   const openBoard = (id: BoardId): void => {
     setRecapDay(null)
@@ -488,6 +515,49 @@ export function LibraryScreen({
       e.preventDefault()
       stepNight(e.key === 'ArrowLeft' ? 'older' : 'newer')
       return
+    }
+    /*
+     * The reading list walks its own ring and its own rows (2026-09-16), on the night shift's
+     * model: left and right step the domains, up and down the entries, Enter opens one. Checked
+     * before the guard below for the same reason the night shift board is - the guard hands
+     * every key but Escape to the room, and this board wants four of them.
+     */
+    if (board === 'reading' && !ccOpen && shelf === null) {
+      const ring: Array<string | null> = [null, ...readingStops]
+      const at = ring.indexOf(readingDomain)
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        // A ring of one stop has nowhere to go; stepping it would redraw the same board.
+        if (ring.length > 1) readingGo(ring[(at + (e.key === 'ArrowRight' ? 1 : ring.length - 1)) % ring.length] ?? null)
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        // Inside an open entry the rows are not what the arrows are for; stepping the list
+        // underneath a detail you are reading moves something you cannot see.
+        if (readingOpen === null && readingRows.length > 0) {
+          setReadingRow((r) => Math.min(readingRows.length - 1, Math.max(0, r + (e.key === 'ArrowDown' ? 1 : -1))))
+        }
+        return
+      }
+      if (e.key === 'Enter' && readingOpen === null) {
+        e.preventDefault()
+        const url = readingRows[readingRow]
+        if (url !== undefined) setReadingOpen(url)
+        return
+      }
+      if (e.key === 'Escape') {
+        /*
+         * Three rungs, each one step outward: the open entry, then the domain, then the window
+         * itself - which is what Escape has always done here, and still does once the two new
+         * rungs are used up.
+         */
+        e.preventDefault()
+        if (readingOpen !== null) setReadingOpen(null)
+        else if (readingDomain !== null) readingGo(null)
+        else setBoard(null)
+        return
+      }
     }
     // Inside a window the arrows belong to it too; only Escape still reaches the room.
     if (windowOpen && e.key !== 'Escape') return
@@ -815,10 +885,10 @@ export function LibraryScreen({
                 are looking at, so there is no mode to choose while it is open. */}
             {ccOpen ? null : board === 'reading' && shelf === null ? (
               <div className="seg sm ink" role="radiogroup" aria-label="Reading list">
-                <button role="radio" aria-checked={readingTab === 'current'} onClick={() => setReadingTab('current')}>
+                <button role="radio" aria-checked={readingTab === 'current'} onClick={() => { setReadingTab('current'); readingGo(null) }}>
                   Current
                 </button>
-                <button role="radio" aria-checked={readingTab === 'archived'} onClick={() => setReadingTab('archived')}>
+                <button role="radio" aria-checked={readingTab === 'archived'} onClick={() => { setReadingTab('archived'); readingGo(null) }}>
                   Archived
                 </button>
               </div>
@@ -834,6 +904,42 @@ export function LibraryScreen({
             )}
           </div>
           <div className="lib-head-mid">
+            {/*
+             * The reading list walks the same ring in the same slot: dot, name, dots. Its first
+             * stop is every domain at once and has no colour of its own, so it takes the muted
+             * grey - the night shift's overview takes the accent for the same reason, and the
+             * two rings are different enough that one shared "this is not a domain" colour
+             * would say they were the same place.
+             */}
+            {!ccOpen && board === 'reading' && shelf === null && (
+              <span className="lib-open cc-rot" title="The arrow keys walk the domains that have something on the list; up and down walk the entries, Enter opens one, Escape steps back out.">
+                <span
+                  className="chip-dot"
+                  style={{ background: readingDomain === null ? 'var(--muted)' : domainColor(readingDomain) }}
+                  aria-hidden
+                />
+                <b className={`cc-name${readingDomain === null ? ' dim' : ''}`}>
+                  {readingDomain === null ? 'All domains' : signText(readingDomain)}
+                </b>
+                {/* A ring of one stop is no ring: with every entry in one domain there is
+                    nowhere the arrows can take you that you are not already. */}
+                <span className="cc-dots" hidden={readingStops.length === 0}>
+                  <i
+                    className={readingDomain === null ? 'on' : ''}
+                    title="All domains"
+                    onClick={() => readingGo(null)}
+                  />
+                  {readingStops.map((key) => (
+                    <i
+                      key={key}
+                      className={readingDomain === key ? 'on' : ''}
+                      title={signText(key)}
+                      onClick={() => readingGo(key)}
+                    />
+                  ))}
+                </span>
+              </span>
+            )}
             {ccOpen && (
               /* Just where you are. Escape steps back, the dots jump, and the shelves view is
                  the map - so the name needs no arrows around it. */
@@ -1132,7 +1238,21 @@ export function LibraryScreen({
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
           {shelf === null && board !== null && (
             <div className="lib-window" role="dialog" aria-label={BOARD_TITLES[board]}>
-              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} day={shownNight} /> : <ReadingList vaultName={vaultName} tab={readingTab} />}
+              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} day={shownNight} /> : (
+                <ReadingList
+                  vaultName={vaultName}
+                  tab={readingTab}
+                  domain={readingDomain}
+                  row={readingRow}
+                  openUrl={readingOpen}
+                  onDomains={setReadingStops}
+                  onRows={setReadingRows}
+                  onOpen={(url) => {
+                    setReadingOpen(url)
+                    if (url !== null) setReadingRow(0)
+                  }}
+                />
+              )}
             </div>
           )}
           {(() => {

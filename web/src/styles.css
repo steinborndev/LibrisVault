@@ -8071,6 +8071,20 @@ tr:focus-within .rowacts {
 .rl-why { margin: 3px 0 0; font-size: 12.5px; color: var(--text-dim); max-width: 90ch; }
 .rl-meta { margin: 3px 0 0; font-size: 11.5px; color: var(--text-faint); }
 .rl-act { flex: none; display: flex; align-items: center; gap: 6px; }
+/* The row the arrow keys are on. The accent border rather than a fill: the rows carry chips
+   and buttons of their own, and a tinted row turns those into decoration. */
+.reading-rows li.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.reading-rows li { cursor: pointer; }
+.reading-rows li a, .reading-rows li button { cursor: pointer; }
+/*
+ * One entry, opened with Enter (2026-09-16). It replaces the list rather than standing over it:
+ * the board is already a window over the room, and a second layer inside it would make Escape
+ * ambiguous exactly where the ladder has to be obvious.
+ */
+.rl-detail { display: grid; gap: 14px; align-content: start; }
+.rl-detail .rl-main.full .rl-why { max-width: none; font-size: 13px; color: var(--text); }
+.rl-detail .rl-act.detail { flex-wrap: wrap; }
+.rl-esc { margin: 0; font-size: 11.5px; color: var(--text-faint); }
 
 /*
  * A sortable column heading (2026-09-14). It is a button, because that is what it does, but it

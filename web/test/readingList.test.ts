@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { copySize, copyVerified, copyVersionWords, hasUsableCopy, inReach, isReachable, reachLabel, readingView, searchMiss } from '../src/lib/readingList.ts'
+import { copySize, copyVerified, copyVersionWords, hasUsableCopy, inReach, isReachable, reachLabel, readingDomains, readingView, searchMiss } from '../src/lib/readingList.ts'
 import type { ReadingItem } from '../src/api/types.ts'
 
 const item = (over: Partial<ReadingItem>): ReadingItem => ({
@@ -199,5 +199,47 @@ describe('an entry with an open copy (docs/sources/SPEC.md 6.3)', () => {
     expect(isReachable(e)).toBe(false)
     expect(inReach(e, 'paywalled')).toBe(true)
     expect(inReach(e, 'open')).toBe(false)
+  })
+})
+
+/**
+ * The domain ring the board walks with the arrows (2026-09-16), on the night shift's model:
+ * all domains first, then one stop per domain that has something here.
+ */
+describe('the domain ring', () => {
+  const entries: ReadingItem[] = [
+    item({ title: 'a1', domain: 'astronomy', reach: 'open' }),
+    item({ title: 'a2', domain: 'astronomy', reach: 'paywalled', access: 'paywalled' }),
+    item({ title: 'm1', domain: 'materials-science', reach: 'open' }),
+    item({ title: 'none', domain: null, reach: 'open' }),
+    item({ title: 'archived', domain: 'cooking', reach: 'open', archivedAt: '2026-09-10' }),
+  ]
+
+  it('stops only where the board has something, and never on "no domain"', () => {
+    // Read off what the board SHOWS: the archived entry's domain is not a stop of the current
+    // list, and a paywalled-only domain is not a stop while the toggle is on open access.
+    expect(readingDomains(readingView(entries, 'open', 'current').shown)).toEqual(['astronomy', 'materials-science'])
+    expect(readingDomains(readingView(entries, 'paywalled', 'current').shown)).toEqual(['astronomy'])
+    expect(readingDomains(readingView(entries, 'open', 'archived').shown)).toEqual(['cooking'])
+    // An entry without a domain is on no stop of its own; "all domains" is where it lives.
+    expect(readingView(entries, 'open', 'current', null).shown.map((e) => e.title)).toContain('none')
+    expect(readingView(entries, 'open', 'current', 'astronomy').shown.map((e) => e.title)).not.toContain('none')
+  })
+
+  it('cuts between the list and the access toggle, so `hidden` still counts what the toggle holds', () => {
+    // Astronomy has two entries, one on each side of the paywall. Standing on that stop with
+    // the open-access toggle, exactly one is held back - and it is held back by the TOGGLE,
+    // which is what the number has always meant.
+    const astro = readingView(entries, 'open', 'current', 'astronomy')
+    expect(astro.shown.map((e) => e.title)).toEqual(['a1'])
+    expect(astro.hidden).toBe(1)
+    expect(astro.total).toBe(2)
+    // And "all domains" is the same cut without the middle one.
+    expect(readingView(entries, 'open', 'current', null).total).toBe(4)
+  })
+
+  it('orders the stops alphabetically, so ingesting one entry does not reshuffle the ring', () => {
+    const many = [item({ domain: 'zebra', reach: 'open' }), item({ url: 'u2', domain: 'alpha', reach: 'open' }), item({ url: 'u3', domain: 'alpha', reach: 'open' })]
+    expect(readingDomains(readingView(many, 'open', 'current').shown)).toEqual(['alpha', 'zebra'])
   })
 })
