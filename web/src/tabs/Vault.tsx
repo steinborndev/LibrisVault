@@ -29,6 +29,7 @@ import { ScopeMid } from '../components/ScopeMid.tsx'
 import { scopeHeading } from '../lib/scopeHeading.ts'
 import { linkifyText } from '../lib/linkify.tsx'
 import { navigate, pageRoute, pageFromPath, originPath, catalogPageRoute } from '../lib/router.ts'
+import { stepTrail } from '../lib/trail.ts'
 import { detectClusters } from '../lib/communities.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
@@ -194,6 +195,9 @@ const SHOW_SYSTEM_KEY = 'vault.showSystem'
  * The payload carries a `v` field: bump it on shape changes and stale prefs fall back to
  * defaults instead of half-applying.
  */
+/** How many hops the trail keeps, rolling. The rules are in `stepTrail`. */
+const TRAIL_MAX = 3
+
 const VIEW_PREFS_KEY = 'vault.graphPrefs'
 
 const LENS_VALUES: ReadonlySet<string> = new Set(['domain', 'type', 'authority', 'orphans', 'stubs', 'recency'])
@@ -535,12 +539,7 @@ function GraphView({
 
   const selectPage = (path: string): void => {
     setSelection({ kind: 'page', path })
-    setTrail((prev) => {
-      const at = prev.indexOf(path)
-      if (at >= 0) return prev.slice(0, at + 1) // revisiting an earlier hop rewinds the trail
-      const next = [...prev, path]
-      return next.length > 8 ? next.slice(next.length - 8) : next
-    })
+    setTrail((prev) => stepTrail(prev, path, TRAIL_MAX))
   }
   const selectGap = (title: string): void => setSelection({ kind: 'gap', title })
   const closeExplorer = (): void => {
@@ -1211,7 +1210,10 @@ function GraphView({
           // Fullscreen rides along: entering or leaving changes the canvas width by ~40%,
           // and re-fitting through the fitKey also clears `userMoved` - so a graph the user
           // had panned is re-framed too, instead of staying parked off-screen.
-          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}`}
+          // The tag filter belongs here for the sharpest version of the same reason: it cuts a
+          // thousand pages down to a handful, and without a re-fit those few keep the scale the
+          // whole vault had and sit in one corner as a speck of their own drawing.
+          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}`}
           barLeft={
             <span className="scopeline">
               Showing{' '}
@@ -1350,6 +1352,7 @@ function GraphView({
           onSelectPage={selectPage}
           onSelectGap={selectGap}
           onTag={(t) => setTagFilter({ tag: t, around: selection?.kind === 'page' ? selection.path : null })}
+          showSystem={showSystem}
           onClose={closeExplorer}
         />
           </div>
@@ -1376,6 +1379,7 @@ function GraphExplorer({
   onSelectPage,
   onSelectGap,
   onTag,
+  showSystem,
   onClose,
 }: {
   graph: VaultGraph
@@ -1385,6 +1389,7 @@ function GraphExplorer({
   onSelectPage: (path: string) => void
   onSelectGap: (title: string) => void
   onTag: (tag: string) => void
+  showSystem: boolean
   onClose: () => void
 }): React.ReactElement | null {
   // A ranked gaps list shows when the gaps view is on but nothing specific is selected.
@@ -1398,7 +1403,7 @@ function GraphExplorer({
         <Icon name="x" />
       </button>
       {selection?.kind === 'page' ? (
-        <PageExplorer graph={graph} path={selection.path} health={health} onSelectPage={onSelectPage} onTag={onTag} />
+        <PageExplorer graph={graph} path={selection.path} health={health} onSelectPage={onSelectPage} onTag={onTag} showSystem={showSystem} />
       ) : selection?.kind === 'gap' ? (
         <GapExplorer graph={graph} title={selection.title} onSelectPage={onSelectPage} />
       ) : (
@@ -1414,29 +1419,42 @@ function PageExplorer({
   health,
   onSelectPage,
   onTag,
+  showSystem,
 }: {
   graph: VaultGraph
   path: string
   health: GraphHealth
   onSelectPage: (path: string) => void
+  /** The overlay's own switch: the lists show what the drawing shows, and nothing else. */
+  showSystem: boolean
   /** A tag in the head, pressed: the screen turns it into the search that narrows the graph. */
   onTag: (tag: string) => void
 }): React.ReactElement {
   const idx = useMemo(() => graph.nodes.findIndex((n) => n.path === path), [graph, path])
   const node = idx >= 0 ? graph.nodes[idx] : undefined
+  /*
+   * The link lists follow "Include system pages" (2026-09-16). They used to list every edge
+   * whatever the overlay said, so a panel opened over a graph with the system pages hidden
+   * still offered `_index`, `index` and `log` at the top of both lists - three rows that are
+   * in every page's neighbourhood, that the drawing behind them does not contain, and that
+   * push the pages you came for below the fold.
+   */
+  const visible = (n: GraphNode): boolean => showSystem || isKnowledge(n)
   const backlinks = useMemo(
     () =>
       idx < 0
         ? []
-        : graph.edges.filter(([, to]) => to === idx).map(([from]) => graph.nodes[from]!).sort(byTitle),
-    [graph, idx],
+        : graph.edges.filter(([, to]) => to === idx).map(([from]) => graph.nodes[from]!).filter(visible).sort(byTitle),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [graph, idx, showSystem],
   )
   const outgoing = useMemo(
     () =>
       idx < 0
         ? []
-        : graph.edges.filter(([from]) => from === idx).map(([, to]) => graph.nodes[to]!).sort(byTitle),
-    [graph, idx],
+        : graph.edges.filter(([from]) => from === idx).map(([, to]) => graph.nodes[to]!).filter(visible).sort(byTitle),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [graph, idx, showSystem],
   )
   // Tag rarity across the vault: a tag on half the pages is near-worthless as a "related"
   // signal, one on three pages is a strong one. IDF weight = log(N / df); a tag on every page
@@ -1465,7 +1483,10 @@ function PageExplorer({
     const weight = new Map(own.map((t) => [t, tagIdf.get(t) ?? 0]))
     const linked = new Set([path, ...backlinks.map((n) => n.path), ...outgoing.map((n) => n.path)])
     return graph.nodes
-      .filter((n) => !linked.has(n.path))
+      // The same overlay as the two lists above it. It sits in the same panel and answers the
+      // same kind of question, so hiding system pages in two of three lists would be the
+      // arbitrary half of a rule.
+      .filter((n) => !linked.has(n.path) && visible(n))
       .map((n) => {
         let score = 0
         for (const t of new Set(n.tags)) score += weight.get(t) ?? 0
@@ -1475,7 +1496,8 @@ function PageExplorer({
       .sort((a, b) => b.score - a.score || byTitle(a.node, b.node))
       .slice(0, 6)
       .map((c) => c.node)
-  }, [graph, node, path, backlinks, outgoing, tagIdf])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, node, path, backlinks, outgoing, tagIdf, showSystem])
 
   // ---- graph repair (deterministic findings for THIS page → one bounded agent run) ----
   const qc = useQueryClient()
