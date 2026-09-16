@@ -5,7 +5,7 @@
  * to get wrong around month ends - is testable.
  */
 
-import type { RecapFellow, RecapRow } from '../api/types.ts'
+import type { RecapFellow, RecapModel, RecapRow } from '../api/types.ts'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const DAY_MS = 24 * 3600_000
@@ -96,12 +96,98 @@ export function feedRows(rows: readonly RecapRow[], filter: FeedFilter): RecapRo
     .filter((r) => filter.fellows.length === 0 || filter.fellows.some((name) => workedOn(r, name)))
 }
 
+/**
+ * What the picked Fellows did with one night, from their own sections of that night's recap.
+ *
+ * Every figure here is the SAME arithmetic the server does for the whole night, over a subset
+ * of the same runs (`recap.ts`: runs, failures, cost, and pages as created + updated). That is
+ * what makes a filtered strip comparable with an unfiltered one rather than merely similar:
+ * pick every Fellow and you get the night's totals back, to the cent.
+ *
+ * What is deliberately NOT here is the part of a recap that no single Fellow owns. Plan
+ * consumption counts manual runs and ingests too (`usage`, section 8.2), and the shift's own
+ * counts are the night's. Those do not decompose, and inventing a per-Fellow share of them
+ * would be a number nobody could check.
+ */
+export interface NightShare {
+  readonly runs: number
+  readonly pages: number
+  readonly failed: number
+  readonly costUsd: number
+  readonly undecided: number
+  readonly pageOpens: number
+  readonly recapLinks: number
+  /** The recap has a section for at least one of them; false = retired, or not yet spawned. */
+  readonly present: boolean
+}
+
+/** The picked Fellows' sections of one recap; empty `names` is every Fellow. */
+function sectionsOf(m: RecapModel, names: readonly string[]): RecapFellow[] {
+  return m.fellows.filter((f) => names.length === 0 || names.includes(f.name))
+}
+
+export function nightOf(row: RecapRow, names: readonly string[]): NightShare {
+  const sections = sectionsOf(row.model, names)
+  const runs = sections.flatMap((f) => f.runs)
+  return {
+    runs: runs.length,
+    pages: runs.reduce((n, r) => n + r.pagesCreated.length + r.pagesUpdated.length, 0),
+    failed: runs.filter((r) => !r.ok).length,
+    // Rounded the way the server rounds its own total, so summing the parts cannot drift
+    // a cent away from the whole.
+    costUsd: Math.round(runs.reduce((n, r) => n + (r.costUsd ?? 0), 0) * 100) / 100,
+    undecided: sections.reduce((n, f) => n + f.proposals.filter((p) => p.status === 'proposed').length, 0),
+    pageOpens: sections.reduce((n, f) => n + f.value.pageOpens, 0),
+    recapLinks: sections.reduce((n, f) => n + f.value.recapLinks, 0),
+    present: sections.length > 0,
+  }
+}
+
+/** The same, over the days of one shown week: what the picked Fellows ran and what it cost. */
+export function weekOf(rows: readonly RecapRow[], monday: string, names: readonly string[]): { runs: number; costUsd: number } {
+  const days = new Set(weekDays(monday))
+  const nights = rows.filter((r) => days.has(r.cycleDate)).map((r) => nightOf(r, names))
+  return {
+    runs: nights.reduce((n, x) => n + x.runs, 0),
+    costUsd: Math.round(nights.reduce((n, x) => n + x.costUsd, 0) * 100) / 100,
+  }
+}
+
 /** Runs a Fellow settled in the shown week - what its pill counts. */
 export function runsInWeek(rows: readonly RecapRow[], monday: string, name: string): number {
-  const days = new Set(weekDays(monday))
-  return rows
-    .filter((r) => days.has(r.cycleDate))
-    .reduce((n, r) => n + r.model.fellows.filter((f) => f.name === name).reduce((m, f) => m + f.runs.length, 0), 0)
+  return weekOf(rows, monday, [name]).runs
+}
+
+/**
+ * The day's own rows - the reading list, the skipped and the merged - narrowed to the picked
+ * Fellows. Empty `names` is every Fellow, which is the state you start in.
+ *
+ * Each of these carries its own attribution and they are not the same shape: a reading-list
+ * entry names who asked for it (or `ingest`, or nobody), a skip names the Fellow that was
+ * skipped, and a merge names TWO - the topic that was dropped and the one it was folded into.
+ * A merge shows for either of them, because it is the answer to "why did mine not run" as much
+ * as to "why did mine cover that".
+ */
+export function dayRail(
+  m: RecapModel,
+  names: readonly string[],
+): {
+  reading: NonNullable<RecapModel['readingAdded']>
+  skipped: NonNullable<RecapModel['shift']>['skipped']
+  merged: RecapModel['dedupe']['merged']
+  overlaps: RecapModel['dedupe']['overlaps']
+  sleeping: RecapModel['sleeping']
+} {
+  const all = names.length === 0
+  const dedupe = m.dedupe ?? { merged: [], overlaps: [] }
+  return {
+    // A quiet night files nothing, so its rail carries nothing either.
+    reading: m.quiet ? [] : (m.readingAdded ?? []).filter((r) => all || (r.by !== null && names.includes(r.by))),
+    skipped: (m.shift?.skipped ?? []).filter((s) => all || names.includes(s.agentName)),
+    merged: dedupe.merged.filter((d) => all || names.includes(d.droppedAgentName) || names.includes(d.keptAgentName)),
+    overlaps: dedupe.overlaps.filter((o) => all || names.includes(o.agentName)),
+    sleeping: (m.sleeping ?? []).filter((s) => all || names.includes(s.name)),
+  }
 }
 
 /**

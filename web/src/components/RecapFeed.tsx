@@ -32,7 +32,9 @@ import {
   fmtWeek,
   localDate,
   openingWeek,
+  nightOf,
   runsInWeek,
+  weekOf,
   weekStartOf,
   workedOn,
 } from '../lib/recapFeed.ts'
@@ -153,7 +155,10 @@ export function RecapFeed({
   return (
     <>
       {current !== undefined ? (
-        <RecapFacts row={current} />
+        /* The strip belongs to the day in view AND to the filter beside it: a picked Fellow
+           narrows the sections below, so a strip that kept answering for the whole night would
+           be the one thing on the screen still talking about everybody. */
+        <RecapFacts row={current} picked={picked.length > 0 ? { names: picked, night: nightOf(current, picked), week: weekOf(rows, shownWeek, picked) } : null} />
       ) : (
         <div className="facts lead recap-facts-empty">
           <div className="fact lead">

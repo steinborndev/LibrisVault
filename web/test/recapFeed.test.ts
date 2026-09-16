@@ -8,18 +8,21 @@ import { describe, expect, it } from 'vitest'
 import {
   absenceOf,
   addDays,
+  dayRail,
   earliestWeek,
   feedRows,
   fmtDay,
   fmtWeek,
   localDate,
+  nightOf,
   openingWeek,
   runsInWeek,
   weekDays,
+  weekOf,
   weekStartOf,
   workedOn,
 } from '../src/lib/recapFeed.ts'
-import type { RecapFellow, RecapModel, RecapRow } from '../src/api/types.ts'
+import type { RecapFellow, RecapModel, RecapRow, RecapRun } from '../src/api/types.ts'
 
 const fellow = (over: Partial<RecapFellow> = {}): RecapFellow => ({
   index: 1,
@@ -155,5 +158,128 @@ describe('what the feed shows', () => {
     expect(absenceOf(present, 'Cleo')).toContain('sleeping: nothing worth a run')
 
     expect(absenceOf(row('2026-09-06'), 'Cleo')).toBe('not in this recap - it was not running on this day.')
+  })
+})
+
+/**
+ * The Fellow filter is not only about WHOSE SECTIONS show (docs/agents/SPEC.md section 9.3):
+ * the strip above them and the day's own rows underneath answered for the whole night however
+ * the filter stood, which reads as a bug rather than as a scope.
+ */
+describe('what one Fellow did with a night', () => {
+  // Typed against RecapRun, not against the shared `run` const: its empty page arrays infer
+  // as `never[]`, so a fixture that gives a run pages would not typecheck.
+  const mkRun = (over: Partial<RecapRun> = {}): RecapRun => ({ ...run, ...over })
+  const proposal = (status: string) => ({
+    code: '1a',
+    proposalId: `p-${status}`,
+    kind: 'research',
+    topic: 'T',
+    rationale: 'R',
+    provenance: { candidate: 'c', text: 't', sourcePages: [] },
+    estCostUsd: 1,
+    scopeScore: 0.9,
+    drift: false,
+    status,
+    rank: 1,
+  })
+  const ada = fellow({
+    name: 'Ada',
+    agentId: 'a-ada',
+    runs: [mkRun({ runId: 'a1', costUsd: 3, pagesCreated: ['p1', 'p2'], pagesUpdated: ['p3'] }), mkRun({ runId: 'a2', costUsd: 1.5, ok: false, pagesCreated: [] })],
+    proposals: [proposal('proposed'), proposal('vetoed')],
+    value: { pageOpens: 7, recapLinks: 2 },
+  })
+  const mira = fellow({
+    name: 'Mira',
+    agentId: 'a-mira',
+    index: 2,
+    runs: [mkRun({ runId: 'm1', costUsd: 0.5, pagesCreated: ['q1'] })],
+    proposals: [proposal('proposed'), proposal('proposed')],
+    value: { pageOpens: 1, recapLinks: 0 },
+  })
+  const night = row('2026-09-06', { fellows: [ada, mira], totals: { runs: 3, failed: 1, costUsd: 5, pages: 4 } })
+
+  it('sums the same arithmetic the whole-night totals do, over a subset of the same runs', () => {
+    // The property that makes a filtered strip comparable rather than merely similar.
+    const everybody = nightOf(night, [])
+    expect({ runs: everybody.runs, failed: everybody.failed, costUsd: everybody.costUsd, pages: everybody.pages }).toEqual(night.model.totals)
+    const parts = [nightOf(night, ['Ada']), nightOf(night, ['Mira'])]
+    expect(parts.reduce((n, p) => n + p.costUsd, 0)).toBe(night.model.totals.costUsd)
+    expect(parts.reduce((n, p) => n + p.pages, 0)).toBe(night.model.totals.pages)
+  })
+
+  it('counts one Fellow\'s runs, pages, failures, cost, undecided and value', () => {
+    expect(nightOf(night, ['Ada'])).toEqual({ runs: 2, pages: 3, failed: 1, costUsd: 4.5, undecided: 1, pageOpens: 7, recapLinks: 2, present: true })
+    expect(nightOf(night, ['Mira'])).toEqual({ runs: 1, pages: 1, failed: 0, costUsd: 0.5, undecided: 2, pageOpens: 1, recapLinks: 0, present: true })
+  })
+
+  it('reports a Fellow the recap has no section for as absent rather than as a zero night', () => {
+    // The strip says "not in this recap" for one and "nothing of its own ran" for the other,
+    // and only `present` tells them apart - both are all-zero.
+    const missing = nightOf(night, ['Cleo'])
+    expect(missing.present).toBe(false)
+    expect(missing.runs).toBe(0)
+    expect(nightOf(row('2026-09-06', { fellows: [fellow({ name: 'Cleo', runs: [] })] }), ['Cleo']).present).toBe(true)
+  })
+
+  it('adds a week up out of its nights, and only the days of that week', () => {
+    const rows = [night, row('2026-09-04', { fellows: [fellow({ name: 'Ada', runs: [mkRun({ costUsd: 2 })] })] }), row('2026-08-30', { fellows: [fellow({ name: 'Ada', runs: [mkRun({ costUsd: 99 })] })] })]
+    expect(weekOf(rows, '2026-08-31', ['Ada'])).toEqual({ runs: 3, costUsd: 6.5 })
+    expect(weekOf(rows, '2026-08-31', ['Ada', 'Mira'])).toEqual({ runs: 4, costUsd: 7 })
+    // `runsInWeek` is the same count, so the pill and the strip can never disagree.
+    expect(runsInWeek(rows, '2026-08-31', 'Ada')).toBe(weekOf(rows, '2026-08-31', ['Ada']).runs)
+  })
+})
+
+describe('the day\'s own rows, under a Fellow filter', () => {
+  const m = row('2026-09-06', {
+    readingAdded: [
+      { title: 'One', url: 'u1', by: 'Ada', page: null },
+      { title: 'Two', url: 'u2', by: 'Mira', page: 'wiki/sources/Two.md' },
+      { title: 'Three', url: 'u3', by: 'ingest', page: null },
+      { title: 'Four', url: 'u4', by: null, page: null },
+    ],
+    shift: { trigger: 'timer', startedAt: 's', finishedAt: null, executed: 1, planned: 2, skipped: [{ agentName: 'Ada', reason: 'quota' }, { agentName: 'Mira', reason: 'nothing runnable' }], costUsd: 1 },
+    dedupe: {
+      merged: [{ keptAgentName: 'Ada', keptTopic: 'K', droppedAgentName: 'Mira', droppedTopic: 'D' }],
+      overlaps: [{ agentName: 'Mira', topic: 'T', page: 'wiki/questions/T.md' }],
+    },
+  }).model
+
+  it('gives every row back when nobody is picked', () => {
+    const all = dayRail(m, [])
+    expect(all.reading).toHaveLength(4)
+    expect(all.skipped).toHaveLength(2)
+    expect(all.merged).toHaveLength(1)
+    expect(all.overlaps).toHaveLength(1)
+  })
+
+  it('keeps only what the picked Fellow asked for, was skipped for, or was merged into', () => {
+    const ada = dayRail(m, ['Ada'])
+    expect(ada.reading.map((r) => r.title)).toEqual(['One'])
+    expect(ada.skipped.map((s) => s.agentName)).toEqual(['Ada'])
+    // A merge names two Fellows and is the answer to "why did mine not run" as much as to
+    // "why did mine cover that", so it shows for the kept side too.
+    expect(ada.merged).toHaveLength(1)
+    expect(ada.overlaps).toHaveLength(0)
+
+    const mira = dayRail(m, ['Mira'])
+    expect(mira.reading.map((r) => r.title)).toEqual(['Two'])
+    expect(mira.skipped.map((s) => s.reason)).toEqual(['nothing runnable'])
+    expect(mira.merged).toHaveLength(1)
+    expect(mira.overlaps).toHaveLength(1)
+  })
+
+  it('drops what nobody claimed: an ingest asked, or nobody did', () => {
+    // These are real entries and they stay under no filter at all - they are simply not
+    // this Fellow's, which is the whole point of picking one.
+    expect(dayRail(m, ['Ada', 'Mira']).reading.map((r) => r.title)).toEqual(['One', 'Two'])
+  })
+
+  it('files nothing on a quiet night, however the filter stands', () => {
+    const quiet = row('2026-09-06', { quiet: true, readingAdded: [{ title: 'One', url: 'u1', by: 'Ada', page: null }] }).model
+    expect(dayRail(quiet, []).reading).toHaveLength(0)
+    expect(dayRail(quiet, ['Ada']).reading).toHaveLength(0)
   })
 })

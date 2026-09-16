@@ -17,7 +17,7 @@ import { Fact, Facts } from '../components/Fact.tsx'
 import { PageLink } from '../components/PageLink.tsx'
 import { navigate } from '../lib/router.ts'
 import { answerCode, undecidedCount } from '../lib/recap.ts'
-import { fellowText } from '../lib/recapFeed.ts'
+import { dayRail, fellowText, type NightShare } from '../lib/recapFeed.ts'
 import { timeAgo, usd } from '../lib/format.ts'
 import { domainColor } from '../lib/domains.ts'
 
@@ -65,9 +65,14 @@ export function RecapBody({
   // A recap stored before a field existed (A2 rows have no `dedupe`) still renders.
   const stored = row.model
   const m = { ...stored, unclaimed: stored.unclaimed ?? [], dedupe: stored.dedupe ?? { merged: [], overlaps: [] }, sleeping: stored.sleeping ?? [], fellows: stored.fellows ?? [] }
-  /* The night's own reading-list entries, not everything that arrived since the last recap;
-     on a quiet night nobody asked for anything, so the row stays away. */
-  const reading = m.quiet ? [] : (stored.readingAdded ?? [])
+  /*
+   * The day's own rows, narrowed to the picked Fellows the same way the sections below are.
+   * They used to be the whole night's whatever the filter said, which read as a bug rather
+   * than as a scope: you pick one Fellow and the reading list still answers for all of them.
+   * The night's own reading-list entries, not everything that arrived since the last recap;
+   * on a quiet night nobody asked for anything, so the row stays away.
+   */
+  const rail = dayRail(m, only ?? [])
   const since = m.sinceBuilt ?? null
   return (
     <div className="recap">
@@ -80,7 +85,9 @@ export function RecapBody({
       {since !== null && since.runs > 0 && (
         <p className="recap-line recap-since">
           {since.runs} run{since.runs === 1 ? '' : 's'} finished after this recap was built
-          {since.proposals > 0 ? `, and ${since.proposals} of the proposals below are newer than it` : ''}. The
+          {/* The count is the recap's and stays true under a filter; the clause after it points
+              at "the proposals below", and those are the picked Fellow's only. */}
+          {since.proposals > 0 && (only === undefined || only.length === 0) ? `, and ${since.proposals} of the proposals below are newer than it` : ''}. The
           decisions above are current; rebuilding adds those runs and their summary lines, which costs a short agent
           run and rewrites the recap page.
         </p>
@@ -88,20 +95,20 @@ export function RecapBody({
       {m.quiet && (
         <div className="empty">
           <p className="qs-line">Nothing ran tonight.</p>
-          {m.sleeping.length > 0 && <p className="qs-detail">{m.sleeping.map((s) => `${s.name}: ${s.reason}`).join(' · ')}</p>}
+          {rail.sleeping.length > 0 && <p className="qs-detail">{rail.sleeping.map((s) => `${s.name}: ${s.reason}`).join(' · ')}</p>}
         </div>
       )}
       {/* The day's own rows, on the same rail the Fellows use: a label on the left, one line
           per item on the right - a reading list entry, a skipped Fellow, a merged topic. */}
-      {(reading.length > 0 || (m.shift !== null && m.shift !== undefined && m.shift.skipped.length > 0) || m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
+      {(rail.reading.length > 0 || rail.skipped.length > 0 || rail.merged.length > 0 || rail.overlaps.length > 0) && (
         <div className="rf-grid day">
-          {reading.length > 0 && (
+          {rail.reading.length > 0 && (
             <>
               <span className="rf-k" title="What the Fellows put on the reading list this night">
                 Reading list
               </span>
               <div className="rf-v list">
-                {reading.map((r) => (
+                {rail.reading.map((r) => (
                   <span key={r.url} className="filed">
                     {r.page !== null ? (
                       <PageLink vaultName={vaultName} path={r.page} />
@@ -119,11 +126,11 @@ export function RecapBody({
               </div>
             </>
           )}
-          {m.shift && m.shift.skipped.length > 0 && (
+          {rail.skipped.length > 0 && (
             <>
               <span className="rf-k">Skipped</span>
               <div className="rf-v list">
-                {m.shift.skipped.map((sk) => {
+                {rail.skipped.map((sk) => {
                   const id = agentIdOf?.(sk.agentName)
                   return (
                     <span key={sk.agentName} className="filed">
@@ -141,13 +148,13 @@ export function RecapBody({
               </div>
             </>
           )}
-          {(m.dedupe.merged.length > 0 || m.dedupe.overlaps.length > 0) && (
+          {(rail.merged.length > 0 || rail.overlaps.length > 0) && (
             <>
               <span className="rf-k">Merged</span>
               <p className="rf-v">
                 {/* A merge and a hedge are different events: one topic did not run, the other did.
                     And a judgement says it is one - a model's opinion is not a token count. */}
-                {m.dedupe.merged.map((d, i) =>
+                {rail.merged.map((d, i) =>
                   d.noted === true ? (
                     <span key={`m${i}`}>
                       {d.droppedAgentName}'s "{d.droppedTopic}" may be the same question as {d.keptAgentName}'s "{d.keptTopic}"; it ran anyway
@@ -161,7 +168,7 @@ export function RecapBody({
                     </span>
                   ),
                 )}
-                {m.dedupe.overlaps.map((o, i) => (
+                {rail.overlaps.map((o, i) => (
                   <span key={`o${i}`}>
                     {o.agentName}'s "{o.topic}" overlaps the existing page "{o.page}".{' '}
                   </span>
@@ -409,9 +416,66 @@ export function FellowSection({
   )
 }
 
+/** What the strip needs to speak for the picked Fellows instead of for the whole night. */
+export interface PickedFacts {
+  /** The picked names, for the one figure that would otherwise read as service-wide. */
+  readonly names: readonly string[]
+  /** Their share of the night in view. */
+  readonly night: NightShare
+  /** Their runs and cost across the week the feed is showing. */
+  readonly week: { runs: number; costUsd: number }
+}
+
+/**
+ * The same five doors, for the Fellows the filter picked.
+ *
+ * Four of them are those Fellows' own arithmetic over the same runs the whole-night figures
+ * sum, so picking everybody gives the unfiltered strip back to the cent (`nightOf`). The fifth
+ * is the one that CANNOT be: plan consumption counts manual runs and ingests too, so no Fellow
+ * owns a share of it, and a per-Fellow "consumption today" would be a number nobody could
+ * check. Leaving the service-wide figure standing in a filtered strip is worse - that is what
+ * it did until 2026-09-16, and it reads as a bug rather than as a scope. So the slot answers
+ * the question the filter actually raises: how much of tonight was this one.
+ */
+function PickedFactsStrip({ row, picked }: { row: RecapRow; picked: PickedFacts }): React.ReactElement {
+  const { night, week, names } = picked
+  const one = names.length === 1
+  const nightCost = row.model.totals.costUsd
+  // A night that spent nothing has no shares to divide, and 0/0 is not 0 %.
+  const share = nightCost > 0 ? Math.round((night.costUsd / nightCost) * 100) : null
+  return (
+    <Facts size="lead">
+      <Fact
+        k="Night"
+        v={night.runs === 0 ? 'Nothing' : `${night.runs} run${night.runs === 1 ? '' : 's'} · ${night.pages} page${night.pages === 1 ? '' : 's'}`}
+        sub={
+          night.runs === 0
+            ? night.present
+              ? `nothing of ${one ? 'its' : 'their'} own ran tonight`
+              : `not in this recap`
+            : `${usd(night.costUsd)}${night.failed > 0 ? ` · ${night.failed} failed` : ''}`
+        }
+        size="lead"
+      />
+      <Fact k="Share of the night" v={share === null ? '—' : `${share}%`} sub={share === null ? 'nothing was spent tonight' : `${usd(night.costUsd)} of ${usd(nightCost)}`} size="lead" />
+      {/* The only key whose unfiltered twin means something else, so this one says whose week it is. */}
+      <Fact k="This week" v={usd(week.costUsd)} sub={`${week.runs} run(s) · ${names.join(' and ')} only`} size="lead" />
+      <Fact
+        k="Undecided"
+        v={night.undecided}
+        sub={row.answeredAt ? `last answered ${timeAgo(row.answeredAt)}` : 'nothing answered yet'}
+        size="lead"
+        tone={night.undecided > 0 ? 'warn' : undefined}
+      />
+      <Fact k="Value this month" v={night.pageOpens} sub={`page opens · ${night.recapLinks} recap links followed`} size="lead" />
+    </Facts>
+  )
+}
+
 /** The five lead figures of one recap. Rendered by the screen and by Home's feed alike. */
-export function RecapFacts({ row }: { row: RecapRow }): React.ReactElement {
+export function RecapFacts({ row, picked }: { row: RecapRow; picked?: PickedFacts | null }): React.ReactElement {
   const m = row.model
+  if (picked != null && picked.names.length > 0) return <PickedFactsStrip row={row} picked={picked} />
   return (
     <Facts size="lead">
       {/* One line whatever the night did - the cost and the shift go under it - so the strip

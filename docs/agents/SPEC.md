@@ -885,7 +885,16 @@ recorded.
   Library's spawn form at `/library?spawn=1`) and one calendar week of days, newest first,
   with arrows stepping a week at a time. Picking a Fellow dims the nights it did not work
   and those days still open with the reason, taken from the shift's skip note, the sleeping
-  note, or the Fellow's own state; picking a day shows that day alone. **Activity** is the
+  note, or the Fellow's own state; picking a day shows that day alone.
+  **What a picked Fellow narrows, corrected 2026-09-16.** Everything on the day, not only the
+  sections: the five lead figures, the reading-list entries, the skipped and the merged. The
+  figures are that Fellow's own arithmetic over the same runs the whole-night totals sum, so
+  picking everybody gives the night's totals back to the cent. The one figure that does NOT
+  decompose is plan consumption - it counts manual runs and ingests as well, so no Fellow owns
+  a share of it - and its slot answers the question the filter raises instead: how much of the
+  night's spend was this one. A reading-list entry follows who asked for it, a skip follows the
+  Fellow it names, and a merge shows for BOTH sides, because it is the answer to "why did mine
+  not run" as much as to "why did mine cover that". **Activity** is the
   stream that was there before, one click away. In every recap a Fellow's proposals come
   first and the night's work reads as context under them, on Home and on the Recap screen
   alike.
