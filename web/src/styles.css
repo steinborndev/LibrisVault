@@ -2252,6 +2252,14 @@ details.hot-cache[open] summary {
      and must stay reachable. */
   overflow-y: auto;
   overflow-x: hidden;
+  /* ...and the room for that scrollbar is held from the first frame (2026-09-16). The panel
+     fills from queries, so it starts short and grows past its height a few hundred
+     milliseconds later; with an `auto` gutter the bar appeared at that moment and took 17px
+     out of the content, moving every chip, row and toggle in the column left after the eye
+     had already settled on them. Reserved, the column is laid out once at the width it will
+     keep. It costs the same 17px on a panel short enough never to scroll, which is the rarer
+     state and the one nobody is reading when it changes. */
+  scrollbar-gutter: stable;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elev);
