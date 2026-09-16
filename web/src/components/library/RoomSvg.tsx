@@ -286,7 +286,7 @@ function Tag({ text, kind, night, y, dot }: { text: string; kind: Actor['tag']; 
   }[kind]
   return (
     <g>
-      <rect x={-w / 2} y={y - 9} width={w} height={18} rx={9} fill={fills[0]} stroke={fills[2]} />
+      <rect className="lib-tag" x={-w / 2} y={y - 9} width={w} height={18} rx={9} fill={fills[0]} stroke={fills[2]} />
       {dot !== undefined && <circle cx={-w / 2 + 10} cy={y} r={3} fill={dot} />}
       <text x={dot !== undefined ? 5.5 : 0} y={y + 3.6} textAnchor="middle" fontFamily={FONT} fontSize={10.5} fontWeight={600} fill={fills[1]}>
         {text}
@@ -737,7 +737,16 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     if (a.name !== 'parcel') {
       const ty = a.pose === 'sleep' || a.pose === 'sit' ? -52 : a.pose === 'desk' ? -46 : -50
       top.push(
-        <g key={`tag-${a.id}`} className={`lib-figure${a.exiting ? ' exiting' : ''}`} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`} onClick={props.onActorClick ? (e) => props.onActorClick!(a, e) : undefined} style={{ cursor: a.agentId ? 'pointer' : 'default' }}>
+        /* `clickable` only where the click leads somewhere: the bubble is drawn for visitors
+           too, and one that lit up and then did nothing would be a promise the room cannot
+           keep. It is the same condition the cursor already reads. */
+        <g
+          key={`tag-${a.id}`}
+          className={`lib-figure${a.exiting ? ' exiting' : ''}${a.agentId ? ' clickable' : ''}`}
+          transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`}
+          onClick={props.onActorClick ? (e) => props.onActorClick!(a, e) : undefined}
+          style={{ cursor: a.agentId ? 'pointer' : 'default' }}
+        >
           <Tag text={a.caption} kind={a.tag} night={night} y={ty} dot={a.dot} />
         </g>,
       )

@@ -7471,11 +7471,24 @@ tr:focus-within .rowacts {
 @media (hover: hover) {
   .lib-slot:hover .bc-rim { opacity: 0.95; }
 }
+/* The same idea on a Fellow's bubble, which is clickable and opens their card. Its OWN border
+   rather than an edge of its own: the bubble is a flat pill lying in front of the room, with
+   no faces and no light direction, so a rim would be nothing but the outline it already has.
+   Brightened, not thickened - it is 18px tall against the case's 132, and the 1.6px that
+   reads as a highlight there would read as a frame here. The figure under it stays dark: it
+   is drawn in another layer, so `:hover` cannot reach across, and lighting both would take a
+   hover state rather than a rule. */
+.lib-tag { transition: stroke 140ms ease-out; }
+@media (hover: hover) {
+  .lib-figure.clickable:hover .lib-tag { stroke: #fff4e2; }
+  .lib-svg.night .lib-figure.clickable:hover .lib-tag { stroke: #ffd9a8; }
+}
 /* Light appearing is not motion, but a fade is an animation; whoever asked for less of it
    gets the edge switched rather than eased. */
 .bc-rim { transition: opacity 140ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
-  .bc-rim { transition: none; }
+  .bc-rim,
+  .lib-tag { transition: none; }
 }
 .lib-slot.drop polygon { transition: opacity 200ms; }
 .lib-case.selected { filter: drop-shadow(0 0 4px var(--accent)); }
