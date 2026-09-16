@@ -17,6 +17,7 @@ import type { AgentRecord } from '../db/agents.js'
 import type { AgentRunRecord } from '../db/agent-runs.js'
 import { commitPaths, type CommitResult } from './git.js'
 import type { Mutex } from '../util/mutex.js'
+import { withWikiLock } from './wiki-lock.js'
 
 export const NOTEBOOK_DIR = 'wiki/meta/agents'
 export const notebookPath = (slug: string): string => `${NOTEBOOK_DIR}/${slug}.md`
@@ -208,32 +209,40 @@ export class NotebookWriter {
     plan: string | null = null,
     opts: { readonly forceIntentScope?: boolean; readonly appendNotes?: readonly NotebookNote[] } = {},
   ): Promise<NotebookWriteResult> {
-    return this.commitMutex.runExclusive(async () => {
-      const abs = path.join(this.vaultRoot, agent.notebookPath)
-      const existing = this.read(agent)
-      const readBack = existing && !opts.forceIntentScope ? readBackNotebook(existing) : {}
-      /*
-       * The dedupe happens HERE and not in the renderer, because it is a question about the
-       * file on disk and this is the method that holds it - under the commit mutex, so no
-       * other write can land between the check and the write.
-       */
-      const notesNow = existing === undefined ? '' : (parseNotebook(existing).sections.get('Notes') ?? '')
-      const skippedNotes = (opts.appendNotes ?? []).filter((n) => n.once !== undefined && notesNow.includes(n.once)).map((n) => n.once!)
-      const fresh = (opts.appendNotes ?? []).filter((n) => n.once === undefined || !notesNow.includes(n.once)).map((n) => n.text)
-      const markdown = renderNotebook({
-        agent,
-        runs,
-        plan,
-        ...(existing !== undefined ? { existing } : {}),
-        ...(opts.forceIntentScope ? { forceIntentScope: true } : {}),
-        ...(fresh.length > 0 ? { appendNotes: fresh } : {}),
-      })
-      fs.mkdirSync(path.dirname(abs), { recursive: true })
-      fs.writeFileSync(abs, markdown, 'utf8')
-      const commit = this.autoCommit()
-        ? await this.commit(this.vaultRoot, `fellow: notebook of ${agent.name}`, [agent.notebookPath])
-        : undefined
-      return { path: agent.notebookPath, commit: commit?.committed ? (commit.hash ?? null) : null, readBack, skippedNotes }
-    })
+    /*
+     * The vault's per-file lock outside our commit mutex, in that order everywhere
+     * (`wiki-lock.ts`). A notebook is a wiki page like any other, and the vault's rule does
+     * not carve out the ones it thinks nobody else writes: the write guard lets an agent
+     * reach `wiki/meta/` too, so "no agent writes this" is a habit and not a guarantee.
+     */
+    return withWikiLock(this.vaultRoot, agent.notebookPath, async () =>
+      this.commitMutex.runExclusive(async () => {
+        const abs = path.join(this.vaultRoot, agent.notebookPath)
+        const existing = this.read(agent)
+        const readBack = existing && !opts.forceIntentScope ? readBackNotebook(existing) : {}
+        /*
+         * The dedupe happens HERE and not in the renderer, because it is a question about the
+         * file on disk and this is the method that holds it - under the commit mutex, so no
+         * other write can land between the check and the write.
+         */
+        const notesNow = existing === undefined ? '' : (parseNotebook(existing).sections.get('Notes') ?? '')
+        const skippedNotes = (opts.appendNotes ?? []).filter((n) => n.once !== undefined && notesNow.includes(n.once)).map((n) => n.once!)
+        const fresh = (opts.appendNotes ?? []).filter((n) => n.once === undefined || !notesNow.includes(n.once)).map((n) => n.text)
+        const markdown = renderNotebook({
+          agent,
+          runs,
+          plan,
+          ...(existing !== undefined ? { existing } : {}),
+          ...(opts.forceIntentScope ? { forceIntentScope: true } : {}),
+          ...(fresh.length > 0 ? { appendNotes: fresh } : {}),
+        })
+        fs.mkdirSync(path.dirname(abs), { recursive: true })
+        fs.writeFileSync(abs, markdown, 'utf8')
+        const commit = this.autoCommit()
+          ? await this.commit(this.vaultRoot, `fellow: notebook of ${agent.name}`, [agent.notebookPath])
+          : undefined
+        return { path: agent.notebookPath, commit: commit?.committed ? (commit.hash ?? null) : null, readBack, skippedNotes }
+      }),
+    )
   }
 }

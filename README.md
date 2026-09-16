@@ -640,7 +640,10 @@ the ingest agent do - and the vulnerability reporting channel.
 
 1. **Vault integrity.** Everything the service writes to the vault is one immediate git commit
    behind a shared mutex, so it is versioned, revertable, and can never interleave with an agent's
-   own commit. Four paths write, and only these four: an agent run; a page you edit or delete
+   own commit. A page write additionally takes the **vault's own per-file lock**
+   (`scripts/wiki-lock.sh`, mandatory in claude-obsidian from v1.7): the mutex serializes the
+   service against itself, and that lock is what an agent run reads too, so an edit arriving
+   while a run is writing the same page is refused instead of layered on top of it. Four paths write, and only these four: an agent run; a page you edit or delete
    yourself in the dashboard; the vault's own deterministic retrieval-index scripts, which produce
    only rebuildable artifacts outside git history; and the removal of a never-committed staging
    directory when a job turns out to be a duplicate. Pipeline code never rewrites vault content on

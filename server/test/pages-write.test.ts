@@ -131,6 +131,52 @@ describe('PUT /api/v1/pages', () => {
     expect(fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Beta.md'), 'utf8')).toContain('no lock')
   })
 
+  /**
+   * The other lock, and the one that is not ours: claude-obsidian's per-file `wiki-lock.sh`
+   * (v1.7+, "Every wiki page write MUST be preceded by `wiki-lock acquire <path>`"). An agent
+   * run holds it while it writes, and a timestamp cannot see that - the page has not changed
+   * YET. So a user edit arriving mid-write is refused rather than layered on top of it.
+   *
+   * The stub has the script's interface and its exit codes; the vault's own script lives in a
+   * vault the suite does not have.
+   */
+  it('409s while another writer holds the vault\'s own per-file lock', async () => {
+    fs.mkdirSync(path.join(vaultRoot, 'scripts'), { recursive: true })
+    fs.writeFileSync(
+      path.join(vaultRoot, 'scripts/wiki-lock.sh'),
+      '#!/usr/bin/env bash\nset -u\nd="$WIKI_LOCK_VAULT/.vault-meta/locks"\nmkdir -p "$d"\nf="$d/$(printf \'%s\' "$2" | cksum | cut -d\' \' -f1).lock"\ncase "$1" in\n  acquire) set -o noclobber; { : > "$f"; } 2>/dev/null || exit 75 ;;\n  release) rm -f "$f" ;;\n  *) exit 2 ;;\nesac\n',
+      { mode: 0o755 },
+    )
+    const before = fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Beta.md'), 'utf8')
+
+    // Somebody else takes the page, the way an ingest does before it writes.
+    execFileSync('bash', [path.join(vaultRoot, 'scripts/wiki-lock.sh'), 'acquire', 'wiki/concepts/Beta.md'], {
+      env: { ...process.env, WIKI_LOCK_VAULT: vaultRoot },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/pages',
+      payload: { path: 'wiki/concepts/Beta.md', markdown: 'trampled\n' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json<{ busy?: boolean }>().busy).toBe(true)
+    // The page is untouched - that is the whole point; a 409 that wrote anyway is decoration.
+    expect(fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Beta.md'), 'utf8')).toBe(before)
+
+    // Released, the same edit goes through.
+    execFileSync('bash', [path.join(vaultRoot, 'scripts/wiki-lock.sh'), 'release', 'wiki/concepts/Beta.md'], {
+      env: { ...process.env, WIKI_LOCK_VAULT: vaultRoot },
+    })
+    const after = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/pages',
+      payload: { path: 'wiki/concepts/Beta.md', markdown: 'written\n' },
+    })
+    expect(after.statusCode).toBe(200)
+    expect(fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Beta.md'), 'utf8')).toContain('written')
+  })
+
   it('refuses traversal and non-wiki targets', async () => {
     for (const bad of ['../.git/config', '/etc/passwd', 'wiki/../SPEC.md', 'wiki/concepts/Beta.txt']) {
       const res = await app.inject({ method: 'PUT', url: '/api/v1/pages', payload: { path: bad, markdown: 'x' } })

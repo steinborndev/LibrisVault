@@ -23,6 +23,7 @@ import type { MaintenanceRun, MaintenanceRunner } from './maintenance.js'
 import type { FellowService } from './fellows.js'
 import type { DecisionChannel, ProposalRecord, ProposalStatus } from '../db/proposals.js'
 import type { HandoffRecord, HandoffStore } from '../db/handoffs.js'
+import { withWikiLock } from './wiki-lock.js'
 import { commitPaths, commitFileStatus, type CommitResult } from './git.js'
 import type { Mutex } from '../util/mutex.js'
 import { parseOpenQuestions, knowledgePages } from './candidates.js'
@@ -1197,12 +1198,16 @@ export class RecapService {
     if (!model.quiet) {
       pagePath = recapPath(cycleDate)
       try {
-        await this.o.commitMutex.runExclusive(async () => {
-          const abs = path.join(this.o.vaultRoot, pagePath!)
-          fs.mkdirSync(path.dirname(abs), { recursive: true })
-          fs.writeFileSync(abs, renderRecapPage(model), 'utf8')
-          if (this.o.autoCommit?.() ?? true) await (this.o.commit ?? commitPaths)(this.o.vaultRoot, `recap: ${cycleDate}`, [pagePath!])
-        })
+        // The vault's per-file lock outside our mutex (`wiki-lock.ts`); a busy page throws and
+        // the catch below reports it, which is the same answer as any other failed write.
+        await withWikiLock(this.o.vaultRoot, pagePath, async () =>
+          this.o.commitMutex.runExclusive(async () => {
+            const abs = path.join(this.o.vaultRoot, pagePath!)
+            fs.mkdirSync(path.dirname(abs), { recursive: true })
+            fs.writeFileSync(abs, renderRecapPage(model), 'utf8')
+            if (this.o.autoCommit?.() ?? true) await (this.o.commit ?? commitPaths)(this.o.vaultRoot, `recap: ${cycleDate}`, [pagePath!])
+          }),
+        )
       } catch (err) {
         this.log('warn', `recap: page not written: ${(err as Error).message}`)
       }

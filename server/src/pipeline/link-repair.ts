@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Mutex } from '../util/mutex.js'
+import { withWikiLocks } from './wiki-lock.js'
 import { commitPaths, type CommitResult } from './git.js'
 import { indexWikiPages } from './citations.js'
 
@@ -93,7 +94,7 @@ export async function repairWrappedLinks(
     /** Report what would change without writing anything. */
     readonly dryRun?: boolean
   } = {},
-): Promise<{ readonly pages: readonly string[]; readonly fixed: number; readonly left: number; readonly commit: string | null }> {
+): Promise<{ readonly pages: readonly string[]; readonly fixed: number; readonly left: number; readonly busy: readonly string[]; readonly commit: string | null }> {
   const index = indexWikiPages(vaultRoot)
   const exists = (target: string): boolean => {
     const page = pageOf(target)
@@ -141,16 +142,31 @@ export async function repairWrappedLinks(
 
   const pages = changed.map((c) => c.rel)
   if (changed.length === 0 || opts.dryRun === true || opts.commitMutex === undefined) {
-    return { pages, fixed, left, commit: null }
+    return { pages, fixed, left, busy: [], commit: null }
   }
   const commit = opts.commit ?? commitPaths
   let hash: string | null = null
-  await opts.commitMutex.runExclusive(async () => {
-    for (const c of changed) fs.writeFileSync(path.join(vaultRoot, c.rel), c.text, 'utf8')
-    if (opts.autoCommit?.() ?? true) {
-      const res = await commit(vaultRoot, `repair: join ${fixed} wikilink(s) broken across a line`, pages)
-      hash = res.committed ? (res.hash ?? null) : null
-    }
+  /*
+   * The vault's per-file locks first and our commit mutex inside them, never the other way
+   * round (`wiki-lock.ts`). A page another writer holds is LEFT ALONE rather than repaired
+   * over the top of it: that is the vault's own guidance for a held lock, and a page an agent
+   * is writing this second is a page whose links are about to change anyway.
+   */
+  const mutex = opts.commitMutex
+  const result = await withWikiLocks(vaultRoot, pages, async (held, busyPages) => {
+    const holding = new Set(held)
+    const mine = changed.filter((c) => holding.has(c.rel))
+    if (mine.length === 0) return { written: [] as string[], busy: busyPages }
+    await mutex.runExclusive(async () => {
+      for (const c of mine) fs.writeFileSync(path.join(vaultRoot, c.rel), c.text, 'utf8')
+      if (opts.autoCommit?.() ?? true) {
+        const res = await commit(vaultRoot, `repair: join ${fixed} wikilink(s) broken across a line`, mine.map((c) => c.rel))
+        hash = res.committed ? (res.hash ?? null) : null
+      }
+    })
+    return { written: mine.map((c) => c.rel), busy: busyPages }
   })
-  return { pages, fixed, left, commit: hash }
+  // `busy` is reported rather than logged away: a caller that asked for a repair deserves to
+  // know which pages it did NOT get, and a count nobody can act on is not a result.
+  return { pages: result.written, fixed, left, busy: result.busy, commit: hash }
 }

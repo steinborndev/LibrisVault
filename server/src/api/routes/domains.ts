@@ -24,7 +24,8 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type { AppContext } from '../server.js'
 import type { GraphBuilder } from '../../pipeline/graph.js'
-import { commitPaths } from '../../pipeline/git.js'
+import { commitPaths, type CommitResult } from '../../pipeline/git.js'
+import { WikiLockBusy, withWikiLock } from '../../pipeline/wiki-lock.js'
 import { Mutex } from '../../util/mutex.js'
 import {
   readDomainRegistry,
@@ -95,16 +96,28 @@ export function registerDomainsRoute(
 
     // Read-modify-write inside the mutex: two concurrent creates (or an agent commit landing
     // mid-write) must not be able to lose one of the sections.
-    const result = await commitMutex.runExclusive(async () => {
-      const markdown = fs.readFileSync(abs, 'utf8')
-      const next = appendDomainSection(markdown, { key, description, tags })
-      if (next === null) return { duplicate: true as const }
-      fs.writeFileSync(abs, next, 'utf8')
-      const commit = autoCommit()
-        ? await commitPaths(config.vaultRoot, `domains: add ${key}`, [DOMAIN_REGISTRY_PATH])
-        : undefined
-      return { duplicate: false as const, commit }
-    })
+    let result: { duplicate: true } | { duplicate: false; commit: CommitResult | undefined }
+    try {
+      // The vault's per-file lock outside our mutex (`wiki-lock.ts`): the registry is a wiki
+      // page, and an agent run reads it on every write - it may as well be writing it.
+      result = await withWikiLock(config.vaultRoot, DOMAIN_REGISTRY_PATH, async () =>
+        commitMutex.runExclusive(async () => {
+          const markdown = fs.readFileSync(abs, 'utf8')
+          const next = appendDomainSection(markdown, { key, description, tags })
+          if (next === null) return { duplicate: true as const }
+          fs.writeFileSync(abs, next, 'utf8')
+          const commit = autoCommit()
+            ? await commitPaths(config.vaultRoot, `domains: add ${key}`, [DOMAIN_REGISTRY_PATH])
+            : undefined
+          return { duplicate: false as const, commit }
+        }),
+      )
+    } catch (err) {
+      if (err instanceof WikiLockBusy) {
+        return reply.code(409).send({ error: 'an agent run is writing the domain registry right now - try again in a moment', busy: true })
+      }
+      throw err
+    }
 
     if (result.duplicate) return reply.code(409).send({ error: `domain "${key}" already exists` })
 

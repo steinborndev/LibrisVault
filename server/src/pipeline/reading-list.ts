@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { JobStore } from '../db/jobs.js'
 import type { Mutex } from '../util/mutex.js'
+import { withWikiLock } from './wiki-lock.js'
 import { commitPaths, readAtRevision, type CommitResult } from './git.js'
 import { refKey, urlKey } from './dedupe.js'
 
@@ -605,12 +606,19 @@ export class ReadingListService {
       return true
     }
     const commit = this.write.commit ?? commitPaths
-    await this.write.commitMutex.runExclusive(async () => {
-      fs.writeFileSync(file, next, 'utf8')
-      if (this.write.autoCommit?.() ?? true) {
-        await commit(this.vaultRoot, `reading list: ${archivedAt === null ? 'restored' : 'archived'} one entry`, [READING_LIST_PAGE])
-      }
-    })
+    /*
+     * The vault's per-file lock outside our commit mutex, in that order everywhere
+     * (`wiki-lock.ts`). The mutex-less branches above it are the test and CLI shape - the
+     * service always configures one - and they stay as they were.
+     */
+    await withWikiLock(this.vaultRoot, READING_LIST_PAGE, async () =>
+      this.write.commitMutex!.runExclusive(async () => {
+        fs.writeFileSync(file, next, 'utf8')
+        if (this.write.autoCommit?.() ?? true) {
+          await commit(this.vaultRoot, `reading list: ${archivedAt === null ? 'restored' : 'archived'} one entry`, [READING_LIST_PAGE])
+        }
+      }),
+    )
     return true
   }
 
@@ -778,16 +786,18 @@ export class ReadingListService {
       fs.writeFileSync(file, next, 'utf8')
       return { checked: candidates.length, found }
     }
-    await this.write.commitMutex.runExclusive(async () => {
-      fs.writeFileSync(file, next, 'utf8')
-      if (this.write.autoCommit?.() ?? true) {
-        await commit(
-          this.vaultRoot,
-          `fellows: ${found.length} reading list entr${found.length === 1 ? 'y has' : 'ies have'} an open copy`,
-          [READING_LIST_PAGE],
-        )
-      }
-    })
+    await withWikiLock(this.vaultRoot, READING_LIST_PAGE, async () =>
+      this.write.commitMutex!.runExclusive(async () => {
+        fs.writeFileSync(file, next, 'utf8')
+        if (this.write.autoCommit?.() ?? true) {
+          await commit(
+            this.vaultRoot,
+            `fellows: ${found.length} reading list entr${found.length === 1 ? 'y has' : 'ies have'} an open copy`,
+            [READING_LIST_PAGE],
+          )
+        }
+      }),
+    )
     return { checked: candidates.length, found }
   }
 
@@ -818,12 +828,14 @@ export class ReadingListService {
       return true
     }
     const commit = this.write.commit ?? commitPaths
-    await this.write.commitMutex.runExclusive(async () => {
-      fs.writeFileSync(file, next, 'utf8')
-      if (this.write.autoCommit?.() ?? true) {
-        await commit(this.vaultRoot, 'reading list: an open copy found for one entry', [READING_LIST_PAGE])
-      }
-    })
+    await withWikiLock(this.vaultRoot, READING_LIST_PAGE, async () =>
+      this.write.commitMutex!.runExclusive(async () => {
+        fs.writeFileSync(file, next, 'utf8')
+        if (this.write.autoCommit?.() ?? true) {
+          await commit(this.vaultRoot, 'reading list: an open copy found for one entry', [READING_LIST_PAGE])
+        }
+      }),
+    )
     return true
   }
 
@@ -967,12 +979,14 @@ export class ReadingListService {
     }
     if (found.length === 0 || this.write.commitMutex === undefined) return found.length > 0 ? found : []
     const commit = this.write.commit ?? commitPaths
-    await this.write.commitMutex.runExclusive(async () => {
-      fs.writeFileSync(file, next, 'utf8')
-      if (this.write.autoCommit?.() ?? true) {
-        await commit(this.vaultRoot, `fellows: ${found.length} reading list entr${found.length === 1 ? 'y is' : 'ies are'} in the vault`, [READING_LIST_PAGE])
-      }
-    })
+    await withWikiLock(this.vaultRoot, READING_LIST_PAGE, async () =>
+      this.write.commitMutex!.runExclusive(async () => {
+        fs.writeFileSync(file, next, 'utf8')
+        if (this.write.autoCommit?.() ?? true) {
+          await commit(this.vaultRoot, `fellows: ${found.length} reading list entr${found.length === 1 ? 'y is' : 'ies are'} in the vault`, [READING_LIST_PAGE])
+        }
+      }),
+    )
     return found
   }
 
@@ -985,12 +999,14 @@ export class ReadingListService {
     const { added, markdown } = this.append(entries)
     if (markdown === null || this.write.commitMutex === undefined) return { added: 0 }
     const commit = this.write.commit ?? commitPaths
-    await this.write.commitMutex.runExclusive(async () => {
-      fs.writeFileSync(path.join(this.vaultRoot, READING_LIST_PAGE), markdown, 'utf8')
-      if (this.write.autoCommit?.() ?? true) {
-        await commit(this.vaultRoot, `fellows: ${added.length} reading list entr${added.length === 1 ? 'y' : 'ies'}`, [READING_LIST_PAGE])
-      }
-    })
+    await withWikiLock(this.vaultRoot, READING_LIST_PAGE, async () =>
+      this.write.commitMutex!.runExclusive(async () => {
+        fs.writeFileSync(path.join(this.vaultRoot, READING_LIST_PAGE), markdown, 'utf8')
+        if (this.write.autoCommit?.() ?? true) {
+          await commit(this.vaultRoot, `fellows: ${added.length} reading list entr${added.length === 1 ? 'y' : 'ies'}`, [READING_LIST_PAGE])
+        }
+      }),
+    )
     return { added: added.length }
   }
 }

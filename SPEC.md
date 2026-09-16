@@ -434,7 +434,21 @@ maintenance) primarily open the in-app viewer, which makes the dashboard fully u
 
 **Edit/delete (extension 2026-07-18, user decision):** The viewer is no longer purely read-only.
 `PUT /api/v1/pages` (edit, with optimistic locking via `baseMtime`, 409 on an intervening
-change) and `DELETE /api/v1/pages` (delete with a two-step confirm). Hard rule 1 stays intact
+change) and `DELETE /api/v1/pages` (delete with a two-step confirm).
+
+**Two locks, because one page has two kinds of writer (corrected 2026-09-16).** `baseMtime` is
+the OPTIONAL optimistic lock and answers "has this page moved since you loaded it": the client
+sends the mtime it read, the server compares and refuses with 409. It is optional by contract -
+a request without it is accepted and logged as an overwrite nobody checked - and the client
+takes it together with the draft, never re-reads it, because a reference point that follows the
+thing it locks against is not a lock. Beside it the service now takes the VAULT's own per-file
+lock, `scripts/wiki-lock.sh`, which claude-obsidian makes mandatory for every wiki page write
+from v1.7 on and which our agent runs already obeyed through its skills. It answers the other
+question - "is somebody writing this page right now" - which no timestamp can, because an
+agent's write lands between the stat and the write without having moved anything that was
+looked at. A held lock answers 409 with `busy: true`. The vault's lock is always taken OUTSIDE
+the service's own commit mutex, and a vault that does not carry the script (below v1.7) is
+written unlocked rather than refused. Hard rule 1 stays intact
 in spirit and was made precise: **every dashboard mutation is exactly one git commit**
 (`edit: <page>` / `delete: <page>`), executed behind the same commit mutex as ingest and
 maintenance commits and strictly path-limited (no `git add -A` fallback), so half-finished
