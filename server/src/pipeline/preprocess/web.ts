@@ -489,7 +489,7 @@ export async function preprocessUrl(input: PreprocessUrlInput): Promise<Preproce
           if (rescue.recovery === undefined) {
             const appended = rescue.notes.length > 0 ? ` ${rescue.notes[rescue.notes.length - 1]}.` : ''
             throw new PreprocessError(
-              `web content sanity check failed for ${url.href}: ${problem}. Nothing was ingested — the page would only have produced a junk vault entry.${appended}`,
+              `web content sanity check failed for ${url.href}: ${problem}. Nothing was ingested: the page would only have produced a junk vault entry.${appended}`,
             )
           }
           takeRecovery(rescue.recovery)

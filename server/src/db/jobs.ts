@@ -262,8 +262,8 @@ export class JobStore {
         ? null
         : inDb !== undefined
           ? inDb.status === 'done'
-            ? `already ingested by job ${original.id} — open that job to see the pages it wrote`
-            : `job ${original.id} is already ingesting this file (${inDb.status}) — this copy would repeat it`
+            ? `already ingested by job ${original.id}: open that job to see the pages it wrote`
+            : `job ${original.id} is already ingesting this file (${inDb.status}): this copy would repeat it`
           : (input.duplicateNote ?? `same content as job ${original.id}, whose original the vault still holds`)
 
       this.db

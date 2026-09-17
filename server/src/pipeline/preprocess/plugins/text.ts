@@ -86,7 +86,7 @@ async function extractSavedPage({ probe, jobDir, tools }: NormalizeContext): Pro
 
   const problem = assessExtractedContent(markdown)
   if (problem !== null) {
-    return { ...(url !== undefined ? { url } : {}), notes: [`saved web page: extraction looked like junk (${problem}) — original passed through as-is`] }
+    return { ...(url !== undefined ? { url } : {}), notes: [`saved web page: extraction looked like junk (${problem}), original passed through as-is`] }
   }
   const normalizedPath = path.join(jobDir, 'normalized.md')
   // The extraction is a stranger's page, so it is fenced as data (docs/sources/SPEC.md 4.1).
@@ -118,5 +118,5 @@ export const textPlugin: PreprocessPlugin = {
       : // Passthrough originals are NOT rewritten (docs/sources/SPEC.md D7): a Markdown file the
         // user wrote, or a clipper page with its own frontmatter, is read whole and a fence
         // inserted into it would be an edit of the user's own file. The prompt rule covers them.
-        { notes: ['text passthrough — original ingested as-is', 'passthrough, unfenced'] },
+        { notes: ['text passthrough, original ingested as-is', 'passthrough, unfenced'] },
 }

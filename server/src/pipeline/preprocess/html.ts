@@ -42,10 +42,10 @@ export async function extractArticle(args: {
       })
       return { markdown: stdout.trim(), notes: [`${prefix}extracted via defuddle`] }
     } catch {
-      return { markdown: htmlToText(args.html), notes: [`${prefix}defuddle failed — used built-in HTML-to-text fallback`] }
+      return { markdown: htmlToText(args.html), notes: [`${prefix}defuddle failed, used the built-in HTML-to-text fallback`] }
     }
   }
-  return { markdown: htmlToText(args.html), notes: [`${prefix}defuddle not installed — used built-in HTML-to-text fallback`] }
+  return { markdown: htmlToText(args.html), notes: [`${prefix}defuddle not installed, used the built-in HTML-to-text fallback`] }
 }
 
 /**
@@ -134,7 +134,7 @@ export function htmlTitle(html: string): string | undefined {
   return text === '' ? undefined : text
 }
 
-/** Bare-minimum HTML→text when defuddle is unavailable — strips tags, collapses space. */
+/** Bare-minimum HTML to text when defuddle is unavailable: strips tags, collapses space. */
 export function htmlToText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -174,7 +174,7 @@ const BLOCKED_PAGE_PATTERNS: ReadonlyArray<{ readonly re: RegExp; readonly reaso
 export function assessExtractedContent(markdown: string): string | null {
   const text = markdown.trim()
   if (text.length < MIN_WEB_CONTENT_CHARS) {
-    return `only ${text.length} characters of extractable content — the page is likely a JavaScript app shell, empty, or blocked`
+    return `only ${text.length} characters of extractable content: the page is likely a JavaScript app shell, empty, or blocked`
   }
   if (text.length <= GATE_PATTERN_MAX_CHARS) {
     for (const p of BLOCKED_PAGE_PATTERNS) {

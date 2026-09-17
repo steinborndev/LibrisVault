@@ -44,7 +44,7 @@ export function isPrivateAddress(ip: string): boolean {
     if (lower === '::1' || lower === '::') return true
     if (lower.startsWith('fe80')) return true // link-local
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true // ULA
-    // IPv4-mapped (::ffff:a.b.c.d) — check the embedded v4.
+    // IPv4-mapped (::ffff:a.b.c.d): check the embedded v4.
     const mapped = lower.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/)
     if (mapped) return isPrivateAddress(mapped[1]!)
     return false
@@ -69,7 +69,7 @@ export async function validateUrl(
     throw new PreprocessError(`not a valid URL: ${raw}`, true)
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new PreprocessError(`refused URL scheme ${url.protocol} — only http/https are fetched`, true)
+    throw new PreprocessError(`refused URL scheme ${url.protocol}: only http/https are fetched`, true)
   }
   const addresses = await resolve(url.hostname)
   if (addresses.length === 0) {
@@ -78,7 +78,7 @@ export async function validateUrl(
   for (const addr of addresses) {
     if (isPrivateAddress(addr)) {
       throw new PreprocessError(
-        `refused: ${url.hostname} resolves to a private/loopback address (${addr}) — SSRF guard`,
+        `refused: ${url.hostname} resolves to a private/loopback address (${addr}), SSRF guard`,
         true,
       )
     }
@@ -139,7 +139,7 @@ export interface FetchedBytes {
  * Every hop connects to the ADDRESS that passed the SSRF check, never to the hostname:
  * letting the HTTP client re-resolve the name would reopen the guard to DNS rebinding
  * (public answer during validation, private answer at connect time). TLS still verifies
- * against the hostname — only the socket target is pinned.
+ * against the hostname - only the socket target is pinned.
  *
  * Bytes, not a string (docs/sources/SPEC.md section 2.1): a PDF decoded as UTF-8 is corrupt
  * before anything can look at it, and whether an answer is a document or a page is decided

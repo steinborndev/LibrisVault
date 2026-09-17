@@ -108,7 +108,7 @@ export function pageCounts(vaultRoot: string): PageCounts {
 }
 
 /**
- * Most-recently-modified wiki pages by mtime — "recently created/changed" (SPEC.md §6.1).
+ * Most-recently-modified wiki pages by mtime, "recently created/changed" (SPEC.md §6.1).
  *
  * Walks the same tree as {@link pageCounts}, and for the same reason: over the folder list it
  * could never surface `wiki/hot.md`, `wiki/index.md` or `wiki/log.md`, which is to say the

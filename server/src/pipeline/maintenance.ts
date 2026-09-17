@@ -802,7 +802,7 @@ export class MaintenanceRunner {
     if ([...this.runs.values()].some((r) => r.kind === 'hot-cache' && r.status === 'running')) return
     this.autoHotCacheDate = today
     const queued = this.startHotCache()
-    log('warn', `maintenance: the hot cache is over its budget — queued a refresh (${queued.id})`)
+    log('warn', `maintenance: the hot cache is over its budget, queued a refresh (${queued.id})`)
   }
 
   /**

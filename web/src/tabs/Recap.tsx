@@ -457,7 +457,7 @@ function PickedFactsStrip({ row, picked }: { row: RecapRow; picked: PickedFacts 
         }
         size="lead"
       />
-      <Fact k="Share of the night" v={share === null ? '—' : `${share}%`} sub={share === null ? 'nothing was spent tonight' : `${usd(night.costUsd)} of ${usd(nightCost)}`} size="lead" />
+      <Fact k="Share of the night" v={share === null ? '-' : `${share}%`} sub={share === null ? 'nothing was spent tonight' : `${usd(night.costUsd)} of ${usd(nightCost)}`} size="lead" />
       {/* The only key whose unfiltered twin means something else, so this one says whose week it is. */}
       <Fact k="This week" v={usd(week.costUsd)} sub={`${week.runs} run(s) · ${names.join(' and ')} only`} size="lead" />
       <Fact

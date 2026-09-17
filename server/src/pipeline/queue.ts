@@ -1407,7 +1407,7 @@ export class IngestQueue {
     this.store.log(
       jobId,
       'warn',
-      `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`,
+      `post-run validation: ${findings.length} finding(s), advisory only, nothing was modified`,
     )
   }
 

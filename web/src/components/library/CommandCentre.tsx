@@ -1899,7 +1899,7 @@ function Dossier({
             {pane === 'notebook' ? a.notebookPath
               : pane === 'recap' ? 'one Fellow’s slice · the wall board keeps the whole'
                 : pane === 'ledger' ? 'a row opens the page it filed'
-                  : pane === 'pages' ? 'a row opens the page' 
+                  : pane === 'pages' ? 'a row opens the page'
                     : pane === 'settings' ? 'changes apply to the next night' : ''}
           </span>
         </div>
