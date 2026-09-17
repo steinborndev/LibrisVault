@@ -1960,6 +1960,29 @@ kept as that record.
 A0 to A3 are server-first and usable without the Library screen; A4 can start in
 parallel after A0 because it depends only on existing signals.
 
+**As delivered (2026-09-17).** The series merged into LibrisVault as pull request #13 (merge
+commit `d3c393e`, tag `research-agents-2026-09-17`): 406 commits since upstream's `70b55fa`,
+CI green, merged as a merge commit because the messages are the design record. Where the table
+above and what shipped differ:
+
+- **A6's acceptance, corrected (TASKS-A6, D1).** "LibrisVault unchanged with the flag off"
+  holds for the Fellows: with `AGENTS_ENABLED` unset no service, route, request or surface of
+  theirs exists, pinned by `server/test/agents-flag-off.test.ts`, and the reading list and its
+  sweep are behind the flag with them. Two things ship unflagged on purpose: source integrity
+  (root SPEC.md 12.11 - the fence, PDF URL handling, open-access recovery as service egress,
+  quote integrity, the expand lock), because each corrects the existing pipeline and a fix
+  behind a flag would ship the weaker path as the default; and the Catalog rename, which is
+  visible and named in the PR text as release-note material.
+- **A6's note on the root SPEC.md section 5** is done: the preprocessing containment stands
+  there since the merge preparation, beside CLAUDE.md hard rule 6.
+- **A4's sprite test** ended in flat vector figures drawn from the dashboard tokens (OPEN-15,
+  decided 2026-09-05): the room is SVG, there is no sprite pack, and 10.13 records the main
+  room as refurnished on 2026-09-17.
+- **A7, the Fellow command centre** (`docs/tasks/TASKS-A7.md`), was added after this table was
+  written and delivered before the merge; the docked Fellow card it replaced is gone.
+- **Beyond the table**, and merged with it: the pinboard of open questions (10.13), the graph's
+  lock and the folded searches, and the third UI sweep (`docs/tasks/TASKS-SWEEP-2026-09.md`).
+
 ---
 
 ## 16. Cost and capacity reference (measured and estimated, 2026-09-05)

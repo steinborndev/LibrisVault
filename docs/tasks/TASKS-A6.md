@@ -809,8 +809,14 @@ Status as measured 2026-09-15, on the working tree:
       subject (hard rule 7). This is the text most likely to leak, because it is the one
       written last and in a hurry - **and the `commit-msg` hook does not see it at all**
       (section 7). Read it once against the audit term list before opening the PR.
-- [ ] After the merge: tag it, and update `docs/agents/SPEC.md` section 15 to what was
-      actually delivered, with every deviation recorded below.
+- [x] **Done 2026-09-17, late.** Merged as steinborndev/LibrisVault#13 (merge commit
+      `d3c393e`, 406 commits since upstream's `70b55fa`, the CI gates green, a merge commit rather
+      than a squash because the messages are the design record), tagged
+      `research-agents-2026-09-17` on both remotes, and `docs/agents/SPEC.md` section 15 carries
+      an "as delivered" record naming the deviations: A6's acceptance as corrected in D1, the root
+      spec's section 5 done, A4's assets as decided, A7 delivered, and what came beyond the table.
+      The original item: After the merge: tag it, and update `docs/agents/SPEC.md` section 15 to
+      what was actually delivered, with every deviation recorded below.
 
 ## 10. Findings
 

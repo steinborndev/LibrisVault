@@ -4,6 +4,9 @@ The text below is what the merge into LibrisVault opens with. It describes mecha
 vault subject (hard rule 7), and was read against the vault-name scan before it was written
 down here. Paste it; do not paraphrase from memory at the last minute.
 
+**Opened and merged on 2026-09-17** as steinborndev/LibrisVault#13, merge commit `d3c393e`, tag
+`research-agents-2026-09-17`. The text below is what was pasted.
+
 ---
 
 **Title:** Research agents behind a flag, source integrity in the pipeline, and the Library as a room
