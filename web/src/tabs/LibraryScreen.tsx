@@ -169,6 +169,8 @@ export function LibraryScreen({
   const [ccShelves, setCcShelves] = useState<readonly string[]>([])
   /** The roster, in the order the dossier's arrows walk it. Reported up for the same reason. */
   const [ccRoster, setCcRoster] = useState<readonly RosterEntry[]>([])
+  /** The shelf the window says it is about while the ring cannot: a spawn's, a new Fellow's. */
+  const [ccShelfHint, setCcShelfHint] = useState<string | null>(null)
   const [ccFellowId, setCcFellowId] = useState<string | null>(ccFellowIdParam === '' ? null : ccFellowIdParam)
   /** The view the decisions toggle was pressed from, so pressing it again goes back there. */
   const [ccFrom, setCcFrom] = useState<CcView>('tonight')
@@ -180,7 +182,10 @@ export function LibraryScreen({
    * it in the shelf view would put a Fellow's name over a shelf's page.
    */
   const ccFellow = ccView === 'dossier' ? (ccRoster.find((r) => r.id === ccFellowId) ?? null) : null
-  const ccShelf = ccView === 'shelves' ? null : (ccFellow?.domain ?? ccShelves[ccStop] ?? null)
+  const ccShelf = ccView === 'shelves' ? null : (ccFellow?.domain ?? ccShelfHint ?? ccShelves[ccStop] ?? null)
+  /* The dot that is lit: the hinted shelf's when there is a hint and no Fellow to name it, which
+     is -1 and no dot for a shelf nobody staffs yet; the stop's otherwise. */
+  const ccRingStop = ccFellow === null && ccShelfHint !== null ? ccShelves.indexOf(ccShelfHint) : ccStop
   /* No coordinates: the card opens centred over the room whichever figure was clicked. */
   const [popover, setPopover] = useState<{ fellow: SceneFellow } | null>(null)
   /**
@@ -1006,7 +1011,7 @@ export function LibraryScreen({
                       {ccShelves.map((key, i) => (
                         <i
                           key={key}
-                          className={ccView !== 'shelves' && i === ccStop ? 'on' : ''}
+                          className={ccView !== 'shelves' && i === ccRingStop ? 'on' : ''}
                           title={key}
                           onClick={() => { setCcStop(i); setCcView('tonight') }}
                         />
@@ -1231,6 +1236,7 @@ export function LibraryScreen({
               setView={setCcView}
               onClose={() => setCcOpen(false)}
               onShelves={setCcShelves}
+              onShelfHint={setCcShelfHint}
               onRoster={setCcRoster}
               fellowId={ccFellowId}
               setFellowId={setCcFellowId}

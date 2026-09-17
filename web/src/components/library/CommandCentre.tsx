@@ -221,6 +221,12 @@ export interface CommandCentreProps {
    * count is right.
    */
   readonly onRoster: (list: readonly RosterEntry[]) => void
+  /**
+   * The shelf the window is about when the ring cannot say (2026-09-17): the one a spawn is
+   * for, and the one a just-spawned Fellow belongs to until the roster knows it. Null
+   * whenever the stop speaks for itself.
+   */
+  readonly onShelfHint: (key: string | null) => void
   /** Which Fellow's dossier is open. Held by the screen, because the headline needs it too. */
   readonly fellowId: string | null
   readonly setFellowId: (id: string | null) => void
@@ -247,6 +253,7 @@ export function CommandCentre({
   onClose,
   onShelves,
   onRoster,
+  onShelfHint,
   fellowId,
   setFellowId,
   pane,
@@ -347,6 +354,13 @@ export function CommandCentre({
     [roster],
   )
   useEffect(() => onRoster(entries), [entries, onRoster])
+  /*
+   * The headline used to name the shelf of the stop you came FROM over a spawn form that said
+   * "A new Fellow for fusion-energy": a spawn is started from wherever you stand, and the stop
+   * only moves once the new shelf exists in `staffed`. So the window says which shelf it is
+   * about while that is so - the spawn's, and then `pending` until the roster has the Fellow.
+   */
+  useEffect(() => onShelfHint(view === 'spawn' ? (spawnShelf ?? shelf?.key ?? null) : pending), [view, spawnShelf, shelf?.key, pending, onShelfHint])
   /*
    * A Fellow opened from `?cc=<id>` was named before the roster had loaded, so the shelf it
    * stands on follows here rather than at the click. Once per id: `stop` is the user's after
