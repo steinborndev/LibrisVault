@@ -171,7 +171,10 @@ export interface Health {
   credentialConfigured: boolean
   /** True on a hosted read-only demo instance: all write surfaces are disabled. */
   demoMode?: boolean
-  /** True when the research agents extension (Fellows, recaps) is on (docs/agents/SPEC.md). */
+  /**
+   * True when the research agents extension (Fellows, recaps) is on (docs/agents/SPEC.md); on a
+   * read-only demo too, where their surfaces show a seeded database and no run ever starts.
+   */
   fellows?: boolean
   queue: { inFlight: number; paused: boolean; pauseReason: PauseReason; concurrency: number }
   jobs: Record<string, number>

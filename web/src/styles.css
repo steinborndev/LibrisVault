@@ -10174,3 +10174,17 @@ tr:focus-within .rowacts {
 .rfeed-split.solo .rfeed { overflow-x: hidden; }
 .recap-pages { margin-top: 14px; }
 .recap-pages + .recap-pages { margin-top: 14px; }
+
+/* The one notice a read-only demo shows for a refused write (App.tsx). It floats above the
+   screen so it is seen wherever the click happened, and leaves on its own. */
+.toast.demo-refusal {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  margin: 0;
+  z-index: 150;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}

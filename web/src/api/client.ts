@@ -74,14 +74,38 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The code a hosted read-only instance answers every write with (SPEC.md §12.8). The guard
+ * sits in front of every route, so any screen's mutation can run into it; the shell shows one
+ * notice for all of them rather than each screen growing its own.
+ */
+export const DEMO_READ_ONLY = 'demo_read_only'
+
+const demoRefusalListeners = new Set<() => void>()
+
+/** Hear about writes a read-only demo refused; returns the unsubscribe. */
+export function onDemoRefusal(listener: () => void): () => void {
+  demoRefusalListeners.add(listener)
+  return () => {
+    demoRefusalListeners.delete(listener)
+  }
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = ''
     let code: string | undefined
     try {
-      const body = (await res.json()) as { error?: string; issues?: string[]; code?: string }
+      const body = (await res.json()) as { error?: string; message?: string; issues?: string[]; code?: string }
       detail = body.error ? `: ${body.error}` : ''
       code = body.code
+      // The demo guard names its reason in `error` and explains it in `message`: the message
+      // is what a person should read, the reason is what the shell reacts to.
+      if (res.status === 403 && body.error === DEMO_READ_ONLY) {
+        code = DEMO_READ_ONLY
+        if (body.message) detail = `: ${body.message}`
+        for (const listener of demoRefusalListeners) listener()
+      }
       // Validation endpoints (e.g. PUT /settings) return per-field issues - surfacing them
       // turns "400 Bad Request" into something the user can actually act on.
       if (Array.isArray(body.issues) && body.issues.length > 0) detail += ` (${body.issues.join('; ')})`
@@ -456,7 +480,9 @@ export const api = {
 
   deleteWing: (id: string): Promise<void> =>
     fetch(`${BASE}/wings/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(async (r) => {
-      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${r.status}`)
+      // No body on success; a refusal goes through the same reader as every other call, so a
+      // read-only demo's answer is recognised here too.
+      if (!r.ok) await json<never>(r)
     }),
 
   agents: (): Promise<AgentsResponse> => fetch(`${BASE}/agents`).then(json<AgentsResponse>),
