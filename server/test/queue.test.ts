@@ -707,19 +707,38 @@ describe('batching', () => {
 
 describe('concurrency', () => {
   it('runs at most `concurrency` ingests at once and completes all', async () => {
+    /*
+     * Held, not timed (2026-09-17). Each fake ingest keeps its slot until the test lets it go,
+     * so both slots are provably full while the third job waits, whatever the machine is
+     * doing. The version with a 10 ms sleep per ingest had the two never overlap on a loaded
+     * runner and reported a peak of one.
+     */
     let inFlight = 0
     let peak = 0
+    const gates: Array<() => void> = []
     const runIngest: IngestRunner = async () => {
       inFlight++
       peak = Math.max(peak, inFlight)
-      await new Promise((r) => setTimeout(r, 10))
+      await new Promise<void>((release) => gates.push(release))
       inFlight--
       return okResult()
+    }
+    const until = async (cond: () => boolean): Promise<void> => {
+      for (let i = 0; i < 2000 && !cond(); i++) await new Promise((r) => setTimeout(r, 5))
+      expect(cond()).toBe(true)
     }
     const q = makeQueue({ runIngest, concurrency: 2 })
     q.start()
     for (let i = 0; i < 5; i++) {
       await q.enqueueFile({ sourcePath: writeSource(`f${i}.md`, `body ${i}`), source: 'drop' })
+    }
+    await until(() => gates.length === 2)
+    // A third slot would have to open in this window; the queue has none to open.
+    await new Promise((r) => setTimeout(r, 25))
+    expect(inFlight).toBe(2)
+    for (let released = 0; released < 5; released++) {
+      await until(() => gates.length > 0)
+      gates.shift()!()
     }
     await q.onIdle()
     expect(peak).toBe(2)

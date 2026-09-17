@@ -34,12 +34,19 @@ describe('what a row says after a search', () => {
 
 describe('styles.css structure', () => {
   it('has balanced braces', () => {
+    // One pass and two assertions. An expect per character - 325,000 of them - took five
+    // seconds on a loaded CI runner and timed the test out (2026-09-17).
     let depth = 0
-    for (const ch of bare) {
+    let underflowAt = -1
+    for (let i = 0; i < bare.length; i++) {
+      const ch = bare[i]
       if (ch === '{') depth++
-      else if (ch === '}') depth--
-      expect(depth).toBeGreaterThanOrEqual(0)
+      else if (ch === '}') {
+        depth--
+        if (depth < 0 && underflowAt === -1) underflowAt = i
+      }
     }
+    expect(underflowAt === -1 ? null : `a closing brace without an opening one at line ${bare.slice(0, underflowAt).split('\n').length}`).toBeNull()
     expect(depth).toBe(0)
   })
 

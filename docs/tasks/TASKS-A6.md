@@ -1251,7 +1251,20 @@ this section lists what the merge carries because of it.
       Fellow's notebook commit after it stays as it was), and the live service was restarted
       on the fix. The Fellow's recorded sleep reason still quotes the failed revert until the
       next night shift rewrites it; that text is a record of the last run, not a live state.
-- [ ] Observed while running the gates on 2026-09-17: `server/test/queue.test.ts`, the
+- [x] **Done 2026-09-17, late: three timing-dependent tests made deterministic** after CI
+      failed on both repositories within an hour of the merge, on commits that changed no code.
+      The Curious run lost the chat store's session order: two sessions created in the same
+      millisecond, ordered by a timestamp alone, come back in whatever order SQLite chooses;
+      the query breaks the tie by the latest message and then the newer session now. The
+      LibrisVault run lost the stylesheet's brace check: an `expect` per character, 325,000 of
+      them, took five seconds on the runner and hit the timeout; it is one pass and two
+      assertions now. And the queue's concurrency check holds each fake ingest until the test
+      releases it, so both slots are provably full while the third job waits, instead of
+      hoping two 10 ms sleeps overlap. Each ran five times in a row and once under a parallel
+      suite as load. Still timing-based and worth converting when one bites: the fixed sleeps
+      in `reconcile`, `hot-cache`, `telegram-bot`, `events-cap` and `graph` tests, which assert
+      that something happened within a wait rather than polling for it.
+      The original item: Observed while running the gates on 2026-09-17: `server/test/queue.test.ts`, the
       concurrency check, failed twice in the full suite under machine load and passed alone and
       on the next full run. Its window is a 10 ms ingest against real preprocessing, which is
       tight when vitest's workers compete. Not changed; worth widening when it bites again.
