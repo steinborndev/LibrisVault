@@ -144,7 +144,11 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
   const rowH = (rowsTop - 4) / rows
   const rowZ = (r: number): number => 3 + r * rowH
   const front = j0 + b
-  const bandPoly: Pt[] = [P(i0, front, rowsTop + 1), P(i0 + a, front, rowsTop + 1), P(i0 + a, front, h - 1), P(i0, front, h - 1)]
+  /* The sign sits BETWEEN the stiles (2026-09-17): the two uprights run the full height of the
+     case, and the band is let into the top of the front like a name plate, so nothing on the
+     front changes where the sign begins. */
+  const stile = 0.08
+  const bandPoly: Pt[] = [P(i0 + stile, front, rowsTop + 1), P(i0 + a - stile, front, rowsTop + 1), P(i0 + a - stile, front, h - 1), P(i0 + stile, front, h - 1)]
   /*
    * The books as data - row, place along the case, width, height, colour - and no geometry,
    * so the memo survives a resize: the polygons themselves used to be memoised and stayed on
@@ -183,15 +187,22 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
    * plank per row and the books as boxes standing on it, set a little back from the front
    * edge. Chosen over the flat spines the case used to wear, and over a cheaper look that gave
    * each spine a top: the books have to stand IN something, or the tops read as bulging out.
+   *
+   * The back panel is LIGHTER than the wood, not darker: what shows of it is a strip above
+   * the top row, right under the dark sign band, and drawn dark the two were one surface.
+   * The sides run the full height and paint after the cap, so each stile reaches the top of
+   * the case in one piece and the right face of the case is one face: the cap and a shorter
+   * side used to meet at the sign's foot, and the seam showed as a hairline.
    */
   const side = 0.08
   const inner = rowsTop + 1
-  const interior = { top: c.top, left: mix(c.left, '#000000', 0.28), right: c.right }
+  const interior = { top: c.top, left: mix(c.left, '#ffffff', night ? 0.16 : 0.24), right: c.right }
   const body = (
     <>
       <Box P={P} i0={i0} j0={j0} a={a} b={b} h={3} c={c} />
       <Box P={P} i0={i0} j0={j0} a={a} b={0.1} h={inner} c={interior} />
-      <Box P={P} i0={i0} j0={j0} a={side} b={b} h={inner} c={c} />
+      <Box P={P} i0={i0} j0={j0} a={a} b={b} h={h - inner} z0={inner} c={c} />
+      <Box P={P} i0={i0} j0={j0} a={side} b={b} h={h} c={c} />
       {[0, 1, 2].map((r) => (
         <g key={r}>
           <Box P={P} i0={i0 + side} j0={j0 + 0.1} a={a - 2 * side} b={b - 0.1} h={2.4} z0={rowZ(r) - 2.4} c={{ top: mix(c.top, '#ffffff', 0.1), left: c.left, right: c.right }} />
@@ -202,8 +213,7 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
             ))}
         </g>
       ))}
-      <Box P={P} i0={i0 + a - side} j0={j0} a={side} b={b} h={inner} c={c} />
-      <Box P={P} i0={i0} j0={j0} a={a} b={b} h={h - inner} z0={inner} c={c} />
+      <Box P={P} i0={i0 + a - side} j0={j0} a={side} b={b} h={h} c={c} />
     </>
   )
   return (
@@ -390,6 +400,11 @@ export interface RoomSvgProps {
   readonly onBoardClick?: ((board: BoardId) => void) | undefined
   /** The book cart was clicked; the screen opens System, where the maintenance runs start. */
   readonly onCartClick?: (() => void) | undefined
+  /**
+   * A desk was clicked, with whoever stands at it (null for an empty one). The screen opens
+   * the night shift on a Fellow's shelf, or on the night itself for a desk with no Fellow.
+   */
+  readonly onDeskClick?: ((desk: number, occupant: Actor | null) => void) | undefined
   /** The name over the passage: which room it leads to. Absent = no sign, one room only. */
   readonly nextRoomName?: string | undefined
   /** The passage in the back wall was clicked; the screen shows the next room. */
@@ -734,12 +749,13 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
           </text>
         )
       }
-      /* The same lit edge a shelf wears under the pointer, and for the same reason: a board
-         opens a window over the room and said so with a pointer shape alone. One segment
-         rather than two, because a board is flat against the wall and has only the one
-         edge the viewer is outside of. */
+      /* The same light a shelf wears under the pointer, and for the same reason: a board opens
+         a window over the room and said so with a pointer shape alone. It runs round the whole
+         frame rather than along the top edge alone (2026-09-17): a board is flat against the
+         wall, so it has no lit edge to speak of, and a frame that lights up all round reads as
+         the thing you are about to open. */
       const rim = (
-        <polyline className="bc-rim" points={pts([P(0, j0 - 0.12, bandTop), P(0, j1 + 0.12, bandTop)])} fill="none" stroke={night ? '#ffd9a8' : '#fff4e2'} strokeWidth={1.6} strokeLinecap="round" />
+        <polygon className="bc-rim" points={face(zBase - 6, bandTop, j0 - 0.14, j1 + 0.14)} fill="none" stroke={night ? '#ffd9a8' : '#fff4e2'} strokeWidth={1.6} strokeLinejoin="round" />
       )
       /*
        * A chalkboard (2026-09-17): a dark green face in the frame's wood, the title in chalk
@@ -793,6 +809,13 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
      * edge with its screen to the front, where the figure is, and the lamp on the back corner
      * beside it - so nothing on the desk stands between the figure and what it looks at, and
      * the screen shows beside its head rather than behind it.
+     *
+     * A desk is a door into the night shift (2026-09-17). Under the pointer its top lights
+     * round its edge like a shelf, every bubble in the room steps aside so no text collides,
+     * and a label over the desk says whose it is: the Fellow's shelf, a guest's name, or "Spawn
+     * a new Fellow" over an empty one. The click opens the night shift on that shelf, or on
+     * the night itself for a desk without a Fellow. The label lives in the desk's own group,
+     * which is safe because it hangs well above everything that paints after the desk.
      */
     const topZ = 22
     const topT = 2.6
@@ -809,8 +832,18 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       const mw = 0.55
       const mj = dj + 0.14
       const leg = (i: number, j: number, key: string): React.ReactNode => <Box key={key} P={P} i0={i} j0={j} a={legW} b={legW} h={topZ - topT} c={wood} />
+      const occupant = actors.find((x) => x.room === room.id && x.desk === n && x.exiting !== true) ?? null
+      const label = occupant === null ? 'Spawn a new Fellow' : occupant.role === 'fellow' && occupant.domain !== undefined ? signText(occupant.domain) : occupant.name
+      const hint =
+        occupant === null
+          ? 'A free desk. Click to open the night shift and spawn a Fellow.'
+          : occupant.role === 'fellow' && occupant.domain !== undefined
+            ? `${occupant.name}'s desk, ${signText(occupant.domain)}. Click to open the shelf in the night shift.`
+            : `${occupant.name} is working here. Click to open the night shift.`
+      const [lbx, lby] = P(di + DESK.W / 2, dj + DESK.D / 2, topZ + 52)
       add(d, `desk${n}`, (
-        <g className="lib-desk" data-desk={n}>
+        <g className="lib-desk" data-desk={n} onClick={props.onDeskClick ? () => props.onDeskClick!(n, occupant) : undefined} style={{ cursor: props.onDeskClick ? 'pointer' : 'default' }}>
+          <title>{hint}</title>
           {leg(di + 0.04, dj + 0.04, 'l0')}
           {leg(di + DESK.W - legW - 0.04, dj + 0.04, 'l1')}
           {leg(di + 0.04, dj + DESK.D - legW - 0.04, 'l2')}
@@ -832,6 +865,19 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
             <path d={`M${lx} ${ly - 1} l3 -13`} stroke={night ? '#6b5735' : '#8a95ad'} strokeWidth={1.6} fill="none" strokeLinecap="round" />
             <path d={`M${lx - 2} ${ly - 14} h11 l-3 -7 h-6 z`} fill={lit ? '#e2b45c' : night ? '#6b5a3a' : '#b8c0d0'} stroke={night ? '#8a6a43' : '#98a2b5'} strokeWidth={0.8} />
             {lit && <ellipse cx={lx + 3.5} cy={ly - 13.5} rx={5} ry={1.6} fill="#f6d27a" />}
+          </g>
+          <polygon
+            className="bc-rim"
+            points={pts([P(di, dj, topZ), P(di + DESK.W, dj, topZ), P(di + DESK.W, dj + DESK.D, topZ), P(di, dj + DESK.D, topZ)])}
+            fill="none"
+            stroke={night ? '#ffd9a8' : '#fff4e2'}
+            strokeWidth={1.6}
+            strokeLinejoin="round"
+          />
+          <g className="lib-desk-label">
+            <text className="lib-tag-name" x={lbx.toFixed(1)} y={lby.toFixed(1)} textAnchor="middle" fontFamily={FONT} fontSize={10.5} fontWeight={600} fill="#ffffff">
+              {label}
+            </text>
           </g>
         </g>
       ))
@@ -1110,7 +1156,8 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       {items.map((it) => (
         <g key={it.key}>{it.node}</g>
       ))}
-      {top}
+      {/* Every bubble in one group, so the room can step them aside while a desk is under the pointer. */}
+      <g className="lib-tags">{top}</g>
     </svg>
   )
 }

@@ -7476,7 +7476,13 @@ tr:focus-within .rowacts {
 @media (hover: hover) {
   .lib-slot:hover .bc-rim,
   .lib-board:hover .bc-rim,
-  .lib-cart:hover .bc-rim { opacity: 0.95; }
+  .lib-cart:hover .bc-rim,
+  .lib-desk:hover .bc-rim { opacity: 0.95; }
+  /* A desk under the pointer names itself and asks the bubbles to step aside, so that no text
+     collides with its label. Reached through `:has()` on the room, because the bubbles are
+     drawn in their own layer over everything. */
+  .lib-desk:hover .lib-desk-label { opacity: 1; }
+  .lib-svg:has(.lib-desk:hover) .lib-tags { opacity: 0; }
   /* The passage wears it along the top of its lintel, and wears nothing else: it used to take
      a 7% brightness wash as well, which repainted the whole wall tile above the opening - a
      surface nobody was pointing at, saying a second time what the edge already says.
@@ -7536,8 +7542,12 @@ tr:focus-within .rowacts {
 /* Light appearing is not motion, but a fade is an animation; whoever asked for less of it
    gets the edge switched rather than eased. */
 .bc-rim { transition: opacity 140ms ease-out; }
+.lib-tags { transition: opacity 140ms ease-out; }
+.lib-desk-label { opacity: 0; transition: opacity 140ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
   .bc-rim,
+  .lib-tags,
+  .lib-desk-label,
   .lib-tag { transition: none; }
 }
 .lib-slot.drop polygon { transition: opacity 200ms; }

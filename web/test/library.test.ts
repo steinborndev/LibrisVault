@@ -19,6 +19,7 @@ import {
   type AdapterInput,
 } from '../src/lib/library/scene.ts'
 import type { LibraryScene, SceneFellow, SceneRun } from '../src/api/types.ts'
+import { domainColor } from '../src/lib/domains.ts'
 
 describe('isometric projection', () => {
   it('projects the grid with tiles twice as wide as high and sorts by depth', () => {
@@ -242,6 +243,18 @@ describe('scene adapter', () => {
     const withExit = buildActors(input(s, { c: '→ Write({})', j3: '→ Write({})' }, exits))
     expect(withExit.find((a) => a.id === 'exit:run:r9')).toMatchObject({ desk: 9, exiting: true })
     expect([...busyDesks(withExit, 'main')].sort()).toEqual([2, 7, 9])
+  })
+
+  it("dresses a Fellow in its shelf's colour, names the shelf on the figure, and lets it leave in that colour", () => {
+    const s = scene({ fellows: [fellow({ agentId: 'a1', name: 'Ada', homeDomain: 'astronomy', desk: 0 })] })
+    const [ada] = buildActors(input(s))
+    expect(ada).toMatchObject({ color: domainColor('astronomy'), dot: domainColor('astronomy'), domain: 'astronomy' })
+    const exits: AdapterInput['exits'] = [{ id: 'r1', kind: 'run', ok: true, name: 'Ada', role: 'fellow', at: NOW - 1000, agentId: 'a1' }]
+    expect(buildActors(input(s, {}, exits)).find((a) => a.id === 'exit:run:r1')).toMatchObject({ color: domainColor('astronomy'), exiting: true })
+    // A visitor has no shelf and no domain, so its bubble carries neither a dot nor a name of one.
+    const visitor = buildActors(input(scene({ runs: [run({ id: 'r2', kind: 'lint', channel: 'c', label: null })] })))[0]!
+    expect(visitor.domain).toBeUndefined()
+    expect(visitor.color).not.toBe(domainColor('astronomy'))
   })
 
   it('holds a working Fellow still: the real line sequence of a run moves it once, not eight times', () => {

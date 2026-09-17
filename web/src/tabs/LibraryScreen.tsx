@@ -1198,6 +1198,26 @@ export function LibraryScreen({
               onActorClick={onActorClick}
               onBoardClick={current.kind === 'main' ? openBoard : undefined}
               onCartClick={current.kind === 'main' ? () => navigate('/system') : undefined}
+              onDeskClick={
+                current.kind === 'main'
+                  ? (_, occupant) => {
+                      /* A Fellow's desk opens the night shift on its shelf; the Fellow named
+                         first, so the window's own placing lands on that shelf even before the
+                         headline has been told which shelves there are. Any other desk - empty,
+                         or a guest's - opens the night itself, where a Fellow is spawned. */
+                      if (occupant?.role === 'fellow' && occupant.agentId !== undefined && occupant.domain !== undefined) {
+                        const at = ccShelves.indexOf(occupant.domain)
+                        if (at >= 0) setCcStop(at)
+                        openFellowAt(occupant.agentId, 'tonight')
+                        return
+                      }
+                      setCcView('shelves')
+                      setCcOpen(true)
+                      setBoard(null)
+                      setPopover(null)
+                    }
+                  : undefined
+              }
               onPassageClick={rooms.length > 1 ? nextRoom : undefined}
               {...(rooms.length > 1 ? { nextRoomName: rooms[(rooms.findIndex((r) => r.id === current.id) + 1) % rooms.length]?.name } : {})}
               passageTitle={

@@ -46,6 +46,8 @@ export interface Actor {
   readonly exiting?: boolean
   /** The desk the figure stands at, by number, when it stands at one: the screen and the lamp follow it. */
   readonly desk?: number | undefined
+  /** A Fellow's home domain: what its desk names under the pointer. */
+  readonly domain?: string
 }
 
 export type ToolFamily = 'read' | 'write' | 'commit' | 'none'
@@ -275,12 +277,6 @@ export interface AdapterInput {
 
 const VISITOR = '#8a95ad'
 
-const fellowColor = (agentId: string): string => {
-  let h = 0
-  for (let k = 0; k < agentId.length; k++) h = (h * 31 + agentId.charCodeAt(k)) >>> 0
-  return `hsl(${h % 360} 48% 46%)`
-}
-
 /** A room's two gaps, so a figure stands in front of the shelf as the room is arranged now. */
 const aislesOf = (scene: LibraryScene, room: string): Aisles => {
   const r = scene.rooms.find((x) => x.id === room)
@@ -398,7 +394,12 @@ const guestDeskNo = (n: number): number => ANCHORS.desks.length - 1 - (n % ANCHO
 
 function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: AdapterInput): Actor | null {
   if (f.state === 'retired') return null
-  const color = fellowColor(f.agentId)
+  /*
+   * The shirt is the shelf's colour (2026-09-17), the same one the bubble's dot and the card
+   * carry. It used to be a hue hashed from the id, which told the room nothing: a colour that
+   * belongs to a department says whose work the figure is doing from across the room.
+   */
+  const color = domainColor(f.homeDomain)
   /*
    * A Fellow's own desk (2026-09-17): the same one whatever its state. It used to rest in an
    * armchair by the fire and work at whichever desk its index gave it, which moved every
@@ -410,7 +411,7 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
    */
   const deskNo = (f.desk !== null && f.desk >= 0 ? f.desk : index) % ANCHORS.desks.length
   const seat = ANCHORS.desks[deskNo]!
-  const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId, dot: domainColor(f.homeDomain), desk: deskNo }
+  const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId, dot: color, desk: deskNo, domain: f.homeDomain }
   if (f.run) {
     /*
      * A run exists from the moment it is requested, but one runner executes one run at a
@@ -529,7 +530,9 @@ function jobActor(scene: LibraryScene, job: SceneJob, index: number, queued: num
 }
 
 function exitActor(scene: LibraryScene, e: Exit): Actor | null {
-  const base = { id: `exit:${e.kind}:${e.id}`, exiting: true, color: e.role === 'fellow' ? fellowColor(e.agentId ?? e.id) : VISITOR, tag: e.ok ? ('visitor' as const) : ('warn' as const), room: 'main' }
+  // A Fellow leaves in its shelf's colour, like it arrived; a visitor in grey.
+  const owner = e.role === 'fellow' && e.agentId !== undefined ? scene.fellows.find((f) => f.agentId === e.agentId) : undefined
+  const base = { id: `exit:${e.kind}:${e.id}`, exiting: true, color: owner ? domainColor(owner.homeDomain) : VISITOR, tag: e.ok ? ('visitor' as const) : ('warn' as const), room: 'main' }
   if (!e.ok) {
     const g = guestDeskNo(0)
     const desk = ANCHORS.desks[g]!
