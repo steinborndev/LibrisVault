@@ -312,3 +312,49 @@ A second list, split the same way and settled up front:
       a saved page is the web row's material, so this reads as the same rule, not a new one.
       Observed, not changed: the shift counted "4 of 5 done" although all five ended done -
       the count is taken when the queue first turns idle, and one job was between attempts.
+
+## Third sweep (2026-09-17)
+
+The round after the main room was refurnished (`TASKS-A6.md` section 11): two graph and research
+mechanics asked for by name, and a sweep over Home and the Catalog with the Library and the
+graph as the measure - harmonise, remove what repeats, tighten the guidance; no rebuild. Mockups
+were the real app over the Vite dev server against the synthetic vault, shot through the headless
+browser, and the two Home variants and the Catalog column were decided from those sheets.
+
+- [x] **The graph's lock.** A padlock in the canvas's bottom left corner holds the picture on
+      screen (`web/src/lib/graphFreeze.ts`, `Vault.tsx`). Three parameters were put as choices
+      and decided: the filter panel stays usable while the lock is closed and every change is
+      an excursion the next Escape returns from (not greyed, not hidden); the lock lasts for the
+      browser tab (sessionStorage: a reload keeps it, a new tab starts open); Escape re-fits the
+      held nodes rather than restoring the exact pan and zoom. While closed, the explorer panel
+      stays away and one click on a node opens its page. The record is read back field by
+      field, tested; twenty browser checks walk filter change, article round trip, tab away,
+      reload and unlock.
+- [x] **The Research ledgers' search folds behind a magnifier**, the graph's and the Catalog's
+      slot: `/` opens, Escape clears and then folds, folding clears the text, a mode switch
+      starts the other ledger folded. Written down in `web/DESIGN.md` as the rule for every
+      search a bar or a head carries.
+- [x] **Catalog column, in the graph's shape.** The type filter is one row per type with the
+      type's colour dot and the count at the right edge, exactly the graph's page types, and
+      without the "All" chip (a picked row again is every type; the head says `all`). Sort by is
+      three paired strips, the graph's View section, with the direction arrow in the lit half:
+      by when or by name, by what kind or what field, by weight or by where it came from. The
+      reset moved from the headline into the head of the first filtering section, Home's rule,
+      and shows only while something narrows the list, so the count sentence never moves. Two
+      hint lines went (the sort's and the source types', both restating the picked pill); the
+      subset's stays, since orphans and stubs need their words.
+- [x] **Home.** The search folds behind the magnifier like everywhere else. The six lead facts
+      under the headline are gone (variant B of the sheet, chosen over keeping them): what they
+      said lives where it already lived - the count in the foot, running and failed in the state
+      chips, spend and due checks in the System tab and its badge. Only the seven-day ingest
+      figure has no place afterwards, and that was accepted. The legend under the constellation
+      said `questions` where the Catalog and the graph say `Research`: the three label maps are
+      one now (`web/src/lib/buckets.ts`). The foot no longer repeats the headline's date.
+- [x] **Kept, on purpose.** The day's arrows in Home's headline (the strip's arrows went for the
+      pills, but a date has no pills); the subset hint; the graph's own "Reset filters | Fit
+      graph" strip at the top of its column, which resets more than filters and pairs with an
+      action the Catalog has no counterpart to.
+- [x] README's Home and Catalog images re-shot from the synthetic vault; the Home shot's settle
+      condition now waits on the band's figures rather than on the facts that are no longer
+      there.
+

@@ -165,7 +165,8 @@ follows the day: what arrived, what you go and find out, then what is there, the
 The left rail is the control column: the dropzone (files, URLs, a pasted note) over the filters
 that narrow the stream by kind, age, state and channel. The workspace answers two questions: **the
 stock** on top (pages, links, domains, unwritten pages) with the wikilink graph beside it and the
-domain split as bars; **the flow** underneath, as operational figures over the activity stream.
+domain split as bars; **the flow** underneath, the activity stream under one headline that names
+the day on show.
 
 One stream, not one per channel: ingests, research runs, maintenance runs and vault edits are rows
 in the same table, each showing the pages it produced, what it took and what it cost. A row opens

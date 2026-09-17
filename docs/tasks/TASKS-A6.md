@@ -1271,3 +1271,6 @@ this section lists what the merge carries because of it.
       states, `/` opens it, Escape clears and then folds it, folding clears the text, and
       switching modes starts the other ledger folded. Seven browser checks. The convention is
       written down in `web/DESIGN.md`.
+- [x] **The third UI sweep (2026-09-17)**, recorded in `TASKS-SWEEP-2026-09.md`: the Catalog
+      column in the graph's shape, Home without its lead facts and with the folded search, one
+      bucket label map for three screens, and the lock's three design parameters as decided.
