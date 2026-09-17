@@ -200,6 +200,9 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
    * sign's foot, and the seam showed as a hairline. The top board paints LAST, as a top face
    * with a lip between the stiles: a full-height side shows its inner face where it rises
    * past the shelves, and painted after the top that face swallowed the top (2026-09-17).
+   * The left side paints BEFORE the back panel for the same kind of reason: its inner face
+   * reaches back to the wall, and painted after the panel the sliver of it behind the panel's
+   * front showed as a dark notch in the top-left corner of a sparsely filled row.
    */
   const side = STILE
   const inner = rowsTop + 1
@@ -207,8 +210,8 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
   const body = (
     <>
       <Box P={P} i0={i0} j0={j0} a={a} b={b} h={3} c={c} />
-      <Box P={P} i0={i0} j0={j0} a={a} b={0.1} h={inner} c={interior} />
       <Box P={P} i0={i0} j0={j0} a={side} b={b} h={h} c={c} />
+      <Box P={P} i0={i0} j0={j0} a={a} b={0.1} h={inner} c={interior} />
       {[0, 1, 2].map((r) => (
         <g key={r}>
           <Box P={P} i0={i0 + side} j0={j0 + 0.1} a={a - 2 * side} b={b - 0.1} h={2.4} z0={rowZ(r) - 2.4} c={{ top: mix(c.top, '#ffffff', 0.1), left: c.left, right: c.right }} />
