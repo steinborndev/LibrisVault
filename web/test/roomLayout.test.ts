@@ -111,13 +111,12 @@ describe('the desks', () => {
     expect(ANCHORS.desks).toHaveLength(DESK_COUNT)
   })
 
-  it('leaves the cart centred between the short wall and the first desk, in line with the rows', () => {
-    const first = deskPositions()[0]!
-    const left = ANCHORS.cart.i
-    const right = first.i - (ANCHORS.cart.i + 1.55)
-    expect(left).toBeCloseTo(right, 6)
-    // A tile nearer the door than the middle of the rows, with the easel in the floor in front of it.
-    expect(ANCHORS.cart.j + 0.36 + 1.1).toBeCloseTo((DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2, 6)
-    expect(ANCHORS.easel.j).toBeGreaterThan(ANCHORS.cart.j + 0.72)
+  it('stands the cart a tile and a half from the rug and towards the door, and the easel in front of it, apart', () => {
+    const rugLeft = DESK.I0 - 0.6
+    expect(rugLeft - (ANCHORS.cart.i + 1.55)).toBeCloseTo(1.65, 6)
+    expect(ANCHORS.cart.j + 0.36 + 2.6).toBeCloseTo((DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2, 6)
+    // The easel: nearer the rug than the cart, left of it, and a clear stretch of floor between the two.
+    expect(rugLeft - ANCHORS.easel.i).toBeCloseTo(2.25, 6)
+    expect(ANCHORS.easel.j - (ANCHORS.cart.j + 0.72)).toBeGreaterThan(2.5)
   })
 })

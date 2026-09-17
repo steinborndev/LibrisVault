@@ -108,7 +108,7 @@ export function QuestionBoard({
               </p>
               <span className="box-sub reading-what">what the pages left open</span>
             </div>
-            <ul className="reading-rows">
+            <ul className="reading-rows questions">
               {view.shown.map((e, i) => (
                 <li
                   key={e.id}
@@ -163,8 +163,10 @@ function Row({ e, vaultName }: { e: QuestionItem; vaultName: string }): React.Re
   return (
     <div className="rl-main">
       <div className="rl-title">
-        {e.domain !== null && <span className="chip-dot" style={{ background: domainColor(e.domain) }} aria-hidden />}
-        <span>{e.text}</span>
+        <span className="chip-dot" style={{ background: e.domain !== null ? domainColor(e.domain) : 'var(--border-strong)' }} aria-hidden />
+        <span className="q-text" title={e.text}>
+          {e.text}
+        </span>
       </div>
       <p className="rl-meta">
         <PageLink vaultName={vaultName} path={e.page} />

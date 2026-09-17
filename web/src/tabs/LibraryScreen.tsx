@@ -1104,7 +1104,7 @@ export function LibraryScreen({
                 {...(createWing.isPending ? {} : { onNewWing: () => createWing.mutate() })}
               />
             )}
-            {!ccOpen && shelf === null && board !== null && board !== 'reading' && (
+            {!ccOpen && shelf === null && board !== null && board !== 'reading' && board !== 'questions' && (
               <span className={`lib-open${board === 'recap' ? ' home-where' : ''}`}>
                 {board === 'recap' ? (
                   <>

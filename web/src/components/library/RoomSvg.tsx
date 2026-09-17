@@ -13,7 +13,7 @@ import { useMemo } from 'react'
 import type { SceneRoom, SceneShelf } from '../../api/types.ts'
 import { domainHue } from '../../lib/domains.ts'
 import { boxFaces, depthOf, fitRoom, hsl, makeProj, mix, pts, seeded, type Proj, type Pt } from '../../lib/library/iso.ts'
-import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, EASEL_W, FAV_I, MID_J, ROOM, SLOTS, WALL_H, WALL_J, breakSign, deskPositions, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
+import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, EASEL_W, FAV_I, MID_J, ROOM, RUG_LEFT, SLOTS, WALL_H, WALL_J, breakSign, deskPositions, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
 
 /** The case dimensions under the short names the geometry below reads in. */
 const a = CASE_W
@@ -730,7 +730,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       // Half a desk width further back than the desks' own centre, towards the passage: the
       // figures in front of the front row need floor, and a rug centred on the desks alone
       // read as slid towards the viewer.
-      const ri0 = DESK.I0 - 0.6
+      const ri0 = RUG_LEFT
       const ri1 = DESK.I0 + 4 * DESK.PITCH + DESK.W + 0.6
       const rj0 = DESK.ROWS[0] - 1.2
       const rj1 = DESK.ROWS[1] + DESK.D + 0.8

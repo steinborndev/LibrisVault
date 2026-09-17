@@ -112,14 +112,18 @@ export const EASEL_W = 1.3
  * the ingest queue's parcels lie beside it, and clicking it opens System, where the
  * maintenance runs are started. The plant took the cart's old place by the last favorite shelf.
  */
-const CART_I = (DESK.I0 - CART_W) / 2
+/** Where the rug under the desks begins, in i: the desks' left margin. */
+export const RUG_LEFT = DESK.I0 - 0.6
 /*
- * The cart stands a tile nearer the door than the middle of the rows, and the easel with the
- * pinboard in front of it (prototype 2026-09-17): the easel's face turns to the desks, so it
- * wants the floor between the cart and the front edge, and the cart makes room by stepping
- * back towards the wall with the door.
+ * The cart and the easel stand in the open floor left of the desks (2026-09-17, moved the
+ * same evening): the cart a tile and a half from the rug's edge and well towards the wall
+ * with the door, the easel with the pinboard nearer the front edge with its face to the desks,
+ * so that the two read as two stations and not as one clutter. The cart used to be centred
+ * between the short wall and the first desk; that left it too far from the desks and too
+ * close to the easel.
  */
-const CART_J = (DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2 - CART_D / 2 - 1.1
+const CART_I = RUG_LEFT - 1.65 - CART_W
+const CART_J = (DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2 - CART_D / 2 - 2.6
 export const ANCHORS = {
   door: { i: 11.5, j: 1.3 },
   desks: deskPositions().map((_, n) => deskStand(n)),
@@ -127,7 +131,7 @@ export const ANCHORS = {
   /** The cart's footprint origin; it is CART_W by CART_D, parallel to the long wall. */
   cart: { i: CART_I, j: CART_J },
   /** The easel's front feet: the board stands in the plane of this i, facing the desks, and runs EASEL_W along j. */
-  easel: { i: CART_I + 0.3, j: CART_J + CART_D + 1.15 },
+  easel: { i: RUG_LEFT - 2.25, j: DESK.ROWS[1] + 0.3 },
   /** Where a visitor stands to work at the cart: in front of it, like a Fellow at a desk. */
   cartStand: { i: CART_I + 0.5, j: CART_J + CART_D + 0.55 },
   /** The parcels of the ingest queue, on the floor on the wall side of the cart. */

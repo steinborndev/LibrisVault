@@ -8357,6 +8357,21 @@ tr:focus-within .rowacts {
 .rl-act { flex: none; display: flex; align-items: center; gap: 6px; }
 /* The row the arrow keys are on. The accent border rather than a fill: the rows carry chips
    and buttons of their own, and a tinted row turns those into decoration. */
+/* The pinboard's rows are one height (2026-09-17): a question gets two lines, clamped, and a
+   one-line question stands in the same box as a two-line one, so the list reads as a grid of
+   cards rather than a ragged stack. The dot keeps a column of its own beside the text - as a
+   wrapping flex item it dropped onto a line of its own over a two-line question - so the text
+   starts at one x whether or not a question has a domain. */
+.reading-rows.questions .rl-title { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; }
+.reading-rows.questions .rl-title .chip-dot { margin-top: 6px; }
+.reading-rows.questions .q-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.45;
+  min-height: 2.9em;
+}
 .reading-rows li.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .reading-rows li { cursor: pointer; }
 .reading-rows li a, .reading-rows li button { cursor: pointer; }
