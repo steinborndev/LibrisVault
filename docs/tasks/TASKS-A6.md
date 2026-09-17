@@ -1240,8 +1240,11 @@ this section lists what the merge carries because of it.
       character back to git as a pathspec. The run's commit stayed in the vault with the run
       marked failed - the state the revert exists to prevent. Every other listing already
       asked for `-z`; this one does now, with a test that names a page with a dash and expects
-      the restore to bring it back. The vault the failure happened in still holds that commit
-      until it is reverted by hand or by the fixed path.
+      the restore to bring it back. The vault the failure happened in held that commit for a
+      few hours: the same day the fixed function reverted it as a new commit on top (the
+      Fellow's notebook commit after it stays as it was), and the live service was restarted
+      on the fix. The Fellow's recorded sleep reason still quotes the failed revert until the
+      next night shift rewrites it; that text is a record of the last run, not a live state.
 - [ ] Observed while running the gates on 2026-09-17: `server/test/queue.test.ts`, the
       concurrency check, failed twice in the full suite under machine load and passed alone and
       on the next full run. Its window is a 10 ms ingest against real preprocessing, which is
