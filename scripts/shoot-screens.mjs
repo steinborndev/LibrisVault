@@ -33,6 +33,9 @@ const SCALE = Number(process.env.SHOT_SCALE ?? 2)
 
 /**
  * `settle` is what the screen has to reach before the shutter fires, evaluated in the page.
+ * It names CLASSES, so it rots when the markup moves: four of them had gone stale by
+ * 2026-09-17 and three shots came back showing a loading line. If a shot warns that it never
+ * settled, check the selector against the screen before you reach for a longer hold.
  * The graph is the reason this exists: its force layout animates in, and a shot taken too
  * early catches the nodes still flying apart.
  */
@@ -114,21 +117,21 @@ const SHOTS = [
     // One Fellow's dossier: its notebook, its ledger, its settings, its decisions.
     file: 'fellow-dossier.png',
     route: '/library?cc=1&agent=01DEMO00000000000000000401',
-    settle: `document.querySelectorAll('.cc-card, .cc-tasks, .cc-settings').length > 0`,
+    settle: `document.querySelectorAll('.cc-art, .cc-doc-sec').length > 3`,
     hold: 4000,
   },
   {
     // The morning recap on the wall board, which is where a night is read.
     file: 'recap.png',
     route: '/library?board=recap',
-    settle: `document.body.innerText.includes('run') && document.querySelectorAll('.recap-row, .rcp, article').length > 0`,
+    settle: `document.querySelectorAll('.recap-fellow, .recap-list').length > 2`,
     hold: 3500,
   },
   {
     // The reading list: publications a run could not read, with the open copies the sweep found.
     file: 'reading-list.png',
     route: '/library?board=reading',
-    settle: `document.querySelectorAll('.rl-entry, .rl-row, li, tr').length > 3`,
+    settle: `document.querySelectorAll('.rl-main').length > 3`,
     hold: 3000,
   },
   {
@@ -153,7 +156,10 @@ const SHOTS = [
       b.click()
       return true
     })()`,
-    actHold: 4000,
+    // The view the click opens fetches the recap, and on a cold cache that outlasts any hold
+    // worth writing down: without this the shot came back reading "Loading the recap…".
+    settleAfter: `document.querySelectorAll('.recap-fellow, .recap-list').length > 2`,
+    actHold: 2500,
   },
   {
     /*
@@ -163,7 +169,7 @@ const SHOTS = [
      */
     file: 'research-result.png',
     route: '/catalog/page/wiki%2Fquestions%2FResearch%3A%20ADC%20Patent%20and%20IP%20Filings%20Since%202025%20for%20New%20Payload%2C%20Linker%20and%20Bispecific-Dual-Payload%20Platforms%20%E2%80%94%20Patent%20Landscape.md',
-    settle: `document.body.innerText.includes('Findings')`,
+    settle: `document.querySelectorAll('.page-body').length > 0`,
     hold: 2500,
   },
 ]
@@ -203,10 +209,20 @@ await send('Emulation.setDeviceMetricsOverride', {
   mobile: false,
 })
 
+/** `ONLY=home-night.png` re-shoots one without disturbing the twelve that are already good. */
+const only = process.env.ONLY ? new Set(process.env.ONLY.split(',')) : null
+
 for (const shot of SHOTS) {
+  if (only && !only.has(shot.file)) continue
   await send('Page.navigate', { url: BASE + shot.route })
+  /*
+   * 60 seconds, not 20 (2026-09-17). A screen whose data comes from a cold query cache can
+   * take most of a minute on its first visit - the page reader is the one that does, since
+   * it reads a file off disk that nothing has asked for yet - and a shutter that fires early
+   * photographs the word "Loading" and says nothing about the product.
+   */
   let ready = false
-  for (let i = 0; i < 40 && !ready; i++) {
+  for (let i = 0; i < 120 && !ready; i++) {
     await sleep(500)
     ready = (await evaluate(shot.settle)) === true
   }
@@ -218,6 +234,16 @@ for (const shot of SHOTS) {
   if (shot.act) {
     const acted = await evaluate(shot.act)
     if (acted !== true) console.error(`${shot.file}: the click did not find its target`)
+    // What the click opens may load in its own time, so it gets its own condition rather
+    // than a hold long enough to cover the worst case and wasted on every other run.
+    if (shot.settleAfter) {
+      let there = false
+      for (let i = 0; i < 120 && !there; i++) {
+        await sleep(500)
+        there = (await evaluate(shot.settleAfter)) === true
+      }
+      if (!there) console.error(`${shot.file}: the view behind the click never settled`)
+    }
     await sleep(shot.actHold ?? 2500)
   }
   if (!ready) {
