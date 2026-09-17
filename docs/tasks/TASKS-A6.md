@@ -1233,6 +1233,15 @@ this section lists what the merge carries because of it.
       text drafted and scanned, and the prototype's loose ends: wikilinks in a question render
       as links, `unassigned` and `meta` are no domain on the pinboard, the artboards say what
       they show.
+- [x] **Found in production on 2026-09-17 and fixed on the branch (`0fa4b3b`):** the revert of
+      an expand run whose validator had found a rewritten body line failed, because the one
+      listing in `git.ts` that read a commit's paths as lines rather than NUL-separated
+      records handed git's quoted, byte-escaped spelling of a page name with a non-ASCII
+      character back to git as a pathspec. The run's commit stayed in the vault with the run
+      marked failed - the state the revert exists to prevent. Every other listing already
+      asked for `-z`; this one does now, with a test that names a page with a dash and expects
+      the restore to bring it back. The vault the failure happened in still holds that commit
+      until it is reverted by hand or by the fixed path.
 - [ ] Observed while running the gates on 2026-09-17: `server/test/queue.test.ts`, the
       concurrency check, failed twice in the full suite under machine load and passed alone and
       on the next full run. Its window is a 10 ms ingest against real preprocessing, which is
