@@ -31,6 +31,7 @@ import { linkifyText } from '../lib/linkify.tsx'
 import { navigate, pageRoute, pageFromPath, originPath, catalogPageRoute } from '../lib/router.ts'
 import { stepTrail } from '../lib/trail.ts'
 import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFreeze } from '../lib/graphFreeze.ts'
+import { BUCKET_LABELS as TYPE_LABELS } from '../lib/buckets.ts'
 import { detectClusters } from '../lib/communities.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
@@ -60,20 +61,6 @@ function renderMetaValue(
   return parts
 }
 
-/** Display labels for the wiki buckets (fallback: the raw directory name). */
-const TYPE_LABELS: Record<string, string> = {
-  concepts: 'Concepts',
-  entities: 'Entities',
-  sources: 'Sources',
-  meta: 'Meta',
-  root: 'Root',
-  // Renamed 2026-09-16: the bucket keeps its key `questions` - the vault's folder, the
-  // frontmatter, every route and filter are unchanged - and only what a reader sees moves.
-  questions: 'Research',
-  references: 'References',
-  comparisons: 'Comparisons',
-  folds: 'Folds',
-}
 
 /**
  * The graph's key bindings, in the order someone learning the view meets them. Kept by

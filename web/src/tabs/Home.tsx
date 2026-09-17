@@ -38,8 +38,7 @@ import { newPagesIn } from '../lib/homePanels.ts'
 import { mainArticle } from '../lib/homeArticle.ts'
 import { Icon } from '../components/Icon.tsx'
 import { queryState, merge } from '../components/QueryState.tsx'
-import { Cost } from '../components/Cost.tsx'
-import { Fact, Facts } from '../components/Fact.tsx'
+import { bucketLabel } from '../lib/buckets.ts'
 import {
   BatchHead,
   CommitRow,
@@ -149,7 +148,21 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const [fellow, setFellow] = useState<string | null>(null)
   /** The search box, one for both views: the stream matches titles and pages, the feed its sections. */
   const [query, setQuery] = useState('')
+  /*
+   * The search folds behind a magnifier, the graph's and the Catalog's mechanic: the slot at
+   * the headline's right edge keeps the box's width in both states, `/` opens it, Escape
+   * clears and then folds it, and folding clears the text.
+   */
+  const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const openSearch = (): void => {
+    setSearchOpen(true)
+    requestAnimationFrame(() => searchRef.current?.focus())
+  }
+  const closeSearch = (): void => {
+    setQuery('')
+    setSearchOpen(false)
+  }
   /** A `?filter=<state>` still looking for the day its newest match is on. */
   const jumpTo = useRef<ActivityState | null>(null)
 
@@ -397,6 +410,11 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
     if (!active) return
     const onKey = (e: KeyboardEvent): void => {
       if (inField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === '/') {
+        e.preventDefault()
+        openSearch()
+        return
+      }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
         stepDay(e.key === 'ArrowLeft' ? 'older' : 'newer')
@@ -434,7 +452,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
         rows[next]!.focus()
         rows[next]!.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Escape') {
-        if (query !== '') setQuery('')
+        if (searchOpen) closeSearch()
         else if (view === 'recaps' && fellow !== null) setFellow(null)
         else if (view === 'activity' && filtered) reset()
       }
@@ -653,7 +671,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
               {legend.map(([dir, n]) => (
                 <span key={dir} className="vzl">
                   <span className="dot" style={{ background: `var(${TYPE_VARS[dir] ?? '--type-meta'})` }} aria-hidden />
-                  {dir} <b>{n}</b>
+                  {bucketLabel(dir).toLowerCase()} <b>{n}</b>
                 </span>
               ))}
               {legendRest > 0 && (
@@ -809,21 +827,38 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   wrote, the feed keeps the days and Fellow sections that say the word. Escape
                   in the box clears it and hands the keys back to the screen. */}
               {(view === 'recaps' || detailEvent === null) && (
-                <input
-                  ref={searchRef}
-                  className="input sm home-search"
-                  type="search"
-                  placeholder={view === 'recaps' ? 'Search the recaps…' : 'Search the stream…'}
-                  aria-label={view === 'recaps' ? 'Search the recaps' : 'Search the stream'}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setQuery('')
-                      e.currentTarget.blur()
-                    }
-                  }}
-                />
+                <div className={`graph-search-slot${searchOpen ? ' open' : ''}`}>
+                  {searchOpen && (
+                    <div className="graph-search graph-search-inbar">
+                      <input
+                        ref={searchRef}
+                        type="search"
+                        placeholder={view === 'recaps' ? 'Search the recaps…' : 'Search the stream…'}
+                        aria-label={view === 'recaps' ? 'Search the recaps' : 'Search the stream'}
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Escape') return
+                          e.preventDefault()
+                          if (query !== '') setQuery('')
+                          else {
+                            e.currentTarget.blur()
+                            setSearchOpen(false)
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+                  <button
+                    className="canvas-corner search-open"
+                    aria-expanded={searchOpen}
+                    onClick={() => (searchOpen ? closeSearch() : openSearch())}
+                    aria-label={searchOpen ? 'Close the search' : view === 'recaps' ? 'Search the recaps' : 'Search the stream'}
+                    title={searchOpen ? 'Close the search · Esc' : `${view === 'recaps' ? 'Search the recaps' : 'Search the stream'} · /`}
+                  >
+                    <Icon name="search" />
+                  </button>
+                </div>
               )}
               {view === 'activity' && detailEvent?.job !== undefined && (detailEvent.job.status === 'failed' || detailEvent.job.status === 'deferred') && (
                 <button className="btn sm" disabled={retry.isPending} onClick={() => retry.mutate(detailEvent.job!.id)}>
@@ -851,75 +886,6 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
             <>
               {/* The stream's five figures describe the stream. While a record is open the
                   box is the record's, and its own facts stand where these did. */}
-              {detailEvent === null && (
-              <Facts size="lead">
-                <Fact
-                  k="Events"
-                  v={shown.length}
-                  sub={day !== null ? 'on this day' : query !== '' || filtered ? 'matching, this week' : 'this week'}
-                  size="lead"
-                />
-                <Fact
-                  k="In flight"
-                  v={events.filter((e) => e.live).length}
-                  sub={`${events.filter((e) => e.live && e.state === 'running').length} running, ${events.filter((e) => e.state === 'queued').length} queued`}
-                  size="lead"
-                  onOpen={() => setFilter({ ...DEFAULT_FILTER, state: 'running' })}
-                />
-                <Fact
-                  k="Failures · 7d"
-                  v={stats.data?.kpis7d.failures ?? statPlaceholder}
-                  tone={(stats.data?.kpis7d.failures ?? 0) > 0 ? 'err' : undefined}
-                  sub={(stats.data?.kpis7d.failures ?? 0) > 0 ? 'retry from the row' : 'nothing failed this week'}
-                  size="lead"
-                  onOpen={() => {
-                    setFilter({ ...DEFAULT_FILTER, state: 'failed' })
-                    jumpTo.current = 'failed'
-                  }}
-                />
-                <Fact
-                  k="Ingests · 7d"
-                  v={stats.data?.kpis7d.ingests ?? statPlaceholder}
-                  sub={`${stats.data?.usage.today.ingests ?? 0} today`}
-                  size="lead"
-                  onOpen={() => {
-                    setFilter({ ...DEFAULT_FILTER, kind: 'ingest' })
-                    go(today)
-                  }}
-                />
-                <Fact
-                  k="Spend today"
-                  v={
-                    stats.data !== undefined ? (
-                      <Cost value={stats.data.usage.today.costUsd} authMode={authMode} />
-                    ) : (
-                      statPlaceholder
-                    )
-                  }
-                  sub={
-                    stats.data?.budget.limit != null
-                      ? `${Math.min(100, Math.round((stats.data.budget.spent / stats.data.budget.limit) * 100))}% of the daily budget`
-                      : 'no daily budget set'
-                  }
-                  size="lead"
-                  onOpen={() => navigate('/system?section=usage')}
-                />
-                <Fact
-                  k="Checks due"
-                  v={maint.data?.status.due ?? statPlaceholder}
-                  tone={(maint.data?.status.due ?? 0) > 0 ? 'warn' : undefined}
-                  sub={
-                    maint.data === null
-                      ? 'checking…'
-                      : (maint.data?.status.recommended ?? 0) > 0
-                        ? `${maint.data?.status.recommended} recommended soon`
-                        : 'nothing else pending'
-                  }
-                  size="lead"
-                  onOpen={() => navigate('/system')}
-                />
-              </Facts>
-              )}
 
               {detailEvent === null ? (
                 <>
@@ -1001,7 +967,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                   <div className="box-foot keys">
                     <span className="fl">
                       <span>
-                        {shown.length} shown · {fmtDay(day)} · {historyCount} stored
+                        {shown.length} shown · {historyCount} stored
                         {allTime > historyCount ? ` · ${allTime} all-time` : ''}
                       </span>
                       {historyCount >= limit && limit < WINDOW_MAX && (

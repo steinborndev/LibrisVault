@@ -16,11 +16,12 @@ import { FootKeys } from '../components/FootKeys.tsx'
 import { openableRow } from '../lib/tableRow.ts'
 import { timeAgo } from '../lib/format.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
-import { domainColor, STUB_BYTES } from '../lib/domains.ts'
+import { domainColor, STUB_BYTES, TYPE_VARS } from '../lib/domains.ts'
+import { bucketLabel } from '../lib/buckets.ts'
 import { DeepenDialog } from '../components/library/DeepenDialog.tsx'
 import { addressLink, sourceLink } from '../lib/sources.ts'
 import { CATALOG_SORTS, naturalDir, sortCatalog, type CatalogSortKey, type SortDir } from '../lib/catalogSort.ts'
-import { SOURCE_FILTERS, hasSource, matchesSources, sourceCounts, sourceSummary } from '../lib/catalogSourceFilter.ts'
+import { SOURCE_FILTERS, hasSource, matchesSources, sourceCounts } from '../lib/catalogSourceFilter.ts'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
 import { ScopeMid } from '../components/ScopeMid.tsx'
@@ -30,21 +31,13 @@ import { useWingMode } from '../hooks/useWingMode.ts'
 import { queryState } from '../components/QueryState.tsx'
 import type { GraphNode, SourceRef } from '../api/types.ts'
 
-/** Bucket display labels, shared vocabulary with the graph's type filter. */
-const BUCKET_LABELS: Record<string, string> = {
-  concepts: 'Concepts',
-  entities: 'Entities',
-  sources: 'Sources',
-  meta: 'Meta',
-  root: 'Root',
-  // Renamed 2026-09-16: the bucket keeps its key `questions` - the vault's folder, the
-  // frontmatter, every route and filter are unchanged - and only what a reader sees moves.
-  questions: 'Research',
-  references: 'References',
-  comparisons: 'Comparisons',
-  folds: 'Folds',
-}
-const bucketLabel = (type: string): string => BUCKET_LABELS[type] ?? type
+
+/** The sorts as three questions, two answers each - the shape the graph's View section has. */
+const SORT_PAIRS: ReadonlyArray<readonly [CatalogSortKey, CatalogSortKey]> = [
+  ['changed', 'title'],
+  ['type', 'domain'],
+  ['backlinks', 'source'],
+]
 
 /**
  * The four subsets of the page index, as ONE choice. System used to be a separate
@@ -111,10 +104,8 @@ export function Catalog({
   const [sort, setSort] = useState<CatalogSortKey>('changed')
   /** Which way, per column: a first click gives the natural direction, a second reverses it. */
   const [dir, setDir] = useState<SortDir>(naturalDir('changed'))
-  /** Hover previews an option's meaning; leaving falls back to the one in force. */
+  /** Hover previews a subset's meaning; leaving falls back to the one in force. */
   const [subsetHover, setSubsetHover] = useState<Subset | null>(null)
-  const [sortHover, setSortHover] = useState<CatalogSortKey | null>(null)
-  const [kindHover, setKindHover] = useState<string | null>(null)
   const domListRef = useRef<HTMLDivElement>(null)
   /*
    * The filter box folds away behind a magnifier, the way the graph's does (2026-09-16): the
@@ -366,14 +357,12 @@ export function Catalog({
     wing === null ? null : (wings.find((g) => g.id === wing)?.name ?? 'one wing'),
   )
   const subsetHint = SUBSETS.find((x) => x.key === (subsetHover ?? subset))!.desc
-  const sortHint = CATALOG_SORTS.find((x) => x.key === (sortHover ?? sort))!.desc
   /*
    * The pills a vault actually has, plus any that are selected: a selection whose pill went
    * away with the last subset change would keep narrowing the table with nothing on screen to
    * say so, and nothing to click to undo it.
    */
   const kindPills = SOURCE_FILTERS.filter((f) => (kindCounts.get(f.key) ?? 0) > 0 || kinds.has(f.key))
-  const kindHint = kindHover !== null ? (SOURCE_FILTERS.find((f) => f.key === kindHover)?.desc ?? '') : sourceSummary(kinds)
   const toggleKind = (key: string): void => {
     setKinds((cur) => {
       const next = new Set(cur)
@@ -413,18 +402,19 @@ export function Catalog({
           <div className="gp-head">
             <span className="gp-eyebrow">Type</span>
             <span className="spacer" />
-            <span className="gp-state">{type === null ? 'all' : bucketLabel(type)}</span>
+            {/* The reset lives in the head of the first filtering section, Home's rule, and
+                only while something is narrowing the list. */}
+            {dirty ? (
+              <button className="btn ghost" onClick={reset} title="Back to every page, newest first">
+                Reset
+              </button>
+            ) : (
+              <span className="gp-state">{type === null ? 'all' : bucketLabel(type)}</span>
+            )}
           </div>
-          <div className="typechips">
-            {/* "All" is a chip like the others rather than the absence of a choice - the
-                selected state was invisible while every type chip sat unselected. */}
-            <button
-              className={`chip${type === null ? ' active' : ''}`}
-              aria-pressed={type === null}
-              onClick={() => setType(null)}
-            >
-              All <span className="chip-n">{knowledge.length}</span>
-            </button>
+          {/* One type per row, in the type's own colour, the graph's page types: the same data
+              in the same shape on both screens. A picked row again is every type. */}
+          <div className="typechips stacked">
             {typeCounts.map(([t, count]) => {
               const active = type === t
               return (
@@ -433,7 +423,9 @@ export function Catalog({
                   className={`chip${active ? ' active' : ''}${type !== null && !active ? ' dimmed' : ''}`}
                   aria-pressed={active}
                   onClick={() => setType(active ? null : t)}
+                  title={active ? 'Every type again' : 'Only this type'}
                 >
+                  <span className="chip-dot" style={{ background: `var(${TYPE_VARS[t] ?? '--type-meta'})` }} aria-hidden />
                   {bucketLabel(t)} <span className="chip-n">{count}</span>
                 </button>
               )
@@ -471,32 +463,38 @@ export function Catalog({
           <div className="gp-head">
             <span className="gp-eyebrow">Sort by</span>
           </div>
-          <div className="pillrow" role="radiogroup" aria-label="Sort by">
-            {CATALOG_SORTS.map((x) => (
-              <button
-                key={x.key}
-                className="viewpill"
-                role="radio"
-                aria-checked={sort === x.key}
-                /* The same rule as a column heading: choose it, or reverse it when it already
-                   sorts. One behaviour, so neither place has to be learned separately. */
-                onClick={() => chooseSort(x.key)}
-                title={sort === x.key ? `${x.desc} - click again to reverse` : x.desc}
-                onMouseEnter={() => setSortHover(x.key)}
-                onMouseLeave={() => setSortHover(null)}
-                onFocus={() => setSortHover(x.key)}
-                onBlur={() => setSortHover(null)}
-              >
-                {x.label}
-                {sort === x.key && (
-                  <span className="lt-arrow" aria-hidden>
-                    {dir === 'asc' ? '↑' : '↓'}
-                  </span>
-                )}
-              </button>
+          {/* Three strips, the graph's View section: a sort is a view choice, one of six, and
+              the pair reads as one question each - by when or by name, by what kind or what
+              field, by weight or by where it came from. The lit half carries the direction. */}
+          <div className="gp-lenses" role="radiogroup" aria-label="Sort by">
+            {SORT_PAIRS.map(([a, b]) => (
+              <div className="lib-strip gp-lens" key={a}>
+                {[a, b].map((key) => {
+                  const x = CATALOG_SORTS.find((c) => c.key === key)!
+                  const on = sort === key
+                  return (
+                    <button
+                      key={key}
+                      className={`rp${on ? ' on' : ''}`}
+                      role="radio"
+                      aria-checked={on}
+                      /* The same rule as a column heading: choose it, or reverse it when it
+                         already sorts. One behaviour, so neither place has to be learned. */
+                      onClick={() => chooseSort(key)}
+                      title={on ? `${x.desc} - click again to reverse` : x.desc}
+                    >
+                      {x.label}
+                      {on && (
+                        <span className="lt-arrow" aria-hidden>
+                          {dir === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
             ))}
           </div>
-          <div className="pillhint">{sortHint}</div>
         </div>
 
         {/* What a page came from, as a filter rather than only as a column and an order
@@ -529,17 +527,12 @@ export function Catalog({
                   aria-pressed={kinds.has(f.key)}
                   onClick={() => toggleKind(f.key)}
                   title={f.desc}
-                  onMouseEnter={() => setKindHover(f.key)}
-                  onMouseLeave={() => setKindHover(null)}
-                  onFocus={() => setKindHover(f.key)}
-                  onBlur={() => setKindHover(null)}
                 >
                   {f.label}
                   <span className="pn">{kindCounts.get(f.key) ?? 0}</span>
                 </button>
               ))}
             </div>
-            <div className="pillhint">{kindHint}</div>
           </div>
         )}
 
@@ -588,11 +581,6 @@ export function Catalog({
               </strong>{' '}
               {noun}
             </span>
-            {dirty && (
-              <button className="btn ghost head-reset" onClick={reset} title="Back to every page, newest first">
-                Reset
-              </button>
-            )}
           </span>
           <ScopeMid heading={scopeMid} />
           <span className="bar-r">

@@ -43,7 +43,7 @@ const SHOTS = [
   {
     file: 'home.png',
     route: '/',
-    settle: `document.querySelectorAll('.fact').length > 2 && document.querySelectorAll('table.dtable tbody tr').length > 3`,
+    settle: `document.querySelectorAll('.vzf').length > 2 && document.querySelectorAll('table.dtable tbody tr').length > 3`,
     hold: 5000,
   },
   {

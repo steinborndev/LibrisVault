@@ -2775,6 +2775,8 @@ details.hot-cache[open] summary {
  */
 .gp-sec.gp-sec-actions { padding: 7px 14px 8px; }
 .gp-actions .rp { transition: background 260ms ease, color 260ms ease; }
+/* The Catalog's sort strips carry the direction in the lit half. */
+.lib-strip.gp-lens .rp .lt-arrow { margin-left: 5px; font-size: 11px; }
 .gp-actions .rp.on { transition: none; }
 /* A vault with no domains cannot be coloured by one; the half says so rather than lying. */
 .lib-strip.gp-lens .rp:disabled { opacity: 0.45; cursor: default; }
@@ -3282,7 +3284,6 @@ span.head-slot { display: inline-block; }
    Its height is the search slot's, not `--control-h`: a 32px button in a 26px row made the
    bar 6px taller the moment a filter was set, and the table below it moved down with it -
    measured 41 -> 47, the same six pixels the search box cost the canvas before it was pinned. */
-.graph-controls .btn.head-reset { flex: none; height: 26px; min-height: 26px; padding: 0 10px; }
 /* The scope bar's three groups (2026-09-11), the headline's rule: the left and right groups
    share what the middle leaves, in equal halves, so the middle sits at the bar's true
    centre whatever stands beside it - a Fit and a sentence on one side, a fullscreen button
@@ -10008,8 +10009,6 @@ tr:focus-within .rowacts {
   box-shadow: none;
   color: var(--text);
 }
-/* The search box in the headline's right slot: the row's control height, a fixed width. */
-.home-headline .home-search { width: 224px; height: 28px; }
 /*
  * The ink variant of the toggle, the one the Research tab and the Home headline wear: the
  * selected half is a shade of the text, not the research violet. Colour on this chrome would
