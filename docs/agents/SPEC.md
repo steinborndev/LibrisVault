@@ -1890,6 +1890,16 @@ in a run, between two steps of one, or a guest writing; at night the same rule l
 lamp. An empty desk and a sleeping Fellow's desk stay dark, so the room says at a glance who
 is at work.
 
+**A desk is a door into the night shift.** Under the pointer its top lights round its edge
+the way a shelf does, every bubble in the room steps aside so no text collides, and a label
+over the desk says whose it is: the Fellow's shelf, a guest's name, or "Spawn a new Fellow"
+over an empty one. The click opens the night shift on that Fellow's shelf, or on the night
+itself for a desk without a Fellow, where one is spawned. A Fellow's shirt is its shelf's
+colour - the same one its bubble's dot and its card carry - so the room says whose work a
+figure is doing from across the floor, and a board on the short wall lights its whole frame
+under the pointer rather than its top edge alone: flat against the wall, it has no edge to
+speak of, and a frame that lights all round reads as the thing about to open.
+
 **The book cart** stands in the open floor left of the desks, centred between the short wall
 and the first desk and in line with the middle of the two rows: three tiers of books on
 casters with a push rail. It is the one station for everything that is not a Fellow's own
@@ -1904,7 +1914,9 @@ green, framed all round with a chalk tray. The passage to the wings holds a glaz
 door: a wooden panel below, six panes above, brass knobs; the corridor shows through the
 glass, and the frame, its lit edge and the click are unchanged. Every bookcase, here and in
 the wings, is an open case with depth - back panel, sides, a plank per row - and its books
-stand in it as boxes, set a little back from the front edge.
+stand in it as boxes, set a little back from the front edge; its two stiles run the full
+height with the sign let in between them, and its back panel is lighter than the wood, so
+the strip of it above the top row and the dark sign band read as two surfaces.
 
 Decided in three rounds of renders on 2026-09-17, each look chosen from a contact sheet of
 alternatives: the rug over carpet tiles, a striped weave and an oriental pattern; the

@@ -1184,6 +1184,10 @@ this section lists what the merge carries because of it.
 - [x] The book cart as the one station for maintenance runs and ingests, a click into System;
       a fern where the cart stood; chalkboards on the short wall; a glazed double door in every
       passage; open cases with the books as boxes, in the main room and the wings.
+- [x] A desk under the pointer lights its top round the edge, hides every bubble and names
+      its Fellow's shelf (or offers a spawn); the click opens the night shift on that shelf, or
+      on the night for a desk without a Fellow. Shirts in the shelf's colour, boards framed all
+      round under the pointer, stiles full height with the sign let in, a lighter back panel.
 - [x] Tests: `web/test/library.test.ts` (the desk from the record, guest desks, busy desks),
       `web/test/roomLayout.test.ts` (the rows, the cart's place), `server/test/fellows.test.ts`
       (seating, the cap). All three gates green and exit 0 on 2026-09-17.
