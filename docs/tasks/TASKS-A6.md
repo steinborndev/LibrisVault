@@ -702,7 +702,16 @@ in the same form as D1 to D6.
       **[kept from the original item]** Note that these files were NOT part of the fix made
       earlier on 2026-09-15: that pass deliberately touched only what this merge would newly
       publish, because generalising an already-public fixture pre-empts this decision.
-- [ ] Re-run the audit over the final merge diff, both commit messages and added lines, and
+- [x] **Done 2026-09-17, after upstream's patch set was merged in (the diff against
+      `upstream/main` is now exactly what the PR adds).** Added lines: 13 matches, every one
+      either product vocabulary that is also a page title (`Anthropic`, `Cursor`, `Assessment
+      Report`, `Reinforcement Learning`) or the four captured research runs under
+      `scripts/demo-research/`, accepted above. Commit messages (391, 8,870 lines): two matches,
+      `Anthropic` and one domain name quoted as a browser observation in a settled commit - a
+      registry key, the generic category F-A6-21 already accepted. `docs/img/`: 14 files on the
+      branch, all shot from the synthetic vault (section 5), the room ones re-shot on
+      2026-09-17. The original item, kept as the record:
+      Re-run the audit over the final merge diff, both commit messages and added lines, and
       over `docs/img/`. **The method is written down and rehearsed: F-A6-21 ran exactly this
       over the 41 pre-push commits, five passes, and it is the shape to repeat against the
       merge diff.** Record the method and the result under Findings so the next merge
@@ -773,7 +782,13 @@ Status as measured 2026-09-15, on the working tree:
 
 ## 9. The pull request
 
-- [ ] Rebase onto LibrisVault `main`, which is one commit ahead (`70b55fa7`, dependencies).
+- [x] **Done 2026-09-17 as a merge rather than a rebase** (`a98f6cb`): 391 commits with a
+      twice-audited history are not rewritten for one dependency commit. The ranges were taken
+      as upstream set them and the lockfile re-resolved from ours on top, so the web lint tooling
+      stays in it; fastify 5.12.3, qs 6.16.0, vitest 4.1.11 and postcss 8.5.28 match upstream,
+      browserslist and electron-to-chromium came out two data releases newer. All three gates
+      green under vitest 4.1.11. The original item, kept as the record:
+      Rebase onto LibrisVault `main`, which is one commit ahead (`70b55fa7`, dependencies).
       **[added] The conflict is known and carries a security regression risk.** That commit
       touches exactly `package-lock.json` and `server/package.json`, and those are the only
       two files both sides changed. It is a security patch set: fastify 5.12.3, qs 6.16.0,
@@ -781,12 +796,16 @@ Status as measured 2026-09-15, on the working tree:
       branch still runs **vitest 4.1.10**. Resolving the conflict in favour of our lockfile
       would silently revert all of it. Take upstream's versions and re-resolve on top; then
       re-run the gates, because the vitest bump crosses a patch version under 82 test files.
-- [ ] **[added] Worth stating in the PR body, because it is the strongest thing about this
+- [x] **Stated in `PR-A6-draft.md`** (2026-09-17), verified against `upstream/main`: the server
+      manifest differs by the package name and the probe scripts only. The original item:
+      **[added] Worth stating in the PR body, because it is the strongest thing about this
       merge:** the A-series added **zero new server dependencies**. The web workspace gained
       only lint tooling (`eslint`, `eslint-plugin-react-hooks`,
       `eslint-plugin-react-refresh`, `typescript-eslint`, `globals`, `@eslint/js`). 303
       files and 61k added lines, no new runtime supply chain.
-- [ ] PR title and description describe the change by its mechanism, never by a vault
+- [x] **Drafted in `PR-A6-draft.md` and scanned with `--file` on 2026-09-17** (the only match
+      is `Anthropic`). Paste it rather than paraphrasing at the last minute. The original item:
+      PR title and description describe the change by its mechanism, never by a vault
       subject (hard rule 7). This is the text most likely to leak, because it is the one
       written last and in a hurry - **and the `commit-msg` hook does not see it at all**
       (section 7). Read it once against the audit term list before opening the PR.
@@ -1208,6 +1227,16 @@ this section lists what the merge carries because of it.
       proposal, restore, the room's hover and click paths, the Research prefill - 46 checks, all
       green, the production vault's HEAD and working tree identical before and after. The script
       is session tooling, not part of the repo.
+- [x] Points raised in the merge review of 2026-09-17, all worked through the same evening:
+      upstream's patch set merged (section 9), the pinboard's write path named in CLAUDE.md
+      hard rule 1 and `SPEC.md` 12.4/12.10, the audit over the final diff (section 7), the PR
+      text drafted and scanned, and the prototype's loose ends: wikilinks in a question render
+      as links, `unassigned` and `meta` are no domain on the pinboard, the artboards say what
+      they show.
+- [ ] Observed while running the gates on 2026-09-17: `server/test/queue.test.ts`, the
+      concurrency check, failed twice in the full suite under machine load and passed alone and
+      on the next full run. Its window is a 10 ms ingest against real preprocessing, which is
+      tight when vitest's workers compete. Not changed; worth widening when it bites again.
 - [x] Screenshots of the room re-shot from the synthetic vault (section 5's rule): `library-room`
       and `library-wing`. The command centre and the dossier were shot too and came out byte for
       byte the same: their windows cover the room.
