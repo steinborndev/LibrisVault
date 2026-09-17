@@ -1254,3 +1254,20 @@ this section lists what the merge carries because of it.
       byte the same: their windows cover the room.
 - [ ] Not done, said so in 10.13: the design artboards under `docs/agents/design/library-screen/`
       still show the first room and are kept as the design record.
+- [x] **The graph's lock (2026-09-17).** A padlock in the canvas's bottom left corner holds the
+      picture on screen: the snapshot of everything that decides which nodes are drawn and how
+      (filters, room, focus and depth, gaps and system pages, the search, a tag, the drill-down,
+      lens and overlays) goes to sessionStorage, and while it is closed the explorer panel stays
+      away, one click on a node opens its page, and Escape brings the picture back from a page,
+      a filter change, a tab away or a reload. A reset, a search or a shelf click elsewhere are
+      excursions the next Escape returns from; the lock opens only by its own button. The record
+      is read back field by field (`web/src/lib/graphFreeze.ts`, tested), so a stale payload is
+      dropped whole. The canvas's hover hint now says "click to open" wherever one click does,
+      which the Library's department window had been mislabelling as a double-click. Walked
+      through with a browser script: filter change and Escape, the article round trip, a tab
+      away and back, a reload, unlock - 20 checks.
+- [x] **The Research ledgers' search folds behind a magnifier (2026-09-17),** the graph's and
+      the Catalog's mechanic: the slot at the head's right edge keeps the box's width in both
+      states, `/` opens it, Escape clears and then folds it, folding clears the text, and
+      switching modes starts the other ledger folded. Seven browser checks. The convention is
+      written down in `web/DESIGN.md`.

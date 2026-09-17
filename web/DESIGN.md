@@ -41,10 +41,18 @@ it are in the frontend deep review; the task list is `docs/tasks/TASKS-REDESIGN.
   centers them. Padding-derived heights drift apart as soon as one control carries
   different content (a `<kbd>`, an icon, another font size).
 - **Canvas-like areas** (the graph) carry their controls ON the canvas: overview (minimap)
-  top-right, legend bottom-right, trail bottom-left; zoom and search live in the bar above
-  the canvas since 2026-08-26. The way-back button ("Go to nearest cluster") sits dead
-  center and exists only while no node is on screen. Panels beside a canvas **dock** (the
-  canvas shrinks) - they never overlay a corner that holds a control.
+  top-right, legend bottom-right, the lock and then the trail bottom-left; zoom and search
+  live in the bar above the canvas since 2026-08-26. The way-back button ("Go to nearest
+  cluster") sits dead center and exists only while no node is on screen. Panels beside a
+  canvas **dock** (the canvas shrinks) - they never overlay a corner that holds a control.
+  The lock (2026-09-17) holds the picture: while it is closed the explorer panel stays away,
+  one click on a node opens its page, and Escape brings the held picture back from wherever
+  you went - a page, a filter, another tab, a reload. It lives in sessionStorage, for one
+  sitting; it opens only by its own button.
+- **A search folds behind a magnifier** wherever a bar or a head carries one (graph, Catalog,
+  the Research ledgers since 2026-09-17): the slot keeps the box's width in both states so
+  nothing beside it moves, `/` opens the box, Escape clears the text and then folds it, and
+  folding clears the text - a filter you cannot see is one you cannot undo.
 
 ## Type and color
 
