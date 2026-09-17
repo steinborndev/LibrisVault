@@ -1191,6 +1191,13 @@ this section lists what the merge carries because of it.
 - [x] Tests: `web/test/library.test.ts` (the desk from the record, guest desks, busy desks),
       `web/test/roomLayout.test.ts` (the rows, the cart's place), `server/test/fellows.test.ts`
       (seating, the cap). All three gates green and exit 0 on 2026-09-17.
+- [x] The pinboard of open questions, as a prototype (SPEC 10.13): `server/src/pipeline/questions.ts`
+      (every page's open questions, the strike-through as the archive, the veto of a planned
+      proposal), `GET/POST /api/v1/questions[/archive]`, the easel in the room, the board window
+      on the reading list's model, Start research into `/research?prefill=`. Behind the flag
+      with the room it hangs in. Tests: `server/test/questions.test.ts`, `web/test/questions.test.ts`.
+      Not yet: wikilinks in a question rendered as links; the `unassigned` domain treated as none;
+      a README screenshot of the board.
 - [x] Screenshots of the room re-shot from the synthetic vault (section 5's rule): `library-room`
       and `library-wing`. The command centre and the dossier were shot too and came out byte for
       byte the same: their windows cover the room.

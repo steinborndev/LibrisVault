@@ -7477,7 +7477,8 @@ tr:focus-within .rowacts {
   .lib-slot:hover .bc-rim,
   .lib-board:hover .bc-rim,
   .lib-cart:hover .bc-rim,
-  .lib-desk:hover .bc-rim { opacity: 0.95; }
+  .lib-desk:hover .bc-rim,
+  .lib-easel:hover .bc-rim { opacity: 0.95; }
   /* A desk under the pointer names itself and asks the bubbles to step aside, so that no text
      collides with its label. Reached through `:has()` on the room, because the bubbles are
      drawn in their own layer over everything. */

@@ -1908,6 +1908,25 @@ queue's parcels lie beside it and the clerk unpacks and reads there. Only the ho
 caretaker keeps its place at the board it renews. The cart lights its top edge under the
 pointer like a shelf, and clicking it opens System, where the maintenance runs are started.
 
+**The pinboard (prototype, 2026-09-17).** An easel with a pinboard stands in front of the
+cart, its face turned to the desks, one pinned card per open question up to six. It opens a
+window on the reading list's model: every bullet under a `## Open questions` heading on every
+wiki page and in the Fellows' notebooks, grouped by the page's domain, walked with the keys -
+all domains first, then one stop per domain that has a question, up and down the questions.
+Two things can be done with a question. **Start research** hands it to the Research tab with
+the topic filled in, where the lens is chosen and the run started: the question is not
+assigned to a Fellow, it is researched now, and while that run is in flight the row says so.
+**Archive** strikes the question through on its own page (`~~…~~`), which is the convention
+the runs already use to close a question and the planner already skips, so a struck question
+is out of the Fellows' candidates without any state beside the page; the edit is a
+user-initiated page write, one commit behind the shared mutex under the vault's per-file lock.
+If a Fellow had planned a proposal from the question for tonight, archiving vetoes it and the
+row says so before the click; restoring takes the strike off and vetoes nothing. Decided on
+2026-09-17: every page with the section rather than the planner's subset; the strike rather
+than a meta page or a database mark; the automatic veto rather than a run on a closed
+question; and nothing done to the question by a started run, which does not necessarily
+answer it.
+
 **The rest.** A fern in a pot stands where the cart used to, right of the last favorite shelf
 and centred in that gap. The three boards on the short wall are chalkboards in the banner's
 green, framed all round with a chalk tray. The passage to the wings holds a glazed double

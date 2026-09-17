@@ -1162,6 +1162,18 @@ export interface PlanStatus {
 
 // ---- The reading list (docs/agents/SPEC.md section 10.6) ----
 
+/** One question on the pinboard (prototype 2026-09-17): a bullet under a page's "Open questions". */
+export interface QuestionItem {
+  id: string
+  text: string
+  page: string
+  domain: string | null
+  /** Struck through on its page: closed for the Fellows, kept on the page. */
+  archived: boolean
+  planned: { proposalId: string; agentId: string; fellow: string; status: string } | null
+  researching: { runId: string } | null
+}
+
 export interface ReadingItem {
   title: string
   url: string

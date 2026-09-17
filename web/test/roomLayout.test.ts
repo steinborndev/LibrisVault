@@ -116,6 +116,8 @@ describe('the desks', () => {
     const left = ANCHORS.cart.i
     const right = first.i - (ANCHORS.cart.i + 1.55)
     expect(left).toBeCloseTo(right, 6)
-    expect(ANCHORS.cart.j + 0.36).toBeCloseTo((DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2, 6)
+    // A tile nearer the door than the middle of the rows, with the easel in the floor in front of it.
+    expect(ANCHORS.cart.j + 0.36 + 1.1).toBeCloseTo((DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2, 6)
+    expect(ANCHORS.easel.j).toBeGreaterThan(ANCHORS.cart.j + 0.72)
   })
 })

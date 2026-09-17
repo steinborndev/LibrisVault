@@ -13,7 +13,7 @@ import { useMemo } from 'react'
 import type { SceneRoom, SceneShelf } from '../../api/types.ts'
 import { domainHue } from '../../lib/domains.ts'
 import { boxFaces, depthOf, fitRoom, hsl, makeProj, mix, pts, seeded, type Proj, type Pt } from '../../lib/library/iso.ts'
-import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, FAV_I, MID_J, ROOM, SLOTS, WALL_H, WALL_J, breakSign, deskPositions, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
+import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, EASEL_W, FAV_I, MID_J, ROOM, SLOTS, WALL_H, WALL_J, breakSign, deskPositions, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
 
 /** The case dimensions under the short names the geometry below reads in. */
 const a = CASE_W
@@ -35,7 +35,7 @@ const SHELF = {
  * the cornice - it takes the wainscot's colour, so no pale strip runs along the floor.
  */
 /** The boards on the short wall, each opening as a window over the room. */
-export type BoardId = 'hot' | 'recap' | 'reading'
+export type BoardId = 'hot' | 'recap' | 'reading' | 'questions'
 
 /** How far a wall tile reaches into the next one, so no seam of the page shows between them. */
 const SEAM = 0.02
@@ -418,6 +418,8 @@ export interface RoomSvgProps {
   readonly onDeskClick?: ((desk: number, occupant: Actor | null) => void) | undefined
   /** The name over the passage: which room it leads to. Absent = no sign, one room only. */
   readonly nextRoomName?: string | undefined
+  /** How many questions are open on the pinboard; the easel pins that many cards (six at most). */
+  readonly openQuestions?: number | undefined
   /** The passage in the back wall was clicked; the screen shows the next room. */
   readonly onPassageClick?: (() => void) | undefined
   readonly passageTitle?: string | undefined
@@ -966,6 +968,53 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
             strokeWidth={1.6}
             strokeLinecap="round"
           />
+        </g>
+      ))
+    }
+    /*
+     * The easel with the pinboard (prototype 2026-09-17), in front of the cart with its face to
+     * the desks: two front legs in the board's plane, one leaning behind, and the board itself
+     * with as many pinned cards as there are open questions, six at most. It opens the pinboard
+     * window like a board on the wall, and lights its frame under the pointer like one.
+     */
+    {
+      const ei = ANCHORS.easel.i
+      const ej = ANCHORS.easel.j
+      const legC = night ? { top: '#5b4630', left: '#4a3826', right: '#3d2f1f' } : { top: '#a67d52', left: '#8a6a43', right: '#6f5335' }
+      const boardZ = 26
+      const boardH = 46
+      const cork = night ? '#5a4630' : '#c9a06e'
+      const facePts = (j0: number, j1: number, z0: number, z1: number): string => pts([P(ei, j0, z0), P(ei, j1, z0), P(ei, j1, z1), P(ei, j0, z1)])
+      const cards = Math.max(0, Math.min(6, props.openQuestions ?? 4))
+      const [bx, by] = P(ei - 0.55, ej + EASEL_W / 2, 0)
+      const [tx, ty] = P(ei - 0.12, ej + EASEL_W / 2, boardZ + boardH + 8)
+      add(ei + ej + EASEL_W + 0.2, 'easel', (
+        <g className="lib-easel" onClick={props.onBoardClick ? () => props.onBoardClick!('questions') : undefined} style={{ cursor: props.onBoardClick ? 'pointer' : 'default' }}>
+          <title>{`Open questions: ${props.openQuestions ?? 'the vault\'s'} open. Click to open the pinboard.`}</title>
+          {/* the rear leg, leaning up to the top of the board */}
+          <path d={`M${bx.toFixed(1)} ${by.toFixed(1)} L${tx.toFixed(1)} ${ty.toFixed(1)}`} stroke={legC.right} strokeWidth={2.2} strokeLinecap="round" />
+          <Box P={P} i0={ei - 0.06} j0={ej + 0.02} a={0.06} b={0.06} h={boardZ + boardH + 8} c={legC} />
+          <Box P={P} i0={ei - 0.06} j0={ej + EASEL_W - 0.08} a={0.06} b={0.06} h={boardZ + boardH + 8} c={legC} />
+          {/* the ledge the board rests on, and the board: a frame with the cork let in */}
+          <Box P={P} i0={ei - 0.06} j0={ej} a={0.16} b={EASEL_W} h={2.5} z0={boardZ - 2.5} c={legC} />
+          <Box P={P} i0={ei - 0.05} j0={ej + 0.04} a={0.05} b={EASEL_W - 0.08} h={boardH} z0={boardZ} c={legC} />
+          <polygon points={facePts(ej + 0.1, ej + EASEL_W - 0.14, boardZ + 3, boardZ + boardH - 3)} fill={cork} />
+          {[0, 1, 2, 3, 4, 5].slice(0, cards).map((n) => {
+            const col = n % 3
+            const rowN = Math.floor(n / 3)
+            const j0 = ej + 0.16 + col * 0.36
+            const z1 = boardZ + boardH - 8 - rowN * 19
+            const [px, py] = P(ei, j0 + 0.14, z1 - 1.5)
+            return (
+              <g key={n}>
+                <polygon points={facePts(j0, j0 + 0.28, z1 - 13, z1)} fill={night ? '#cfc9bb' : '#faf6ec'} stroke={night ? '#8a8477' : '#d9d2c2'} strokeWidth={0.5} />
+                <polygon points={facePts(j0 + 0.04, j0 + 0.22, z1 - 5.5, z1 - 4)} fill={night ? '#8a8477' : '#c9c1ae'} />
+                <polygon points={facePts(j0 + 0.04, j0 + 0.19, z1 - 9, z1 - 7.5)} fill={night ? '#8a8477' : '#c9c1ae'} />
+                <circle cx={px} cy={py} r={1.4} fill={['#d6453c', '#2f62c9', '#3f8f4f', '#d6a13c', '#8a4fc9', '#d6453c'][n]!} />
+              </g>
+            )
+          })}
+          <polygon className="bc-rim" points={facePts(ej + 0.04, ej + EASEL_W - 0.08, boardZ, boardZ + boardH)} fill="none" stroke={night ? '#ffd9a8' : '#fff4e2'} strokeWidth={1.6} strokeLinejoin="round" />
         </g>
       ))
     }

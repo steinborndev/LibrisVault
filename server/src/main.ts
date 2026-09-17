@@ -44,6 +44,8 @@ import { SqliteLibraryStore } from './db/library.js'
 import { LibraryService } from './pipeline/library.js'
 import { SqliteUsageSampleStore, SqlitePlanOverrideStore } from './db/usage-samples.js'
 import { ReadingListService } from './pipeline/reading-list.js'
+import { QuestionsService } from './pipeline/questions.js'
+import { PENDING_STATUSES } from './db/proposals.js'
 import { refKey } from './pipeline/dedupe.js'
 import { SourceIndexBuilder } from './pipeline/sources.js'
 import { UsageMonitor, type EndpointResult } from './pipeline/usage-monitor.js'
@@ -433,6 +435,31 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
 
   // The Library screen's scene (section 10): a renderer's snapshot over the graph, the queue,
   // the run registry and the Fellows, plus the user's wings and shelf placement.
+  /*
+   * The pinboard of open questions (prototype 2026-09-17): every page's open questions, the
+   * archive as a strike-through on the page, and a veto for the proposal a Fellow had planned
+   * from an archived one. With the Fellows, like the room it hangs in.
+   */
+  const questions =
+    fellows !== undefined
+      ? new QuestionsService({
+          vaultRoot: config.vaultRoot,
+          graph: () => graph.build(),
+          notebooks: () =>
+            fellows
+              .list()
+              .filter((f) => f.agent.state !== 'retired')
+              .map((f) => ({ path: f.agent.notebookPath, domain: f.agent.homeDomain })),
+          proposals: () => new SqliteProposalStore(db).list({ status: PENDING_STATUSES, limit: 200 }),
+          fellowName: (id) => fellows.list().find((f) => f.agent.id === id)?.agent.name ?? 'a Fellow',
+          runs: () => maintenance.listRuns(),
+          commitMutex,
+          autoCommit: () => settings.effective(config).gitAutoCommit,
+          veto: async (id) => {
+            await fellows.decide(id, { status: 'vetoed', via: 'dashboard', note: 'the question was archived on the pinboard' })
+          },
+        })
+      : undefined
   const library =
     fellows !== undefined
       ? new LibraryService({
@@ -514,6 +541,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(library !== undefined ? { library } : {}),
     ...(usage !== undefined ? { usage } : {}),
     ...(config.agentsEnabled === true ? { reading: readingList } : {}),
+    ...(questions !== undefined ? { questions } : {}),
     /*
      * "Find open-access" on the board (docs/sources/SPEC.md 6.3): the same recovery an ingest
      * runs, in a scratch directory outside the vault and without writing a page - so a find is

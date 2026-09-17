@@ -49,6 +49,8 @@ import { registerUsageRoute } from './routes/usage.js'
 import { SAMPLE_LIMIT } from '../pipeline/run-duration.js'
 import type { ReadingListService } from '../pipeline/reading-list.js'
 import { registerReadingListRoute, type OpenAccessFinder } from './routes/reading-list.js'
+import { registerQuestionsRoute } from './routes/questions.js'
+import type { QuestionsService } from '../pipeline/questions.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -114,6 +116,8 @@ export interface AppContext {
   readonly usage?: UsageMonitor
   /** What the Fellows found on the web (section 10.6); registers its routes when present. */
   readonly reading?: ReadingListService
+  /** The pinboard of open questions; with the Fellows, like the reading list. */
+  readonly questions?: QuestionsService
   /**
    * Looks for an open copy of one reading-list entry on demand, verifying it (docs/sources
    * SPEC.md 6.3). Absent = the board's "Find open-access" button answers 503, which is what a
@@ -205,6 +209,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
       runs: () => ctx.agentRuns?.list({ limit: SAMPLE_LIMIT }) ?? [],
     })
   if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue, ctx.findOpenAccess)
+  if (ctx.questions !== undefined) registerQuestionsRoute(app, ctx.questions)
 
   await registerFrontend(app)
 

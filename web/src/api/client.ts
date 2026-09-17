@@ -46,6 +46,7 @@ import type {
   AgentPatchBody,
   PlanStatus,
   ReadingItem,
+  QuestionItem,
   PagePreview,
   PageFull,
   VaultGraph,
@@ -521,6 +522,13 @@ export const api = {
     }).then(json<{ found: boolean; reason?: string; oa?: { url: string; version: string | null; chars: number } }>),
 
   /** Put one entry out of sight, or bring it back. A mark on the entry, never a removal. */
+  questions: (): Promise<{ entries: QuestionItem[] }> => fetch(`${BASE}/questions`).then(json<{ entries: QuestionItem[] }>),
+  archiveQuestion: (page: string, text: string, archived: boolean): Promise<{ archived: boolean; vetoed: string[] }> =>
+    fetch(`${BASE}/questions/archive`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ page, text, archived }),
+    }).then(json<{ archived: boolean; vetoed: string[] }>),
   archiveReading: (url: string, archived: boolean): Promise<{ archived: boolean }> =>
     fetch(`${BASE}/reading-list/archive`, {
       method: 'POST',

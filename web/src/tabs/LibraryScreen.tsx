@@ -31,6 +31,8 @@ import { ShelfWindow } from '../components/library/ShelfWindow.tsx'
 import { CommandCentre, type CcView, type Pane, type RosterEntry } from '../components/library/CommandCentre.tsx'
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
+import { QuestionBoard, researchRoute } from '../components/library/QuestionBoard.tsx'
+import type { QuestionTab } from '../lib/questions.ts'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
 import type { BoardId } from '../components/library/RoomSvg.tsx'
 import type { ReadingReach, ReadingTab } from '../lib/readingList.ts'
@@ -77,13 +79,14 @@ const ROOM_SHORTCUTS = [
   { keys: ['click'], what: 'a figure opens its Fellow: what it is doing, and the way to its screens' },
 ]
 
-const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Last night', reading: 'Reading list' }
+const BOARD_TITLES: Record<BoardId, string> = { hot: 'Hot cache', recap: 'Last night', reading: 'Reading list', questions: 'Open questions' }
 /* Empty is a value here: the night shift board carries a date stepper in this slot, and a
    line about where else the feed appears described a screen you are not looking at. */
 const BOARD_SUBS: Record<BoardId, string> = {
   hot: "the vault's digest, refreshed after every run",
   recap: '',
   reading: 'what the Fellows read on the web; ingesting one is your call',
+  questions: 'what the pages left open; archiving closes one for the Fellows too',
 }
 
 export function LibraryScreen({
@@ -205,6 +208,22 @@ export function LibraryScreen({
   /** The row the arrows are on, and the rows themselves, in the order the board shows them. */
   const [readingRow, setReadingRow] = useState(0)
   const [readingRows, setReadingRows] = useState<readonly string[]>([])
+  /*
+   * The pinboard's ring, selection and tab (prototype 2026-09-17), on the reading list's model
+   * and for the same reason: the headline draws them and this screen owns the keys.
+   */
+  const [questionTab, setQuestionTab] = useState<QuestionTab>('current')
+  const [questionDomain, setQuestionDomain] = useState<string | null>(null)
+  const [questionStops, setQuestionStops] = useState<readonly string[]>([])
+  const [questionRow, setQuestionRow] = useState(0)
+  const [questionRows, setQuestionRows] = useState<readonly string[]>([])
+  const questionGo = (d: string | null): void => {
+    setQuestionDomain(d)
+    setQuestionRow(0)
+  }
+  /* The easel pins as many cards as there are open questions; polled slowly, the board itself polls faster. */
+  const questionsQ = useQuery({ queryKey: ['questions'], queryFn: api.questions, refetchInterval: active ? 60_000 : false, retry: false })
+  const openQuestions = questionsQ.data?.entries.filter((e) => !e.archived).length
   /**
    * Which side of the paywall the board shows. Up here with the ring because its toggle is a
    * control of the board and stands in the headline with the others, not inside the list.
@@ -223,13 +242,16 @@ export function LibraryScreen({
   useEffect(() => {
     if (readingDomain !== null && !readingStops.includes(readingDomain)) readingGo(null)
   }, [readingStops, readingDomain])
+  useEffect(() => {
+    if (questionDomain !== null && !questionStops.includes(questionDomain)) questionGo(null)
+  }, [questionStops, questionDomain])
   /** Every visit opens on the newest night, whatever night the last visit ended on. */
   const openBoard = (id: BoardId): void => {
     setRecapDay(null)
     setBoard(id)
   }
   /** A board on the main room's wall, opened as a window over the room. Escape closes it. */
-  const [board, setBoard] = useState<BoardId | null>(boardParam === 'hot' || boardParam === 'recap' || boardParam === 'reading' ? boardParam : null)
+  const [board, setBoard] = useState<BoardId | null>(boardParam === 'hot' || boardParam === 'recap' || boardParam === 'reading' || boardParam === 'questions' ? boardParam : null)
   /*
    * A visit starts at the overview. The ring is where you are in a list, not a preference, and
    * coming back to a board still standing on the domain you left is the kind of memory that
@@ -540,6 +562,33 @@ export function LibraryScreen({
      * before the guard below for the same reason the night shift board is - the guard hands
      * every key but Escape to the room, and this board wants four of them.
      */
+    if (board === 'questions' && !ccOpen && shelf === null) {
+      const ring: Array<string | null> = [null, ...questionStops]
+      const at = ring.indexOf(questionDomain)
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        if (ring.length > 1) questionGo(ring[(at + (e.key === 'ArrowRight' ? 1 : ring.length - 1)) % ring.length] ?? null)
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        if (questionRows.length > 0) setQuestionRow((r) => Math.min(questionRows.length - 1, Math.max(0, r + (e.key === 'ArrowDown' ? 1 : -1))))
+        return
+      }
+      if (e.key === 'Enter') {
+        // The same thing the row's button does: the question goes to the Research tab as its topic.
+        e.preventDefault()
+        const text = questionRows[questionRow]
+        if (text !== undefined && questionTab === 'current') navigate(researchRoute(text))
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        if (questionDomain !== null) questionGo(null)
+        else setBoard(null)
+        return
+      }
+    }
     if (board === 'reading' && !ccOpen && shelf === null) {
       const ring: Array<string | null> = [null, ...readingStops]
       const at = ring.indexOf(readingDomain)
@@ -893,7 +942,7 @@ export function LibraryScreen({
          * on the left, where you are in the middle, the one thing you can do here on the
          * right. Escape and the arrow keys do the rest, so no button repeats a key.
          */}
-        <div className={`graph-controls lib-headline${ccOpen ? ' cc' : board === 'reading' && shelf === null ? ' rl' : ''}`}>
+        <div className={`graph-controls lib-headline${ccOpen ? ' cc' : (board === 'reading' || board === 'questions') && shelf === null ? ' rl' : ''}`}>
           <div className="lib-head-left">
             {/*
              * One slot, whatever stands in it. The department's Focus/Full toggle while a
@@ -909,6 +958,15 @@ export function LibraryScreen({
                   Current
                 </button>
                 <button role="radio" aria-checked={readingTab === 'archived'} onClick={() => { setReadingTab('archived'); readingGo(null) }}>
+                  Archived
+                </button>
+              </div>
+            ) : board === 'questions' && shelf === null ? (
+              <div className="seg sm ink" role="radiogroup" aria-label="Pinboard">
+                <button role="radio" aria-checked={questionTab === 'current'} onClick={() => { setQuestionTab('current'); questionGo(null) }}>
+                  Open
+                </button>
+                <button role="radio" aria-checked={questionTab === 'archived'} onClick={() => { setQuestionTab('archived'); questionGo(null) }}>
                   Archived
                 </button>
               </div>
@@ -956,6 +1014,18 @@ export function LibraryScreen({
                       title={signText(key)}
                       onClick={() => readingGo(key)}
                     />
+                  ))}
+                </span>
+              </span>
+            )}
+            {!ccOpen && board === 'questions' && shelf === null && (
+              <span className="lib-open cc-rot" title="The arrow keys walk the domains that have an open question; up and down walk the questions, Enter hands one to Research, Escape steps back out.">
+                <span className="chip-dot" style={{ background: questionDomain === null ? 'var(--muted)' : domainColor(questionDomain) }} aria-hidden />
+                <b className={`cc-name${questionDomain === null ? ' dim' : ''}`}>{questionDomain === null ? 'All domains' : signText(questionDomain)}</b>
+                <span className="cc-dots" hidden={questionStops.length === 0}>
+                  <i className={questionDomain === null ? 'on' : ''} title="All domains" onClick={() => questionGo(null)} />
+                  {questionStops.map((key) => (
+                    <i key={key} className={questionDomain === key ? 'on' : ''} title={signText(key)} onClick={() => questionGo(key)} />
                   ))}
                 </span>
               </span>
@@ -1194,6 +1264,7 @@ export function LibraryScreen({
               draggingAisle={aisleDrag}
               onActorClick={onActorClick}
               onBoardClick={current.kind === 'main' ? openBoard : undefined}
+              openQuestions={openQuestions}
               onCartClick={current.kind === 'main' ? () => navigate('/system') : undefined}
               onDeskClick={
                 current.kind === 'main'
@@ -1292,7 +1363,23 @@ export function LibraryScreen({
           {/* A board's window: the same frame, the same size, so the screen does not move. */}
           {shelf === null && board !== null && (
             <div className="lib-window" role="dialog" aria-label={BOARD_TITLES[board]}>
-              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} day={shownNight} /> : (
+              {board === 'hot' ? <HotCache vaultName={vaultName} /> : board === 'recap' ? <RecapFeed vaultName={vaultName} day={shownNight} /> : board === 'questions' ? (
+                <>
+                  <QuestionBoard vaultName={vaultName} tab={questionTab} domain={questionDomain} row={questionRow} onDomains={setQuestionStops} onRows={setQuestionRows} onPick={setQuestionRow} />
+                  <div className="box-foot keys">
+                    <span className="fl" />
+                    <FootKeys
+                      items={[
+                        '↑ ↓ walk the questions',
+                        ...(questionStops.length > 0 ? ['← → step the domain'] : []),
+                        'Enter hands one to Research',
+                        questionDomain !== null ? 'Esc back to all domains' : 'Esc closes the pinboard',
+                      ]}
+                    />
+                    <span className="fr" />
+                  </div>
+                </>
+              ) : (
                 <>
                   <ReadingList
                     vaultName={vaultName}

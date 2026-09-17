@@ -100,6 +100,8 @@ export function deskStand(n: number): Tile {
 
 export const CART_W = 1.55
 export const CART_D = 0.72
+/** How wide the pinboard on the easel is, along j. */
+export const EASEL_W = 1.3
 
 /**
  * The main room's furniture anchors, matching the drawing.
@@ -111,13 +113,21 @@ export const CART_D = 0.72
  * maintenance runs are started. The plant took the cart's old place by the last favorite shelf.
  */
 const CART_I = (DESK.I0 - CART_W) / 2
-const CART_J = (DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2 - CART_D / 2
+/*
+ * The cart stands a tile nearer the door than the middle of the rows, and the easel with the
+ * pinboard in front of it (prototype 2026-09-17): the easel's face turns to the desks, so it
+ * wants the floor between the cart and the front edge, and the cart makes room by stepping
+ * back towards the wall with the door.
+ */
+const CART_J = (DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2 - CART_D / 2 - 1.1
 export const ANCHORS = {
   door: { i: 11.5, j: 1.3 },
   desks: deskPositions().map((_, n) => deskStand(n)),
   noticeBoard: { i: 1.3, j: 5.6 },
   /** The cart's footprint origin; it is CART_W by CART_D, parallel to the long wall. */
   cart: { i: CART_I, j: CART_J },
+  /** The easel's front feet: the board stands in the plane of this i, facing the desks, and runs EASEL_W along j. */
+  easel: { i: CART_I + 0.3, j: CART_J + CART_D + 1.15 },
   /** Where a visitor stands to work at the cart: in front of it, like a Fellow at a desk. */
   cartStand: { i: CART_I + 0.5, j: CART_J + CART_D + 0.55 },
   /** The parcels of the ingest queue, on the floor on the wall side of the cart. */
