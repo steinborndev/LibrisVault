@@ -34,6 +34,10 @@ must start on a vault it cannot write.
 - [x] Web: one notice for every refused write, raised by the API client and shown by the shell
       (`client.ts`, `App.tsx`); the wing delete goes through the same reader; the page-open value
       event is not sent on a read-only instance.
+- [x] Research in demo mode (2026-09-18, asked while viewing the demo): the screen renders
+      instead of the notice, with the seed's saved conversations and finished research runs; the
+      composer is disabled with a hint and `send` returns early, and the guard refuses a query or
+      a run anyway. System keeps its notice: it is the machine room.
 - [x] Docs: SPEC.md §12.8 and §12.10, README (`DEMO_MODE` row, "Hosting a read-only demo"),
       `docs/API.md`, the header of `agents-flag-off.test.ts`.
 - [x] Verification (2026-09-18): a fresh seed (917 pages, 4 Fellows, 4 recaps), served from source

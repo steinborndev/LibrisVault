@@ -368,14 +368,10 @@ export function App(): React.ReactElement {
           <section className="screen flush" hidden={screen !== 'research'} aria-label="Research">
             <div className="lane wide">
               <ErrorBoundary label="Research">
-                {demoMode ? (
-                  <DemoNotice
-                    title="Research is switched off here"
-                    text="Research drives live agent sessions over the vault and the web - answering questions with citations, saving sessions as pages."
-                  />
-                ) : (
-                  <Chat researchPrefill={screen === 'research' ? (query.get('prefill') ?? '') : ''} />
-                )}
+                {/* Shown on a read-only demo too (2026-09-18): the saved conversations and the
+                    finished runs are the screen's substance; what it would start is disabled
+                    inside, and refused by the guard anyway. System keeps its notice below. */}
+                <Chat researchPrefill={screen === 'research' ? (query.get('prefill') ?? '') : ''} />
               </ErrorBoundary>
             </div>
           </section>
