@@ -39,6 +39,7 @@ import { IngestQueue } from '../src/pipeline/queue.js'
 import { EventBus } from '../src/pipeline/events.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { ReadingListService } from '../src/pipeline/reading-list.js'
+import { QuestionsService } from '../src/pipeline/questions.js'
 import { Mutex } from '../src/util/mutex.js'
 import { buildServer, type AppContext } from '../src/api/server.js'
 import type { Config } from '../src/config.js'
@@ -69,6 +70,8 @@ const GATED: ReadonlyArray<readonly [string, string]> = [
   ['GET', '/api/v1/wings'],
   ['GET', '/api/v1/usage/plan'],
   ['GET', '/api/v1/reading-list'],
+  ['GET', '/api/v1/questions'],
+  ['POST', '/api/v1/questions/archive'],
 ]
 
 /** Endpoints the base product answers whatever the flag says; the control group. */
@@ -194,5 +197,14 @@ describe('with the Fellows extension unwired', () => {
     app = await build({ reading })
     const res = await app.inject({ method: 'GET', url: '/api/v1/reading-list' })
     expect(res.statusCode).toBe(200)
+  })
+
+  it('registers the pinboard routes as soon as their service is present', async () => {
+    app = await build({ questions: new QuestionsService({ vaultRoot, graph: () => null }) })
+    const res = await app.inject({ method: 'GET', url: '/api/v1/questions' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ entries: [] })
+    const bad = await app.inject({ method: 'POST', url: '/api/v1/questions/archive', payload: { page: 'wiki/x.md', text: 'nothing here' } })
+    expect(bad.statusCode).toBe(404)
   })
 })
