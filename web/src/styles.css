@@ -7439,11 +7439,11 @@ tr:focus-within .rowacts {
   font-size: 13px;
   padding: 0 12px;
 }
-.lib-board, .lib-passage, .lib-banner, .lib-passage-sign { transition: filter 0.12s; }
+.lib-board, .lib-passage, .lib-banner, .lib-passage-sign, .lib-passage-post { transition: filter 0.12s; }
 .lib-banner:hover { filter: brightness(1.07); }
 /* A desk lamp: dark by day, lit through the night shift (the glow rides in the SVG). */
 .lib-lamp { transition: opacity 0.3s; }
-.lib-board:hover, .lib-passage:hover, .lib-passage-sign:hover { filter: brightness(1.07); }
+.lib-board:hover, .lib-passage:hover, .lib-passage-sign:hover, .lib-passage-post:hover { filter: brightness(1.07); }
 
 
 /*
@@ -7471,6 +7471,12 @@ tr:focus-within .rowacts {
 @media (hover: hover) {
   .lib-slot:hover .bc-rim,
   .lib-board:hover .bc-rim { opacity: 0.95; }
+  /* The passage wears it along the top of its lintel. Reached through `:has()` on the room
+     rather than by `:hover` on each group, because the doorway is drawn as three siblings in
+     three depth slots - lintel, right post, name banner - and a descendant rule would light
+     only whichever third the pointer is over, so the edge would break at a seam the viewer has
+     no way to see. A room has exactly one doorway, so the room is a safe scope. */
+  .lib-svg:has(.lib-passage:hover, .lib-passage-post:hover, .lib-passage-sign:hover) .bc-rim-door { opacity: 0.95; }
 }
 /* The same idea on a Fellow's bubble, which is clickable and opens their card. Its OWN outline
    rather than an edge of its own: the bubble is a flat pill lying in front of the room, with

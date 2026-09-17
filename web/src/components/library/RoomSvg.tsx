@@ -420,6 +420,20 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       {/* posts and lintel */}
       <polygon points={pts([P(door.from - 0.22, 0, 0), P(door.from, 0, 0), P(door.from, 0, doorZ + 9), P(door.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
       <polygon points={pts([P(door.from - 0.22, 0, doorZ), P(door.to + 0.22, 0, doorZ), P(door.to + 0.22, 0, doorZ + 9), P(door.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
+      {/* The lit edge the shelves and the boards wear, along the top of the lintel - the frame's
+          own outer edge, which is where light would catch it. Not the top of the OPENING nine
+          units below: a line there would run along the underside of the lintel, inside the
+          frame, and read as a crack rather than as an edge.
+          `bc-rim-door` because the doorway is one object cut into three depth slots (this, the
+          right post, the banner), and light stopping at a slot boundary would show the cut. */}
+      <polyline
+        className="bc-rim bc-rim-door"
+        points={pts([P(door.from - 0.22, 0, doorZ + 9), P(door.to + 0.22, 0, doorZ + 9)])}
+        fill="none"
+        stroke={night ? '#ffd9a8' : '#fff4e2'}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
     </g>
   ))
   /*
@@ -450,6 +464,16 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         <polygon points={backFace(door.from + 0.08, door.to + 0.08, sBottom - 4, sBottom)} fill={night ? '#0b1610' : '#22382e'} opacity={0.35} />
         <polygon points={backFace(door.from, door.to, sBottom, sTop)} fill={night ? '#1f3329' : '#37564a'} stroke={night ? '#132119' : '#283f36'} strokeWidth={0.8} />
         <polygon points={backFace(door.from - 0.12, door.to + 0.12, sTop - 5, sTop)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.7} />
+        {/* The banner's own top edge. It names the same destination and carries the same click,
+            so it lights with the doorway rather than on its own. */}
+        <polyline
+          className="bc-rim bc-rim-door"
+          points={pts([P(door.from - 0.12, 0, sTop), P(door.to + 0.12, 0, sTop)])}
+          fill="none"
+          stroke={night ? '#ffd9a8' : '#fff4e2'}
+          strokeWidth={1.6}
+          strokeLinecap="round"
+        />
         <text
           transform={`matrix(1 0.5 0 1 ${sx.toFixed(1)} ${sy.toFixed(1)})`}
           textAnchor="middle"
@@ -465,14 +489,35 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     ))
   }
 
-  // The right post sorts after the wall tile beside it, which would otherwise paint over it.
+  /*
+   * The right post sorts after the wall tile beside it, which would otherwise paint over it -
+   * and therefore after the lintel too, over whose rim it lays its own width (measured: the
+   * last tenth of the edge came back unlit). So it carries that stretch of the edge itself,
+   * and takes the doorway's click while it is at it: it is the door frame, it lights like the
+   * door frame, and a lit frame that answered no click would be the light telling a lie.
+   */
   add(door.to + 0.6, 'doorpost-r', (
-    <polygon
-      points={pts([P(door.to, 0, 0), P(door.to + 0.22, 0, 0), P(door.to + 0.22, 0, WALL_H * 0.62 + 9), P(door.to, 0, WALL_H * 0.62 + 9)])}
-      fill={night ? '#5b4630' : '#8a6a43'}
-      stroke={night ? '#3d2f1f' : '#6f5335'}
-      strokeWidth={0.8}
-    />
+    <g
+      className="lib-passage-post"
+      onClick={props.onPassageClick}
+      style={{ cursor: props.onPassageClick ? 'pointer' : 'default' }}
+    >
+      <title>{props.passageTitle ?? 'the next room'}</title>
+      <polygon
+        points={pts([P(door.to, 0, 0), P(door.to + 0.22, 0, 0), P(door.to + 0.22, 0, WALL_H * 0.62 + 9), P(door.to, 0, WALL_H * 0.62 + 9)])}
+        fill={night ? '#5b4630' : '#8a6a43'}
+        stroke={night ? '#3d2f1f' : '#6f5335'}
+        strokeWidth={0.8}
+      />
+      <polyline
+        className="bc-rim bc-rim-door"
+        points={pts([P(door.to, 0, WALL_H * 0.62 + 9), P(door.to + 0.22, 0, WALL_H * 0.62 + 9)])}
+        fill="none"
+        stroke={night ? '#ffd9a8' : '#fff4e2'}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
+    </g>
   ))
 
   for (let kk = 0; kk < ROOM.NJ; kk++) {
