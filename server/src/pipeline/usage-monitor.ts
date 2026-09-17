@@ -700,15 +700,37 @@ export class UsageMonitor {
     const liftedWeek = this.weekOverrideNow()
     const reserveWeek = liftedWeek?.pct ?? s.reserveWeekPct
     const shareWeek = liftedWeek?.pct ?? s.researchShareWeekPct
-    if (latest.available) {
-      const five = latest.windows.find((w) => w.window === 'five_hour')
-      if (five && five.utilization > reserve5h) {
-        return { code: 'reserve', window: 'five_hour', reason: `the 5-hour window is at ${five.utilization}%, above the ${reserve5h}% reserve`, resetsAt: five.resetsAt }
-      }
-      const week = latest.windows.find((w) => w.window === 'seven_day')
-      if (week && week.utilization > reserveWeek) {
-        return { code: 'reserve', window: 'seven_day', reason: `the week is at ${week.utilization}%, above the ${reserveWeek}% reserve`, resetsAt: week.resetsAt }
-      }
+    /*
+     * A reading counts against the reserve while its OWN window has not reset yet, however old
+     * it is (2026-09-17). This used to hang on `latest.available`, which is a flat 24-hour
+     * freshness bound over the newest sample - and the comment on it, "a sample older than a
+     * day says nothing about now", is not true of a window that RESETS. Utilization only grows
+     * inside one (that is the model `consumption` works in: `weekStart = resetsAt - WEEK_MS`),
+     * so an old reading is a LOWER BOUND, and a lower bound above the reserve settles the
+     * question whatever has happened since. The case that found it: a 27-hour-old sample said
+     * the week was at 86% against an 80% reserve, with the reset half an hour away, and the
+     * night ran anyway because the sample had aged out.
+     *
+     * Per window, not per sample, and that matters here: the same reading carried a five-hour
+     * window whose reset was 22 hours in the past, which says nothing at all and is skipped.
+     *
+     * `nightRoom` in the dashboard keeps the freshness bound on purpose - the asymmetry is the
+     * point. A lower bound above the reserve PROVES the reserve is breached; a lower bound
+     * below it proves nothing about the room left, and promising room from an old reading is
+     * the error in the direction that spends money.
+     */
+    const live = (name: string): WindowSample | null => {
+      const w = latest.windows.find((x) => x.window === name)
+      if (w === undefined || w.resetsAt === null) return null
+      return Date.parse(w.resetsAt) > this.now().getTime() ? w : null
+    }
+    const five = live('five_hour')
+    if (five !== null && five.utilization > reserve5h) {
+      return { code: 'reserve', window: 'five_hour', reason: `the 5-hour window is at ${five.utilization}%, above the ${reserve5h}% reserve`, resetsAt: five.resetsAt }
+    }
+    const week = live('seven_day')
+    if (week !== null && week.utilization > reserveWeek) {
+      return { code: 'reserve', window: 'seven_day', reason: `the week is at ${week.utilization}%, above the ${reserveWeek}% reserve`, resetsAt: week.resetsAt }
     }
     const c = this.consumption()
     const est = this.estimatePct(ctx.estCostUsd, ctx.model)

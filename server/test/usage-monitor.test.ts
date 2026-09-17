@@ -233,6 +233,49 @@ describe('the monitor', () => {
     expect(points.gate(ctx(0.5))).toBeNull()
   })
 
+  /**
+   * A reading outlives the day it was taken, because the window it measures has not turned
+   * over. The bug this pins: the reserve check hung on a flat 24-hour freshness bound, so a
+   * sample that said "the week is at 86%" stopped counting the next morning - with the week's
+   * own reset still days away and utilization able only to rise in between.
+   */
+  it('the gate: a reading counts against the reserve until ITS window resets, not for 24 hours', () => {
+    const ctx = (estCostUsd: number): { estCostUsd: number; model: 'sonnet-5'; kind: string } => ({ estCostUsd, model: 'sonnet-5', kind: 'research-step' })
+    let clock = NOW
+    const { m } = monitorWith([], undefined, () => clock)
+
+    // The week above its reserve, the 5-hour window comfortably under it.
+    m.recordSdk(sdk(10, 85), 'tick', null)
+    expect(m.gate(ctx(0.5))).toMatchObject({ code: 'reserve', window: 'seven_day', resetsAt: WEEK_RESET })
+
+    // 27 hours later: older than the freshness bound, and the week has still not reset.
+    clock = new Date('2026-09-08T13:00:00.000Z')
+    expect(m.status({ estCostUsd: 0.5, model: 'sonnet-5' }).available).toBe(false)
+    expect(m.gate(ctx(0.5))).toMatchObject({ code: 'reserve', window: 'seven_day', resetsAt: WEEK_RESET })
+    expect(m.gate(ctx(0.5))!.reason).toBe('the week is at 85%, above the 80% reserve')
+
+    // Past the week's own reset the reading says nothing, and the gate opens again.
+    clock = new Date('2026-09-13T00:00:01.000Z')
+    expect(m.gate(ctx(0.5))).toBeNull()
+  })
+
+  it('the gate: a window that has already reset is skipped, even in a reading that still counts', () => {
+    // The same sample, read after the 5-hour window turned over but before the week does. One
+    // half of it is evidence and the other half is history, which is why this is per window.
+    const ctx = (estCostUsd: number): { estCostUsd: number; model: 'sonnet-5'; kind: string } => ({ estCostUsd, model: 'sonnet-5', kind: 'research-step' })
+    let clock = NOW
+    const { m } = monitorWith([], undefined, () => clock)
+    m.recordSdk(sdk(65, 20), 'tick', null)
+    expect(m.gate(ctx(0.5))).toMatchObject({ code: 'reserve', window: 'five_hour' })
+
+    clock = new Date('2026-09-08T13:00:00.000Z') // FIVE_RESET was 2026-09-07T12:00Z
+    expect(m.gate(ctx(0.5))).toBeNull()
+
+    // ...while the week in that same reading would still have counted, had it been over.
+    m.recordSdk(sdk(65, 85), 'tick', null)
+    expect(m.gate(ctx(0.5))).toMatchObject({ code: 'reserve', window: 'seven_day' })
+  })
+
   it('refreshes from the endpoint behind a cache, one flight at a time, and keeps its refusal', async () => {
     let calls = 0
     // A refusal that IS a moment: the scope refusal closes the endpoint for good and is

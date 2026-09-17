@@ -91,7 +91,15 @@ describe('the five-hour release', () => {
     expect(monitor.grantFiveHour()).toMatchObject({ ok: false })
     clock = new Date('2026-09-07T18:00:01.000Z')
     expect(monitor.overrideNow()).toBeNull()
-    expect(gate()).toMatchObject({ code: 'reserve' })
+    /*
+     * A second past the reset the window this grant belonged to is over, and so is the reading
+     * that reported it - a measurement of the window before last says nothing about the one
+     * that just began (2026-09-17). What the reserve does WITHOUT a grant is therefore asked
+     * of the new window, with a reading about it: the grant is gone, so 70% refuses again.
+     */
+    expect(gate()).toBeNull()
+    sample('five_hour', 70, '2026-09-07T23:00:00.000Z')
+    expect(gate()).toMatchObject({ code: 'reserve', window: 'five_hour' })
   })
 
   it('refuses without a known reset instant, so a grant can never be open-ended', () => {
