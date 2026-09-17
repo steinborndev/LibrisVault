@@ -17,7 +17,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA="${CURIOUS_DATA:-$HOME/.local/share/curious}"
+# Where this instance keeps its database, inbox and log; the live service has its own.
+DATA="${DEV_INSTANCE_DATA:-$HOME/.local/share/librisvault-dev}"
 
 export PORT="${PORT:-8421}"
 export VAULT_ROOT="${VAULT_ROOT:-$HOME/vault}"

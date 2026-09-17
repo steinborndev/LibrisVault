@@ -98,7 +98,7 @@ others.
 
 `db/settings.ts` gains `oaRecovery: boolean` (default `true`), shown in the System tab
 beside the dedupe judge. The service environment (`~/.config/vault-service/env`) may carry
-`CORE_API_KEY` (enables the third resolver) and `CURIOUS_CONTACT_EMAIL` (sent only as the
+`CORE_API_KEY` (enables the third resolver) and `OA_CONTACT_EMAIL` (sent only as the
 `mailto` parameter to OpenAlex for its polite pool). Neither value is logged, returned by
 any route, or stored in SQLite.
 
@@ -497,7 +497,7 @@ for anything the hook cannot see).
 |---|---|
 | SQLite v27 | `jobs.validation TEXT NULL` (JSON summary); table `oa_lookups (doi, checked_at, found, result)`. |
 | Settings | `oaRecovery: boolean`, default true, System tab. |
-| Environment | `CORE_API_KEY`, `CURIOUS_CONTACT_EMAIL`, both optional, never stored or logged. |
+| Environment | `CORE_API_KEY`, `OA_CONTACT_EMAIL`, both optional, never stored or logged. |
 | Manifest | `url` for URL jobs of every type; `oa` block (section 5.4); notes prefixes `pdf url:`, `saved web page:`, `preprocess: possible prompt injection`. |
 | Reading list page | Entry fields `oa_url`, `oa_version`, `oa_at`, written by the service the way `filed` is. |
 | API | Reading-list items carry `oa`; job records carry `validation`; no new routes. |

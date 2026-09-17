@@ -105,7 +105,7 @@ export interface PreprocessUrlInput {
   readonly oa?: {
     readonly enabled: boolean
     readonly cache?: OaLookupCache
-    /** The service environment, for `CORE_API_KEY` and `CURIOUS_CONTACT_EMAIL`. */
+    /** The service environment, for `CORE_API_KEY` and `OA_CONTACT_EMAIL`. */
     readonly env?: NodeJS.ProcessEnv
     readonly courtesyMs?: number
     readonly now?: () => Date

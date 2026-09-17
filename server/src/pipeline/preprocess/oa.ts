@@ -16,7 +16,7 @@
  *    a banner above the document, the prompt block of the run, and the reading-list entry. A
  *    substituted source that looked like the publisher's page would be a lie of omission.
  *
- * Credentials (`CORE_API_KEY`, `CURIOUS_CONTACT_EMAIL`) are read from the service environment
+ * Credentials (`CORE_API_KEY`, `OA_CONTACT_EMAIL`) are read from the service environment
  * and attached only to their own host; a redirect off that host drops them (`fetch.ts`). They
  * are never logged, never returned by a route and never stored.
  */
@@ -112,7 +112,7 @@ export interface OaDeps {
   readonly timeoutMs?: number
   readonly resolve?: (host: string) => Promise<string[]>
   readonly request?: PinnedRequestFn
-  /** The service environment. Only `CORE_API_KEY` and `CURIOUS_CONTACT_EMAIL` are read. */
+  /** The service environment. Only `CORE_API_KEY` and `OA_CONTACT_EMAIL` are read. */
   readonly env?: NodeJS.ProcessEnv
   readonly cache?: OaLookupCache
   readonly courtesyMs?: number
@@ -349,7 +349,7 @@ async function openalex(doi: string, ctx: ResolverContext): Promise<OaCandidate[
    * that must never be logged cannot ride in a URL. The header is host-bound and is dropped on
    * a redirect off api.openalex.org.
    */
-  const mail = (ctx.deps.env ?? process.env)['CURIOUS_CONTACT_EMAIL']?.trim()
+  const mail = (ctx.deps.env ?? process.env)['OA_CONTACT_EMAIL']?.trim()
   const select = 'id,title,open_access,best_oa_location,locations,is_retracted'
   const url = `https://api.openalex.org/works/https://doi.org/${encodeURIComponent(doi)}?select=${select}`
   const headers = mail !== undefined && mail !== '' ? { 'user-agent': `vault-service/0.1 (mailto:${mail})` } : undefined

@@ -432,6 +432,8 @@ the effective value is `override ?? baseline`. Overrides live in SQLite and surv
 | `AGENTS_ENABLED` | off | `1` turns on the research agents; off changes nothing, network included |
 | `DEMO_MODE` | off | `1` serves the vault strictly read-only for a public instance |
 | `PREPROCESS_SANDBOX` | on | `off` runs the converters without their bubblewrap jail. Only for a machine that cannot install bubblewrap |
+| `CORE_API_KEY` | - | optional; unlocks the third open-access resolver (CORE). A secret, handled like the credential |
+| `OA_CONTACT_EMAIL` | - | optional; sent to OpenAlex as its `mailto` parameter for the polite pool, and nowhere else |
 
 Runtime-settable under System → Service & config: watch folder, concurrency, upload limit, the
 research shares and reserves, the plan name, the five-hour release, the duplicate judge, git

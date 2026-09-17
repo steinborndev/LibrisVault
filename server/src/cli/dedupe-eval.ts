@@ -25,7 +25,7 @@
  * Fellow touched is `same: false` - that distinction is the whole difficulty, and this vault's
  * own history has real examples of it.
  *
- *   npm run dedupe-eval --workspace server -- --data ~/.local/share/curious/dedupe-eval.jsonl
+ *   npm run dedupe-eval --workspace server -- --data ~/.local/share/librisvault-dev/dedupe-eval.jsonl
  */
 
 import fs from 'node:fs'

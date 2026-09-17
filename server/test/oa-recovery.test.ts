@@ -474,7 +474,7 @@ describe('a URL job that cannot read its page (docs/sources/SPEC.md section 5)',
         resolve,
         request,
         tools: TOOLS,
-        oa: { enabled: true, courtesyMs: 0, env: { CURIOUS_CONTACT_EMAIL: mail } },
+        oa: { enabled: true, courtesyMs: 0, env: { OA_CONTACT_EMAIL: mail } },
       }),
     ).rejects.toThrow(/HTTP 403/)
     // It reached OpenAlex as a User-Agent, which no error message repeats...
