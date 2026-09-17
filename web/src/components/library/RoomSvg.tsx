@@ -288,12 +288,17 @@ function Tag({ text, kind, night, y, dot }: { text: string; kind: Actor['tag']; 
    * there is no longer a pill edge to be unbalanced against.
    */
   const w = text.length * 6.15 + 14 + (dot !== undefined ? 9 : 0)
-  const ink = {
-    fellow: night ? '#7fa7ff' : TOK.accent,
-    visitor: night ? '#9aa7c2' : TOK.muted,
-    asleep: night ? '#78859f' : TOK.faint,
-    warn: night ? '#e2a64d' : TOK.warn,
-  }[kind]
+  /*
+   * White, with one exception. The colour used to carry the actor's state - a Fellow blue, a
+   * visitor grey, a sleeper fainter still - and for those three the caption already says it in
+   * words ("Ada (asleep)"), which is a better way to say it than a shade nobody decodes.
+   *
+   * `warn` keeps its amber, because it is the one state that is an ALARM: a blocked Fellow, a
+   * run that came back not ok. `tag` is read nowhere else in the app, so white across the board
+   * would have left the scene computing a state that nothing renders - and taken the room's
+   * only colour of alarm with it.
+   */
+  const ink = kind === 'warn' ? (night ? '#e2a64d' : TOK.warn) : '#ffffff'
   return (
     <g>
       <rect className="lib-tag" x={-w / 2} y={y - 9} width={w} height={18} rx={9} fill="transparent" />

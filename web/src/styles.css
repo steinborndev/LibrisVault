@@ -7480,8 +7480,12 @@ tr:focus-within .rowacts {
    Two changes on 2026-09-17. It answers to the NAME rather than to the whole pill: the pill is
    as wide as the text plus its padding, and a border that lit up from the transparent margin
    around the letters had no visible cause. `:has()` is what reaches from the hovered text back
-   to the rect that precedes it. And it is 2px rather than 1: against a dark room 1px was
-   plenty, against the day room's pale parquet it was a hairline.
+   to the rect that precedes it. And it is 2px rather than 1, because a hairline was easy to
+   miss.
+
+   The colours are the shelf's lit edge exactly, in both rooms, because it is the same
+   statement: this is the thing under the pointer. Two lights of two colours in one room would
+   read as two kinds of thing.
 
    The figure under it stays dark - it is drawn in another layer, so no rule reaches across,
    and lighting both would take a hover state rather than a line of CSS. */
@@ -7495,7 +7499,7 @@ tr:focus-within .rowacts {
    class and quietly wins - the first attempt at this line did nothing at all. */
 .lib-svg .lib-tag-name { pointer-events: auto; }
 @media (hover: hover) {
-  .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #b06a12; }
+  .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #fff4e2; }
   .lib-svg.night .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #ffd9a8; }
 }
 /* Light appearing is not motion, but a fade is an animation; whoever asked for less of it
