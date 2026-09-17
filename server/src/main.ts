@@ -117,7 +117,9 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   const pin = refreshTransportPin(config.vaultRoot)
   // Before anything can write: derived artifacts and agent scratch stay out of vault history.
   // Startup, not first-index-build, because an agent run can leave scratch long before one.
-  ensureVaultExcludes(config.vaultRoot)
+  // A vault this process cannot write (a read-only demo mount) is reported below, not fatal:
+  // the exclude file is hygiene for writers, and such an instance has none.
+  const excludes = ensureVaultExcludes(config.vaultRoot)
 
   const db = openDb(defaultDbPath())
   // The live-update bus is shared: the store publishes job/log events, the queue publishes
@@ -252,7 +254,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   }
 
   const usage =
-    config.agentsEnabled === true && !config.demoMode
+    config.agentsEnabled === true
       ? new UsageMonitor({
           store: new SqliteUsageSampleStore(db),
           overrides: new SqlitePlanOverrideStore(db),
@@ -292,12 +294,15 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     ...(usage !== undefined ? { usage } : {}),
   })
 
-  // Fellows (docs/agents/SPEC.md) live behind AGENTS_ENABLED and never in demo mode. The
-  // notebook writer commits behind the shared mutex and honours gitAutoCommit like a user edit.
-  // The app logger exists only after buildServer; until then Fellow log lines are dropped.
+  // Fellows (docs/agents/SPEC.md) live behind AGENTS_ENABLED. A demo instance constructs them
+  // too, so the Library, the recaps and the pinboard can be READ from a seeded database, but
+  // never runs one: the shift and the recap scheduler stay off behind `passive` below, and the
+  // request guard refuses every write before a handler runs (SPEC.md §12.8). The notebook
+  // writer commits behind the shared mutex and honours gitAutoCommit like a user edit. The app
+  // logger exists only after buildServer; until then Fellow log lines are dropped.
   const handoffStore = new SqliteHandoffStore(db)
   const fellows =
-    config.agentsEnabled === true && !config.demoMode
+    config.agentsEnabled === true
       ? new FellowService({
           // A live five-hour release suspends the runs-per-day quota (SPEC section 8.6).
           quotaSuspended: () => usage?.overrideNow() != null,
@@ -595,10 +600,14 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   if (recaps !== undefined && !passive) recaps.start()
 
   // Log what the service actually runs with (overrides applied), not the bare baseline.
-  app.log.info({ ...describeConfig(effectiveConfig), transportPin: pin }, 'vault-service started')
+  app.log.info({ ...describeConfig(effectiveConfig), transportPin: pin, vaultExcludes: excludes }, 'vault-service started')
+  if (excludes === 'unwritable') {
+    app.log.warn('the vault is not writable by this process: .git/info/exclude was left as it is (expected on a read-only instance)')
+  }
   if (config.demoMode) {
     app.log.info(
-      'DEMO MODE: read-only instance — ingestion, research, maintenance, page edits and Telegram are disabled.',
+      'DEMO MODE: read-only instance. Ingestion, research, maintenance, page edits and Telegram are disabled' +
+        (fellows !== undefined ? '; the Fellows are shown from the database and never run.' : '.'),
     )
   } else if (setupMode) {
     app.log.warn(
