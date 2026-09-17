@@ -176,7 +176,13 @@ export interface SpawnInput {
   readonly runFirstStep?: boolean
 }
 
-export type RefusalCode = 'unknown' | 'state' | 'in-flight' | 'quota' | 'budget' | 'kind' | 'scope' | 'reserve' | 'share'
+export type RefusalCode = 'unknown' | 'state' | 'in-flight' | 'quota' | 'budget' | 'kind' | 'scope' | 'reserve' | 'share' | 'full'
+
+/**
+ * How many Fellows the Library seats: one desk each in the main room (docs/agents/SPEC.md
+ * 10.13). The web's room model draws exactly this many (`web/src/lib/library/room.ts`).
+ */
+export const DESK_COUNT = 10
 
 export interface Refusal {
   readonly status: 404 | 409
@@ -679,6 +685,15 @@ export class FellowService {
     if (this.agents.bySlug(slug) !== undefined) {
       return { refusal: { status: 409, code: 'state', error: `a Fellow named "${input.name}" (slug ${slug}) already exists` } }
     }
+    /*
+     * A desk before anything else (2026-09-17): the room seats ten, and a Fellow with nowhere
+     * to stand is not spawned. The lowest free number, so a retirement's desk is the next one
+     * taken - the room fills from the first desk and never leaves a gap standing.
+     */
+    const desk = this.freeDesk()
+    if (desk === null) {
+      return { refusal: { status: 409, code: 'full', error: `the room seats ${DESK_COUNT} Fellows and every desk is taken; retire one first` } }
+    }
     const now = this.now().toISOString()
     /*
      * The standing work. `tasks` when the caller sends them, otherwise the single intent as one
@@ -728,6 +743,7 @@ export class FellowService {
       sleepCode: null,
       skipUntil: null,
       notebookPath: notebookPath(slug),
+      desk,
       createdAt: now,
       updatedAt: now,
       retiredAt: null,
@@ -1841,6 +1857,13 @@ export class FellowService {
   }
 
   /** Retires a Fellow: pending proposals expire, the notebook says so, its pages stay (section 5.2). */
+  /** The lowest desk no living Fellow keeps, or null when all ten are taken. */
+  private freeDesk(): number | null {
+    const taken = new Set(this.agents.list().filter((a) => a.state !== 'retired').map((a) => a.desk))
+    for (let n = 0; n < DESK_COUNT; n++) if (!taken.has(n)) return n
+    return null
+  }
+
   async retire(id: string): Promise<AgentRecord | undefined> {
     const agent = this.agents.get(id)
     if (!agent) return undefined
@@ -1848,8 +1871,9 @@ export class FellowService {
     // Pending handoffs to a retired Fellow become unclaimed requests (section 5.2).
     const unclaimed = this.handoffs?.unclaimTarget(id, this.now().toISOString()) ?? 0
     if (unclaimed > 0) this.log('info', `fellows: ${unclaimed} handoff(s) to ${agent.name} are unclaimed now`)
-    // A skip is a statement about a night to come; a retired Fellow has none.
-    return this.setState(id, { state: 'retired', sleepReason: null, sleepCode: null, skipUntil: null, retiredAt: this.now().toISOString() })
+    // A skip is a statement about a night to come; a retired Fellow has none - and its desk
+    // goes back to the room, for the next spawn to take.
+    return this.setState(id, { state: 'retired', sleepReason: null, sleepCode: null, skipUntil: null, desk: null, retiredAt: this.now().toISOString() })
   }
 
   /** Removes a retired Fellow's record; the notebook and its pages stay in the vault. */

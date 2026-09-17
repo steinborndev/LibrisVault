@@ -119,6 +119,12 @@ export interface AgentRecord {
   /** "Skip tonight" (v17): the shift of this cycle date runs nothing for the Fellow. */
   readonly skipUntil: string | null
   readonly notebookPath: string
+  /**
+   * The desk the Fellow keeps in the Library's main room, 0 to 9 (v31, 2026-09-17): given at
+   * spawn as the lowest free one, freed at retirement, null once retired. The room has ten,
+   * which is why a spawn is refused when all ten are taken (`FellowService.spawn`).
+   */
+  readonly desk: number | null
   readonly createdAt: string
   readonly updatedAt: string
   readonly retiredAt: string | null
@@ -148,6 +154,7 @@ export type AgentPatch = Partial<
     | 'sleepReason'
     | 'sleepCode'
     | 'skipUntil'
+    | 'desk'
     | 'retiredAt'
   >
 >
@@ -236,12 +243,13 @@ interface Row {
   retired_at: string | null
   tasks: string | null
   task_cursor: number | null
+  desk: number | null
 }
 
 const COLUMNS =
   'id, name, slug, intent, scope, home_domain, extra_domains, lens, model, effort, step, quota_runs_per_day, ' +
   'quota_week_pct, autonomy, priority, state, sleep_reason, sleep_code, skip_until, notebook_path, created_at, updated_at, retired_at, ' +
-  'tasks, task_cursor, art, nightly'
+  'tasks, task_cursor, art, nightly, desk'
 
 /** The stored list, or the intent as one explore task when it is missing or corrupt. */
 export function parseTasks(raw: string | null | undefined, intent: string): AgentTask[] {
@@ -310,6 +318,7 @@ function toRecord(row: Row): AgentRecord {
     sleepCode: row.sleep_code as AgentSleepCode | null,
     skipUntil: row.skip_until,
     notebookPath: row.notebook_path,
+    desk: row.desk,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     retiredAt: row.retired_at,
@@ -326,7 +335,7 @@ export class SqliteAgentStore implements AgentStore {
     this.db
       .prepare(
         `INSERT INTO agents (${COLUMNS}, user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         r.id,
@@ -356,6 +365,7 @@ export class SqliteAgentStore implements AgentStore {
         r.taskCursor,
         r.art,
         r.nightly,
+        r.desk,
         this.userId,
       )
   }
@@ -390,7 +400,7 @@ export class SqliteAgentStore implements AgentStore {
         `UPDATE agents SET name = ?, intent = ?, scope = ?, home_domain = ?, extra_domains = ?, lens = ?, model = ?,
            effort = ?, step = ?, quota_runs_per_day = ?, quota_week_pct = ?, autonomy = ?, priority = ?, state = ?,
            sleep_reason = ?, sleep_code = ?, skip_until = ?, updated_at = ?, retired_at = ?,
-           tasks = ?, task_cursor = ?, art = ?, nightly = ?
+           tasks = ?, task_cursor = ?, art = ?, nightly = ?, desk = ?
          WHERE id = ? AND user_id = ?`,
       )
       .run(
@@ -417,6 +427,7 @@ export class SqliteAgentStore implements AgentStore {
         next.taskCursor,
         next.art,
         next.nightly,
+        next.desk,
         id,
         this.userId,
       )

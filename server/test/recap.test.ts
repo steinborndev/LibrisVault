@@ -74,6 +74,7 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   notebookPath: notebookPath('ada'),
   createdAt: '2026-09-06T08:00:00.000Z',
   updatedAt: '2026-09-06T08:00:00.000Z',
+  desk: null,
   retiredAt: null,
   ...over,
 })

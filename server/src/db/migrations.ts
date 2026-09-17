@@ -776,6 +776,23 @@ CREATE INDEX idx_jobs_finished ON jobs(finished_at);
 CREATE INDEX idx_jobs_sha256   ON jobs(sha256);
 `
 
+/*
+ * A Fellow's desk (docs/agents/SPEC.md 10.13, 2026-09-17). The Library's main room has ten
+ * desks and every Fellow keeps one: given at spawn as the lowest free number, freed at
+ * retirement. It is a column rather than a position in a list, because a list moves every
+ * Fellow behind a retired one over by a desk, and a place that moves is not a place. The
+ * Fellows already there take desks in the order they were spawned, retired ones none.
+ */
+const V31 = `
+ALTER TABLE agents ADD COLUMN desk INTEGER;
+UPDATE agents SET desk = (
+  SELECT seats.n FROM (
+    SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at, id) - 1 AS n
+    FROM agents WHERE state != 'retired'
+  ) AS seats WHERE seats.id = agents.id
+) WHERE state != 'retired';
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -807,4 +824,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 28, up: V28 },
   { version: 29, up: V29 },
   { version: 30, up: V30 },
+  { version: 31, up: V31 },
 ]

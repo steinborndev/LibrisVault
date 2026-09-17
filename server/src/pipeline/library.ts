@@ -72,6 +72,8 @@ export interface SceneFellow {
   readonly run: { readonly id: string; readonly kind: string; readonly channel: string; readonly label: string | null; readonly startedAt: string; readonly waiting: boolean; readonly typicalMs: number | null } | null
   readonly next: { readonly topic: string; readonly kind: string; readonly estCostUsd: number | null; readonly status: string } | null
   readonly lastActive: string | null
+  /** The desk the Fellow keeps in the main room, 0 to 9; null for a retired one. */
+  readonly desk: number | null
 }
 
 export interface SceneRun {
@@ -287,6 +289,7 @@ export class LibraryService {
         : null,
       next: s.next ? { topic: s.next.topic, kind: s.next.kind, estCostUsd: s.next.estCostUsd, status: s.next.status } : null,
       lastActive: s.lastRun?.finishedAt ?? null,
+      desk: s.agent.desk,
     }))
     const attributed = new Set(fellows.map((f) => f.run?.id).filter((x): x is string => x !== undefined && x !== null))
     const jobHistory = this.o.jobHistory?.() ?? []

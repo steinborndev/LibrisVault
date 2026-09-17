@@ -879,6 +879,8 @@ export interface SceneFellow {
   run: { id: string; kind: string; channel: string; label: string | null; startedAt: string; waiting: boolean; typicalMs: number | null } | null
   next: { topic: string; kind: string; estCostUsd: number | null; status: string } | null
   lastActive: string | null
+  /** The desk the Fellow keeps in the main room, 0 to 9; null for a retired one. */
+  desk: number | null
 }
 
 export interface SceneRun {
@@ -971,6 +973,8 @@ export interface FellowRecord {
   sleepCode: string | null
   skipUntil: string | null
   notebookPath: string
+  /** The desk the Fellow keeps in the Library's main room, 0 to 9; null once retired. */
+  desk: number | null
   createdAt: string
   updatedAt: string
   retiredAt: string | null

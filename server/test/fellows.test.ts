@@ -16,7 +16,7 @@ import { MemoryAgentStore, SqliteAgentStore, slugify, type AgentRecord } from '.
 import { MemoryAgentRunStore, SqliteAgentRunStore, type AgentRunRecord } from '../src/db/agent-runs.js'
 import { MemoryProposalStore, SqliteProposalStore } from '../src/db/proposals.js'
 import { renderNotebook, parseNotebook, readBackNotebook, notebookPath, NotebookWriter } from '../src/pipeline/notebook.js'
-import { FellowService, localDate } from '../src/pipeline/fellows.js'
+import { FellowService, localDate, DESK_COUNT } from '../src/pipeline/fellows.js'
 import { windowAt } from '../src/pipeline/clock.js'
 import { DEFAULT_NIGHT_WINDOW } from '../src/db/settings.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
@@ -66,6 +66,7 @@ const agentRecord = (over: Partial<AgentRecord> = {}): AgentRecord => ({
   notebookPath: notebookPath('ada'),
   createdAt: '2026-09-06T08:00:00.000Z',
   updatedAt: '2026-09-06T08:00:00.000Z',
+  desk: null,
   retiredAt: null,
   ...over,
 })
@@ -257,6 +258,39 @@ describe('FellowService against a git vault', () => {
     const notebook = fs.readFileSync(path.join(vaultRoot, 'wiki/meta/agents/ada.md'), 'utf8')
     expect(notebook).toContain('research · ' + agentRecord().intent)
     expect(notebook).toContain('1 page(s) · 0.50 USD')
+  })
+
+  it('seats every Fellow at its own desk: the lowest free one, freed by retirement and taken again', async () => {
+    const spawn = (name: string): ReturnType<FellowService['spawn']> => service.spawn({ name, intent: 'Standing work', homeDomain: 'astronomy', runFirstStep: false })
+    const a = (await spawn('Ada')).agent!
+    const b = (await spawn('Bo')).agent!
+    expect([a.desk, b.desk]).toEqual([0, 1])
+    // The record and the scene say the same desk.
+    expect(service.list().map((f) => [f.agent.name, f.agent.desk])).toEqual([['Ada', 0], ['Bo', 1]])
+    const retired = await service.retire(a.id)
+    expect(retired?.desk).toBeNull()
+    // The desk a retirement freed is the next one taken - the room never keeps a gap standing.
+    const c = (await spawn('Cy')).agent!
+    expect(c.desk).toBe(0)
+    expect(service.list().filter((f) => f.agent.state !== 'retired').map((f) => f.agent.desk)).toEqual([1, 0])
+  })
+
+  it('refuses the eleventh Fellow while every desk is taken, and seats it after a retirement', async () => {
+    const spawn = (name: string): ReturnType<FellowService['spawn']> => service.spawn({ name, intent: 'Standing work', homeDomain: 'astronomy', runFirstStep: false })
+    const seated: AgentRecord[] = []
+    for (let n = 0; n < DESK_COUNT; n++) seated.push((await spawn(`Fellow ${n}`)).agent!)
+    expect(seated.map((f) => f.desk)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    const full = await spawn('One too many')
+    expect(full.agent).toBeUndefined()
+    expect(full.refusal).toMatchObject({ status: 409, code: 'full' })
+    expect(full.refusal!.error).toContain('every desk is taken')
+    // Nothing was created for the refused one: no record, no notebook.
+    expect(service.list()).toHaveLength(DESK_COUNT)
+    expect(fs.existsSync(path.join(vaultRoot, 'wiki/meta/agents/one-too-many.md'))).toBe(false)
+    await service.retire(seated[4]!.id)
+    const next = await spawn('Not too many')
+    expect(next.refusal).toBeUndefined()
+    expect(next.agent?.desk).toBe(4)
   })
 
   /*
