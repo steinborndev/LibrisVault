@@ -463,21 +463,33 @@ export async function commitFileStatus(vaultRoot: string, hash: string, from?: s
   try {
     // With `from`, the run produced a RANGE of commits rather than one: the net effect of
     // `from..hash` is what it did, and `diff` reports it in the same shape as `show`.
+    /*
+     * NUL-separated, like every other listing in this file, and not as lines: git quotes a path
+     * that carries a non-ASCII character and escapes its bytes, and the quoted text handed back
+     * to git as a pathspec matches nothing. That is how the revert of an expand run failed on a
+     * page whose name held a dash (2026-09-17), leaving the run's commit in the vault. The
+     * records are `status\0path\0`, and `R<score>\0old\0new\0` for a rename.
+     */
     const stdout =
       from === undefined
-        ? await git(vaultRoot, ['show', '--name-status', '--format=', '-M', hash])
-        : await git(vaultRoot, ['diff', '--name-status', '-M', from, hash])
-    for (const line of stdout.split('\n')) {
-      const m = /^([AMDR])\d*\t(.+?)(?:\t(.+))?$/.exec(line)
-      if (!m) continue
-      const status = m[1]!
+        ? await git(vaultRoot, ['show', '--name-status', '-z', '--format=', '-M', hash])
+        : await git(vaultRoot, ['diff', '--name-status', '-z', '-M', from, hash])
+    const parts = stdout.split('\0')
+    for (let k = 0; k < parts.length; k++) {
+      const status = parts[k]!.replace(/^\s+/, '')
+      if (!/^[AMDR]/.test(status)) continue
       // A rename is a deletion of the old path plus an addition of the new one: the expand
       // validator must see the old page go (a rename is a violation), and a restore must
       // bring it back while removing the new path.
-      if (status === 'R') {
-        out.set(m[2]!, 'D')
-        if (m[3] !== undefined) out.set(m[3], 'A')
-      } else out.set(m[2]!, status as 'A' | 'M' | 'D')
+      if (status.startsWith('R')) {
+        const oldPath = parts[++k]
+        const newPath = parts[++k]
+        if (oldPath) out.set(oldPath, 'D')
+        if (newPath) out.set(newPath, 'A')
+      } else {
+        const p = parts[++k]
+        if (p) out.set(p, status.charAt(0) as 'A' | 'M' | 'D')
+      }
     }
   } catch {
     /* an unknown or unreadable commit reports nothing; the caller falls back to "touched" */

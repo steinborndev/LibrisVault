@@ -326,4 +326,29 @@ describe('an expand run against a git vault', () => {
     expect(read('wiki/concepts/Transit Photometry.md')).toContain('the original claim')
     expect((await restoreCommitPaths(vaultRoot, 'deadbeef', 'x')).reverted).toBe(false)
   })
+
+  it('git helpers: a page named with a non-ASCII character is listed and restored by its real name', async () => {
+    /*
+     * git quotes such a path and escapes its bytes unless asked for NUL-separated output; the
+     * revert once handed that quoted text back to git as a pathspec, which matched nothing, and
+     * an expand run that should have been undone stayed in the vault (2026-09-17).
+     */
+    const name = 'wiki/concepts/Range \u2014 Notes.md'
+    write(name, PAGE('# Range\n\nfirst'))
+    git('add', '-A')
+    git('commit', '-q', '-m', 'add')
+    write(name, PAGE('# Range\n\nchanged'))
+    write('wiki/concepts/Transit Photometry.md', PAGE('# Transit Photometry\n\nchanged too'))
+    git('add', '-A')
+    git('commit', '-q', '-m', 'touch')
+    const hash = git('rev-parse', 'HEAD').trim()
+    const status = await commitFileStatus(vaultRoot, hash)
+    expect(status.get(name)).toBe('M')
+    expect([...status.keys()].some((k) => k.startsWith('"'))).toBe(false)
+    expect([...(await commitFileStatus(vaultRoot, hash, `${hash}^`)).keys()]).toContain(name)
+    const restored = await restoreCommitPaths(vaultRoot, hash, `revert expand ${hash.slice(0, 8)}`)
+    expect(restored).toMatchObject({ reverted: true })
+    expect(read(name)).toContain('first')
+    expect(read('wiki/concepts/Transit Photometry.md')).not.toContain('changed too')
+  })
 })
