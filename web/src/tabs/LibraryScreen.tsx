@@ -783,8 +783,8 @@ export function LibraryScreen({
    * nothing is worse than no control. The user's own choice is remembered and comes back when
    * the board closes.
    */
-  const boardOpen = board !== null && shelf === null
-  const view: Mode = boardOpen ? 'focus' : mode
+  // A room on its own is always in focus; Full exists for a department's column (2026-09-17).
+  const view: Mode = shelf === null ? 'focus' : mode
 
   const state = queryState(scene, 'the library')
   const clock = new Date()
@@ -891,12 +891,13 @@ export function LibraryScreen({
         <div className={`graph-controls lib-headline${ccOpen ? ' cc' : board === 'reading' && shelf === null ? ' rl' : ''}`}>
           <div className="lib-head-left">
             {/*
-             * One slot, whatever stands in it. The room's toggle when a room is what you are
-             * looking at; the reading list's own two lists when that board is open, because
-             * they are the choice that matters there; nothing for the other two boards.
+             * One slot, whatever stands in it. The department's Focus/Full toggle while a
+             * shelf is open, because the column beside the room is that department's; the
+             * reading list's own two lists when that board is open, because they are the
+             * choice that matters there; nothing for a room on its own (2026-09-17: a room
+             * is always in focus, and a toggle that changed nothing visible was noise), and
+             * nothing for the other two boards or the command centre, which cover the room.
              */}
-            {/* The command centre always opens in focus: the room behind it is not what you
-                are looking at, so there is no mode to choose while it is open. */}
             {ccOpen ? null : board === 'reading' && shelf === null ? (
               <div className="seg sm ink" role="radiogroup" aria-label="Reading list">
                 <button role="radio" aria-checked={readingTab === 'current'} onClick={() => { setReadingTab('current'); readingGo(null) }}>
@@ -906,7 +907,7 @@ export function LibraryScreen({
                   Archived
                 </button>
               </div>
-            ) : boardOpen ? null : (
+            ) : shelf === null ? null : (
               <div className="seg sm ink" role="radiogroup" aria-label="Mode">
                 <button role="radio" aria-checked={mode === 'focus'} onClick={() => setMode('focus')}>
                   Focus
@@ -1013,15 +1014,6 @@ export function LibraryScreen({
                     </>
                   )}
                 </span>
-              </span>
-            )}
-            {/* The clock and the floor, where the rooms are chosen rather than in a corner of
-                the drawing: it says what time it is IN the room, which is the same kind of fact
-                as which room you are in. Its width is fixed so the strip beside it starts at
-                one x whatever the sentence says. */}
-            {!ccOpen && shelf === null && board === null && (
-              <span className={`chip lib-when${night ? ' dark' : ''}`} title={`${hhmm} · ${night ? 'night' : 'day'} · ${floorLine(actors)}`}>
-                <Icon name={night ? 'moon' : 'sun'} /> {hhmm} · {night ? 'night' : 'day'} · {floorLine(actors)}
               </span>
             )}
             {!ccOpen && shelf === null && board === null && rooms.length > 0 && current && (
@@ -1348,7 +1340,15 @@ export function LibraryScreen({
             )
           })()}
 
-          {/* Bottom right, where the Graph screen and the department window both keep theirs.
+          {/* The clock and the floor, in the drawing's bottom-right corner (2026-09-17): a
+              caption on the picture rather than a chip in the headline, frameless, with a
+              colour of its own for the night. Only over the room: a window covers the drawing. */}
+          {!windowOpen && (
+            <div className={`lib-corner br lib-when${night ? ' dark' : ''}`} title={`${hhmm} · ${night ? 'night' : 'day'} · ${floorLine(actors)}`}>
+              <Icon name={night ? 'moon' : 'sun'} /> {hhmm} · {night ? 'night' : 'day'} · {floorLine(actors)}
+            </div>
+          )}
+          {/* Bottom right too, where the Graph screen and the department window both keep theirs.
               Only over the room: a window covers the drawing and carries its own. */}
           {!windowOpen && <Shortcuts rows={ROOM_SHORTCUTS} corner />}
           {popover && (

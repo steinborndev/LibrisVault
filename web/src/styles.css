@@ -9143,26 +9143,33 @@ tr:focus-within .rowacts {
 .lib-head-mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
 /*
  * The room strip stays in the middle and stays put (2026-09-14). Three columns rather than a
- * centred row: the strip is the middle one, so it is centred on the headline's middle zone,
- * and the clock lives in the column to its left and grows into it. A flex row would have
- * pushed the strip aside every time the clock had more to say - "quiet" in an empty library,
- * "2 Fellows at work, 1 visitor" in a busy one - and the one control you aim at by memory
- * must not move because something beside it got longer. The column clips instead.
+ * centred row: the strip is the middle one, so it is centred on the headline's middle zone
+ * whatever else stands in the zone. The clock used to live in the column to its left and grow
+ * into it; a flex row would have pushed the strip aside every time the clock had more to say,
+ * and the one control you aim at by memory must not move because something beside it got
+ * longer. The clock moved to the drawing's corner on 2026-09-17, and the strip is pinned to
+ * the middle column by name, so that as the first child it does not fall into the first.
  */
 .lib-headline:has(> .lib-head-mid > .lib-strip) .lib-head-mid {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   justify-content: unset;
 }
+.lib-headline:has(> .lib-head-mid > .lib-strip) .lib-head-mid > .lib-strip { grid-column: 2; }
+/* The clock and the floor, as a caption in the drawing's bottom-right corner: no frame, no
+   fill, the page's dim ink by day and a pale one on the night room's dark ground. It takes no
+   pointer, so the room under it stays clickable to the edge. */
 .lib-when {
-  justify-self: start;
-  min-width: 0;
-  max-width: 100%;
-  justify-content: flex-start;
-  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
   white-space: nowrap;
-  text-overflow: ellipsis;
+  pointer-events: none;
 }
+.lib-when.dark { color: #b9c2d4; }
 /*
  * While the command centre is open the middle sits in the row's true centre rather than in
  * what is left over: the right-hand slot swaps "Night shift" for a decisions count, and a
