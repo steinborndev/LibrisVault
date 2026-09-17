@@ -36,6 +36,16 @@ struck through on its own page. The tabular view that used to be called Library 
 **Catalog**; nothing behaves differently, but the tab is renamed, and that belongs in the
 release notes.
 
+**The graph, and the screens around it.** The graph gained a lock: a padlock in the canvas's
+corner holds the picture on screen, one click on a node then opens its page, and Escape brings
+the held picture back from a page, a filter change, another tab or a reload (sessionStorage,
+one sitting). Every search a bar or a head carries now folds behind a magnifier with one
+mechanic - on the graph, in the Catalog, in the Research ledgers and on Home: `/` opens it,
+Escape clears the text and then folds it, folding clears the text. The Catalog's control column
+took the graph's shape (type rows in the type's colour, sort as paired strips, the reset in the
+column), Home lost the six lead facts under its headline, and the three screens share one
+bucket label map. `web/DESIGN.md` records the rules.
+
 **What a reviewer should know first.**
 
 - **Network.** Open-access recovery makes outbound requests of the service's own to
@@ -62,7 +72,7 @@ release notes.
   runs under `scripts/demo-research/` are real runs against that vault, on public subjects
   chosen for it.
 
-**Size.** 391 commits, 430 files, about 74k lines added and 4k removed. The commit messages are
+**Size.** 401 commits, 436 files, about 74k lines added and 4k removed. The commit messages are
 the design record and were audited twice for private content; the engineering journals in
 `docs/tasks/` are merged as they are, findings and dead ends included.
 
