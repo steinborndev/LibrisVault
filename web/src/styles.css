@@ -7471,17 +7471,32 @@ tr:focus-within .rowacts {
 @media (hover: hover) {
   .lib-slot:hover .bc-rim { opacity: 0.95; }
 }
-/* The same idea on a Fellow's bubble, which is clickable and opens their card. Its OWN border
+/* The same idea on a Fellow's bubble, which is clickable and opens their card. Its OWN outline
    rather than an edge of its own: the bubble is a flat pill lying in front of the room, with
-   no faces and no light direction, so a rim would be nothing but the outline it already has.
-   Brightened, not thickened - it is 18px tall against the case's 132, and the 1.6px that
-   reads as a highlight there would read as a frame here. The figure under it stays dark: it
-   is drawn in another layer, so `:hover` cannot reach across, and lighting both would take a
-   hover state rather than a rule. */
-.lib-tag { transition: stroke 140ms ease-out; }
+   no faces and no light direction, so a rim would be nothing but the border it draws anyway.
+   At rest it draws none at all - the pill has no fill either, and a label over a room is a
+   caption, not a lozenge.
+
+   Two changes on 2026-09-17. It answers to the NAME rather than to the whole pill: the pill is
+   as wide as the text plus its padding, and a border that lit up from the transparent margin
+   around the letters had no visible cause. `:has()` is what reaches from the hovered text back
+   to the rect that precedes it. And it is 2px rather than 1: against a dark room 1px was
+   plenty, against the day room's pale parquet it was a hairline.
+
+   The figure under it stays dark - it is drawn in another layer, so no rule reaches across,
+   and lighting both would take a hover state rather than a line of CSS. */
+.lib-tag { stroke: transparent; stroke-width: 2; transition: stroke 140ms ease-out; }
+/* The one label in the room that takes the pointer. `.lib-svg text` turns it off for all of
+   them, so that a shelf sign or a sleeping figure's "z" cannot intercept a click meant for the
+   thing under it - but this name has to be hoverable to be the thing the outline answers to.
+   It changes only which element the event targets: the name sits inside the bubble's own
+   group, so the click still reaches the handler that opens the Fellow's card. Written with the
+   svg in front of it because `.lib-svg text` is one class and one type, which outranks a bare
+   class and quietly wins - the first attempt at this line did nothing at all. */
+.lib-svg .lib-tag-name { pointer-events: auto; }
 @media (hover: hover) {
-  .lib-figure.clickable:hover .lib-tag { stroke: #fff4e2; }
-  .lib-svg.night .lib-figure.clickable:hover .lib-tag { stroke: #ffd9a8; }
+  .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #b06a12; }
+  .lib-svg.night .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #ffd9a8; }
 }
 /* Light appearing is not motion, but a fade is an animation; whoever asked for less of it
    gets the edge switched rather than eased. */

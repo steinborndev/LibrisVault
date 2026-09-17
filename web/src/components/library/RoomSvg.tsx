@@ -139,13 +139,6 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
   return (
     <g className={`lib-case${selected ? ' selected' : ''}`}>
       <Box P={P} i0={i0} j0={j0} a={a} b={b} h={h} c={c} />
-      {spare === undefined && (
-        <>
-          {[0.3, 0.62].map((f) => (
-            <polyline key={f} points={pts([P(i0, j0 + b * f, h), P(i0 + a, j0 + b * f, h)])} fill="none" stroke={c.right} strokeOpacity={0.45} strokeWidth={0.8} />
-          ))}
-        </>
-      )}
       <polygon points={pts(bandPoly)} fill={c.band} />
       {spare !== undefined
         ? faceText(P, i0 + 0.12, j0 + b, rowsTop + 1, spare, mix(c0.sign, c.band, 0.45), a - 0.2, 'free')
@@ -277,18 +270,44 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
  * room the dot takes and the text keeps the rest of it, centred in what is left.
  */
 function Tag({ text, kind, night, y, dot }: { text: string; kind: Actor['tag']; night: boolean; y: number; dot?: string | undefined }): React.ReactElement {
-  const w = text.length * 6.15 + 14 + (dot !== undefined ? 11 : 0)
-  const fills = {
-    fellow: [night ? '#1b2947' : TOK.accentSoft, night ? '#7fa7ff' : TOK.accent, night ? '#30405f' : '#c5d3f4'],
-    visitor: [night ? '#232a3a' : TOK.mutedBg, night ? '#9aa7c2' : TOK.muted, night ? '#30405f' : '#d1d7e2'],
-    asleep: [night ? '#1a2233' : TOK.elev2, night ? '#78859f' : TOK.faint, night ? '#30405f' : TOK.border],
-    warn: [night ? '#33270f' : TOK.warnBg, night ? '#e2a64d' : TOK.warn, night ? '#5a4a1a' : '#e8d3a0'],
+  /*
+   * The pill lost its fill and its resting border (2026-09-17): a label over a drawn room is a
+   * caption, and a filled lozenge behind every figure was a second row of furniture. What is
+   * left is the dot, the name in the colour its state gives it, and a border that appears only
+   * under the pointer.
+   *
+   * `fill="transparent"` rather than `"none"`, and the difference is not cosmetic: a shape
+   * with no fill is hit-tested on its stroke alone, and the bubble is what you click to open a
+   * Fellow's card - `none` would leave the click working only on the glyphs.
+   *
+   * The name is anchored to the DOT rather than centred in the pill, which is what finally
+   * fixed the gap between them. The pill's width is an estimate (6.15px a character), the text
+   * is usually narrower than that, and a centred block splits the whole error into two margins
+   * - so the space in front of the name was mostly slack in a guess. Anchored, the gap is the
+   * 3px it says it is, whatever the estimate does, and the error lands after the name where
+   * there is no longer a pill edge to be unbalanced against.
+   */
+  const w = text.length * 6.15 + 14 + (dot !== undefined ? 9 : 0)
+  const ink = {
+    fellow: night ? '#7fa7ff' : TOK.accent,
+    visitor: night ? '#9aa7c2' : TOK.muted,
+    asleep: night ? '#78859f' : TOK.faint,
+    warn: night ? '#e2a64d' : TOK.warn,
   }[kind]
   return (
     <g>
-      <rect className="lib-tag" x={-w / 2} y={y - 9} width={w} height={18} rx={9} fill={fills[0]} stroke={fills[2]} />
+      <rect className="lib-tag" x={-w / 2} y={y - 9} width={w} height={18} rx={9} fill="transparent" />
       {dot !== undefined && <circle cx={-w / 2 + 10} cy={y} r={3} fill={dot} />}
-      <text x={dot !== undefined ? 5.5 : 0} y={y + 3.6} textAnchor="middle" fontFamily={FONT} fontSize={10.5} fontWeight={600} fill={fills[1]}>
+      <text
+        className="lib-tag-name"
+        x={dot !== undefined ? -w / 2 + 16 : 0}
+        y={y + 3.6}
+        textAnchor={dot !== undefined ? 'start' : 'middle'}
+        fontFamily={FONT}
+        fontSize={10.5}
+        fontWeight={600}
+        fill={ink}
+      >
         {text}
       </text>
     </g>
