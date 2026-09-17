@@ -1098,6 +1098,14 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
           onClick={props.onActorClick ? (e) => props.onActorClick!(a, e) : undefined}
           style={{ cursor: a.agentId ? 'pointer' : 'default' }}
         >
+          <title>{a.caption}</title>
+          {/* The body as a hit area, here in the bubble's own group (2026-09-17): the figure is
+              drawn in the room's layer and the bubble over everything, so no CSS could reach
+              from a hovered body to its bubble. A transparent rect over head and torso, in the
+              group that carries the bubble, makes the pointer on the body the pointer on the
+              bubble - the outline lights, and the click is the same click. Fellows only: a
+              visitor's bubble opens nothing and lights nothing. */}
+          {a.agentId !== undefined && <rect className="lib-torso-hit" x={-8} y={-43} width={16} height={32} fill="transparent" />}
           <Tag text={a.caption} kind={a.tag} night={night} y={ty} dot={a.dot} />
         </g>,
       )

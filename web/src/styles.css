@@ -7535,9 +7535,12 @@ tr:focus-within .rowacts {
   stroke-linejoin: round;
   stroke-opacity: 0.6;
 }
+/* The body counts as the bubble (2026-09-17): a transparent rect over head and torso sits in
+   the bubble's group, so hovering the figure lights the same outline the name does. */
+.lib-torso-hit { cursor: pointer; }
 @media (hover: hover) {
-  .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #fff4e2; }
-  .lib-svg.night .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #ffd9a8; }
+  .lib-figure.clickable:has(.lib-tag-name:hover, .lib-torso-hit:hover) .lib-tag { stroke: #fff4e2; }
+  .lib-svg.night .lib-figure.clickable:has(.lib-tag-name:hover, .lib-torso-hit:hover) .lib-tag { stroke: #ffd9a8; }
 }
 /* Light appearing is not motion, but a fade is an animation; whoever asked for less of it
    gets the edge switched rather than eased. */
