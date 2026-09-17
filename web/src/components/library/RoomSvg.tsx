@@ -18,6 +18,8 @@ import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, FAV
 /** The case dimensions under the short names the geometry below reads in. */
 const a = CASE_W
 const b = CASE_D
+/** The width of a case's two uprights, in tiles. */
+const STILE = 0.08
 import { busyDesks, type Actor } from '../../lib/library/scene.ts'
 
 const FONT = '"Instrument Sans", system-ui, sans-serif'
@@ -147,8 +149,7 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
   /* The sign sits BETWEEN the stiles (2026-09-17): the two uprights run the full height of the
      case, and the band is let into the top of the front like a name plate, so nothing on the
      front changes where the sign begins. */
-  const stile = 0.08
-  const bandPoly: Pt[] = [P(i0 + stile, front, rowsTop + 1), P(i0 + a - stile, front, rowsTop + 1), P(i0 + a - stile, front, h - 3), P(i0 + stile, front, h - 3)]
+  const bandPoly: Pt[] = [P(i0 + STILE, front, rowsTop + 1), P(i0 + a - STILE, front, rowsTop + 1), P(i0 + a - STILE, front, h - 3), P(i0 + STILE, front, h - 3)]
   /*
    * The books as data - row, place along the case, width, height, colour - and no geometry,
    * so the memo survives a resize: the polygons themselves used to be memoised and stayed on
@@ -170,6 +171,10 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
       while (t < a - 0.2 && drawn < n) {
         const thin = rnd() < Math.max(0.1, volumeShare)
         const ds = thin ? 0.09 : 0.14 + rnd() * 0.1
+        /* A row ends short of the right stile. The spines stand a little back from the front,
+           so the projection carries them to the right, and a book allowed to reach the stile
+           stood over it (2026-09-17). Short of it by its own recess and a hair. */
+        if (t + ds > a - STILE - 0.16) break
         const hs = rowH - 4 - rnd() * 5
         const gap = rnd() < 0.08 ? 0.12 : 0.03
         const l = night ? 28 + rnd() * 12 : 40 + rnd() * 20
@@ -196,7 +201,7 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
    * with a lip between the stiles: a full-height side shows its inner face where it rises
    * past the shelves, and painted after the top that face swallowed the top (2026-09-17).
    */
-  const side = 0.08
+  const side = STILE
   const inner = rowsTop + 1
   const interior = { top: c.top, left: mix(c.left, '#ffffff', night ? 0.16 : 0.24), right: c.right }
   const body = (
