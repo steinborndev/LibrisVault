@@ -106,6 +106,13 @@ const SHOTS = [
     actHold: 7000,
   },
   {
+    // The pinboard of open questions, opened on every domain at once: the room's third window.
+    file: 'library-pinboard.png',
+    route: '/library?board=questions',
+    settle: `document.querySelectorAll('.reading-rows.questions li').length > 2`,
+    hold: 3000,
+  },
+  {
     // The command centre, opened on the night rather than on a list - which is the decision
     // the whole window rests on, so it is what a screenshot should show.
     file: 'command-centre.png',

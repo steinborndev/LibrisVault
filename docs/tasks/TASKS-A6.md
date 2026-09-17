@@ -1198,6 +1198,16 @@ this section lists what the merge carries because of it.
       with the room it hangs in. Tests: `server/test/questions.test.ts`, `web/test/questions.test.ts`.
       Not yet: wikilinks in a question rendered as links; the `unassigned` domain treated as none;
       a README screenshot of the board.
+- [x] README restructured on 2026-09-17 (881 lines to about half): Install and Run in place of
+      four setup sections, the Library section rewritten for the refurnished room and the
+      pinboard, the endpoint list moved to `docs/API.md` and the screenshot recipe to
+      `docs/screenshots.md`. Every image re-shot that shows the room, plus `library-pinboard`.
+- [x] End-to-end check of the session's Fellow and pinboard changes on 2026-09-17, over the API
+      and the browser against a throwaway copy of the demo vault: desks 0..9, the eleventh spawn
+      refused, a retirement's desk taken again, the strike and its commit, the veto of a planted
+      proposal, restore, the room's hover and click paths, the Research prefill - 46 checks, all
+      green, the production vault's HEAD and working tree identical before and after. The script
+      is session tooling, not part of the repo.
 - [x] Screenshots of the room re-shot from the synthetic vault (section 5's rule): `library-room`
       and `library-wing`. The command centre and the dossier were shot too and came out byte for
       byte the same: their windows cover the room.
