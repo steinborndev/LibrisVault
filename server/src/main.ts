@@ -575,7 +575,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   } else if (setupMode) {
     app.log.warn(
       `SETUP MODE: no Anthropic credential configured — ingestion, watcher, query and maintenance ` +
-        `are disabled. Open ${url} and add the credential under Maintenance → Settings.`,
+        `are disabled. Open ${url} and add the credential under System → Integrations.`,
     )
   }
 

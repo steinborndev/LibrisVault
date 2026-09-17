@@ -362,7 +362,7 @@ export function requireAuth(config: Config): AuthConfig {
   throw new ConfigError(
     `no Anthropic credential configured. Set exactly one of ${CREDENTIAL_ENV_VARS.join(' or ')} ` +
       `(subscription path: run \`claude setup-token\` and store the token in ${DEFAULT_ENV_FILE}, ` +
-      `or start the service and enter it under Maintenance → Settings).`,
+      `or start the service and enter it under System → Integrations).`,
   )
 }
 

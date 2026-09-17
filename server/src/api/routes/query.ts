@@ -39,7 +39,7 @@ export function registerQueryRoute(app: FastifyInstance, ctx: AppContext): void 
     const auth = config.auth
     if (auth === null) {
       return reply.code(503).send({
-        error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+        error: 'no Anthropic credential configured — add it under System → Integrations, then restart',
       })
     }
     const body = (req.body ?? {}) as { question?: unknown; sessionId?: unknown; requestId?: unknown }
@@ -200,7 +200,7 @@ export function registerQueryRoute(app: FastifyInstance, ctx: AppContext): void 
   app.post('/api/v1/sessions/:id/save', async (req, reply) => {
     if (config.auth === null) {
       return reply.code(503).send({
-        error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+        error: 'no Anthropic credential configured — add it under System → Integrations, then restart',
       })
     }
     const { id } = req.params as { id: string }

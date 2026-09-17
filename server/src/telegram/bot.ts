@@ -41,7 +41,7 @@ function defaultStagingDir(): string {
 
 const SETUP_MODE_REPLY =
   'The service is in setup mode — no Anthropic credential is configured yet, so nothing ' +
-  'can be ingested. Open the dashboard, add the credential under Maintenance → Settings, ' +
+  'can be ingested. Open the dashboard, add the credential under System → Integrations, ' +
   'and restart the service.'
 
 const HELP_REPLY =

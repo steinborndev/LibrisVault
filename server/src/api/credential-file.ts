@@ -35,7 +35,7 @@ export function updateEnvFile(filePath: string, changes: Record<string, string |
   const rest = Object.entries(existing).filter(([k]) => !changedNames.includes(k))
 
   const lines = [
-    '# vault-service environment — secrets managed via the dashboard (Maintenance → Settings).',
+    '# vault-service environment — secrets managed via the dashboard (System → Integrations).',
     ...changedNames.map((name) => `${name}=${existing[name]}`),
     ...rest.map(([k, v]) => `${k}=${v}`),
     '',

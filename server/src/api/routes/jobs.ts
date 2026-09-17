@@ -42,7 +42,7 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
     // `queued` with no feedback. Refuse with the same guidance the other run routes give.
     if (ctx.config.auth === null) {
       return reply.code(503).send({
-        error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+        error: 'no Anthropic credential configured — add it under System → Integrations, then restart',
       })
     }
     const enqueued: EnqueuedRef[] = []

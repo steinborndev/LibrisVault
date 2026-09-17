@@ -45,7 +45,7 @@ export function registerMaintenanceRoute(
   const credentialMissing = (reply: FastifyReply): boolean => {
     if (ctx.config.auth !== null) return false
     void reply.code(503).send({
-      error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+      error: 'no Anthropic credential configured — add it under System → Integrations, then restart',
     })
     return true
   }
