@@ -74,7 +74,12 @@ export class ChatStore {
     return s
   }
 
-  /** Sessions for a user, most-recently-active first, with message count + last activity. */
+  /**
+   * Sessions for a user, most-recently-active first, with message count + last activity.
+   * Two sessions touched within the same millisecond came back in whatever order SQLite
+   * chose (a test caught it on CI, 2026-09-17): the latest message and then the newer session
+   * break the tie, which is what "recently active" means at that resolution.
+   */
   listSessions(userId = 'local'): SessionSummary[] {
     return this.db
       .prepare(
@@ -87,7 +92,7 @@ export class ChatStore {
            LEFT JOIN messages m ON m.session_id = s.id
           WHERE s.user_id = ?
           GROUP BY s.id
-          ORDER BY COALESCE(s.updated_at, s.created_at) DESC`,
+          ORDER BY COALESCE(s.updated_at, s.created_at) DESC, MAX(m.id) DESC, s.id DESC`,
       )
       .all(userId) as SessionSummary[]
   }
