@@ -7499,6 +7499,20 @@ tr:focus-within .rowacts {
    svg in front of it because `.lib-svg text` is one class and one type, which outranks a bare
    class and quietly wins - the first attempt at this line did nothing at all. */
 .lib-svg .lib-tag-name { pointer-events: auto; }
+/* A dark halo around the white name, because the pill it used to stand on is gone and the room
+   is what it stands on now. A DARK ring rather than the background colour, which is the trick
+   the canvas legend uses: that one sits on one flat surface, and this one crosses parquet,
+   carpet, furniture and wall within a few pixels - only a contrasting ring holds against all
+   of them. Drawn under the glyphs (`paint-order: stroke`), so the letterforms keep their own
+   weight instead of fattening. 2px at 60% measured against the day room, where the contrast
+   was the problem: white on that parquet is 2.15:1 without it. */
+.lib-svg .lib-tag-name {
+  paint-order: stroke;
+  stroke: #1a2333;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  stroke-opacity: 0.6;
+}
 @media (hover: hover) {
   .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #fff4e2; }
   .lib-svg.night .lib-figure.clickable:has(.lib-tag-name:hover) .lib-tag { stroke: #ffd9a8; }
