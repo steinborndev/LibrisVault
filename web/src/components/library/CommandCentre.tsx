@@ -989,13 +989,6 @@ export function CommandCentre({
               removing={removeHeld.isPending}
               onOpen={(i) => { setStop(i); setRow(0); setView('tonight') }}
               onSpawn={openSpawn}
-              onDecisions={(key) => {
-                const first = deciders.findIndex((x) => x.shelf.key === key)
-                if (first < 0) return
-                setDecIndex(first)
-                setOptIndex(0)
-                setView('decisions')
-              }}
             />
           </div>
         </>
@@ -1492,7 +1485,6 @@ function Shelves({
   removing,
   onOpen,
   onSpawn,
-  onDecisions,
 }: {
   staffed: readonly Shelf[]
   empty: readonly Shelf[]
@@ -1507,7 +1499,6 @@ function Shelves({
   removing: boolean
   onOpen: (index: number) => void
   onSpawn: (key: string) => void
-  onDecisions: (key: string) => void
 }): React.ReactElement {
   return (
     <>
@@ -1588,7 +1579,6 @@ function Shelves({
           <div className="cc-rows">
             {staffed.map((d, i) => {
               const nightly = blocks.filter((b) => b.shelf === d.key).reduce((n, b) => n + b.minutes, 0)
-              const open = d.fellows.reduce((n, f) => n + f.undecidedProposals, 0)
               return (
                 <div key={d.key} className={`cc-row one ${i === row ? 'sel' : ''}`} onClick={() => onOpen(i)}>
                   <span className="chip-dot" style={{ background: domainColor(d.key) }} aria-hidden />
@@ -1597,11 +1587,10 @@ function Shelves({
                     {d.fellows.map((f) => f.agent.name).join(', ')} · {d.pages} pages · {d.questions} open question{d.questions === 1 ? '' : 's'}
                   </span>
                   <span className="grow" />
-                  {open > 0 && (
-                    <button className="sev due cc-pill" onClick={(e) => { e.stopPropagation(); onDecisions(d.key) }}>
-                      {open} decision{open === 1 ? '' : 's'}
-                    </button>
-                  )}
+                  {/* No per-shelf decision pill (2026-09-17). The window's own Decisions button
+                      already counts every one of them and is the way into them; a second count
+                      per row said the same thing in a second place and put a second target on a
+                      row that is itself a link. */}
                   <span className="mono-meta">{nightly > 0 ? `${nightly} min tonight` : 'nothing tonight'}</span>
                 </div>
               )
