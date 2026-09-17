@@ -153,7 +153,8 @@ export interface MoveResult {
   readonly status?: 400 | 404 | 409
 }
 
-const isDepartmentDomain = (d: string | null): d is string => d !== null && d !== 'meta' && d !== 'unassigned' && d.trim() !== ''
+/** A domain a shelf can stand for: not the meta pages, not the unfiled ones. The pinboard reads it too. */
+export const isDepartmentDomain = (d: string | null): d is string => d !== null && d !== 'meta' && d !== 'unassigned' && d.trim() !== ''
 
 /** Night look during the night window and from 21:00 to 06:00 local (D6). */
 export function isNight(now: Date, window: NightWindow): boolean {

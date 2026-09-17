@@ -84,6 +84,7 @@ describe('QuestionsService', () => {
     fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta', 'agents'), { recursive: true })
     fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Solid electrolytes.md'), PAGE)
     fs.writeFileSync(path.join(vaultRoot, 'wiki', 'meta', 'agents', 'ada.md'), '# Ada\n\n## Open questions\n\n- What did the March review miss?\n\n## Notes\n\n- x\n')
+    fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Loose end.md'), '# Loose end\n\n## Open questions\n\n- Where does this belong?\n')
   })
   afterEach(() => {
     fs.rmSync(vaultRoot, { recursive: true, force: true })
@@ -92,6 +93,7 @@ describe('QuestionsService', () => {
     ({
       nodes: [
         { path: 'wiki/concepts/Solid electrolytes.md', title: 'Solid electrolytes', kind: 'knowledge', domain: 'battery-technology' },
+        { path: 'wiki/concepts/Loose end.md', title: 'Loose end', kind: 'knowledge', domain: 'unassigned' },
         { path: 'wiki/index.md', title: 'index', kind: 'structural', domain: null },
       ],
     }) as unknown as VaultGraph
@@ -112,11 +114,12 @@ describe('QuestionsService', () => {
       ['Why does the interfa', 'battery-technology', false],
       ['Does the sulfide rou', 'battery-technology', false],
       ['Which vendor ships t', 'battery-technology', true],
+      ['Where does this belo', null, false],
       ['What did the March r', 'astronomy', false],
     ])
     expect(entries[0]!.planned).toEqual({ proposalId: 'p1', agentId: 'a1', fellow: 'Ada', status: 'proposed' })
     expect(entries[1]!.planned).toBeNull()
-    expect(entries[3]!.researching).toEqual({ runId: 'r1' })
+    expect(entries[4]!.researching).toEqual({ runId: 'r1' })
     expect(entries[0]!.id).toBe(`wiki/concepts/Solid electrolytes.md#${questionKey(entries[0]!.text)}`)
   })
 

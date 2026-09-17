@@ -4,6 +4,10 @@ Working files for the Library screen mockups (SPEC section 10), first design rou
 2026-09-05. The published canvas lives at
 https://claude.ai/code/artifact/379c5aa8-9b7d-40e8-9bd9-3a9e7eb59ace
 
+**These show the room as first designed, not as it stands.** The main room was refurnished on
+2026-09-17 (SPEC section 10.13: ten desks, the book cart, the pinboard, chalkboards, glazed
+doors, open cases); the artboards are kept as the record of the design rounds that preceded it.
+
 - `gen.mjs` renders the four artboards from the dashboard's light-theme tokens and the
   demo vault's department counts (`counts.json`, read from the dev instance's graph API).
 - `Main.dc.html` the main room by day, `Wing.dc.html` Wing A with a shelf being dragged onto

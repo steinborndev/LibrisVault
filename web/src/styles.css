@@ -8364,6 +8364,9 @@ tr:focus-within .rowacts {
    starts at one x whether or not a question has a domain. */
 .reading-rows.questions .rl-title { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; }
 .reading-rows.questions .rl-title .chip-dot { margin-top: 6px; }
+/* The question is rendered as markdown for its wikilinks; its one paragraph stays inline so the
+   two-line clamp above still counts lines of text. */
+.reading-rows.questions .q-text p { display: inline; margin: 0; }
 .reading-rows.questions .q-text {
   display: -webkit-box;
   -webkit-line-clamp: 2;

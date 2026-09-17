@@ -11,7 +11,7 @@
  * planned from it; the row says so before the click.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
 import { queryState } from '../QueryState.tsx'
@@ -22,6 +22,8 @@ import { navigate } from '../../lib/router.ts'
 import { questionDomains, questionView, type QuestionTab } from '../../lib/questions.ts'
 import type { QuestionItem } from '../../api/types.ts'
 import { PageLink } from '../PageLink.tsx'
+import { Markdown, type WikilinkRenderer } from '../Markdown.tsx'
+import { wikilinkResolver } from '../../lib/wikilink.tsx'
 
 /** Where "Start research" goes: the Research tab with the question as the topic. */
 export const researchRoute = (text: string): string => `/research?prefill=${encodeURIComponent(text)}`
@@ -59,6 +61,10 @@ export function QuestionBoard({
   })
   const state = queryState(list, 'the pinboard')
   const entries = list.data?.entries ?? []
+  /* A question names pages the way the vault does, in [[brackets]]; the graph resolves them to
+     links into the Catalog, and a title the vault does not have stays as text. */
+  const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph, staleTime: 60_000 })
+  const renderWikilink = useMemo(() => wikilinkResolver(graph.data?.nodes ?? []), [graph.data])
   const view = questionView(entries, tab, domain)
   const domains = questionDomains(questionView(entries, tab, null).shown)
 
@@ -120,7 +126,7 @@ export function QuestionBoard({
                     onPick?.(i)
                   }}
                 >
-                  <Row e={e} vaultName={vaultName} />
+                  <Row e={e} vaultName={vaultName} renderWikilink={renderWikilink} />
                   <div className="rl-act">
                     {tab === 'current' && (
                       <button
@@ -159,13 +165,13 @@ export function QuestionBoard({
   )
 }
 
-function Row({ e, vaultName }: { e: QuestionItem; vaultName: string }): React.ReactElement {
+function Row({ e, vaultName, renderWikilink }: { e: QuestionItem; vaultName: string; renderWikilink: WikilinkRenderer }): React.ReactElement {
   return (
     <div className="rl-main">
       <div className="rl-title">
         <span className="chip-dot" style={{ background: e.domain !== null ? domainColor(e.domain) : 'var(--border-strong)' }} aria-hidden />
         <span className="q-text" title={e.text}>
-          {e.text}
+          <Markdown source={e.text} renderWikilink={renderWikilink} />
         </span>
       </div>
       <p className="rl-meta">

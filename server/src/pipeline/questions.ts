@@ -18,6 +18,7 @@ import { withWikiLock } from './wiki-lock.js'
 import { commitPaths, type CommitResult } from './git.js'
 import { parseNotebook } from './notebook.js'
 import type { ProposalRecord } from '../db/proposals.js'
+import { isDepartmentDomain } from './library.js'
 
 export interface QuestionEntry {
   /** The page and the question's key: what the board addresses a row by. */
@@ -174,12 +175,14 @@ export class QuestionsService {
     for (const n of graph?.nodes ?? []) {
       if (n.kind !== 'knowledge' || seen.has(n.path)) continue
       seen.add(n.path)
-      pages.push({ path: n.path, domain: n.domain })
+      // `unassigned` and `meta` are keys of the registry but not domains a shelf stands for:
+      // such a question stands under "all domains" alone, like one from a page with no key.
+      pages.push({ path: n.path, domain: isDepartmentDomain(n.domain) ? n.domain : null })
     }
     for (const nb of this.o.notebooks?.() ?? []) {
       if (seen.has(nb.path)) continue
       seen.add(nb.path)
-      pages.push({ path: nb.path, domain: nb.domain })
+      pages.push({ path: nb.path, domain: isDepartmentDomain(nb.domain) ? nb.domain : null })
     }
     const planned = new Map<string, QuestionEntry['planned']>()
     for (const p of this.o.proposals?.() ?? []) {
