@@ -424,8 +424,10 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
           own outer edge, which is where light would catch it. Not the top of the OPENING nine
           units below: a line there would run along the underside of the lintel, inside the
           frame, and read as a crack rather than as an edge.
-          `bc-rim-door` because the doorway is one object cut into three depth slots (this, the
-          right post, the banner), and light stopping at a slot boundary would show the cut. */}
+          `bc-rim-door` because the frame is cut across two depth slots (this and the right
+          post), and light stopping at a slot boundary would show the cut. The name banner
+          hanging above is a sign on the wall, not part of the frame, so it wears no edge of its
+          own - one doorway, one line. */}
       <polyline
         className="bc-rim bc-rim-door"
         points={pts([P(door.from - 0.22, 0, doorZ + 9), P(door.to + 0.22, 0, doorZ + 9)])}
@@ -464,16 +466,6 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
         <polygon points={backFace(door.from + 0.08, door.to + 0.08, sBottom - 4, sBottom)} fill={night ? '#0b1610' : '#22382e'} opacity={0.35} />
         <polygon points={backFace(door.from, door.to, sBottom, sTop)} fill={night ? '#1f3329' : '#37564a'} stroke={night ? '#132119' : '#283f36'} strokeWidth={0.8} />
         <polygon points={backFace(door.from - 0.12, door.to + 0.12, sTop - 5, sTop)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.7} />
-        {/* The banner's own top edge. It names the same destination and carries the same click,
-            so it lights with the doorway rather than on its own. */}
-        <polyline
-          className="bc-rim bc-rim-door"
-          points={pts([P(door.from - 0.12, 0, sTop), P(door.to + 0.12, 0, sTop)])}
-          fill="none"
-          stroke={night ? '#ffd9a8' : '#fff4e2'}
-          strokeWidth={1.6}
-          strokeLinecap="round"
-        />
         <text
           transform={`matrix(1 0.5 0 1 ${sx.toFixed(1)} ${sy.toFixed(1)})`}
           textAnchor="middle"
