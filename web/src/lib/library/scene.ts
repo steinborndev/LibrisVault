@@ -14,7 +14,7 @@ import type { LibraryScene, SceneFellow, SceneJob, SceneRun } from '../../api/ty
 import { domainColor } from '../domains.ts'
 import { ANCHORS, DEFAULT_AISLES, shelfStand, type Aisles, type Tile } from './room.ts'
 
-export type Pose = 'stand' | 'wait' | 'shelf' | 'desk' | 'shelve' | 'carry' | 'cart' | 'clipboard' | 'sit' | 'sleep' | 'think'
+export type Pose = 'stand' | 'wait' | 'shelf' | 'desk' | 'shelve' | 'carry' | 'clipboard' | 'sleep' | 'think'
 export type Role = 'fellow' | 'researcher' | 'reader' | 'clerk' | 'inspector' | 'caretaker'
 export type TagKind = 'fellow' | 'visitor' | 'asleep' | 'warn'
 
@@ -44,6 +44,8 @@ export interface Actor {
   readonly jobId?: string
   readonly channel?: string
   readonly exiting?: boolean
+  /** The desk the figure stands at, by number, when it stands at one: the screen and the lamp follow it. */
+  readonly desk?: number | undefined
 }
 
 export type ToolFamily = 'read' | 'write' | 'commit' | 'none'
@@ -304,7 +306,7 @@ function shelfPlace(scene: LibraryScene, domain: string | null): { room: string;
     const tile = shelfStand('main', first.slot, aislesOf(scene, 'main'))
     if (tile) return { room: 'main', tile }
   }
-  return { room: 'main', tile: ANCHORS.catalog }
+  return { room: 'main', tile: ANCHORS.cartStand }
 }
 
 /** Which figure a run kind sends into the room; null = it draws nobody. */
@@ -381,17 +383,34 @@ const POSE_CAPTION: Record<Pose, string> = {
   desk: 'writing',
   shelve: 'shelving',
   carry: 'unpacking',
-  cart: 'sorting',
   clipboard: 'checking',
-  sit: 'resting',
   sleep: 'asleep',
   think: 'thinking',
 }
 
+/**
+ * A desk for someone who owns none: the visiting researcher, the clerk writing pages, a run
+ * that failed. Counted from the far end of the rows, because the Fellows fill theirs from the
+ * near end - so as long as the room is not full the two never meet, and when it is, a guest
+ * shares the last Fellow's desk rather than the first's.
+ */
+const guestDeskNo = (n: number): number => ANCHORS.desks.length - 1 - (n % ANCHORS.desks.length)
+
 function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: AdapterInput): Actor | null {
   if (f.state === 'retired') return null
   const color = fellowColor(f.agentId)
-  const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId, dot: domainColor(f.homeDomain) }
+  /*
+   * A Fellow's own desk (2026-09-17): the same one whatever its state. It used to rest in an
+   * armchair by the fire and work at whichever desk its index gave it, which moved every
+   * figure across the room at every state change and put a resting Fellow nowhere in
+   * particular. Now the desk IS the Fellow's place, and the pose says what it is doing there.
+   *
+   * The number comes from the record (given at spawn, kept until retirement), so a retirement
+   * moves nobody. The index is only the fallback for a scene from a server that predates it.
+   */
+  const deskNo = (f.desk !== null && f.desk >= 0 ? f.desk : index) % ANCHORS.desks.length
+  const seat = ANCHORS.desks[deskNo]!
+  const base = { id: `fellow:${f.agentId}`, role: 'fellow' as const, name: f.name, color, agentId: f.agentId, dot: domainColor(f.homeDomain), desk: deskNo }
   if (f.run) {
     /*
      * A run exists from the moment it is requested, but one runner executes one run at a
@@ -399,10 +418,7 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
      * shelf while another Fellow held the runner. It waits, and now it looks like it: the
      * chair, not the shelf, and no pose read off a log that has no lines yet.
      */
-    if (f.run.waiting) {
-      const seat = ANCHORS.armchairs[index % ANCHORS.armchairs.length]!
-      return { ...base, caption: caption(f.name, 'waiting'), pose: 'wait', room: 'main', i: seat.i, j: seat.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
-    }
+    if (f.run.waiting) return { ...base, caption: caption(f.name, 'waiting'), pose: 'wait', room: 'main', i: seat.i, j: seat.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
     const lines = since(input.lines(f.run.channel), f.run.startedAt)
     const family = steadyFamily(lines, input.now)
     const planning = f.run.kind === 'plan'
@@ -411,14 +427,11 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
     const cap = caption(f.name, withPercent(planning ? 'planning' : POSE_CAPTION[pose], percent))
     if (pose === 'shelf' || pose === 'shelve') {
       const place = shelfPlace(scene, f.homeDomain)
-      return { ...base, caption: cap, pose, room: place.room, i: place.tile.i, j: place.tile.j, book: domainColor(f.homeDomain), tag: 'fellow', runId: f.run.id, channel: f.run.channel }
+      // Away from the desk for the moment, so it carries no desk: the screen there goes dark.
+      return { ...base, desk: undefined, caption: cap, pose, room: place.room, i: place.tile.i, j: place.tile.j, book: domainColor(f.homeDomain), tag: 'fellow', runId: f.run.id, channel: f.run.channel }
     }
-    const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
-    return { ...base, caption: cap, pose, room: 'main', i: desk.i, j: desk.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
+    return { ...base, caption: cap, pose, room: 'main', i: seat.i, j: seat.j, tag: 'fellow', runId: f.run.id, channel: f.run.channel }
   }
-  const chair = ANCHORS.armchairs[index % ANCHORS.armchairs.length]!
-  const overflow = Math.floor(index / ANCHORS.armchairs.length)
-  const seat: Tile = { i: chair.i + overflow * 0.6, j: chair.j + overflow * 0.4 }
   switch (f.state) {
     case 'sleeping': {
       // A failed planner is a fault, not a quiet night: it reads as a warning like quota does.
@@ -445,25 +458,19 @@ function fellowActor(scene: LibraryScene, f: SceneFellow, index: number, input: 
       return { ...base, caption: caption(f.name, reason), pose: 'sleep', room: 'main', i: seat.i, j: seat.j, tag: warn ? 'warn' : 'asleep' }
     }
     case 'waiting':
-      return { ...base, caption: caption(f.name, f.next ? 'ready' : 'waiting'), pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
+      return { ...base, caption: caption(f.name, f.next ? 'ready' : 'waiting'), pose: 'stand', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
     case 'paused':
-      return { ...base, caption: caption(f.name, 'paused'), pose: 'sit', room: 'main', i: seat.i, j: seat.j, tag: 'asleep' }
-    case 'blocked': {
-      const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
-      return { ...base, caption: caption(f.name, 'blocked'), pose: 'wait', room: 'main', i: desk.i, j: desk.j, tag: 'warn' }
-    }
-    case 'proposed': {
-      const q = ANCHORS.frontDeskQueue[index % ANCHORS.frontDeskQueue.length]!
-      return { ...base, caption: caption(f.name, 'new'), pose: 'wait', room: 'main', i: q.i, j: q.j, tag: 'fellow' }
-    }
-    case 'active': {
+      return { ...base, caption: caption(f.name, 'paused'), pose: 'stand', room: 'main', i: seat.i, j: seat.j, tag: 'asleep' }
+    case 'blocked':
+      return { ...base, caption: caption(f.name, 'blocked'), pose: 'wait', room: 'main', i: seat.i, j: seat.j, tag: 'warn' }
+    case 'proposed':
+      return { ...base, caption: caption(f.name, 'new'), pose: 'wait', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
+    case 'active':
       // Between two steps of a shift the run is gone for a moment. The Fellow stays at its
       // desk and thinks; sending it to the door and back would be a jump across the room.
-      const desk = ANCHORS.desks[index % ANCHORS.desks.length]!
-      return { ...base, caption: caption(f.name, 'thinking'), pose: 'think', room: 'main', i: desk.i, j: desk.j, tag: 'fellow' }
-    }
+      return { ...base, caption: caption(f.name, 'thinking'), pose: 'think', room: 'main', i: seat.i, j: seat.j, tag: 'fellow' }
     default:
-      return { ...base, caption: caption(f.name, f.state), pose: 'stand', room: 'main', i: ANCHORS.door.i, j: ANCHORS.door.j, tag: 'fellow' }
+      return { ...base, desk: undefined, caption: caption(f.name, f.state), pose: 'stand', room: 'main', i: ANCHORS.door.i, j: ANCHORS.door.j, tag: 'fellow' }
   }
 }
 
@@ -482,43 +489,51 @@ function runActor(scene: LibraryScene, r: SceneRun, index: number, input: Adapte
       const place = shelfPlace(scene, null)
       return { ...base, name: 'visiting researcher', caption: caption('researcher', doing), pose, room: place.room, i: place.tile.i, j: place.tile.j, book: '#2f62c9' }
     }
-    const desk = ANCHORS.desks[(3 - index + ANCHORS.desks.length) % ANCHORS.desks.length]!
-    return { ...base, name: 'visiting researcher', caption: caption('researcher', doing), pose, i: desk.i, j: desk.j }
+    const g = guestDeskNo(index)
+    const desk = ANCHORS.desks[g]!
+    return { ...base, name: 'visiting researcher', caption: caption('researcher', doing), pose, i: desk.i, j: desk.j, desk: g }
   }
-  if (role === 'reader') return { ...base, name: 'reader', caption: caption('reader', what), pose: 'sit', i: ANCHORS.readingTable.i, j: ANCHORS.readingTable.j }
-  if (role === 'inspector') {
-    const place = shelfPlace(scene, null)
-    return { ...base, name: 'inspector', caption: caption('inspector', what), pose: 'clipboard', room: place.room, i: place.tile.i + 0.9, j: place.tile.j + 0.2 }
-  }
+  /*
+   * Everyone who is not a Fellow and not writing works at the book cart (2026-09-17): the
+   * reader filing a chat, the inspector with its clipboard, the caretaker sorting. It is the
+   * one station in the room for the maintenance runs, and clicking it opens System, where
+   * they are started - so a figure standing there points at where its run came from.
+   */
+  if (role === 'reader') return { ...base, name: 'reader', caption: caption('reader', what), pose: 'stand', i: ANCHORS.cartStand.i + 0.55, j: ANCHORS.cartStand.j + 0.45 }
+  if (role === 'inspector') return { ...base, name: 'inspector', caption: caption('inspector', what), pose: 'clipboard', i: ANCHORS.cartStand.i, j: ANCHORS.cartStand.j }
   if (r.kind === 'hot-cache') return { ...base, name: 'caretaker', caption: caption('caretaker', what), pose: 'stand', i: ANCHORS.noticeBoard.i, j: ANCHORS.noticeBoard.j }
-  return { ...base, name: 'caretaker', caption: caption('caretaker', what), pose: 'cart', i: ANCHORS.intake.i - 0.6, j: ANCHORS.intake.j + 0.5 }
+  return { ...base, name: 'caretaker', caption: caption('caretaker', what), pose: 'shelf', i: ANCHORS.cartStand.i, j: ANCHORS.cartStand.j, book: '#b8892c' }
 }
 
 function jobActor(scene: LibraryScene, job: SceneJob, index: number, queued: number, input: AdapterInput): Actor | null {
   const base = { id: `job:${job.id}`, role: 'clerk' as const, name: 'clerk', color: VISITOR, tag: 'visitor' as const, jobId: job.id, room: 'main' }
   if (job.status === 'queued') {
-    if (queued >= ANCHORS.frontDeskQueue.length) return null
-    const q = ANCHORS.frontDeskQueue[queued]!
+    if (queued >= ANCHORS.cartQueue.length) return null
+    const q = ANCHORS.cartQueue[queued]!
     return { ...base, id: `parcel:${job.id}`, name: 'parcel', caption: caption(job.name, 'queued'), pose: 'wait', i: q.i, j: q.j }
   }
-  if (job.status === 'preprocessing') return { ...base, caption: caption('clerk', 'unpacking'), pose: 'carry', i: ANCHORS.frontDesk.i + 0.6, j: ANCHORS.frontDesk.j + 0.6 + index * 0.5 }
+  if (job.status === 'preprocessing') return { ...base, caption: caption('clerk', 'unpacking'), pose: 'carry', i: ANCHORS.cartStand.i - 0.5 - index * 0.5, j: ANCHORS.cartStand.j + 0.3 }
   const family = steadyFamily(input.lines(job.id), input.now)
   if (family === 'write') {
-    const desk = ANCHORS.desks[(2 - index + ANCHORS.desks.length) % ANCHORS.desks.length]!
-    return { ...base, caption: caption('clerk', 'writing pages'), pose: 'desk', i: desk.i, j: desk.j }
+    // Behind the visiting researchers' guest desks, so two clerks and a researcher never share one.
+    const g = guestDeskNo(2 + index)
+    const desk = ANCHORS.desks[g]!
+    return { ...base, caption: caption('clerk', 'writing pages'), pose: 'desk', i: desk.i, j: desk.j, desk: g }
   }
   if (family === 'commit') {
     const place = shelfPlace(scene, null)
     return { ...base, caption: caption('clerk', 'shelving'), pose: 'shelve', room: place.room, i: place.tile.i, j: place.tile.j, book: '#b8892c' }
   }
-  return { ...base, caption: caption('clerk', 'reading'), pose: 'shelf', i: ANCHORS.intake.i + 0.4, j: ANCHORS.intake.j + 0.9 + index * 0.5, book: '#b8892c' }
+  // To the left of the cart's own stand, so a clerk and an inspector never share a tile.
+  return { ...base, caption: caption('clerk', 'reading'), pose: 'shelf', i: ANCHORS.cartStand.i - 0.85 - index * 0.5, j: ANCHORS.cartStand.j + 0.35, book: '#b8892c' }
 }
 
 function exitActor(scene: LibraryScene, e: Exit): Actor | null {
   const base = { id: `exit:${e.kind}:${e.id}`, exiting: true, color: e.role === 'fellow' ? fellowColor(e.agentId ?? e.id) : VISITOR, tag: e.ok ? ('visitor' as const) : ('warn' as const), room: 'main' }
   if (!e.ok) {
-    const desk = ANCHORS.desks[0]!
-    return { ...base, role: e.role, name: e.name, caption: caption(e.name, 'failed'), pose: 'wait', i: desk.i, j: desk.j }
+    const g = guestDeskNo(0)
+    const desk = ANCHORS.desks[g]!
+    return { ...base, role: e.role, name: e.name, caption: caption(e.name, 'failed'), pose: 'wait', i: desk.i, j: desk.j, desk: g }
   }
   const place = shelfPlace(scene, null)
   return { ...base, role: e.role, name: e.name, caption: caption(e.name, 'done'), pose: 'shelve', room: place.room, i: place.tile.i + 0.5, j: place.tile.j, book: '#2f62c9' }
@@ -552,6 +567,21 @@ export function buildActors(input: AdapterInput): Actor[] {
     if (input.now - e.at > EXIT_MS || live.has(e.id)) continue
     const a = exitActor(scene, e)
     if (a) out.push(a)
+  }
+  return out
+}
+
+/**
+ * Which desks are at work, by number: the screen there is on and, at night, the lamp is lit.
+ * A desk is at work when a figure standing at it is in a run or between two steps of one
+ * (thinking), or a guest is writing there. A sleeping Fellow's desk and an empty one stay
+ * dark, so the room says at a glance who is busy. An exit is over, so it lights nothing.
+ */
+export function busyDesks(actors: readonly Actor[], room: string): Set<number> {
+  const out = new Set<number>()
+  for (const a of actors) {
+    if (a.room !== room || a.desk === undefined || a.exiting === true) continue
+    if (a.runId !== undefined || a.pose === 'think' || a.pose === 'desk') out.add(a.desk)
   }
   return out
 }

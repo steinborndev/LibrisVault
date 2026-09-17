@@ -7443,6 +7443,11 @@ tr:focus-within .rowacts {
 .lib-banner:hover { filter: brightness(1.07); }
 /* A desk lamp: dark by day, lit through the night shift (the glow rides in the SVG). */
 .lib-lamp { transition: opacity 0.3s; }
+/* A desk's screen comes on when its Fellow starts working; it fades in rather than snapping, like the lamp. */
+.lib-desk polygon { transition: fill 300ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .lib-desk polygon { transition: none; }
+}
 .lib-board:hover { filter: brightness(1.07); }
 
 
@@ -7470,7 +7475,8 @@ tr:focus-within .rowacts {
 .bc-rim { opacity: 0; }
 @media (hover: hover) {
   .lib-slot:hover .bc-rim,
-  .lib-board:hover .bc-rim { opacity: 0.95; }
+  .lib-board:hover .bc-rim,
+  .lib-cart:hover .bc-rim { opacity: 0.95; }
   /* The passage wears it along the top of its lintel, and wears nothing else: it used to take
      a 7% brightness wash as well, which repainted the whole wall tile above the opening - a
      surface nobody was pointing at, saying a second time what the edge already says.

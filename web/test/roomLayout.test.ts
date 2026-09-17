@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { CASE_W, DEFAULT_AISLES, DOOR, SLOTS, doorAt, rowSlots, shelfStand, slotPosition, wingSlotPositions } from '../src/lib/library/room.ts'
+import { ANCHORS, CASE_W, DEFAULT_AISLES, DESK, DESK_COUNT, DOOR, ROOM, SLOTS, deskPositions, deskStand, doorAt, rowSlots, shelfStand, slotPosition, wingSlotPositions } from '../src/lib/library/room.ts'
 
 describe('the gap a row leaves', () => {
   it('leaves out exactly the position it stands in, wherever that is', () => {
@@ -88,5 +88,34 @@ describe('the doorway follows the back row', () => {
       expect(d.from).toBe(SLOTS[at])
       expect(d.to - d.from).toBe(width)
     }
+  })
+})
+
+/**
+ * The desks (2026-09-17): ten in two rows of five, one per Fellow, and a figure stands in
+ * FRONT of its desk - the monitor faces it from the back edge.
+ */
+describe('the desks', () => {
+  it('stand in two rows of five, clear of the right edge, with a figure in front of each', () => {
+    const desks = deskPositions()
+    expect(desks).toHaveLength(DESK_COUNT)
+    expect(desks.slice(0, 5).every((d) => d.j === DESK.ROWS[0])).toBe(true)
+    expect(desks.slice(5).every((d) => d.j === DESK.ROWS[1])).toBe(true)
+    expect(desks[1]!.i - desks[0]!.i).toBeCloseTo(DESK.PITCH, 6)
+    expect(desks[4]!.i + DESK.W).toBeLessThan(ROOM.NI - 1)
+    const stand = deskStand(3)
+    expect(stand.j).toBeGreaterThan(desks[3]!.j + DESK.D)
+    expect(stand.i).toBeGreaterThan(desks[3]!.i)
+    expect(stand.i).toBeLessThan(desks[3]!.i + DESK.W)
+    expect(ANCHORS.desks[3]).toEqual(stand)
+    expect(ANCHORS.desks).toHaveLength(DESK_COUNT)
+  })
+
+  it('leaves the cart centred between the short wall and the first desk, in line with the rows', () => {
+    const first = deskPositions()[0]!
+    const left = ANCHORS.cart.i
+    const right = first.i - (ANCHORS.cart.i + 1.55)
+    expect(left).toBeCloseTo(right, 6)
+    expect(ANCHORS.cart.j + 0.36).toBeCloseTo((DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2, 6)
   })
 })

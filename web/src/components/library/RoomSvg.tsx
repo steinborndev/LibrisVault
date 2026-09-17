@@ -3,18 +3,22 @@
  * D1): the design generator's drawing ported to React. Floor and walls first, then every
  * item in painter's order by depth, labels and tags on top. Figures sit in translated
  * groups with a CSS transition, so a pose change slides them between anchors.
+ *
+ * The main room's furniture is the one rebuilt on 2026-09-17 (SPEC 10.13): ten desks on a
+ * rug, one per Fellow, the book cart, the plant, three chalkboards, a glazed double door,
+ * and open cases with the books standing in them as boxes.
  */
 
 import { useMemo } from 'react'
 import type { SceneRoom, SceneShelf } from '../../api/types.ts'
 import { domainHue } from '../../lib/domains.ts'
 import { boxFaces, depthOf, fitRoom, hsl, makeProj, mix, pts, seeded, type Proj, type Pt } from '../../lib/library/iso.ts'
-import { CASE_D, CASE_W, DEFAULT_AISLE, DOOR, FAV_I, MID_J, ROOM, SLOTS, WALL_H, WALL_J, breakSign, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
+import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, FAV_I, MID_J, ROOM, SLOTS, WALL_H, WALL_J, breakSign, deskPositions, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
 
 /** The case dimensions under the short names the geometry below reads in. */
 const a = CASE_W
 const b = CASE_D
-import type { Actor } from '../../lib/library/scene.ts'
+import { busyDesks, type Actor } from '../../lib/library/scene.ts'
 
 const FONT = '"Instrument Sans", system-ui, sans-serif'
 const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace'
@@ -45,6 +49,38 @@ const WALL = {
 /** The wainscot's share of the wall height, and the rail on top of it. */
 const WAINSCOT = 0.44
 const TOK = { accent: '#2f62c9', accentSoft: '#e6eefc', muted: '#6b7890', mutedBg: '#eef1f6', faint: '#8a95ad', dim: '#5c6a85', elev2: '#f1f3f8', border: '#d9dfeb', borderStrong: '#c3cde0', warn: '#b7791f', warnBg: '#fbf1dc', text: '#1a2333' }
+
+/**
+ * The rug under the desk section (2026-09-17): sage wool with a darker border and a pale
+ * line, in the wall's own family of greens. Chosen over carpet tiles, a striped weave and an
+ * oriental pattern, which fought either the parquet or the shelves. Night dims it with the room.
+ */
+interface RugColors {
+  readonly border: string
+  readonly field: string
+  readonly field2: string
+  readonly line: string
+}
+const RUG: RugColors = { border: '#6f8578', field: '#8aa094', field2: '#85998e', line: '#c3cfc6' }
+function rugColors(night: boolean): RugColors {
+  if (!night) return RUG
+  const d = (v: string): string => mix(v, '#0f1524', 0.55)
+  return { border: d(RUG.border), field: d(RUG.field), field2: d(RUG.field2), line: d(RUG.line) }
+}
+
+/** hsl to `#rrggbb`, so a book's colour can be mixed for its top and its side. */
+function hslHex(h: number, s: number, l: number): string {
+  const hh = (((h % 360) + 360) % 360) / 360
+  const ss = s / 100
+  const ll = l / 100
+  const f = (n: number): number => {
+    const k = (n + hh * 12) % 12
+    const aa = ss * Math.min(ll, 1 - ll)
+    return ll - aa * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+  }
+  const to = (v: number): string => Math.round(v * 255).toString(16).padStart(2, '0')
+  return `#${to(f(0))}${to(f(8))}${to(f(4))}`
+}
 
 interface Item {
   readonly d: number
@@ -87,7 +123,15 @@ function Box({ P, i0, j0, a, b, h, c, z0 = 0 }: { P: Proj; i0: number; j0: numbe
   )
 }
 
-/** A bookcase along i: frame, the sign band, rows of spines. `spare` draws the silhouette of a free slot. */
+interface Book {
+  readonly r: number
+  readonly t: number
+  readonly ds: number
+  readonly hs: number
+  readonly fill: string
+}
+
+/** A bookcase along i: frame, the sign band, rows of books. `spare` draws the silhouette of a free slot. */
 function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj; i0: number; j0: number; shelf: SceneShelf | null; night: boolean; spare?: string; label?: string; selected?: boolean }): React.ReactElement {
   const TW = P.TW
   const scale = TW / 46
@@ -96,20 +140,28 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
   const c0 = SHELF[night ? 'night' : 'day']
   const c = spare !== undefined ? { ...c0, top: mix(c0.top, night ? '#0f1524' : '#ffffff', 0.45), left: mix(c0.left, night ? '#0f1524' : '#ffffff', 0.45), right: mix(c0.right, night ? '#0f1524' : '#ffffff', 0.45), band: mix(c0.band, night ? '#0f1524' : '#ffffff', 0.45) } : c0
   const rowsTop = h - band - 3
-  const bandPoly: Pt[] = [P(i0, j0 + b, rowsTop + 1), P(i0 + a, j0 + b, rowsTop + 1), P(i0 + a, j0 + b, h - 1), P(i0, j0 + b, h - 1)]
-  const spines = useMemo(() => {
+  const rows = 3
+  const rowH = (rowsTop - 4) / rows
+  const rowZ = (r: number): number => 3 + r * rowH
+  const front = j0 + b
+  const bandPoly: Pt[] = [P(i0, front, rowsTop + 1), P(i0 + a, front, rowsTop + 1), P(i0 + a, front, h - 1), P(i0, front, h - 1)]
+  /*
+   * The books as data - row, place along the case, width, height, colour - and no geometry,
+   * so the memo survives a resize: the polygons themselves used to be memoised and stayed on
+   * the old offset when the room moved without changing its tile width (2026-09-08). `shelf`
+   * itself stays out: the scene is polled, so its identity changes every few seconds while
+   * the three fields that decide what is drawn do not.
+   */
+  const books = useMemo((): Book[] => {
     if (!shelf) return []
     const rnd = seeded(domainHue(shelf.domain) * 7919 + shelf.books + shelf.volumes)
     const hue = domainHue(shelf.domain)
-    const rows = 3
-    const rowH = (rowsTop - 4) / rows
     const capacity = rows * Math.floor((a - 0.3) / 0.21)
     const n = Math.min(capacity, Math.max(shelf.books + shelf.volumes > 0 ? 4 : 0, Math.round((shelf.books + shelf.volumes * 0.5) * 0.55)))
-    const out: Array<{ points: string; fill: string }> = []
+    const out: Book[] = []
     let drawn = 0
     const volumeShare = shelf.books + shelf.volumes > 0 ? shelf.volumes / (shelf.books + shelf.volumes) : 0
     for (let r = 0; r < rows; r++) {
-      const z0 = 3 + r * rowH
       let t = 0.15
       while (t < a - 0.2 && drawn < n) {
         const thin = rnd() < Math.max(0.1, volumeShare)
@@ -117,35 +169,50 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
         const hs = rowH - 4 - rnd() * 5
         const gap = rnd() < 0.08 ? 0.12 : 0.03
         const l = night ? 28 + rnd() * 12 : 40 + rnd() * 20
-        const s = thin ? 30 : 48 + rnd() * 16
-        out.push({ points: pts([P(i0 + t, j0 + b, z0), P(i0 + t + ds, j0 + b, z0), P(i0 + t + ds, j0 + b, z0 + hs), P(i0 + t, j0 + b, z0 + hs)]), fill: hsl(hue + (rnd() * 16 - 8), s, l) })
+        const sat = thin ? 30 : 48 + rnd() * 16
+        out.push({ r, t, ds, hs, fill: hslHex(hue + (rnd() * 16 - 8), sat, l) })
         t += ds + gap
         drawn++
       }
     }
     return out
-    /*
-     * `P` rather than `TW` (2026-09-08): the projection carries the room's offset as well as
-     * its tile width, and `fitRoom` quantises TW to even pixels while ox/oy stay continuous.
-     * A resize that moved the room without changing the tile size therefore left these
-     * polygons on the old offset while everything around them moved. `rowsTop` follows the
-     * band height, which follows TW.
-     *
-     * `shelf` itself stays out: the scene is polled, so its object identity changes every few
-     * seconds while the three fields that decide what is drawn do not.
-     */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shelf?.domain, shelf?.books, shelf?.volumes, night, P, rowsTop, i0, j0])
+  }, [shelf?.domain, shelf?.books, shelf?.volumes, night, rowH])
+  /*
+   * An open case with depth, drawn the way the cart is (2026-09-17): back panel, sides, a
+   * plank per row and the books as boxes standing on it, set a little back from the front
+   * edge. Chosen over the flat spines the case used to wear, and over a cheaper look that gave
+   * each spine a top: the books have to stand IN something, or the tops read as bulging out.
+   */
+  const side = 0.08
+  const inner = rowsTop + 1
+  const interior = { top: c.top, left: mix(c.left, '#000000', 0.28), right: c.right }
+  const body = (
+    <>
+      <Box P={P} i0={i0} j0={j0} a={a} b={b} h={3} c={c} />
+      <Box P={P} i0={i0} j0={j0} a={a} b={0.1} h={inner} c={interior} />
+      <Box P={P} i0={i0} j0={j0} a={side} b={b} h={inner} c={c} />
+      {[0, 1, 2].map((r) => (
+        <g key={r}>
+          <Box P={P} i0={i0 + side} j0={j0 + 0.1} a={a - 2 * side} b={b - 0.1} h={2.4} z0={rowZ(r) - 2.4} c={{ top: mix(c.top, '#ffffff', 0.1), left: c.left, right: c.right }} />
+          {books
+            .filter((k) => k.r === r)
+            .map((k, n) => (
+              <Box key={n} P={P} i0={i0 + k.t} j0={j0 + 0.16} a={k.ds} b={b - 0.28} h={k.hs} z0={rowZ(r)} c={{ top: mix(k.fill, '#ffffff', 0.3), left: k.fill, right: mix(k.fill, '#000000', 0.3) }} />
+            ))}
+        </g>
+      ))}
+      <Box P={P} i0={i0 + a - side} j0={j0} a={side} b={b} h={inner} c={c} />
+      <Box P={P} i0={i0} j0={j0} a={a} b={b} h={h - inner} z0={inner} c={c} />
+    </>
+  )
   return (
     <g className={`lib-case${selected ? ' selected' : ''}`}>
-      <Box P={P} i0={i0} j0={j0} a={a} b={b} h={h} c={c} />
+      {body}
       <polygon points={pts(bandPoly)} fill={c.band} />
       {spare !== undefined
-        ? faceText(P, i0 + 0.12, j0 + b, rowsTop + 1, spare, mix(c0.sign, c.band, 0.45), a - 0.2, 'free')
-        : shelf && faceText(P, i0 + 0.12, j0 + b, rowsTop + 1, label ?? signText(shelf.domain), c.sign, a - 0.2, 'sign')}
-      {spines.map((s, k) => (
-        <polygon key={k} points={s.points} fill={s.fill} />
-      ))}
+        ? faceText(P, i0 + 0.12, front, rowsTop + 1, spare, mix(c0.sign, c.band, 0.45), a - 0.2, 'free')
+        : shelf && faceText(P, i0 + 0.12, front, rowsTop + 1, label ?? signText(shelf.domain), c.sign, a - 0.2, 'sign')}
       {/*
        * The lit top edge, revealed under the pointer (2026-09-16). A shelf opens its
        * department and can be dragged to another slot, and nothing said so: the cursor turned
@@ -164,7 +231,7 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
        */}
       <polyline
         className="bc-rim"
-        points={pts([P(i0, j0 + b, h), P(i0 + a, j0 + b, h), P(i0 + a, j0, h)])}
+        points={pts([P(i0, front, h), P(i0 + a, front, h), P(i0 + a, j0, h)])}
         fill="none"
         stroke={night ? '#ffd9a8' : '#fff4e2'}
         strokeWidth={1.6}
@@ -175,7 +242,14 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
   )
 }
 
-/** A figure at (0, 0): the pose vocabulary of the Sprites artboard, no faces (NEW-6). */
+/**
+ * A figure at (0, 0): the pose vocabulary of the Sprites artboard, no faces (NEW-6).
+ *
+ * Every pose stands (2026-09-17). A Fellow is at its own desk whatever it is doing, and the
+ * armchairs a seated figure used to sink into are gone with the fireplace - so `sleep` and
+ * `sit` are a standing figure with a prop, and `desk` is a figure standing at its screen, legs
+ * included: the seated variant had none, and standing in front of a desk it read as cut off.
+ */
 function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement {
   const skin = '#e8c39e'
   const hair = '#5a3a22'
@@ -186,6 +260,7 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
   const shadow = <ellipse cx={0} cy={0} rx={10} ry={4.5} fill={night ? '#0a0d16' : '#c9d0de'} opacity={0.55} />
   const edge = night ? '#e9edf7' : '#1a2333'
   const halo = night ? <ellipse cx={0} cy={-22} rx={22} ry={24} fill="#e9edf7" opacity={0.07} /> : null
+  const faint = night ? '#78859f' : TOK.faint
   if (a.name === 'parcel') {
     return (
       <g>
@@ -195,44 +270,20 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
       </g>
     )
   }
-  if (a.pose === 'sleep' || a.pose === 'sit') {
-    return (
-      <g>
-        {shadow}
-        {halo}
-        <rect x={-12} y={-34} width={24} height={26} rx={5} fill={night ? '#30405f' : '#c3cde0'} stroke={edge} strokeWidth={0.9} strokeOpacity={0.35} />
-        <rect x={-9} y={-22} width={18} height={14} rx={4} fill={shirt} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
-        <circle cx={1} cy={-26} r={6} fill={skin} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
-        <path d="M-5 -30 q6 -6 12 0" fill={hair} />
-        <rect x={-10} y={-12} width={20} height={6} rx={3} fill={night ? '#1a2233' : '#9aa7c2'} />
-        {a.pose === 'sleep' && (
-          <>
-            <text x={12} y={-36} fontFamily={MONO} fontSize={9} fill={night ? '#78859f' : TOK.faint}>
-              z
-            </text>
-            <text x={17} y={-42} fontFamily={MONO} fontSize={8} fill={night ? '#78859f' : TOK.faint}>
-              z
-            </text>
-          </>
-        )}
-      </g>
-    )
-  }
-  const seated = a.pose === 'desk'
-  const bodyY = seated ? -26 : -30
+  const bodyY = -30
+  const asleep = a.pose === 'sleep'
   return (
     <g>
       {shadow}
       {halo}
-      {!seated && (
-        <>
-          <rect x={-5} y={-14} width={4} height={13} rx={1.5} fill={pants} />
-          <rect x={1} y={-14} width={4} height={13} rx={1.5} fill={pants} />
-        </>
-      )}
-      <rect x={-7} y={bodyY} width={14} height={seated ? 14 : 18} rx={4} fill={shirt} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
-      <circle cx={0} cy={bodyY - 6} r={6} fill={skin} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
-      <path d={`M-6 ${bodyY - 8} q6 -7 12 0`} fill={hair} />
+      <rect x={-5} y={-14} width={4} height={13} rx={1.5} fill={pants} />
+      <rect x={1} y={-14} width={4} height={13} rx={1.5} fill={pants} />
+      <rect x={-7} y={bodyY} width={14} height={18} rx={4} fill={shirt} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
+      {/* A sleeper's head tips forward a little; that and the z's are the whole difference. */}
+      <g transform={asleep ? `rotate(-14 0 ${bodyY})` : undefined}>
+        <circle cx={0} cy={bodyY - 6} r={6} fill={skin} stroke={edge} strokeWidth={0.8} strokeOpacity={0.3} />
+        <path d={`M-6 ${bodyY - 8} q6 -7 12 0`} fill={hair} />
+      </g>
       {(a.pose === 'shelf' || a.pose === 'shelve') && <rect x={5} y={bodyY - 2} width={7} height={9} rx={1} fill={a.book ?? '#2f62c9'} transform={`rotate(${a.pose === 'shelve' ? -35 : -10} 8 ${bodyY + 2})`} />}
       {a.pose === 'carry' && (
         <>
@@ -246,17 +297,19 @@ function Figure({ a, night }: { a: Actor; night: boolean }): React.ReactElement 
           <path d={`M6 ${bodyY + 6} h4 M6 ${bodyY + 9} h4`} stroke={TOK.borderStrong} strokeWidth={1} />
         </>
       )}
-      {a.pose === 'desk' && <rect x={-9} y={bodyY + 8} width={8} height={5} rx={1} fill={paper} stroke={TOK.borderStrong} />}
       {a.pose === 'think' && (
-        <text x={9} y={bodyY - 12} fontFamily={MONO} fontSize={9} fill={night ? '#78859f' : TOK.faint}>
+        <text x={9} y={bodyY - 12} fontFamily={MONO} fontSize={9} fill={faint}>
           …
         </text>
       )}
-      {a.pose === 'cart' && (
+      {asleep && (
         <>
-          <rect x={10} y={bodyY + 6} width={16} height={10} rx={1.5} fill={night ? '#3a4a6c' : '#e6eaf3'} stroke={night ? '#22304a' : '#b6c2d8'} />
-          <circle cx={13} cy={bodyY + 19} r={2.5} fill={night ? '#0a0d16' : '#55627e'} />
-          <circle cx={23} cy={bodyY + 19} r={2.5} fill={night ? '#0a0d16' : '#55627e'} />
+          <text x={9} y={bodyY - 3} fontFamily={MONO} fontSize={9} fill={faint}>
+            z
+          </text>
+          <text x={14} y={bodyY - 9} fontFamily={MONO} fontSize={8} fill={faint}>
+            z
+          </text>
         </>
       )}
     </g>
@@ -335,6 +388,8 @@ export interface RoomSvgProps {
   readonly onActorClick?: (actor: Actor, e: React.MouseEvent) => void
   /** A board on the short wall was clicked; the screen opens it as a window. */
   readonly onBoardClick?: ((board: BoardId) => void) | undefined
+  /** The book cart was clicked; the screen opens System, where the maintenance runs start. */
+  readonly onCartClick?: (() => void) | undefined
   /** The name over the passage: which room it leads to. Absent = no sign, one room only. */
   readonly nextRoomName?: string | undefined
   /** The passage in the back wall was clicked; the screen shows the next room. */
@@ -369,6 +424,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   const TH = TW / 2
   const f = FLOOR[mode]
   const w = WALL[mode]
+  const rug = rugColors(night)
   const k = TW / 2 / 56
   const kv = TH / 2 / 56
   const items: Item[] = []
@@ -406,6 +462,43 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
   // The passage: a wooden frame around the opening, and the way into the next room.
   const doorZ = wallH * 0.62
   const frameC = { frame: night ? '#5b4630' : '#8a6a43', edge: night ? '#3d2f1f' : '#6f5335' }
+  /*
+   * The double door in the opening (2026-09-17), where a bare dark corridor used to show:
+   * two leaves, a wooden panel below and a six-pane window above, brass knobs at the meeting
+   * stiles. The corridor shows through the glass, so the door still says "this way through".
+   * Chosen over a closed panelled pair, a pair standing open into the room, and glazed leaves
+   * under a fanlight. The frame, its lit edge and the click are as they were.
+   */
+  const leaves = ((): React.ReactNode => {
+    const lw = (door.to - door.from) / 2
+    const mid = door.from + lw
+    const leafC = night ? { face: '#3a2818', panel: '#2e1f12', line: '#241810', hi: '#5a4230' } : { face: '#7a5a3a', panel: '#6a4c30', line: '#4e3622', hi: '#9a7a55' }
+    const knob = night ? '#8a7440' : '#c9a24a'
+    const glass = night ? { fill: '#0b1220', tint: 0.75 } : { fill: '#dfe8fb', tint: 0.4 }
+    const wallQuad = (i0: number, i1: number, z0: number, z1: number): string => pts([P(i0, 0, z0), P(i1, 0, z0), P(i1, 0, z1), P(i0, 0, z1)])
+    const leaf = (i0: number, i1: number, key: string): React.ReactNode => (
+      <g key={key}>
+        <polygon points={wallQuad(i0, i1, 0, doorZ)} fill={leafC.face} stroke={leafC.line} strokeWidth={0.8} />
+        <polygon points={wallQuad(i0 + 0.2, i1 - 0.2, 7, 28)} fill={leafC.panel} stroke={leafC.hi} strokeWidth={0.6} />
+        <polygon points={wallQuad(i0 + 0.18, i1 - 0.18, 35, doorZ - 8)} fill={glass.fill} opacity={glass.tint} stroke={leafC.line} strokeWidth={0.8} />
+        <polyline points={pts([P((i0 + i1) / 2, 0, 35), P((i0 + i1) / 2, 0, doorZ - 8)])} stroke={leafC.face} strokeWidth={1.2} />
+        {[1, 2].map((q) => (
+          <polyline key={q} points={pts([P(i0 + 0.18, 0, 35 + ((doorZ - 43) * q) / 3), P(i1 - 0.18, 0, 35 + ((doorZ - 43) * q) / 3)])} stroke={leafC.face} strokeWidth={1.2} />
+        ))}
+      </g>
+    )
+    return (
+      <>
+        {leaf(door.from, mid, 'l')}
+        {leaf(mid, door.to, 'r')}
+        <polyline points={pts([P(mid, 0, 0), P(mid, 0, doorZ)])} stroke={leafC.line} strokeWidth={1} />
+        {[mid - 0.16, mid + 0.16].map((i, q) => {
+          const [kx, ky] = P(i, 0, 42)
+          return <circle key={q} cx={kx} cy={ky} r={2} fill={knob} />
+        })}
+      </>
+    )
+  })()
   add((door.from + door.to) / 2 - 0.45, 'door', (
     <g
       className="lib-passage"
@@ -417,6 +510,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       <polygon points={pts([P(door.from - SEAM, 0, wallH - 4), P(door.to + SEAM, 0, wallH - 4), P(door.to + SEAM, 0, wallH), P(door.from - SEAM, 0, wallH)])} fill={w.cornice} />
       {/* the corridor behind it */}
       <polygon points={pts([P(door.from, 0, 0), P(door.to, 0, 0), P(door.to, 0, doorZ), P(door.from, 0, doorZ)])} fill={night ? '#080b12' : '#5d6474'} opacity={night ? 0.85 : 0.55} />
+      {leaves}
       {/* posts and lintel */}
       <polygon points={pts([P(door.from - 0.22, 0, 0), P(door.from, 0, 0), P(door.from, 0, doorZ + 9), P(door.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
       <polygon points={pts([P(door.from - 0.22, 0, doorZ), P(door.to + 0.22, 0, doorZ), P(door.to + 0.22, 0, doorZ + 9), P(door.from - 0.22, 0, doorZ + 9)])} fill={frameC.frame} stroke={frameC.edge} strokeWidth={0.8} />
@@ -590,10 +684,37 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
 
   const sc = SHELF[mode]
   const wood = { top: sc.top, left: sc.left, right: sc.right }
-  const stone = night ? { top: '#4a4a52', left: '#3a3a42', right: '#2e2e36' } : { top: '#cfc9c0', left: '#b8b0a4', right: '#a39a8d' }
-  const chairC = night ? { top: '#3a4a6c', left: '#2a3550', right: '#22304a' } : { top: '#c9b8a2', left: '#b39f86', right: '#9c876e' }
+  // The cart is a lighter oak than the walnut of the cases, so it reads as its own thing.
+  const cartC = night ? { top: '#6b5238', left: '#54402b', right: '#453420' } : { top: '#c49a6a', left: '#a67d52', right: '#8c6742' }
+  const metal = night ? '#2a2f3a' : '#4d5566'
+  const keysC = night ? { top: '#5b6474', left: '#3f4757', right: '#333a48', keys: '#4d5566' } : { top: '#d5dbe6', left: '#a9b3c4', right: '#8f9aae', keys: '#bfc7d4' }
+  const screenC = night
+    ? { bezel: { top: '#2a3040', left: '#1a2030', right: '#12161f' }, glass: '#9dc0ff', off: '#222a3a', foot: { top: '#3a4050', left: '#2a3040', right: '#20252f' } }
+    : { bezel: { top: '#3a4254', left: '#2a3040', right: '#1a2333' }, glass: '#dfe8fb', off: '#3c4658', foot: { top: '#4d5566', left: '#3a4254', right: '#2a3040' } }
 
   if (room.kind === 'main') {
+    /*
+     * The rug under the desk section (2026-09-17): the ten desks stand on a floor of their
+     * own, which is what makes them a section rather than furniture scattered over the
+     * parquet. Drawn first, on the floor; every item paints over it.
+     */
+    {
+      // Half a desk width further back than the desks' own centre, towards the passage: the
+      // figures in front of the front row need floor, and a rug centred on the desks alone
+      // read as slid towards the viewer.
+      const ri0 = DESK.I0 - 0.6
+      const ri1 = DESK.I0 + 4 * DESK.PITCH + DESK.W + 0.6
+      const rj0 = DESK.ROWS[0] - 1.2
+      const rj1 = DESK.ROWS[1] + DESK.D + 0.8
+      const inset = (d: number): string => diamond(ri0 + d, rj0 + d, ri1 - d, rj1 - d)
+      add(-1000, 'rug', (
+        <g>
+          <polygon points={inset(0)} fill={rug.border} />
+          <polygon points={inset(0.2)} fill="none" stroke={rug.line} strokeWidth={1} opacity={0.9} />
+          <polygon points={inset(0.36)} fill={`url(#${idp}-rug)`} />
+        </g>
+      ))
+    }
     FAV_I.forEach((fi, n) => placeCase(fi, WALL_J, n, 'favorite'))
     // Two boards on the short wall: the hot cache and last night's report, each under a title
     // band. Clicking one opens it as a window over the room (docs/agents/SPEC.md section 10).
@@ -601,11 +722,48 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       // Centred on the wall: board plus title band is 70 high, so 40 of wall is left above
       // and below it. It crosses the wainscot rail, the way a framed picture would.
       const zBase = 40
-      const zTop = 88
       const bandTop = 110
       const face = (z0: number, z1: number, a: number, b: number): string => pts([P(0, a, z0), P(0, b, z0), P(0, b, z1), P(0, a, z1)])
-      // The wall runs towards smaller j as the screen goes right, so the title starts at j1.
-      const [tx, ty] = P(0, j1 - 0.14, bandTop - 15)
+      const jm = (j0 + j1) / 2
+      // The wall runs towards smaller j as the screen goes right, so a title starts at j1.
+      const titleAt = (z: number, fill: string, size: number, anchor: 'start' | 'middle'): React.ReactNode => {
+        const [x, y] = anchor === 'start' ? P(0, j1 - 0.14, z) : P(0, jm, z)
+        return (
+          <text transform={`matrix(1 -0.5 0 1 ${x.toFixed(1)} ${y.toFixed(1)})`} textAnchor={anchor} fontFamily={FONT} fontSize={size} fontWeight={600} letterSpacing="0.02em" fill={fill}>
+            {title}
+          </text>
+        )
+      }
+      /* The same lit edge a shelf wears under the pointer, and for the same reason: a board
+         opens a window over the room and said so with a pointer shape alone. One segment
+         rather than two, because a board is flat against the wall and has only the one
+         edge the viewer is outside of. */
+      const rim = (
+        <polyline className="bc-rim" points={pts([P(0, j0 - 0.12, bandTop), P(0, j1 + 0.12, bandTop)])} fill="none" stroke={night ? '#ffd9a8' : '#fff4e2'} strokeWidth={1.6} strokeLinecap="round" />
+      )
+      /*
+       * A chalkboard (2026-09-17): a dark green face in the frame's wood, the title in chalk
+       * with a rule under it, four chalk lines for the text. Chosen over a cork board with
+       * pinned notes and a brass-framed plaque; it is the same green as the banner over the
+       * door, so the wall reads as one. The bottom bar is as wide as the sides and carries
+       * the chalk tray as a lighter ledge: drawn dark it vanished against the wainscot and
+       * left the board looking open below.
+       */
+      const ink = night ? '#c9c4b4' : '#e9e4d2'
+      const body = (
+        <>
+          <polygon points={face(zBase - 6, bandTop, j0 - 0.14, j1 + 0.14)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={1} />
+          <polygon points={face(zBase, bandTop - 5, j0, j1)} fill={night ? '#1c2a23' : '#2d463a'} />
+          {titleAt(bandTop - 19, ink, 11, 'start')}
+          <polygon points={face(bandTop - 25, bandTop - 24, j0 + 0.14, j1 - 0.14)} fill={ink} opacity={0.5} />
+          {[0, 1, 2, 3].map((q) => {
+            const z = bandTop - 34 - q * 9
+            return <polygon key={q} points={face(z, z + 3.2, j0 + 0.28, j1 - 0.28 - (q % 2) * 0.42)} fill={ink} opacity={0.45} />
+          })}
+          <polygon points={face(zBase - 6, zBase - 3.5, j0 - 0.14, j1 + 0.14)} fill={mix(frameC.frame, '#ffffff', 0.2)} />
+          {rim}
+        </>
+      )
       return (
         <g
           key={id}
@@ -615,27 +773,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
           style={{ cursor: props.onBoardClick ? 'pointer' : 'default' }}
         >
           <title>{title}</title>
-          <polygon points={face(bandTop - 22, bandTop, j0 - 0.12, j1 + 0.12)} fill={frameC.frame} stroke={frameC.edge} strokeWidth={1} />
-          <text transform={`matrix(1 -0.5 0 1 ${tx.toFixed(1)} ${ty.toFixed(1)})`} fontFamily={FONT} fontSize={10} fontWeight={600} letterSpacing="0.02em" fill={night ? '#e6dcc6' : '#f6efe2'}>
-            {title}
-          </text>
-          <polygon points={face(zBase, zTop, j0, j1)} fill={night ? '#2a2414' : '#f5ecd7'} stroke={night ? '#5a4a1a' : '#e0cfa2'} />
-          {[0, 1, 2, 3].map((q) => {
-            const z = zTop - 11 - q * 10
-            return <polygon key={q} points={face(z, z + 5, j0 + 0.28, j1 - 0.28 - (q % 2) * 0.42)} fill={night ? '#5a4a1a' : '#d9c58f'} />
-          })}
-          {/* The same lit edge a shelf wears under the pointer, and for the same reason: a board
-              opens a window over the room and said so with a pointer shape alone. One segment
-              rather than two, because a board is flat against the wall and has only the one
-              edge the viewer is outside of. */}
-          <polyline
-            className="bc-rim"
-            points={pts([P(0, j0 - 0.12, bandTop), P(0, j1 + 0.12, bandTop)])}
-            fill="none"
-            stroke={night ? '#ffd9a8' : '#fff4e2'}
-            strokeWidth={1.6}
-            strokeLinecap="round"
-          />
+          {body}
         </g>
       )
     }
@@ -647,81 +785,167 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
     add(at(0)[1] + 0.001, 'board-hot', board(at(0)[0], at(0)[1], 'Hot cache', 'hot'))
     add(at(1)[1] + 0.001, 'board-recap', board(at(1)[0], at(1)[1], 'Last night', 'recap'))
     add(at(2)[1] + 0.001, 'board-reading', board(at(2)[0], at(2)[1], 'Reading list', 'reading'))
-    // fireplace with the hood, four armchairs
-    const fi = 5.5
-    const fj = 5.4
-    add(fi + 2.2 + fj + 2.2, 'fire', (
-      <g>
-        <Box P={P} i0={fi} j0={fj} a={2.2} b={2.2} h={34} c={stone} />
-        <polygon points={pts([P(fi + 0.4, fj + 2.2, 4), P(fi + 1.8, fj + 2.2, 4), P(fi + 1.8, fj + 2.2, 26), P(fi + 0.4, fj + 2.2, 26)])} fill="#1a1410" />
-        <polygon points={pts([P(fi + 0.65, fj + 2.2, 5), P(fi + 1.0, fj + 2.2, 22), P(fi + 1.15, fj + 2.2, 12), P(fi + 1.35, fj + 2.2, 24), P(fi + 1.55, fj + 2.2, 5)])} fill="#f0a35b" />
-        <polygon points={pts([P(fi + 0.85, fj + 2.2, 5), P(fi + 1.05, fj + 2.2, 15), P(fi + 1.25, fj + 2.2, 8), P(fi + 1.35, fj + 2.2, 5)])} fill="#f6d27a" />
-        <Box P={P} i0={fi + 0.45} j0={fj + 0.45} a={1.3} b={1.3} h={76} z0={34} c={stone} />
-        {night && <ellipse cx={P(fi + 1.1, fj + 2.4, 10)[0]} cy={P(fi + 1.1, fj + 2.4, 10)[1]} rx={96} ry={48} fill={`url(#${idp}-fire)`} />}
-      </g>
-    ))
-    const chairs: Array<[number, number, 'l' | 'r' | 'f']> = [
-      [fi - 1.8, fj + 0.7, 'l'],
-      [fi + 2.5, fj + 0.7, 'r'],
-      [fi - 0.4, fj + 3.2, 'f'],
-      [fi + 1.7, fj + 3.2, 'f'],
-    ]
-    chairs.forEach(([ci, cj, side], n) => {
-      add(ci + cj + 1.8, `chair${n}`, <Box P={P} i0={ci} j0={cj} a={0.9} b={0.9} h={12} c={chairC} />)
-      if (side === 'l') add(ci + cj + 0.15, `chairb${n}`, <Box P={P} i0={ci - 0.15} j0={cj} a={0.15} b={0.9} h={26} c={chairC} />)
-      if (side === 'r') add(ci + 0.9 + cj + 0.9 + 0.15, `chairb${n}`, <Box P={P} i0={ci + 0.9} j0={cj} a={0.15} b={0.9} h={26} c={chairC} />)
-      if (side === 'f') add(ci + 0.9 + cj + 1.05, `chairb${n}`, <Box P={P} i0={ci} j0={cj + 0.9} a={0.9} b={0.15} h={26} c={chairC} />)
-    })
-    // desks with computers, chairs behind them
-    ;[12.5, 15.3, 18.1, 20.9].forEach((di, n) => {
-      const dj = 7.4
-      const d = di + 1.4 + dj + 0.8
+    // Which desks are at work: the screen is on there and, at night, the lamp is lit (scene.ts).
+    const busy = busyDesks(actors, room.id)
+    /*
+     * The ten desks, two rows of five (room.ts DESK): a top on four legs with an apron under
+     * it, not a block. No chairs: a Fellow stands at its desk. The monitor stands on the back
+     * edge with its screen to the front, where the figure is, and the lamp on the back corner
+     * beside it - so nothing on the desk stands between the figure and what it looks at, and
+     * the screen shows beside its head rather than behind it.
+     */
+    const topZ = 22
+    const topT = 2.6
+    const legW = 0.09
+    const apron = { top: wood.left, left: mix(wood.left, '#000000', 0.18), right: mix(wood.right, '#000000', 0.18) }
+    deskPositions().forEach((t, n) => {
+      const di = t.i
+      const dj = t.j
+      const d = di + DESK.W + dj + DESK.D
+      const on = busy.has(n)
+      const lit = night && on
+      const [lx, ly] = P(di + DESK.W - 0.24, dj + 0.22, topZ)
+      const mi = di + 0.34
+      const mw = 0.55
+      const mj = dj + 0.14
+      const leg = (i: number, j: number, key: string): React.ReactNode => <Box key={key} P={P} i0={i} j0={j} a={legW} b={legW} h={topZ - topT} c={wood} />
       add(d, `desk${n}`, (
-        <g>
-          <Box P={P} i0={di} j0={dj} a={1.4} b={0.8} h={22} c={wood} />
-          <Box P={P} i0={di + 0.75} j0={dj + 0.15} a={0.12} b={0.5} h={13} z0={22} c={{ top: '#9aa7c2', left: night ? '#7fa7ff' : '#dfe8fb', right: '#1a2333' }} />
-          <Box P={P} i0={di + 0.15} j0={dj + 0.25} a={0.3} b={0.3} h={2} z0={22} c={{ top: '#e9edf7', left: '#c3cde0', right: '#b0bcd2' }} />
-        </g>
-      ))
-      add(di + 0.7 + dj - 0.1, `deskchair${n}`, <Box P={P} i0={di + 0.35} j0={dj - 0.85} a={0.7} b={0.7} h={12} c={chairC} />)
-      // A desk lamp on every desk: an arm, a shade, and light on the desktop at night.
-      const [lx, ly] = P(di + 0.22, dj + 0.62, 22)
-      add(d + 0.04, `lamp${n}`, (
-        <g className={`lib-lamp${night ? ' lit' : ''}`}>
-          {night && <ellipse cx={lx} cy={ly + 2} rx={52} ry={26} fill={`url(#${idp}-glow)`} />}
-          <ellipse cx={lx} cy={ly} rx={5} ry={2.5} fill={night ? '#4a3a26' : '#8a95ad'} />
-          <path d={`M${lx} ${ly - 1} l3 -13`} stroke={night ? '#6b5735' : '#8a95ad'} strokeWidth={1.6} fill="none" strokeLinecap="round" />
-          <path d={`M${lx - 2} ${ly - 14} h11 l-3 -7 h-6 z`} fill={night ? '#e2b45c' : '#b8c0d0'} stroke={night ? '#8a6a43' : '#98a2b5'} strokeWidth={0.8} />
-          {night && <ellipse cx={lx + 3.5} cy={ly - 13.5} rx={5} ry={1.6} fill="#f6d27a" />}
+        <g className="lib-desk" data-desk={n}>
+          {leg(di + 0.04, dj + 0.04, 'l0')}
+          {leg(di + DESK.W - legW - 0.04, dj + 0.04, 'l1')}
+          {leg(di + 0.04, dj + DESK.D - legW - 0.04, 'l2')}
+          {leg(di + DESK.W - legW - 0.04, dj + DESK.D - legW - 0.04, 'l3')}
+          <Box P={P} i0={di + 0.1} j0={dj + 0.1} a={DESK.W - 0.2} b={DESK.D - 0.2} h={3.5} z0={topZ - topT - 3.5} c={apron} />
+          <Box P={P} i0={di} j0={dj} a={DESK.W} b={DESK.D} h={topT} z0={topZ - topT} c={wood} />
+          {/* the monitor: foot, neck, bezel, and the glass inset on the front face - lit only at a busy desk */}
+          <Box P={P} i0={mi + 0.17} j0={mj} a={0.22} b={0.14} h={1.5} z0={topZ} c={screenC.foot} />
+          <Box P={P} i0={mi + 0.25} j0={mj + 0.04} a={0.06} b={0.06} h={4} z0={topZ + 1.5} c={screenC.foot} />
+          <Box P={P} i0={mi} j0={mj} a={mw} b={0.05} h={13} z0={topZ + 5.5} c={screenC.bezel} />
+          <polygon points={pts([P(mi + 0.04, mj + 0.05, topZ + 6.8), P(mi + mw - 0.04, mj + 0.05, topZ + 6.8), P(mi + mw - 0.04, mj + 0.05, topZ + 17.3), P(mi + 0.04, mj + 0.05, topZ + 17.3)])} fill={on ? screenC.glass : screenC.off} />
+          {/* the keyboard, in front of the screen where the figure's hands are */}
+          <Box P={P} i0={mi + 0.06} j0={dj + 0.4} a={0.44} b={0.17} h={1.3} z0={topZ} c={keysC} />
+          <polygon points={pts([P(mi + 0.09, dj + 0.43, topZ + 1.3), P(mi + 0.47, dj + 0.43, topZ + 1.3), P(mi + 0.47, dj + 0.54, topZ + 1.3), P(mi + 0.09, dj + 0.54, topZ + 1.3)])} fill={keysC.keys} />
+          {/* A desk lamp on every desk: an arm, a shade, and light on the desktop when it is lit. */}
+          <g className={`lib-lamp${lit ? ' lit' : ''}`}>
+            {lit && <ellipse cx={lx} cy={ly + 2} rx={52} ry={26} fill={`url(#${idp}-glow)`} />}
+            <ellipse cx={lx} cy={ly} rx={5} ry={2.5} fill={night ? '#4a3a26' : '#8a95ad'} />
+            <path d={`M${lx} ${ly - 1} l3 -13`} stroke={night ? '#6b5735' : '#8a95ad'} strokeWidth={1.6} fill="none" strokeLinecap="round" />
+            <path d={`M${lx - 2} ${ly - 14} h11 l-3 -7 h-6 z`} fill={lit ? '#e2b45c' : night ? '#6b5a3a' : '#b8c0d0'} stroke={night ? '#8a6a43' : '#98a2b5'} strokeWidth={0.8} />
+            {lit && <ellipse cx={lx + 3.5} cy={ly - 13.5} rx={5} ry={1.6} fill="#f6d27a" />}
+          </g>
         </g>
       ))
     })
-    // front desk with a parcel, the intake cart, the catalog
-    add(13.5 + 2.4 + 2.6 + 0.8, 'frontdesk', (
-      <g>
-        <Box P={P} i0={13.5} j0={2.6} a={2.4} b={0.8} h={30} c={wood} />
-        <Box P={P} i0={13.8} j0={2.7} a={0.5} b={0.4} h={12} z0={30} c={night ? { top: '#6b5735', left: '#5c4a2c', right: '#4a3b22' } : { top: '#e6cfa6', left: '#d9b98a', right: '#c9a672' }} />
-      </g>
-    ))
-    const cartC = night ? { top: '#3a4a6c', left: '#2a3550', right: '#22304a' } : { top: '#e6eaf3', left: '#c9d2e3', right: '#b6c2d8' }
-    const [cx, cy] = P(16.4 + 0.45, 3.2 + 0.28, 0)
-    add(16.4 + 0.9 + 3.2 + 0.55, 'cart', (
-      <g>
-        <Box P={P} i0={16.4} j0={3.2} a={0.9} b={0.55} h={18} c={cartC} />
-        <circle cx={cx - 12} cy={cy + 4} r={3.5} fill={night ? '#0a0d16' : '#55627e'} />
-        <circle cx={cx + 12} cy={cy + 2} r={3.5} fill={night ? '#0a0d16' : '#55627e'} />
-        <polygon points={pts([P(16.55, 3.7, 18), P(16.7, 3.7, 18), P(16.7, 3.7, 30), P(16.55, 3.7, 30)])} fill={hsl(200, 50, 45)} />
-        <polygon points={pts([P(16.75, 3.7, 18), P(16.88, 3.7, 18), P(16.88, 3.7, 28), P(16.75, 3.7, 28)])} fill={hsl(330, 45, 50)} />
-      </g>
-    ))
-    add(8.4 + 0.8 + 3.6 + 0.8, 'catalog', (
-      <g>
-        <Box P={P} i0={8.4} j0={3.6} a={0.8} b={0.8} h={42} c={wood} />
-        {[0, 1, 2].map((q) => (
-          <polygon key={q} points={pts([P(8.5, 4.4, 6 + q * 12), P(9.1, 4.4, 6 + q * 12), P(9.1, 4.4, 12 + q * 12), P(8.5, 4.4, 12 + q * 12)])} fill={night ? '#5a4630' : '#e6d6bf'} stroke={night ? '#33261a' : '#b8976a'} />
-        ))}
-      </g>
-    ))
+    /*
+     * The book cart (2026-09-17), in the open floor left of the desks, centred between the
+     * short wall and the first desk and in line with the middle of the two rows: three tiers
+     * of books on casters, with a push rail at its right end. It is the station of everything
+     * that is not a Fellow's own work - the maintenance runs stand at it, the ingest queue's
+     * parcels lie beside it - and clicking it opens System, where those runs are started. It
+     * wears the same lit edge a shelf does under the pointer, and for the same reason: it
+     * leads somewhere.
+     */
+    {
+      const ci = ANCHORS.cart.i
+      const cj = ANCHORS.cart.j
+      const a = CART_W
+      const b = CART_D
+      const tiers = [6, 22, 38]
+      const shelfH = 3
+      const postH = tiers[2]! + shelfH - tiers[0]!
+      const railZ = tiers[2]! + shelfH
+      const post = (i: number, j: number, key: string): React.ReactNode => <Box key={key} P={P} i0={i} j0={j} a={0.08} b={0.08} h={postH} z0={tiers[0]!} c={cartC} />
+      const rnd = seeded(4242)
+      /* Each tier paints its plank and then its own books, so a plank covers the tops of the
+         books below it the way it does in the room, and the top tier's books stand clear. */
+      const tier = (z: number, k: number): React.ReactNode => {
+        const books: React.ReactNode[] = []
+        let t = 0.12
+        const end = a - (k === 1 ? 0.55 : k === 2 ? 0.34 : 0.18)
+        while (t < end) {
+          const ds = 0.08 + rnd() * 0.08
+          if (t + ds > end) break
+          const hb = 10.5 + rnd() * 3.5
+          // Muted, and mostly the warm tones of the room: a cart of new books is not a toy.
+          const hue = [24, 32, 40, 205, 150, 350][Math.floor(rnd() * 6)]!
+          const sat = 30 + rnd() * 12
+          books.push(<Box key={`b${t.toFixed(2)}`} P={P} i0={ci + t} j0={cj + 0.12} a={ds} b={0.42} h={hb} z0={z + shelfH} c={{ top: hsl(hue, sat, night ? 30 : 56), left: hsl(hue, sat, night ? 26 : 48), right: hsl(hue, sat, night ? 20 : 40) }} />)
+          t += ds + 0.02
+        }
+        return (
+          <g key={`t${k}`}>
+            <Box P={P} i0={ci} j0={cj} a={a} b={b} h={shelfH} z0={z} c={cartC} />
+            {books}
+          </g>
+        )
+      }
+      const caster = (i: number, j: number, key: string): React.ReactNode => {
+        const [x, y] = P(i, j, 0)
+        return (
+          <g key={key}>
+            <path d={`M${x} ${y - 1} v-${tiers[0]! + 1}`} stroke={metal} strokeWidth={1.4} />
+            <ellipse cx={x} cy={y} rx={3} ry={1.9} fill={night ? '#0a0d16' : '#2b3040'} />
+          </g>
+        )
+      }
+      const rail = pts([P(ci + a - 0.03, cj + 0.08, railZ), P(ci + a - 0.03, cj + 0.08, railZ + 15), P(ci + a - 0.03, cj + b - 0.08, railZ + 15), P(ci + a - 0.03, cj + b - 0.08, railZ)])
+      add(ci + a / 2 + cj + b, 'cart', (
+        <g className="lib-cart" onClick={props.onCartClick} style={{ cursor: props.onCartClick ? 'pointer' : 'default' }}>
+          <title>The book cart: where the maintenance runs work. Click to open System.</title>
+          {caster(ci + 0.16, cj + b - 0.08, 'w0')}
+          {caster(ci + a - 0.16, cj + b - 0.08, 'w1')}
+          {caster(ci + a - 0.1, cj + 0.14, 'w2')}
+          {post(ci, cj, 'p0')}
+          {post(ci + a - 0.08, cj, 'p1')}
+          {tiers.map(tier)}
+          {post(ci, cj + b - 0.08, 'p2')}
+          {post(ci + a - 0.08, cj + b - 0.08, 'p3')}
+          <polyline points={rail} fill="none" stroke={metal} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+          <polyline
+            className="bc-rim"
+            points={pts([P(ci, cj + b, railZ), P(ci + a, cj + b, railZ), P(ci + a, cj, railZ)])}
+            fill="none"
+            stroke={night ? '#ffd9a8' : '#fff4e2'}
+            strokeWidth={1.6}
+            strokeLinecap="round"
+          />
+        </g>
+      ))
+    }
+    /*
+     * A large potted plant (2026-09-17) where the cart used to stand, against the long wall
+     * to the right of the last favorite shelf and centred in that gap: the corner wanted
+     * something green. A fern, low and bushy, chosen over a small tree, a rubber tree, a
+     * monstera and a palm, which all rose past the shelf beside them and competed with it.
+     */
+    {
+      const pi = ANCHORS.plant.i
+      const pj = ANCHORS.plant.j
+      const pw = 0.64
+      const potH = 20
+      const pot = night ? { top: '#5a3a26', left: '#4a2f1e', right: '#3d2618' } : { top: '#c98a5e', left: '#a8683f', right: '#8e5634' }
+      const [cx, cy] = P(pi + pw / 2, pj + pw / 2, potH)
+      const g = night
+        ? { a: '#2f4a33', b: '#284029', c: '#365a3a', d: '#22371f', edge: '#1a2a1c', stem: '#3d2a18', rib: '#4a6e4d' }
+        : { a: '#4f8047', b: '#3f6d3a', c: '#5f9451', d: '#39623a', edge: '#2e4a30', stem: '#5a3d24', rib: '#8fbf84' }
+      const greens = [g.a, g.b, g.c, g.d]
+      const at = (dx: number, dy: number, rot: number, scale: number): string => `translate(${(cx + dx).toFixed(1)} ${(cy + dy).toFixed(1)}) rotate(${rot}) scale(${scale})`
+      // Many short fronds fanning out of the pot, the outer ones drooping.
+      const frond = 'M0 0 C6 -12 18 -20 36 -14 C22 -14 10 -7 0 0 Z'
+      const fronds: ReadonlyArray<readonly [number, number, number]> = [
+        [-175, 0.9, 0], [-160, 1.0, 2], [-140, 0.95, 1], [-120, 1.05, 0], [-100, 1.0, 2], [-80, 1.05, 1], [-60, 1.0, 0], [-40, 0.95, 2], [-20, 1.0, 1], [-5, 0.9, 0], [10, 0.8, 3], [-190, 0.8, 3],
+      ]
+      const foliage = fronds.map(([rot, sc, ci], q) => (
+        <path key={q} d={frond} fill={greens[ci]!} stroke={g.edge} strokeWidth={0.6 / sc} transform={at(0, -4, rot, sc)} />
+      ))
+      add(pi + pw / 2 + pj + pw, 'plant', (
+        <g>
+          <Box P={P} i0={pi} j0={pj} a={pw} b={pw} h={potH} c={pot} />
+          <polygon points={pts([P(pi + 0.08, pj + 0.08, potH), P(pi + pw - 0.08, pj + 0.08, potH), P(pi + pw - 0.08, pj + pw - 0.08, potH), P(pi + 0.08, pj + pw - 0.08, potH)])} fill={night ? '#1e160f' : '#3a2a1c'} />
+          {foliage}
+        </g>
+      ))
+    }
   } else {
     wingSlotPositions(aisles).forEach((p, idx) => placeCase(p.i, p.j, idx, 'free'))
     /*
@@ -808,7 +1032,7 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
       </g>
     ))
     if (a.name !== 'parcel') {
-      const ty = a.pose === 'sleep' || a.pose === 'sit' ? -52 : a.pose === 'desk' ? -46 : -50
+      const ty = -50
       top.push(
         /* `clickable` only where the click leads somewhere: the bubble is drawn for visitors
            too, and one that lit up and then did nothing would be a promise the room cannot
@@ -863,6 +1087,14 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
           <rect x={27.6} y={0} width={0.9} height={56} fill={f.seam} />
           <rect x={0} y={27.6} width={56} height={0.9} fill={f.seam} />
         </pattern>
+        {/* The rug's weave, in tile space: 56 units are one tile, laid into the floor plane like the parquet. */}
+        {room.kind === 'main' && (
+          <pattern id={`${idp}-rug`} patternUnits="userSpaceOnUse" width={6} height={6} patternTransform={`matrix(${k} ${kv} ${-k} ${kv} ${ox} ${oy})`}>
+            <rect width={6} height={6} fill={rug.field} />
+            <rect width={3} height={3} fill={rug.field2} />
+            <rect x={3} y={3} width={3} height={3} fill={rug.field2} />
+          </pattern>
+        )}
         {panel(w.left, 'wallL')}
         {panel(w.right, 'wallR')}
         <radialGradient id={`${idp}-glow`}>

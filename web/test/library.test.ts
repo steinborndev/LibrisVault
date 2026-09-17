@@ -8,6 +8,7 @@ import {
   furthestFamily,
   runPercent,
   buildActors,
+  busyDesks,
   exitOk,
   floorLine,
   EXIT_MS,
@@ -52,7 +53,7 @@ describe('room model', () => {
     expect(mainSlotPositions()).toHaveLength(4)
     expect(shelfStand('wing', 0)).toEqual({ i: 1.0 + 2.8 / 2 - 0.3, j: 0.3 + 1.55 })
     expect(shelfStand('main', 9)).toBeUndefined()
-    expect(ANCHORS.desks).toHaveLength(4)
+    expect(ANCHORS.desks).toHaveLength(10)
   })
 
   it('breaks long signs at the hyphen and reads hyphens as spaces', () => {
@@ -67,7 +68,7 @@ describe('room model', () => {
 type SceneRunFixture = Partial<SceneRun> & Pick<SceneRun, 'id' | 'kind' | 'channel'>
 const run = (over: SceneRunFixture): SceneRun => ({ label: null, startedAt: 's', waiting: false, typicalMs: null, ...over })
 
-const fellow = (over: Partial<SceneFellow>): SceneFellow => ({ agentId: 'a1', name: 'Ada', homeDomain: 'astronomy', model: 'sonnet-5', state: 'sleeping', sleepCode: 'idle', sleepReason: 'nothing planned', skipUntil: null, run: null, next: null, lastActive: null, ...over })
+const fellow = (over: Partial<SceneFellow>): SceneFellow => ({ agentId: 'a1', name: 'Ada', homeDomain: 'astronomy', model: 'sonnet-5', state: 'sleeping', sleepCode: 'idle', sleepReason: 'nothing planned', skipUntil: null, run: null, next: null, lastActive: null, desk: null, ...over })
 
 const scene = (over: Partial<LibraryScene> = {}): LibraryScene => ({
   generatedAt: 'g',
@@ -168,7 +169,7 @@ describe('scene adapter', () => {
     expect(floorLine(actors)).toBe('5 visitors')
   })
 
-  it('places Fellows by state and pose: shelf in the home domain\'s room, desk in the main room, armchairs when resting', () => {
+  it('places Fellows by state and pose: shelf in the home domain\'s room, otherwise its own desk in the main room', () => {
     const s = scene({
       fellows: [
         fellow({ agentId: 'a1', name: 'Ada', state: 'active', run: run({ id: 'r1', kind: 'research-step', channel: 'maintenance:research-step', label: 'T' }) }),
@@ -186,15 +187,20 @@ describe('scene adapter', () => {
     expect(byName['Ada']).toMatchObject({ role: 'fellow', pose: 'shelf', room: 'w1', tag: 'fellow', book: expect.stringContaining('hsl(') })
     /*
      * The dot the bubble opens with, in the shelf's own colour and the same one the card a
-     * click on the bubble carries. Every Fellow has it, whatever it is doing: a Fellow resting
-     * in an armchair belongs to its shelf exactly as much as one reading at it.
+     * click on the bubble carries. Every Fellow has it, whatever it is doing: a Fellow asleep
+     * at its desk belongs to its shelf exactly as much as one reading at it.
      */
     for (const who of ['Ada', 'Bo', 'Cy', 'Di', 'Ed', 'Gus', 'Hal']) {
       expect(byName[who]!.dot, who).toEqual(expect.stringContaining('hsl('))
     }
     expect(byName['Bo']).toMatchObject({ pose: 'think', room: 'main', caption: 'Bo (planning)' })
     expect(byName['Cy']).toMatchObject({ pose: 'sleep', tag: 'warn', caption: 'Cy (out of quota)' })
-    expect(byName['Di']).toMatchObject({ pose: 'sit', tag: 'fellow', caption: 'Di (ready)' })
+    expect(byName['Di']).toMatchObject({ pose: 'stand', tag: 'fellow', caption: 'Di (ready)' })
+    // Away at the shelf, Ada carries no desk; the others stand at theirs. Without a desk on the
+    // record (a scene from an older server), the index seats them.
+    expect(byName['Ada']!.desk).toBeUndefined()
+    expect(byName['Bo']).toMatchObject({ desk: 1, i: ANCHORS.desks[1]!.i, j: ANCHORS.desks[1]!.j })
+    expect(byName['Cy']).toMatchObject({ desk: 2, i: ANCHORS.desks[2]!.i })
     expect(byName['Ed']).toMatchObject({ pose: 'wait', tag: 'warn' })
     expect(byName['Fay']).toBeUndefined()
     expect(byName['Gus']).toMatchObject({ pose: 'wait', caption: 'Gus (new)' })
@@ -207,6 +213,35 @@ describe('scene adapter', () => {
     const writing = buildActors(input(s, { 'maintenance:research-step': '→ Edit({})' }))
     expect(writing.find((a) => a.name === 'Ada')).toMatchObject({ pose: 'desk', room: 'main' })
     expect(floorLine(actors)).toBe('2 Fellows at work')
+  })
+
+  it('seats a Fellow at the desk its record names, guests from the far end, and lights only the busy desks', () => {
+    const s = scene({
+      fellows: [
+        fellow({ agentId: 'a1', name: 'Ada', state: 'sleeping', desk: 5 }),
+        fellow({ agentId: 'a2', name: 'Bo', state: 'active', run: null, desk: 2 }),
+        fellow({ agentId: 'a3', name: 'Cy', state: 'paused', desk: 0 }),
+      ],
+      runs: [run({ id: 'r1', kind: 'research', channel: 'c', label: null })],
+      jobs: [{ id: 'j3', status: 'ingesting', name: 'c.pdf', source: 'upload', batchId: null, hold: null, night: false, typicalMs: null, type: 'pdf', createdAt: '2026-09-10T00:00:00.000Z' }],
+    })
+    const actors = buildActors(input(s, { c: '→ Write({})', j3: '→ Write({})' }))
+    const byName = Object.fromEntries(actors.map((a) => [a.name, a]))
+    // The record's desk, not the index: Ada is first in the list and stands at desk 5.
+    expect(byName['Ada']).toMatchObject({ desk: 5, pose: 'sleep', i: ANCHORS.desks[5]!.i, j: ANCHORS.desks[5]!.j })
+    expect(byName['Bo']).toMatchObject({ desk: 2, pose: 'think' })
+    expect(byName['Cy']).toMatchObject({ desk: 0, pose: 'stand' })
+    // Guests write at the far end of the rows, so they meet a Fellow's desk only in a full room.
+    expect(byName['visiting researcher']).toMatchObject({ desk: 9, pose: 'desk', i: ANCHORS.desks[9]!.i })
+    expect(byName['clerk']).toMatchObject({ desk: 7, pose: 'desk' })
+    // Busy: a run, thinking between steps, a guest writing. Not a sleeper, not a paused one.
+    expect([...busyDesks(actors, 'main')].sort()).toEqual([2, 7, 9])
+    expect(busyDesks(actors, 'w1').size).toBe(0)
+    // A failed run's exit stands at a guest desk, and being over it lights nothing.
+    const exits: AdapterInput['exits'] = [{ id: 'r9', kind: 'run', ok: false, name: 'researcher', role: 'researcher', at: NOW - 1000 }]
+    const withExit = buildActors(input(s, { c: '→ Write({})', j3: '→ Write({})' }, exits))
+    expect(withExit.find((a) => a.id === 'exit:run:r9')).toMatchObject({ desk: 9, exiting: true })
+    expect([...busyDesks(withExit, 'main')].sort()).toEqual([2, 7, 9])
   })
 
   it('holds a working Fellow still: the real line sequence of a run moves it once, not eight times', () => {

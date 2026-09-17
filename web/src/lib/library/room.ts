@@ -70,31 +70,65 @@ export function shelfStand(kind: 'main' | 'wing', slot: number, aisles: Aisles =
   return p ? { i: p.i + CASE_W / 2 - 0.3, j: p.j + 1.55 } : undefined
 }
 
-/** The main room's furniture anchors, matching the drawing. */
+/**
+ * The desks (2026-09-17): ten of them in two rows of five, parallel to the long wall, and
+ * every Fellow keeps one - so the room holds ten Fellows and says so by its furniture. The
+ * fireplace and the armchairs that used to hold a resting Fellow are gone: a Fellow stands at
+ * its own desk whatever its state, so the room never has to decide where "resting" is.
+ *
+ * The rows stand a tile and a half from the right edge and leave the left part of the floor,
+ * in front of the boards, to the book cart. A Fellow stands in FRONT of its desk (larger j,
+ * nearer the viewer), the monitor faces it from the back edge and the lamp sits on the back
+ * corner.
+ */
+export const DESK = { W: 1.4, D: 0.8, I0: 9.3, PITCH: 2.7, ROWS: [4.9, 8.0] } as const
+/** How many Fellows the room seats: one per desk. The service refuses the eleventh spawn (`DESK_COUNT` there too). */
+export const DESK_COUNT = 10
+
+/** Where the ten desks stand, by number: the back row first, left to right, then the front row. */
+export function deskPositions(): Tile[] {
+  const out: Tile[] = []
+  for (const j of DESK.ROWS) for (let n = 0; n < DESK_COUNT / DESK.ROWS.length; n++) out.push({ i: DESK.I0 + n * DESK.PITCH, j })
+  return out
+}
+
+/** Where a figure stands at desk `n`: in front of it, a little left of the middle, so the screen shows beside its head. */
+export function deskStand(n: number): Tile {
+  const d = deskPositions()[n % DESK_COUNT]!
+  return { i: d.i + 0.45, j: d.j + 1.2 }
+}
+
+export const CART_W = 1.55
+export const CART_D = 0.72
+
+/**
+ * The main room's furniture anchors, matching the drawing.
+ *
+ * The book cart (2026-09-17) stands in the open floor left of the desks, centred between the
+ * short wall and the first desk and in line with the middle of the two rows. It is the one
+ * station for everything that is not a Fellow's own work: the maintenance runs stand at it,
+ * the ingest queue's parcels lie beside it, and clicking it opens System, where the
+ * maintenance runs are started. The plant took the cart's old place by the last favorite shelf.
+ */
+const CART_I = (DESK.I0 - CART_W) / 2
+const CART_J = (DESK.ROWS[0] + DESK.ROWS[1] + DESK.D) / 2 - CART_D / 2
 export const ANCHORS = {
   door: { i: 11.5, j: 1.3 },
-  frontDesk: { i: 14.8, j: 4.0 },
-  frontDeskQueue: [
-    { i: 13.6, j: 4.2 },
-    { i: 12.6, j: 4.4 },
-    { i: 11.6, j: 4.6 },
-  ],
-  intake: { i: 17.3, j: 4.5 },
-  catalog: { i: 9.7, j: 4.9 },
+  desks: deskPositions().map((_, n) => deskStand(n)),
   noticeBoard: { i: 1.3, j: 5.6 },
-  desks: [
-    { i: 13.0, j: 8.6 },
-    { i: 15.8, j: 8.6 },
-    { i: 18.6, j: 8.6 },
-    { i: 21.4, j: 8.6 },
+  /** The cart's footprint origin; it is CART_W by CART_D, parallel to the long wall. */
+  cart: { i: CART_I, j: CART_J },
+  /** Where a visitor stands to work at the cart: in front of it, like a Fellow at a desk. */
+  cartStand: { i: CART_I + 0.5, j: CART_J + CART_D + 0.55 },
+  /** The parcels of the ingest queue, on the floor on the wall side of the cart. */
+  cartQueue: [
+    { i: CART_I - 0.6, j: CART_J + 0.1 },
+    { i: CART_I - 0.6, j: CART_J + 0.65 },
+    { i: CART_I - 0.6, j: CART_J + 1.2 },
   ],
-  armchairs: [
-    { i: 4.15, j: 6.55 },
-    { i: 8.45, j: 6.55 },
-    { i: 5.55, j: 9.05 },
-    { i: 7.65, j: 9.05 },
-  ],
-  readingTable: { i: 4.55, j: 9.9 },
+  /** The potted plant against the long wall, right of the last favorite shelf. */
+  /** Centred in the gap between the last favorite shelf (ends at 20.9) and the room's edge (23). */
+  plant: { i: 20.9 + (23 - 20.9 - 0.64) / 2, j: 0.42 },
   wingDoor: { i: 11.5, j: 1.3 },
   wingPassage: { i: 11.4, j: 7.6 },
 } as const

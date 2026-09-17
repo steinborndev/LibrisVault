@@ -402,7 +402,8 @@ export function LibraryScreen({
    */
   const shelfOrder = useMemo(() => orderedDomains(scene.data?.rooms ?? [], scene.data?.departments ?? []), [scene.data])
   const current = rooms.find((r) => r.id === room) ?? rooms[0]
-  const activityRooms = useMemo(() => new Set(actors.filter((a) => !a.exiting && a.pose !== 'sleep' && a.pose !== 'sit').map((a) => a.room)), [actors])
+  // A Fellow resting at its desk - waiting or paused, without a run - is no activity, any more than a sleeping one.
+  const activityRooms = useMemo(() => new Set(actors.filter((a) => !a.exiting && a.pose !== 'sleep' && !(a.role === 'fellow' && a.pose === 'stand' && a.runId === undefined)).map((a) => a.room)), [actors])
   const night = scene.data?.night ?? false
 
   // Focus mode follows the Fellow at work - once per move, not on every render. Followed on
@@ -1196,6 +1197,7 @@ export function LibraryScreen({
               draggingAisle={aisleDrag}
               onActorClick={onActorClick}
               onBoardClick={current.kind === 'main' ? openBoard : undefined}
+              onCartClick={current.kind === 'main' ? () => navigate('/system') : undefined}
               onPassageClick={rooms.length > 1 ? nextRoom : undefined}
               {...(rooms.length > 1 ? { nextRoomName: rooms[(rooms.findIndex((r) => r.id === current.id) + 1) % rooms.length]?.name } : {})}
               passageTitle={
