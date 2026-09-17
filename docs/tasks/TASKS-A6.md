@@ -723,7 +723,7 @@ in the same form as D1 to D6.
       clone**. A fresh clone of this repo on another machine, or a reset of that file, and the
       next `git add -A` sweeps both in. Nothing to fix before the merge; worth a line in the
       setup script's neighbourhood so it is not rediscovered by accident.
-      The original item: confirm `docs/local/` and `docs/studio/` are still excluded and still hold nothing
+      The original item: confirm `docs/local/` and a second local directory are still excluded and still hold nothing
       that belongs in the public repo. **[corrected] They are excluded by
       `.git/info/exclude`, not by `.gitignore`** - a local, per-clone mechanism that travels
       with nothing and that no reviewer can see. Say so wherever this is relied on.
@@ -998,7 +998,7 @@ Status as measured 2026-09-15, on the working tree:
   empty list for an absent scene, so nothing downstream moves. Worth generalising: "no Fellow
   surface renders" was checked and passed for years, and the network half of the same sentence
   had never been checked at all.
-  Also from this pass, recorded in section 7: `docs/local/` and `docs/studio/` are excluded by
+  Also from this pass, recorded in section 7: `docs/local/` and a second local directory are excluded by
   `.git/info/exclude`, which does not survive a clone.
 - **F-A6-21 (2026-09-15) - a pre-push audit over 41 commits, and the method to reuse for the
   merge diff.** The fork's own branch was pushed to the PRIVATE remote, and reviewed first on
@@ -1274,3 +1274,15 @@ this section lists what the merge carries because of it.
 - [x] **The third UI sweep (2026-09-17)**, recorded in `TASKS-SWEEP-2026-09.md`: the Catalog
       column in the graph's shape, Home without its lead facts and with the folded search, one
       bucket label map for three screens, and the lock's three design parameters as decided.
+- [x] **Hygiene pass before the merge (2026-09-17, late).** A sweep over the tracked tree found
+      five points, all cleared: the fork's name on two configuration surfaces (the open-access
+      contact address is `OA_CONTACT_EMAIL` now, the dev instance's data directory variable is
+      `DEV_INSTANCE_DATA` with a neutral default; neither was set anywhere), with the open-access
+      credentials added to the README's table; 25 em dashes in strings and comments the branch
+      adds, replaced with regular punctuation (the one en dash in `quotes.ts` that is itself the
+      datum stays; the dashes upstream's own files carry are not this merge's); `web/DESIGN.md`
+      opened on the sidebar shell of August and describes the tab row now; three whitespace
+      slips; and the second untracked directory is no longer named in this file. Checked and
+      left as they are: the author's name and the repository URLs only where upstream already
+      has them, the vault-name scan over the whole diff at the audit's thirteen accepted
+      matches, no drift from upstream/main, and 7 MB of README images.

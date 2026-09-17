@@ -871,4 +871,3 @@ daily recaps - sat beside a column that filtered a table nobody could see.
       the night already on screen, with a row of day chips that repeated the stepper the night
       shift board now carries. `RecapBody`, `RecapFacts` and the sections stay in `tabs/Recap.tsx`;
       only the screen around them and its route are gone, and `/recap/...` falls back to Home.
-

@@ -357,4 +357,3 @@ browser, and the two Home variants and the Catalog column were decided from thos
 - [x] README's Home and Catalog images re-shot from the synthetic vault; the Home shot's settle
       condition now waits on the band's figures rather than on the facts that are no longer
       there.
-
