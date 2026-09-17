@@ -1864,6 +1864,56 @@ the second copy of five screens this window already had.
 
 ---
 
+### 10.13 The main room refurnished (as built, 2026-09-17)
+
+The main room of 10.4 was built as designed and then lived with for eleven days, and three
+things in it did not earn their place: the fireplace with its four armchairs, where a
+resting Fellow sat with nothing to do; the front desk, the intake cart and the card catalog,
+which stood in the middle of the floor for events that happen a few times a day; and the
+desks, four of them for a room meant to hold more Fellows than that. This section replaces
+the furniture paragraph of 10.4 and the places named in 10.2 and 10.3 (the front desk, the
+reading room, the intake cart, the catalog); everything else in those sections stands.
+
+**Ten desks, one per Fellow.** Two rows of five parallel to the long wall, on a sage wool
+rug that marks them as a section. Each desk is a top on four legs with a monitor on the back
+edge, its screen to the front, a keyboard before it and a lamp on the back corner. A Fellow
+STANDS in front of its own desk whatever its state - working, thinking, waiting, paused or
+asleep (head tipped, z's) - and only reading takes it away, to its department's shelf. The
+desk is a column of the record (`agents.desk`, v31): the lowest free number at spawn, freed
+at retirement, so a retirement moves nobody and the room fills from the first desk. The room
+seats ten; the eleventh spawn is refused (`409`, code `full`) until a Fellow retires. Visitors
+who write - the manual researcher, the clerk filing pages - take guest desks from the far end
+of the rows, so they meet a Fellow's desk only when the room is full.
+
+**The screen and the lamp say who is busy.** A monitor is lit only at a desk whose figure is
+in a run, between two steps of one, or a guest writing; at night the same rule lights the
+lamp. An empty desk and a sleeping Fellow's desk stay dark, so the room says at a glance who
+is at work.
+
+**The book cart** stands in the open floor left of the desks, centred between the short wall
+and the first desk and in line with the middle of the two rows: three tiers of books on
+casters with a push rail. It is the one station for everything that is not a Fellow's own
+work. The inspector and the caretakers stand at it, the reader filing a chat too; the ingest
+queue's parcels lie beside it and the clerk unpacks and reads there. Only the hot-cache
+caretaker keeps its place at the board it renews. The cart lights its top edge under the
+pointer like a shelf, and clicking it opens System, where the maintenance runs are started.
+
+**The rest.** A fern in a pot stands where the cart used to, right of the last favorite shelf
+and centred in that gap. The three boards on the short wall are chalkboards in the banner's
+green, framed all round with a chalk tray. The passage to the wings holds a glazed double
+door: a wooden panel below, six panes above, brass knobs; the corridor shows through the
+glass, and the frame, its lit edge and the click are unchanged. Every bookcase, here and in
+the wings, is an open case with depth - back panel, sides, a plank per row - and its books
+stand in it as boxes, set a little back from the front edge.
+
+Decided in three rounds of renders on 2026-09-17, each look chosen from a contact sheet of
+alternatives: the rug over carpet tiles, a striped weave and an oriental pattern; the
+chalkboards over a cork board with pinned notes and a brass plaque; the boxes over flat
+spines and spines with tops; the fern over a small tree, a rubber tree, a monstera and a
+palm; the glazed door over a panelled one, an open one and one under a fanlight. The design
+artboards under `docs/agents/design/library-screen/` show the room as first designed and are
+kept as that record.
+
 ## 15. Milestones
 
 | # | Milestone | Content | Acceptance |

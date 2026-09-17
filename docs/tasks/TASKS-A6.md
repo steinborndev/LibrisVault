@@ -1167,3 +1167,28 @@ Status as measured 2026-09-15, on the working tree:
   `social-preview.png` is `b52c19e` (2026-07-19).
 - **F-A6-12 (2026-09-15) - no CI in either repo, and the LibrisVault clone holds an
   un-ignored private task file** at `docs/tasks/TASKS-BIOAGENTKG.md`. See sections 8 and 7.
+
+## 11. The Library's main room, refurnished (2026-09-17)
+
+Done during the merge preparation, because the room as first built was going public with
+furniture that had no function: the fireplace and armchairs, the front desk, the intake cart
+and the card catalog. What replaced them is recorded as built in `docs/agents/SPEC.md` 10.13;
+this section lists what the merge carries because of it.
+
+- [x] Ten desks in two rows on a rug, one per Fellow, the Fellow standing in front of its own
+      desk in every state; screen and lamp lit only at a busy desk. The desk is a column
+      (`agents.desk`, migration v31, backfilled in spawn order for the Fellows already there),
+      given at spawn and freed at retirement; the eleventh spawn is refused (`409`, `full`).
+      The migration runs like every other one; the column is read only by the Fellow service
+      and the scene, which exist only behind the flag.
+- [x] The book cart as the one station for maintenance runs and ingests, a click into System;
+      a fern where the cart stood; chalkboards on the short wall; a glazed double door in every
+      passage; open cases with the books as boxes, in the main room and the wings.
+- [x] Tests: `web/test/library.test.ts` (the desk from the record, guest desks, busy desks),
+      `web/test/roomLayout.test.ts` (the rows, the cart's place), `server/test/fellows.test.ts`
+      (seating, the cap). All three gates green and exit 0 on 2026-09-17.
+- [x] Screenshots of the room re-shot from the synthetic vault (section 5's rule): `library-room`
+      and `library-wing`. The command centre and the dossier were shot too and came out byte for
+      byte the same: their windows cover the room.
+- [ ] Not done, said so in 10.13: the design artboards under `docs/agents/design/library-screen/`
+      still show the first room and are kept as the design record.
