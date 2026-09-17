@@ -587,6 +587,18 @@ export function RoomSvg(props: RoomSvgProps): React.ReactElement {
             const z = zTop - 11 - q * 10
             return <polygon key={q} points={face(z, z + 5, j0 + 0.28, j1 - 0.28 - (q % 2) * 0.42)} fill={night ? '#5a4a1a' : '#d9c58f'} />
           })}
+          {/* The same lit edge a shelf wears under the pointer, and for the same reason: a board
+              opens a window over the room and said so with a pointer shape alone. One segment
+              rather than two, because a board is flat against the wall and has only the one
+              edge the viewer is outside of. */}
+          <polyline
+            className="bc-rim"
+            points={pts([P(0, j0 - 0.12, bandTop), P(0, j1 + 0.12, bandTop)])}
+            fill="none"
+            stroke={night ? '#ffd9a8' : '#fff4e2'}
+            strokeWidth={1.6}
+            strokeLinecap="round"
+          />
         </g>
       )
     }

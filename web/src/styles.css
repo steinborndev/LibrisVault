@@ -7469,7 +7469,8 @@ tr:focus-within .rowacts {
    third state saying the same colour as those two would be a third state saying nothing. */
 .bc-rim { opacity: 0; }
 @media (hover: hover) {
-  .lib-slot:hover .bc-rim { opacity: 0.95; }
+  .lib-slot:hover .bc-rim,
+  .lib-board:hover .bc-rim { opacity: 0.95; }
 }
 /* The same idea on a Fellow's bubble, which is clickable and opens their card. Its OWN outline
    rather than an edge of its own: the bubble is a flat pill lying in front of the room, with
