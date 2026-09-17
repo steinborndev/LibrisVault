@@ -148,7 +148,7 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
      case, and the band is let into the top of the front like a name plate, so nothing on the
      front changes where the sign begins. */
   const stile = 0.08
-  const bandPoly: Pt[] = [P(i0 + stile, front, rowsTop + 1), P(i0 + a - stile, front, rowsTop + 1), P(i0 + a - stile, front, h - 1), P(i0 + stile, front, h - 1)]
+  const bandPoly: Pt[] = [P(i0 + stile, front, rowsTop + 1), P(i0 + a - stile, front, rowsTop + 1), P(i0 + a - stile, front, h - 3), P(i0 + stile, front, h - 3)]
   /*
    * The books as data - row, place along the case, width, height, colour - and no geometry,
    * so the memo survives a resize: the polygons themselves used to be memoised and stayed on
@@ -190,9 +190,11 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
    *
    * The back panel is LIGHTER than the wood, not darker: what shows of it is a strip above
    * the top row, right under the dark sign band, and drawn dark the two were one surface.
-   * The sides run the full height and paint after the cap, so each stile reaches the top of
-   * the case in one piece and the right face of the case is one face: the cap and a shorter
-   * side used to meet at the sign's foot, and the seam showed as a hairline.
+   * The sides run the full height, so each stile reaches the top of the case in one piece and
+   * the right face of the case is one face: a cap and a shorter side used to meet at the
+   * sign's foot, and the seam showed as a hairline. The top board paints LAST, as a top face
+   * with a lip between the stiles: a full-height side shows its inner face where it rises
+   * past the shelves, and painted after the top that face swallowed the top (2026-09-17).
    */
   const side = 0.08
   const inner = rowsTop + 1
@@ -201,7 +203,6 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
     <>
       <Box P={P} i0={i0} j0={j0} a={a} b={b} h={3} c={c} />
       <Box P={P} i0={i0} j0={j0} a={a} b={0.1} h={inner} c={interior} />
-      <Box P={P} i0={i0} j0={j0} a={a} b={b} h={h - inner} z0={inner} c={c} />
       <Box P={P} i0={i0} j0={j0} a={side} b={b} h={h} c={c} />
       {[0, 1, 2].map((r) => (
         <g key={r}>
@@ -214,6 +215,8 @@ function Bookcase({ P, i0, j0, shelf, night, spare, label, selected }: { P: Proj
         </g>
       ))}
       <Box P={P} i0={i0 + a - side} j0={j0} a={side} b={b} h={h} c={c} />
+      <polygon points={pts([P(i0 + side, front, h - 3), P(i0 + a - side, front, h - 3), P(i0 + a - side, front, h), P(i0 + side, front, h)])} fill={c.left} />
+      <polygon points={pts([P(i0, j0, h), P(i0 + a, j0, h), P(i0 + a, front, h), P(i0, front, h)])} fill={c.top} />
     </>
   )
   return (
