@@ -617,6 +617,8 @@ An operating mode for a publicly hosted, strictly read-only instance (`DEMO_MODE
 
 **Delimitation:** Demo mode changes nothing about hard rule 2 (bind policy); a public demo sits behind a reverse proxy, the service itself keeps binding `127.0.0.1`. It is orthogonal to setup mode and to `HTTP_AUTH_MODE`.
 
+**Fellows in demo mode (added 2026-09-18).** With `AGENTS_ENABLED` set, a demo instance constructs the Fellow services too (Fellow service, night shift, recap service, usage monitor, library, pinboard), so the Library, the recaps, the reading list and the pinboard can be browsed from a seeded database, and `health.fellows` is `true`. Nothing of it runs: the shift and the recap scheduler are never started (the passive start-up formation above), and every write - a spawn, a decision, a recap answer, a shelf move, a value event - is refused by the guard before a handler runs. The dashboard reacts to that refusal once, in the shell, with a notice; the buttons stay, which is how a visitor sees what the full app offers, and the value event a page open would send is not sent at all on such an instance. The start-up write to the vault's `.git/info/exclude` tolerates a vault mounted read-only for the process, which is how a hosted instance should mount it. The synthetic vault and database from `scripts/demo-vault.mjs` are the intended seed; their dates are relative to the build, so a hosted instance rebuilds them on a schedule, which is the host's job and not the service's. Demo mode without the flag stays what it was: no Fellow surface at all.
+
 ---
 
 ### 12.9 Dedupe in three stages and the outcome "no changes" (added 2026-09-05)
@@ -659,7 +661,7 @@ A **Fellow** is a standing research agent that works a subject on its own schedu
 
 **The tables exist either way, and the migration is one-way.** The agent tables are created by the schema migrations regardless of the flag, so a vault with no Fellows still has a `fellows` table; that is schema, not behaviour. But there are 31 migrations gated by `PRAGMA user_version` (the highest `version` in `server/src/db/migrations.ts`, which is the number to re-check rather than repeat) and none of them steps back down: a user who upgrades, decides the Fellows are not for them and wants the previous release cannot run the old binary against the same database. Keep a copy of `jobs.db` before upgrading if that matters.
 
-**Delimitation.** Fellows never run in demo mode, whatever the flag says. They write to the vault only through agent runs behind the shared commit mutex, like every other run, so hard rule 1 is untouched; losing the database loses the schedule and the proposals, never the vault. A Fellow's own runs reach the web; its planning run does not.
+**Delimitation.** Fellows never run in demo mode, whatever the flag says; with the flag set they are constructed and SHOWN there, read-only, from whatever the database holds (§12.8). They write to the vault only through agent runs behind the shared commit mutex, like every other run, so hard rule 1 is untouched; losing the database loses the schedule and the proposals, never the vault. A Fellow's own runs reach the web; its planning run does not.
 
 ---
 

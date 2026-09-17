@@ -430,7 +430,7 @@ the effective value is `override ?? baseline`. Overrides live in SQLite and surv
 | `TELEGRAM_ALLOWED_USER_IDS` | - | comma-separated numeric ids; **required** once the token is set |
 | `DB_PATH` | `~/.local/share/vault-service/jobs.db` | kept **outside** the vault |
 | `AGENTS_ENABLED` | off | `1` turns on the research agents; off changes nothing, network included |
-| `DEMO_MODE` | off | `1` serves the vault strictly read-only for a public instance |
+| `DEMO_MODE` | off | `1` serves the vault strictly read-only for a public instance; with `AGENTS_ENABLED` the Fellows are shown too, never run |
 | `PREPROCESS_SANDBOX` | on | `off` runs the converters without their bubblewrap jail. Only for a machine that cannot install bubblewrap |
 | `CORE_API_KEY` | - | optional; unlocks the third open-access resolver (CORE). A secret, handled like the credential |
 | `OA_CONTACT_EMAIL` | - | optional; sent to OpenAlex as its `mailto` parameter for the polite pool, and nowhere else |
@@ -446,6 +446,15 @@ subscription (no per-run charge; runs compete with your interactive usage), a **
 day** on an API key. When the budget is reached the queue stops claiming new work and resumes at the
 next local midnight. In subscription mode every `cost_usd` in the UI is labelled "estimate": an
 API-price equivalent, not money charged.
+
+**Hosting a read-only demo.** `DEMO_MODE=1` needs no credential: the queue, the watcher, the
+Telegram bot and every maintenance writer stay off, and every request that is not a read is refused
+before it reaches a route. With `AGENTS_ENABLED=1` the Library, the recaps and the pinboard are
+shown from the database, and nothing ever runs. `scripts/demo-vault.mjs` seeds a synthetic vault
+and a matching database for exactly this (the screenshots above come from it); its dates are
+relative to the build, so rebuild it on a schedule. Put a reverse proxy in front: the service keeps
+binding `127.0.0.1`, and the proxy is where a `robots.txt` belongs, because the app answers every
+unknown path with its shell. The vault may be mounted read-only for the service.
 
 ---
 

@@ -3,7 +3,9 @@
 All endpoints are under `/api/v1` and behind the auth middleware (v1 mode `local-single-user` is
 pass-through). `GET /api/v1/health` is public so a supervisor can probe it. State-changing requests
 carrying a foreign browser `Origin` are rejected with `403`. In **setup mode** everything that would
-start an agent run answers `503`.
+start an agent run answers `503`. In **demo mode** (`DEMO_MODE=1`) every request that is not a
+`GET` or `HEAD` answers `403 demo_read_only` before routing; the Fellow routes exist there too when
+`AGENTS_ENABLED` is set, reads only.
 
 ```
 POST   /jobs                     upload / URL / pasted text (multi → batch)
@@ -59,7 +61,7 @@ GET    /settings/telegram        bot status + rejected senders (ids/counts, neve
 POST   /settings/telegram        {botToken, allowedUserIds} → writes BOTH and restarts
 DELETE /settings/telegram        disables the bot: removes both env vars, restarts
 
-                                 --- only with AGENTS_ENABLED; 404 without it ---
+                                 --- only with AGENTS_ENABLED; 404 without it (demo mode: reads only) ---
 GET    /agents                   the Fellows, with tonight's schedule inputs
 POST   /agents                   spawn one (409 `full` once every desk in the room is taken);
                                  PATCH /agents/:id edits tasks, quota, autonomy, model,
