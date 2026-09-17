@@ -8797,8 +8797,10 @@ tr:focus-within .rowacts {
   color: var(--accent-ink);
 }
 /* The ledger's search, in the head where the count stood; the count is its placeholder. */
-.sub-head .ledger-search { align-self: center; width: 260px; height: 26px; padding: 0 9px; }
-.sub-head .ledger-search input { font-size: 12px; }
+/* The ledger's search, folded behind its magnifier like the graph's and the Catalog's
+   (2026-09-17): the same slot at the head's right edge, the same width and height. */
+.sub-head .graph-search-slot { align-self: center; }
+.sub-head .graph-search-inbar input { font-size: 12px; }
 /* Two spans in one cell: the pencil on hover, the trash always; they sit side by side. */
 .lt-acts-cell { white-space: nowrap; }
 .lt-acts-cell .rowacts { vertical-align: middle; }

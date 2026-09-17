@@ -914,21 +914,96 @@ function StartView({
   const q = ledgerQuery.trim().toLowerCase()
   const listedEntries = q === '' ? entries : entries.filter((e) => [e.topic, lensLabel(e.profileKey), ...e.pages, e.error ?? ''].join(' ').toLowerCase().includes(q))
   const listedSessions = q === '' ? sessions : sessions.filter((s) => (s.title ?? '').toLowerCase().includes(q))
+  /*
+   * The box folds away behind a magnifier, the way the graph's and the Catalog's do
+   * (2026-09-17): the same slot at the right edge of the head, the same two states, the same
+   * two keys. Closing clears the text - a query narrowing the ledger from behind a folded-away
+   * box is a filter you cannot see and therefore cannot undo. Switching modes closes it too:
+   * the other ledger is a fresh visit.
+   */
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const ledgerRef = useRef<HTMLElement>(null)
+  const openSearch = (): void => {
+    setSearchOpen(true)
+    // Focus after the field exists; without the frame the ref is still null.
+    requestAnimationFrame(() => searchRef.current?.focus())
+  }
+  const closeSearch = (): void => {
+    setLedgerQuery('')
+    setSearchOpen(false)
+  }
+  useEffect(() => {
+    setLedgerQuery('')
+    setSearchOpen(false)
+  }, [mode])
+  // `/` opens the box, Escape folds it away when the caret has moved on - the graph's keys.
+  // Only while this ledger is the one on screen: the shell keeps every screen mounted and
+  // hidden, and hidden means no box to measure.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const root = ledgerRef.current
+      if (root === null || (root.offsetWidth === 0 && root.offsetHeight === 0)) return
+      const t = e.target
+      const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable)
+      if (inField) return
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        openSearch()
+      } else if (e.key === 'Escape' && searchOpen) {
+        e.preventDefault()
+        closeSearch()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [searchOpen])
   const search = (total: number, shown: number, noun: string, label: string): React.ReactElement => (
-    <div className="graph-search ledger-search">
-      <Icon name="search" />
-      <input type="search" value={ledgerQuery} placeholder={`Search ${total} ${noun}${total === 1 ? '' : 's'}…`} aria-label={label} onChange={(e) => setLedgerQuery(e.target.value)} />
-      {q !== '' && (
-        <span className="graph-matches">
-          {shown} of {total}
-        </span>
+    <div className={`graph-search-slot${searchOpen ? ' open' : ''}`}>
+      {searchOpen && (
+        <div className="graph-search graph-search-inbar">
+          <input
+            ref={searchRef}
+            type="search"
+            value={ledgerQuery}
+            placeholder={`Search ${total} ${noun}${total === 1 ? '' : 's'}…`}
+            aria-label={label}
+            onChange={(e) => setLedgerQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              e.preventDefault()
+              // Text first, then the box: one step out per press, the shape Escape has on
+              // the graph and everywhere else here.
+              if (ledgerQuery !== '') setLedgerQuery('')
+              else {
+                e.currentTarget.blur()
+                setSearchOpen(false)
+              }
+            }}
+          />
+          {q !== '' && (
+            <span className="graph-matches">
+              {shown} of {total}
+            </span>
+          )}
+        </div>
       )}
+      {/* One magnifier, at the right edge in both states, so it does not move between them. */}
+      <button
+        className="canvas-corner search-open"
+        aria-expanded={searchOpen}
+        onClick={() => (searchOpen ? closeSearch() : openSearch())}
+        aria-label={searchOpen ? 'Close the search' : label}
+        title={searchOpen ? 'Close the search · Esc' : `${label} · /`}
+      >
+        <Icon name="search" />
+      </button>
     </div>
   )
   return (
     <>
       {mode === 'research' && (
-      <section className="box ledger grow">
+      <section className="box ledger grow" ref={ledgerRef}>
         <div className="sub-head">
           <h3 className="sub-title">Web Research</h3>
           <span className="box-sub">topic, lens, the pages it filed and what it cost</span>
@@ -1020,7 +1095,7 @@ function StartView({
 
       )}
       {mode === 'ask' && (
-      <section className="box ledger grow">
+      <section className="box ledger grow" ref={ledgerRef}>
         <div className="sub-head">
           <h3 className="sub-title">Vault Research</h3>
           <span className="box-sub">questions the vault answered from what it already holds</span>
