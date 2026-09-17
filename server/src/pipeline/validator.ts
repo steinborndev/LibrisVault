@@ -23,6 +23,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseWikilinks } from './citations.js'
+import { findWrappedLinks } from './link-repair.js'
 import { pluginDocPages } from './upstream-guard.js'
 import { parseFrontmatterMeta, type VaultGraph } from './graph.js'
 
@@ -31,11 +32,16 @@ export type ValidationRule =
   | 'dates'
   | 'address'
   | 'dead-link'
+  | 'wrapped-link'
   | 'orphan'
   | 'address-map'
   | 'stale-counter'
   | 'single-source-entity'
+  | 'source-url'
+  | 'nested-page'
   | 'hot-cache-size'
+  /** A quotation that is not in the text the job read (docs/sources/SPEC.md section 7). */
+  | 'quote'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule
@@ -261,6 +267,23 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       continue
     }
 
+    /*
+     * A page one folder below its bucket (2026-09-10). A page title carrying a path separator
+     * is written as a directory plus a page named after the rest of the title, and every
+     * wikilink aimed at the whole title then resolves to nothing - which is how it was found,
+     * long after the run that wrote it reported success. The buckets under `wiki/` are flat;
+     * `wiki/meta/` is the exception, where the agent and recap journals live in folders of
+     * their own.
+     */
+    const inBucket = rel.startsWith('wiki/') ? rel.slice('wiki/'.length) : rel
+    if (!rel.startsWith('wiki/meta/') && inBucket.split('/').length > 2) {
+      findings.push({
+        rule: 'nested-page',
+        path: rel,
+        message: 'page sits a folder below its bucket - a path separator in the title makes one',
+      })
+    }
+
     const fm = parseFrontmatter(markdown)
     if (!fm.present) {
       findings.push({ rule: 'frontmatter', path: rel, message: 'page has no YAML frontmatter block' })
@@ -284,6 +307,23 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
         rule: 'dates',
         path: rel,
         message: `created (${created}) is after updated (${updated}) — bump updated: when editing`,
+      })
+    }
+
+    /*
+     * A source page's `url:` is read literally by the dedupe index and the reading list, so a
+     * value that merely CONTAINS an address is as good as blank to them. Three pages had one
+     * written as a sentence with the address in brackets inside it, and four held placeholder
+     * words; none of the seven could answer "is this document already here?".
+     *
+     * An empty field is fine and stays silent: plenty of documents state no address.
+     */
+    const rawUrl = (fm.fields.get('url') ?? '').trim().replace(/^["']|["']$/g, '')
+    if ((fm.fields.get('type') ?? '').toLowerCase() === 'source' && rawUrl !== '' && !/^https?:\/\/\S+$/.test(rawUrl)) {
+      findings.push({
+        rule: 'source-url',
+        path: rel,
+        message: `url: must be a bare address or empty, not ${JSON.stringify(rawUrl.slice(0, 60))}`,
       })
     }
 
@@ -328,10 +368,35 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       }
     }
 
+    /*
+     * A link broken by a line wrap is its own finding, not a dead link. It names a page that
+     * EXISTS, so calling it dead buries a one-character repair in a list of genuine gaps -
+     * one lint run reported 36 of these among 87 "dead" links. `link-repair.ts` fixes them
+     * without a model; this is what tells anyone they are there.
+     */
+    const joined = new Set<string>()
+    if (!skipLinkCheck(rel, pluginDocs)) {
+      const wrapped = findWrappedLinks(markdown)
+      if (wrapped.length > 0) {
+        fileIndex ??= buildFileIndex(vaultRoot)
+        for (const w of wrapped) {
+          if (!linkResolves(vaultRoot, fileIndex, w.target)) continue
+          joined.add(w.target.toLowerCase())
+          findings.push({
+            rule: 'wrapped-link',
+            path: rel,
+            message: `[[${w.target}]] is split across a line break, so it resolves to nothing - join it back onto one line`,
+          })
+        }
+      }
+    }
+
     const targets = skipLinkCheck(rel, pluginDocs) ? [] : parseWikilinks(markdown)
     if (targets.length > 0) {
       fileIndex ??= buildFileIndex(vaultRoot)
       for (const t of targets) {
+        // Reported as a wrapped link already: one repair, one finding.
+        if (joined.has(t.replace(/\s+/g, ' ').trim().toLowerCase())) continue
         if (!linkResolves(vaultRoot, fileIndex, t)) {
           findings.push({ rule: 'dead-link', path: rel, message: `[[${t}]] does not resolve to any file in the vault` })
         }

@@ -7,6 +7,8 @@ export const RUN_TITLES: Record<string, string> = {
   'domain-backfill': 'Domain backfill',
   'domain-review': 'Domain candidates reviewed',
   research: 'Research run',
+  'research-step': 'Research step',
+  plan: 'Planning run',
   save: 'Conversation saved to the vault',
   cleanup: 'Reference cleanup',
   repair: 'Graph repair',
@@ -26,6 +28,8 @@ export const RUN_RUNNING_TITLES: Record<string, string> = {
   'domain-backfill': 'Filing pages into domains',
   'domain-review': 'Reviewing domain candidates',
   research: 'Research run',
+  'research-step': 'Research step',
+  plan: 'Planning the next step',
   save: 'Saving the conversation to the vault',
   cleanup: 'Cleaning up references',
   repair: 'Repairing the graph',
@@ -41,7 +45,7 @@ export const RUN_RUNNING_TITLES: Record<string, string> = {
  * Home's activity table but no tab said anything, so starting one from System and switching
  * away left no trace that the vault was being written to.
  */
-export const RESEARCH_RUN_KINDS: ReadonlySet<string> = new Set(['research', 'save'])
+export const RESEARCH_RUN_KINDS: ReadonlySet<string> = new Set(['research', 'research-step', 'plan', 'save'])
 
 /** True for the runs the System tab is responsible for announcing. */
 export function isMaintenanceRun(kind: string): boolean {

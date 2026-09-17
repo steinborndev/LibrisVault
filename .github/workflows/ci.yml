@@ -1,0 +1,62 @@
+# Every gate this repo's definition of done names, run by something that cannot forget.
+#
+# It exists because both of the automated ones were red at the same time and survived into
+# merge preparation unnoticed: `npm test` exited 1 on an unhandled rejection while reporting
+# 1819 passing tests, and `npm run typecheck` exited 2 on four stale fixtures. Neither is
+# subtle. Both had been that way for a while, because the only thing standing between a red
+# gate and a merge was somebody remembering to run it.
+#
+# The four are deliberately separate steps rather than one `&&` chain: a failing chain tells
+# you it failed, and the run summary tells you which gate did.
+#
+# What is NOT here, and why. `permprobe` starts a real, billable agent run. `preprocprobe`
+# needs bubblewrap and a real vault to point at. Both are the checks that prove the OS-level
+# boundaries are actually applied - unit tests read the policy, only a probe proves it is
+# enforced - and both belong in a hand-run pre-merge pass, not on every push. The unit tests
+# here cover the argument lists those probes execute, which is the half a machine can check.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A second push to the same branch makes the first run pointless; stop paying for it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The floor from package.json's engines field. Raising it here without raising it
+          # there would let a contributor's supported version fail only in CI.
+          node-version: '20'
+          cache: npm
+
+      # `ci` and not `install`: the lockfile is the input, and a run that quietly resolves a
+      # different tree is not testing what anyone else has.
+      - run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      # Separate from the tests on purpose: `tsconfig.build.json` excludes `test/` and vitest
+      # does not typecheck, so a green suite says nothing about the types under it.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # Last, because it is the slowest and the least likely to fail alone.
+      - name: Build
+        run: npm run build

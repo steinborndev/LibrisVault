@@ -42,10 +42,13 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
     // `queued` with no feedback. Refuse with the same guidance the other run routes give.
     if (ctx.config.auth === null) {
       return reply.code(503).send({
-        error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+        error: 'no Anthropic credential configured: add it under System → Integrations, then restart',
       })
     }
     const enqueued: EnqueuedRef[] = []
+    // `?when=night` holds the job for the night shift, which runs it ahead of the Fellows
+    // (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6). Same three inputs, one more moment.
+    const hold = (req.query as { when?: string }).when === 'night' ? ({ hold: 'night' } as const) : {}
 
     if (req.isMultipart()) {
       const staged: Array<{ tempPath: string; name: string }> = []
@@ -80,7 +83,7 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
 
         // Multiple files → one batch: preprocess each, then a single combined run (SPEC.md §4.1).
         if (items.length > 1) {
-          const { batchId, jobs } = await queue.enqueueBatch(items, 'drop')
+          const { batchId, jobs } = await queue.enqueueBatch(items, 'drop', hold)
           jobs.forEach((r, i) =>
             enqueued.push({
               id: r.job.id,
@@ -94,13 +97,14 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
 
         const only = items[0]!
         if (only.kind === 'url') {
-          const { job } = queue.enqueueUrl({ url: only.url, source: 'drop' })
+          const { job } = queue.enqueueUrl({ url: only.url, source: 'drop', ...hold })
           enqueued.push({ id: job.id, name: staged[0]!.name, status: job.status })
         } else {
           const { job, duplicateOf } = await queue.enqueueFile({
             sourcePath: only.sourcePath,
             source: 'drop',
             originalName: only.originalName ?? staged[0]!.name,
+            ...hold,
           })
           enqueued.push({ id: job.id, name: staged[0]!.name, status: job.status, ...(duplicateOf ? { duplicateOf } : {}) })
         }
@@ -113,7 +117,7 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
     // JSON body: a pasted URL or pasted text (SPEC.md §4.1).
     const body = (req.body ?? {}) as { url?: unknown; text?: unknown; title?: unknown }
     if (typeof body.url === 'string' && body.url.trim() !== '') {
-      const { job } = queue.enqueueUrl({ url: body.url.trim(), source: 'drop' })
+      const { job } = queue.enqueueUrl({ url: body.url.trim(), source: 'drop', ...hold })
       return reply.code(202).send({ jobs: [{ id: job.id, name: body.url.trim(), status: job.status }] })
     }
     if (typeof body.text === 'string' && body.text.trim() !== '') {
@@ -122,7 +126,7 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
       const tempPath = path.join(stagingDir(), `${ulid()}-${name}`)
       await fs.promises.writeFile(tempPath, body.text, 'utf8')
       try {
-        const { job } = await queue.enqueueFile({ sourcePath: tempPath, source: 'drop', originalName: name })
+        const { job } = await queue.enqueueFile({ sourcePath: tempPath, source: 'drop', originalName: name, ...hold })
         return reply.code(202).send({ jobs: [{ id: job.id, name, status: job.status }] })
       } finally {
         fs.rmSync(tempPath, { force: true })

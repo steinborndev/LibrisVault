@@ -8,6 +8,7 @@
  */
 
 import type { JobType } from '../../db/jobs.js'
+import type { OaDisclosure } from './oa.js'
 
 /** What `detect` learns about an input before any plugin runs. */
 export interface Probe {
@@ -40,8 +41,21 @@ export interface NormalizeResult {
   readonly exif?: Record<string, unknown>
   /** True for unsupported types (audio/video, archives): job ends `deferred`, not ingested. */
   readonly deferred?: boolean
+  /** The address the material names for itself (a saved page's canonical link); the manifest's `url` when the job has none. */
+  readonly url?: string
+  /**
+   * The document's own title, when it states one. Kept because the extraction usually drops it,
+   * and a quotation of the title is then unverifiable (docs/sources/SPEC.md 7.6).
+   */
+  readonly title?: string
   /** Human-readable decisions worth recording in the manifest and job log. */
   readonly notes: readonly string[]
+  /**
+   * Notes that belong in the job log at level `warn` as well: text in the document aimed at an
+   * assistant (docs/sources/SPEC.md section 4.3). The chain copies them into `notes` too, so a
+   * plugin states one once and the manifest carries it beside the rest.
+   */
+  readonly warnings?: readonly string[]
 }
 
 export interface PreprocessPlugin {
@@ -73,6 +87,8 @@ export interface Manifest {
   readonly type: JobType
   readonly originalName: string
   readonly url?: string
+  /** The document's own title, when it states one (section 7.6); part of the quote corpus. */
+  readonly title?: string
   readonly sha256?: string
   readonly createdAt: string
   /** Names (relative to the job dir) of the original and normalized artifacts. */
@@ -83,7 +99,14 @@ export interface Manifest {
   readonly passImageToAgent: boolean
   readonly deferred: boolean
   readonly exif?: Record<string, unknown>
+  /**
+   * Where the text came from when it did NOT come from the address the job names
+   * (docs/sources/SPEC.md section 5.4). `url` above stays the requested address.
+   */
+  readonly oa?: OaDisclosure
   readonly notes: readonly string[]
+  /** The subset of `notes` the job log carries at level `warn` (section 4.3). */
+  readonly warnings?: readonly string[]
 }
 
 export interface PreprocessResult {

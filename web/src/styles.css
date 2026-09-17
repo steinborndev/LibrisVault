@@ -848,7 +848,7 @@ button {
 /* Severity of a maintenance check: upper case, because it is a verdict rather than a name. */
 .sev {
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -877,8 +877,16 @@ button {
   color: var(--err);
   background: var(--err-bg);
 }
+/* Queued, but for the night shift: quiet, because nothing is wrong with it. */
+.hrow-state.tonight {
+  color: var(--text-dim);
+  background: var(--muted-bg);
+}
 .badge.deferred,
 .hrow-state.deferred,
+/* A quotation this run wrote that is not in the text it read: the warning tone, because it is
+   about a page's claim rather than about the run having failed (docs/sources/SPEC.md 7.5). */
+.hrow-state.quotes,
 .lt-flag.warn,
 .sev.due {
   color: var(--warn);
@@ -959,6 +967,13 @@ button {
   background: var(--bg-elev-2);
   color: var(--text);
 }
+/* A ghost button with the accent's ring: for the one action in a foot that costs a run. */
+.btn.ghost.outline { border-color: var(--accent); color: var(--accent); }
+.btn.ghost.outline:hover { background: var(--accent-soft); color: var(--accent); }
+/* The same ring in the warning tone, for the way OUT of a form: the spawn dialog's Cancel,
+   which discards what you typed beside a button that creates something that costs money. */
+.btn.ghost.outline-err { border-color: var(--err); }
+.btn.ghost.outline-err:hover { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
 .btn.danger:hover {
   border-color: var(--err);
   color: var(--err);
@@ -1090,6 +1105,7 @@ button {
 
 /* ---- Batch group in the queue ---- */
 .chip .chip-n {
+  margin-left: 5px;
   font-size: 11px;
   color: var(--text-faint);
 }
@@ -1627,7 +1643,7 @@ details.hot-cache[open] summary {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   border: 1.5px solid var(--border-strong);
   color: var(--text-faint);
@@ -2236,6 +2252,14 @@ details.hot-cache[open] summary {
      and must stay reachable. */
   overflow-y: auto;
   overflow-x: hidden;
+  /* ...and the room for that scrollbar is held from the first frame (2026-09-16). The panel
+     fills from queries, so it starts short and grows past its height a few hundred
+     milliseconds later; with an `auto` gutter the bar appeared at that moment and took 17px
+     out of the content, moving every chip, row and toggle in the column left after the eye
+     had already settled on them. Reserved, the column is laid out once at the width it will
+     keep. It costs the same 17px on a panel short enough never to scroll, which is the rarer
+     state and the one nobody is reading when it changes. */
+  scrollbar-gutter: stable;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elev);
@@ -2301,6 +2325,63 @@ details.hot-cache[open] summary {
   font-size: 11px;
   color: var(--text-faint);
 }
+/* The list's two modes as a toggle at the head's right edge, two equal halves. 122px is
+   what a 222px head leaves beside the label, the clear × and the gaps (with 2px to spare),
+   and gives each half 57px for a 42px label; no spacer element, since one would cost a
+   gap of its own. */
+.gp-head .dom-state { margin-left: auto; }
+/* The domain list's mode toggle: the View section's strip, one row under the heading. The
+   8px it stands off the heading is the head's own margin, so the two sections line up down
+   the panel without either of them naming a number. */
+.gp-lenses .lib-strip.gp-lens.dom-mode { margin-bottom: 8px; }
+/* The clear action beside the label: the × alone, square, in the head's height. Two sections
+   carry one now (domains, and the Catalog's source types), and they must look the same. */
+.gp-head .btn.dom-clear,
+.gp-head .btn.head-clear { width: 24px; padding: 0; justify-content: center; }
+/* An ingest of tonight's queue that is past waiting: its dot fills in while it runs, and the
+   place of its Remove says why there is none. */
+.cc-row.ingest.running .chip-dot.ingest, .cc-row.ingest.committing .chip-dot.ingest { background: var(--text-dim); }
+.cc-row .cc-left { flex: none; }
+/* The wing on show, under the search: the arrows at the ends, the room's name between them. */
+.dom-wing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+.dom-wing .nm {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dom-wing .pos {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dom-wing button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+.dom-wing button:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.dom-wing button:disabled { opacity: 0.35; cursor: default; }
+/* One chevron in the set, pointing down: a quarter turn each way points it back and forward. */
+.dom-wing svg { width: 12px; height: 12px; }
+.dom-wing .prev svg { transform: rotate(90deg); }
+.dom-wing .next svg { transform: rotate(-90deg); }
 .gp-none {
   padding: 8px 4px;
   font-size: 12px;
@@ -2334,7 +2415,10 @@ details.hot-cache[open] summary {
   color: var(--text);
   border-color: var(--border-strong);
 }
-.viewpill[aria-checked='true'] {
+/* Picked, in both grammars: a radio group says aria-checked, a row of independent toggles
+   says aria-pressed (the Catalog's source types), and picked is picked. */
+.viewpill[aria-checked='true'],
+.viewpill[aria-pressed='true'] {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
@@ -2376,6 +2460,14 @@ details.hot-cache[open] summary {
    right, half the rows. */
 .pillrow.stacked.two {
   grid-template-columns: 1fr 1fr;
+}
+/* The count inside a pill in a WRAPPING row: `.pillrow.stacked` has its own, at the right
+   edge of a full-width pill; here it simply follows the label. */
+.pillrow.multi .viewpill > .pn {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
 }
 .viewpill .pd {
   width: 7px;
@@ -2421,7 +2513,9 @@ details.hot-cache[open] summary {
    composer it shapes, which is where it went. */
 .lensopt {
   display: grid;
-  grid-template-columns: 14px 1fr;
+  /* Three columns: the radio, the name, the lens's mark. As two, the mark became a third
+     grid child and wrapped onto a row of its own under every lens. */
+  grid-template-columns: 14px 1fr auto;
   gap: 9px;
   align-items: center;
   padding: 5px 8px;
@@ -2600,9 +2694,106 @@ details.hot-cache[open] summary {
   flex-wrap: wrap;
   gap: 5px;
 }
+/* One type per row, for the graph's page types: the dot, the name, and the count at the
+   right edge. The wrapping row above is still what Home, the Library and the Catalog want,
+   so this is a modifier and not a change of the base. */
+.typechips.stacked {
+  display: grid;
+  gap: 4px;
+}
+.typechips.stacked .chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+/* The label is a bare text node between the dot and the count, so the count is what pushes:
+   `margin-left: auto` lines every figure up without wrapping the name in an element. */
+.typechips.stacked .chip .chip-n {
+  margin-left: auto;
+}
+
+/*
+ * The graph panel's three lens strips (2026-09-16). Sized off the page-type chip directly
+ * below them, because they stand in the same column and a control that is nearly the same
+ * size as its neighbour reads as a mistake: 25px tall, full width, the same 4px between them
+ * that the chips have between themselves.
+ *
+ * The strip's SHAPE is the intake's - one border, two halves, a divider between them - but its
+ * colours are the page-type chip's, because that is what it stands next to: the same white
+ * ground, and the chosen half filled in the soft accent with accent lettering, exactly as an
+ * active chip is. A solid accent fill made the one lit half shout over the five chips under it.
+ *
+ * Written as `.lib-strip.gp-lens`, both classes on the one element, the way `.ip-strip` is:
+ * the base `.lib-strip` rules live further down this file, so a single-class selector here
+ * loses to them on source order and the chosen half came out as a pale pill instead of the
+ * accent. Same specificity, later wins - which is a rule about this file, not about the panel.
+ */
+.gp-lenses {
+  display: grid;
+  gap: 4px;
+}
+.lib-strip.gp-lens {
+  display: flex;
+  width: 100%;
+  height: 25px;
+  padding: 0;
+  gap: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  /* The chip's ground, not the intake's: these two controls share a column. */
+  background: var(--bg-elev);
+  box-shadow: none;
+  overflow: hidden;
+}
+/* The two halves are two choices, and a line says so - without it the pair read as one wide
+   button whose left end happened to be coloured. */
+.lib-strip.gp-lens .rp + .rp { border-left: 1px solid var(--border-strong); }
+.lib-strip.gp-lens .rp {
+  flex: 1;
+  height: 100%;
+  justify-content: center;
+  border-radius: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lib-strip.gp-lens .rp:hover:not(.on):not(:disabled) { background: var(--bg-elev); color: var(--text); }
+.lib-strip.gp-lens .rp.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+/*
+ * The action strip. Same shape as the lenses above it, but its lit state is a flash and not a
+ * state, so it fades OUT on its own: no transition going in (the press must feel immediate)
+ * and a slow one coming back (the eye needs to catch it).
+ */
+/*
+ * The action section's rule ends on the same line as the bar's does, because the two sit side
+ * by side at the top of the screen and a divider that misses its neighbour by eight pixels
+ * reads as a mistake rather than as a boundary. The arithmetic: the bar is 1px border + 7px
+ * + its 26px control + 7px = 41; this is 1px + 7px + the 25px strip + 8px = 41 as well.
+ */
+.gp-sec.gp-sec-actions { padding: 7px 14px 8px; }
+.gp-actions .rp { transition: background 260ms ease, color 260ms ease; }
+/* The Catalog's sort strips carry the direction in the lit half. */
+.lib-strip.gp-lens .rp .lt-arrow { margin-left: 5px; font-size: 11px; }
+.gp-actions .rp.on { transition: none; }
+/* A vault with no domains cannot be coloured by one; the half says so rather than lying. */
+.lib-strip.gp-lens .rp:disabled { opacity: 0.45; cursor: default; }
 .chip.dimmed,
 .domrow.dimmed {
   opacity: 0.45;
+}
+/* A type the current view holds none of: the chip itself goes grey and faint, and the dot
+   keeps its own colour. Fading the whole chip is what says "not available here" - recolouring
+   the dot would say something about the TYPE, and the type has not changed, only what is on
+   screen. The fill is the panel's own recessed surface, so the chip reads as a slot rather
+   than as a control that has stopped working. */
+.typechips .chip:disabled {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+  opacity: 0.5;
+  cursor: default;
 }
 .domlist {
   display: grid;
@@ -2709,6 +2900,57 @@ details.hot-cache[open] summary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The breakdown behind the two figures, quieter than them: it explains, it does not report. */
+.scope-why { color: var(--text-faint); }
+/* The tag filter, in the line that says what is drawn - the one place a reader already looks
+   to find out why the graph is this small. Its own colour, because it is a thing you set. */
+/*
+ * The tag scope, in the middle of the bar where the scope belongs. The slot is sized for a
+ * domain name; a tag plus the page it is scoped to needs more, and the padding that optically
+ * centres a short heading is exactly the room it needs, so the tag case takes it back.
+ */
+.bar-mid.has-tag { width: auto; min-width: 320px; max-width: 620px; padding-left: 0; }
+/* The tag NEVER shrinks: it is short, it is what you pressed, and truncating it to "#…" while
+   the page name beside it keeps its width is the wrong half to lose. The page name gives. */
+.mid-tag { color: var(--accent); flex: none; }
+.mid-around {
+  flex: 1 1 auto;
+  margin-left: 6px;
+  color: var(--text-faint);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/*
+ * The search's slot keeps the box's width whether the box is out or not, so opening it moves
+ * nothing to its left. Collapsed, the magnifier sits at the right edge of that reserved space.
+ */
+.graph-search-slot {
+  flex: 0 1 300px;
+  width: 300px;
+  min-width: 140px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+/*
+ * The slot is the pill's height as well as its width (2026-09-16). The open box was six
+ * pixels taller than the collapsed magnifier, which made the BAR six pixels taller, which
+ * took six pixels off the canvas below it - so opening the search nudged the whole drawing
+ * down and closing it nudged it back. Measured: bar 41 → 47, canvas 781 → 775.
+ */
+.graph-search-slot { gap: 6px; height: 26px; }
+.graph-search-slot .graph-search-inbar {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding-block: 0;
+}
+/* The canvas pill, in the bar: same shape, no blur - there is nothing behind it to blur. */
+.canvas-corner.search-open { position: static; backdrop-filter: none; padding: 0 9px; }
 .scopeline strong {
   color: var(--text);
   font-weight: 600;
@@ -2755,8 +2997,11 @@ details.hot-cache[open] summary {
 .graph-search-inbar {
   position: relative;
   z-index: 5;
-  flex: none;
-  width: min(300px, 34%);
+  /* One width on both screens (the two bars are the same width, so the box starts at the
+     same x), shrinking only when the right group cannot hold it. */
+  flex: 0 1 300px;
+  width: 300px;
+  min-width: 140px;
   background: var(--bg);
 }
 .graph-search-inbar input {
@@ -2764,6 +3009,12 @@ details.hot-cache[open] summary {
   flex: 1;
 }
 
+/* While the list is open it has the corner: the minimap steps out of sight and comes back
+   with the list gone. The list is what the reader is using; the overview is not. */
+.graph-stage.search-open .graph-minimap {
+  visibility: hidden;
+  pointer-events: none;
+}
 .graph-search-results {
   position: absolute;
   top: calc(100% + 4px);
@@ -3001,9 +3252,10 @@ details.hot-cache[open] summary {
 .graph-controls {
   flex: none;
   /* Positioned so it wins over the drawing below it: the search dropdown hangs out of the
-     bar into the canvas area, and the area is itself positioned and later in the DOM. */
+     bar into the canvas area, and the area is itself positioned and later in the DOM. Above
+     the minimap (5) too, which used to paint over the list's top-right corner. */
   position: relative;
-  z-index: 3;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3022,6 +3274,46 @@ details.hot-cache[open] summary {
   font-size: 12px;
   padding: 0 10px;
 }
+/* The bar's first slot, one width on both screens: the graph's Fit, the Catalog's Reset or
+   its empty stand-in, so "Showing" starts at the same x whichever tab is in front. */
+.graph-controls .head-slot { flex: none; width: 58px; min-width: 58px; justify-content: center; padding: 0; }
+span.head-slot { display: inline-block; }
+/* The Catalog's Reset, AFTER the sentence it undoes (2026-09-16). It used to stand in a slot
+   ahead of it, which held the count 58px off the bar's left edge while the graph's started at
+   the edge - one sentence, two positions, and the tab switch between them was a jump.
+   Its height is the search slot's, not `--control-h`: a 32px button in a 26px row made the
+   bar 6px taller the moment a filter was set, and the table below it moved down with it -
+   measured 41 -> 47, the same six pixels the search box cost the canvas before it was pinned. */
+/* The scope bar's three groups (2026-09-11), the headline's rule: the left and right groups
+   share what the middle leaves, in equal halves, so the middle sits at the bar's true
+   centre whatever stands beside it - a Fit and a sentence on one side, a fullscreen button
+   and the search on the other, or a Reset slot and the search. */
+.scope-bar .bar-l, .scope-bar .bar-r { display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; }
+.scope-bar .bar-r { justify-content: flex-end; }
+/* The middle block: one width, centred, the text flush left behind a fixed lead. Switching
+   domains makes the heading longer or shorter from a start that never moves; the lead sets
+   a heading of typical length (two words of the vault's domain names) about the centre,
+   and a long one runs to the right until the block cuts it. */
+.bar-mid {
+  flex: none;
+  box-sizing: border-box;
+  width: 320px;
+  padding-left: 100px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+.bar-mid .mid-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }
+/* A hollow ring where no one colour applies: several domains, a wing, the whole vault. */
+.bar-mid .mid-dot.none { background: transparent; border: 1.5px solid var(--text-faint); }
+/* The Catalog's head is the graph's bar, and the box under it keeps its rounded corners. */
+.box > .catalog-head { border-radius: var(--radius) var(--radius) 0 0; }
 .graph-controls .btn.active {
   border-color: var(--accent);
   color: var(--accent);
@@ -3069,10 +3361,11 @@ details.hot-cache[open] summary {
   z-index: 5;
   box-shadow: var(--shadow);
 }
-/* Bottom-right: the legend's corner; the transient layout status shares it. */
+/* Bottom-right, above the shortcuts button: the legend's corner; the transient layout
+   status shares it. */
 .graph-status {
   position: absolute;
-  bottom: 10px;
+  bottom: 44px;
   right: 12px;
   font-size: 12px;
   color: var(--text-faint);
@@ -3132,7 +3425,8 @@ details.hot-cache[open] summary {
    the tooltip follows the pointer; the zoom controls live up top. */
 .graph-trail {
   position: absolute;
-  left: 12px;
+  /* Right of the lock, which has the corner itself. */
+  left: 54px;
   bottom: 10px;
   display: flex;
   align-items: center;
@@ -3166,21 +3460,25 @@ details.hot-cache[open] summary {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-/* Metric-lens legend, bottom-right of the canvas. */
+/* Metric-lens legend, bottom-right of the canvas, above the shortcuts button. No frame and no
+   fill (2026-09-16): it is a caption on the drawing, not a panel floating over it. What the box
+   used to buy was contrast against whatever the canvas put behind it, so the text keeps a halo
+   of the canvas's own colour instead - cheaper than a fill, and it disappears where nothing is
+   drawn. It grows upward from the bottom edge, so the list shortening never moves the corner. */
 .lens-legend {
   position: absolute;
-  right: 12px;
-  bottom: 10px;
+  right: 13px;
+  bottom: 44px;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 3px;
-  padding: 7px 11px;
   font-size: 11.5px;
   color: var(--text-dim);
-  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  backdrop-filter: blur(6px);
+  text-shadow:
+    0 0 3px var(--bg-elev),
+    0 0 3px var(--bg-elev),
+    0 0 6px var(--bg-elev);
   pointer-events: none;
   max-width: 230px;
 }
@@ -3194,6 +3492,10 @@ details.hot-cache[open] summary {
   display: flex;
   align-items: center;
   gap: 7px;
+}
+/* Holds a line open for a page type the filter is hiding, so the heading above never moves. */
+.lens-legend .ll-spare {
+  visibility: hidden;
 }
 .lens-legend .ll-sw {
   width: 11px;
@@ -3209,12 +3511,28 @@ details.hot-cache[open] summary {
 }
 /* Mirrors the ramp in GraphCanvas, which starts a touch off the neutral floor (t = 0.1)
    so the least-linked pages still read as pages rather than as background. */
-.lens-legend .ll-authority {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, color-mix(in srgb, var(--bg-elev-2) 45%, var(--muted)) 90%, var(--accent)),
-    var(--accent)
-  );
+/* The authority bar is painted from the live ramp, so there is no gradient here to keep in
+   step with the canvas - only the shape of the block and its three labels. */
+.lens-legend .ll-auth {
+  display: grid;
+  gap: 2px;
+  width: 132px;
+}
+.lens-legend .ll-grad.ll-auth-bar {
+  width: 132px;
+  height: 10px;
+  border-radius: 3px;
+}
+.lens-legend .ll-auth-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+.lens-legend .ll-auth-cap {
+  font-size: 10px;
+  color: var(--text-faint);
 }
 .lens-legend .ll-recency {
   background: linear-gradient(90deg, color-mix(in srgb, var(--bg-elev-2) 45%, var(--muted)), var(--ok));
@@ -3271,7 +3589,7 @@ details.hot-cache[open] summary {
 }
 .gx-title {
   font-size: 18px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.25;
   margin: 3px 34px 9px 0;
   text-wrap: balance;
@@ -3289,6 +3607,10 @@ details.hot-cache[open] summary {
   color: var(--text-dim);
   border: 1px solid var(--border);
 }
+/* A tag that filters: the same chip, but it says so on hover and takes a pointer. The ones
+   that are not pressable - the domain - keep the plain chip, because they do nothing. */
+.gx-tag.pressable { cursor: pointer; font: inherit; }
+.gx-tag.pressable:hover { border-color: var(--accent); color: var(--accent); }
 .gx-tag.dom {
   background: transparent;
 }
@@ -3325,6 +3647,33 @@ details.hot-cache[open] summary {
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 4px 0 12px;
+}
+/*
+ * The page explorer's three lists as equal shares, each scrolling on its own (2026-09-16).
+ * One scroll over all three meant a page with forty backlinks pushed the other two out of the
+ * panel, and a section you cannot see reads the same as a section that is empty.
+ *
+ * `grid-auto-rows` and not `grid-template-rows: repeat(3, …)`: a list with nothing in it
+ * renders no section at all, and a fixed three-row template would hold its third empty. Two
+ * sections take a half each, one takes the lot.
+ */
+.gx-body.thirds {
+  overflow: hidden;
+  display: grid;
+  grid-auto-rows: minmax(0, 1fr);
+}
+.gx-body.thirds .gx-sec {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The heading stays put while its own list moves under it - that is the point of the split. */
+.gx-body.thirds .gx-sec h3 { flex: none; }
+.gx-body.thirds .gx-sec ul {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .gx-sec {
   padding: 12px 16px 2px;
@@ -3375,6 +3724,26 @@ details.hot-cache[open] summary {
   height: var(--dot);
   border-radius: 50%;
   flex: none;
+}
+/* The night line's one actionable fact: it reads as the facts beside it and only shows it is
+   a button on hover, because a row of five plain facts with one loud one in it reads as an
+   error. Over the budget it takes the warning tone and keeps it. */
+.cc-budget {
+  all: unset;
+  cursor: pointer;
+  border-bottom: 1px dotted currentColor;
+}
+.cc-budget:hover { color: var(--text); }
+.cc-budget.over { color: var(--err); }
+/* The same tone in the spawn form's estimate, where over the budget is the thing to notice.
+   As a link it keeps the warning colour rather than the accent, underline and all. */
+.budget-over { color: var(--err); }
+.linkish.budget-over { border-bottom-color: color-mix(in srgb, var(--err) 55%, transparent); }
+.linkish.budget-over:hover { color: color-mix(in srgb, var(--err) 80%, var(--text)); }
+/* A setting arrived at from a link: named for a moment so the eye lands on the right row. */
+.setting.focused {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 .gx-actions {
   display: flex;
@@ -3462,18 +3831,83 @@ details.hot-cache[open] summary {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  /* One row: the title gives way (two lines, then an ellipsis) and the buttons keep their
+     place, whatever the title's length. */
+  flex-wrap: nowrap;
   margin-bottom: 14px;
 }
 .vault-page .page-head h1 {
   font-size: 22px;
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vault-page .page-head .btn,
+.vault-page .page-head .overflow-wrap,
+.vault-page .page-head .bucket,
+.vault-page .page-head .dirty-badge {
+  flex: none;
+}
+/* A page read inside the Catalog: a head of its own over the reading pane the shelves use. */
+.ca { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ca-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.ca-head .btn, .ca-head .bucket { flex: none; }
+/* The article takes the pane: no measure here, the list beside it is wide too. */
+.ca .shelf-page .page-body { max-width: none; }
+.ca-title {
+  flex: 1 1 auto; min-width: 0; margin: 0; font-family: var(--display); font-size: 17px; font-weight: 600; line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+/*
+ * The reader is bounded like the Library's drawing area (2026-09-08).
+ *
+ * It used to be an article that grew the screen while a `position: sticky` sidebar slid past
+ * it at its own pace - two things scrolling against each other, and on a well-linked page the
+ * column of links was longer than the article it belonged to. Now the two are one height:
+ * the screen holds still, each column scrolls inside itself, and a short article simply does
+ * not fill its area.
+ */
+.screen.reading {
+  overflow: hidden;
+  /* The Library's canvas ends 13px above the viewport; the reader ends with it. */
+  padding-bottom: 13px;
+}
+.screen.reading > .lane {
+  height: 100%;
+  min-height: 0;
+}
+.screen.reading .vault-page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.screen.reading .page-columns {
+  flex: 1;
+  min-height: 0;
+}
+.screen.reading .page-body {
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+/* The aside holds still; the list inside it is what scrolls, under a toggle that does not. */
+.screen.reading .page-side {
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 .page-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 240px;
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 .page-body {
   background: var(--bg-elev);
@@ -3488,8 +3922,10 @@ details.hot-cache[open] summary {
   color: var(--text-faint);
 }
 .page-side {
-  position: sticky;
-  top: 12px;
+  /* No longer sticky: it is a column of the same height as the article and scrolls itself. */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -3506,6 +3942,22 @@ details.hot-cache[open] summary {
 .page-side h3:first-child {
   margin-top: 0;
 }
+/* The toggle sits at the top and stays there; only the list under it scrolls. */
+.page-side-seg {
+  flex: none;
+  align-self: stretch;
+}
+.page-side-seg button {
+  flex: 1;
+  white-space: nowrap;
+}
+.page-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
 .linklist {
   list-style: none;
   margin: 0;
@@ -3909,6 +4361,76 @@ kbd {
   position: relative;
   display: inline-flex;
 }
+/* In the drawing's bottom-right corner (2026-09-11), the trail's corner mirrored: the
+   button wears the crumbs' pill, and the panel opens upward over the canvas - downward
+   from here is into the clipped region. */
+/*
+ * The drawing's bottom corners. Two controls that are about the CANVAS - how big it is, and
+ * how to drive it - rather than about what it is showing, which is the bar between them.
+ * Shortcuts took the right in 2026-09-11; Fullscreen joined it on the left on 2026-09-16,
+ * out of the bar, where it sat among the figures it has nothing to do with.
+ *
+ * One rule for the look of both, so the pair cannot drift into two nearly-identical pills.
+ */
+/*
+ * One row, anchored once. The pair used to be positioned separately and the inner one carried
+ * a `right` offset measured off the outer one's width - a number that is wrong the moment a
+ * label changes. A flex row with a gap has no such number in it.
+ *
+ * The bottom LEFT is the lock's, and right of it the trail's: the trail grows out from under
+ * the panel as you follow links, and anything parked in its way ends up underneath it.
+ */
+.canvas-corners {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shortcut-wrap.corner { position: relative; }
+.shortcut-wrap.corner .btn,
+.canvas-corner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+.shortcut-wrap.corner .btn:hover,
+.shortcut-wrap.corner .btn[aria-expanded='true'],
+.canvas-corner:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.shortcut-wrap.corner .shortcut-pop {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+/* The lock, bottom left (2026-09-17): the one control that is about the PICTURE rather than
+   about the canvas, so it stands apart from the pair on the right. Closed, it wears the
+   accent - the picture is held, and the drawing should say so from a distance. */
+.canvas-lock {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 7;
+  padding: 0 8px;
+  font-size: 14px;
+}
+.canvas-lock.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 90%, transparent);
+}
 .shortcut-pop {
   position: absolute;
   top: calc(100% + 8px);
@@ -4101,39 +4623,6 @@ kbd {
   text-align: center;
 }
 
-/* ---- Window-level drop overlay ---- */
-.dropveil {
-  position: fixed;
-  inset: 10px;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  border: 3px dashed var(--accent);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--accent) 10%, color-mix(in srgb, var(--bg) 72%, transparent));
-  pointer-events: none;
-}
-.dropveil-msg {
-  text-align: center;
-  color: var(--text);
-}
-.dropveil-msg svg {
-  width: 26px;
-  height: 26px;
-  color: var(--accent);
-}
-.dropveil-msg .big {
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 24px;
-  margin-top: 8px;
-}
-.dropveil-msg .small {
-  color: var(--text-dim);
-  margin-top: 5px;
-  font-size: 13.5px;
-}
-
 /* ---- Library ----
    It used to carry its own copy of the workspace grid and its own copy of the content box
    (`.lib-main`, which differed from `.box` by having a drop shadow - so the Library box sat
@@ -4197,6 +4686,11 @@ kbd {
    disagree about which rows do something. */
 .dtable tbody tr[tabindex] {
   cursor: pointer;
+}
+/* The row is the tab stop (its chips and its delete button are not), so the ring is the row's. */
+.dtable tbody tr[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .dtable tbody tr:hover td {
   background: color-mix(in srgb, var(--bg-elev-2) 55%, transparent);
@@ -4681,6 +5175,15 @@ kbd {
      happens to fit without scrolling does not shift the columns sideways. */
   scrollbar-gutter: stable;
 }
+/* A foot in three zones: what is shown, how to move, the one action. The middle is centred
+   on the box and not on what is left over, so the two views' hints stand in one place. */
+.box-foot.keys { display: grid; grid-template-columns: 1fr auto 1fr; }
+.box-foot .fl { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.box-foot .fr { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
+.foot-keys { display: inline-flex; align-items: center; gap: 14px; color: var(--text-faint); white-space: nowrap; }
+.foot-keys .sep { font-style: normal; color: var(--border-strong); }
+/* Build now and Clear history share one width, so switching the view moves nothing. */
+.box-foot .btn.wide { min-width: 118px; justify-content: center; }
 .box-foot {
   display: flex;
   align-items: center;
@@ -4821,6 +5324,38 @@ tr:hover .rowacts,
 tr:focus-within .rowacts {
   visibility: visible;
 }
+/* The trash is always there: a row's one action, in the same place on every row, and the
+   same height on every row, so a stream of mixed kinds keeps one rhythm. */
+.rowacts.always { visibility: visible; }
+.btn.trash { width: 26px; min-width: 26px; height: 22px; padding: 0; color: var(--text-faint); }
+.btn.trash svg { width: 14px; height: 14px; }
+.btn.trash:hover:not(:disabled) { color: var(--err); background: var(--err-bg); }
+.btn.trash.danger { color: var(--err); width: auto; padding: 0 7px; font-size: 11px; }
+.btn.trash:disabled { opacity: 0.3; cursor: default; }
+/* The waiting job's Cancel, at the trash's height, so the row stays as tall as the rest. */
+.inbox-table td.num .btn.cancel { height: 22px; padding: 0 8px; font-size: 11.5px; }
+/* The overflow count under a row's chips: a fact in the faint ink, not a chip of its own. */
+.rowpages .chip-n { align-self: center; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+
+/* ---- Home: four boxes on two shared rows (2026-09-15) ----
+   The control column is split in two, and each half stands to the same edges as the box
+   beside it: intake against the stock zone, the rest of the panel against the flow.
+
+   That alignment is why all four are items of ONE grid rather than two columns of their own.
+   The stock zone's height is decided by its content, so a second column laid out separately
+   can only guess at it and be wrong by a few pixels at every window width. `display: contents`
+   lifts the content column's two boxes into the same grid without taking `.home-main` out of
+   the stylesheet or out of the selectors that reach through it. */
+.home-workspace {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.home-workspace > .gp-top { grid-area: 1 / 1; }
+.home-workspace > .gp-rest { grid-area: 2 / 1; }
+.home-workspace > .home-main { display: contents; }
+.home-workspace .home-main > .vaultzone { grid-area: 1 / 2; }
+.home-workspace .home-main > .box { grid-area: 2 / 2; min-height: 0; }
+/* Demo mode has no intake, and the panel then has the whole column to itself. */
+.home-workspace:not(:has(> .gp-top)) > .gp-rest { grid-area: 1 / 1 / span 2 / auto; }
 
 /* ---- Home: the vault zone (redesign 2026-08-26) ----
    Two zones stacked in the content column: the stock above (quiet, large, few words) and
@@ -4844,7 +5379,9 @@ tr:focus-within .rowacts {
 /* Hero, the graph, and the panel that took the half the graph gave back. */
 .vaultzone {
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr) minmax(0, 1fr);
+  /* The picture first, the figures in the middle at their fixed width, the domains last
+     (2026-09-11); the two pictures keep the halves they had. */
+  grid-template-columns: minmax(0, 1fr) 244px minmax(0, 1fr);
   flex: none;
   background: var(--bg-elev);
   border: 1px solid var(--border);
@@ -4855,6 +5392,7 @@ tr:focus-within .rowacts {
   display: flex;
   flex-direction: column;
   padding: 16px 18px;
+  border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
 }
 .vz-n {
@@ -4874,9 +5412,13 @@ tr:focus-within .rowacts {
 .vz-facts {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 16px;
+  gap: 0;
+  margin-top: 11px;
 }
+/* One fine line between the figures (2026-09-11), the padding in place of the gap so the
+   line stands halfway between two rows; the rail's copies of `.vzf` keep their gaps. */
+.vz-facts > .vzf { padding: 5px 0; }
+.vz-facts > .vzf + .vzf { border-top: 1px solid var(--border); }
 .vzf {
   display: flex;
   align-items: baseline;
@@ -4912,9 +5454,6 @@ tr:focus-within .rowacts {
   flex-direction: column;
   min-width: 0;
   padding: 11px 14px 12px;
-}
-.vz-panel + .vz-panel {
-  border-left: 1px solid var(--border);
 }
 .vz-phead {
   display: flex;
@@ -5344,6 +5883,93 @@ tr:focus-within .rowacts {
   font-size: 11.5px;
   color: var(--text-faint);
 }
+/*
+ * The intake, rebuilt 2026-09-14: the destination is the heading, the zone holds one thing at
+ * a time, and one button sends it. All three are the width of the column, so the eye runs
+ * straight down them - choose where, put the thing in, press send.
+ */
+/*
+ * The destination switch wears the send button's clothes: same width, same 24px height, same
+ * small radius and the same border, so the three controls of the intake read as one family
+ * stacked down the column rather than as a Library pill strip that wandered in.
+ */
+.lib-strip.ip-strip {
+  display: flex;
+  width: 100%;
+  height: 24px;
+  padding: 0;
+  gap: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  box-shadow: none;
+  overflow: hidden;
+}
+.lib-strip.ip-strip .rp {
+  flex: 1;
+  height: 100%;
+  justify-content: center;
+  border-radius: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lib-strip.ip-strip .rp:hover:not(.on) { background: var(--bg-elev); color: var(--text); }
+/* Chosen is the button's own blue, so "where this goes" and "send it" speak one colour. */
+.lib-strip.ip-strip .rp.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.ip-send {
+  width: 100%;
+  justify-content: center;
+}
+/* What the zone is holding: kind, name, size, and the way back out. */
+.dz-held {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  width: 100%;
+  text-align: left;
+}
+.dz-icon {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.dz-icon svg { width: 22px; height: 22px; }
+.dz-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dz-size { grid-column: 2; font-size: 11px; color: var(--text-faint); }
+.dz-drop {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.dz-drop:hover:not(:disabled) { background: var(--bg-elev-2); color: var(--err); }
+.dz-drop svg { width: 14px; height: 14px; }
+/* Holding something, the zone is a shelf rather than an invitation: no hover, no pointer. */
+.dropzone.slim:has(.dz-held) { cursor: default; border-style: solid; }
+.dropzone.slim:has(.dz-held):hover { border-color: var(--border-strong); background: var(--bg); }
 .ip-actions .ch {
   display: inline-flex;
   align-items: center;
@@ -5429,6 +6055,9 @@ tr:focus-within .rowacts {
 .seg.sm { padding: 2px; }
 .seg.sm button { height: 21px; padding: 0 9px; font-size: 11px; }
 .seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   height: 24px;
   padding: 0 12px;
   border: 0;
@@ -5443,6 +6072,7 @@ tr:focus-within .rowacts {
 .seg button:hover {
   color: var(--text);
 }
+.seg button[aria-selected='true'],
 .seg button[aria-checked='true'] {
   background: color-mix(in srgb, var(--research) 20%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--research) 55%, transparent);
@@ -5548,154 +6178,6 @@ tr:focus-within .rowacts {
   cursor: default;
 }
 
-/* ── The step rail: the console's footer ───────────────────────────────────────
-   ONE line on a FIXED grid of `--steps` equal columns - the longer of the two step lists,
-   so a five-phase run fills every column and a three-phase ask fills the first three and
-   aligns to them. Sharing the width between three marks instead put "Answer" nowhere near
-   the run's second step (2026-08-27).
-
-   The connector belongs to the step it leaves, which is what keeps each step inside exactly
-   one column. The note rides beside its label rather than under it; stacking the two cost
-   43px of a screen that has to hold a readable detail below it.
-
-   The idle caption is gone - it said what the marks beside it already said. The live line
-   keeps a fixed slot to the right, so a starting run fills it without moving a mark. ── */
-.rail {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 13px 9px 16px;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-}
-.rail-row {
-  display: grid;
-  grid-template-columns: repeat(var(--steps, 5), minmax(0, 1fr));
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-}
-.rail-step {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-.rail-link {
-  flex: 1 1 0;
-  min-width: 8px;
-  height: 2px;
-  margin: 0 9px 0 2px;
-  border-radius: 2px;
-  background: var(--border);
-}
-.rail-mark {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  background: var(--bg-elev-2);
-  color: var(--text-faint);
-  font-family: var(--mono);
-  font-size: 10px;
-}
-.rail-mark svg {
-  width: 11px;
-  height: 11px;
-}
-.rail-nm {
-  font-size: 11.5px;
-  line-height: 20px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rail-note {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 20px;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-.rail-step.done .rail-mark {
-  border-color: var(--ok);
-  background: var(--ok-bg);
-  color: var(--ok);
-}
-.rail-step.done .rail-nm {
-  color: var(--text-dim);
-}
-.rail-step.done .rail-link {
-  background: var(--ok);
-}
-.rail-step.now .rail-mark {
-  border-color: var(--research);
-  background: color-mix(in srgb, var(--research) 22%, transparent);
-  color: var(--research);
-}
-.rail.ask .rail-step.now .rail-mark {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.rail-step.now .rail-nm,
-.rail-step.now .rail-note {
-  color: var(--research);
-  font-weight: 600;
-}
-.rail.ask .rail-step.now .rail-nm,
-.rail.ask .rail-step.now .rail-note {
-  color: var(--accent);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .rail.live .rail-step.now .rail-mark {
-    animation: rail-pulse 1.8s ease-in-out infinite;
-  }
-}
-@keyframes rail-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 4%, transparent);
-  }
-}
-/* The live slot. Fixed width in both states: the run's status arrives without shifting the
-   marks it describes. */
-.rail-live {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: none;
-  width: 176px;
-  min-width: 0;
-}
-.rail-now {
-  min-width: 0;
-  font-size: 11px;
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rail.live .rail-now {
-  color: var(--text-dim);
-}
-.rail-el {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
 /* ── One detail, two kinds ─────────────────────────────────────────────────────
    A run and a conversation are the same object from the reader's side - something you
    asked, and the record of what came back - so they get ONE shell (2026-08-27). Five bands
@@ -5797,6 +6279,11 @@ tr:focus-within .rowacts {
   scrollbar-gutter: stable;
   padding: 14px 18px 18px;
 }
+/* Reading the log: the pane becomes a column and the log takes what is left of it, scrolling
+   inside itself, instead of a 320px box over empty space. */
+.detail-content.logview { display: flex; flex-direction: column; overflow: hidden; }
+.detail-content.logview > .toast { flex: none; }
+.detail-content.logview > .log { flex: 1 1 auto; min-height: 0; max-height: none; }
 .detail-foot {
   display: flex;
   align-items: center;
@@ -5809,6 +6296,11 @@ tr:focus-within .rowacts {
   font-size: 11.5px;
   color: var(--text-faint);
 }
+/* The foot stays one line: a long page name in its chip is cut with an ellipsis, not wrapped. */
+.detail-foot .pagelink { flex: 0 1 auto; min-width: 0; max-width: 60ch; }
+.detail-foot .pagelink-main { min-width: 0; }
+.detail-foot .pagelink-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-foot .prov { flex: none; white-space: nowrap; }
 .detail-foot .prov {
   min-width: 0;
   overflow: hidden;
@@ -5932,13 +6424,21 @@ tr:focus-within .rowacts {
 .fact.lead:last-child {
   border-right: 0;
 }
+/* A strip's facts are set apart by a line whatever their size: a record's facts are the
+   default size inside a lead strip, and stood unseparated (2026-09-11). */
+.facts.lead > .fact { border-right: 1px solid var(--border); }
+.facts.lead > .fact:last-child { border-right: 0; }
 .fact.linky:hover {
   background: var(--bg-elev-2);
 }
+/* Explicit line heights (2026-09-11): a clickable fact is a <button>, whose UA line height is
+   "normal", a plain one is a <div> inheriting the body's 1.5 - so a strip of doors stood 6px
+   shorter than a strip of figures, and Home's box moved when the view switched. */
 .fact .k {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
+  line-height: 1.25;
   text-transform: uppercase;
   color: var(--text-faint);
 }
@@ -5958,6 +6458,7 @@ tr:focus-within .rowacts {
 .fact .v.err { color: var(--err); }
 .fact .s {
   font-size: 11px;
+  line-height: 1.25;
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6068,6 +6569,21 @@ tr:focus-within .rowacts {
   animation: badge-pulse 1.4s ease-in-out infinite;
 }
 .hrow-dot.queued { background: var(--warn); }
+/* The night job's crescent in the dot's slot: the slot keeps the dot's width so the names
+   stay in one column, the glyph is drawn larger and solid so it reads at row size, and it
+   wears the tonight chip's quiet tone - nothing is wrong with a job that waits for the night. */
+.hrow-moon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dot);
+  height: var(--dot);
+  flex: none;
+  font-size: 13px;
+  color: var(--text-dim);
+  overflow: visible;
+}
+.hrow-moon svg { fill: currentColor; stroke: none; flex: none; }
 .hrow-dot.edit { background: var(--type-meta); }
 
 /* ── Fixes 2026-08-25 (second pass, round two) ─────────────────────────────── */
@@ -6079,13 +6595,15 @@ tr:focus-within .rowacts {
    a third of the row, and a left-aligned "When" in an 18% column left the last sixth of every
    row empty while its value sat pressed against the cost (2026-08-27). */
 .inbox-table th:nth-child(1) { width: 40%; }
-.inbox-table th:nth-child(2) { width: 16%; }
+.inbox-table th:nth-child(2) { width: 10%; }
 .inbox-table th:nth-child(3),
 .inbox-table th:nth-child(4),
 .inbox-table th:nth-child(5),
-.inbox-table th:nth-child(6) { width: 11%; }
+.inbox-table th:nth-child(6) { width: 7%; }
+/* The When column, right-aligned by its class, not by position: a live row spans two
+   columns with one cell, so its sixth cell is the trash and its When text sat left. */
 .inbox-table th:nth-child(6),
-.inbox-table td:nth-child(6) { text-align: right; }
+.inbox-table td.faintc { text-align: right; }
 /* The name may take the whole column now - the fixed width is the limit, not a magic px. */
 .box-body > .dtable .hrow-name .nm {
   max-width: none;
@@ -6098,9 +6616,6 @@ tr:focus-within .rowacts {
   height: var(--control-h);
   padding-top: 0;
   padding-bottom: 0;
-}
-.graph-controls .shortcut-wrap {
-  align-items: center;
 }
 
 /* Ingests per day: bars, because a count per day is discrete. The shared Sparkline is a
@@ -6373,6 +6888,36 @@ tr:focus-within .rowacts {
   min-width: 0;
   min-height: 0;
 }
+
+/* ---- Research: six boxes on four shared rows (2026-09-15) ----
+   The control column is three boxes and each stands to the same edges as what is beside it:
+   the lens against the mode toggle and the topic field TOGETHER (it spans both rows), the
+   plan against the run's own section, the tally against the list.
+
+   Same construction as Home's: one grid over both columns, with the content column lifted
+   into it by `display: contents`, because a column laid out on its own can only approximate
+   heights that its neighbour's content decides. The main column therefore has to have exactly
+   one child per row, which is what `.rrun` is for. */
+.workspace.research {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+.workspace.research > .gp-lens { grid-area: 1 / 1 / span 2 / auto; }
+.workspace.research > .gp-plan { grid-area: 3 / 1; }
+.workspace.research > .gp-facts { grid-area: 4 / 1; }
+/* No plan card (it is absent until the service has read the plan): the tally takes both rows. */
+.workspace.research:not(:has(> .gp-plan)) > .gp-facts { grid-area: 3 / 1 / span 2 / auto; }
+.workspace.research > .rmain { display: contents; }
+.workspace.research .rmain > .rhead-box { grid-area: 1 / 2; }
+.workspace.research .rmain > .console { grid-area: 2 / 2; }
+.workspace.research .rmain > .rrun { grid-area: 3 / 2; }
+.workspace.research .rmain > .rstack { grid-area: 4 / 2; min-height: 0; }
+/* The run's section and its banners: one row, stacked the way the column used to stack them. */
+.rrun {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
 .rstack {
   flex: 1;
   min-height: 0;
@@ -6404,7 +6949,8 @@ tr:focus-within .rowacts {
    A seventh, narrow column carries the remove control; it takes its width from the name
    column, which was the only one with room to give. The note under a duplicate or a
    no-change run reads like `.rowerr` but in the muted ink: it explains, it does not warn. */
-.inbox-table th:nth-child(1) { width: 36%; }
+/* The event column holds the title, the note and the page chips: it gets the width. */
+.inbox-table th:nth-child(1) { width: 59%; }
 .inbox-table th:nth-child(7) { width: 4%; }
 .inbox-table td.acts {
   text-align: right;
@@ -6431,3 +6977,3200 @@ tr:focus-within .rowacts {
   background: var(--muted-bg);
 }
 .toast.note { background: var(--muted-bg); color: var(--text); }
+
+/* ---- Recap (docs/agents/SPEC.md section 9.3): the morning recap and Home's inbox entry ---- */
+
+.recap { display: flex; flex-direction: column; }
+.recap > .facts.lead { border-bottom: 1px solid var(--border); }
+.recap-fellow { display: flex; flex-direction: column; }
+.recap-note { display: flex; gap: 8px; margin-top: 8px; }
+/* ---- The recap's own typography (2026-09-06, rebuilt 2026-09-11): a decision sheet, not a
+   log dump. One rail of labels on the left, one column of content on the right, for the day's
+   rows and for every Fellow alike; a Fellow starts with a rule, air, and its domain's colour,
+   so the eye notices the change of subject while scrolling. Every list is one item per line. */
+.recap-fellow {
+  padding: 22px 14px 26px;
+  border-top: 1px solid var(--border-strong);
+  gap: 0;
+}
+.rf-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.rf-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.rf-idx { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.rf-name {
+  margin: 0;
+  font-family: var(--display);
+  font-optical-sizing: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+.rf-meta { font-size: 12px; color: var(--text-faint); }
+.rf-grid {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  column-gap: 18px;
+  row-gap: 18px;
+  align-items: start;
+}
+.rf-grid.day { padding: 16px 14px 20px; }
+.rf-grid.day.foot { padding: 14px 14px 18px; border-top: 1px solid var(--border); }
+.rf-k {
+  padding-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.rf-v { min-width: 0; margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-dim); }
+.rf-v.list { display: grid; gap: 5px; justify-items: start; }
+.rf-v .filed { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; color: var(--text); }
+.rf-v .filed b { font-weight: 600; }
+.rf-v .filed .by { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; }
+/* A publication not in the vault yet: the title links out, in the chip's own shape. */
+.rf-v .filed .filed-link {
+  display: inline-block;
+  max-width: 64ch;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-v .filed .filed-link:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+.rf-hint { margin: 0 0 8px; font-size: 11.5px; color: var(--text-faint); }
+/* What the last answer came back with, under the Fellow it was given for. */
+.rf-toast { margin: 0 0 14px; }
+
+.rf-v .prop + .prop { margin-top: 6px; }
+.recap-none { margin: 0; font-size: 13px; color: var(--text-faint); }
+.recap-fname-link { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.recap-fname-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+/* One proposal: what it would do, why, and the two answers. */
+.prop {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.prop.approved {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+  background: color-mix(in srgb, var(--ok) 7%, var(--bg));
+}
+.prop.vetoed { opacity: 0.6; }
+.prop-main { flex: 1; min-width: 0; }
+.prop-topic { font-size: 13px; line-height: 1.45; max-width: 92ch; }
+.prop-topic .chip { margin-left: 8px; vertical-align: middle; }
+.prop-code {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--research);
+}
+.prop-why,
+.prop-from {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-faint);
+  max-width: 92ch;
+}
+.prop-from { color: color-mix(in srgb, var(--text-faint) 80%, transparent); }
+.prop-acts { display: flex; gap: 6px; flex: none; }
+
+/* What the night actually did, under the decision it feeds. */
+.recap-ran { padding: 0; font-size: 13px; color: var(--text); }
+.recap-ran + .recap-ran { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.recap-ran-line { line-height: 1.45; max-width: 96ch; }
+.recap-ran-meta { margin-top: 1px; font-size: 12px; color: var(--text-dim); }
+/* A fixed label column and one chip per line beside it, like the detail's chip band: as flex
+   siblings the second row of chips started under the label, half a label left of the first
+   (2026-09-11). */
+.recap-pages {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 8px;
+}
+.recap-pages .k {
+  padding-top: 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.recap-pages .chips {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.recap-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.recap-list li { margin: 2px 0; max-width: 96ch; }
+.recap-note .input { flex: 1; }
+.recap-foot,
+.recap-line {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.recap-line { padding: 10px 14px; }
+/* What a rebuild would add: a note, not an alarm - the decisions above are already current. */
+.recap-line.recap-since {
+  margin: 0 14px 8px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  max-width: 96ch;
+}
+
+/* ---- Home's recap feed (2026-09-06): the newest recap open, the week beside it ----
+   The flow box holds two views of one height. This one brings its own fact strip (the day
+   in view), the feed, the rail and its foot - the same four bands the activity view has, so
+   switching between them moves nothing. */
+.flow-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.recap-facts-empty { grid-template-columns: repeat(2, minmax(126px, 220px)); }
+
+.rfeed-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 236px;
+  flex: 1;
+  min-height: 0;
+}
+.rfeed {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.rfeed > .toast { margin: 10px 14px 0; }
+.rfeed > .empty { padding: 48px 20px; }
+.rfeed-day { border-bottom: 1px solid var(--border-strong); }
+.rfeed-day:last-child { border-bottom: 0; }
+/* Home's feed has no day bar: two days meet at a heavier rule with air on both sides, the
+   headline's date says which one is at the top. */
+.rfeed-split.solo .rfeed-day { padding-bottom: 10px; border-bottom: 2px solid var(--border-strong); }
+.rfeed-split.solo .rfeed-day + .rfeed-day { padding-top: 8px; }
+.rfeed-split.solo .rfeed-day:last-child { border-bottom: 0; }
+.rfeed-split.solo .recap-fellow:first-child { border-top: 0; }
+/* The date stays put while its day is on screen, and the next one pushes it out. */
+.rfeed-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  background: color-mix(in srgb, var(--bg-elev) 92%, var(--accent));
+  border-bottom: 1px solid var(--border);
+}
+.rfeed-date {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+/* Why the picked Fellow stayed put that night. */
+.recap-absent {
+  margin: 0;
+  padding: 14px 14px 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.recap-absent b { color: var(--text); font-weight: 600; }
+
+.rrail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.rrail-sec {
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rrail-sec:last-child { border-bottom: 0; }
+.rrail-k {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.rrail-pills { display: grid; gap: 4px; }
+.rrail-hint {
+  margin: 8px 4px 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-faint);
+}
+
+/* One Fellow: name, home domain, and what it did in the week the rail shows. */
+.fpill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+.fpill:hover { border-color: var(--border-strong); color: var(--text); }
+.fpill[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.fpill .who { display: grid; min-width: 0; line-height: 1.25; }
+.fpill .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpill .dm {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fpill[aria-pressed='true'] .dm { color: color-mix(in srgb, var(--accent) 75%, var(--text-faint)); }
+.fpill.empty {
+  border-style: dashed;
+  background: none;
+  color: var(--text-faint);
+  opacity: 0.75;
+}
+.fpill.empty:hover {
+  opacity: 1;
+  color: var(--research);
+  border-color: color-mix(in srgb, var(--research) 45%, var(--border));
+}
+.fpill.empty .dot { border: 1px dashed var(--border-strong); background: none; }
+
+/* One week at a time, newest day on top. */
+.wknav { margin-left: auto; display: inline-flex; gap: 2px; }
+.wknav button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+.wknav button:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.wknav button:disabled { opacity: 0.35; cursor: default; }
+/* One chevron in the set, pointing down: a quarter turn each way points it back and forward. */
+.wknav svg { width: 12px; height: 12px; }
+.wknav .up svg { transform: rotate(90deg); }
+.wknav .down svg { transform: rotate(-90deg); }
+
+.wk-label {
+  padding: 0 2px 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.daylist { display: grid; gap: 1px; }
+.day-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: left;
+}
+.day-row:hover:not(:disabled) { background: var(--bg-elev-2); color: var(--text); }
+.day-row[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+/* Where the feed currently is, when no single day is picked. */
+.day-row[aria-current='true']:not([aria-pressed='true']) {
+  background: var(--bg-elev-2);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.day-row:disabled { color: var(--text-faint); opacity: 0.5; cursor: default; }
+.day-row.today .d { font-weight: 600; }
+/* The picked Fellow did nothing that night. Dimmed, not disabled: the reason is inside. */
+.day-row.idle { color: var(--text-faint); }
+.day-row.idle .d { opacity: 0.72; }
+.day-row .rn {
+  margin-left: auto;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--gold-bg);
+  color: var(--gold);
+  font-size: 10px;
+}
+.day-row .rq { margin-left: auto; font-size: 10px; color: var(--text-faint); }
+.day-row .rq.idle { color: var(--text-faint); }
+
+/* Narrow: the rail drops under the feed as two columns of its own. */
+@media (max-width: 1100px) {
+  .rfeed-split { grid-template-columns: minmax(0, 1fr); }
+  .rrail {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .rrail-sec { border-bottom: 0; }
+}
+
+
+/* Text inputs and selects that stand on their own, outside a settings form. */
+.input,
+.select {
+  height: var(--control-h);
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.input:focus,
+.select:focus { outline: none; border-color: var(--accent); }
+.select.sm,
+.input.sm { height: 26px; font-size: 12px; }
+.select { cursor: pointer; }
+
+/* ---- Library screen (docs/agents/SPEC.md section 10): rooms, figures, card, popover ---- */
+
+.lib-workspace.focus { grid-template-columns: minmax(0, 1fr); }
+.lib-workspace:has(> .lib-card) { grid-template-columns: var(--gpanel-w) minmax(0, 1fr) 360px; }
+.lib-workspace.focus:has(> .lib-card) { grid-template-columns: minmax(0, 1fr); }
+
+.lib-box { position: relative; }
+.lib-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  outline: none;
+}
+.lib-area.night { background: #0c101b; }
+.lib-area > svg { width: 100%; height: 100%; }
+.lib-area:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+/* ---- A board's window (design round 8): the room's own frame, filled with a page ----
+   It covers the canvas exactly, so opening one moves nothing on the screen. */
+.lib-window {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+}
+.lib-window-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px 20px 24px;
+}
+/* Inside a window the page IS the surface: the card border and its ground would be a box
+   drawn inside a box. */
+.lib-window-body .page-body,
+.shelf-page .page-body {
+  max-width: 92ch;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.lib-window-body .page-body h1 { margin: 0 0 6px; font-family: var(--display); font-size: 19px; font-weight: 600; }
+.lib-window-body .page-body h2 {
+  margin: 18px 0 4px;
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.lib-window-body .page-body p { margin: 0 0 9px; color: var(--text-dim); }
+.lib-window-body .page-body ul { margin: 0 0 12px; padding-left: 18px; color: var(--text-dim); }
+.lib-window-body .page-body li { margin: 4px 0; }
+.lib-window-body .page-body strong { color: var(--text); }
+.lib-window > .flow-view { border-top: 0; }
+/* The two boards and the passage answer the pointer. */
+/* The headline flattens buttons to fit the bar; the spawn call to action keeps its weight. */
+.graph-controls .btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  padding: 0 12px;
+}
+.lib-board, .lib-banner { transition: filter 0.12s; }
+.lib-banner:hover { filter: brightness(1.07); }
+/* A desk lamp: dark by day, lit through the night shift (the glow rides in the SVG). */
+.lib-lamp { transition: opacity 0.3s; }
+/* A desk's screen comes on when its Fellow starts working; it fades in rather than snapping, like the lamp. */
+.lib-desk polygon { transition: fill 300ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .lib-desk polygon { transition: none; }
+}
+.lib-board:hover { filter: brightness(1.07); }
+
+
+/*
+ * A figure glides to its next tile. Walking to a shelf in another wing is not a glide though -
+ * the figure is simply not drawn in the room you are looking at - so arriving fades in rather
+ * than appearing hard on the floor.
+ */
+.lib-figure { transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1), opacity 600ms ease; animation: lib-figure-in 260ms ease-out; }
+.lib-figure.exiting { opacity: 0.55; }
+@keyframes lib-figure-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lib-figure { transition: none; animation: none; }
+}
+.lib-figure.selected > g > ellipse:first-child { stroke: var(--accent); stroke-width: 2; }
+.lib-slot.free { opacity: 0.85; }
+/* The shelf under the pointer lights along its top edge; see the note in RoomSvg. Guarded on
+   `hover: hover`, because on a touch screen `:hover` sticks to whatever was tapped last and
+   would leave one case lit with nothing pointing at it. It is deliberately NOT the accent:
+   the accent is what a SELECTED shelf glows in and what a drop target is dashed in, and a
+   third state saying the same colour as those two would be a third state saying nothing. */
+.bc-rim { opacity: 0; }
+@media (hover: hover) {
+  .lib-slot:hover .bc-rim,
+  .lib-board:hover .bc-rim,
+  .lib-cart:hover .bc-rim,
+  .lib-desk:hover .bc-rim,
+  .lib-easel:hover .bc-rim { opacity: 0.95; }
+  /* A desk under the pointer names itself and asks the bubbles to step aside, so that no text
+     collides with its label. Reached through `:has()` on the room, because the bubbles are
+     drawn in their own layer over everything. */
+  .lib-desk:hover .lib-desk-label { opacity: 1; }
+  .lib-svg:has(.lib-desk:hover) .lib-tags { opacity: 0; }
+  /* The passage wears it along the top of its lintel, and wears nothing else: it used to take
+     a 7% brightness wash as well, which repainted the whole wall tile above the opening - a
+     surface nobody was pointing at, saying a second time what the edge already says.
+     Reached through `:has()` on the room rather than by `:hover` on each group, because the
+     doorway is drawn as three siblings in three depth slots - lintel, right post, name banner -
+     and a descendant rule would light only whichever third the pointer is over, so the edge
+     would break at a seam the viewer has no way to see. The banner carries no edge of its own
+     but still lights the frame's, being the same click and the same destination. A room has
+     exactly one doorway, so the room is a safe scope. */
+  .lib-svg:has(.lib-passage:hover, .lib-passage-post:hover, .lib-passage-sign:hover) .bc-rim-door { opacity: 0.95; }
+}
+/* The same idea on a Fellow's bubble, which is clickable and opens their card. Its OWN outline
+   rather than an edge of its own: the bubble is a flat pill lying in front of the room, with
+   no faces and no light direction, so a rim would be nothing but the border it draws anyway.
+   At rest it draws none at all - the pill has no fill either, and a label over a room is a
+   caption, not a lozenge.
+
+   Two changes on 2026-09-17. It answers to the NAME rather than to the whole pill: the pill is
+   as wide as the text plus its padding, and a border that lit up from the transparent margin
+   around the letters had no visible cause. `:has()` is what reaches from the hovered text back
+   to the rect that precedes it. And it is 2px rather than 1, because a hairline was easy to
+   miss.
+
+   The colours are the shelf's lit edge exactly, in both rooms, because it is the same
+   statement: this is the thing under the pointer. Two lights of two colours in one room would
+   read as two kinds of thing.
+
+   The figure under it stays dark - it is drawn in another layer, so no rule reaches across,
+   and lighting both would take a hover state rather than a line of CSS. */
+.lib-tag { stroke: transparent; stroke-width: 2; transition: stroke 140ms ease-out; }
+/* The one label in the room that takes the pointer. `.lib-svg text` turns it off for all of
+   them, so that a shelf sign or a sleeping figure's "z" cannot intercept a click meant for the
+   thing under it - but this name has to be hoverable to be the thing the outline answers to.
+   It changes only which element the event targets: the name sits inside the bubble's own
+   group, so the click still reaches the handler that opens the Fellow's card. Written with the
+   svg in front of it because `.lib-svg text` is one class and one type, which outranks a bare
+   class and quietly wins - the first attempt at this line did nothing at all. */
+.lib-svg .lib-tag-name { pointer-events: auto; }
+/* A dark halo around the white name, because the pill it used to stand on is gone and the room
+   is what it stands on now. A DARK ring rather than the background colour, which is the trick
+   the canvas legend uses: that one sits on one flat surface, and this one crosses parquet,
+   carpet, furniture and wall within a few pixels - only a contrasting ring holds against all
+   of them. Drawn under the glyphs (`paint-order: stroke`), so the letterforms keep their own
+   weight instead of fattening. 2px at 60% measured against the day room, where the contrast
+   was the problem: white on that parquet is 2.15:1 without it. */
+.lib-svg .lib-tag-name {
+  paint-order: stroke;
+  stroke: #1a2333;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  stroke-opacity: 0.6;
+}
+/* The body counts as the bubble (2026-09-17): a transparent rect over head and torso sits in
+   the bubble's group, so hovering the figure lights the same outline the name does. */
+.lib-torso-hit { cursor: pointer; }
+@media (hover: hover) {
+  .lib-figure.clickable:has(.lib-tag-name:hover, .lib-torso-hit:hover) .lib-tag { stroke: #fff4e2; }
+  .lib-svg.night .lib-figure.clickable:has(.lib-tag-name:hover, .lib-torso-hit:hover) .lib-tag { stroke: #ffd9a8; }
+}
+/* Light appearing is not motion, but a fade is an animation; whoever asked for less of it
+   gets the edge switched rather than eased. */
+.bc-rim { transition: opacity 140ms ease-out; }
+.lib-tags { transition: opacity 140ms ease-out; }
+.lib-desk-label { opacity: 0; transition: opacity 140ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .bc-rim,
+  .lib-tags,
+  .lib-desk-label,
+  .lib-tag { transition: none; }
+}
+.lib-slot.drop polygon { transition: opacity 200ms; }
+.lib-case.selected { filter: drop-shadow(0 0 4px var(--accent)); }
+/* The gap in a row: the doorway in the back one, the aisle in the front. It is floor until you
+   take hold of it, so it has no look of its own - what it needs is `touch-action`, or dragging
+   it on a touch screen scrolls the page instead. The one being dragged fades; every other
+   position of its row shows as a target while it is in hand. */
+.lib-aisle,
+.lib-aisle-target { touch-action: none; }
+.lib-aisle.held { cursor: grabbing; }
+
+.lib-corner { position: absolute; z-index: 2; }
+.lib-corner.top { left: 50%; top: 10px; transform: translateX(-50%); }
+.lib-corner.tr { right: 12px; top: 12px; display: flex; gap: 6px; }
+.lib-corner.bl { left: 12px; bottom: 10px; }
+.lib-corner.br { right: 12px; bottom: 10px; }
+/*
+ * The plan, and how much of each window is LEFT (section 8.3). It sits in the room rather
+ * than on the System screen because it is the number that decides whether tonight's shift is
+ * affordable, and that question is asked while looking at the Fellows.
+ */
+.lib-plan {
+  /*
+   * No card (2026-09-08): it was a bordered, half-filled, blurred panel that lay ON the room
+   * rather than in it. The figures sit on the ground now, and the only thing that changes is
+   * the ink.
+   *
+   * The ink follows the ROOM's light, not the dashboard theme - the dashboard can be light
+   * while the room is at night, which is the ordinary evening case. Measured off the rendered
+   * room: the corner sits on the drawing area's own ground, #f2f4f9 by day and #0c101b at
+   * night, where #1a2333 carries 15.5:1 and #e9edf7 16.2:1 respectively. Hence two explicit
+   * triples rather than `var(--text)`, which would follow the wrong light.
+   */
+  --ink: #1a2333;
+  --ink-dim: #55627e;
+  --ink-faint: #75819b;
+  min-width: 112px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 2px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.lib-plan.dark {
+  --ink: #e9edf7;
+  --ink-dim: #9aa7c2;
+  --ink-faint: #78859f;
+}
+.lp-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding-bottom: 3px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
+}
+.lp-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lp-unit {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+.lp-w {
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+/*
+ * Only the level is drawn. The fullest window was picked out too, until it turned out to be
+ * the week nearly every time - the week is far the larger budget, so being the fullest of the
+ * two says nothing about what stops the next run.
+ */
+/* Warning and spent take the room's light too: the theme's tokens are mixed for the
+   dashboard's ground, and a dark amber on the night floor would say nothing. */
+.lp-row.low .lp-w,
+.lp-row.low .lp-n {
+  color: #a4691a;
+}
+.lib-plan.dark .lp-row.low .lp-w,
+.lib-plan.dark .lp-row.low .lp-n {
+  color: #e8b04b;
+}
+.lp-row.spent .lp-w,
+.lp-row.spent .lp-n {
+  color: #a52c2c;
+}
+.lib-plan.dark .lp-row.spent .lp-w,
+.lib-plan.dark .lp-row.spent .lp-n {
+  color: #f08a7a;
+}
+.lp-n {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+/* What has run since the last measurement, priced from the calibration. Set apart from the
+   figure beside it because one was read off the plan and the other is arithmetic. */
+.lp-est {
+  margin-left: 4px;
+  color: var(--ink-faint);
+  cursor: help;
+}
+/* The age, and the button that stands next to it. */
+.lp-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
+}
+.lp-age {
+  color: var(--ink-faint);
+  cursor: help;
+}
+/* The stale marker follows the room's light for the same reason the rows above do. */
+.lp-stale {
+  color: #a4691a;
+  cursor: help;
+}
+.lib-plan.dark .lp-stale {
+  color: #e8b04b;
+}
+/* The one control here that hands out budget: quiet until asked, then it says the number. */
+.lp-rel {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.lp-rel:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.lp-rel.go {
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+  color: var(--warn);
+}
+.lp-rel.on {
+  border-color: color-mix(in srgb, var(--ok) 60%, transparent);
+  color: var(--ok);
+}
+.lp-ask {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.lp-ask .lp-rel {
+  margin-left: 0;
+}
+/* An answer, not a fault: "not while a run is in flight" is the service working. */
+/* A run the recap picked up on read: its facts are here, its summary line is not. */
+.recap-later {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-faint);
+  cursor: help;
+}
+
+.lp-note {
+  color: var(--text-dim);
+  max-width: 190px;
+}
+.lp-err {
+  color: var(--err);
+  max-width: 190px;
+}
+
+.lib-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
+  box-shadow: var(--shadow);
+}
+.lib-strip.dark { background: rgba(19, 25, 40, 0.94); border-color: #30405f; }
+/* A wing's pill is also its handle: dragging one along the strip is what reorders the wings. */
+.rpw { display: inline-flex; align-items: center; position: relative; }
+.lib-strip.dragging .rp { cursor: grabbing; }
+.rpw.held .rp { opacity: 0.45; }
+.rpw.over::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+/* Only the wing you are standing in offers to go, and only while nothing stands in it. */
+.rdel {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 0 2px 0 -4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.rdel:hover { background: var(--danger-bg, var(--warn-bg)); color: var(--danger, var(--warn)); }
+.lib-strip .rp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.lib-strip.dark .rp { color: #9aa7c2; }
+.lib-strip .rp.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.lib-strip.dark .rp.on { background: #1b2947; color: #7fa7ff; }
+.lib-strip .rp.target { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+.lib-strip .rp .cnt { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.lib-strip .rp .adot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.lib-strip .arr {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  cursor: pointer;
+}
+.lib-strip .arr:disabled { opacity: 0.35; cursor: default; }
+
+.lib-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.lib-legend.dark { background: rgba(19, 25, 40, 0.94); border-color: #30405f; color: #9aa7c2; }
+.lib-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+.chip.dark { background: #1b2947; color: #7fa7ff; border-color: #30405f; }
+
+.lib-frow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lib-frow:hover { background: var(--bg-elev-2); }
+.lib-frow.sel { background: var(--accent-soft); }
+.lib-frow .d { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.lib-frow .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lib-frow .who b { font-size: 13px; }
+.lib-frow .who .st { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lib-wrow { display: flex; align-items: center; gap: 6px; padding: 5px 8px; margin: 0 -8px; border-radius: 8px; font-size: 13px; }
+.lib-wrow.on { background: var(--accent-soft); }
+.lib-wrow.target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.lib-wrow .wn { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.lib-wrow .ws { font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.lib-wrow .wacts { display: inline-flex; gap: 2px; }
+.lib-wrow .wact { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-faint); font: inherit; font-size: 11px; cursor: pointer; }
+.lib-wrow .wact:disabled { opacity: 0.35; cursor: default; }
+.lib-wrow.add { border: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 500; cursor: pointer; width: calc(100% + 16px); text-align: left; }
+
+.lib-deps { flex: 1; min-height: 0; overflow-y: auto; }
+/*
+ * One wing is one group, and the space above its name is what separates it from the last
+ * department of the wing before. Each group sits in its own wrapper, so `:first-child` on the
+ * heading matched EVERY heading and flattened the gap it was meant to protect - only the first
+ * group in the list is flush.
+ */
+.lib-grp {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 22px 0 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.lib-deps > div:first-child > .lib-grp,
+.lib-deps > .lib-grp:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.lib-drow { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; font-size: 12.5px; }
+.lib-drow:hover { background: var(--bg-elev-2); }
+.lib-drow .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.lib-drow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-drow .n { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.lib-drow .select.sm { width: 70px; padding: 0 4px; }
+
+.lib-hint { position: absolute; z-index: 4; display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; background: var(--text); color: var(--bg); font-size: 11.5px; font-weight: 500; white-space: nowrap; pointer-events: none; }
+.lib-toast { position: absolute; left: 12px; top: 12px; z-index: 4; }
+
+.lib-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.lib-card .gx-body { padding: 0 14px 14px; }
+.lib-card .gx-sec p { margin: 4px 0; }
+.lib-card ul { margin: 4px 0 0; padding-left: 18px; }
+.lib-card .gx-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.lib-card .toast { margin: 0 14px; }
+.lc-live { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; background: var(--bg); }
+.lc-live-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.lc-phases { display: flex; gap: 10px; margin: 6px 0; padding: 0; list-style: none; font-size: 11px; color: var(--text-faint); }
+.lc-phases li.on { color: var(--accent); font-weight: 600; }
+.lc-tail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: 10.5px; line-height: 1.4; white-space: pre-wrap; color: var(--text-dim); }
+
+/*
+ * The Fellow card (2026-09-15). Twice the old 300px, because it carries a strip of figures, a
+ * row of ways out, and topics that are written as sentences rather than as labels.
+ *
+ * Centred over the room, not pinned to the figure that was clicked: at this size an anchored
+ * card spends its life half off one edge or another, and which figure it belongs to is said at
+ * the top of the card. Escape closes it.
+ */
+.lib-pop {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 672px;
+  max-width: calc(100% - 28px);
+  padding: 12px 14px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+.lib-pop .gx-close { position: absolute; right: 8px; top: 8px; }
+.lib-pop-title { font-family: var(--display); font-size: 18px; font-weight: 600; margin: 2px 0 8px; }
+.lib-pop-line { display: grid; grid-template-columns: 56px 1fr; gap: 8px; font-size: 12.5px; margin: 4px 0; }
+.lib-pop-line .k { color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding-top: 2px; }
+.lib-pop-line .v small { display: block; color: var(--text-faint); font-size: 11px; }
+/* Grid items are `min-width: auto` by default, so a long topic widens its own column and
+   pushes out of the card instead of being cut. This is what makes the clamps below work. */
+.lib-pop-line .v { min-width: 0; }
+.lib-pop-acts { display: flex; gap: 6px; margin-top: 10px; }
+/* The shelf's own colour, as the roster and the night's bar already use it. */
+.lib-pop-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dot, var(--accent)); display: inline-block; margin-right: 6px; vertical-align: 1px; }
+/* Name and state on one line: the state is a fact about the name, not a line of its own. The
+   shape rides with the name, quieter - it is what the Fellow was SPAWNED as, and the service
+   holds it to that art, so it belongs to the name rather than to the settings under it. */
+.lib-pop-head { display: flex; align-items: baseline; gap: 8px; }
+.lib-pop-head .lib-pop-title { margin: 2px 0 0; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-pop-title .shape { font-family: var(--sans); font-size: 12.5px; font-weight: 400; color: var(--text-dim); margin-left: 5px; }
+/* The want the shape was picked by, quoted from the spawn form: it is what the user asked for,
+   so it is set as a quotation rather than restated as a fact of the app's own. */
+.lib-pop-title .shape i { font-style: italic; color: var(--text-faint); }
+.lib-pop-head .sev { flex: none; }
+.lib-pop-sub { font-size: 11.5px; color: var(--text-dim); margin: 1px 0 9px; }
+/* What the night comes to, in one strip: what stands, what the quota lets the night make of
+   it, how long that takes, what it runs on, what it costs. Tabular figures so they line up. */
+.lib-pop-facts { display: flex; margin: 0 0 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev-2); overflow: hidden; }
+.lib-pop-facts > span { flex: 1 1 0; min-width: 0; padding: 6px 9px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; }
+.lib-pop-facts > span:first-child { border-left: 0; }
+.lib-pop-facts b { font-size: 14px; font-variant-numeric: tabular-nums; }
+/* Six columns share the width now, so the labels are set a touch tighter to stay on one line
+   each; one label wrapping while five do not reads as a fault rather than as a long word. */
+.lib-pop-facts i { font-style: normal; font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-pop-facts .off b { color: var(--text-faint); }
+/* Two lines of a topic, never ten. The whole of it is in the title attribute. */
+.lib-pop-topic { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+/* The night, run by run: three blocks at least, each two lines of topic over one of what it
+   was decided and what it costs.
+
+   Every block is those three lines whether or not anything runs in it. A slot that shrank to
+   its one line of explanation made the card change height as the wheel walked from Fellow to
+   Fellow, which is the one motion a card standing still in the middle of the room must not
+   have. The line-height is pinned here for the same reason the min-heights are measured in
+   it: both halves have to agree on what a line is. */
+.lib-pop-runs { display: flex; flex-direction: column; gap: 6px; }
+.lib-pop-run { display: block; min-width: 0; line-height: 1.45; }
+.lib-pop-run .t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; min-height: 2.9em; }
+.lib-pop-run small { display: block; min-height: 1.45em; }
+.lib-pop-run .t b { font-weight: 600; margin-right: 3px; }
+/* A slot nothing runs in says why in the faint ink: it is an absence, not a run. */
+.lib-pop-run.none .t { color: var(--text-faint); }
+.lib-pop-run.none .t b { color: var(--text-dim); }
+/* The art keeps its own baseline; only the text after it is clamped. */
+.lib-pop-task { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.lib-pop-task + .lib-pop-task { margin-top: 4px; }
+.lib-pop-task .cc-art { flex: none; }
+.lib-pop-task .t { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+/* A run in flight says how far along it is, which is the one thing a still figure cannot.
+   Both of these are blocks on purpose: `height` does nothing to an inline box. */
+.lib-pop-prog { display: block; height: 4px; border-radius: 999px; background: var(--muted-bg); overflow: hidden; margin-top: 6px; }
+.lib-pop-prog > i { display: block; height: 100%; background: var(--accent); }
+/* The ways out, and the one action. Wraps rather than squeezing the labels. */
+.lib-pop-acts { flex-wrap: wrap; border-top: 1px solid var(--border); margin-top: 11px; padding-top: 10px; }
+.lib-pop-acts .grow { flex: 1 1 auto; }
+.lib-pop-acts .btn.due { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.lib-pop-acts .btn.due .n { font-family: var(--mono); font-size: 10.5px; background: var(--warn-bg); padding: 1px 5px; border-radius: 999px; margin-left: 5px; }
+
+.lib-spawn { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+.lib-spawn label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text-dim); }
+/* A label that carries a footnote: the marker sits ON the baseline of the word, not under it. */
+.sp-lbl { display: inline-flex; align-items: center; gap: 5px; }
+/* A field that may be left empty says so, rather than the required ones each carrying a mark. */
+.sp-opt { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-faint); font-size: 10.5px; }
+/* The standing work on the card: what each task is, and where it stands tonight. */
+.fc-tasks {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.fc-task {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+}
+.fc-task-k {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  cursor: help;
+}
+.fc-task.on .fc-task-k,
+.fc-task.on .fc-task-t {
+  color: var(--accent);
+}
+.fc-task.rest .fc-task-t {
+  color: var(--text-faint);
+}
+
+/* The standing work: one to three tasks, each an art and a sentence. */
+.sp-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.sp-task {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+.sp-task-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sp-task-head .select {
+  width: auto;
+  min-width: 96px;
+}
+/* A shape's art is fixed, so it is stated rather than offered: the select would be a choice
+   of one, and the service would refuse anything else anyway. */
+.sp-fixed {
+  display: inline-flex;
+  align-items: center;
+  min-width: 96px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.sp-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: 6px;
+  color: var(--text-faint);
+}
+.sp-x:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+.lib-spawn .input, .lib-spawn .select { width: 100%; }
+.lib-spawn textarea.input { height: auto; padding: 6px 10px; resize: vertical; }
+.lib-spawn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lib-spawn-check { flex-direction: row !important; align-items: center; gap: 6px !important; }
+.lib-spawn .gx-actions { display: flex; gap: 6px; }
+.lib-svg { display: block; user-select: none; }
+.lib-svg text { pointer-events: none; }
+
+/* ---- A shelf's window: the department's graph and its catalog (section 10.5) ---- */
+.shelf-window .box-head { gap: 9px; }
+.shelf-graph {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.shelf-graph > .graph-canvas-wrap,
+.shelf-graph > div:first-child { flex: 1; min-height: 0; }
+/* The canvas keeps no bar of its own here: Fit rides in the filter band, so the graph and the
+   catalog start at the same line and nothing shifts when the view changes. */
+.shelf-graph .graph-controls { display: none; }
+/* The open department or board, named in the middle of the headline. */
+.lib-open { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.lib-open b { font-family: var(--display); font-size: 14px; font-weight: 600; }
+.lib-open .box-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Reading a page, the path walks back: the department is a link, no button repeats Escape. */
+.lib-crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+.lib-crumb:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.lib-sep { color: var(--text-faint); }
+/*
+ * Filters, count, actions - in that order and in those places, whatever the width. The count
+ * sits between the chips it describes and the buttons that act on them, and the buttons stay
+ * on the right: as one wrapping flex row they dropped to a second line and left-aligned
+ * themselves under the chips.
+ */
+.shelf-filter {
+  display: grid;
+  /* Filters and actions take what they need; the count is centred in what is LEFT between
+     them, which is where the eye looks for it. Equal side columns instead wrapped the chips
+     while half the band stood empty next to the buttons. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 12px;
+  flex: none;
+  /* The same 10px the headline uses, so the band's right edge lines up with the headline's. */
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+/*
+ * A department has two controls, one above the other: the view toggle in the headline and the
+ * Deepen button in the band. Same width and same right edge reads as one column rather than as
+ * two buttons that happen to be near each other.
+ */
+.lib-headline .seg.shelf-view,
+.sf-actions .btn.sf-deepen {
+  width: 156px;
+}
+/* The two halves share the width evenly and sit inset from the pill's own edge, so the
+   selected one reads as a pill INSIDE a pill rather than as a filled half of one. Centring
+   needs justify-content, not text-align: the buttons are flex containers themselves. */
+.lib-headline .seg.shelf-view {
+  padding: 3px;
+  gap: 4px;
+}
+.lib-headline .seg.shelf-view button {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 0;
+  justify-content: center;
+}
+.sf-actions .btn.sf-deepen {
+  justify-content: center;
+}
+.sf-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.sf-count {
+  justify-self: center;
+  white-space: nowrap;
+}
+.sf-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+}
+/* Narrow: the three parts stack rather than squeezing the chips to nothing. */
+@media (max-width: 900px) {
+  .shelf-filter {
+    grid-template-columns: 1fr;
+  }
+  .sf-count,
+  .sf-actions {
+    justify-self: start;
+  }
+}
+.shelf-filter .input { min-width: 220px; }
+/*
+ * The colour that used to be the legend's whole point rides on the chips - and a picked chip
+ * has to LOOK picked: `aria-pressed` was set from the start, but nothing was styled off it,
+ * so the filter worked while the band showed no sign of which one was on.
+ */
+.shelf-filter .chip { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.shelf-filter .chip .chip-dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+.shelf-filter .chip:hover { border-color: var(--accent); color: var(--text); }
+.shelf-filter .chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+/* The dot keeps its own colour; the ring says it is the one filtering. */
+.shelf-filter .chip[aria-pressed='true'] .chip-dot { box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3px var(--accent); }
+.shelf-table {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.shelf-table .empty { padding: 44px 20px; }
+/* ---- The column while a department's window is open (section 10.5) ---- */
+.lib-drow.pick {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.lib-drow.pick:hover { background: var(--bg-elev-2); }
+.lib-drow.pick.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.shelf-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.shelf-facts b {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.shelf-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.shelf-list li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.shelf-list .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.shelf-list .when { color: var(--text-faint); white-space: nowrap; font-size: 11px; }
+.shelf-fellow {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+}
+.shelf-fellow:hover { border-color: var(--accent); background: var(--accent-soft); }
+.shelf-fellow .av {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.shelf-fellow .nm { font-weight: 600; }
+.shelf-fellow .st { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* One page, read inside the window. */
+.shelf-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px 20px 24px;
+}
+/* No measure here (2026-09-14). The window is already narrower than a screen, and inside it
+   the column was narrower still: a page opened from the department graph left a third of the
+   window empty while its own tables and code lines wrapped. */
+.shelf-page .page-body { max-width: none; }
+.shelf-page .page-body h1 { margin: 0 0 8px; font-family: var(--display); font-size: 20px; font-weight: 600; }
+.shelf-page .page-body h2 { margin: 18px 0 5px; font-family: var(--display); font-size: 15px; font-weight: 600; }
+.shelf-page .page-body h3 { margin: 14px 0 4px; font-family: var(--display); font-size: 13px; font-weight: 600; }
+.shelf-page .page-body p { margin: 0 0 10px; color: var(--text-dim); }
+.shelf-page .page-body ul, .shelf-page .page-body ol { margin: 0 0 12px; padding-left: 20px; color: var(--text-dim); }
+.shelf-page .page-body li { margin: 3px 0; }
+.shelf-page .page-body strong { color: var(--text); }
+.shelf-page .page-body code { font-family: var(--mono); font-size: 12.5px; }
+/* ---- The reading list board (section 10.6) ---- */
+.lib-window-body.reading { padding: 14px 18px 22px; }
+/* No measure on the lede: it is one line beside the toggle, and only a narrow window wraps it. */
+.reading-lede { margin: 0; color: var(--text-dim); font-size: 13px; min-width: 0; }
+/* The lede and the board's caption share one line. The caption is one fixed sentence and the
+   lede is the one that can afford to wrap, so the caption keeps its width and the lede gives. */
+.reading-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+/* Where the publication ended up, once it is in the vault by any route. */
+.rl-filed { margin: 4px 0 0; font-size: 12px; color: var(--text-dim); }
+/* Written up but not held: the page exists, the document does not, and the row still offers
+   the ingest. Dimmer than an arrival, so the two never read as the same state. */
+.rl-filed.rl-summary { color: var(--text-faint); font-style: italic; }
+.rl-filed.rl-summary span { cursor: help; }
+.reading-head .chip { flex: none; cursor: pointer; }
+.reading-what { flex: none; text-align: right; white-space: nowrap; }
+.reading-head .chip[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.reading-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.reading-rows li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.rl-main { flex: 1; min-width: 0; }
+.rl-title { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; font-size: 13.5px; }
+.rl-title a { color: var(--text); text-decoration: none; font-weight: 600; }
+.rl-title a:hover { color: var(--accent); text-decoration: underline; }
+.rl-ref { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.rl-why { margin: 3px 0 0; font-size: 12.5px; color: var(--text-dim); max-width: 90ch; }
+.rl-meta { margin: 3px 0 0; font-size: 11.5px; color: var(--text-faint); }
+.rl-act { flex: none; display: flex; align-items: center; gap: 6px; }
+/* The row the arrow keys are on. The accent border rather than a fill: the rows carry chips
+   and buttons of their own, and a tinted row turns those into decoration. */
+/* The pinboard's rows are one height (2026-09-17): a question gets two lines, clamped, and a
+   one-line question stands in the same box as a two-line one, so the list reads as a grid of
+   cards rather than a ragged stack. The dot keeps a column of its own beside the text - as a
+   wrapping flex item it dropped onto a line of its own over a two-line question - so the text
+   starts at one x whether or not a question has a domain. */
+.reading-rows.questions .rl-title { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; }
+.reading-rows.questions .rl-title .chip-dot { margin-top: 6px; }
+/* The question is rendered as markdown for its wikilinks; its one paragraph stays inline so the
+   two-line clamp above still counts lines of text. */
+.reading-rows.questions .q-text p { display: inline; margin: 0; }
+.reading-rows.questions .q-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.45;
+  min-height: 2.9em;
+}
+.reading-rows li.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.reading-rows li { cursor: pointer; }
+.reading-rows li a, .reading-rows li button { cursor: pointer; }
+/*
+ * One entry, opened with Enter (2026-09-16). It replaces the list rather than standing over it:
+ * the board is already a window over the room, and a second layer inside it would make Escape
+ * ambiguous exactly where the ladder has to be obvious.
+ */
+
+/*
+ * A sortable column heading (2026-09-14). It is a button, because that is what it does, but it
+ * has to read as the heading it replaced: the table's own heading type and colour, no border, no
+ * background, and the pointer only on hover. The arrow marks the column that is sorting and says
+ * which way; a second click reverses it.
+ */
+.lt-sort {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.lt-sort:hover,
+.lt-sort:focus-visible {
+  color: var(--text);
+}
+.lt-sort.on {
+  color: var(--text);
+}
+.lt-arrow {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.8;
+}
+/* In a pill the arrow follows the label, with the gap the pill's own text has. */
+.viewpill .lt-arrow {
+  margin-left: 4px;
+}
+
+/*
+ * What a search for an open copy found: nothing. It stands in the row's meta line, in the error
+ * tone rather than the meta grey, because the answer to a button click has to be visible as an
+ * answer - a row that looks unchanged reads as a button that did nothing. The full sentence the
+ * service wrote is the title.
+ */
+.rl-miss { color: var(--err); }
+/* The other half of the same sentence: the search found a copy, which is the answer that
+   changes what the row can do next. Grey for both would hide the difference. */
+.rl-found { color: var(--ok); }
+
+/*
+ * The archive button is the quiet one in the row: it sits beside whatever the row's real
+ * action is (Ingest, Open, a status chip) and must not compete with it, so it is icon-only
+ * and takes its weight from hover rather than from colour.
+ */
+.rl-arch { padding: 4px 6px; color: var(--text-faint); }
+.rl-arch:hover:not(:disabled) { color: var(--text); }
+
+/*
+ * The lens mark: in the picker where the run count used to stand, and at the head of every
+ * run row. Faint by default in both places - it groups, it does not compete with the name it
+ * sits beside.
+ */
+.lensmark {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--text-faint);
+}
+.lensmark svg {
+  width: 15px;
+  height: 15px;
+}
+.lensrow[aria-checked='true'] .lensmark,
+.lens-opt[aria-checked='true'] .lensmark {
+  color: var(--text);
+}
+
+/*
+ * The close control on the finished-run line. Quiet: the line is already the least of what is
+ * on the screen, and a button that shouts would make it the most.
+ */
+.toast-x {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  padding: 0 4px;
+  border-radius: 5px;
+  font-size: 16px;
+  line-height: 1;
+}
+.toast-x:hover {
+  opacity: 1;
+  background: rgba(127, 127, 127, 0.14);
+}
+.runbanner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/*
+ * What a run wrote, grouped by kind (2026-09-08). The band it replaces was fixed at two rows
+ * and scrolled the rest; this one is as tall as it needs to be and puts a long group behind a
+ * control rather than behind a scrollbar. The kind is stated once, on the left, so the names
+ * get the width the chips were spending on repeating it.
+ */
+.wroteband {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.wroteband.empty-band {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.wroteband .wrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+/* A fixed column, not a first-row sibling: as a sibling the second row of pills started at
+   the container edge, half a label to the left of the first. */
+.wroteband .wkey {
+  flex: none;
+  width: 84px;
+  padding-top: 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.wroteband .wpills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+.wroteband .more {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+/*
+ * The run list's columns are declared rather than measured (2026-09-08). Wrote is the cell
+ * that grows while a run works - "nothing yet" becomes four counts - and under an auto layout
+ * that growth pushed Cost and When sideways every few seconds, so the numbers the reader was
+ * watching would not hold still. The topic takes whatever is left and truncates, which is the
+ * one column where truncating costs nothing: it is repeated in the detail bar the moment the
+ * row is opened.
+ */
+.rtable {
+  table-layout: fixed;
+}
+.rtable th.c-wrote,
+.rtable td.wrotec {
+  width: 92px;
+}
+.rtable th.c-cost {
+  width: 84px;
+}
+.rtable th.c-when {
+  width: 96px;
+}
+/* The delete cross, in a lane of its own so When does not shift when a row is hovered.
+   The lane is narrow, so the button gives up the padding it does not need rather than
+   hanging over the table's right edge (the same trim the activity table's acts cell uses). */
+.rtable th.c-acts {
+  width: 58px;
+}
+.rtable td.c-acts {
+  text-align: right;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+.rtable td.c-acts .btn {
+  min-width: 24px;
+  padding-inline: 5px;
+}
+/* Every count, and nothing taken from the topic: the three figure columns gave up the width
+   they never used, and a run that wrote three or four kinds takes a second line rather than an
+   ellipsis. Most rows stay one line; the ones that need two are the ones with the most to say. */
+.rtable td.wrotec {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* The lens mark in a row: faint, and in a lane, so four lenses still line their topics up. */
+.rowlens {
+  margin-left: 0;
+  flex: none;
+}
+
+/*
+ * The Research tab's headline (2026-09-08): the mode toggle on the left, what the mode may
+ * do on the right, in the same three zones the Library's headline keeps. The toggle used to
+ * sit in the console's head and switch only the console; it switches the whole tab now, so
+ * it stands above the console rather than inside it.
+ */
+.rhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-h);
+  padding: 0 2px;
+  flex: none;
+}
+.rhead .rhead-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.rhead .seg {
+  height: 28px;
+}
+
+/*
+ * The agent's own box, in both modes: what it works on, the last few lines of how, and the
+ * stages - five for a run, three for a question. Idle it keeps its shape; the list under it
+ * is a list the whole time.
+ */
+.activity {
+  flex: none;
+}
+.activity .sub-head {
+  gap: 8px;
+}
+.act-topic {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actlog {
+  margin: 0;
+  padding: 10px 14px 8px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.actlog li {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* Holds a line open that the log has not filled, so the box is one height in both modes and
+   in both states; see the note above `ActivityBox`. */
+.actlog li.spare {
+  visibility: hidden;
+}
+.actlog li .t {
+  flex: none;
+  width: 54px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.actlog li span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actlog li.head {
+  color: var(--text);
+}
+/* Five segments, each labelled under its own length. Done is quiet, now is the run's colour,
+   todo is the border. */
+.stages {
+  display: flex;
+  gap: 3px;
+  padding: 2px 14px 12px;
+}
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.stage-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+/* Done keeps the run's colour (2026-09-08): a strip that turned each finished phase grey
+   read as three quiet segments and one lit one, not as progress. Blue up to the current
+   phase is the progress; the current one is told apart by its breath, the same slow one as
+   the dot, and by its label's weight. */
+.stage.done .stage-bar {
+  background: var(--busy);
+}
+.stage.now .stage-bar {
+  background: var(--busy);
+  animation: breathe 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage.now .stage-bar {
+    animation: none;
+  }
+}
+.stage-lbl {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stage.done .stage-lbl {
+  color: var(--busy);
+}
+.stage.now .stage-lbl {
+  color: var(--busy);
+  font-weight: 600;
+}
+
+/* The dot of a run in flight: the same slow breath in the activity box and in the run's row.
+   Slow on purpose - a fast blink reads as an alarm, and a run in progress is not one. */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.dot.live,
+.rtable .hrow-dot.running {
+  background: var(--busy);
+  animation: breathe 2.6s ease-in-out infinite;
+}
+.dot.live {
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  flex: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.live,
+  .rtable .hrow-dot.running {
+    animation: none;
+  }
+}
+
+/* The Took column: live for the run in flight, a duration for the rest. */
+.rtable th.c-took {
+  width: 76px;
+}
+.rtable td.tookc {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rtable td.pending {
+  color: var(--text-faint);
+}
+
+/*
+ * The Research tab's own colour rule (2026-09-08): the chrome is ink and paper, and colour
+ * means STATE. The tab used to wear the research violet on its toggle, its console, its
+ * button and its lens, and blue on the rest - emphasis spent on things that are not events.
+ * Scoped to this tab; the Library and the others keep their tokens.
+ */
+.workspace.research .seg button[aria-checked='true'] {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg-elev));
+  box-shadow: none;
+  color: var(--text);
+}
+.workspace.research .console {
+  background: var(--bg-elev);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+.workspace.research .console::before {
+  display: none;
+}
+.workspace.research .console:focus-within {
+  border-color: var(--border-strong);
+}
+/* Blue with white letters, like "Add link" on Home: the one thing to press, in the colour
+   every other screen uses for that. The size is the console's, unchanged. */
+.workspace.research .btn-run {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+/* The ledger's search, in the head where the count stood; the count is its placeholder. */
+/* The ledger's search, folded behind its magnifier like the graph's and the Catalog's
+   (2026-09-17): the same slot at the head's right edge, the same width and height. */
+.sub-head .graph-search-slot { align-self: center; }
+.sub-head .graph-search-inbar input { font-size: 12px; }
+/* Two spans in one cell: the pencil on hover, the trash always; they sit side by side. */
+.lt-acts-cell { white-space: nowrap; }
+.lt-acts-cell .rowacts { vertical-align: middle; }
+.workspace.research .pl-val.pl-hi {
+  color: var(--text);
+}
+.workspace.research .lensopt[aria-checked='true'] {
+  background: color-mix(in srgb, var(--text) 8%, var(--bg-elev));
+  border-color: var(--border-strong);
+}
+.workspace.research .lensopt[aria-checked='true'] .radio {
+  border-color: var(--text-dim);
+  background: radial-gradient(circle, var(--text) 0 42%, transparent 45%);
+}
+.workspace.research .detail-bar > svg,
+.workspace.research .lens-tag {
+  color: var(--text-dim);
+}
+.workspace.research .lens-tag {
+  border-color: var(--border);
+  background: none;
+}
+.workspace.research .pagelink-main:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+/* A settled run needs no dot: done is the default state of a row in a history. Failed keeps
+   its red, because that is a state worth a colour; the lane stays so the topics line up. */
+.workspace.research .rtable .hrow-dot:not(.running):not(.failed) {
+  visibility: hidden;
+}
+/* One line: the topic is repeated in full in the article's own heading a few lines down. */
+.workspace.research .detail-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+
+/* The headline in a white box, like every other tab's; one neutral chip on the right. */
+.rhead-box {
+  flex: none;
+  padding: 5px 10px;
+}
+.rhead-cap {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* The plan in the rail: the Library's card without the Library's frame. A box inside the
+   rail's own section is a box inside a box. */
+.gp-sec .lib-plan {
+  border: 0;
+  background: none;
+  padding: 0;
+  min-width: 0;
+}
+
+/* A pill without its kind tag: the band's column label says the kind once. Long names cut. */
+.pagelink.plain {
+  max-width: 100%;
+  padding-left: 10px;
+}
+.pagelink.plain .pagelink-main {
+  min-width: 0;
+}
+.pagelink.plain .pagelink-label {
+  display: inline-block;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* The activity box idle: same shape, nothing lit. */
+.dot.idle {
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+  opacity: 0.6;
+}
+.actlog {
+  min-height: 84px;
+}
+.actlog li.faint {
+  color: var(--text-faint);
+}
+
+/* Gaps, as rows in the list's place. */
+.gaps.grow {
+  flex: 1;
+  min-height: 0;
+}
+/* A column, stated: the box body it sits in lays its children out in a row, which put the
+   three gaps side by side and shrank each title to nothing. */
+.gaplist {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  overflow-y: auto;
+}
+.gaprow {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.gaprow:last-child {
+  border-bottom: 0;
+}
+.gaprow:hover {
+  background: var(--bg-elev-2);
+}
+.gaprow .nm {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gaprow .links {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.gaprow .go {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.gaprow:hover .go {
+  color: var(--text);
+}
+
+/* The article's own link in the detail foot: one line, cut rather than wrapped. */
+.detail-foot .pagelink.plain {
+  max-width: 60%;
+}
+.detail-foot .pagelink.plain .pagelink-label {
+  max-width: 100%;
+}
+
+/*
+ * One typographic scale for the Research tab (2026-09-08), the Library's. The tab had grown
+ * three idioms for a label - sans 10.5/600 like a table head, mono 9.5 like the console's
+ * keys, 11/700 for a box title - and four sizes of mono for its data. Labels are one thing
+ * now and mono is for data only, at one size.
+ */
+.workspace.research .wkey,
+.workspace.research .pl-key {
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.workspace.research .wkey {
+  width: 92px;
+  padding-top: 5px;
+}
+.workspace.research .lib-plan,
+.workspace.research .actlog li,
+.workspace.research .rtable td.wrotec,
+.workspace.research .rtable td.tookc,
+.workspace.research .pl-val.pl-page {
+  font-size: 11.5px;
+}
+.workspace.research .stage-lbl {
+  font-size: 11.5px;
+}
+/* The topic uses the width its column has. A 420px cap on the name belongs to Home's narrow
+   activity rows and cut this list's topics at half a column. */
+.workspace.research .rtable .hrow-name .nm {
+  max-width: none;
+  font-weight: 600;
+}
+/* A count and its unit are one word. */
+.wgrp {
+  white-space: nowrap;
+}
+.workspace.research .rtable td.wrotec {
+  line-height: 1.45;
+}
+/* Idle, the log's placeholder is a sentence, not an entry: no time column in front of it. */
+.actlog li.faint .t {
+  display: none;
+}
+
+/*
+ * One control family. Inside a box every action is `.btn.sm`: 24px, the small radius, the
+ * same border. The back control in a detail bar was a 26px pill beside a 24px square button
+ * in the same row; it takes the button's shape now. The headline keeps the Library's: a
+ * 28px pill toggle and a pill chip, nothing square.
+ */
+.workspace.research .backlink {
+  height: 24px;
+  padding: 0 9px 0 7px;
+  border-radius: var(--radius-sm);
+  border-color: var(--border-strong);
+  background: var(--bg-elev-2);
+  color: var(--text);
+  font-size: 12px;
+}
+.workspace.research .backlink:hover {
+  border-color: var(--text-faint);
+}
+.workspace.research .btn-run {
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+}
+/* The pill is 28px (`.rhead .seg`): 1px border and 2px padding a side leave 22px for the
+   buttons. They used to be 26px, which the pill clipped at the bottom, so the selected one
+   read as sitting higher than it was. */
+.rhead .seg { padding: 2px; }
+.rhead .seg button {
+  height: 22px;
+}
+.rhead .rhead-cap {
+  height: 26px;
+}
+/* The box titles: the one label that was heavier than the rest, at a weight the face does not
+   carry. Same weight and tracking as every other label. */
+.workspace.research .sub-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/*
+ * The opened run is one scrolling box (2026-09-08). The bar sticks to the top of it; the
+ * heading, the pages it wrote, the article and the foot scroll as one.
+ */
+.detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+}
+.detail-scroll > .detail-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.detail-scroll > .detail-content {
+  flex: none;
+  min-height: 0;
+  overflow: visible;
+}
+/* The foot is a sibling of the scroller, not the last thing in it: it stays on the box's
+   bottom edge while the article moves under it. */
+.box.detail > .detail-foot {
+  flex: none;
+}
+/* The title, once: large as the article's own heading was, the lens mark before it, and room
+   for two lines so a long question is never cut. */
+.art-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 18px 6px;
+}
+.art-lens {
+  flex: none;
+  display: inline-flex;
+  margin-top: 4px;
+  color: var(--text-dim);
+}
+.art-lens svg {
+  width: 18px;
+  height: 18px;
+}
+.art-title {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/*
+ * The composer's two lines of facts (2026-09-08): a line of room, and the list's own type
+ * rule. They were squeezed into 58px at three sizes - 12, 11.5, and 11.5 mono in a box - and
+ * read as three different things. Now the keys are the eyebrows every section head wears,
+ * names and sentences are the sans at 12.5, and figures and the filename are the mono at 12
+ * - which is how the run list below sets a topic against its pages, time and cost. The
+ * filename loses its box: a fill was the one thing on the line that looked like a control.
+ */
+.workspace.research .planline {
+  height: auto;
+  gap: 9px;
+  padding: 11px 13px 14px 16px;
+}
+.workspace.research .pl-row {
+  flex: none;
+  line-height: 18px;
+}
+.workspace.research .pl-fact,
+.workspace.research .pl-val,
+.workspace.research .pl-blurb {
+  font-size: 12.5px;
+}
+.workspace.research .pl-val.pl-page,
+.workspace.research .pl-val.pl-fig {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.workspace.research .pl-val.pl-page {
+  background: none;
+  border-color: transparent;
+  padding: 2px 0;
+}
+.workspace.research .pl-val.pl-fig b {
+  font-weight: 500;
+}
+.workspace.research .console-main {
+  padding-top: 13px;
+}
+
+/*
+ * Walking the list with the arrows marks a row the way the Library marks a department in its
+ * list: the soft fill, the accent on the name. The browser's focus ring drew a hard line
+ * across the row instead, which read as a border between two rows rather than as a mark on
+ * one.
+ */
+.workspace.research .rtable tbody tr:focus-visible {
+  outline: none;
+}
+.workspace.research .rtable tbody tr:focus-visible td {
+  background: var(--accent-soft);
+}
+.workspace.research .rtable tbody tr:focus-visible .nm {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The headline carries the room navigation now, in both modes. */
+/*
+ * The headline of section 10.7: three zones that never trade places, and one height for
+ * every control in them - the room strip used to stand taller than the toggles beside it.
+ */
+.lib-headline { gap: 10px; align-items: center; }
+.lib-head-left, .lib-head-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.lib-head-mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+/*
+ * The room strip stays in the middle and stays put (2026-09-14). Three columns rather than a
+ * centred row: the strip is the middle one, so it is centred on the headline's middle zone
+ * whatever else stands in the zone. The clock used to live in the column to its left and grow
+ * into it; a flex row would have pushed the strip aside every time the clock had more to say,
+ * and the one control you aim at by memory must not move because something beside it got
+ * longer. The clock moved to the drawing's corner on 2026-09-17, and the strip is pinned to
+ * the middle column by name, so that as the first child it does not fall into the first.
+ */
+.lib-headline:has(> .lib-head-mid > .lib-strip) .lib-head-mid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  justify-content: unset;
+}
+.lib-headline:has(> .lib-head-mid > .lib-strip) .lib-head-mid > .lib-strip { grid-column: 2; }
+/* The clock and the floor, as a caption in the drawing's bottom-right corner: no frame, no
+   fill, the page's dim ink by day and a pale one on the night room's dark ground. It takes no
+   pointer, so the room under it stays clickable to the edge. */
+.lib-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.lib-when.dark { color: #b9c2d4; }
+/*
+ * While the command centre is open the middle sits in the row's true centre rather than in
+ * what is left over: the right-hand slot swaps "Night shift" for a decisions count, and a
+ * middle centred on the remainder would slide sideways every time it did.
+ */
+/* The reading list's ring is the same thing in the same slot and wants the same centring:
+   its right-hand slot carries a line whose length nobody controls. Written as one rule with
+   both classes so the two cannot drift apart. */
+.lib-headline.cc .lib-head-left, .lib-headline.cc .lib-head-right,
+.lib-headline.rl .lib-head-left, .lib-headline.rl .lib-head-right { flex: 1 1 0; min-width: 0; }
+.lib-headline.cc .lib-head-right, .lib-headline.rl .lib-head-right { justify-content: flex-end; }
+.lib-headline.cc .lib-head-mid, .lib-headline.rl .lib-head-mid { flex: none; }
+.lib-headline .seg,
+.lib-headline .btn,
+.lib-headline .lib-strip { height: 28px; }
+.lib-headline .btn { border-radius: 999px; }
+/*
+ * What the Fellows are waiting on you for. Quiet at zero, and carrying the accent the moment
+ * something is open, because that is the one thing in the room only you can settle.
+ */
+.lib-decisions .n {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  color: var(--text-faint);
+}
+.lib-decisions.due { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.lib-decisions.due .n { background: var(--warn-bg); color: var(--warn); }
+/* Pressed: the decisions are open and this button is the way back out of them. A toggle has
+   to look held down, or its second click reads as a click that did nothing. */
+.lib-decisions.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.lib-decisions.on .n { background: var(--bg-elev); color: var(--accent); }
+
+/* The room strip is a segmented control like the others, so it is built like one. */
+.lib-headline .lib-strip { padding: 2px; box-shadow: none; }
+.lib-headline .lib-strip .rp,
+.lib-headline .lib-strip .arr { height: 22px; }
+.shelf-list .nm.linkish { text-align: left; }
+/* The banner's rename, floating over the room (focus mode has no column for it). */
+.lib-rename {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+.lib-rename .input { min-width: 220px; }
+
+/* The new-department form. */
+.lib-window-body.newdep { max-width: 720px; }
+.newdep .hint { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+.newdep-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.newdep-suggest .chip { cursor: pointer; }
+.newdep-suggest .chip .n { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.newdep-field { display: grid; gap: 4px; margin-bottom: 12px; }
+.newdep-field > span:first-child {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.newdep-field textarea.input { height: auto; min-height: 64px; padding: 8px 11px; resize: vertical; }
+.newdep-opts { display: grid; gap: 8px; margin: 14px 0 18px; }
+.newdep-opts label { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--text-dim); }
+.newdep-opts b { color: var(--text); font-weight: 600; }
+.newdep-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* The department rows are buttons now: no move dropdown, a click goes to their room. */
+.lib-drow { width: 100%; border: 0; background: none; text-align: left; cursor: grab; }
+.lib-drow:hover { background: var(--bg-elev-2); }
+
+
+
+
+/* ---- Deepen dialog (docs/agents/ideas.md, decision 2026-09-07) ----
+   One dialog behind two entry points: the Fellow card and the Catalog's domain filter. It
+   sits over the screen it was opened from, because the pages it proposes are only meaningful
+   next to the list you were just looking at. */
+.dp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.dp {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: min(86vh, 760px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.dp-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dp-head .gx-title {
+  font-size: 16px;
+  text-wrap: balance;
+}
+.dp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dp-list > li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.dp-list > li + li {
+  border-top: 1px solid var(--border);
+}
+.dp-t {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.dp-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--text-faint);
+}
+.dp-x:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+.dp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.dp-field input,
+.dp-field select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.dp-hits {
+  list-style: none;
+  margin: -6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dp-hits button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  padding: 5px 9px;
+  border-radius: 7px;
+}
+.dp-hits button:hover {
+  background: var(--bg-elev-2);
+}
+.dp-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.dp-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ── Fellow command centre (docs/tasks/TASKS-A7.md) ───────────────────────────
+   A shelf window's frame with its own body: the night, a dossier, the decisions
+   overlay and the spawn form. Everything here is scoped under `.cc` so it cannot
+   reach the room behind it. */
+/* The window's own second line, under the library headline: what is here, and the one or two
+   things you can do to it. Same height as a department's filter band. */
+.lib-manage { display: inline-flex; align-items: center; gap: 7px; }
+.lib-manage .n {
+  font-family: ui-monospace, monospace; font-size: 11px; background: var(--gold); color: #fff;
+  border-radius: 999px; min-width: 17px; height: 17px; display: grid; place-items: center; padding: 0 4px;
+}
+.cc-line2 {
+  display: flex; align-items: center; gap: 10px; flex: none; padding: 9px 18px;
+  border-bottom: 1px solid var(--border); background: var(--bg-elev-2); min-height: 44px; box-sizing: border-box;
+}
+.cc-lead { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+/* Four facts that change every night, each in a slot of its own so the line never re-centres
+   itself as they do. The sides are equal, which is what keeps the strip in the middle. */
+.cc-side { flex: 1 1 0; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cc-side.end { justify-content: flex-end; }
+.cc-facts { display: flex; align-items: center; gap: 0; flex: none; }
+.cc-facts > b { font-size: 13.5px; font-weight: 650; padding-right: 16px; }
+.cc-facts .s {
+  font-size: 12.5px; color: var(--text-dim); padding: 0 16px; border-left: 1px solid var(--border-strong);
+  text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+/* The hours lead, then the ingest queue, then the three that were there. */
+.cc-facts .s:nth-of-type(1) { min-width: 120px; }
+.cc-facts .s:nth-of-type(2) { min-width: 130px; }
+.cc-facts .s:nth-of-type(3) { min-width: 200px; }
+.cc-facts .s:nth-of-type(4) { min-width: 200px; }
+.cc-facts .s:nth-of-type(5) { min-width: 110px; }
+.cc-lead > b { font-size: 14px; font-weight: 650; }
+.cc-step { display: inline-flex; align-items: center; gap: 4px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-faint); }
+.cc-step button {
+  width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border-strong);
+  background: var(--bg-elev); color: var(--text-dim); cursor: pointer; line-height: 1;
+}
+.cc-step button:hover { border-color: var(--accent); color: var(--accent); }
+.cc-rot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cc-name.dim { color: var(--text-dim); }
+/* Vertical rhythm: one block per question the view answers, never three things in one band. */
+.cc-block { margin-bottom: 26px; }
+.cc-block:last-child { margin-bottom: 0; }
+/* An axis, not four stray numbers: a label at every full hour and a gridline under each. */
+.cc-axis { position: relative; height: 15px; margin-bottom: 3px; }
+.cc-hour {
+  position: absolute; transform: translateX(-50%); font-family: ui-monospace, monospace;
+  font-size: 10px; color: var(--text-faint);
+}
+.cc-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--bg-elev); opacity: 0.55; }
+.cc-arrow {
+  width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  background: var(--bg-elev); color: var(--text-dim); cursor: pointer; font-size: 13px; line-height: 1;
+}
+.cc-arrow:hover { border-color: var(--accent); color: var(--accent); }
+/*
+ * The name's slot, not the name's width. Every shelf's name starts at the same x and the dots
+ * after it never travel, so walking the ring changes the letters and nothing else. 225px is
+ * the longest domain in the registry ("brain computer interface", 24 characters at this size)
+ * with room to spare; a longer one truncates rather than pushing the dots.
+ */
+.cc-name {
+  font-weight: 650; font-size: 15px; letter-spacing: -0.01em;
+  flex: none; width: 225px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (max-width: 900px) { .cc-name { width: 150px; } }
+.cc-of { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono, ui-monospace, monospace); white-space: nowrap; margin-left: 6px; font-weight: 400; }
+.cc-dots { display: flex; gap: 5px; align-items: center; margin-left: 2px; }
+.cc-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); cursor: pointer; }
+.cc-dots i.on { background: var(--accent); transform: scale(1.25); }
+.cc-dots i.due { background: var(--gold); box-shadow: 0 0 0 2px var(--gold-bg); }
+.cc-keys { font-size: 10.5px; color: var(--text-faint); font-family: ui-monospace, monospace; display: flex; gap: 4px; align-items: center; }
+.cc-dec {
+  display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px 0 10px;
+  border: 1px solid var(--border-strong); border-radius: 999px; background: var(--bg-elev);
+  font-size: 12.5px; color: var(--text-dim); cursor: pointer;
+}
+.cc-dec.due { border-color: var(--gold); background: var(--gold-bg); color: var(--text); font-weight: 600; }
+.cc-dec .n {
+  font-family: ui-monospace, monospace; font-size: 11px; background: var(--gold); color: #fff;
+  border-radius: 999px; min-width: 17px; height: 17px; display: grid; place-items: center; padding: 0 4px;
+}
+.cc-body { padding: 20px 18px 26px; }
+/*
+ * The window's own spacer. `.grow` was written into fifteen rows here and never had a rule,
+ * so every trailing control sat against the text it was meant to be pushed away from.
+ */
+.cc .grow { flex: 1 1 auto; }
+/*
+ * The overview is three stacked boxes: the hours, then two panes of equal height that scroll
+ * on their own. The hours are the number the panes are read against, so they must not scroll
+ * away from them.
+ */
+/* `overflow-y: auto` here never scrolls - the panes inside do - but with `scrollbar-gutter`
+   it reserves the same strip the scrolling shelf page reserves, so the bar keeps its width
+   as well as its position when you walk from one to the other. */
+.cc-shelves { padding: 20px 18px 18px; gap: 0; overflow-y: auto; scrollbar-gutter: stable; }
+/*
+ * The time bar, on the overview and on a shelf. Both pages open with one, so both use this:
+ * same padding, same heading, same axis, and the bar therefore lands on the same pixel row.
+ * Walking from the overview into a shelf should move the picture, not the furniture.
+ */
+.cc-bars { flex: none; padding: 6px 0 22px; }
+.cc-bars .cc-sec { margin: 0 0 8px; }
+/* On the overview the bar is a setting and the panes below are the work; the gap says so.
+   Bottom padding only, so the bar itself stays on the row the shelf pages put it on. */
+.cc-shelves .cc-bars { padding-bottom: 60px; }
+.cc-pane {
+  flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
+  border-top: 1px solid var(--border); padding: 0 10px 0 0;
+}
+/*
+ * The pane's heading holds the top while its rows scroll under it. It needs to be opaque over
+ * its whole height, margins included: as a margin those 8px were transparent, so a row slid
+ * up into the gap and showed through, and the heading appeared to jump as it collapsed.
+ */
+/* Flush at the top of the scrollport: any padding on the pane above it is a strip the rows
+   scroll through, which is exactly what a sticky heading is there to prevent. */
+.cc-pane .cc-sec { position: sticky; top: 0; z-index: 2; margin: 0; padding: 10px 0 8px; background: var(--bg-elev); }
+/* The wing a shelf stands in, as a heading inside the list rather than a column beside it. */
+.cc-wing + .cc-wing { margin-top: 10px; }
+.cc-wing-h {
+  margin: 0 0 5px; font-family: ui-monospace, monospace; font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint);
+}
+.cc-wing { display: flex; flex-direction: column; gap: 6px; }
+/* The dossier does not scroll as a whole: its head stays put and the reading area scrolls. */
+.cc-fixed { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.cc-night { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.cc-night h2 { margin: 0; font-size: 15px; font-weight: 650; }
+/*
+ * What the last action answered, under the row the click was in: a gate's refusal, or the note
+ * that explains what passing the spent quota does and does not override. Only drawn when there
+ * is something to say, so the action row never carries a permanent empty slot, and shallower
+ * than `.cc-line2` because it holds one sentence rather than a row of controls.
+ */
+.cc-said {
+  display: flex; align-items: center; gap: 8px; flex: none; padding: 7px 18px;
+  border-bottom: 1px solid var(--border); background: var(--warn-bg); box-sizing: border-box;
+}
+.cc-sub { font-size: 12px; color: var(--text-dim); }
+.cc-sub b { color: var(--text); }
+
+
+.cc-ticks { display: flex; font-family: ui-monospace, monospace; font-size: 10px; color: var(--text-faint); margin-bottom: 3px; }
+.cc-ticks span { flex: 1; border-left: 1px solid var(--border); padding-left: 4px; }
+.cc-track { height: 28px; border-radius: 6px; background: var(--muted-bg); position: relative; overflow: hidden; }
+/* The hours the shift may work in: the setter draws them as a handle, the queue as a ground. */
+.cc-track.set { background: var(--bg-elev-2); border: 1px solid var(--border); }
+.cc-window {
+  position: absolute; top: -1px; bottom: -1px; border-radius: 6px;
+  background: var(--accent-soft); border: 1px solid var(--accent); cursor: grab;
+}
+.cc-window .h {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 10px; height: 26px; border-radius: 4px;
+  background: var(--accent); cursor: ew-resize; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.cc-window .h.l { left: -5px; }
+.cc-window .h.r { right: -5px; }
+/* The handles stay above phase 0's blocks, which start exactly where the window does. */
+.cc-window .h { z-index: 2; }
+/* Phase 0 in the setter: the held ingests as grey blocks at the window's start, above the
+   window's tint and below its handles. A click marks the row below. */
+.cc-ingest {
+  position: absolute; top: 3px; bottom: 3px; z-index: 1; border-radius: 3px;
+  background: var(--text-faint); opacity: 0.55; cursor: pointer; border-right: 2px solid var(--bg-elev-2);
+}
+.cc-ingest.here, .cc-ingest:hover { opacity: 0.9; }
+/* The Fellows' work in the setter, one block per shelf in the shelf's colour. */
+.cc-work {
+  position: absolute; top: 3px; bottom: 3px; z-index: 1; border-radius: 3px;
+  background: var(--dc); opacity: 0.75; border-right: 2px solid var(--bg-elev-2);
+}
+/*
+ * A floor on the width, not a floor in the arithmetic (2026-09-14): the setter spans twelve
+ * hours, where a nine-minute run is eight pixels and a five-minute ingest four. Blocks stay at
+ * their true position and true proportion, and only stop shrinking below something a reader
+ * can see and a pointer can hit. Widening them in the numbers instead would push every
+ * following block off the hour it actually starts on.
+ */
+.cc-ingest, .cc-work { min-width: 11px; }
+.cc-band, .cc-band.ingest { min-width: 5px; }
+.cc-active { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); opacity: 0.55; }
+/* A domain occupies one band of the night in its own colour; hairlines are its topics. */
+.cc-band { position: absolute; top: 0; bottom: 0; background: var(--dc); opacity: 0.42; border-right: 2px solid var(--bg-elev); overflow: hidden; cursor: grab; }
+.cc-band.here { opacity: 1; }
+/* The same blocks in a shelf's queue: grey whichever shelf you are on, ahead of every band. */
+.cc-band.ingest { --dc: var(--text-faint); opacity: 0.55; cursor: pointer; }
+.cc-band.ingest.here, .cc-band.ingest:hover { opacity: 0.9; }
+.cc-band:active { cursor: grabbing; }
+.cc-parts { position: absolute; inset: 0; display: flex; }
+.cc-part { display: block; height: 100%; box-sizing: border-box; }
+/* Planned tonight, carried out later: the band still holds the planning run's minutes, but
+   drawing them solid would claim the work happened. */
+/* What the night made of a task, over the band that forecast it. The mark sits on the section
+   itself so the two readings - what was planned, what came of it - stay one picture. */
+.cc-part { position: relative; display: flex; align-items: center; justify-content: center; }
+/*
+ * The section keeps its domain's colour whatever became of it: the band's job is to say WHOSE
+ * work sits where, and a status that repaints it makes one shelf's night look like several
+ * shelves. The mark carries the status instead, in a disc that reads on any domain colour.
+ */
+.cc-mark {
+  font-style: normal; font-size: 9px; line-height: 1; font-weight: 700;
+  width: 13px; height: 13px; border-radius: 50%; display: grid; place-items: center;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+.cc-mark.ok { background: var(--ok); color: #fff; }
+.cc-mark.no { background: var(--err); color: #fff; }
+.cc-part.plan {
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.5) 0 2px, transparent 2px 5px);
+  opacity: 0.75;
+}
+.cc-band-label {
+  position: absolute; inset: 0; display: flex; align-items: center; padding-left: 7px; font-size: 10.5px;
+  font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); pointer-events: none; white-space: nowrap;
+}
+/*
+ * Scheduled activities: what the night will actually do on this shelf, under the Fellows that
+ * do it. The same row frame the Fellows above use, so the two read as one page: a rank where a
+ * Fellow carries its state, the subject where it carries its intent, the estimate where it
+ * carries its minutes. Everything else is a class the command centre already had.
+ *
+ * Colour follows the Library's rule - it carries a distinction or it is not spent. Every line
+ * here is settled work on one shelf, so there is no status and no domain to tell apart, and
+ * the only accent left in a row is the one thing that is actually a link.
+ */
+/*
+ * One line of air above a section, the same above each: the queue, the Fellows and their night
+ * are three readings of one shelf, and an even step between them is what lets the eye take
+ * them as three rather than as one long block.
+ *
+ * Big enough to WIN the collapse, which is the whole reason for the number. A section's
+ * heading already carries 20px of its own and the block below it 26px of bottom margin, and
+ * adjacent margins collapse to the largest: anything under 26 here changes the gap after the
+ * queue and leaves the gap between the blocks exactly as it was, which is how the two ended up
+ * a step apart in the first place.
+ */
+.cc-block.apart { margin-top: 42px; }
+.cc-acts { display: flex; flex-direction: column; gap: 6px; }
+.cc-act {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start;
+  padding: 10px 13px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elev); cursor: pointer;
+}
+.cc-act:hover { border-color: var(--border-strong); }
+.cc-act .cc-rank { margin-top: 1px; }
+/* A slot with nothing settled in it: the number is a place in the order, not a piece of work. */
+.cc-act.open .cc-rank { background: transparent; color: var(--text-faint); box-shadow: inset 0 0 0 1px var(--border); }
+/*
+ * The subject, clamped to two lines. A planner writes a sentence and the sentence is the
+ * point, but rows of one height are what make a list of five scannable, and the whole of it is
+ * one hover - or one click into the Fellow - away.
+ */
+.cc-act-t {
+  margin: 5px 0 0; font-size: 13px; line-height: 1.45;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.cc-act.plan .cc-act-t, .cc-act.open .cc-act-t { color: var(--text-dim); -webkit-line-clamp: 1; font-size: 12.5px; }
+.cc-act .cc-prov { margin: 4px 0 0; }
+.cc-act-right { display: flex; align-items: center; gap: 9px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The bill sits in the section heading, where `.c` already showed that a number there keeps its
+   own case: an uppercase, letter-spaced "21 MIN" reads as a shout, not as a figure. */
+.cc-sec .mono-meta { text-transform: none; letter-spacing: 0; }
+.cc-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 7px; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); }
+/* The queue's order lives here rather than on the bands: a seven-minute task is a few pixels
+   wide, which is not a drag target. A chip is. */
+/* A count that is also a door. It keeps the badge's shape so it still reads as a count. */
+.cc-pill { border: 1px solid transparent; cursor: pointer; font: inherit; }
+.cc-pill:hover { border-color: currentColor; }
+.cc-order { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+.cc-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--bg-elev);
+  font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-dim);
+}
+.cc-chip.here { border-color: var(--border-strong); color: var(--text); }
+.cc-chip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.cc-chip button {
+  width: 18px; height: 18px; border-radius: 5px; border: 1px solid transparent; background: transparent;
+  color: var(--text-faint); cursor: pointer; line-height: 1; font-size: 12px; padding: 0;
+}
+.cc-chip button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cc-chip button:disabled { opacity: 0.3; cursor: default; }
+.cc-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cc-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.cc-legend-note { color: var(--text-faint); }
+
+.cc-note { font-size: 12.5px; color: var(--text-dim); margin: 10px 0 0; }
+.cc-note b { color: var(--text); font-weight: 600; }
+.cc-note.dim { color: var(--text-faint); }
+.cc-note.warn { border-left: 3px solid var(--warn); background: var(--warn-bg); padding: 9px 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+/* The same banner in the other state. It carries a number rather than a reassurance: how much
+   room is left is the thing a reader cannot get from the schedule above it. */
+.cc-note.ok { border-left: 3px solid var(--ok); background: var(--ok-bg); padding: 9px 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+/* One line, and it stays one: a banner that wraps to three pushes the panes below it down. */
+/* One line, and it stays one - with room at its end for the control that answers it. */
+.cc-note.one { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.cc-note.one > b { overflow: hidden; text-overflow: ellipsis; }
+
+/*
+ * The week release, at the end of the banner that explains it. Sized like the plan corner's
+ * own release button, because it is the same decision made in another place.
+ */
+.cc-rel {
+  flex: none; border: 1px solid var(--border); background: var(--bg-elev); cursor: pointer;
+  font: inherit; font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-dim);
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+}
+.cc-rel:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.cc-rel:disabled { opacity: 0.55; cursor: default; }
+/* The step that spends: it wears the colour of what it is about to do. */
+.cc-rel.go { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.cc-rel.on { border-color: var(--ok); color: var(--ok); }
+.cc-ask { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.cc-said { font-size: 11px; color: var(--text-dim); white-space: normal; }
+.cc-said.err { color: var(--err); }
+
+.cc-sec {
+  margin: 20px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-faint); font-weight: 600; display: flex; align-items: center; gap: 8px;
+}
+.cc-sec .c { font-family: ui-monospace, monospace; color: var(--text-dim); letter-spacing: 0; text-transform: none; }
+.cc-sec .due { color: var(--gold); letter-spacing: 0; text-transform: none; font-family: ui-monospace, monospace; }
+
+.cc-rows { display: flex; flex-direction: column; gap: 6px; }
+.cc-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 11px 13px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); cursor: pointer;
+}
+.cc-row:hover { border-color: var(--border-strong); }
+.cc-row.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.cc-row.new { border-style: dashed; }
+.cc-row.new b { color: var(--text-dim); font-weight: 600; }
+/* One line: at twenty-one domains the second line was most of the scrolling. The facts sit
+   beside the name and give way first when the row runs out of room. */
+.cc-row.one { display: flex; gap: 9px; padding: 8px 11px; }
+.cc-row.one .cc-key { font-size: 13px; white-space: nowrap; }
+.cc-row.one .cc-t { min-width: 0; flex: 0 1 auto; }
+.cc-row.one .btn.sm { flex: none; }
+/* A held ingest's row: a tab stop (Delete removes it), marked when its block was clicked. */
+.cc-row.ingest { cursor: default; }
+.cc-row.ingest:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chip-dot.ingest { background: var(--text-faint); }
+.cc-id { min-width: 0; }
+.cc-idline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.cc-t { font-size: 12px; color: var(--text-dim); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-right { display: flex; align-items: center; gap: 8px; }
+.cc-handoff { color: var(--gold); }
+.cc-bar { width: 60px; height: 5px; border-radius: 3px; background: var(--muted-bg); overflow: hidden; display: inline-block; }
+.cc-bar i { display: block; height: 100%; background: var(--accent); }
+.cc-link {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px;
+  border: 1px solid var(--gold); background: var(--gold-bg); color: var(--gold);
+  font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.cc-link.quiet { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.cc-link:disabled { opacity: 0.5; cursor: default; }
+
+/* The one number the sweep is capped by, next to the toggle it caps. */
+.cc-quota { display: flex; align-items: center; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+.cc-quota .k {
+  font-family: ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-faint);
+}
+.cc-quota .cc-step b { min-width: 18px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text); }
+
+/* One colour per art. A task always has one; a Fellow has one too since A7 stage B, unless
+   it is custom, which is the absence of the promise rather than a fourth art. */
+.cc-art {
+  font-family: ui-monospace, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; font-weight: 600; white-space: nowrap;
+}
+.a-watch { color: #2f7fbf; }
+.a-explore { color: var(--research); }
+.a-deepen { color: #2f8f6a; }
+.a-custom { color: var(--text-faint); }
+/* The planning run is a step of the night like any other, and the one that is never a result. */
+.a-plan { color: var(--text-faint); border-style: dashed; }
+/* Planned tonight, run on a later night: the chip is there and the work behind it is not. */
+.cc-art.held { opacity: 0.45; border-style: dashed; }
+
+/*
+ * The night as a chain: where the Fellow stands, then each step the shift takes for it. The
+ * arrows are decoration over a real sequence - plan, then the task that plan is for - so they
+ * are hidden from the reader that hears the row rather than sees it.
+ */
+.cc-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.cc-flow-step { display: inline-flex; align-items: center; gap: 6px; }
+.cc-arrow-in { font-style: normal; color: var(--text-faint); font-size: 11px; line-height: 1; }
+.cc-step-none { font-size: 12px; color: var(--text-faint); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .a-watch { color: #6fb6e8; }
+  :root:not([data-theme='light']) .a-deepen { color: #5fc79a; }
+}
+[data-theme='dark'] .a-watch { color: #6fb6e8; }
+[data-theme='dark'] .a-deepen { color: #5fc79a; }
+
+.cc-dos-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px 8px; flex: none; }
+.cc-dos-head h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 7px; }
+.cc-back { border: none; background: none; color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
+.cc-back:hover { color: var(--accent); }
+.cc-upnext {
+  display: flex; align-items: center; gap: 9px; flex: none; font-size: 12.5px; color: var(--text-dim);
+  padding: 10px 18px; border-bottom: 1px solid var(--border);
+}
+.cc-upnext-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * Two figures in one meta line get the dot between them that a single string used to carry.
+ * Drawn by the line, so neither span has to know it has a neighbour: they are separate facts
+ * about separate nights and each needs its own tooltip.
+ */
+.cc-upnext .mono-meta + .mono-meta::before,
+.cc-quota .mono-meta + .mono-meta::before { content: '\00b7'; margin-right: 7px; color: var(--text-faint); }
+.cc-upnext .k { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+.cc-bar-row { display: flex; align-items: center; gap: 10px; padding: 12px 18px 10px; flex: none; flex-wrap: wrap; }
+/* Prose gets a measure; a 66ch column is the difference between a page and a wall of text. */
+.cc-prose { max-width: 72ch; }
+.cc-prose p { margin: 0 0 9px; }
+.cc-prose p:last-child { margin-bottom: 0; }
+.cc-prose ul, .cc-prose ol { margin: 0 0 9px; padding-left: 18px; font-size: 13px; color: var(--text-dim); }
+.cc-prose li { margin: 3px 0; }
+.cc-prose code { font-family: ui-monospace, monospace; font-size: 11.5px; background: var(--muted-bg); padding: 1px 4px; border-radius: 4px; }
+.cc-prose h3, .cc-prose h4 { margin: 10px 0 5px; font-size: 13px; }
+.cc-prose em { font-style: normal; color: var(--accent); }
+
+/*
+ * A document read rather than a file dumped. The notebook and the recap answer the same
+ * questions in the same order, so they get the same shape: one titled block per section, the
+ * markdown of a section rendered as it stands. Read-only - nothing here writes the page back.
+ */
+.cc-doc { display: flex; flex-direction: column; gap: 4px; max-width: 78ch; }
+.cc-doc-sec { border-top: 1px solid var(--border); padding: 12px 0 4px; }
+.cc-doc-sec:first-child { border-top: 0; padding-top: 0; }
+.cc-doc-sec > h5 { margin: 0 0 7px; }
+.cc-doc-sec .empty { margin: 0; }
+
+/* One run of the night: what kind it was, what it was about, what it left behind. */
+.cc-list.runs { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.cc-list.runs li { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.cc-list.runs .t { flex: 1 1 auto; color: var(--text); }
+.cc-list.runs .mono-meta { flex: none; white-space: nowrap; }
+
+.cc-toggle {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--text-dim); cursor: pointer;
+}
+.cc-toggle input { cursor: pointer; }
+.cc-pages li { cursor: pointer; }
+.cc-ledger tr.open { cursor: pointer; }
+.cc-ledger tr.open:hover td { background: var(--accent-soft); }
+/* The reading area takes the window's whole remaining height and scrolls on its own - the
+   same rule the catalog reader follows. */
+/*
+ * A frame, not a scroller: the body inside it scrolls and the footer keeps the box's bottom
+ * corner. A switch that changes what the rows above it ARE belongs where it can be reached
+ * without first scrolling to the end of them.
+ */
+.cc-area {
+  flex: 1; min-height: 0; margin: 0 18px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-elev-2); overflow: hidden; display: flex; flex-direction: column;
+}
+.cc-scroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; }
+.cc-foot {
+  flex: none; display: flex; justify-content: flex-end; align-items: center;
+  padding: 8px 16px; border-top: 1px solid var(--border); background: var(--bg-elev);
+}
+.cc-area h4 { margin: 0 0 8px; font-size: 13.5px; }
+.cc-area h5 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); font-weight: 600; }
+.cc-area p { margin: 0 0 10px; font-size: 13px; color: var(--text-dim); max-width: 66ch; }
+.cc-area p b { color: var(--text); }
+.cc-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--text-dim); }
+.cc-list li { margin-bottom: 4px; }
+.cc-pages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.cc-pages li { padding: 6px 8px; border-radius: 6px; font-size: 12.5px; }
+.cc-pages li:hover { background: var(--accent-soft); }
+.cc-pages .p { color: var(--accent); }
+.cc-ledger { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cc-ledger th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); font-weight: 600; padding: 0 10px 6px 0; }
+.cc-ledger td { padding: 7px 10px 7px 0; border-top: 1px solid var(--border); color: var(--text-dim); vertical-align: top; }
+.cc-ledger td.t { color: var(--text); }
+.cc-ledger td.n { font-family: ui-monospace, monospace; font-size: 11.5px; white-space: nowrap; }
+
+.cc-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.cc-settings section.wide { grid-column: 1 / -1; }
+.cc-settings h5 { margin: 0 0 7px; }
+.cc-settings h5 .lead { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-faint); }
+.cc-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 12px; background: var(--bg-elev); }
+.cc-tasks { list-style: none; margin: 0 0 9px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.cc-tasks li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: 12.5px; padding: 5px 8px; border-radius: 6px; }
+.cc-tasks li.on { background: var(--accent-soft); }
+.cc-tasks li.rest { opacity: 0.6; }
+.cc-tasks .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cc-dec-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 194px 1fr; }
+.cc-rail { border-right: 1px solid var(--border); background: var(--bg-side); overflow: auto; padding: 10px 8px; }
+.cc-rail h6 { margin: 2px 6px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); font-weight: 600; }
+.cc-rail-i { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 7px 8px; border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 2px; }
+.cc-rail-i:hover { background: var(--bg-elev-2); }
+.cc-rail-i.on { background: var(--accent-soft); }
+.cc-rail-i .nm { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-rail-i .nm i { display: block; font-style: normal; font-size: 10.5px; font-weight: 400; color: var(--text-faint); font-family: ui-monospace, monospace; }
+.cc-rail-i .cnt { font-family: ui-monospace, monospace; font-size: 10.5px; background: var(--gold); color: #fff; border-radius: 999px; min-width: 16px; height: 16px; display: grid; place-items: center; padding: 0 4px; }
+.cc-dec-main { overflow: auto; padding: 14px 18px 20px; min-width: 0; }
+.cc-fits { font-size: 12px; color: var(--text-dim); margin: 8px 0 14px; padding: 7px 10px; border-radius: var(--radius-sm); background: var(--bg-elev-2); border: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cc-fits b { color: var(--text); font-weight: 650; }
+.cc-group { margin-bottom: 18px; }
+.cc-group h4 { display: flex; align-items: center; gap: 9px; margin: 0 0 8px; font-size: 12px; font-weight: 600; }
+.cc-group h4 .c { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-dim); font-weight: 400; }
+
+.cc-opt { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); overflow: hidden; margin-bottom: 10px; cursor: pointer; }
+.cc-opt.cur { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.cc-opt.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok-bg) 55%, transparent); }
+.cc-opt.gone { opacity: 0.5; }
+.cc-opt-head { display: grid; grid-template-columns: auto 1fr auto; gap: 11px; align-items: start; padding: 11px 13px 9px; }
+.cc-rank { width: 22px; height: 22px; border-radius: 6px; background: var(--muted-bg); color: var(--muted); display: grid; place-items: center; font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700; }
+.cc-opt.cur .cc-rank { background: var(--accent); color: var(--accent-ink); }
+.cc-opt-t { font-size: 14px; line-height: 1.42; font-weight: 550; }
+.cc-opt-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.cc-scope { display: inline-flex; align-items: center; gap: 6px; }
+.cc-scope .cc-bar { width: 44px; }
+.cc-why { margin: 0 13px 10px; padding: 10px 12px; border-left: 3px solid var(--research); background: color-mix(in srgb, var(--research) 7%, transparent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.cc-why p { margin: 0; font-size: 12.8px; color: var(--text-dim); max-width: 74ch; }
+.cc-prov { margin: 0 13px 10px; font-size: 12px; color: var(--text-dim); display: flex; gap: 7px; align-items: baseline; flex-wrap: wrap; }
+.cc-prov .lbl { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+.cc-prov a { color: var(--accent); cursor: pointer; }
+.cc-opt-foot { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; padding: 9px 13px 11px; border-top: 1px solid var(--border); background: var(--bg-elev-2); }
+
+.cc-shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+@media (max-width: 1100px) { .cc-shapes { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .cc-shapes { grid-template-columns: 1fr; } }
+/* A button, so it needs telling: left-aligned like the prose it holds, and a column so the
+   specs of all four cards sit on one line however long the description above them ran. */
+.cc-shape {
+  position: relative; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 13px 13px 15px; background: var(--bg-elev); cursor: pointer;
+  display: flex; flex-direction: column; align-items: stretch; text-align: left; font: inherit; color: inherit;
+}
+.cc-shape:hover { border-color: var(--accent); }
+.cc-shape.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.cc-shape b { display: flex; align-items: center; gap: 6px; font-size: 13.5px; margin-bottom: 4px; }
+.cc-shape .want { font-size: 12.5px; color: var(--text); margin: 0 0 6px; font-style: italic; }
+.cc-shape .what { font-size: 12px; color: var(--text-dim); margin: 0 0 12px; line-height: 1.45; }
+.cc-shape .specs { display: flex; flex-direction: column; gap: 3px; margin-top: auto; }
+.cc-shape .specs span { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint); }
+/* What the shape holds is the line that decides, so it is set in the reading face, not mono. */
+.cc-shape .specs .holds { font-family: inherit; font-size: 11.5px; color: var(--text-dim); margin-bottom: 3px; }
+.cc-gear { position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text-dim); display: grid; place-items: center; cursor: pointer; font-size: 13px; }
+.cc-shape.sel .cc-gear { border-color: var(--accent); color: var(--accent); }
+.cc-gear.open { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.cc-custom { margin-top: 10px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent-soft) 45%, transparent); padding: 12px 13px; }
+.cc-custom h4 { margin: 0 0 2px; font-size: 12.5px; }
+.cc-custom .lead { font-size: 11.5px; color: var(--text-dim); margin: 0 0 10px; }
+.cc-grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 18px; }
+@media (max-width: 760px) { .cc-grid2 { grid-template-columns: 1fr; } }
+.cc-grid2 .f label { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); margin-bottom: 4px; font-weight: 600; }
+.cc-grid2 .f .why { font-size: 11px; color: var(--text-faint); margin: 4px 0 0; }
+.cc-grid2 .mono-meta.big { font-size: 16px; font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
+
+.cc-field { margin: 16px 0 0; }
+.cc-field.short { max-width: 220px; }
+.cc-field > label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); margin-bottom: 6px; font-weight: 600; }
+.cc-field > label .lead { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.cc-taskrow { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: start; margin-bottom: 7px; }
+.cc-taskrow textarea {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--bg-elev); color: var(--text); font: inherit; font-size: 13px; padding: 7px 10px; min-height: 46px; resize: vertical;
+}
+.seg.vert { flex-direction: column; border-radius: var(--radius-sm); }
+.seg.vert button + button { border-left: none; border-top: 1px solid var(--border); }
+.cc-acts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* ---- Home redesign (2026-09-11): one headline, a column that follows the view ----
+   The Library's headline classes are reused as they are (.lib-headline, .lib-strip, .lib-open,
+   .lib-crumb); what follows is only what Home adds to them. */
+/* Same height as .box-head, so the fact strip under it sits where it sat before. */
+.home-headline { min-height: calc(var(--control-h) + 21px); }
+/* The view toggle: two halves of one width, and the picked one in ink on paper like the
+   Research tab's, not in the research violet - which here would say "web egress". */
+.home-headline .seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 224px; }
+.home-headline .seg button { justify-content: center; }
+.home-headline .seg button[aria-selected='true'] {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg-elev));
+  box-shadow: none;
+  color: var(--text);
+}
+/*
+ * The ink variant of the toggle, the one the Research tab and the Home headline wear: the
+ * selected half is a shade of the text, not the research violet. Colour on this chrome would
+ * say "state", and a view choice is not a state.
+ */
+.seg.ink button[aria-checked='true'],
+.seg.ink button[aria-selected='true'] {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg-elev));
+  box-shadow: none;
+  color: var(--text);
+}
+/* The reading list's access toggle: three equal thirds in the chip's old place. */
+.reading-head .seg.reading-reach { flex: none; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 282px; }
+.reading-head .seg.reading-reach button { justify-content: center; padding-inline: 0; min-width: 0; }
+/* The middle sits at the row's true centre whatever stands left and right of it (the command
+   centre's rule), and what stands in it has two slots of fixed width - walking the days or
+   switching the view moves the letters, not the label. */
+.home-headline .lib-head-left, .home-headline .lib-head-right { flex: 1 1 0; min-width: 0; }
+.home-headline .lib-head-right { justify-content: flex-end; }
+.home-headline .lib-head-mid { flex: none; gap: 10px; }
+.home-where { gap: 4px; }
+.home-where b { flex: none; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; text-align: center; }
+/* The date's two arrows: the same step the keys make, and the sign that the date is a place
+   to move from. One chevron, a quarter turn each way. */
+.home-where .wh-step {
+  width: 20px; height: 20px; display: grid; place-items: center; padding: 0; flex: none;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elev); color: var(--text-dim);
+}
+.home-where .wh-step:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.home-where .wh-step:disabled { opacity: 0.35; cursor: default; }
+.home-where .wh-step svg { width: 12px; height: 12px; }
+.home-where .wh-step.prev svg { transform: rotate(90deg); }
+.home-where .wh-step.next svg { transform: rotate(-90deg); }
+
+/* The five figures keep one height from day to day: no value wraps into a second line. */
+.home-main .facts.lead .fact.lead .k,
+.home-main .facts.lead .fact.lead .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* The week list in the column, both views, in the type list's rows: today in bold, the day
+   at the top of the feed quietly raised, an undecided count in the warning colour. The weekday
+   has a slot of one width, so the dates start at one x. */
+.pillrow.stacked .viewpill > .pl > .dow { display: inline-block; width: 34px; }
+.pillrow.stacked .viewpill > .pl { font-variant-numeric: tabular-nums; }
+.gp-sec .wk-label + .pillrow.stacked { margin-top: 2px; }
+.pillrow.stacked .viewpill.today > .pl { font-weight: 600; }
+.pillrow.stacked .viewpill[aria-current='true']:not([aria-checked='true']) { background: var(--bg-elev-2); color: var(--text); }
+.pillrow.stacked .viewpill.idle:not([aria-checked='true']) > .pl { opacity: 0.6; }
+.pillrow.stacked .viewpill > .pn.due { color: var(--warn); font-weight: 600; }
+/* The Fellow rows in the column: the Library's own row, plus a pressed state for the filter. */
+.lib-frow[aria-pressed='true'] { background: var(--accent-soft); }
+.lib-frow[aria-pressed='true'] .who b { color: var(--accent); }
+.lib-frow.spawn { color: var(--text-faint); }
+.lib-frow.spawn .who b { font-weight: 500; }
+.lib-frow.spawn .d { background: none; border: 1px dashed var(--border-strong); }
+.lib-frow.spawn:hover { color: var(--research); }
+.lib-frow.spawn:hover .d { border-color: var(--research); }
+/* The band without heads: the number is the header, the picture is the door. */
+.vz-panel.bare { padding-top: 14px; }
+.vz-body.first { margin-top: 0; }
+.vaultzone { --vz-h: clamp(190px, 26vh, 260px); }
+.vz-body { height: var(--vz-h); }
+.vz-body.tall { height: calc(var(--vz-h) + 26px); }
+/* The graph's frame is the body itself, as tall as the domain list's box beside it, so the
+   two boxes end on one line. The canvas keeps its own height inside it (the component sizes
+   the drawing off its wrapper's rect, so the wrapper stays exactly the box it was, border
+   and all replaced by a pixel of padding) and the legend keeps its place, standing over the
+   frame's foot. The frame's line is an inset shadow, not a border, so it takes no width. */
+.vz-body.frame {
+  position: relative;
+  height: calc(var(--vz-h) + 26px);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.vz-body.frame > .constell {
+  height: var(--vz-h);
+  padding: 1px;
+  border: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+}
+.vz-panel.bare > .vz-body.frame + .vz-foot { position: relative; margin-top: -18px; justify-content: center; }
+/* The feed alone in its frame: the days stand in the headline, the Fellows in the column. */
+.rfeed-split.solo { grid-template-columns: minmax(0, 1fr); }
+.home-crumb-t { font-size: 13px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 64ch; }
+/* Only the states that hold something, as chips: a list of seven zeros said nothing. */
+.statechips { display: flex; flex-wrap: wrap; gap: 5px; }
+.statechips .viewpill .hrow-dot { width: 7px; height: 7px; }
+/* The stream's rows as a list while one is open - the ShelfPanel's department list, for records. */
+.home-recs { display: grid; gap: 1px; align-content: start; }
+.home-recs .lib-drow .when { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.home-recs .lib-drow .hrow-dot { width: 7px; height: 7px; }
+/* The graph's gap list carries the unlink picker (moved from Home, 2026-09-11): the same
+   corner control the gap cards had, shown on hover, focus, or once picked. */
+.gx-gaplist li { position: relative; }
+.gx-gaplist li .gx-gaprow { padding-right: 40px; }
+.gx-gaplist li.picked .gx-gaprow { background: var(--accent-soft); }
+.gx-gappick {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elev-2);
+  color: var(--text-faint);
+  visibility: hidden;
+  cursor: pointer;
+}
+.gx-gappick svg { width: 11px; height: 11px; }
+.gx-gaplist li:hover .gx-gappick,
+.gx-gaplist li:focus-within .gx-gappick,
+.gx-gappick.on { visibility: visible; }
+.gx-gappick:hover { color: var(--text); border-color: var(--text-faint); }
+.gx-gappick.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.gx-body > .gapbar { margin: 8px 12px 4px; }
+
+/* The recap reads at the width it has (2026-09-11; at the end of the sheet, after the caps it lifts): the text blocks and the chips take the
+   content column - a chip stays one line and ends in an ellipsis - so the same margin stands
+   left and right and less of the sheet is below the fold. A little more air between a run,
+   what it created and what it updated. */
+.prop-topic,
+.prop-why,
+.prop-from,
+.recap-ran-line,
+.recap-list li { max-width: none; }
+.rf-v .pagelink,
+.recap-pages .pagelink { max-width: 100%; min-width: 0; }
+.rf-v .pagelink-main,
+.recap-pages .pagelink-main { min-width: 0; }
+.rf-v .pagelink-label,
+.recap-pages .pagelink-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-v .filed { max-width: 100%; min-width: 0; }
+.rf-v .filed .pagelink { flex: 0 1 auto; }
+.rf-v .filed .by { flex: none; }
+.rf-v .filed .filed-link { max-width: 100%; }
+/* The lists are grids of one implicit column, and an implicit column is sized by its
+   min-content - which, for a chip that must not wrap, is the whole title. Bounding the
+   column at the container's width is what lets the chip shrink into its ellipsis; without
+   it the sheet grew a horizontal scrollbar the width of the longest page name. */
+.recap-pages .chips,
+.rf-v.list { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+/* Each chip sits in a wrapper (it counts the click for the Fellow); the wrapper is the grid
+   item, and a grid item's automatic minimum is its min-content - the whole title again. A
+   list row stays a flex row, so a name keeps its gap to what follows it. */
+.recap-pages .chips > * { display: block; min-width: 0; max-width: 100%; }
+.rf-v.list > * { display: flex; min-width: 0; max-width: 100%; }
+/* A centimetre to either edge (2026-09-11): with the text at full width the sheet touched
+   the box, and looked squeezed. The same on both sides, so the rail and the content sit in
+   one frame. */
+.rfeed-split.solo .recap-fellow { padding-left: 40px; padding-right: 40px; }
+.rfeed-split.solo .rf-grid.day { padding-left: 40px; padding-right: 40px; }
+.rfeed-split.solo .recap-line { padding-left: 40px; padding-right: 40px; }
+.rfeed-split.solo .rfeed > .empty { padding-left: 40px; padding-right: 40px; }
+/* A proposal's answers and its state stand in one column on the right, top-aligned with
+   the topic: the two buttons on one row while the question is open, the chip that says
+   what became of it otherwise, drift under either. */
+.prop-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; align-content: flex-start; gap: 6px; flex: none; max-width: 240px; min-height: 24px; }
+.prop-acts:empty { display: none; }
+.rfeed-split.solo .rfeed { overflow-x: hidden; }
+.recap-pages { margin-top: 14px; }
+.recap-pages + .recap-pages { margin-top: 14px; }

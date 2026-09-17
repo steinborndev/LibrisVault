@@ -40,6 +40,13 @@ export interface ChatDeltaPayload {
   /** Echo of the client's request id: lets a FIRST question stream before the client knows the session id. */
   readonly requestId?: string
   readonly delta: string
+  /**
+   * What retrieval did, sent once before the first delta (2026-09-08): how many pages the
+   * agent was pointed at and which tier did it. The one observable marker of the answer's
+   * first phase - without it the client can only say "searching" until text arrives. An
+   * event carrying this carries an empty delta.
+   */
+  readonly retrieval?: { readonly count: number; readonly strategy: string | null }
 }
 
 export type BusEvent =

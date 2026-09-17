@@ -20,18 +20,30 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { runAgent, EMPTY_USAGE, type AgentAuth, type AgentRunResult, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
-import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES } from './system-prompt.js'
+import {
+  ENTITY_NOTABILITY_RULES,
+  PAGE_HYGIENE_CHECKLIST,
+  TAG_HYGIENE_RULES,
+  UNTRUSTED_CONTENT_RULES,
+  renderReadingList,
+} from './system-prompt.js'
+import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
+import { localDate } from './clock.js'
 import { formatMessage } from './format-message.js'
 import { commitVault, dirtyPaths, newWikiPaths, BOOKKEEPING_PATHS, type CommitResult, type CommitOptions } from './git.js'
 import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
+import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit, EXPAND_MAX_NEW } from './expand.js'
+import { deltaBetween, parseSdkUsage, type UsageMonitor } from './usage-monitor.js'
+import { restoreCommitPaths, headHash, commitFileStatus } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
 import type { DomainCandidate } from './domain-candidates.js'
 import { indexWikiPages } from './citations.js'
 import { findRelatedPages, renderOverlapBlock } from './related-pages.js'
-import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate } from './research-profiles.js'
+import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate, type ResearchProfile } from './research-profiles.js'
+import { renderFellowBlock, renderStepCaps, type FellowRunContext } from './fellow-prompts.js'
 import { HOT_CACHE_WORD_BUDGET, type Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { buildRetrieveIndex, hasRetrieveScripts, RetrieveScriptsMissingError, type RetrieveIndexBuilder } from './retrieve-index.js'
@@ -49,6 +61,10 @@ export type MaintenanceKind =
   | 'lint'
   | 'lint-fix'
   | 'research'
+  | 'research-step'
+  | 'research-expand'
+  | 'plan'
+  | 'recap'
   | 'hot-cache'
   | 'save'
   | 'domain-backfill'
@@ -182,6 +198,13 @@ export interface MaintenanceRunnerOptions {
   readonly runAgent?: MaintenanceAgentRunner
   readonly commit?: (vaultRoot: string, message: string, opts?: CommitOptions) => Promise<CommitResult>
   readonly timeoutMs?: number
+  /** Clock for the run records' start and finish stamps; tests pin it (the quota gate reads them). */
+  readonly now?: () => Date
+  /**
+   * The usage monitor (docs/agents/SPEC.md section 8.3): when present, every run samples the
+   * plan windows before and after through the SDK and the delta lands on its run row.
+   */
+  readonly usage?: UsageMonitor
   /**
    * Shared with the ingest queue so each side can tell whether it is the sole vault writer
    * (finding F4). Defaults to a private registry when this runner is the only writer.
@@ -206,6 +229,12 @@ export interface MaintenanceRunnerOptions {
    * topic, lens, cost and duration need a row of their own or they die with the process.
    */
   readonly runStore?: AgentRunStore
+  /**
+   * The reading list (docs/agents/SPEC.md section 10.6): the entries a run adds are signed
+   * with the run's actor before the commit - the Fellow's name, or the kind for a run without
+   * one - whatever name the agent wrote. Without it the entries stand as written.
+   */
+  readonly reading?: ReadingListService
 }
 
 export interface MaintenanceResult {
@@ -236,6 +265,10 @@ export interface MaintenanceResult {
   readonly reportPath?: string
   /** Present for a domain-review run: the agent's verdict per candidate. */
   readonly domainReview?: DomainReview
+  /** Present for a `plan` run: the schema-bound answer, still to be validated by the caller. */
+  readonly structuredOutput?: unknown
+  /** Plan utilization points the run consumed per window, when both samples were taken (A5). */
+  readonly planPctDelta?: Record<string, number>
 }
 
 export type MaintenanceRunStatus = 'running' | 'done' | 'error'
@@ -251,6 +284,17 @@ export interface MaintenanceRun {
   readonly channel: string
   readonly status: MaintenanceRunStatus
   /**
+   * True while the run is queued behind {@link runMutex} rather than executing.
+   *
+   * `status` answers "has it settled", which is what every poll and every "is it still going"
+   * check needs, and a queued run has NOT settled - so it stays `running` and those checks stay
+   * right. This answers the other question, "is it actually working", which nothing could ask
+   * before: one runner executes one run at a time, but a record is created the moment a run is
+   * requested, so the screens drew every waiting Fellow as a working one. Two Fellows at their
+   * shelves meant one Fellow and one queue.
+   */
+  readonly waiting?: boolean
+  /**
    * What this run is ABOUT, for surfaces outside the screen that started it (Home's
    * in-flight list, the sidebar badge, the inbox). Only kinds whose subject is not implied
    * by the kind itself set it: a research run's topic, a cleanup's page list. Without it
@@ -259,6 +303,12 @@ export interface MaintenanceRun {
   readonly label?: string
   /** Research runs only: the lens key the run was started under (SPEC.md, "Achse A"). */
   readonly profileKey?: string
+  /** The Fellow this run belongs to, when one started it. */
+  readonly agentId?: string
+  /** The SDK model id the run was pinned to, when one was. */
+  readonly model?: string
+  /** The proposal this run executes, when it executes one. */
+  readonly proposalId?: string
   readonly startedAt: string
   readonly finishedAt?: string
   readonly result?: MaintenanceResult
@@ -268,6 +318,48 @@ export interface MaintenanceRun {
 
 /** How many finished runs to retain for polling before the oldest is evicted. */
 const RUN_HISTORY_CAP = 25
+/** A research step is a bounded run; half the default timeout is plenty for one round. */
+const STEP_TIMEOUT_MS = 15 * 60_000
+/** A planning run reads and ranks; five minutes is the spec's bound (section 6.2). */
+/**
+ * What the hot cache may and may not carry, from the source repo's own wording for
+ * `wiki/hot.md`: "short, sanitized, and useful for the next session ... It must not contain
+ * secrets, raw transcripts, tool instructions, or claims that lack the same qualification
+ * found in canonical pages."
+ *
+ * The qualification clause is the one that matters most for a Fellow. Its pages are careful
+ * about the difference between what a source shows and what it merely suggests; a 500-word
+ * summary is exactly where that care gets compressed out, and the cache is then read into the
+ * start of every session as if it were settled.
+ *
+ * Not in the vault clone here (v1.9.2, tag `pre-curious-2026-09-07`) - it comes from a later
+ * version of the upstream repo, so it rides in the prompt rather than being read from a skill.
+ */
+const HOT_CACHE_CONTENT_RULES =
+  'It is written for the NEXT session: recent facts, changed pages, active threads and open ' +
+  'questions. Never secrets, raw transcript text, or tool instructions. Never state a claim ' +
+  'with more confidence than the page it came from - if the page hedges, the cache hedges.'
+
+export const PLAN_TIMEOUT_MS = 5 * 60_000
+/** An expand run deepens a few pages; twenty minutes covers a short web round plus the edits. */
+export const EXPAND_TIMEOUT_MS = 20 * 60_000
+/** The recap's summary lines: three minutes and one USD (section 7). */
+export const RECAP_TIMEOUT_MS = 3 * 60_000
+export const RECAP_BUDGET_USD = 1
+
+/** The per-run knobs a Fellow context pins (model, effort, budget) plus its attribution. */
+function fellowRunOptions(fellow: FellowRunContext | undefined): Partial<RunOptions> {
+  if (!fellow) return {}
+  return {
+    agentId: fellow.agentId,
+    actor: fellow.name,
+    model: fellow.model,
+    effort: fellow.effort,
+    maxBudgetUsd: fellow.maxBudgetUsd,
+    ...(fellow.timeoutMs !== undefined ? { timeoutMs: fellow.timeoutMs } : {}),
+    ...(fellow.proposalId !== undefined ? { proposalId: fellow.proposalId } : {}),
+  }
+}
 
 /** Per-run knobs that differ between the kinds. */
 interface RunOptions {
@@ -281,7 +373,27 @@ interface RunOptions {
   readonly commitMessage?: string
   /** Vault-derived system-prompt extension; defaults to the domain registry for write runs. */
   readonly systemPromptExtra?: string
+  /** The Fellow this run belongs to (docs/agents/SPEC.md); attributed in the run log. */
+  readonly agentId?: string
+  /** Who the run works as on the reading list (`by`): the Fellow's name; defaults to the kind. */
+  readonly actor?: string
+  /** SDK model id the run is pinned to; absent = CLI default. */
+  readonly model?: string
+  readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /** Hard USD cap against the SDK's list-price estimate. */
+  readonly maxBudgetUsd?: number
+  /** Per-kind timeout override; absent = the runner's default. */
+  readonly timeoutMs?: number
+  /** The proposal the run executes (docs/agents/SPEC.md section 6.5); on the run log row. */
+  readonly proposalId?: string
+  /** Schema-bound answer (a planning run); the result carries `structuredOutput`. */
+  readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
+  /** An expand run's page set: the commit is validated against it and reverted on a violation (A3). */
+  readonly expandPageSet?: readonly string[]
 }
+
+/** What a run may be started as. `query` is read-only and is used by the `plan` kind only. */
+type StartProfile = 'ingest' | 'research' | 'query'
 
 export class MaintenanceRunner {
   private readonly vaultRoot: string
@@ -296,6 +408,9 @@ export class MaintenanceRunner {
   private readonly buildIndex: RetrieveIndexBuilder
   private readonly stateStore: MaintenanceStateStore | undefined
   private readonly runStore: AgentRunStore | undefined
+  private readonly now: () => Date
+  private readonly usage: UsageMonitor | undefined
+  private readonly reading: ReadingListService | undefined
   /** One maintenance run at a time — they all write the vault. */
   private readonly runMutex = new Mutex()
   /**
@@ -306,6 +421,8 @@ export class MaintenanceRunner {
   private readonly indexMutex = new Mutex()
   /** In-memory registry of async runs, keyed by run id (insertion-ordered for eviction). */
   private readonly runs = new Map<string, MaintenanceRun>()
+  /** The day an oversized hot cache last queued its own refresh (see `refreshOversizedHotCache`). */
+  private autoHotCacheDate: string | null = null
   /**
    * One-shot per-run completion callbacks for out-of-band notifiers (the telegram bot, so a
    * research run it started reports back to the chat). The dashboard polls `getRun` instead and
@@ -326,6 +443,49 @@ export class MaintenanceRunner {
     this.buildIndex = opts.buildIndex ?? buildRetrieveIndex
     this.stateStore = opts.stateStore
     this.runStore = opts.runStore
+    this.now = opts.now ?? ((): Date => new Date())
+    this.usage = opts.usage
+    this.reading = opts.reading
+  }
+
+  /** The sampling hooks for one run, when a usage monitor is wired (section 8.3); each sample is a run log line. */
+  private usageHooks(runId: string, log: (level: 'info' | 'warn' | 'error', message: string) => void): { onPlanUsage?: (phase: 'before' | 'after', response: unknown) => void; onRateLimit?: (info: unknown) => void } {
+    const usage = this.usage
+    if (!usage) return {}
+    return {
+      onPlanUsage: (phase, response) => {
+        try {
+          const windows = usage.recordSdk(response, phase, runId)
+          if (windows.length > 0) log('info', `plan usage ${phase}: ${windows.map((w) => `${w.window} ${w.utilization}%`).join(', ')}`)
+          else log('info', `plan usage ${phase}: no windows (${parseSdkUsage(response).reason ?? 'unknown'})`)
+        } catch {
+          /* bookkeeping only */
+        }
+      },
+      onRateLimit: (info) => {
+        try {
+          usage.recordEvent(info, runId)
+        } catch {
+          /* bookkeeping only */
+        }
+      },
+    }
+  }
+
+  /**
+   * The per-window delta of a run: its last sample against the monitor's baseline from
+   * just before the run (the previous run's last sample, an endpoint tick), else against
+   * the run's own first sample; undefined without an "after" or any "before".
+   */
+  private planDelta(res: AgentRunResult, startedMs: number): Record<string, number> | undefined {
+    if (!this.usage || !res.planUsage?.after) return undefined
+    const after = parseSdkUsage(res.planUsage.after)
+    if (!after.available) return undefined
+    const own = res.planUsage.before ? parseSdkUsage(res.planUsage.before) : null
+    const before = this.usage.baseline(new Date(startedMs).toISOString()) ?? (own?.available ? own.windows : null)
+    if (!before) return undefined
+    const delta = deltaBetween(before, after.windows)
+    return Object.keys(delta).length > 0 ? delta : undefined
   }
 
   /** The credential for a run. The route 503s in setup mode, so this throwing is a wiring bug. */
@@ -488,30 +648,123 @@ export class MaintenanceRunner {
    * overlap block: that block argues for extending what exists, and a broad run once read it
    * as licence to file no synthesis at all (2026-09-04, see `renderSynthesisMandate`).
    */
-  startResearch(topic: string, profileKey?: string): MaintenanceRun {
+  /**
+   * The research prompt every research kind shares: the skill's flow, the lens, the overlap
+   * block, then whatever the caller adds (a step's caps, a Fellow's context), then the
+   * synthesis mandate LAST - it is the one instruction that must survive the overlap block's
+   * "prefer what already exists", and it is the run's definition of done.
+   */
+  private researchPrompt(topic: string, profile: ResearchProfile, extra: string): string {
     const overlap = renderOverlapBlock(findRelatedPages(this.vaultRoot, topic))
-    const profile = getResearchProfile(profileKey)
     const lens = renderProfileBlock(profile)
-    return this.start(
-      'research',
+    return (
       'Use the autoresearch skill to research this topic and file the findings into the wiki: ' +
-        `${topic}\n\n` +
-        'Before starting, read skills/autoresearch/references/program.md to load the research ' +
-        'constraints and objectives. Then run the research loop: search the web, fetch sources, ' +
-        'synthesize, and file structured pages into the wiki. ' +
-        'Afterwards update wiki/index.md, wiki/log.md and wiki/hot.md. ' +
-        'Finally report how many pages you created and the key findings. ' +
-        'Stay focused on the stated topic rather than broadening the scope.' +
-        lens +
-        overlap +
-        // Last, deliberately: it is the one instruction that must survive the overlap block's
-        // "prefer what already exists", and it is the run's definition of done.
-        renderSynthesisMandate(profile, topic),
-      'research',
-      // The topic and lens ride on the run record so every OTHER screen can name what is
-      // running - the dashboard used to know this only inside the composer that started it.
-      { label: topic, profileKey: profile.key },
+      `${topic}\n\n` +
+      'Before starting, read skills/autoresearch/references/program.md to load the research ' +
+      'constraints and objectives. Then run the research loop: search the web, fetch sources, ' +
+      'synthesize, and file structured pages into the wiki. ' +
+      'Afterwards update wiki/index.md and wiki/log.md. ' +
+      // The autoresearch skill's filing step says "update wiki/hot.md with the research
+      // summary" - no limit, no rewrite. Followed literally it grows the cache a little on
+      // every run (measured: 401 to 826 words over eight runs), and the cache is read at the
+      // start of every session. The system prompt carries the same rule; a run follows the
+      // instruction in front of it, so it is spelled out here too.
+      `Then REWRITE wiki/hot.md from scratch: it is a cache, not a journal - keep it under ${HOT_CACHE_WORD_BUDGET} ` +
+      'words, carry over only what is still current, drop what this run superseded, and never append ' +
+      "this run's summary below what an earlier one left there. " +
+      `${HOT_CACHE_CONTENT_RULES} ` +
+      'Finally report how many pages you created and the key findings. ' +
+      'Stay focused on the stated topic rather than broadening the scope.' +
+      lens +
+      overlap +
+      extra +
+      renderSynthesisMandate(profile, topic)
     )
+  }
+
+  /**
+   * Starts an autoresearch run in the background; returns its tracked run immediately.
+   *
+   * The prompt spells the flow out rather than sending `/autoresearch <topic>`. That slash form
+   * was what M4 shipped, and the first REAL run proved it never worked: the vault is loaded as a
+   * plugin, so its commands are namespaced and the bare `/autoresearch` came back as
+   * "Unknown command" - a zero-token no-op the SDK still reported as success. Overlap steering
+   * (`findRelatedPages`) and the lens ("Achse A") are described on `researchPrompt`.
+   *
+   * With a `fellow` context (docs/agents/SPEC.md section 7) the run is pinned to the Fellow's
+   * model, effort and budget cap, carries the Fellow block in its prompt, and is attributed
+   * to the Fellow in the run log.
+   */
+  startResearch(topic: string, profileKey?: string, fellow?: FellowRunContext): MaintenanceRun {
+    const profile = getResearchProfile(profileKey)
+    const prompt = this.researchPrompt(topic, profile, fellow ? renderFellowBlock(fellow) : '')
+    // The topic and lens ride on the run record so every OTHER screen can name what is
+    // running - the dashboard used to know this only inside the composer that started it.
+    return this.start('research', prompt, 'research', { label: topic, profileKey: profile.key, ...fellowRunOptions(fellow) })
+  }
+
+  /**
+   * A research STEP (docs/agents/SPEC.md section 7): the same flow as `research` with the
+   * program's caps tightened to one round, five sources and five pages, always for a Fellow.
+   */
+  startResearchStep(topic: string, profileKey: string | undefined, fellow: FellowRunContext): MaintenanceRun {
+    const profile = getResearchProfile(profileKey)
+    const prompt = this.researchPrompt(topic, profile, renderStepCaps() + renderFellowBlock(fellow))
+    return this.start('research-step', prompt, 'research', {
+      label: topic,
+      profileKey: profile.key,
+      ...fellowRunOptions(fellow),
+      ...(fellow.timeoutMs === undefined ? { timeoutMs: STEP_TIMEOUT_MS } : {}),
+    })
+  }
+
+  /**
+   * A research EXPAND (docs/agents/SPEC.md section 7, docs/tasks/TASKS-A3.md): deepen the
+   * listed pages by adding to them, never by rewriting them. The rules ride in the prompt;
+   * the commit is validated against the page set afterwards and reverted with a new commit
+   * when it breaks them.
+   */
+  startResearchExpand(topic: string, profileKey: string | undefined, fellow: FellowRunContext, pageSet: readonly string[]): MaintenanceRun {
+    const profile = getResearchProfile(profileKey)
+    const date = this.now().toISOString().slice(0, 10)
+    const prompt = this.researchPrompt(topic, profile, renderExpandRules(pageSet, date) + renderFellowBlock(fellow))
+    return this.start('research-expand', prompt, 'research', {
+      label: topic,
+      profileKey: profile.key,
+      ...fellowRunOptions(fellow),
+      ...(fellow.timeoutMs === undefined ? { timeoutMs: EXPAND_TIMEOUT_MS } : {}),
+      expandPageSet: pageSet,
+    })
+  }
+
+  /**
+   * A Fellow's PLANNING run (docs/agents/SPEC.md section 6.2): read-only `query` profile, so
+   * the sandbox gives it no vault write path and no web; the answer is bound to `schema` and
+   * comes back on the result as `structuredOutput`. Tracked, logged and attributed like every
+   * other run, serialized on the run mutex, and it commits nothing (docs/tasks/TASKS-A1.md D2).
+   */
+  startPlan(prompt: string, fellow: FellowRunContext, schema: Record<string, unknown>): MaintenanceRun {
+    return this.start('plan', prompt, 'query', {
+      label: `planning for ${fellow.name}`,
+      ...fellowRunOptions(fellow),
+      timeoutMs: fellow.timeoutMs ?? PLAN_TIMEOUT_MS,
+      outputFormat: { type: 'json_schema', schema },
+    })
+  }
+
+  /**
+   * The recap's "what it found" lines (docs/agents/SPEC.md section 9.2): a read-only run on
+   * the DEFAULT model (review decision OPEN-8b), schema-bound, three minutes, one USD. Not a
+   * Fellow's run: it summarises every Fellow's night at once and is not attributed.
+   */
+  startRecap(prompt: string, schema: Record<string, unknown>, model?: string): MaintenanceRun {
+    return this.start('recap', prompt, 'query', {
+      label: 'daily recap',
+      ...(model !== undefined ? { model } : {}),
+      timeoutMs: RECAP_TIMEOUT_MS,
+      maxBudgetUsd: RECAP_BUDGET_USD,
+      outputFormat: { type: 'json_schema', schema },
+    })
   }
 
   /**
@@ -528,9 +781,28 @@ export class MaintenanceRunner {
       'Rewrite wiki/hot.md from scratch. It is a cache, not a journal: keep it under ' +
         `${HOT_CACHE_WORD_BUDGET} words and follow the wiki skill's hot-cache template (Last ` +
         'Updated, Key Recent Facts, Recent Changes, Active Threads). Set related: to the pages ' +
-        'of the latest pass only. Do not carry older passes over; they live in git history.',
+        'of the latest pass only. Do not carry older passes over; they live in git history. ' +
+        HOT_CACHE_CONTENT_RULES,
       'ingest',
     )
+  }
+
+  /**
+   * The one finding this service answers by itself. Every other validation finding is advisory
+   * and waits for the user, but an oversized hot cache is read into the context of every run
+   * that follows, so leaving it costs tokens on each of them - and the fix is a cheap, bounded
+   * run whose whole job is to rewrite that one file. The refresh is queued behind the run that
+   * found it (the run mutex serializes them), never from a refresh itself, and at most once a
+   * day so a night of runs cannot turn one oversized cache into ten refreshes.
+   */
+  private refreshOversizedHotCache(kind: MaintenanceKind, log: (level: 'info' | 'warn', message: string) => void): void {
+    if (kind === 'hot-cache') return
+    const today = this.now().toISOString().slice(0, 10)
+    if (this.autoHotCacheDate === today) return
+    if ([...this.runs.values()].some((r) => r.kind === 'hot-cache' && r.status === 'running')) return
+    this.autoHotCacheDate = today
+    const queued = this.startHotCache()
+    log('warn', `maintenance: the hot cache is over its budget, queued a refresh (${queued.id})`)
   }
 
   /**
@@ -781,7 +1053,7 @@ export class MaintenanceRunner {
       kind: 'retrieve-index',
       channel: maintenanceChannel('retrieve-index'),
       status: 'running',
-      startedAt: new Date().toISOString(),
+      startedAt: this.now().toISOString(),
     }
     this.runs.set(id, run)
     this.evictOldRuns()
@@ -829,7 +1101,7 @@ export class MaintenanceRunner {
   private start(
     kind: MaintenanceKind,
     prompt: string,
-    profile: 'ingest' | 'research',
+    profile: StartProfile,
     opts: RunOptions = {},
   ): MaintenanceRun {
     const id = randomUUID()
@@ -838,9 +1110,14 @@ export class MaintenanceRunner {
       kind,
       channel: maintenanceChannel(kind),
       status: 'running',
+      // Until the mutex admits it. `run()` clears this the moment it actually starts.
+      waiting: true,
       ...(opts.label !== undefined ? { label: opts.label } : {}),
       ...(opts.profileKey !== undefined ? { profileKey: opts.profileKey } : {}),
-      startedAt: new Date().toISOString(),
+      ...(opts.agentId !== undefined ? { agentId: opts.agentId } : {}),
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
+      ...(opts.proposalId !== undefined ? { proposalId: opts.proposalId } : {}),
+      startedAt: this.now().toISOString(),
     }
     this.runs.set(id, run)
     this.evictOldRuns()
@@ -854,11 +1131,11 @@ export class MaintenanceRunner {
     id: string,
     kind: MaintenanceKind,
     prompt: string,
-    profile: 'ingest' | 'research',
+    profile: StartProfile,
     opts: RunOptions = {},
   ): Promise<void> {
     try {
-      const result = await this.run(kind, prompt, profile, opts)
+      const result = await this.run(kind, prompt, profile, opts, id)
       this.settle(id, result.ok ? 'done' : 'error', {
         result,
         ...(result.ok ? {} : { error: result.error ?? `${kind} failed` }),
@@ -892,7 +1169,9 @@ export class MaintenanceRunner {
   private settle(id: string, status: MaintenanceRunStatus, patch: { result?: MaintenanceResult; error?: string }): void {
     const prev = this.runs.get(id)
     if (!prev) return
-    const settled: MaintenanceRun = { ...prev, status, finishedAt: new Date().toISOString(), ...patch }
+    // A run that never reached the mutex (it failed before, or was rejected) is not waiting
+    // any more either; nothing settled is.
+    const settled: MaintenanceRun = { ...prev, status, waiting: false, finishedAt: this.now().toISOString(), ...patch }
     this.runs.set(id, settled)
     // Persist the per-kind outcome (SPEC.md §12.7 Stufe b). A store failure must never
     // corrupt the settle itself — the in-memory record above stays the runtime truth.
@@ -904,7 +1183,7 @@ export class MaintenanceRunner {
           ok: status === 'done',
           pages: patch.result?.pages.length ?? 0,
           error: patch.error ?? null,
-          finishedAt: settled.finishedAt ?? new Date().toISOString(),
+          finishedAt: settled.finishedAt ?? this.now().toISOString(),
         })
       } catch {
         /* swallowed — operational bookkeeping only */
@@ -927,8 +1206,14 @@ export class MaintenanceRunner {
           costUsd: patch.result?.usage.costUsd ?? null,
           error: patch.error ?? patch.result?.error ?? null,
           commitHash: patch.result?.commit ?? null,
+          agentId: prev.agentId ?? null,
+          model: prev.model ?? null,
+          proposalId: prev.proposalId ?? null,
+          // The result text, capped by the store: the recap's summary lines read it later.
+          answer: patch.result?.answer ?? null,
+          planPctDelta: patch.result?.planPctDelta ?? null,
           startedAt: prev.startedAt,
-          finishedAt: settled.finishedAt ?? new Date().toISOString(),
+          finishedAt: settled.finishedAt ?? this.now().toISOString(),
         })
       } catch {
         /* swallowed - operational bookkeeping only */
@@ -960,10 +1245,14 @@ export class MaintenanceRunner {
   private async run(
     kind: MaintenanceKind,
     prompt: string,
-    profile: 'ingest' | 'research',
+    profile: StartProfile,
     opts: RunOptions = {},
+    runId = '',
   ): Promise<MaintenanceResult> {
     return this.runMutex.runExclusive(async () => {
+      // Admitted: from here the run is the one holding the runner, not one of the queue.
+      const queued = runId === '' ? undefined : this.runs.get(runId)
+      if (queued !== undefined) this.runs.set(runId, { ...queued, waiting: false })
       const channel = maintenanceChannel(kind)
       // Stamped inside the mutex, i.e. when this run actually starts writing - the artifact
       // check below asks "did THIS run produce it", not "does some old one exist".
@@ -972,17 +1261,34 @@ export class MaintenanceRunner {
         this.events.publish({ kind: 'log', log: { jobId: channel, ts: new Date().toISOString(), level, message } })
 
       log('info', `maintenance: ${kind} started`)
+      if (profile === 'query') return this.runReadOnly(kind, prompt, opts, log, runId, startedMs)
+      // Who signs what the run puts on the reading list: the Fellow, or the kind without one.
+      const actor = opts.actor ?? kind
       // Read the registry per run (it is a user-editable vault page), unless the caller pinned
-      // its own extension text. The hygiene checklist rides along for the same reason it does
-      // on ingest runs: any of these runs may write pages.
+      // its own extension text (a Fellow's run carries the same blocks in its own). The hygiene
+      // checklist and the reading list shape ride along for the same reason they do on ingest
+      // runs: any of these runs may write pages.
       const systemPromptExtra =
         opts.systemPromptExtra ??
-        [domainSystemPrompt(readDomainRegistry(this.vaultRoot)), PAGE_HYGIENE_CHECKLIST, ENTITY_NOTABILITY_RULES, TAG_HYGIENE_RULES]
+        [
+          domainSystemPrompt(readDomainRegistry(this.vaultRoot)),
+          PAGE_HYGIENE_CHECKLIST,
+          UNTRUSTED_CONTENT_RULES,
+          ENTITY_NOTABILITY_RULES,
+          TAG_HYGIENE_RULES,
+          // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
+          this.reading === undefined ? '' : renderReadingList(actor, localDate(this.now())),
+        ]
           .filter(Boolean)
           .join('\n\n')
       // Bracket the run and register as a writer, so pages the agent creates or renames via Bash
       // can still be committed — but only if we turn out to be the sole writer (F4).
       const dirtyBefore = await dirtyPaths(this.vaultRoot)
+      // The reading list before the run, so the entries the run adds can be signed by it.
+      const readingBefore = this.reading?.urlKeys()
+      // Where the vault stood before the run. What the run DID is whatever moved HEAD, and
+      // the service is not always the one that moves it - see the fallback below the commit.
+      const headBefore = await headHash(this.vaultRoot)
       const endRun = this.runRegistry.begin(dirtyBefore)
       const written = new Set<string>()
       const res = await this.runAgentFn({
@@ -990,7 +1296,19 @@ export class MaintenanceRunner {
         prompt,
         auth: this.assertAuth(),
         profile,
-        timeoutMs: this.timeoutMs,
+        timeoutMs: opts.timeoutMs ?? this.timeoutMs,
+        /*
+         * The expand lock (docs/sources/SPEC.md section 8.2): the same page set the commit check
+         * validates against, handed to the tool-time hook as well. The prompt asks, the hook
+         * decides, and the commit check remains the backstop for what neither can see.
+         */
+        ...(kind === 'research-expand' && opts.expandPageSet !== undefined
+          ? { expand: { pageSet: opts.expandPageSet, maxNew: EXPAND_MAX_NEW } }
+          : {}),
+        // A Fellow's run is pinned to its model, effort and budget cap (docs/agents/SPEC.md).
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.effort ? { effort: opts.effort } : {}),
+        ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
         // A save resumes the chat's SDK session so the agent still has the conversation it is
         // being asked to write up. The profile is applied fresh per run, so resuming a
         // read-only chat under a write-enabled profile is what grants the save its write access.
@@ -998,22 +1316,27 @@ export class MaintenanceRunner {
         // Any run that may write pages gets the domain rules, not just ingest: a lint fixing a
         // frontmatter gap or an autoresearch filing new pages must obey the same closed list.
         ...(systemPromptExtra ? { systemPromptExtra } : {}),
+        ...this.usageHooks(runId, log),
         onMessage: (m: SDKMessage) => {
           const line = formatMessage(m)
           if (line !== undefined) log('info', line)
           for (const p of extractWrittenPaths(m, this.vaultRoot)) written.add(p)
         },
       })
+      const planPctDelta = this.planDelta(res, startedMs)
+      if (planPctDelta) log('info', `plan usage: ${Object.entries(planPctDelta).map(([w, d]) => `${w} +${d}`).join(', ')} points`)
+      const withDelta = <T extends MaintenanceResult>(r: T): T => (planPctDelta ? { ...r, planPctDelta } : r)
 
       if (!res.ok) {
         endRun()
         log('error', `maintenance: ${kind} failed: ${res.error ?? 'unknown error'}`)
-        return { ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` }
+        return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` })
       }
 
       // One commit per run, serialized against ingest commits. The sole-writer check and the
       // sweep both happen INSIDE the commit mutex, so no other run can start writing between
       // asking the question and acting on the answer.
+      let soleWriter = false
       const commit = await this.commitMutex.runExclusive(async () => {
         const swept = this.runRegistry.isSoleWriter()
           ? newWikiPaths(dirtyBefore, await dirtyPaths(this.vaultRoot))
@@ -1024,14 +1347,73 @@ export class MaintenanceRunner {
         } else if (!this.runRegistry.isSoleWriter()) {
           log('info', 'another run is writing — staging only tool-reported paths (F4 sweep skipped)')
         }
-        const pathspec = [...new Set([...written, ...swept, ...BOOKKEEPING_PATHS])]
+        // The reading list entries this run added are signed by it, whatever the agent wrote
+        // on their by line - only while it is the sole writer, for the same reason the sweep is.
+        const signed = this.runRegistry.isSoleWriter() && readingBefore !== undefined && this.reading !== undefined ? await this.reading.attributeRun(actor, readingBefore) : []
+        if (signed.length > 0) {
+          const wrote = [...new Set(signed.map((s) => s.was ?? 'no name'))].join(', ')
+          log('info', `reading list: ${signed.length} new entr${signed.length === 1 ? 'y' : 'ies'} signed "${actor}" (the run had written: ${wrote})`)
+        }
+        const pathspec = [...new Set([...written, ...swept, ...(signed.length > 0 ? [READING_LIST_PAGE] : []), ...BOOKKEEPING_PATHS])]
+        // Read inside the mutex and before `endRun`, which is what "sole writer" means: with
+        // the run deregistered the count is zero and the question no longer has an answer.
+        soleWriter = this.runRegistry.isSoleWriter()
         return this.commit(this.vaultRoot, opts.commitMessage ?? `maintenance: ${kind}`, { pathspec })
       })
       endRun()
-      const pages = commit.committed ? commit.committedPages : []
-      const commitHash = commit.committed ? (commit.hash ?? null) : null
-      log('info', commit.committed ? `committed ${commit.hash?.slice(0, 8)} (${pages.length} page(s))` : 'nothing to commit')
+      /*
+       * Whoever committed it, the run's work is what moved HEAD (2026-09-08).
+       *
+       * The service commits what the agent left dirty. But the vault's own skill sometimes
+       * commits first, and then this commit finds a clean tree and reports nothing - and the
+       * run was recorded with no commit and no pages while five pages had in fact been
+       * edited, the recap read it as a run that changed nothing, and for an expand the
+       * validator that holds the run to its page set was skipped, because its guard is a
+       * commit hash. Measured on the first expand run against this vault.
+       *
+       * Only while we are the sole writer: with an ingest committing in parallel, the range
+       * would claim its commits as this run's. Then the old reading stands, which is
+       * conservative in the right direction - it under-reports rather than over-reports.
+       */
+      const headAfter = commit.committed ? null : await headHash(this.vaultRoot)
+      const agentCommitted = !commit.committed && soleWriter && headAfter !== null && headAfter !== headBefore && headBefore !== null
+      const commitHash = commit.committed ? (commit.hash ?? null) : agentCommitted ? headAfter : null
+      const commitFrom = agentCommitted ? headBefore : undefined
+      const pages = commit.committed
+        ? commit.committedPages
+        : agentCommitted
+          // The same rule `commitVault` applies to its own commits: wiki markdown only, so
+          // the bookkeeping and the service's state files stay out of the run's page list.
+          ? [...(await commitFileStatus(this.vaultRoot, headAfter!, headBefore!)).keys()].filter((p) => p.startsWith('wiki/') && p.endsWith('.md'))
+          : []
+      if (agentCommitted) log('info', `the run committed its own work: ${headAfter!.slice(0, 8)} (${pages.length} page(s))`)
+      else log('info', commit.committed ? `committed ${commit.hash?.slice(0, 8)} (${pages.length} page(s))` : 'nothing to commit')
       this.events.publish({ kind: 'stats' })
+
+      // An expand run is bound to its page set (docs/tasks/TASKS-A3.md D2, D3): validate the
+      // commit against the parent and undo a violation with a NEW commit, then fail the run.
+      if (kind === 'research-expand' && opts.expandPageSet !== undefined && commitHash !== null) {
+        const findings = await validateExpandCommit(gitCommitReader(this.vaultRoot, commitHash, commitFrom), opts.expandPageSet)
+        if (findings.length > 0) {
+          const finding = describeFindings(findings)
+          log('warn', `maintenance: research-expand broke its rules: ${finding}`)
+          const undone = await this.commitMutex.runExclusive(() =>
+            restoreCommitPaths(this.vaultRoot, commitHash, `revert expand ${commitHash.slice(0, 8)}`, commitFrom),
+          )
+          log(undone.reverted ? 'warn' : 'error', undone.reverted ? `reverted ${commitHash.slice(0, 8)} with ${undone.hash?.slice(0, 8)}` : `revert failed: ${undone.message ?? 'unknown'}`)
+          this.events.publish({ kind: 'stats' })
+          return withDelta({
+            ok: false,
+            kind,
+            pages: [],
+            commit: undone.reverted ? (undone.hash ?? null) : commitHash,
+            usage: res.usage,
+            error: `expand run reverted: ${finding}${undone.reverted ? '' : ` (revert failed: ${undone.message ?? 'unknown'})`}`,
+            answer: res.result,
+          })
+        }
+        log('info', 'research-expand stayed inside its page set')
+      }
 
       // Post-run validation, only when the run actually touched pages (a read-only kind like
       // domain-review has nothing to check). Advisory: findings never fail the run.
@@ -1044,12 +1426,13 @@ export class MaintenanceRunner {
           if (findings.length > 0) {
             log('warn', `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`)
           }
+          if (findings.some((f) => f.rule === 'hot-cache-size')) this.refreshOversizedHotCache(kind, log)
         } catch (err) {
           log('warn', `post-run validation crashed (ignored): ${(err as Error).message}`)
         }
       }
 
-      const base: MaintenanceResult = { ok: true, kind, pages, commit: commitHash, usage: res.usage, answer: res.result }
+      const base: MaintenanceResult = withDelta({ ok: true, kind, pages, commit: commitHash, usage: res.usage, answer: res.result })
       if (kind === 'lint') {
         // The report file IS the deliverable: lint-fix is bounded by it, and the status model
         // dates the whole area from it. A run that exits cleanly without writing one leaves
@@ -1068,7 +1451,7 @@ export class MaintenanceRunner {
           return { ...base, lint: fromText }
         }
         log('error', 'lint finished without writing a report to wiki/meta/')
-        return {
+        return withDelta({
           ok: false,
           kind,
           pages,
@@ -1078,9 +1461,9 @@ export class MaintenanceRunner {
             'the lint run finished without writing a report to wiki/meta/ - nothing to base safe ' +
             'fixes on, so the run counts as failed. Re-run the lint.',
           ...(res.result !== undefined ? { answer: res.result } : {}),
-        }
+        })
       }
-      if (kind === 'research') {
+      if (kind === 'research' || kind === 'research-step' || kind === 'research-expand') {
         /**
          * The synthesis page IS the deliverable of a research run, the same way the report file
          * is the lint run's - it is what the run detail renders and what the Library lists under
@@ -1111,6 +1494,58 @@ export class MaintenanceRunner {
       }
       log('info', `maintenance: ${kind} complete`)
       return base
+    })
+  }
+
+  /**
+   * A read-only run (the `plan` kind): the agent reads the vault under the `query` profile
+   * and answers, nothing is written, so there is no writer registration, no sweep, no commit
+   * and no validation. Still inside the run mutex, so a night's runs stay sequential.
+   */
+  private async runReadOnly(
+    kind: MaintenanceKind,
+    prompt: string,
+    opts: RunOptions,
+    log: (level: 'info' | 'warn' | 'error', message: string) => void,
+    runId = '',
+    startedMs = Date.now(),
+  ): Promise<MaintenanceResult> {
+    const res = await this.runAgentFn({
+      vaultRoot: this.vaultRoot,
+      prompt,
+      auth: this.assertAuth(),
+      profile: 'query',
+      timeoutMs: opts.timeoutMs ?? this.timeoutMs,
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.effort ? { effort: opts.effort } : {}),
+      ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
+      ...(opts.outputFormat ? { outputFormat: opts.outputFormat } : {}),
+      ...this.usageHooks(runId, log),
+      onMessage: (m: SDKMessage) => {
+        const line = formatMessage(m)
+        if (line !== undefined) log('info', line)
+      },
+    })
+    const planPctDelta = this.planDelta(res, startedMs)
+    if (planPctDelta) log('info', `plan usage: ${Object.entries(planPctDelta).map(([w, d]) => `${w} +${d}`).join(', ')} points`)
+    const withDelta = <T extends MaintenanceResult>(r: T): T => (planPctDelta ? { ...r, planPctDelta } : r)
+    if (!res.ok) {
+      log('error', `maintenance: ${kind} failed: ${res.error ?? 'unknown error'}`)
+      return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: res.error ?? `${kind} failed` })
+    }
+    if (opts.outputFormat && res.structuredOutput === undefined) {
+      log('error', `maintenance: ${kind} returned no structured answer`)
+      return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: 'the run returned no structured answer', answer: res.result })
+    }
+    log('info', `maintenance: ${kind} complete`)
+    return withDelta({
+      ok: true,
+      kind,
+      pages: [],
+      commit: null,
+      usage: res.usage,
+      answer: res.result,
+      ...(res.structuredOutput !== undefined ? { structuredOutput: res.structuredOutput } : {}),
     })
   }
 

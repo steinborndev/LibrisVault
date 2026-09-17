@@ -12,12 +12,19 @@
  *    dropping an idle connection, and lets us detect a dead socket to unsubscribe.
  *  - On disconnect we unsubscribe from the bus and clear the heartbeat — no listener leak
  *    (CLAUDE.md: clean unsubscribe on disconnect).
+ *  - On SHUTDOWN we end them ourselves, from a `preClose` hook. A hijacked response is a
+ *    connection that by design never completes, and `app.close()` waits for every connection
+ *    to end before it resolves: with one dashboard tab open the service logged "shutting
+ *    down" and then sat there forever, needing a SIGKILL. `preClose` is the one hook that
+ *    runs BEFORE the server starts waiting, which is what makes this the right place for it
+ *    rather than `onClose`.
  *
  * SSE cannot set an Authorization header, so in the future `token` auth mode this route
  * would need a query-param token; v1 ships only `local-single-user` (pass-through), so the
  * standard auth hook already lets it through.
  */
 
+import type { ServerResponse } from 'node:http'
 import type { FastifyInstance } from 'fastify'
 import type { AppContext } from '../server.js'
 import type { BusEvent } from '../../pipeline/events.js'
@@ -29,6 +36,32 @@ const MAX_STREAMS_PER_CLIENT = 8
 export function registerEventsRoute(app: FastifyInstance, ctx: AppContext): void {
   const bus = ctx.events
   const open = new Map<string, number>()
+  /**
+   * Every stream currently held open, so shutdown can end them. Kept alongside `open` rather
+   * than derived from it: that map counts streams per client address for the per-visitor cap,
+   * and a count cannot be closed.
+   */
+  const live = new Set<ServerResponse>()
+
+  /*
+   * Ends every open stream before Fastify starts waiting for connections to drain. The
+   * browser sees a normal disconnect and retries after its `retry: 3000`, by which point the
+   * listener is gone and the reconnect fails - which is the correct outcome for a service
+   * that is going away.
+   */
+  app.addHook('preClose', async () => {
+    if (live.size > 0) app.log.info(`closing ${live.size} event stream(s) for shutdown`)
+    for (const res of [...live]) {
+      // A socket that died between the hook firing and this line throws here, and a throw
+      // would abort the shutdown it is part of.
+      try {
+        res.end()
+      } catch {
+        /* already gone */
+      }
+    }
+    live.clear()
+  })
 
   app.get('/api/v1/events', (req, reply) => {
     const client = req.ip
@@ -64,6 +97,7 @@ export function registerEventsRoute(app: FastifyInstance, ctx: AppContext): void
     // the browser's EventSource fires `onopen` without waiting for the first event.
     res.write('retry: 3000\n\n')
     res.write(': connected\n\n')
+    live.add(res)
 
     const send = (event: BusEvent): void => {
       // A single SSE message: an `event:` type line + one `data:` JSON line. `stats` and
@@ -94,6 +128,7 @@ export function registerEventsRoute(app: FastifyInstance, ctx: AppContext): void
       clearInterval(heartbeat)
       unsubscribe()
       release()
+      live.delete(res)
     }
     // Fires when the browser navigates away, the tab closes, or the socket drops. A hijacked
     // response has no Fastify error handling left, so the raw 'error' event needs a listener

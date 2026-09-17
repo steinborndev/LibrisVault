@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { fixture } from './fixture.ts'
 import {
   buildResearchRuns,
   listedRuns,
@@ -16,11 +17,11 @@ import type {
 } from '../src/api/types.ts'
 
 const PROFILES: ResearchProfile[] = [
-  { key: 'broad', label: 'Broad sweep', blurb: '', sources: [], fetchEstimate: '30-45', titleSuffix: '' },
+  { key: 'broad', label: 'Broad sweep', blurb: '', short: 'a few words', sources: [], fetchEstimate: '30-45', titleSuffix: '' },
   {
     key: 'sota',
     label: 'State of the art',
-    blurb: '',
+    blurb: '', short: 'a few words',
     sources: [],
     fetchEstimate: '30-40',
     titleSuffix: ' - State of the Art',
@@ -28,7 +29,7 @@ const PROFILES: ResearchProfile[] = [
   {
     key: 'patents',
     label: 'Recent patents',
-    blurb: '',
+    blurb: '', short: 'a few words',
     sources: [],
     fetchEstimate: '25-35',
     titleSuffix: ' - Patent Landscape',
@@ -47,7 +48,9 @@ const node = (over: Partial<GraphNode> = {}): GraphNode => ({
   ...over,
 })
 
-const run = (over: Partial<MaintenanceRun> = {}): MaintenanceRun => ({
+type Over<T> = { readonly [K in keyof T]?: T[K] | undefined }
+const run = (over: Over<MaintenanceRun> = {}): MaintenanceRun =>
+  fixture<MaintenanceRun>({
   id: 'run-1',
   kind: 'research',
   channel: 'maintenance:research',
@@ -62,8 +65,7 @@ const run = (over: Partial<MaintenanceRun> = {}): MaintenanceRun => ({
     pages: ['wiki/questions/Research: Topic.md'],
     usage: { tokensIn: 100, tokensOut: 50, costUsd: 1.5 },
   },
-  ...over,
-})
+  }, over)
 
 const settle = (over: Partial<MaintenanceAreaState> = {}): MaintenanceAreaState => ({
   kind: 'research',
@@ -77,7 +79,7 @@ const settle = (over: Partial<MaintenanceAreaState> = {}): MaintenanceAreaState 
 
 describe('splitResearchTitle', () => {
   it('returns null for a page that is not a synthesis page', () => {
-    expect(splitResearchTitle('Sulfide Electrolyte', PROFILES)).toBeNull()
+    expect(splitResearchTitle('Cell Housing Alloy', PROFILES)).toBeNull()
   })
 
   it('strips the longest matching lens suffix, not the empty default', () => {
@@ -130,7 +132,7 @@ describe('buildResearchRuns', () => {
     const entries = buildResearchRuns({
       runs: [run({ id: 'lint-1', kind: 'lint', label: undefined })],
       lastRuns: [],
-      nodes: [node({ title: 'Sulfide Electrolyte', path: 'wiki/concepts/Sulfide Electrolyte.md' })],
+      nodes: [node({ title: 'Cell Housing Alloy', path: 'wiki/concepts/Cell Housing Alloy.md' })],
       profiles: PROFILES,
     })
     expect(entries).toHaveLength(0)
@@ -175,7 +177,8 @@ describe('targetTitle', () => {
   })
 })
 
-const history = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
+const history = (over: Over<AgentRunRecord> = {}): AgentRunRecord =>
+  fixture<AgentRunRecord>({
   id: 'hist-1',
   kind: 'research',
   label: 'Topic',
@@ -188,8 +191,8 @@ const history = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
   error: null,
   startedAt: '2026-08-20T09:40:00.000Z',
   finishedAt: '2026-08-20T10:00:00.000Z',
-  ...over,
-})
+  commitHash: null,
+  }, over)
 
 describe('buildResearchRuns with the persistent run log', () => {
   it('lists a recorded run with the facts only the log keeps', () => {
@@ -268,6 +271,38 @@ describe('buildResearchRuns with the persistent run log', () => {
     expect(entries.map((e) => e.source).sort()).toEqual(['history', 'page'])
   })
 
+  /**
+   * Which rows the reader may take out of the list. The cross removes a history row and
+   * nothing else - so it is offered on exactly the entries that HAVE one. A run in flight
+   * has not been recorded yet, and a run reconstructed from a page left no record at all;
+   * a cross on either would be a control that cannot do what it says.
+   */
+  it('marks a recorded run as removable and an in-flight one as not', () => {
+    const entries = buildResearchRuns({
+      history: [history({ id: 'old' })],
+      runs: [run({ id: 'live', status: 'running', finishedAt: undefined, result: undefined, label: 'Live' })],
+      lastRuns: [],
+      nodes: [],
+      profiles: PROFILES,
+    })
+    expect(entries.map((e) => [e.id, e.removableId])).toEqual([
+      ['live', null],
+      ['old', 'old'],
+    ])
+  })
+
+  it('offers nothing to remove for a run rebuilt from its page or its settle record', () => {
+    const entries = buildResearchRuns({
+      history: [],
+      runs: [],
+      lastRuns: [settle({ runId: 'gone' })],
+      nodes: [node({ path: 'wiki/Research: Kelp.md', title: 'Research: Kelp' })],
+      profiles: PROFILES,
+    })
+    expect(entries.every((e) => e.removableId === null)).toBe(true)
+    expect(entries.map((e) => e.source).sort()).toEqual(['page', 'state'])
+  })
+
   it('drops a settle row the log already explains', () => {
     const entries = buildResearchRuns({
       history: [history({ id: 'run-old', ok: false, pages: [], error: 'boom' })],
@@ -314,19 +349,19 @@ describe('what a run is recorded as having written', () => {
   /**
    * A file name drops the characters the filesystem dislikes; the page's own title keeps
    * them, and the run log records the topic as typed. Comparing by file name alone, a run
-   * about "implantable/wearable" did not recognise its own page and was reconstructed a
+   * about a topic with a slash in it did not recognise its own page and was reconstructed a
    * second time - so the ledger showed the run twice, the copy claiming a single page.
    */
   it('does not reconstruct a run whose page name lost a character to the filesystem', () => {
-    const topic = 'Nanoparticle-based implantable/wearable drug delivery'
+    const topic = 'Sintering shrinkage in pressed/cast ceramic electrolytes'
     const entries = buildResearchRuns({
       history: [history({ id: 'h1', label: topic, profileKey: 'sota', pages: ['wiki/concepts/Some Page.md'] })],
       runs: [],
       lastRuns: [],
       nodes: [
         node({
-          path: 'wiki/questions/Research: Nanoparticle-based implantable_wearable drug delivery - State of the Art.md',
-          title: 'Research: Nanoparticle-based implantable_wearable drug delivery - State of the Art',
+          path: 'wiki/questions/Research: Sintering shrinkage in pressed_cast ceramic electrolytes - State of the Art.md',
+          title: 'Research: Sintering shrinkage in pressed_cast ceramic electrolytes - State of the Art',
           names: [`Research: ${topic} - State of the Art`],
           mtimeMs: Date.parse('2026-08-20T10:00:00.000Z'),
         }),
@@ -394,6 +429,7 @@ describe('listedRuns', () => {
     error: null,
     source: 'history',
     pagePath: null,
+    removableId: 'e',
     ...over,
   })
 
@@ -443,6 +479,7 @@ describe('synthesisPage', () => {
     error: null,
     source: 'history',
     pagePath: null,
+    removableId: 'e',
     ...over,
   })
 

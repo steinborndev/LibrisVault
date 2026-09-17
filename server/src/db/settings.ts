@@ -64,6 +64,53 @@ export const SETTINGS_SCHEMA = z
      * `pipeline/budget.ts`. `null` (the default) means no budget. Applied live.
      */
     dailyBudget: z.number().positive().nullable(),
+    /**
+     * The Fellows' night shift window, local wall-clock `HH:MM` (docs/agents/SPEC.md
+     * section 8.2). Read at every scheduler tick, so a change applies to the next night.
+     */
+    nightWindowStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+    nightWindowEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+    /** Default model for a newly spawned Fellow. */
+    researchModelDefault: z.enum(['sonnet-5', 'opus-5', 'fable-5-1']).nullable(),
+    /** When the daily recap is built, local `HH:MM` (docs/agents/SPEC.md section 9). */
+    recapTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+    /** The Fellows' research shares and reserves in plan percent (section 8.2, A5). */
+    researchShareWeekPct: z.number().min(0).max(100).nullable(),
+    researchShare5hPct: z.number().min(0).max(100).nullable(),
+    reserve5hPct: z.number().min(0).max(100).nullable(),
+    reserveWeekPct: z.number().min(0).max(100).nullable(),
+    /** USD-equivalent size of the plan windows for the fallback accounting (section 16). */
+    planWeekUsd: z.number().positive().max(100_000).nullable(),
+    plan5hUsd: z.number().positive().max(10_000).nullable(),
+    /**
+     * What the subscription is called, for the corner of the Library ("5x max"). The SDK
+     * reports `subscription_type` on some accounts and not on others, and the usage endpoint
+     * that also carries it is rate limited here - so the one thing the user knows for certain
+     * about their own plan is a setting, not a measurement. Empty = show what is measured.
+     */
+    planName: z.string().max(40).nullable(),
+    /**
+     * Whether the five-hour override exists at all (SPEC section 8.6). Off by default: it is
+     * the one control in the service that releases budget, and a feature that can only be
+     * turned OFF after the fact is not a safety switch. Off means the button is gone and the
+     * endpoint refuses, whoever asks.
+     */
+    fiveHourOverrideEnabled: z.boolean().nullable(),
+    weekOverrideEnabled: z.boolean().nullable(),
+    /**
+     * Whether the shift may spend a read-only run asking a model which topics are duplicates
+     * (section 6.6). Off by default: it costs a run a night, and the two lexical passes keep
+     * working without it. Measured before it was built - it is the only mechanism tried that
+     * separates real duplicates from the follow-ups that must still run.
+     */
+    dedupeJudgeEnabled: z.boolean().nullable(),
+    /**
+     * Whether a URL job whose page is blocked or abstract-thin looks for a legal open-access
+     * copy of the same DOI (docs/sources/SPEC.md section 5). On by default: it turns a failed
+     * job into a read one, and every candidate goes through the same SSRF guard and caps as a
+     * user's own address. Off means the job fails or stays thin exactly as it did before.
+     */
+    oaRecovery: z.boolean().nullable(),
   })
   .partial()
   .strict()
@@ -85,7 +132,48 @@ export interface EffectiveSettings {
   readonly doiDedupe: boolean
   /** null = no daily budget (the default). Unit depends on auth mode — see pipeline/budget.ts. */
   readonly dailyBudget: number | null
+  /** The Fellows' night shift, local `HH:MM` (docs/agents/SPEC.md section 8.2). */
+  readonly nightWindowStart: string
+  readonly nightWindowEnd: string
+  /** Model a new Fellow gets when the spawn names none. */
+  readonly researchModelDefault: 'sonnet-5' | 'opus-5' | 'fable-5-1'
+  /** When the daily recap is built, local `HH:MM`. */
+  readonly recapTime: string
+  /** Plan-percent shares and reserves (section 8.2). */
+  readonly researchShareWeekPct: number
+  readonly researchShare5hPct: number
+  readonly reserve5hPct: number
+  readonly reserveWeekPct: number
+  /** USD-equivalent window sizes for the fallback accounting (section 16). */
+  readonly planWeekUsd: number
+  readonly plan5hUsd: number
+  /** The subscription's own name, when the user has told us; '' = go by what is measured. */
+  readonly planName: string
+  /** Whether the five-hour override may be granted at all (section 8.6). */
+  readonly fiveHourOverrideEnabled: boolean
+  /**
+   * Whether the week's reserve and share may be released for a night (SPEC section 8.6a). Off
+   * by default, and off means the button is gone and the endpoint refuses whoever asks: the
+   * week is the bound every other grant survives, so turning it off after the fact would not
+   * be a safety switch.
+   */
+  readonly weekOverrideEnabled: boolean
+  /** Whether the shift asks a model to judge duplicate topics (section 6.6). */
+  readonly dedupeJudgeEnabled: boolean
+  /** Whether a blocked or thin URL job looks for an open-access copy (docs/sources/SPEC.md 5). */
+  readonly oaRecovery: boolean
 }
+
+/** On unless switched off: a blocked page with a DOI is worth one look for an open copy. */
+export const DEFAULT_OA_RECOVERY = true
+
+/** The plan-percent defaults (review decision OPEN-12) and the section 16 reference sizes. */
+export const DEFAULT_PLAN = { researchShareWeekPct: 10, researchShare5hPct: 15, reserve5hPct: 60, reserveWeekPct: 80, planWeekUsd: 1000, plan5hUsd: 80, planName: '', fiveHourOverrideEnabled: false, weekOverrideEnabled: false, dedupeJudgeEnabled: false } as const
+
+/** The night shift defaults (review decision OPEN-11). */
+export const DEFAULT_NIGHT_WINDOW = { start: '01:00', end: '06:00' } as const
+export const DEFAULT_RESEARCH_MODEL = 'sonnet-5' as const
+export const DEFAULT_RECAP_TIME = '07:00'
 
 /** Baseline (start-time) values, before any override is applied. */
 export function baselineSettings(config: Config): EffectiveSettings {
@@ -95,9 +183,15 @@ export function baselineSettings(config: Config): EffectiveSettings {
     maxUploadBytes: config.server.maxUploadBytes,
     gitAutoCommit: DEFAULT_GIT_AUTO_COMMIT,
     doiDedupe: DEFAULT_DOI_DEDUPE,
+    oaRecovery: DEFAULT_OA_RECOVERY,
     // No env baseline: a budget is opt-in, so "unset" means unlimited. Clearing the override
     // therefore lands back on null, which reads the same as never having set one.
     dailyBudget: null,
+    nightWindowStart: DEFAULT_NIGHT_WINDOW.start,
+    nightWindowEnd: DEFAULT_NIGHT_WINDOW.end,
+    researchModelDefault: DEFAULT_RESEARCH_MODEL,
+    recapTime: DEFAULT_RECAP_TIME,
+    ...DEFAULT_PLAN,
   }
 }
 
@@ -110,7 +204,22 @@ export function effectiveSettings(config: Config, overrides: SettingsOverrides):
     maxUploadBytes: overrides.maxUploadBytes ?? base.maxUploadBytes,
     gitAutoCommit: overrides.gitAutoCommit ?? base.gitAutoCommit,
     doiDedupe: overrides.doiDedupe ?? base.doiDedupe,
+    oaRecovery: overrides.oaRecovery ?? base.oaRecovery,
     dailyBudget: overrides.dailyBudget ?? base.dailyBudget,
+    nightWindowStart: overrides.nightWindowStart ?? base.nightWindowStart,
+    nightWindowEnd: overrides.nightWindowEnd ?? base.nightWindowEnd,
+    researchModelDefault: overrides.researchModelDefault ?? base.researchModelDefault,
+    recapTime: overrides.recapTime ?? base.recapTime,
+    researchShareWeekPct: overrides.researchShareWeekPct ?? base.researchShareWeekPct,
+    researchShare5hPct: overrides.researchShare5hPct ?? base.researchShare5hPct,
+    reserve5hPct: overrides.reserve5hPct ?? base.reserve5hPct,
+    reserveWeekPct: overrides.reserveWeekPct ?? base.reserveWeekPct,
+    planWeekUsd: overrides.planWeekUsd ?? base.planWeekUsd,
+    plan5hUsd: overrides.plan5hUsd ?? base.plan5hUsd,
+    planName: overrides.planName ?? base.planName,
+    fiveHourOverrideEnabled: overrides.fiveHourOverrideEnabled ?? base.fiveHourOverrideEnabled,
+    weekOverrideEnabled: overrides.weekOverrideEnabled ?? base.weekOverrideEnabled,
+    dedupeJudgeEnabled: overrides.dedupeJudgeEnabled ?? base.dedupeJudgeEnabled,
   }
 }
 

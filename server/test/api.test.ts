@@ -36,6 +36,29 @@ const NO_TOOLS: ToolAvailability = {
   deno: false,
 }
 
+/**
+ * Say "not under systemd", instead of assuming it.
+ *
+ * `POST /settings/credential` and `POST /settings/telegram` answer `restart: 'auto'` when they
+ * can restart the service themselves and `'manual'` when they cannot, and the way they ask is
+ * `INVOCATION_ID` - set by systemd on the units it starts, and inherited by everything those
+ * units start. That makes its ABSENCE ambient: true on a developer machine, false on a CI
+ * runner, which is itself a systemd unit. The two tests that expect `'auto'` already set the
+ * variable deliberately; this is the same statement from the other side, for the two that
+ * expect `'manual'` and used to get it by luck.
+ */
+const withoutSystemd = (): void => {
+  let saved: string | undefined
+  beforeEach(() => {
+    saved = process.env['INVOCATION_ID']
+    delete process.env['INVOCATION_ID']
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env['INVOCATION_ID']
+    else process.env['INVOCATION_ID'] = saved
+  })
+}
+
 let db: Db
 let store: JobStore
 let chat: ChatStore
@@ -216,6 +239,7 @@ describe('setup mode (no credential)', () => {
 })
 
 describe('POST /api/v1/settings/credential', () => {
+  withoutSystemd()
   let credFile: string
   let restarts: number
   let credApp: FastifyInstance
@@ -314,6 +338,7 @@ describe('POST /api/v1/settings/credential', () => {
 })
 
 describe('telegram settings endpoint (SPEC.md §4.3)', () => {
+  withoutSystemd()
   let envFile: string
   let restarts: number
   let tgApp: FastifyInstance
@@ -475,6 +500,33 @@ describe('cross-origin guard', () => {
       body: JSON.stringify({ url: 'https://example.com/a' }),
     })
     expect(res.status).toBe(403)
+  })
+
+  it('holds a job for the night shift on ?when=night, through every input', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/jobs?when=night`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/tonight' }),
+    })
+    expect(res.status).toBe(202)
+    const { jobs } = (await res.json()) as { jobs: Array<{ id: string; status: string }> }
+    expect(store.getOrThrow(jobs[0]!.id)).toMatchObject({ status: 'queued', hold: 'night' })
+    // The queue leaves it alone: idle with the job still queued.
+    await queue.onIdle()
+    expect(store.getOrThrow(jobs[0]!.id).status).toBe('queued')
+
+    const note = await fetch(`${baseUrl}/api/v1/jobs?when=night`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'a note for tonight', title: 'Tonight' }),
+    })
+    expect(note.status).toBe(202)
+    const noteJobs = (await note.json()) as { jobs: Array<{ id: string }> }
+    expect(store.getOrThrow(noteJobs.jobs[0]!.id)).toMatchObject({ status: 'queued', hold: 'night' })
+    // Without the flag, an ordinary job.
+    const now = await fetch(`${baseUrl}/api/v1/jobs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/now' }) })
+    const nowJobs = (await now.json()) as { jobs: Array<{ id: string }> }
+    expect(store.getOrThrow(nowJobs.jobs[0]!.id).hold).toBeNull()
   })
 
   it('treats Origin: null as foreign', async () => {
@@ -756,6 +808,28 @@ describe('POST /api/v1/query + sessions', () => {
       messages: Array<{ role: string }>
     }
     expect(detail.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
+  })
+
+  it('publishes what retrieval did as a chat event, before any answer text', async () => {
+    const seen: Array<{ delta: string; retrieval?: { count: number; strategy: string | null } }> = []
+    const unsubscribe = events.subscribe((e) => {
+      if (e.kind === 'chat') seen.push({ delta: e.chat.delta, ...(e.chat.retrieval ? { retrieval: e.chat.retrieval } : {}) })
+    })
+    queryImpl = async (input) => {
+      input.onRetrieval?.({ count: 5, strategy: 'bm25-only' })
+      return okResult('answer')
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/v1/query`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ question: 'anything', requestId: 'req-1' }),
+      })
+      expect(res.status).toBe(200)
+    } finally {
+      unsubscribe()
+    }
+    expect(seen).toEqual([{ delta: '', retrieval: { count: 5, strategy: 'bm25-only' } }])
   })
 
   it('continues an existing session and resumes the SDK session', async () => {

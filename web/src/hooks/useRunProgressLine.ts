@@ -1,8 +1,8 @@
 /**
  * "Is it moving?" for the surfaces that only need one line: Home's in-flight rows.
  *
- * The full plan display this hook used to live beside is gone - the composer's step strip
- * (components/AgentSteps.tsx) shows the phases in both modes now, dimmed while idle, so a
+ * The full plan display this hook used to live beside is gone - the Research tab's activity
+ * box (components/RunActivity.tsx) shows the stages in both modes now, idle or not, so a
  * run no longer needs a screen of its own. The derivation is unchanged and still counts
  * everything it reports (lib/researchProgress.ts).
  */

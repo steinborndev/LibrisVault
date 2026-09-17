@@ -14,7 +14,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { runTool } from './preprocess/tools.js'
 
-/** Wiki subfolders whose `*.md` files are counted as pages (SPEC.md §6.1). */
+/**
+ * Wiki subfolders the dashboard knows how to LABEL (SPEC.md §6.1).
+ *
+ * Not the definition of a page. It used to be: the counter summed these eight folders, so the
+ * five pages that live at the wiki root (`index.md`, `hot.md`, `log.md`, `overview.md`,
+ * `getting-started.md`) were in no bucket and simply did not exist for the dashboard - the
+ * Home tab said 1069 while the graph, which walks the tree, said 1074. An allowlist fails that
+ * way silently, and would swallow a whole new page type the same way. The counter now walks
+ * `wiki/` and buckets by first path segment; this list only fixes the order of the known ones.
+ */
 export const WIKI_PAGE_DIRS = [
   'concepts',
   'entities',
@@ -27,6 +36,15 @@ export const WIKI_PAGE_DIRS = [
 ] as const
 
 export type WikiPageDir = (typeof WIKI_PAGE_DIRS)[number]
+
+/** Bucket for pages that sit directly in `wiki/` rather than in one of its folders. */
+export const ROOT_BUCKET = 'root'
+
+/** The bucket a wiki page counts towards: its folder under `wiki/`, or {@link ROOT_BUCKET}. */
+function bucketOf(wikiRelative: string): string {
+  const slash = wikiRelative.indexOf('/')
+  return slash < 0 ? ROOT_BUCKET : wikiRelative.slice(0, slash)
+}
 
 export interface PageCounts {
   readonly byDir: Record<string, number>
@@ -63,51 +81,58 @@ async function git(vaultRoot: string, args: readonly string[]): Promise<string> 
   return stdout
 }
 
-/** Counts `*.md` files under each known wiki subfolder. */
+/**
+ * Counts every `*.md` under `wiki/`, bucketed by folder.
+ *
+ * The known folders are seeded first so the bars keep their order and an emptied folder still
+ * reads as 0 rather than vanishing; anything else the vault holds gets a bucket of its own,
+ * named after the folder. The total is the count, not a sum of a fixed list, so it agrees with
+ * what the graph shows.
+ *
+ * `_index.md` counts, because it is a file in the folder and this is a count of files. The
+ * graph's per-type chips will read one lower per folder, and that is a different question:
+ * they count knowledge nodes, and an `_index` is structural. Location and kind are two axes,
+ * not two attempts at the same number.
+ */
 export function pageCounts(vaultRoot: string): PageCounts {
   const byDir: Record<string, number> = {}
+  for (const dir of WIKI_PAGE_DIRS) byDir[dir] = 0
   let total = 0
-  for (const dir of WIKI_PAGE_DIRS) {
-    const abs = path.join(vaultRoot, 'wiki', dir)
-    const n = countMarkdown(abs)
-    byDir[dir] = n
-    total += n
-  }
+  const wiki = path.join(vaultRoot, 'wiki')
+  walkMarkdown(wiki, (abs) => {
+    const bucket = bucketOf(toPosix(path.relative(wiki, abs)))
+    byDir[bucket] = (byDir[bucket] ?? 0) + 1
+    total += 1
+  })
   return { byDir, total }
 }
 
-/** Recursively counts `*.md` files under `dir` (0 if it doesn't exist). */
-function countMarkdown(dir: string): number {
-  let n = 0
-  let entries: fs.Dirent[]
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return 0
-  }
-  for (const e of entries) {
-    if (e.isDirectory()) n += countMarkdown(path.join(dir, e.name))
-    else if (e.isFile() && e.name.endsWith('.md')) n += 1
-  }
-  return n
-}
-
-/** Most-recently-modified wiki pages by mtime — "recently created/changed" (SPEC.md §6.1). */
+/**
+ * Most-recently-modified wiki pages by mtime, "recently created/changed" (SPEC.md §6.1).
+ *
+ * Walks the same tree as {@link pageCounts}, and for the same reason: over the folder list it
+ * could never surface `wiki/hot.md`, `wiki/index.md` or `wiki/log.md`, which is to say the
+ * three pages every single ingest touches - the most-changed pages in the vault were the ones
+ * "recently changed" structurally could not report.
+ */
 export function recentPages(vaultRoot: string, limit = 12): RecentPage[] {
   const found: RecentPage[] = []
-  for (const dir of WIKI_PAGE_DIRS) {
-    const base = path.join(vaultRoot, 'wiki', dir)
-    walkMarkdown(base, (abs, stat) => {
-      found.push({
-        path: toPosix(path.relative(vaultRoot, abs)),
-        dir,
-        modified: stat.mtime.toISOString(),
-      })
+  const wiki = path.join(vaultRoot, 'wiki')
+  walkMarkdown(wiki, (abs, stat) => {
+    // `_index.md` and friends are auto-generated folder indexes, rewritten by every run that
+    // files a page there. They are pages for the counter and noise for this list, which is
+    // why the rule sits here rather than in the walk (SPEC.md §6.1).
+    if (path.basename(abs).startsWith('_')) return
+    found.push({
+      path: toPosix(path.relative(vaultRoot, abs)),
+      dir: bucketOf(toPosix(path.relative(wiki, abs))),
+      modified: stat.mtime.toISOString(),
     })
-  }
+  })
   return found.sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, limit)
 }
 
+/** Visits every `*.md` under `dir`, recursively. What counts as a page is the caller's call. */
 function walkMarkdown(dir: string, visit: (abs: string, stat: fs.Stats) => void): void {
   let entries: fs.Dirent[]
   try {
@@ -118,9 +143,7 @@ function walkMarkdown(dir: string, visit: (abs: string, stat: fs.Stats) => void)
   for (const e of entries) {
     const abs = path.join(dir, e.name)
     if (e.isDirectory()) walkMarkdown(abs, visit)
-    // Skip `_index.md` / other `_`-prefixed files: they are auto-generated folder indexes,
-    // not content pages, so they'd otherwise dominate "recently changed" (SPEC.md §6.1).
-    else if (e.isFile() && e.name.endsWith('.md') && !e.name.startsWith('_')) {
+    else if (e.isFile() && e.name.endsWith('.md')) {
       try {
         visit(abs, fs.statSync(abs))
       } catch {
@@ -161,6 +184,10 @@ export async function recentCommits(vaultRoot: string, limit = 5): Promise<Commi
  * each commit's net wiki add/delete from a running total that starts at `currentTotal`.
  * The result is a per-day series that ends today at the real page count — approximate for
  * the far past (renames count as add+delete), exact at the present.
+ *
+ * The deltas count any `wiki/**.md`, and the anchor now does too: while the anchor summed a
+ * fixed folder list, a page added outside those folders moved the curve without ever being in
+ * the total it was anchored to, so every earlier point was off by one.
  */
 export async function growth(vaultRoot: string, days = 30, currentTotal?: number): Promise<GrowthPoint[]> {
   const total = currentTotal ?? pageCounts(vaultRoot).total
@@ -213,10 +240,20 @@ export function readHotCache(vaultRoot: string): string | null {
 }
 
 /**
- * When `wiki/hot.md` was last written, as an ISO string — the "Anzeige des letzten
- * Refresh-Zeitpunkts" the Wartung tab shows next to its refresh button (SPEC.md §6.4).
- * The file's mtime is the honest source: the hot cache is refreshed by agent runs writing it,
- * so nothing else would know when that last happened.
+ * How long `wiki/hot.md` is, in words, or null when there is none. The cache is loaded at the
+ * start of every run, so its size is a running cost; the budget it is measured against lives
+ * in validator.ts, and the Wartung card shows both.
+ */
+export function hotCacheWords(vaultRoot: string): number | null {
+  const text = readHotCache(vaultRoot)
+  if (text === null) return null
+  return text.split(/\s+/).filter(Boolean).length
+}
+
+/**
+ * When `wiki/hot.md` was last WRITTEN, as an ISO string. Not the same as when it was last
+ * refreshed: every research run writes the file too, which is why the Wartung card dates the
+ * refresh from the last `hot-cache` run and keeps this as "last written".
  */
 export function hotCacheUpdatedAt(vaultRoot: string): string | null {
   try {

@@ -16,12 +16,15 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { AUTOMATION_SYSTEM_PROMPT, QUERY_SYSTEM_PROMPT } from './system-prompt.js'
 import { createDetachedSpawn } from './agent-spawn.js'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   decidePermission,
   profileAllowsVaultWrite,
   profileAllowsWeb,
   WEB_TOOLS,
   WRITE_TOOLS,
+  type PermissionContext,
   type RunProfile,
 } from './permissions.js'
 import { createUpstreamGuard } from './upstream-guard.js'
@@ -66,6 +69,17 @@ export interface AgentRunResult {
   readonly error?: string
   /** True when the timeout fired rather than the agent finishing. */
   readonly timedOut: boolean
+  /**
+   * The parsed structured result when the run asked for one (`outputFormat`) and the SDK
+   * delivered it. Absent on failure and on runs without a schema.
+   */
+  readonly structuredOutput?: unknown
+  /**
+   * The SDK's usage responses sampled at the start and at the end of the run (docs/agents
+   * SPEC.md section 8.3), raw; the usage monitor parses them. Either may be missing when the
+   * SDK could not answer.
+   */
+  readonly planUsage?: { readonly before?: unknown; readonly after?: unknown }
 }
 
 export interface AgentAuth {
@@ -110,9 +124,95 @@ export interface RunAgentOptions {
    * registry (SPEC.md §12.4). Ignored for `query`, which must stay read-only and minimal.
    */
   readonly systemPromptExtra?: string
+  /**
+   * The expand lock for a `research-expand` run (docs/sources/SPEC.md section 8.2): the pages it
+   * may edit and how many it may create. Absent for every other kind of run, which keeps an
+   * ordinary ingest free to rewrite a page - that is what an ingest does.
+   *
+   * The run's own set of created pages is built here, per run, so the cap counts THIS run.
+   */
+  readonly expand?: { readonly pageSet: readonly string[]; readonly maxNew: number }
+  /**
+   * Pins the run to one model (SDK model id such as `claude-sonnet-5`). A Fellow's model
+   * applies to all of its runs (docs/agents/SPEC.md section 7); omitted = the CLI default.
+   */
+  readonly model?: string
+  /** Reasoning effort for the run; omitted = the CLI default. */
+  readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /**
+   * Hard stop in USD against the SDK's client-side list-price estimate (the same number
+   * `total_cost_usd` reports). The run ends with `error_max_budget_usd` when reached.
+   */
+  readonly maxBudgetUsd?: number
+  /**
+   * A JSON schema the final answer must satisfy (SDK structured output). The result then
+   * carries `structuredOutput`; the caller still validates it, the schema binds the model,
+   * not the service (docs/tasks/TASKS-A1.md D3).
+   */
+  readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
+  /**
+   * Plan utilization sampling (section 8.3): when set, the run asks the SDK's experimental
+   * `usage()` once the session is up and once the result is in, and hands both answers
+   * here (and to the result). `onRateLimit` receives every `rate_limit_event`'s info.
+   */
+  readonly onPlanUsage?: (phase: 'before' | 'after', response: unknown) => void
+  readonly onRateLimit?: (info: unknown) => void
+  /**
+   * How often the plan windows are re-sampled during the run. The SDK's usage data comes
+   * from the API's rate-limit headers, read when a response completes: the samples before
+   * that carry no windows (the SDK streams a response as several assistant messages, one
+   * per content block), and the session is gone with the result message. The runner
+   * therefore samples on assistant messages until one carries windows (the "before"), then
+   * every so often and always on a text-only one (the final answer of a run has no tool
+   * call); the last sample is the "after". Tests pass 0 to sample every message.
+   */
+  readonly usageSampleEveryMs?: number
 }
 
 export const EMPTY_USAGE: AgentUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
+
+/** How long a usage sample may take before the run goes on without it. */
+const USAGE_SAMPLE_TIMEOUT_MS = 8_000
+
+/** Asks the SDK for its usage data, guarded: an SDK without the method, or one that stalls, yields undefined. */
+const DEFAULT_USAGE_SAMPLE_EVERY_MS = 30_000
+
+const BEFORE_SAMPLE_TRIES = 6
+
+/** An assistant message without a tool call: the final answer of a run looks like this. */
+function isTextOnly(message: SDKMessage): boolean {
+  if (message.type !== 'assistant') return false
+  const content = (message as { message?: { content?: unknown } }).message?.content
+  if (!Array.isArray(content)) return false
+  return content.every((block) => (block as { type?: string }).type !== 'tool_use')
+}
+
+/** The SDK's end-of-turn note, sent just before the result: the last chance for a sample. */
+function isTurnSummary(message: SDKMessage): boolean {
+  return message.type === 'system' && (message as { subtype?: string }).subtype === 'post_turn_summary'
+}
+
+/** Whether a usage response carries plan windows (the SDK answers `rate_limits: null` before the first response completes). */
+function hasWindows(sample: unknown): boolean {
+  const limits = (sample as { rate_limits?: unknown } | null)?.rate_limits
+  return limits !== null && limits !== undefined && typeof limits === 'object' && Object.keys(limits as object).length > 0
+}
+
+async function sampleUsage(q: unknown): Promise<unknown> {
+  const fn = (q as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> }).usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
+  if (typeof fn !== 'function') return undefined
+  try {
+    return await Promise.race([
+      fn.call(q),
+      new Promise<undefined>((resolve) => {
+        const t = setTimeout(() => resolve(undefined), USAGE_SAMPLE_TIMEOUT_MS)
+        t.unref?.()
+      }),
+    ])
+  } catch {
+    return undefined
+  }
+}
 
 /** Pulls token counts out of the SDK usage shape without assuming optional fields exist. */
 function readUsage(usage: unknown, costUsd: number): AgentUsage {
@@ -157,12 +257,31 @@ export function buildOptions(
   spawnClaudeCodeProcess?: (options: SdkSpawnOptions) => SpawnedProcess,
 ): Options {
   const profile: RunProfile = opts.profile ?? 'ingest'
-  const ctx = {
+  const ctx: PermissionContext = {
     vaultRoot: opts.vaultRoot,
     profile,
     // Hard rule 5 at the tool level: plugin machinery and shipped doc pages are not
     // writable by any run. Constructed once per vault root (cached in the module).
     writeGuard: createUpstreamGuard(opts.vaultRoot).writeRefusalReason,
+    // A deepening run is additionally held to its page set and to insertions (section 8.2).
+    ...(opts.expand === undefined
+      ? {}
+      : {
+          expand: {
+            pageSet: opts.expand.pageSet,
+            maxNew: opts.expand.maxNew,
+            created: new Set<string>(),
+            exists: (rel: string) => fs.existsSync(path.join(opts.vaultRoot, rel)),
+            // For the frontmatter exception: the page as it stands before the edit.
+            read: (rel: string): string | undefined => {
+              try {
+                return fs.readFileSync(path.join(opts.vaultRoot, rel), 'utf8')
+              } catch {
+                return undefined
+              }
+            },
+          },
+        }),
   }
   // Web tools stay out of context unless this is a research run; a read-only query run
   // also drops the write tools so the model never even attempts a vault mutation.
@@ -186,6 +305,12 @@ export function buildOptions(
     plugins: [{ type: 'local', path: opts.vaultRoot }],
     // "This is the single place to turn skills on" (SDK docs).
     skills: 'all',
+    // Per-run model, effort and budget cap (Fellow runs); absent = CLI defaults.
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.effort ? { effort: opts.effort } : {}),
+    ...(opts.maxBudgetUsd !== undefined ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
+    // Schema-bound final answer (a Fellow's planning run).
+    ...(opts.outputFormat ? { outputFormat: { type: opts.outputFormat.type, schema: opts.outputFormat.schema } } : {}),
     // Resume a prior SDK session so query follow-ups keep context (SPEC.md §5). Ignored
     // (undefined) for a fresh run.
     ...(opts.resumeSessionId ? { resume: opts.resumeSessionId } : {}),
@@ -325,12 +450,50 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
     timedOut: false,
   }
 
+  const wantsUsage = opts.onPlanUsage !== undefined
+  const sampleEveryMs = opts.usageSampleEveryMs ?? DEFAULT_USAGE_SAMPLE_EVERY_MS
+  let usageBefore: unknown
+  let usageAfter: unknown
+  let sampledBefore = false
+  let beforeTries = 0
+  let lastSampleAt = 0
   try {
-    for await (const message of query({
+    const q = query({
       prompt: opts.prompt,
       options: buildOptions(opts, abortController, spawnHandle.spawn),
-    })) {
+    })
+    for await (const message of q) {
       opts.onMessage?.(message)
+
+      if (message.type === 'rate_limit_event') opts.onRateLimit?.((message as { rate_limit_info?: unknown }).rate_limit_info)
+
+      if (wantsUsage && (message.type === 'assistant' || isTurnSummary(message))) {
+        if (!sampledBefore) {
+          // The first completed API response of the session: the plan windows before the
+          // work. A sample without windows is too early; a few more tries, then give up.
+          beforeTries++
+          lastSampleAt = Date.now()
+          const sample = await sampleUsage(q)
+          if (sample !== undefined && hasWindows(sample)) {
+            sampledBefore = true
+            usageBefore = sample
+            opts.onPlanUsage?.('before', sample)
+          } else if (beforeTries >= BEFORE_SAMPLE_TRIES) {
+            sampledBefore = true
+            usageBefore = sample
+            if (sample !== undefined) opts.onPlanUsage?.('before', sample)
+          }
+        } else if (Date.now() - lastSampleAt >= sampleEveryMs || isTextOnly(message) || isTurnSummary(message)) {
+          // Re-sample as the work proceeds; the session is gone once the result arrives (the
+          // control request answers "Query closed" then), so the last of these is the "after".
+          lastSampleAt = Date.now()
+          const sample = await sampleUsage(q)
+          if (sample !== undefined) {
+            usageAfter = sample
+            opts.onPlanUsage?.('after', sample)
+          }
+        }
+      }
 
       if (message.type !== 'result') continue
 
@@ -349,6 +512,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
           numTurns: message.num_turns,
           sessionId: message.session_id,
           timedOut: false,
+          ...(message.structured_output !== undefined ? { structuredOutput: message.structured_output } : {}),
+          ...(usageBefore !== undefined || usageAfter !== undefined ? { planUsage: { ...(usageBefore !== undefined ? { before: usageBefore } : {}), ...(usageAfter !== undefined ? { after: usageAfter } : {}) } } : {}),
           ...(reachedModel
             ? {}
             : {
@@ -369,6 +534,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentRunResult> {
           sessionId: message.session_id,
           error: `agent run failed: ${message.subtype}`,
           timedOut: false,
+          ...(usageBefore !== undefined || usageAfter !== undefined ? { planUsage: { ...(usageBefore !== undefined ? { before: usageBefore } : {}), ...(usageAfter !== undefined ? { after: usageAfter } : {}) } } : {}),
         }
       }
     }

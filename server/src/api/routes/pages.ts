@@ -25,7 +25,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type { AppContext } from '../server.js'
-import { commitPaths } from '../../pipeline/git.js'
+import { commitPaths, type CommitResult } from '../../pipeline/git.js'
+import { WikiLockBusy, withWikiLock } from '../../pipeline/wiki-lock.js'
 import { Mutex } from '../../util/mutex.js'
 import type { GraphBuilder } from '../../pipeline/graph.js'
 import { validatePages, validateAddressMap, type ValidationFinding } from '../../pipeline/validator.js'
@@ -126,9 +127,32 @@ export function registerPagesRoute(app: FastifyInstance, ctx: AppContext, graph?
     const page = resolveWikiPage(config.vaultRoot, raw)
     if (!page.ok) return reply.code(page.status).send({ error: page.error })
 
-    // Check-and-write happens INSIDE the commit mutex so no agent commit (which also holds
-    // it) can land between the staleness check and the write.
-    const result = await commitMutex.runExclusive(async () => {
+    /*
+     * The lock stays OPTIONAL by contract (SPEC.md 12.4) - making it mandatory is an API
+     * change and would break every caller that does not send one. But a write to an existing
+     * page without it is an overwrite nobody checked, and `resolveWikiPage` has already
+     * refused anything that does not exist, so there is no create case to excuse it. Said out
+     * loud, because the one time this mattered it was invisible: a save without a current
+     * lock dropped four marks the service had written into the reading list, and the only
+     * trace was a Fellow being told the same thing twice, two nights later.
+     */
+    if (typeof body.baseMtime !== 'string') {
+      req.log.warn({ page: page.rel }, 'pages: write with no baseMtime - the optimistic lock was skipped, this overwrote whatever was there')
+    }
+
+    /*
+     * The vault's OWN per-file lock wraps all of it (`wiki-lock.ts`): the mtime check answers
+     * "did this page move since you loaded it", and this answers "is something writing it
+     * right now" - which no timestamp can, because an agent's write lands between our stat and
+     * our write without moving anything we looked at. Taken outside `commitMutex` and never
+     * inside it, so the foreign per-file lock and our global one always nest in that order.
+     */
+    let result: { conflict: string } | { mtime: string; commit: CommitResult | undefined }
+    try {
+      result = await withWikiLock(config.vaultRoot, page.rel, async () =>
+        // Check-and-write happens INSIDE the commit mutex so no agent commit (which also holds
+        // it) can land between the staleness check and the write.
+        commitMutex.runExclusive(async () => {
       const current = fs.statSync(page.real).mtime.toISOString()
       if (typeof body.baseMtime === 'string' && body.baseMtime !== current) {
         return { conflict: current }
@@ -137,8 +161,19 @@ export function registerPagesRoute(app: FastifyInstance, ctx: AppContext, graph?
       const commit = autoCommit()
         ? await commitPaths(config.vaultRoot, `edit: ${page.title}`, [page.rel])
         : undefined
-      return { mtime: fs.statSync(page.real).mtime.toISOString(), commit }
-    })
+          return { mtime: fs.statSync(page.real).mtime.toISOString(), commit }
+        }),
+      )
+    } catch (err) {
+      if (err instanceof WikiLockBusy) {
+        req.log.info({ page: page.rel }, 'pages: edit refused, an agent run holds the page')
+        return reply.code(409).send({
+          error: 'an agent run is writing this page right now - try again in a moment',
+          busy: true,
+        })
+      }
+      throw err
+    }
 
     if ('conflict' in result) {
       return reply.code(409).send({
@@ -192,10 +227,24 @@ export function registerPagesRoute(app: FastifyInstance, ctx: AppContext, graph?
       if (idx >= 0) staleLinks = g.nodes[idx]!.in
     }
 
-    const commit = await commitMutex.runExclusive(async () => {
-      fs.unlinkSync(page.real)
-      return autoCommit() ? await commitPaths(config.vaultRoot, `delete: ${page.title}`, [page.rel]) : undefined
-    })
+    let commit: CommitResult | undefined
+    try {
+      commit = await withWikiLock(config.vaultRoot, page.rel, async () =>
+        commitMutex.runExclusive(async () => {
+          fs.unlinkSync(page.real)
+          return autoCommit() ? await commitPaths(config.vaultRoot, `delete: ${page.title}`, [page.rel]) : undefined
+        }),
+      )
+    } catch (err) {
+      if (err instanceof WikiLockBusy) {
+        req.log.info({ page: page.rel }, 'pages: delete refused, an agent run holds the page')
+        return reply.code(409).send({
+          error: 'an agent run is writing this page right now - try again in a moment',
+          busy: true,
+        })
+      }
+      throw err
+    }
 
     // Deletion is not a manifest-aware operation (the tooling's documented gap): if the
     // deleted page was in `.raw/.manifest.json`'s address_map, its entry is stale as of this

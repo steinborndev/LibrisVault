@@ -55,12 +55,12 @@ export function useEvents(): { connected: boolean } {
 
     const onJob = (ev: MessageEvent): void => {
       const { job } = JSON.parse(ev.data) as Extract<BusEvent, { kind: 'job' }>
-      qc.invalidateQueries({ queryKey: ['jobs'] })
-      qc.invalidateQueries({ queryKey: ['job', job.id] })
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+      void qc.invalidateQueries({ queryKey: ['job', job.id] })
       // Every status TRANSITION refreshes stats (a handful per job, not per log line): the
       // topbar's activity badge is fed by stats.queue, so it must move when a job starts,
       // not only when it ends.
-      qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
     }
 
     const onLog = (ev: MessageEvent): void => {
@@ -73,24 +73,27 @@ export function useEvents(): { connected: boolean } {
     // flicker at worst.
     const onChat = (ev: MessageEvent): void => {
       const { chat } = JSON.parse(ev.data) as Extract<BusEvent, { kind: 'chat' }>
-      chatStream.append(chat.sessionId, chat.delta)
       // First-question streaming: the client subscribed under its request id, because the
       // session id only exists once the HTTP reply lands. Buffer under both keys.
-      if (chat.requestId !== undefined) chatStream.append(chat.requestId, chat.delta)
+      const keys = chat.requestId !== undefined ? [chat.sessionId, chat.requestId] : [chat.sessionId]
+      for (const key of keys) {
+        if (chat.retrieval !== undefined) chatStream.markRetrieval(key, chat.retrieval)
+        chatStream.append(key, chat.delta)
+      }
     }
 
     const onStats = (): void => {
-      qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
     }
 
     // Deliberately NOT invalidating ['page-full'] here: refetching an open page while the
     // user edits it would silently refresh `baseMtime` and defeat the optimistic lock -
     // a concurrent change must surface as a 409 on save, not vanish.
     const onVault = (): void => {
-      qc.invalidateQueries({ queryKey: ['graph'] })
+      void qc.invalidateQueries({ queryKey: ['graph'] })
       // An ingest rewrites `.raw/.manifest.json` as part of the same commit, so the
       // Library's provenance column goes stale with the graph, not separately.
-      qc.invalidateQueries({ queryKey: ['sources'] })
+      void qc.invalidateQueries({ queryKey: ['sources'] })
     }
 
     es.addEventListener('job', onJob)

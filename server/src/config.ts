@@ -98,6 +98,12 @@ export interface Config {
    * no Telegram, no maintenance scheduling. Runs without a credential by design.
    */
   readonly demoMode: boolean
+  /**
+   * Research agents extension (docs/agents/SPEC.md): `AGENTS_ENABLED=1` registers the
+   * Fellow routes and the notebook writer. Off by default so a merged LibrisVault behaves
+   * exactly as before. Optional so existing config fixtures need no change.
+   */
+  readonly agentsEnabled?: boolean
 }
 
 /** True for a loopback bind — the only bind allowed without an HTTP auth token (hard rule 2). */
@@ -110,6 +116,20 @@ export function isLoopbackHost(host: string): boolean {
  * mode with a token is active. Called at server startup, never silently weakened.
  */
 export function assertBindAllowed(server: ServerConfig): void {
+  /*
+   * Token mode without a token is refused whatever the bind (2026-09-08 review). It used to
+   * be reachable on loopback: the config only sets `authToken` when the variable is filled,
+   * the middleware then compares against `''`, and the hash of an empty string equals the
+   * hash of an empty string - so `Authorization: Bearer ` opened everything, while the
+   * startup line reported `httpAuth: token`. The bind guard below already caught the
+   * dangerous half; what was left was a service that looked protected and was not.
+   */
+  if (server.authMode === 'token' && (server.authToken?.length ?? 0) === 0) {
+    throw new ConfigError(
+      'HTTP_AUTH_MODE=token needs HTTP_AUTH_TOKEN: an empty token authenticates an empty ' +
+        'bearer header, which is no auth at all. Set the token, or leave HTTP_AUTH_MODE unset.',
+    )
+  }
   if (isLoopbackHost(server.host)) return
   if (server.authMode === 'token' && (server.authToken?.length ?? 0) > 0) return
   throw new ConfigError(
@@ -304,6 +324,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     ? ['true', '1', 'yes'].includes(parsed.data.WATCH_POLLING)
     : undefined
   const demoMode = ['true', '1', 'yes'].includes((merged['DEMO_MODE'] ?? '').trim().toLowerCase())
+  const agentsEnabled = ['true', '1', 'yes'].includes((merged['AGENTS_ENABLED'] ?? '').trim().toLowerCase())
   const server: ServerConfig = {
     host: parsed.data.HOST ?? DEFAULT_HOST,
     port: parsed.data.PORT ?? DEFAULT_PORT,
@@ -328,6 +349,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Config {
     server,
     telegram: parseTelegram(parsed.data.TELEGRAM_BOT_TOKEN, parsed.data.TELEGRAM_ALLOWED_USER_IDS),
     demoMode,
+    agentsEnabled,
   }
 }
 
@@ -340,7 +362,7 @@ export function requireAuth(config: Config): AuthConfig {
   throw new ConfigError(
     `no Anthropic credential configured. Set exactly one of ${CREDENTIAL_ENV_VARS.join(' or ')} ` +
       `(subscription path: run \`claude setup-token\` and store the token in ${DEFAULT_ENV_FILE}, ` +
-      `or start the service and enter it under Maintenance → Settings).`,
+      `or start the service and enter it under System → Integrations).`,
   )
 }
 
@@ -364,5 +386,6 @@ export function describeConfig(config: Config): Record<string, string> {
         `${config.telegram.allowedUserIds.length} allowlisted user(s)`
       : 'off',
     demoMode: config.demoMode ? 'on (read-only)' : 'off',
+    fellows: config.agentsEnabled ? 'on' : 'off',
   }
 }

@@ -1,0 +1,69 @@
+/**
+ * The domain section's mode and wing, remembered per screen (second sweep, chunk 3): "show all"
+ * is the default since 2026-09-16 - the flat list of every domain - and "by wing" the one room
+ * at a time. Whoever switched or walked to a room finds it again on the next load, so the
+ * default decides only what a screen nobody has touched opens on. The wing itself is derived
+ * from the rooms at hand, so a remembered room that no longer exists falls back to the first.
+ *
+ * One hook, two screens (`vault.domainMode.graph` and `.catalog`), separate keys: the choice
+ * is per screen, the default is not.
+ */
+
+import { useCallback, useState } from 'react'
+import { resolveWing, type WingGroup, type WingListMode } from '../lib/wings.ts'
+
+interface Stored {
+  readonly mode: WingListMode
+  readonly id: string | null
+}
+
+function load(key: string): Stored {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw === null) return { mode: 'all', id: null }
+    const p = JSON.parse(raw) as Partial<Stored>
+    // Only a stored 'wing' means "by wing": anything else - an older value, a truncated
+    // write, a hand-edited entry - falls to the default rather than to the other mode.
+    return { mode: p.mode === 'wing' ? 'wing' : 'all', id: typeof p.id === 'string' ? p.id : null }
+  } catch {
+    return { mode: 'all', id: null }
+  }
+}
+
+function save(key: string, value: Stored): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* private mode or full storage: the choice lives for the session */
+  }
+}
+
+export interface WingMode {
+  readonly mode: WingListMode
+  /** The room on show, or null in the flat list (or with no rooms at all). */
+  readonly wing: string | null
+  readonly setMode: (mode: WingListMode) => void
+  readonly setWing: (id: string) => void
+}
+
+export function useWingMode(storageKey: string, groups: readonly WingGroup[]): WingMode {
+  const [stored, setStored] = useState<Stored>(() => load(storageKey))
+  const setMode = useCallback(
+    (mode: WingListMode): void =>
+      setStored((s) => {
+        const next = { ...s, mode }
+        save(storageKey, next)
+        return next
+      }),
+    [storageKey],
+  )
+  const setWing = useCallback(
+    (id: string): void => {
+      const next = { mode: 'wing' as const, id }
+      save(storageKey, next)
+      setStored(next)
+    },
+    [storageKey],
+  )
+  return { mode: stored.mode, wing: resolveWing(stored.mode, stored.id, groups), setMode, setWing }
+}

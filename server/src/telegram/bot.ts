@@ -41,13 +41,14 @@ function defaultStagingDir(): string {
 
 const SETUP_MODE_REPLY =
   'The service is in setup mode — no Anthropic credential is configured yet, so nothing ' +
-  'can be ingested. Open the dashboard, add the credential under Maintenance → Settings, ' +
+  'can be ingested. Open the dashboard, add the credential under System → Integrations, ' +
   'and restart the service.'
 
 const HELP_REPLY =
   'Send me a file, a URL, or plain text to queue it for ingestion.\n' +
   'Commands:\n' +
   '/research <topic> — research a topic on the web and file it into the vault\n' +
+  'Recap answers (when Fellows are on): 1b runs a proposal tonight, veto 1b, skip 1, pause 1, resume 1, note 1: text\n' +
   '/status — service, queue and budget state\n' +
   '/jobs — the most recent jobs'
 
@@ -82,6 +83,12 @@ export interface StartTelegramBotOptions {
    * research, so it is injected rather than derived from the queue.
    */
   readonly startResearch?: (topic: string, onSettled: (run: MaintenanceRun) => void) => MaintenanceRun
+  /**
+   * The daily recap's answer path (docs/agents/SPEC.md section 9.3): given a text message,
+   * returns the reply when the text is an answer in the code grammar, or null so the bot
+   * treats it as a note to ingest. Absent without the research agents extension.
+   */
+  readonly recapAnswer?: (text: string) => Promise<string | null>
   readonly log?: LogFn
   /** Injected by tests. */
   readonly client?: TelegramClient
@@ -94,6 +101,11 @@ export interface StartTelegramBotOptions {
 export interface TelegramBot {
   /** Stops polling, flushes pending albums into the queue, resolves when fully down. */
   stop(): Promise<void>
+  /**
+   * Sends plain-text messages to every allowlisted user (a private chat id equals the user
+   * id): the daily recap's channel. Returns the chat ids every message reached.
+   */
+  broadcast(messages: readonly string[]): Promise<number[]>
 }
 
 export function startTelegramBot(options: StartTelegramBotOptions): TelegramBot {
@@ -429,6 +441,12 @@ export function startTelegramBot(options: StartTelegramBotOptions): TelegramBot 
       return reply(chatId, `Unknown command ${command}.\n\n${HELP_REPLY}`)
     }
 
+    // A recap answer (`1b`, `veto 2a`, `skip 1`, ...) is applied, never ingested. Checked
+    // before the setup-mode gate: answering needs no agent run.
+    if (options.recapAnswer !== undefined) {
+      const answered = await options.recapAnswer(text)
+      if (answered !== null) return reply(chatId, answered)
+    }
     if (!(await ingestAllowed(chatId))) return
     // A message that IS a URL (and nothing else) becomes a URL job, like a dropzone paste.
     if (/^https?:\/\/\S+$/i.test(text)) return handleUrl(chatId, text)
@@ -478,6 +496,23 @@ export function startTelegramBot(options: StartTelegramBotOptions): TelegramBot 
   log('info', `telegram bot polling started (${allowed.size} allowlisted user(s))`)
 
   return {
+    broadcast: async (messages): Promise<number[]> => {
+      const reached: number[] = []
+      for (const userId of allowed) {
+        let ok = true
+        for (const text of messages) {
+          try {
+            await client.sendMessage({ chatId: userId, text })
+          } catch (err) {
+            ok = false
+            log('warn', `broadcast to ${userId} failed: ${(err as Error).message}`)
+            break
+          }
+        }
+        if (ok) reached.push(userId)
+      }
+      return reached
+    },
     stop: async (): Promise<void> => {
       // Notifications first: unhook the bus and drop un-fired timers. A notification lost
       // to shutdown is the accepted gap (SPEC.md §4.3) — the job row keeps the truth.

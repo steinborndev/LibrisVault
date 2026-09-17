@@ -39,3 +39,21 @@ describe('assertBindAllowed (hard rule 2 / SPEC §9)', () => {
     ).not.toThrow()
   })
 })
+
+/*
+ * Token mode without a token (2026-09-08 review). The config only sets `authToken` when the
+ * variable is filled; the middleware then compared against '', and sha256('') === sha256(''),
+ * so `Authorization: Bearer ` authenticated. The bind guard caught the non-loopback half, and
+ * a loopback service reported `httpAuth: token` while being open.
+ */
+describe('token mode needs a token', () => {
+  const base = { host: '127.0.0.1', port: 8420, watchFolder: '/w', maxUploadBytes: 1, authMode: 'local-single-user' as const }
+
+  it('refuses to start whatever the bind, and refuses an empty expected token', () => {
+    expect(() => assertBindAllowed({ ...base, authMode: 'token' })).toThrow(/needs HTTP_AUTH_TOKEN/)
+    expect(() => assertBindAllowed({ ...base, host: '0.0.0.0', authMode: 'token' })).toThrow(/needs HTTP_AUTH_TOKEN/)
+    expect(() => assertBindAllowed({ ...base, authMode: 'token', authToken: 'secret' })).not.toThrow()
+    // The mode itself stays optional: without it, loopback is the documented default.
+    expect(() => assertBindAllowed(base)).not.toThrow()
+  })
+})

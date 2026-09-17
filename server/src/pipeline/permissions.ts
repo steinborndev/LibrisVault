@@ -34,6 +34,7 @@
 
 import path from 'node:path'
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk'
+import { isExemptPath, isSubsequence } from './expand.js'
 
 /** Web tools are hard-denied except in the `research` profile (SPEC.md §9, §6.4 autoresearch). */
 export const WEB_TOOLS = ['WebSearch', 'WebFetch'] as const
@@ -90,6 +91,31 @@ const BASH_DENY: ReadonlyArray<{ readonly pattern: RegExp; readonly why: string 
   },
 ]
 
+/**
+ * The expand lock (docs/sources/SPEC.md section 8.2): what a `research-expand` run may touch.
+ *
+ * The rules the prompt states are enforced here too, at tool time, because a prompt is a request
+ * and this is a decision. What it CANNOT see is a page written through Bash - deciding what an
+ * arbitrary shell string writes is not tractable (see the file header) - so the commit check and
+ * the revert stay exactly as they are, as the backstop for that and for anything else.
+ */
+export interface ExpandPolicy {
+  /** Vault-relative POSIX paths the run may edit; everything else is off limits. */
+  readonly pageSet: readonly string[]
+  /** How many pages it may create. */
+  readonly maxNew: number
+  /** The pages it HAS created, per run: the cap counts this run, not the vault. */
+  readonly created: Set<string>
+  /** Whether a vault-relative path exists; injected, so the decision stays testable. */
+  readonly exists: (rel: string) => boolean
+  /**
+   * The page as it stands right now, for the frontmatter exception: an edit is only frontmatter
+   * when its `old_string` really lies in the page's frontmatter block. Optional - without it the
+   * exception falls back to the SHAPE of the edit, which a body passage can imitate.
+   */
+  readonly read?: (rel: string) => string | undefined
+}
+
 export interface PermissionContext {
   /** Absolute, resolved vault root. */
   readonly vaultRoot: string
@@ -102,6 +128,131 @@ export interface PermissionContext {
    * denylist, this cannot cover Bash-written files; it is tool-level defense in depth.
    */
   readonly writeGuard?: (resolvedPath: string) => string | undefined
+  /**
+   * Set for a `research-expand` run only (section 8.2). Absent for every other run, which is why
+   * an ordinary ingest may still rewrite a page: rewriting is what ingest does.
+   */
+  readonly expand?: ExpandPolicy
+}
+
+/** The frontmatter keys an expand run may change (docs/agents/SPEC.md section 7). */
+const FRONTMATTER_EDITABLE = new Set(['updated', 'related', 'tags'])
+
+/** Non-empty lines, trimmed: the unit both this check and the commit check compare. */
+const editLines = (text: string): string[] => text.split('\n').map((l) => l.trim()).filter((l) => l !== '')
+
+/**
+ * The vault's `related:` footer, which the commit check does not compare (`bodyLines` filters it)
+ * and the prompt explicitly lets a run rewrite: the skill keeps it at the end of a page and
+ * rewrites it as links are added. The hook has to ignore the same line, or it refuses exactly
+ * what the rules block asks for.
+ */
+const isRelatedLine = (line: string): boolean => /^related:\s/i.test(line)
+
+/** The frontmatter block of a page, or undefined when it has none. */
+function frontmatterBlock(page: string): string | undefined {
+  if (!page.startsWith('---')) return undefined
+  const end = page.indexOf('\n---', 3)
+  return end === -1 ? undefined : page.slice(3, end)
+}
+
+/**
+ * Whether an edit that drops lines is nevertheless only changing the frontmatter fields the rules
+ * allow: a key line (`updated: ...`) or a list item under one, with every line that disappears
+ * belonging to `updated`, `related` or `tags`.
+ *
+ * `frontmatter` is the page's own block when it could be read, and then the edit has to lie
+ * INSIDE it - a passage of body text shaped like frontmatter (a `tags:` line and some bullets)
+ * is body text, and losing a line of it is the rewrite this rule exists to stop. Without the page
+ * the shape is all there is; the commit check still sees the body line and reverts, which is the
+ * safe way round for a hook to be imprecise.
+ */
+function frontmatterOnly(oldText: string, oldLines: readonly string[], newLines: readonly string[], frontmatter: string | undefined): boolean {
+  if (frontmatter !== undefined && !frontmatter.includes(oldText.trim())) return false
+  let key: string | undefined
+  for (const line of oldLines) {
+    const m = /^([A-Za-z_][\w-]*):/.exec(line)
+    if (m !== null) key = m[1]!.toLowerCase()
+    else if (!/^-\s/.test(line)) return false
+    if (newLines.includes(line)) continue
+    if (key === undefined || !FRONTMATTER_EDITABLE.has(key)) return false
+    // A key may change its value, never disappear: `updated:` has to still be there afterwards.
+    if (m !== null && !newLines.some((l) => l.toLowerCase().startsWith(`${key}:`))) return false
+  }
+  return true
+}
+
+/**
+ * Additivity for one edit (section 8.2 rule 4): every line the edit names must still be there
+ * afterwards. `isSubsequence` is the same function the commit check uses, over the same shape, so
+ * the hook cannot be stricter or laxer than the check that reverts a run.
+ */
+function additivityRefusal(edit: Record<string, unknown>, frontmatter: string | undefined): string | undefined {
+  if (edit['replace_all'] === true) {
+    return 'replace_all rewrites every occurrence of the text; insert instead, once, where it belongs'
+  }
+  const before = edit['old_string']
+  const after = edit['new_string']
+  if (typeof before !== 'string' || typeof after !== 'string') return 'an edit without old_string/new_string cannot be checked for additivity'
+  const oldLines = editLines(before)
+  const newLines = editLines(after)
+  // The `related:` footer is compared by neither side (see {@link isRelatedLine}).
+  const check = isSubsequence(oldLines.filter((l) => !isRelatedLine(l)), newLines.filter((l) => !isRelatedLine(l)))
+  if (check.ok) return undefined
+  if (frontmatterOnly(before, oldLines, newLines, frontmatter)) return undefined
+  return (
+    `this edit would remove "${check.missing.slice(0, 120)}" from the page. ` +
+    'insert instead of replacing; every existing line must survive (only `updated`, `related` and `tags` may change)'
+  )
+}
+
+/**
+ * The expand decision for one path (section 8.2). Returns a refusal reason, or undefined to allow.
+ * The page set is the run's own; bookkeeping pages and anything outside `wiki/` are exempt, the
+ * same set the commit check exempts.
+ */
+function expandRefusal(policy: ExpandPolicy, rel: string, toolName: string, input: Record<string, unknown>): string | undefined {
+  if (isExemptPath(rel)) return undefined
+  /*
+   * A page THIS run created is its own: it may finish it, link into it, rewrite it. The commit
+   * check asks nothing of a new page's content either - it only counts them - and a hook stricter
+   * than the check that reverts is a refusal the run cannot satisfy, which leaves it Bash, the one
+   * write nothing here can see. Measured in review: a run that filed a source it cited could not
+   * then put a wikilink in it.
+   */
+  if (policy.created.has(rel)) return undefined
+  if (policy.pageSet.includes(rel)) {
+    if (toolName === 'Write') {
+      return `rewriting a listed page is not additive; use Edit and insert (${rel})`
+    }
+    if (toolName === 'NotebookEdit') return `a notebook edit cannot be checked for additivity (${rel})`
+    // MultiEdit carries several edits; one that fails refuses the whole call.
+    const page = policy.read?.(rel)
+    const frontmatter = page === undefined ? undefined : frontmatterBlock(page)
+    const edits = input['edits']
+    if (Array.isArray(edits)) {
+      for (const edit of edits) {
+        const reason = additivityRefusal((edit ?? {}) as Record<string, unknown>, frontmatter)
+        if (reason !== undefined) return reason
+      }
+      return undefined
+    }
+    return additivityRefusal(input, frontmatter)
+  }
+  // Not listed and not this run's own: a NEW page is the one thing allowed here, up to the cap.
+  if (toolName !== 'Write' || policy.exists(rel)) {
+    return `${rel} is outside the page set this run was given; leave a note in your notebook instead`
+  }
+  if (policy.created.size >= policy.maxNew) {
+    return `the run may create at most ${policy.maxNew} new pages, and has already created ${policy.created.size}`
+  }
+  /*
+   * Recorded here, as a side effect of the decision: a hook is asked BEFORE the tool runs and is
+   * never told how it went, so a Write that is allowed and then fails still spends one of the
+   * three. The cap is a ceiling, not an accountant.
+   */
+  policy.created.add(rel)
+  return undefined
 }
 
 /** True when `candidate` is inside `root` (or is `root` itself). */
@@ -228,6 +379,12 @@ export function decidePermission(
       if (reason !== undefined) {
         return { behavior: 'deny', message: `Refused: ${reason}` }
       }
+    }
+    // And a deepening run is held to its page set and to insertions (section 8.2).
+    if (isWriteTool && ctx.expand !== undefined) {
+      const rel = path.relative(ctx.vaultRoot, resolved).split(path.sep).join('/')
+      const reason = expandRefusal(ctx.expand, rel, toolName, input)
+      if (reason !== undefined) return { behavior: 'deny', message: `Refused: ${reason}` }
     }
   }
 

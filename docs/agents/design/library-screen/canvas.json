@@ -1,0 +1,129 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · main room"
+    },
+    {
+      "file": "Wing.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · Wing A, dragging a shelf"
+    },
+    {
+      "file": "Night.dc.html",
+      "x": 0,
+      "y": 1060,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · night shift"
+    },
+    {
+      "file": "Focus.dc.html",
+      "x": 1560,
+      "y": 1060,
+      "w": 1440,
+      "h": 900,
+      "title": "Library · focus mode in Wing A"
+    },
+    {
+      "file": "Card.dc.html",
+      "x": 0,
+      "y": 2120,
+      "w": 1440,
+      "h": 1200,
+      "title": "Library · Fellow card docked"
+    },
+    {
+      "file": "Rooms.dc.html",
+      "x": 1560,
+      "y": 2120,
+      "w": 1440,
+      "h": 1180,
+      "title": "Rooms · one room per view"
+    },
+    {
+      "file": "Textures.dc.html",
+      "x": 0,
+      "y": 3460,
+      "w": 1440,
+      "h": 1180,
+      "title": "Textures · Archive chosen"
+    },
+    {
+      "file": "Sprites.dc.html",
+      "x": 1560,
+      "y": 3460,
+      "w": 1440,
+      "h": 760,
+      "title": "Figures · style A"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -150,
+      "w": 520,
+      "text": "Library screen, round 6 (SPEC section 10).\nOne room per view on a shared 23 by 11 grid, the door in the middle of the long wall. Main room: four favorite slots, fireplace with armchairs, desks with computers, front desk with the intake cart, catalog, one door to the wings."
+    },
+    {
+      "id": "wing-note",
+      "x": 1560,
+      "y": -110,
+      "w": 480,
+      "text": "Wing A: three shelves, the door, three shelves on the long wall; three, the passage, three in the middle, all facing you. A shelf is being dragged onto Wing B in the room strip; its slot shows as a dashed outline."
+    },
+    {
+      "id": "night-note",
+      "x": 0,
+      "y": 960,
+      "w": 420,
+      "text": "Night shift in the main room: the fire and two desk lamps are the light; three Fellows sleep by the fire, Ibra waits at the front desk while Ada runs."
+    },
+    {
+      "id": "focus-note",
+      "x": 1560,
+      "y": 960,
+      "w": 480,
+      "text": "Focus mode followed Ada into Wing A: the tabs stay, the strip shrinks to the top, the popover is the only other chrome."
+    },
+    {
+      "id": "card-note",
+      "x": 0,
+      "y": 2020,
+      "w": 420,
+      "text": "Card docked right per DESIGN.md; at this size the tiles drop below 34 px and the signs leave the shelves."
+    },
+    {
+      "id": "rooms-note",
+      "x": 1560,
+      "y": 2020,
+      "w": 520,
+      "text": "Rooms: the paging model, capacity, free slots, automatic placement and drag and drop, with the two rooms as thumbnails."
+    },
+    {
+      "id": "textures-note",
+      "x": 0,
+      "y": 3360,
+      "w": 420,
+      "text": "Archive preset chosen (F3 stone, W2 panels, S3 walnut)."
+    },
+    {
+      "id": "figures-note",
+      "x": 1560,
+      "y": 3360,
+      "w": 420,
+      "text": "Style A, no faces (decided)."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

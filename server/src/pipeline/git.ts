@@ -439,3 +439,102 @@ export async function discardUntrackedDir(vaultRoot: string, relDir: string): Pr
   fs.rmSync(abs, { recursive: true, force: true })
   return true
 }
+
+/**
+ * The current commit, or null when the vault is not a repository or has no commit yet.
+ *
+ * Read before and after an agent run: the run's work is whatever moved HEAD, whoever
+ * committed it. The service commits what the agent left dirty, but the vault's own skill
+ * sometimes commits first, and then the service's commit finds a clean tree and reports
+ * nothing (see `runOne`).
+ */
+export async function headHash(vaultRoot: string): Promise<string | null> {
+  try {
+    const out = (await git(vaultRoot, ['rev-parse', 'HEAD'])).trim()
+    return out === '' ? null : out
+  } catch {
+    return null
+  }
+}
+
+/** What one commit did to each path: added, modified or deleted (the recap's created/updated split). */
+export async function commitFileStatus(vaultRoot: string, hash: string, from?: string): Promise<Map<string, 'A' | 'M' | 'D'>> {
+  const out = new Map<string, 'A' | 'M' | 'D'>()
+  try {
+    // With `from`, the run produced a RANGE of commits rather than one: the net effect of
+    // `from..hash` is what it did, and `diff` reports it in the same shape as `show`.
+    /*
+     * NUL-separated, like every other listing in this file, and not as lines: git quotes a path
+     * that carries a non-ASCII character and escapes its bytes, and the quoted text handed back
+     * to git as a pathspec matches nothing. That is how the revert of an expand run failed on a
+     * page whose name held a dash (2026-09-17), leaving the run's commit in the vault. The
+     * records are `status\0path\0`, and `R<score>\0old\0new\0` for a rename.
+     */
+    const stdout =
+      from === undefined
+        ? await git(vaultRoot, ['show', '--name-status', '-z', '--format=', '-M', hash])
+        : await git(vaultRoot, ['diff', '--name-status', '-z', '-M', from, hash])
+    const parts = stdout.split('\0')
+    for (let k = 0; k < parts.length; k++) {
+      const status = parts[k]!.replace(/^\s+/, '')
+      if (!/^[AMDR]/.test(status)) continue
+      // A rename is a deletion of the old path plus an addition of the new one: the expand
+      // validator must see the old page go (a rename is a violation), and a restore must
+      // bring it back while removing the new path.
+      if (status.startsWith('R')) {
+        const oldPath = parts[++k]
+        const newPath = parts[++k]
+        if (oldPath) out.set(oldPath, 'D')
+        if (newPath) out.set(newPath, 'A')
+      } else {
+        const p = parts[++k]
+        if (p) out.set(p, status.charAt(0) as 'A' | 'M' | 'D')
+      }
+    }
+  } catch {
+    /* an unknown or unreadable commit reports nothing; the caller falls back to "touched" */
+  }
+  return out
+}
+
+/** A file's content at a revision (`git show rev:path`), or null when the revision lacks it. */
+export async function readAtRevision(vaultRoot: string, rev: string, relPath: string): Promise<string | null> {
+  try {
+    return await gitRead(vaultRoot, ['show', `${rev}:${relPath}`])
+  } catch {
+    return null
+  }
+}
+
+export interface RestoreResult {
+  readonly reverted: boolean
+  /** The NEW commit that undoes the original (present only on success). */
+  readonly hash?: string
+  readonly message?: string
+}
+
+/**
+ * Undoes one commit by restoring every path it touched to the parent's state and committing
+ * that as a NEW commit (docs/tasks/TASKS-A3.md D3): modified and deleted files come back
+ * from the parent, added files are removed. Unlike `revertCommit` it does not need a clean
+ * tree, because right after an agent run the tree holds the run's untracked leftovers; it
+ * touches only the commit's own paths. Callers MUST hold the shared commit mutex.
+ */
+export async function restoreCommitPaths(vaultRoot: string, hash: string, message: string, from?: string): Promise<RestoreResult> {
+  const status = await commitFileStatus(vaultRoot, hash, from)
+  if (status.size === 0) return { reverted: false, message: `no such commit, or an empty one: ${hash}` }
+  const parent = from ?? `${hash}^`
+  const added = [...status].filter(([, s]) => s === 'A').map(([p]) => p)
+  const restored = [...status].filter(([, s]) => s !== 'A').map(([p]) => p)
+  try {
+    if (restored.length > 0) await git(vaultRoot, ['checkout', parent, '--', ...restored])
+    if (added.length > 0) await git(vaultRoot, ['rm', '-q', '-f', '--ignore-unmatch', '--', ...added])
+    const staged = await git(vaultRoot, ['diff', '--cached', '--name-only'])
+    if (staged.trim() === '') return { reverted: false, message: `nothing to undo: ${hash.slice(0, 8)} leaves no difference to its parent` }
+    await git(vaultRoot, [...AUTHOR_ARGS, 'commit', '--no-verify', '-m', message])
+    const newHash = (await git(vaultRoot, ['rev-parse', 'HEAD'])).trim()
+    return { reverted: true, hash: newHash }
+  } catch (err) {
+    return { reverted: false, message: `restore of ${hash.slice(0, 8)} failed: ${(err as Error).message.split('\n')[0]}` }
+  }
+}

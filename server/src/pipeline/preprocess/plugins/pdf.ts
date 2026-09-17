@@ -14,7 +14,8 @@ import path from 'node:path'
 import type { PreprocessPlugin, Probe, NormalizeContext, NormalizeResult } from '../types.js'
 import { PreprocessError } from '../types.js'
 import { isPdf } from '../detect.js'
-import { runTool } from '../tools.js'
+import { fenceWithWarnings } from '../fence.js'
+import { runConverter } from '../sandbox.js'
 
 /** Below this many chars/page the text layer is assumed missing and OCR kicks in. */
 const OCR_YIELD_THRESHOLD = 100
@@ -47,22 +48,37 @@ export function ocrTimeoutMs(pages: number): number {
   return Math.min(OCR_TIMEOUT_MAX_MS, OCR_TIMEOUT_BASE_MS + Math.max(0, pages) * OCR_TIMEOUT_PER_PAGE_MS)
 }
 
-async function pageCount(pdfPath: string, hasPdfinfo: boolean): Promise<number> {
+/**
+ * What `pdfinfo` knows that matters here: the page count (for the OCR decision) and the title.
+ *
+ * The title is kept for the quote check: a run that quotes the document's title is quoting the
+ * document, but `pdftotext` puts a title page's words wherever the layout had them, so the title
+ * as a phrase is often not in the extraction (docs/sources/SPEC.md 7.6).
+ */
+async function pdfFacts(pdfPath: string, hasPdfinfo: boolean): Promise<{ pages: number; title?: string }> {
   if (hasPdfinfo) {
     try {
-      const { stdout } = await runTool('pdfinfo', [pdfPath], { timeoutMs: 30_000 })
-      const m = stdout.match(/^Pages:\s+(\d+)/m)
-      if (m) return Math.max(1, Number(m[1]))
+      const { stdout } = await runConverter('pdfinfo', [pdfPath], { reads: [pdfPath], timeoutMs: 30_000 })
+      const pages = stdout.match(/^Pages:\s+(\d+)/m)
+      const title = stdout.match(/^Title:\s+(.+)$/m)?.[1]?.trim()
+      return {
+        pages: pages === null ? 1 : Math.max(1, Number(pages[1])),
+        ...(title !== undefined && title !== '' ? { title } : {}),
+      }
     } catch {
       // fall through to the form-feed estimate
     }
   }
-  return 1
+  return { pages: 1 }
 }
 
 async function extract(pdfPath: string, outPath: string): Promise<string> {
   // -layout keeps columns/tables readable; -enc UTF-8 avoids latin1 mojibake.
-  await runTool('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, outPath], { timeoutMs: 120_000 })
+  await runConverter('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, outPath], {
+    reads: [pdfPath],
+    writes: path.dirname(outPath),
+    timeoutMs: 120_000,
+  })
   return fs.readFileSync(outPath, 'utf8')
 }
 
@@ -82,7 +98,8 @@ export const pdfPlugin: PreprocessPlugin = {
     const notes: string[] = []
 
     let text = await extract(src, outPath)
-    const pages = await pageCount(src, ctx.tools.pdfinfo)
+    const facts = await pdfFacts(src, ctx.tools.pdfinfo)
+    const pages = facts.pages
     // A form-feed per page is what pdftotext emits; use it when pdfinfo was unavailable.
     const estPages = ctx.tools.pdfinfo ? pages : Math.max(pages, (text.match(/\f/g)?.length ?? 0) + 1)
     const yieldPerPage = text.trim().length / estPages
@@ -109,7 +126,9 @@ export const pdfPlugin: PreprocessPlugin = {
         const timeoutMs = ocrTimeoutMs(estPages)
         // --force-ocr rasterizes and re-OCRs even pages that carry a thin/garbage text
         // layer, which is exactly the low-yield case that got us here.
-        await runTool('ocrmypdf', ['--force-ocr', '--language', 'deu+eng', src, ocrPdf], {
+        await runConverter('ocrmypdf', ['--force-ocr', '--language', 'deu+eng', src, ocrPdf], {
+          reads: [src],
+          writes: ctx.jobDir,
           timeoutMs,
         })
         text = await extract(ocrPdf, outPath)
@@ -121,11 +140,26 @@ export const pdfPlugin: PreprocessPlugin = {
       }
     }
 
+    /*
+     * The extraction is the document, written by whoever wrote the PDF, so the artifact the
+     * agent reads says so (docs/sources/SPEC.md section 4). The fence goes on LAST: the yield
+     * test above measures the document, not the service's own framing of it.
+     */
+    const fenced = fenceWithWarnings({
+      title: ctx.probe.originalName,
+      source: ctx.probe.originalName,
+      kind: 'pdf',
+      text,
+    })
+    fs.writeFileSync(outPath, fenced.text, 'utf8')
+
     return {
       normalizedPath: outPath,
       normalizedChars: text.trim().length,
       ocrApplied,
+      ...(facts.title !== undefined ? { title: facts.title } : {}),
       notes,
+      ...(fenced.warnings.length > 0 ? { warnings: fenced.warnings } : {}),
     }
   },
 }

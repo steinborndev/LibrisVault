@@ -44,6 +44,18 @@ export function pageRoute(pagePath: string): string {
   return `/page/${pagePath.split('/').map(encodeURIComponent).join('/')}`
 }
 
+/** The route for one wiki page read inside the Catalog tab (second sweep, chunk 2). */
+export function catalogPageRoute(pagePath: string): string {
+  return `/catalog/page/${pagePath.split('/').map(encodeURIComponent).join('/')}`
+}
+
+/** Inverse of catalogPageRoute: the page the Catalog is reading, or null when it shows its list. */
+export function catalogPageFromPath(path: string): string | null {
+  const prefix = '/catalog/page/'
+  if (!path.startsWith(prefix)) return null
+  return path.slice(prefix.length).split('/').map(decodeURIComponent).join('/')
+}
+
 /** Inverse of pageRoute: the vault-relative page path, or null if not a page route. */
 export function pageFromPath(path: string): string | null {
   // `/vault/page/…` is the pre-redesign route - old bookmarks and PWA shortcuts carry it.

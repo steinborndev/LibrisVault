@@ -48,5 +48,6 @@ export function tokens(n: number | null): string {
 
 export function usd(n: number | null): string {
   if (n === null || n === undefined) return '-'
-  return `$${n.toFixed(n < 1 ? 3 : 2)}`
+  // Two decimals whatever the size: a third one read as precision the estimate does not have.
+  return `$${n.toFixed(2)}`
 }

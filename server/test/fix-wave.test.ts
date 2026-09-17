@@ -202,7 +202,8 @@ describe('pinnedRequest (SSRF fix: the socket goes to the validated address, not
   it('connects to the pinned address while keeping the original Host header', async () => {
     const res = await pinnedRequest(pinned('/'), 5000, 1024 * 1024)
     expect(res.status).toBe(200)
-    expect(res.body).toBe(`host=pinned-host.invalid:${port}`)
+    // Bytes since the PDF lane needs them (docs/sources/SPEC.md 2.1); the HTML lane decodes.
+    expect(res.body.toString('utf8')).toBe(`host=pinned-host.invalid:${port}`)
   })
 
   it('surfaces redirects for per-hop re-validation instead of following them', async () => {

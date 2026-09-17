@@ -37,6 +37,9 @@ function makeJob(over: Partial<JobRow> = {}): JobRow {
     reverted_at: null,
     duplicate_of: null,
     outcome: null,
+    hold: null,
+    night_released_at: null,
+    validation: null,
     ...over,
   }
 }

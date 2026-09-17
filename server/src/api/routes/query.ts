@@ -39,7 +39,7 @@ export function registerQueryRoute(app: FastifyInstance, ctx: AppContext): void 
     const auth = config.auth
     if (auth === null) {
       return reply.code(503).send({
-        error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+        error: 'no Anthropic credential configured: add it under System → Integrations, then restart',
       })
     }
     const body = (req.body ?? {}) as { question?: unknown; sessionId?: unknown; requestId?: unknown }
@@ -107,8 +107,15 @@ export function registerQueryRoute(app: FastifyInstance, ctx: AppContext): void 
         // Operational visibility for the service-side read path (SPEC.md §12.6): which retrieval
         // tier actually engaged (`bm25-only` vs `bm25+rerank:…`) and how many pages it pointed
         // the agent at. Logged, never returned — it says nothing the caller needs.
-        onRetrieval: ({ count, strategy }) =>
-          app.log.info(`[query] retrieval: ${count} page(s), strategy=${strategy ?? 'none'}`),
+        onRetrieval: ({ count, strategy }) => {
+          app.log.info(`[query] retrieval: ${count} page(s), strategy=${strategy ?? 'none'}`)
+          // The same fact for the client's activity box: the one marker of the phase before
+          // any answer text exists. Advisory like the deltas - the answer of record is below.
+          events.publish({
+            kind: 'chat',
+            chat: { sessionId: session.id, ...(requestId !== undefined ? { requestId } : {}), delta: '', retrieval: { count, strategy } },
+          })
+        },
         ...(session.sdk_session_id ? { resumeSessionId: session.sdk_session_id } : {}),
       })
     } finally {
@@ -193,7 +200,7 @@ export function registerQueryRoute(app: FastifyInstance, ctx: AppContext): void 
   app.post('/api/v1/sessions/:id/save', async (req, reply) => {
     if (config.auth === null) {
       return reply.code(503).send({
-        error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+        error: 'no Anthropic credential configured: add it under System → Integrations, then restart',
       })
     }
     const { id } = req.params as { id: string }

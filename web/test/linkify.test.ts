@@ -23,6 +23,21 @@ describe('linkifyText — URLs', () => {
     ])
   })
 
+  it('links an address written without its scheme, as https, when it carries a path', () => {
+    // A source page cites its further reading as `publisher.example/posts/an-article`; the
+    // reader should be one click from it. Closing parentheses and sentence punctuation stay out.
+    const nodes = linkifyText('Publisher - "An article" (publisher.example/posts/an-article).', 'k')
+    const a = nodes.find((n) => typeof n === 'object' && n !== null && 'props' in n) as { props: { href: string; children: string } }
+    expect(a.props.href).toBe('https://publisher.example/posts/an-article')
+    expect(a.props.children).toBe('publisher.example/posts/an-article')
+    expect(nodes.at(-1)).toBe(').')
+  })
+
+  it('leaves a dotted name without a path alone: a file, not an address', () => {
+    expect(linkifyText('staged .raw/01ABC/manifest.json and wiki/index.md', 'k')).toEqual(['staged .raw/01ABC/manifest.json and wiki/index.md'])
+    expect(linkifyText('see styles.css, then package.json', 'k')).toEqual(['see styles.css, then package.json'])
+  })
+
   it('does not swallow trailing sentence punctuation', () => {
     expect(hrefs(linkifyText('at https://example.com/page.', 'k'))).toEqual([
       'https://example.com/page',
@@ -36,22 +51,22 @@ describe('linkifyText — URLs', () => {
 
 describe('linkifyText — patent numbers', () => {
   it('links the compact form the vault uses', () => {
-    const nodes = linkifyText('cf. US8691748B2 and DE102016100455A1', 'k')
+    const nodes = linkifyText('cf. US7000001B2 and DE102099000123A1', 'k')
     expect(hrefs(nodes)).toEqual([
-      espacenetUrl('US8691748B2'),
-      espacenetUrl('DE102016100455A1'),
+      espacenetUrl('US7000001B2'),
+      espacenetUrl('DE102099000123A1'),
     ])
-    expect(anchorText(nodes)).toEqual(['US8691748B2', 'DE102016100455A1'])
+    expect(anchorText(nodes)).toEqual(['US7000001B2', 'DE102099000123A1'])
   })
 
   it('strips grouping commas when building the Espacenet number', () => {
-    expect(hrefs(linkifyText('US9,526,637B2', 'k'))).toEqual([espacenetUrl('US9526637B2')])
+    expect(hrefs(linkifyText('US7,000,002B2', 'k'))).toEqual([espacenetUrl('US7000002B2')])
   })
 
   it('handles application publications and WO numbers', () => {
-    expect(hrefs(linkifyText('US20230077899A1 / WO2015057941A1', 'k'))).toEqual([
-      espacenetUrl('US20230077899A1'),
-      espacenetUrl('WO2015057941A1'),
+    expect(hrefs(linkifyText('US20990012345A1 / WO2099012345A1', 'k'))).toEqual([
+      espacenetUrl('US20990012345A1'),
+      espacenetUrl('WO2099012345A1'),
     ])
   })
 
@@ -70,10 +85,10 @@ describe('linkifyText — patent numbers', () => {
 
 describe('linkifyText — mixed', () => {
   it('links a URL and a patent in the same text', () => {
-    const nodes = linkifyText('src https://patents.example/US1 covers US8691748B2', 'k')
+    const nodes = linkifyText('src https://patents.example/US1 covers US7000001B2', 'k')
     expect(hrefs(nodes)).toEqual([
       'https://patents.example/US1',
-      espacenetUrl('US8691748B2'),
+      espacenetUrl('US7000001B2'),
     ])
   })
 })

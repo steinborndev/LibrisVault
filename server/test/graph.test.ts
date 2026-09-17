@@ -74,7 +74,7 @@ describe('GraphBuilder', () => {
   })
 
   it('parseFrontmatterMeta handles absence and malformed frontmatter', () => {
-    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [] }
+    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null }
     expect(parseFrontmatterMeta('no frontmatter')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ntags:\n---\nbody')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ndomain:\n---\nbody')).toEqual(empty)
@@ -86,6 +86,21 @@ describe('GraphBuilder', () => {
     const meta = parseFrontmatterMeta('---\ntitle: "Does it work?"\naliases:\n  - "The Q"\n---\nbody')
     expect(meta.title).toBe('Does it work?')
     expect(meta.aliases).toEqual(['The Q'])
+
+    /*
+     * The address a page states for itself, in the two spellings the vault has. An ingest
+     * writes `url:` and puts the stored copy in `sources:`; a research run has no stored
+     * copy and writes the address into `sources:` directly.
+     */
+    expect(parseFrontmatterMeta('---\nurl: "https://example.org/a"\n---\nb').url).toBe('https://example.org/a')
+    expect(parseFrontmatterMeta('---\nsources:\n  - "https://example.org/b"\n---\nb').url).toBe('https://example.org/b')
+    // `url:` leads when both are there: `sources:` may hold the stored copy instead.
+    expect(parseFrontmatterMeta('---\nurl: "https://a.test/x"\nsources:\n  - "[[.raw/j1/raw.html]]"\n---\nb').url).toBe('https://a.test/x')
+    // Only links to follow. A DOI, an archive path and a wikilink are none of them.
+    expect(parseFrontmatterMeta('---\nurl: "10.1016/j.onano.2026.100319"\n---\nb').url).toBeNull()
+    expect(parseFrontmatterMeta('---\nsources:\n  - "[[.raw/j1/raw.html]]"\n---\nb').url).toBeNull()
+    // `sources:` is read as a block, so a list somewhere ABOVE it is not mistaken for one.
+    expect(parseFrontmatterMeta('---\ntags:\n  - "https://not-a-source.test/"\nsources:\n  - "[[x]]"\n---\nb').url).toBeNull()
     expect(parseFrontmatterMeta('---\naliases: [A, "B"]\n---\nbody').aliases).toEqual(['A', 'B'])
   })
 
@@ -136,9 +151,9 @@ describe('GraphBuilder', () => {
   })
 
   it('aggregates unresolved targets into ranked gaps grouped case-insensitively', () => {
-    page('wiki/concepts/A.md', 'wants [[Pharmacokinetics]] and [[Zeta Potential]]')
-    page('wiki/concepts/B.md', 'also [[pharmacokinetics]] here') // same gap, different case
-    page('wiki/concepts/C.md', 'again [[Pharmacokinetics]] plus a dupe [[Pharmacokinetics]]')
+    page('wiki/concepts/A.md', 'wants [[Photosynthesis]] and [[Lattice Creep]]')
+    page('wiki/concepts/B.md', 'also [[photosynthesis]] here') // same gap, different case
+    page('wiki/concepts/C.md', 'again [[Photosynthesis]] plus a dupe [[Photosynthesis]]')
     const g = new GraphBuilder(vaultRoot).build()
     const byTitle = new Map(g.nodes.map((n, i) => [n.title, i]))
 
@@ -146,12 +161,12 @@ describe('GraphBuilder', () => {
     expect(g.gaps).toHaveLength(2)
 
     const pk = g.gaps[0]! // most-referenced first
-    expect(pk.title).toBe('Pharmacokinetics') // first-written casing
+    expect(pk.title).toBe('Photosynthesis') // first-written casing
     // refBy is deduped per page (C links twice but appears once) and holds node indices.
     expect(pk.refBy.map((i) => g.nodes[i]!.title).sort()).toEqual(['A', 'B', 'C'])
     expect(pk.refBy).toContain(byTitle.get('A'))
 
-    expect(g.gaps[1]!.title).toBe('Zeta Potential')
+    expect(g.gaps[1]!.title).toBe('Lattice Creep')
     expect(g.gaps[1]!.refBy).toHaveLength(1)
   })
 
@@ -287,22 +302,22 @@ describe('GraphBuilder', () => {
 
   it('resolves links via frontmatter title and aliases when the basename differs', () => {
     // Filenames drop filesystem-hostile characters that links keep: the vault files
-    // "…work?" as "…work.md" with the `?` preserved only in `title:`.
+    // "…hold?" as "…hold.md" with the `?` preserved only in `title:`.
     page(
-      'wiki/questions/How does the LLM Wiki pattern work.md',
-      '---\ntype: question\ndomain: km\ntitle: "How does the LLM Wiki pattern work?"\n---\nanswer',
+      'wiki/questions/How long does a sintered seal hold.md',
+      '---\ntype: question\ndomain: km\ntitle: "How long does a sintered seal hold?"\n---\nanswer',
     )
     page('wiki/meta/domains.md', '---\ntype: meta\ndomain: meta\ntitle: "Domain Registry"\n---\nregistry')
     page('wiki/concepts/Reg Alias.md', '---\ntype: concept\ndomain: km\naliases:\n  - "The Registry"\n---\nx')
     page(
       'wiki/concepts/A.md',
-      '[[How does the LLM Wiki pattern work?]] and [[Domain Registry]] and [[The Registry]]',
+      '[[How long does a sintered seal hold?]] and [[Domain Registry]] and [[The Registry]]',
     )
     const g = new GraphBuilder(vaultRoot).build()
     expect(g.unresolved).toBe(0)
     expect(g.gaps).toHaveLength(0)
     const inDeg = (title: string): number => g.nodes.find((n) => n.title === title)!.in
-    expect(inDeg('How does the LLM Wiki pattern work')).toBe(1)
+    expect(inDeg('How long does a sintered seal hold')).toBe(1)
     expect(inDeg('domains')).toBe(1)
     expect(inDeg('Reg Alias')).toBe(1)
   })

@@ -96,6 +96,8 @@ function makeBot(over: {
   events?: EventBus
   /** Omit the research wiring to test the "not available" branch. */
   noResearch?: boolean
+  /** The recap answer hook (docs/agents/SPEC.md section 9.3). */
+  recapAnswer?: (text: string) => Promise<string | null>
 }) {
   const fake = makeFakeClient(over.batches ?? [])
   const q = makeFakeQueue()
@@ -118,6 +120,7 @@ function makeBot(over: {
             return makeResearchRun()
           },
         }),
+    ...(over.recapAnswer ? { recapAnswer: over.recapAnswer } : {}),
     client: fake.client,
     log: (level, message) => {
       logs.push({ level, message })
@@ -160,6 +163,9 @@ function makeJob(over: Partial<JobRow> = {}): JobRow {
     reverted_at: null,
     duplicate_of: null,
     outcome: null,
+    hold: null,
+    night_released_at: null,
+    validation: null,
     ...over,
   }
 }
@@ -431,6 +437,42 @@ describe('telegram bot — url and text ingest', () => {
       }),
     )
     expect(fs.readdirSync(b.stagingDir)).toEqual([])
+  })
+})
+
+describe('telegram bot - recap answers and broadcast (docs/agents/SPEC.md section 9.3)', () => {
+  it('a recap answer is applied and answered, never ingested; other text still becomes a note', async () => {
+    const seen: string[] = []
+    const b = makeBot({
+      batches: [[update({ text: '1b veto 2a' }), update({ text: 'remember: espresso 1:2 ratio' })]],
+      recapAnswer: async (text) => {
+        seen.push(text)
+        return text.startsWith('1b') ? 'Recap 2026-09-07:\n✅ 1b approved' : null
+      },
+    })
+    await vi.waitFor(() => expect(b.sent.length).toBe(2))
+    await b.bot.stop()
+    expect(seen).toEqual(['1b veto 2a', 'remember: espresso 1:2 ratio'])
+    expect(b.sent[0]).toMatchObject({ chatId: CHAT, text: 'Recap 2026-09-07:\n✅ 1b approved' })
+    expect(b.enqueueFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('answers work in setup mode too (no agent run is needed)', async () => {
+    const b = makeBot({ batches: [[update({ text: 'skip 1' })]], setupMode: true, recapAnswer: async () => '✅ Ada skips tonight' })
+    await vi.waitFor(() => expect(b.sent.length).toBe(1))
+    await b.bot.stop()
+    expect(b.sent[0]!.text).toBe('✅ Ada skips tonight')
+  })
+
+  it('broadcast reaches every allowlisted user as a private chat', async () => {
+    const b = makeBot({})
+    const reached = await b.bot.broadcast(['Recap: header', 'Recap: 1. Ada'])
+    await b.bot.stop()
+    expect(reached).toEqual([ALLOWED_USER])
+    expect(b.sent.map((s) => [s.chatId, s.text])).toEqual([
+      [ALLOWED_USER, 'Recap: header'],
+      [ALLOWED_USER, 'Recap: 1. Ada'],
+    ])
   })
 })
 

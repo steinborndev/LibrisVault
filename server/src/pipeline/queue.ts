@@ -21,7 +21,7 @@ import path from 'node:path'
 import { ulid } from 'ulid'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { JobRow, JobSource, JobType, CreateJobResult } from '../db/jobs.js'
-import { JobStore } from '../db/jobs.js'
+import { JobStore, type JobHold } from '../db/jobs.js'
 import type { AgentAuth, AgentRunResult } from './agent-runner.js'
 import { runAgent, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import { formatMessage } from './format-message.js'
@@ -36,6 +36,8 @@ import {
   type ToolAvailability,
 } from './preprocess/index.js'
 import { preprocessUrl } from './preprocess/web.js'
+import { checkQuotes, gitPageBefore } from './quotes.js'
+import type { OaDisclosure, OaLookupCache } from './preprocess/oa.js'
 import { extensionOf } from './preprocess/detect.js'
 import {
   commitVault,
@@ -44,6 +46,7 @@ import {
   dirtyPaths,
   discardUntrackedDir,
   newWikiPaths,
+  readAtRevision,
   BOOKKEEPING_PATHS,
   type CommitResult,
   type CommitOptions,
@@ -52,8 +55,18 @@ import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { msUntilReset } from './budget.js'
 import { readDomainRegistry, domainSystemPrompt } from './domains.js'
-import { ENTITY_NOTABILITY_RULES, PAGE_HYGIENE_CHECKLIST, TAG_HYGIENE_RULES } from './system-prompt.js'
-import type { Validator } from './validator.js'
+import {
+  ENTITY_NOTABILITY_RULES,
+  PAGE_HYGIENE_CHECKLIST,
+  TAG_HYGIENE_RULES,
+  UNTRUSTED_CONTENT_RULES,
+  renderOaNotice,
+  renderProvenance,
+  renderReadingList,
+} from './system-prompt.js'
+import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
+import { localDate } from './clock.js'
+import type { ValidationFinding, Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
 
@@ -133,6 +146,12 @@ export interface IngestQueueOptions {
    */
   readonly runRegistry?: RunRegistry
   /**
+   * The reading list (docs/agents/SPEC.md section 10.6): an ingest may add entries, and the
+   * service signs the ones it added as `ingest` before the commit, whatever name the agent
+   * wrote. Without it the entries stand as written.
+   */
+  readonly reading?: ReadingListService
+  /**
    * Post-run validator (validator.ts): deterministic checks over the pages a run touched,
    * logged as warnings against the job. Read-only and advisory — findings never change the
    * job's outcome. Omitted (e.g. in the CLI) means no validation.
@@ -155,6 +174,14 @@ export interface IngestQueueOptions {
    * restart - it is the escape hatch for a document wrongly matched to a source page.
    */
   readonly doiDedupe?: () => boolean
+  /**
+   * Whether a blocked or abstract-thin URL job looks for an open-access copy (settings
+   * `oaRecovery`, docs/sources/SPEC.md section 5). A provider, like `doiDedupe`: a settings
+   * change applies to the next job.
+   */
+  readonly oaRecovery?: () => boolean
+  /** The `oa_lookups` table, so three APIs are not asked the same DOI twice (5.5). */
+  readonly oaLookups?: OaLookupCache
 }
 
 /**
@@ -167,7 +194,12 @@ interface CommitScope {
   readonly dirtyBefore: ReadonlySet<string>
   /** Job-specific extras, e.g. `.raw/<job-id>`. */
   readonly extra: readonly string[]
+  /** The reading list's urls before the run, when a list is wired: what the run added is what is not in here. */
+  readonly readingBefore: ReadonlySet<string> | undefined
 }
+
+/** How an ingest signs the reading list entries it adds (the Fellow's name on a Fellow's run). */
+const INGEST_ACTOR = 'ingest'
 
 /** Classifies an agent failure to decide retry vs pause vs give-up. */
 export function classifyFailure(res: AgentRunResult): FailureClass {
@@ -259,8 +291,12 @@ export class IngestQueue {
   private readonly runRegistry: RunRegistry
   private readonly validate: Validator | undefined
   private readonly dedupe: DedupeIndex
+  private readonly reading: ReadingListService | undefined
+
   private readonly discardStaging: (vaultRoot: string, relDir: string) => Promise<boolean>
   private readonly doiDedupe: () => boolean
+  private readonly oaRecovery: () => boolean
+  private readonly oaLookups: OaLookupCache | undefined
   private running = false
   private paused = false
   /**
@@ -277,6 +313,8 @@ export class IngestQueue {
   /** Why the queue is paused — the dashboard distinguishes a rate limit from a spent budget. */
   private pauseReason: 'rate-limit' | 'budget' | null = null
   private inFlight = 0
+  /** Jobs sitting in `failed` only until their preprocess retry timer fires: still to run. */
+  private readonly preprocessRetries = new Set<string>()
   private toolsCache: ToolAvailability | undefined
   private idleWaiters: Array<() => void> = []
   /** Batches awaiting their combined ingest run. A slot in the pool is one batch OR one job. */
@@ -309,8 +347,11 @@ export class IngestQueue {
     this.runRegistry = opts.runRegistry ?? new RunRegistry()
     this.validate = opts.validate
     this.dedupe = opts.dedupe ?? new DedupeIndex(opts.vaultRoot)
+    this.reading = opts.reading
     this.discardStaging = opts.discardStaging ?? discardUntrackedDir
     this.doiDedupe = opts.doiDedupe ?? ((): boolean => true)
+    this.oaRecovery = opts.oaRecovery ?? ((): boolean => false)
+    this.oaLookups = opts.oaLookups
   }
 
   /**
@@ -550,6 +591,15 @@ export class IngestQueue {
   }
 
   /** Live queue state for the health/overview endpoints (SPEC.md §6.1). */
+  /**
+   * The dedupe index this queue keeps warm. Shared, not rebuilt: it caches the DOIs and arXiv
+   * ids of every source page by mtime, and the reading list asks it whether a publication is
+   * already in the vault - however the document got there.
+   */
+  get dedupeIndex(): DedupeIndex {
+    return this.dedupe
+  }
+
   stats(): {
     readonly inFlight: number
     readonly paused: boolean
@@ -576,6 +626,8 @@ export class IngestQueue {
     readonly batchId?: string
     /** Where to report the terminal state, e.g. 'telegram:<chat_id>' (SPEC.md §4.3). */
     readonly notifyChannel?: string
+    /** Hold the job for the night shift instead of running it now. */
+    readonly hold?: JobHold
   }): Promise<CreateJobResult> {
     const originalName = sanitizeOriginalName(input.originalName ?? path.basename(input.sourcePath))
     const sha256 = await sha256File(input.sourcePath)
@@ -587,6 +639,7 @@ export class IngestQueue {
       ...this.vaultKnows(sha256),
       ...(input.batchId ? { batchId: input.batchId } : {}),
       ...(input.notifyChannel ? { notifyChannel: input.notifyChannel } : {}),
+      ...(input.hold ? { hold: input.hold } : {}),
     })
     if (created.duplicateOf === undefined) {
       try {
@@ -611,14 +664,33 @@ export class IngestQueue {
    * Stage one of dedupe (SPEC.md §12.9): the vault's own memory of this hash. `jobs.sha256`
    * forgets when history is cleared; `.raw/<job-id>/manifest.json` does not. A hit becomes a
    * `duplicate` row at creation, exactly like a hash still present in `jobs`.
+   *
+   * What the hash alone cannot say is whether that earlier job ever produced anything, and
+   * until 2026-09-16 this did not ask (the mirror of the same omission in `create`). The job
+   * dir's manifest is written by PREPROCESSING, so a run that was interrupted a second later
+   * left a permanent claim on those bytes - and the sentence it produced, "already in the
+   * vault", was false: nothing of that document was in the vault, and once the failed row had
+   * been tidied out of the history there was no retry left either. The file could then never
+   * be ingested again, through any door.
+   *
+   * So the claim has to be backed. The job history answers first and answers exactly (a row
+   * that failed or was cancelled owns nothing); when history no longer knows the job, the
+   * vault's own delta tracker does. Neither says yes for an unfinished run. The deliberate
+   * cost is at the other end: a document ingested long enough ago that its row is gone AND no
+   * tracker entry survives can be taken in a second time. That is one agent run, and the
+   * ingest skill itself recognises the case - against a document that could never be taken in
+   * at all, it is the right way round.
    */
   private vaultKnows(sha256: string): { duplicateOf: string; duplicateNote: string } | Record<never, never> {
     const known = this.dedupe.byHash(sha256)
     if (known === undefined) return {}
+    const row = this.store.get(known.jobId)
+    const ingested = row !== undefined ? row.status === 'done' : this.dedupe.producedPages(known.jobId)
+    if (!ingested) return {}
     const what = known.originalName !== null ? `"${known.originalName}"` : 'an original'
     return {
       duplicateOf: known.jobId,
-      duplicateNote: `already in the vault: .raw/${known.jobId}/ holds ${what} with the same content`,
+      duplicateNote: `already ingested from ${what}: .raw/${known.jobId}/ holds the same content and its run wrote pages`,
     }
   }
 
@@ -651,6 +723,18 @@ export class IngestQueue {
     if (match === undefined) return undefined
     if (match.jobId === job.id) return undefined
     if (match.jobId === null && match.pageMtimeMs >= Date.parse(job.created_at)) return undefined
+    /*
+     * ...nor is a page left behind by an attempt that did not finish (2026-09-16). A run
+     * interrupted after it wrote the source page and before it was through leaves exactly the
+     * evidence this check looks for, and the bytes of a second download differ (watermarks),
+     * so the hash stage waves it past and this one stops it - which makes the DOI the reason
+     * a paper cannot be retried. A failed or cancelled job's page is a fragment, not an
+     * ingest; whoever is dropping the document again is saying so.
+     */
+    if (match.jobId !== null) {
+      const by = this.store.get(match.jobId)
+      if (by !== undefined && (by.status === 'failed' || by.status === 'cancelled')) return undefined
+    }
     return { page: match.page, jobId: match.jobId, doi }
   }
 
@@ -731,10 +815,10 @@ export class IngestQueue {
   async enqueueBatch(
     items: readonly BatchItem[],
     source: JobSource,
-    opts: { readonly notifyChannel?: string } = {},
+    opts: { readonly notifyChannel?: string; readonly hold?: JobHold } = {},
   ): Promise<{ batchId: string; jobs: CreateJobResult[] }> {
     const batchId = ulid()
-    const notify = opts.notifyChannel ? { notifyChannel: opts.notifyChannel } : {}
+    const notify = { ...(opts.notifyChannel ? { notifyChannel: opts.notifyChannel } : {}), ...(opts.hold ? { hold: opts.hold } : {}) }
     const jobs: CreateJobResult[] = []
     for (const item of items) {
       if (item.kind === 'url') {
@@ -771,7 +855,8 @@ export class IngestQueue {
     }
     // Only members still queued join the combined run — duplicates and stage-failed drop out.
     const memberIds = jobs.filter((r) => r.duplicateOf === undefined && r.job.status === 'queued').map((r) => r.job.id)
-    if (memberIds.length > 0) this.pendingBatches.push({ batchId, memberIds })
+    // A held batch is not pending yet: the release rebuilds its unit from the rows.
+    if (memberIds.length > 0 && opts.hold === undefined) this.pendingBatches.push({ batchId, memberIds })
     this.pump()
     return { batchId, jobs }
   }
@@ -812,6 +897,8 @@ export class IngestQueue {
     readonly source?: JobSource
     readonly batchId?: string
     readonly notifyChannel?: string
+    /** Hold the job for the night shift instead of running it now. */
+    readonly hold?: JobHold
   }): CreateJobResult {
     const created = this.store.create({
       source: input.source ?? 'url',
@@ -819,9 +906,39 @@ export class IngestQueue {
       url: input.url,
       ...(input.batchId ? { batchId: input.batchId } : {}),
       ...(input.notifyChannel ? { notifyChannel: input.notifyChannel } : {}),
+      ...(input.hold ? { hold: input.hold } : {}),
     })
     this.pump()
     return created
+  }
+
+  /**
+   * Lets the jobs held for this moment run (docs/tasks/TASKS-SWEEP-2026-09.md, chunk 6):
+   * the night shift calls it at its start and then waits on {@link onIdle}, so every held
+   * ingest is done before the first Fellow works. A held batch becomes a pending unit here,
+   * from its rows, the same way a restart rebuilds the units it lost.
+   */
+  releaseHeld(hold: JobHold): string[] {
+    const ids = this.store.release(hold)
+    if (ids.length === 0) return ids
+    this.reloadPendingBatches()
+    this.pump()
+    return ids
+  }
+
+  /**
+   * A job the night shift released leaves tonight's ingest queue once it is through (v26):
+   * its commit made, or its run ended with nothing left to run tonight. Called when a
+   * worker finishes with it, which is after the commit step - `done` alone is not through,
+   * the commit comes after it, and the Library draws the queue until the commit is made. A
+   * job queued again (a transient failure, a usage-limit pause) or waiting on a preprocess
+   * retry stays: it still runs.
+   */
+  private settleNight(id: string): void {
+    const row = this.store.get(id)
+    if (row === undefined || row.night_released_at === null) return
+    if (row.status === 'queued' || (row.status === 'failed' && this.preprocessRetries.has(id))) return
+    this.store.clearNightRelease(id)
   }
 
   /** Resolves once the queue has no in-flight jobs and nothing left to claim. */
@@ -847,7 +964,8 @@ export class IngestQueue {
     // flight it counts as settled even though jobs are still queued behind the pause.
     if (this.paused) return true
     if (this.pendingBatches.length > 0) return false
-    return (this.store.counts()['queued'] ?? 0) === 0
+    // Held jobs are queued but wait for their moment: they do not keep the queue awake.
+    return this.store.queuedReady() === 0
   }
 
   private settleIdle(): void {
@@ -882,6 +1000,7 @@ export class IngestQueue {
           })
           .finally(() => {
             this.inFlight--
+            for (const id of unit.memberIds) this.settleNight(id)
             this.pump()
           })
         continue
@@ -901,6 +1020,7 @@ export class IngestQueue {
         })
         .finally(() => {
           this.inFlight--
+          this.settleNight(job.id)
           this.pump()
         })
     }
@@ -926,6 +1046,7 @@ export class IngestQueue {
     }
 
     this.store.setType(job.id, pre.type)
+    this.logPreprocessWarnings(job.id, pre)
 
     if (pre.deferred) {
       this.deferJob(job, jobDir)
@@ -946,6 +1067,15 @@ export class IngestQueue {
     await this.ingestStep(job, pre)
   }
 
+  /**
+   * What preprocessing found in the document itself and the reader should know about: text
+   * aimed at an assistant (docs/sources/SPEC.md section 4.3). A warning, never a failure - the
+   * job runs on, and the line is in its log when someone asks why a page reads oddly.
+   */
+  private logPreprocessWarnings(jobId: string, pre: PreprocessResult): void {
+    for (const warning of pre.manifest.warnings ?? []) this.store.log(jobId, 'warn', warning)
+  }
+
   /** Runs preprocessing, skipping it when a prior attempt already produced a manifest. */
   private async preprocessStep(job: JobRow, jobDir: string): Promise<PreprocessResult> {
     const manifestPath = path.join(jobDir, 'manifest.json')
@@ -960,7 +1090,26 @@ export class IngestQueue {
     // is still a web job. Keying off `source` here mis-routed it as a file (the M1 test's
     // one failure) — the presence of `url` is the correct discriminator.
     if (job.url) {
-      return this.preprocessUrlFn({ jobId: job.id, url: job.url, vaultRoot: this.vaultRoot, jobDir, tools: this.toolsCache })
+      return this.preprocessUrlFn({
+        jobId: job.id,
+        url: job.url,
+        vaultRoot: this.vaultRoot,
+        jobDir,
+        tools: this.toolsCache,
+        oa: {
+          enabled: this.oaRecovery(),
+          ...(this.oaLookups ? { cache: this.oaLookups } : {}),
+          /*
+           * A job started from the reading list carries the copy that list already names (6.3).
+           * Read here rather than stored on the job: the page is the record, a retry gets the
+           * same answer, and an entry marked after the job was queued is still honoured.
+           */
+          ...((): { hint?: { url: string; version?: string | null } } => {
+            const copy = job.url === null ? undefined : this.reading?.openCopyFor(job.url)
+            return copy === undefined ? {} : { hint: { url: copy.url, version: copy.version } }
+          })(),
+        },
+      })
     }
     if (!job.original_name) throw new Error('file job has no original_name')
     return this.preprocessFile({
@@ -983,6 +1132,8 @@ export class IngestQueue {
     // Bracket + register as a writer so Bash-written pages can be swept into the commit, but
     // only when this turns out to be the sole writer (finding F4).
     const dirtyBefore = await dirtyPaths(this.vaultRoot)
+    // The reading list before the run, so the entries the run adds can be signed by it.
+    const readingBefore = this.reading?.urlKeys()
     const endRun = this.runRegistry.begin(dirtyBefore)
     const written = new Set<string>()
     const res = await this.runIngest({
@@ -995,8 +1146,14 @@ export class IngestQueue {
       systemPromptExtra: [
         domainSystemPrompt(readDomainRegistry(this.vaultRoot)),
         PAGE_HYGIENE_CHECKLIST,
+        UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
+        this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
+        // Where the text came from when it did not come from the address (5.4).
+        renderOaNotice(pre.manifest.oa === undefined ? [] : [{ artifact: pre.primaryArtifact, oa: pre.manifest.oa }]),
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -1022,10 +1179,11 @@ export class IngestQueue {
         written,
         dirtyBefore,
         extra: [path.posix.join('.raw', job.id)],
+        readingBefore,
       })
       endRun()
       this.markNoChanges(job.id, committed.length)
-      this.validateStep(job.id, [...written, ...committed])
+      await this.validateStep(job.id, [...written, ...committed], [job.id])
       const note = await this.refreshHotCache(this.vaultRoot)
       this.store.log(job.id, 'info', note)
       return
@@ -1077,7 +1235,14 @@ export class IngestQueue {
     } else if (!sole) {
       log('another run is writing — staging only tool-reported paths (F4 sweep skipped)')
     }
-    return [...new Set([...scope.written, ...swept, ...scope.extra, ...BOOKKEEPING_PATHS])]
+    // The reading list entries this run added are signed by it, whatever the agent wrote on
+    // their by line - only while it is the sole writer, for the same reason the sweep is.
+    const signed = sole && scope.readingBefore !== undefined && this.reading !== undefined ? await this.reading.attributeRun(INGEST_ACTOR, scope.readingBefore) : []
+    if (signed.length > 0) {
+      const wrote = [...new Set(signed.map((s) => s.was ?? 'no name'))].join(', ')
+      log(`reading list: ${signed.length} new entr${signed.length === 1 ? 'y' : 'ies'} signed "${INGEST_ACTOR}" (the run had written: ${wrote})`)
+    }
+    return [...new Set([...scope.written, ...swept, ...(signed.length > 0 ? [READING_LIST_PAGE] : []), ...scope.extra, ...BOOKKEEPING_PATHS])]
   }
 
   /** Returns the committed wiki pages, so the validation step can cover Bash-written pages
@@ -1201,23 +1366,49 @@ export class IngestQueue {
    * run touched, logged as warnings while the job's context is still on screen. Advisory by
    * design — a finding never fails a `done` job, and a validator crash only logs.
    */
-  private validateStep(jobId: string, touched: readonly string[]): void {
-    if (this.validate === undefined) return
+  private async validateStep(jobId: string, touched: readonly string[], jobIds: readonly string[]): Promise<void> {
+    const findings: ValidationFinding[] = []
     try {
-      const findings = this.validate(touched)
-      if (findings.length === 0) {
-        this.store.log(jobId, 'info', 'post-run validation: no findings')
-        return
-      }
-      for (const f of findings) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
-      this.store.log(
-        jobId,
-        'warn',
-        `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`,
-      )
+      if (this.validate !== undefined) findings.push(...this.validate(touched))
     } catch (err) {
       this.store.log(jobId, 'warn', `post-run validation crashed (ignored): ${(err as Error).message}`)
     }
+    /*
+     * The quotes this run ADDED, against the text it read (docs/sources/SPEC.md section 7). Its
+     * own step because it needs two things the page rules do not: the job's artifacts, and the
+     * commit the run just made - without a before there is no telling this run's quotes from
+     * those of the runs before it.
+     */
+    try {
+      const hash = this.store.get(jobId)?.commit_hash ?? null
+      const quotes = await checkQuotes({
+        vaultRoot: this.vaultRoot,
+        jobIds,
+        pages: touched,
+        ...(hash === null ? {} : { before: gitPageBefore((rev, rel) => readAtRevision(this.vaultRoot, rev, rel), hash) }),
+      })
+      findings.push(...quotes.findings)
+      this.store.setValidation(jobId, { quotes: quotes.summary })
+      if (quotes.summary.checked > 0) {
+        this.store.log(
+          jobId,
+          quotes.summary.unverified > 0 ? 'warn' : 'info',
+          `quotes: ${quotes.summary.checked} checked, ${quotes.summary.unverified} not found in the source`,
+        )
+      }
+    } catch (err) {
+      this.store.log(jobId, 'warn', `quote check crashed (ignored): ${(err as Error).message}`)
+    }
+    if (findings.length === 0) {
+      this.store.log(jobId, 'info', 'post-run validation: no findings')
+      return
+    }
+    for (const f of findings) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+    this.store.log(
+      jobId,
+      'warn',
+      `post-run validation: ${findings.length} finding(s), advisory only, nothing was modified`,
+    )
   }
 
   /**
@@ -1226,7 +1417,7 @@ export class IngestQueue {
    * Deferred/failed members drop out but never sink the rest of the batch.
    */
   private async processBatch(unit: BatchUnit): Promise<void> {
-    const ready: Array<{ id: string; artifact: string }> = []
+    const ready: Array<{ id: string; artifact: string; url: string | null; oa?: OaDisclosure }> = []
     const names: string[] = []
 
     for (const id of unit.memberIds) {
@@ -1238,6 +1429,7 @@ export class IngestQueue {
         this.store.transition(id, 'preprocessing', { log: 'batch: preprocessing member' })
         const pre = await this.preprocessStep(job, jobDir)
         this.store.setType(id, pre.type)
+        this.logPreprocessWarnings(id, pre)
         if (pre.deferred) {
           this.deferJob(job, jobDir)
           this.store.transition(id, 'deferred', {
@@ -1251,7 +1443,7 @@ export class IngestQueue {
           await this.settleContentDuplicate(job, dup)
           continue
         }
-        ready.push({ id, artifact: pre.primaryArtifact })
+        ready.push({ id, artifact: pre.primaryArtifact, url: job.url, ...(pre.manifest.oa ? { oa: pre.manifest.oa } : {}) })
         names.push(job.original_name ?? job.url ?? id)
       } catch (err) {
         this.store.transition(id, 'failed', {
@@ -1274,6 +1466,7 @@ export class IngestQueue {
 
     // Same F4 bracket as the single-job path.
     const dirtyBefore = await dirtyPaths(this.vaultRoot)
+    const readingBefore = this.reading?.urlKeys()
     const endRun = this.runRegistry.begin(dirtyBefore)
     const written = new Set<string>()
     const res = await this.runIngest({
@@ -1286,8 +1479,16 @@ export class IngestQueue {
       systemPromptExtra: [
         domainSystemPrompt(readDomainRegistry(this.vaultRoot)),
         PAGE_HYGIENE_CHECKLIST,
+        UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
+        this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        // Each member keeps its OWN origin: a batch is several documents, and one shared
+        // address would file the wrong one on all but one of them.
+        renderProvenance(ready.map((r) => ({ artifact: r.artifact, url: r.url }))),
+        // Same per member: two documents in one batch can have come from two different copies.
+        renderOaNotice(ready.flatMap((r) => (r.oa === undefined ? [] : [{ artifact: r.artifact, oa: r.oa }]))),
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -1318,10 +1519,12 @@ export class IngestQueue {
         written,
         dirtyBefore,
         extra: ready.map((r) => path.posix.join('.raw', r.id)),
+        readingBefore,
       })
       endRun()
       for (const r of ready) this.markNoChanges(r.id, committed.length)
-      this.validateStep(lead, [...written, ...committed])
+      // The corpus is the union over the batch: one combined run read all of their documents.
+      await this.validateStep(lead, [...written, ...committed], ready.map((r) => r.id))
       const note = await this.refreshHotCache(this.vaultRoot)
       this.store.log(lead, 'info', note)
       return
@@ -1424,7 +1627,9 @@ export class IngestQueue {
       'info',
       `transient preprocess failure — retry ${attempt}/${this.maxRetries} in ${Math.round(delayMs / 1000)}s`,
     )
+    this.preprocessRetries.add(jobId)
     this.setTimeoutFn(() => {
+      this.preprocessRetries.delete(jobId)
       if (!this.running) return
       if (this.store.get(jobId)?.status !== 'failed') return // manually retried or cancelled meanwhile
       this.store.transition(jobId, 'queued', {

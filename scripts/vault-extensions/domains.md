@@ -20,8 +20,8 @@ tells every ingest run to assign a domain from it.
 
 **This page is the contract, not a suggestion.** An ingest may only pick a key listed under
 "Domains" below, or `unassigned` when nothing fits. It must never invent a new key - that is
-how the field drifted before this registry existed (`mrna-delivery` and `drug-delivery` were
-both filed as domains, at a different altitude than `cooking`).
+how the field drifted before this registry existed (`battery-chemistry` and `electrochemistry`
+were both filed as domains, at a different altitude than `cooking`).
 
 ## How a new domain is born
 
@@ -47,22 +47,25 @@ domain backfill from the dashboard (System -> Status & checks) so existing pages
 
 ## Domains
 
-## biomedicine
+**The list below is a starting example, not a standard.** Replace it with the shelves this
+vault actually needs - a registry that describes somebody else's reading is worse than none,
+because every ingest then files against it. `meta` is the one key worth keeping as it stands:
+it names the wiki's own machinery rather than a subject, so it belongs to every vault.
 
-Biology, medicine, pharmacology and drug delivery: mRNA therapeutics, lipid nanoparticles,
-vaccines, formulation and the cell biology around them.
+## materials
 
-**Tags:** `mrna-delivery`, `biomedical`, `drug-delivery`, `lipid-nanoparticle`,
-`endosomal-escape`, `pharmaceutics`, `vaccine`, `rna-engineering`, `lipid-chemistry`,
-`covid-19`, `dragonscale`, `immunology`
+Materials and how they behave: batteries, catalysts, polymers, the methods that characterise
+them, and the chemistry underneath.
+
+**Tags:** `materials`, `battery`, `catalysis`, `polymer`, `characterisation`,
+`electrochemistry`
 
 ## finance
 
 Money, markets and their regulation: investment funds, securities, costs and fees, banking
 rules, and consumer-facing financial guidance.
 
-**Tags:** `german-finance`, `investment-funds`, `finance`, `banking`, `regulation`,
-`securities`
+**Tags:** `finance`, `investment-funds`, `banking`, `regulation`, `securities`
 
 ## cooking
 
@@ -75,16 +78,15 @@ Food and drink: recipes, techniques, ingredients, and coffee.
 How knowledge itself is captured, structured and compounded: the LLM-wiki pattern, hot
 caches, note-taking method, and the theory behind this vault.
 
-**Tags:** `knowledge-management`, `llm-wiki`, `llm-wiki-pattern`, `compounding-knowledge`,
-`methodology`, `cherry-picks`
+**Tags:** `knowledge-management`, `llm-wiki`, `compounding-knowledge`, `methodology`
 
 ## ai-tooling
 
-The AI tooling ecosystem as a subject: Claude and its plugins, claude-obsidian and its
-siblings, the repos and communities around them, and the SEO tooling built on top.
+The AI tooling ecosystem as a subject: agent frameworks and their plugins, claude-obsidian
+and its siblings, and the repos and communities around them.
 
-**Tags:** `claude`, `claude-obsidian`, `claude-ecosystem`, `claude-seo`, `github-repo`,
-`github`, `ecosystem`, `community`, `seo`, `competitive-analysis`, `llm`, `agent`
+**Tags:** `ai-tooling`, `claude`, `claude-obsidian`, `agent`, `llm`, `github-repo`,
+`ecosystem`, `community`
 
 ## meta
 

@@ -56,6 +56,13 @@ export interface GraphNode {
   readonly mtimeMs?: number
   /** File size in bytes — a cheap proxy the "stubs" lens thresholds on. Builder-only. */
   readonly size?: number
+  /**
+   * The web address the page states for itself (`url:`, or a bare link in `sources:`), or
+   * null. A page a research run wrote has no ingested document behind it - the run read the
+   * web - so this is the only record of where it came from, and the Catalog's Source column
+   * falls back to it.
+   */
+  readonly url?: string | null
 }
 
 /**
@@ -104,6 +111,8 @@ interface CacheEntry {
   /** Frontmatter `title:` — resolves links whose text differs from the filename. */
   readonly fmTitle: string | null
   readonly aliases: readonly string[]
+  /** The web address the page states for itself; see `parseFrontmatterAddress`. */
+  readonly url: string | null
 }
 
 const toPosix = (p: string): string => p.split(path.sep).join(path.posix.sep)
@@ -132,9 +141,33 @@ function parseFmList(body: string, key: string): string[] {
 }
 
 /**
- * Extracts `tags:`/`aliases:` (block or inline list), `domain:`, `type:` and `title:` from
- * a page's YAML frontmatter. Deliberately a shallow parser, not a YAML library: the vault's
- * frontmatter is agent-written and flat, and this runs on every changed file of a growing vault.
+ * The web address a page states for itself, or null.
+ *
+ * Two spellings, because two things write these pages. An INGEST records the document's
+ * address in `url:` and puts a `[[.raw/…]]` link in `sources:`, pointing at the copy it
+ * stored. A research run has no stored copy - it read the web - so it writes the address
+ * into `sources:` directly. Both are the page saying where it came from, and a reader wants
+ * the same thing from either.
+ *
+ * Only `http(s)`: `sources:` also holds wikilinks, and `url:` on some pages is a DOI or an
+ * archive path. Anything that is not a link to follow is not an address to offer.
+ */
+export function parseFrontmatterAddress(body: string): string | null {
+  const direct = body.match(/^url:[ \t]*(.+)$/m)
+  const url = direct ? unquote(direct[1]!) : ''
+  if (/^https?:\/\//.test(url)) return url
+  const at = body.indexOf('\nsources:')
+  if (at < 0) return null
+  const listed = body.slice(at).match(/^[ \t]+-[ \t]*(.+)$/m)
+  const first = listed ? unquote(listed[1]!) : ''
+  return /^https?:\/\//.test(first) ? first : null
+}
+
+/**
+ * Extracts `tags:`/`aliases:` (block or inline list), `domain:`, `type:`, `title:` and the
+ * page's own web address from its YAML frontmatter. Deliberately a shallow parser, not a
+ * YAML library: the vault's frontmatter is agent-written and flat, and this runs on every
+ * changed file of a growing vault.
  */
 export function parseFrontmatterMeta(markdown: string): {
   tags: string[]
@@ -142,9 +175,10 @@ export function parseFrontmatterMeta(markdown: string): {
   fmType: string | null
   title: string | null
   aliases: string[]
+  url: string | null
 } {
   const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
-  if (!fm) return { tags: [], domain: null, fmType: null, title: null, aliases: [] }
+  if (!fm) return { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null }
   const body = fm[1]!
 
   const domainMatch = body.match(/^domain:[ \t]*(.+)$/m)
@@ -156,7 +190,14 @@ export function parseFrontmatterMeta(markdown: string): {
   const titleMatch = body.match(/^title:[ \t]*(.+)$/m)
   const title = titleMatch ? unquote(titleMatch[1]!) || null : null
 
-  return { tags: parseFmList(body, 'tags'), domain, fmType, title, aliases: parseFmList(body, 'aliases') }
+  return {
+    tags: parseFmList(body, 'tags'),
+    domain,
+    fmType,
+    title,
+    aliases: parseFmList(body, 'aliases'),
+    url: parseFrontmatterAddress(`\n${body}`),
+  }
 }
 
 /** Frontmatter `type:` values that mark a knowledge page wherever it lives. */
@@ -263,6 +304,7 @@ export class GraphBuilder {
         fmType: null,
         title: null,
         aliases: [],
+        url: null,
       }
       try {
         const markdown = fs.readFileSync(f.abs, 'utf8')
@@ -280,6 +322,7 @@ export class GraphBuilder {
         fmType: meta.fmType,
         fmTitle: meta.title,
         aliases: meta.aliases,
+        url: meta.url,
       })
     }
 
@@ -405,6 +448,8 @@ export class GraphBuilder {
         mtimeMs: f.mtimeMs,
         size: f.size,
         ...(names.length > 0 ? { names } : {}),
+        // Omitted when there is none, which is most pages: the payload goes to every screen.
+        ...(entry?.url != null ? { url: entry.url } : {}),
       }
     })
 

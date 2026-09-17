@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { JobStore, JobStateError, ALLOWED_TRANSITIONS } from '../src/db/jobs.js'
+import { EventBus } from '../src/pipeline/events.js'
 
 let db: Db
 let store: JobStore
@@ -130,6 +131,59 @@ describe('recoverInterrupted', () => {
   })
 })
 
+describe('what a finished job fills in afterwards', () => {
+  /*
+   * The reported case: an ingest that had just settled showed no pages and no Article tab in
+   * the dashboard. Everything a finished ingest is worth looking at arrives AFTER the status
+   * does - the pages come from the commit, which happens next - and the dashboard refetches
+   * the list when a job event says so. Silent writes meant it kept the version it had fetched
+   * the moment the status changed.
+   */
+  const settled = (): { store: JobStore; seen: Array<{ id: string; pages: string | null }> } => {
+    const seen: Array<{ id: string; pages: string | null }> = []
+    const bus = new EventBus()
+    bus.subscribe((e) => {
+      if (e.kind === 'job') seen.push({ id: e.job.id, pages: e.job.created_pages })
+    })
+    const withBus = new JobStore(db, bus)
+    return { store: withBus, seen }
+  }
+
+  it('announces the pages the commit recorded', () => {
+    const { store: s, seen } = settled()
+    const { job } = s.create(pdf)
+    s.transition(job.id, 'preprocessing')
+    s.transition(job.id, 'ingesting')
+    s.transition(job.id, 'done')
+    const afterStatus = seen.length
+    expect(seen[afterStatus - 1]).toMatchObject({ id: job.id, pages: null })
+
+    s.setCreatedPages(job.id, ['wiki/concepts/A.md', 'wiki/sources/B.md'])
+    expect(seen).toHaveLength(afterStatus + 1)
+    expect(JSON.parse(seen[seen.length - 1]!.pages!)).toEqual(['wiki/concepts/A.md', 'wiki/sources/B.md'])
+  })
+
+  it('announces the other three late fills too', () => {
+    const { store: s, seen } = settled()
+    const { job } = s.create(pdf)
+    s.transition(job.id, 'preprocessing')
+    s.transition(job.id, 'ingesting')
+    s.transition(job.id, 'done')
+    const before = seen.length
+    s.setCommitHash(job.id, 'abc1234')
+    s.setValidation(job.id, { quotes: { checked: 3, unverified: 0 } })
+    s.setOutcome(job.id, 'no-changes')
+    expect(seen).toHaveLength(before + 3)
+  })
+
+  it('says nothing about a job that is not there', () => {
+    const { store: s, seen } = settled()
+    const before = seen.length
+    s.setCreatedPages('nope', ['wiki/x.md'])
+    expect(seen).toHaveLength(before)
+  })
+})
+
 describe('transition', () => {
   it('walks the happy path and stamps timestamps', () => {
     const { job } = store.create({ ...pdf, sha256: 'h' })
@@ -218,5 +272,54 @@ describe('ALLOWED_TRANSITIONS', () => {
       if (from === 'preprocessing') expect(targets).toContain('duplicate')
       else expect(targets).not.toContain('duplicate')
     }
+  })
+})
+
+describe('a job held for the night shift (schema v24)', () => {
+  it('is queued but not claimable until it is released, and does not keep the queue awake', () => {
+    const { job } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/tonight', hold: 'night' })
+    expect(job.status).toBe('queued')
+    expect(job.hold).toBe('night')
+    expect(store.claimNextQueued()).toBeUndefined()
+    expect(store.queuedReady()).toBe(0)
+    expect(store.held('night').map((j) => j.id)).toEqual([job.id])
+    // An ordinary job beside it is claimed as ever.
+    const { job: now } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/now' })
+    expect(store.queuedReady()).toBe(1)
+    expect(store.claimNextQueued()?.id).toBe(now.id)
+
+    expect(store.release('night')).toEqual([job.id])
+    // Released, the job keeps its place in tonight's ingest queue (v26) until it is through.
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'queued', hold: null, night_released_at: expect.any(String) })
+    expect(store.nightReleased().map((j) => j.id)).toEqual([job.id])
+    expect(store.claimNextQueued()?.id).toBe(job.id)
+    expect(store.release('night')).toEqual([])
+    expect(store.logs(job.id).map((l) => l.message)).toContainEqual(expect.stringContaining('released to the queue by the night shift'))
+    store.clearNightRelease(job.id)
+    expect(store.getOrThrow(job.id).night_released_at).toBeNull()
+    expect(store.nightReleased()).toEqual([])
+  })
+
+  it('leaves tonight\'s queue when it is cancelled, and stays in it through done until the queue clears it', () => {
+    // `done` is written before the commit is made, so the store never clears the place on
+    // its own; the queue does, once the commit step is over. A cancel is final at once.
+    const { job } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/tonight', hold: 'night' })
+    store.release('night')
+    const claimed = store.claimNextQueued()!
+    store.transition(claimed.id, 'ingesting')
+    store.transition(claimed.id, 'done')
+    expect(store.nightReleased().map((j) => j.id)).toEqual([job.id])
+    const { job: other } = store.create({ source: 'drop', type: 'web', url: 'https://example.org/other', hold: 'night' })
+    store.release('night')
+    store.transition(other.id, 'cancelled')
+    expect(store.getOrThrow(other.id).night_released_at).toBeNull()
+    expect(store.nightReleased().map((j) => j.id)).toEqual([job.id])
+  })
+
+  it('never holds a duplicate: it is terminal on arrival', () => {
+    store.create({ source: 'drop', type: 'pdf', originalName: 'a.pdf', sha256: 'same' })
+    const { job } = store.create({ source: 'drop', type: 'pdf', originalName: 'b.pdf', sha256: 'same', hold: 'night' })
+    expect(job.status).toBe('duplicate')
+    expect(job.hold).toBeNull()
   })
 })

@@ -1,0 +1,27 @@
+{
+  "topic": "Wavefront sensing and predictive control in adaptive optics",
+  "profileKey": "patents",
+  "kind": "research",
+  "model": null,
+  "pages": [
+    "wiki/concepts/Adaptive Optics.md",
+    "wiki/concepts/Predictive Control (Adaptive Optics).md",
+    "wiki/concepts/Wavefront Sensing.md",
+    "wiki/entities/Adaptive Optics Testbed.md",
+    "wiki/hot.md",
+    "wiki/index.md",
+    "wiki/log.md",
+    "wiki/meta/reading-list.md",
+    "wiki/questions/Research: Recent patents on adaptive optics — Patent Landscape.md",
+    "wiki/sources/Adaptive Optics Dynamic Modeling and Control (patent).md",
+    "wiki/sources/Adaptive Optics Patent Landscape (industry report).md",
+    "wiki/sources/Wavefront Sensor with Inner Detector and Outer Detector (patent).md"
+  ],
+  "synthesis": "wiki/questions/Research: Recent patents on adaptive optics — Patent Landscape.md",
+  "tokensIn": 5997769,
+  "tokensOut": 50099,
+  "costUsd": 3.917899700000001,
+  "durationMs": 621670,
+  "answer": "Alle Tasks abgeschlossen. Ein Hinweis vorab: Die im Prompt referenzierte \"autoresearch\"-Skill und `skills/autoresearch/references/program.md` existierten nicht innerhalb der Sandbox dieses Vaults (nur `skills/ingest/` ist hier vorhanden). Ich habe stattdessen direkt mit WebSearch/WebFetch recherchiert und die im Prompt gegebenen Regeln (Page-Hygiene, Domain-Registry, Entity-Notability, Patents-Lens) befolgt. Alle Automatisierungsentscheidungen sind in `wiki/log.md` dokumentiert.\n\n**5 neue Seiten erstellt:**\n- Concepts: *Wavefront Sensing*, *Predictive Control (Adaptive Optics)*\n- Sources: *Wavefront Sensor with Inner Detector and Outer Detector (patent)* (US 11,909,439 B2), *Adaptive Optics Dynamic Modeling and Control (patent)* (CN 121480603 A), *Adaptive Optics Patent Landscape (industry report)* (Patsnap)\n\n**Erweitert statt dupliziert:** *Adaptive Optics*, *Adaptive Optics Testbed*, sowie die vorhandene Synthese-Seite *Research: Recent patents on adaptive optics — Patent Landscape* (Titel beibehalten, Findings neu geschrieben).\n\n**Kernbefunde:**\n1. Patentaktivität konzentriert sich auf Sensor und Regelgesetz, nicht auf den deformierbaren Spiegel - und der Großteil kommt gar nicht aus der Astronomie: Texas Instruments und Magic Leap (AR/VR-Optik) sowie Raytheon führen die Klassifikation \"adaptive optics\" an, nicht astronomische Anbieter.\n2. Prädiktive Regelung zerfällt in zwei nicht konkurrierende Patent-Linien: \"erst Wellenfront schätzen, dann regeln\" (Kalman/LQG, EOF) versus \"Regel-Policy direkt lernen\" (RL) - konkret belegt durch die anhängige chinesische Anmeldung CN 121480603 A (Southwest Jiaotong University, Prioritätsdatum 2025-10-31).\n3. Der frühere Befund zu \"ground-layer-only\"-Ansprüchen ließ sich nicht erhärten und wurde durch eine offene Frage ersetzt, statt unbelegt fortgeschrieben zu werden.\n\nZwei im Prompt gelistete \"verwandte\" Seiten (*Crystallisation Control*, *Multiversion Concurrency Control*) habe ich bewusst nicht angefasst - sie haben keinen inhaltlichen Bezug zum Thema.",
+  "capturedAt": "2026-09-15T15:53:07.404Z"
+}

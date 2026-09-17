@@ -46,11 +46,18 @@ export interface Job {
   reverted_at?: string | null
   /** For a `duplicate` row: the id of the job whose content it repeats (schema v11). */
   duplicate_of?: string | null
+  /** `night` while a queued job waits for the night shift (schema v24); null or absent otherwise. */
+  hold?: 'night' | null
   /**
    * How a `done` run ended when "done" alone would mislead (schema v14): `no-changes` means
    * the agent finished cleanly but wrote no wiki page. Null for an ordinary run.
    */
   outcome?: 'no-changes' | null
+  /**
+   * What the post-run validation counted, as JSON (schema v27): `{"quotes":{"checked":12,
+   * "unverified":1}}`. Read with `parseQuoteSummary` (lib/quotes.ts); absent on older jobs.
+   */
+  validation?: string | null
 }
 
 export interface RevertResponse {
@@ -130,8 +137,12 @@ export interface Stats {
   commits: Commit[]
   growth: GrowthPoint[]
   hotCache: string | null
-  /** mtime of wiki/hot.md - the Wartung tab's "letzter Refresh". null if never written. */
+  /** mtime of wiki/hot.md: when it was last WRITTEN, by any run. null if never written. */
   hotCacheUpdatedAt: string | null
+  /** How long the cache is, the budget it is written to, and the size the check warns at. */
+  hotCacheWords: number | null
+  hotCacheBudget: number
+  hotCacheLimit: number
   /** Newest lint report page in the vault - the Maintenance tab's persistent link. */
   lintReport: { path: string; date: string | null } | null
   /** Wiki pages on disk with no committed copy - finding F4's blind spot, made visible. */
@@ -160,6 +171,8 @@ export interface Health {
   credentialConfigured: boolean
   /** True on a hosted read-only demo instance: all write surfaces are disabled. */
   demoMode?: boolean
+  /** True when the research agents extension (Fellows, recaps) is on (docs/agents/SPEC.md). */
+  fellows?: boolean
   queue: { inFlight: number; paused: boolean; pauseReason: PauseReason; concurrency: number }
   jobs: Record<string, number>
   /** Server-side caps the client pre-checks against (dropzone size warning). */
@@ -193,6 +206,12 @@ export interface GraphNode {
   in: number
   /** File mtime (epoch ms) - the "recency" color lens. Absent on hand-built fixtures. */
   mtimeMs?: number
+  /**
+   * The web address the page states for itself (`url:`, or a bare link in `sources:`). A
+   * page a research run wrote has no ingested document behind it, so this is the only record
+   * of where it came from. Absent on most pages and on hand-built fixtures.
+   */
+  url?: string | null
   /** File size in bytes - the "stubs" lens threshold. */
   size?: number
 }
@@ -349,6 +368,8 @@ export interface ResearchProfile {
   key: string
   label: string
   blurb: string
+  /** What the lens reaches for, in a few words, for a one-line dropdown row. */
+  short: string
   badge?: string
   sources: string[]
   fetchEstimate: string
@@ -528,6 +549,12 @@ export interface MaintenanceRun {
   /** SSE channel carrying the live log, e.g. `maintenance:lint`. */
   channel: string
   status: MaintenanceRunStatus
+  /**
+   * Queued behind the single runner rather than executing. `status` still says `running`
+   * because it has not settled, which is what every poll asks; this says whether it is
+   * actually working.
+   */
+  waiting?: boolean
   /** What the run is about, when the kind alone does not say it (a research topic). */
   label?: string
   /** Research runs: the lens key the run was started under. */
@@ -553,8 +580,36 @@ export interface EffectiveSettings {
   gitAutoCommit: boolean
   /** Settle a document whose DOI a source page already declares as a duplicate, before any run. */
   doiDedupe: boolean
+  /** Look for an open-access copy when a URL job is blocked or reads as an abstract only. */
+  oaRecovery: boolean
   /** null = no budget. Unit depends on authMode: ingests/day (oauth) or USD/day (api-key). */
   dailyBudget: number | null
+  /**
+   * What the subscription is called, for the Library's corner. It does NOT come with the
+   * credential: the SDK reports `subscription_type` on some accounts and not on others, and
+   * the usage endpoint that also carries it is often rate limited. '' = show what is measured.
+   */
+  planName: string
+  /** Whether the 5-hour release may be granted at all (SPEC section 8.6). */
+  fiveHourOverrideEnabled: boolean
+  /** Whether the night shift asks a model to judge duplicate topics (section 6.6). */
+  dedupeJudgeEnabled: boolean
+  /** The hours the night shift may work in, `HH:MM`, crossing midnight (SPEC section 8.5). */
+  nightWindowStart: string
+  nightWindowEnd: string
+  /**
+   * The research budget, in percent of the plan's own windows (SPEC section 8.2, A5). The
+   * shares are what the Fellows may spend; the reserves are where everything stops, whatever
+   * the share says. The server has always sent them; they reach the settings form as of
+   * 2026-09-14, and the night shift's own budget line points at them.
+   */
+  researchShareWeekPct: number
+  researchShare5hPct: number
+  reserveWeekPct: number
+  reserve5hPct: number
+  /** USD-equivalent size of the plan windows, for the accounting that runs without a sample. */
+  planWeekUsd: number
+  plan5hUsd: number
 }
 
 /**
@@ -621,4 +676,551 @@ export type BusEvent =
   | { kind: 'stats' }
   | { kind: 'vault' }
   /** A coalesced chunk of the answer being written, for the chat's live preview. */
-  | { kind: 'chat'; chat: { sessionId: string; requestId?: string; delta: string } }
+  | {
+      kind: 'chat'
+      chat: {
+        sessionId: string
+        requestId?: string
+        delta: string
+        /** Sent once, before the first delta: what retrieval did. The delta beside it is empty. */
+        retrieval?: { count: number; strategy: string | null }
+      }
+    }
+
+// ---- Fellows and recaps (docs/agents/SPEC.md sections 5, 6 and 9; behind AGENTS_ENABLED) ----
+
+export type RecapAnswer =
+  | { action: 'pick'; fellow: number; letter: string }
+  | { action: 'veto'; fellow: number; letter?: string }
+  | { action: 'skip' | 'pause' | 'resume'; fellow: number }
+  | { action: 'note'; fellow: number; text: string }
+  | { action: 'model'; fellow: number; value: string }
+  | { action: 'step'; fellow: number; value: string }
+  | { action: 'topic'; fellow: number; letter: string; text: string }
+  | { action: 'spawn'; request: number; name?: string }
+
+/** An open question no Fellow's domain covers, offered as a spawn (A3). */
+export interface RecapUnclaimed {
+  code: string
+  handoffId: string
+  question: string
+  domain: string
+  fromName: string
+  sourcePage: string | null
+  reason: string
+}
+
+export interface RecapRun {
+  runId: string
+  kind: string
+  topic: string
+  ok: boolean
+  error: string | null
+  pagesCreated: string[]
+  pagesUpdated: string[]
+  /**
+   * True for a run that landed after this recap was built and was added on read. Its facts are
+   * here; the "what it found" prose is written during a build, so it has none until a rebuild.
+   */
+  addedAfterBuild?: boolean
+  commit: string | null
+  costUsd: number | null
+  startedAt: string
+  proposalId: string | null
+}
+
+export interface RecapProposal {
+  /** `1a`, `1b`, ... the answer code. */
+  code: string
+  proposalId: string
+  kind: string
+  topic: string
+  rationale: string
+  /** `task` names the Fellow's standing task this proposal was planned for. */
+  provenance: { candidate: string; text: string; sourcePages: string[]; task?: string }
+  estCostUsd: number | null
+  scopeScore: number
+  drift: boolean
+  status: string
+  rank: number
+}
+
+export interface RecapFellow {
+  index: number
+  agentId: string
+  name: string
+  homeDomain: string
+  model: string
+  autonomy: string
+  state: string
+  sleepCode: string | null
+  sleepReason: string | null
+  skipUntil: string | null
+  notebookPath: string
+  runs: RecapRun[]
+  found: string[]
+  openQuestions: string[]
+  proposals: RecapProposal[]
+  value: { pageOpens: number; recapLinks: number }
+}
+
+export interface RecapModel {
+  cycleDate: string
+  generatedAt: string
+  quiet: boolean
+  since: string
+  /**
+   * What landed after this recap was built. The proposals and Fellow states above are re-read
+   * on every request, so they are current; this counts what only a rebuild would pick up.
+   */
+  sinceBuilt: { runs: number; proposals: number } | null
+  /** Publications from the reading list that reached the vault in this window. */
+  readingFiled: Array<{ title: string; page: string; by: string | null }>
+  /** What the Fellows put on the reading list in this recap's period; `page` once it is in the vault. */
+  readingAdded?: Array<{ title: string; url: string; by: string | null; page: string | null }>
+  window: { start: string; end: string }
+  shift: { trigger: string; startedAt: string; finishedAt: string | null; executed: number; planned: number; skipped: Array<{ agentName: string; reason: string }>; costUsd: number } | null
+  totals: { runs: number; failed: number; costUsd: number; pages: number }
+  usage: { today: { costUsd: number; runs: number }; week: { costUsd: number; runs: number } }
+  value: { pageOpens: number; recapLinks: number }
+  fellows: RecapFellow[]
+  sleeping: Array<{ name: string; reason: string }>
+  summaryNote: string | null
+  summaryCostUsd: number | null
+  unclaimed: RecapUnclaimed[]
+  dedupe: {
+    merged: Array<{ keptAgentName: string; keptTopic: string; droppedAgentName: string; droppedTopic: string; by?: 'lexical' | 'judge'; noted?: boolean; reason?: string }>
+    overlaps: Array<{ agentName: string; topic: string; page: string }>
+  }
+}
+
+export interface RecapRow {
+  cycleDate: string
+  generatedAt: string
+  /** Vault page, null on a quiet day. */
+  path: string | null
+  quiet: boolean
+  model: RecapModel
+  delivered: { dashboard?: string; telegram?: { chatIds: number[]; at: string } }
+  answeredAt: string | null
+}
+
+export interface RecapStatus {
+  recapTime: string
+  nextAt: string
+  building: boolean
+  latest: RecapRow | null
+}
+
+export interface RecapsResponse {
+  recaps: RecapRow[]
+  status: RecapStatus
+}
+
+export interface RecapAnswerResult {
+  answer: RecapAnswer
+  ok: boolean
+  message: string
+}
+
+export interface RecapAnswersResponse {
+  results: RecapAnswerResult[]
+  errors: string[]
+  recap: RecapRow
+}
+
+// ---- The Library screen (docs/agents/SPEC.md section 10; behind AGENTS_ENABLED) ----
+
+export interface SceneShelf {
+  slot: number
+  domain: string
+  books: number
+  volumes: number
+  stubs: number
+  placedBy: 'user' | 'auto'
+}
+
+export interface SceneRoom {
+  id: string
+  name: string
+  kind: 'main' | 'wing'
+  position: number
+  capacity: number
+  /**
+   * Where each row's gap stands, as a position index 0 to 6 (2026-09-14). A row has seven
+   * positions and six shelves, so one is always the way through: the back row's gap is the
+   * doorway, the front row's the aisle. A wing can be arranged one and five, two and four, or
+   * six in a row with the way through at an end. The main room always reports 3, its door
+   * being part of the architecture.
+   */
+  wallAisle: number
+  midAisle: number
+  shelves: SceneShelf[]
+}
+
+export interface SceneDepartment {
+  domain: string
+  books: number
+  volumes: number
+  stubs: number
+  room: string | null
+  slot: number | null
+}
+
+export interface SceneFellow {
+  agentId: string
+  name: string
+  homeDomain: string
+  model: string
+  state: string
+  sleepCode: string | null
+  sleepReason: string | null
+  skipUntil: string | null
+  run: { id: string; kind: string; channel: string; label: string | null; startedAt: string; waiting: boolean; typicalMs: number | null } | null
+  next: { topic: string; kind: string; estCostUsd: number | null; status: string } | null
+  lastActive: string | null
+  /** The desk the Fellow keeps in the main room, 0 to 9; null for a retired one. */
+  desk: number | null
+}
+
+export interface SceneRun {
+  id: string
+  kind: string
+  channel: string
+  label: string | null
+  startedAt: string
+  /** Queued behind the runner rather than executing - one run works at a time. */
+  waiting: boolean
+  /** How long a run of this kind usually takes, or null when nothing says (run-duration.ts). */
+  typicalMs: number | null
+}
+
+export interface SceneJob {
+  id: string
+  status: string
+  name: string
+  source: string
+  batchId: string | null
+  /** `night` while the job waits for the shift; null for an ordinary job. */
+  hold: 'night' | null
+  /**
+   * Part of tonight's ingest queue: held for it, or released by the shift and not through
+   * yet. A released job stays in the queue while it waits its turn, runs, and commits.
+   */
+  night: boolean
+  /** How long an ingest of its type usually takes, for the queue's blocks; null when nothing says. */
+  typicalMs: number | null
+  type: string
+  createdAt: string
+}
+
+export interface LibraryScene {
+  generatedAt: string
+  night: boolean
+  window: { start: string; end: string }
+  rooms: SceneRoom[]
+  departments: SceneDepartment[]
+  unfiled: number
+  gaps: number
+  fellows: SceneFellow[]
+  runs: SceneRun[]
+  jobs: SceneJob[]
+  concurrency: number
+}
+
+export interface Wing {
+  id: string
+  name: string
+  position: number
+  createdAt: string
+}
+
+export interface Placement {
+  domain: string
+  room: string
+  slot: number
+  placedBy: 'user' | 'auto'
+  updatedAt: string
+}
+
+/** A Fellow's record (server/src/db/agents.ts). */
+export interface FellowRecord {
+  id: string
+  name: string
+  slug: string
+  intent: string
+  scope: string | null
+  /** The standing work, one to three; the first one's text is `intent`. */
+  tasks: AgentTask[]
+  /** Which task is up next. */
+  taskCursor: number
+  homeDomain: string
+  extraDomains: string[]
+  lens: string
+  model: string
+  effort: string
+  step: string
+  quotaRunsPerDay: number
+  quotaWeekPct: number | null
+  autonomy: string
+  /** The arts its tasks may be: one of them, or `custom` for any mix (TASKS-A7 D7). */
+  art: 'watch' | 'explore' | 'deepen' | 'custom'
+  /** Every standing task each night, or one in turn (TASKS-A7 D8). */
+  nightly: 'sweep' | 'rotate'
+  priority: number
+  state: string
+  sleepReason: string | null
+  sleepCode: string | null
+  skipUntil: string | null
+  notebookPath: string
+  /** The desk the Fellow keeps in the Library's main room, 0 to 9; null once retired. */
+  desk: number | null
+  createdAt: string
+  updatedAt: string
+  retiredAt: string | null
+}
+
+export interface ProposalRecord {
+  id: string
+  agentId: string
+  createdAt: string
+  cycleDate: string
+  kind: string
+  topic: string
+  lens: string
+  rationale: string
+  /** `task` names the Fellow's standing task this proposal was planned for. */
+  provenance: { candidate: string; text: string; sourcePages: string[]; task?: string }
+  pageSet: string[]
+  estCostUsd: number | null
+  estPlanPct: number | null
+  scopeScore: number
+  rank: number
+  status: string
+  decidedAt: string | null
+  decidedVia: string | null
+  userNote: string | null
+  runId: string | null
+}
+
+export interface FellowSummary {
+  agent: FellowRecord
+  currentRun: MaintenanceRun | null
+  lastRun: AgentRunRecord | null
+  /** Research runs spent in the current NIGHT cycle, which is what the quota is counted in. */
+  runsTonight: number
+  /**
+   * What the next shift would run for this Fellow, in the order it would take them and no
+   * further than the quota reaches. `next` is its first entry. Empty is not "nothing runs": an
+   * auto Fellow also runs what tonight's own planning puts up, which does not exist yet.
+   */
+  queue: ProposalRecord[]
+  /** Whether "skip tonight" covers the night ahead: it still plans, and nothing of it runs. */
+  skipsTonight: boolean
+  /** Proposals still to decide or to run: approved ones stand here until they have run. */
+  pendingProposals: number
+  /**
+   * Proposals still UNDECIDED. An approved proposal keeps standing until a run takes it, so
+   * `pendingProposals` counts it while nothing is up for review; a count labelled "decisions"
+   * has to be this one.
+   */
+  undecidedProposals: number
+  /**
+   * What became of each standing task tonight, in the order the tasks stand: a run carried one
+   * of its proposals out, every proposal it got was vetoed, or it is still open. The queue bar
+   * marks its sections from this.
+   */
+  tonight: Array<{ id: string; outcome: 'ran' | 'vetoed' | 'open' }>
+  next: ProposalRecord | null
+}
+
+export interface FellowCard extends FellowSummary {
+  runs: AgentRunRecord[]
+  pages: string[]
+  lastActive: string | null
+  /** The quota and what is spent of it in the night cycle now in force, not in the day. */
+  quota: { runsPerDay: number; used: number }
+  proposals: ProposalRecord[]
+  spend: { todayUsd: number; weekUsd: number; runsToday: number; runsWeek: number; weekPct: number | null }
+  value: { pageOpens: number; recapLinks: number }
+}
+
+export interface AgentsResponse {
+  fellows: FellowSummary[]
+  models: Array<{ key: string; id: string; factor: number }>
+  costs: Record<string, number>
+  /** How long each run kind usually takes, in ms; null until the service has seen enough. */
+  durations: Record<string, number | null>
+  /** The order the night walks the shelves; empty means nobody has set one (TASKS-A7 3.5). */
+  shelfOrder: string[]
+  shift: { window: { start: string; end: string }; inWindow: boolean; cycleDate: string | null; nextStartsAt: string; running: boolean } | null
+}
+
+/** One piece of a Fellow's standing work (docs/agents/ideas.md, decision 2026-09-07). */
+export type TaskKind = 'watch' | 'explore' | 'deepen'
+export const TASK_KINDS: TaskKind[] = ['watch', 'explore', 'deepen']
+export const MAX_TASKS = 3
+
+export interface AgentTask {
+  id: string
+  text: string
+  kind: TaskKind
+  /** `resting` = answered as far as the library can take it; only an explore task reaches it. */
+  state: 'active' | 'resting'
+}
+
+export interface SpawnBody {
+  name: string
+  /** The first task's sentence; sent alongside `tasks` and derived from it. */
+  intent: string
+  tasks?: Array<{ text: string; kind: TaskKind }>
+  scope?: string
+  homeDomain: string
+  extraDomains?: string[]
+  lens?: string
+  model?: string
+  effort?: string
+  step?: string
+  quotaRunsPerDay?: number
+  autonomy?: string
+  /** The arts this Fellow may hold. Omitted, the service reads one off the tasks. */
+  art?: FellowRecord['art']
+  nightly?: FellowRecord['nightly']
+  runFirstStep?: boolean
+}
+
+/** What `PATCH /agents/:id` accepts: the spawn fields, each on its own. */
+export type AgentPatchBody = Partial<Omit<SpawnBody, 'runFirstStep'>> & { priority?: number }
+
+// ---- Plan utilization (docs/agents/SPEC.md section 8; behind AGENTS_ENABLED) ----
+
+export interface PlanWindow {
+  window: string
+  utilization: number
+  resetsAt: string | null
+}
+
+export interface PlanStatus {
+  available: boolean
+  source: 'sdk' | 'event' | 'endpoint' | null
+  reason: string | null
+  /**
+   * Why the numbers are not refreshing, while they are still being shown. `reason` speaks only
+   * when nothing is available at all, and a sample counts as available for a day - so a live
+   * source that stopped answering would otherwise leave hours-old percentages unexplained.
+   */
+  liveReason: string | null
+  /**
+   * Estimated window percent spent by runs that started after the newest sample - what the
+   * shown figure is behind by. Null per window while the calibration cannot price a run.
+   */
+  sinceSample: { runs: number; fiveHour: number | null; sevenDay: number | null }
+  /**
+   * The five-hour release (SPEC section 8.6): whether it may be granted at all, whether one is
+   * live, what it lifts the bounds to, and when it ends.
+   */
+  override: { enabled: boolean; active: boolean; pct: number; expiresAt: string | null }
+  /**
+   * The week release (SPEC section 8.6a), the same shape. `expiresAt` is the end of the night
+   * it was granted for, never the week's own reset.
+   */
+  weekOverride: { enabled: boolean; active: boolean; pct: number; expiresAt: string | null }
+  subscription: string | null
+  sampledAt: string | null
+  windows: PlanWindow[]
+  /** When each window resets, as far as the samples or the rate-limit events told. */
+  resets: Record<string, string>
+  /**
+   * Points per USD per model, measured as total points moved over total USD spent. `points`
+   * is how many percent points of each window those runs actually moved: the plan reports
+   * utilization in whole percent, so a rate resting on two of them is a rate and not a fact.
+   */
+  calibration: {
+    perModel: Record<string, { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } }>
+    /** The same rate over every measured run, model or not: what prices a window in USD. */
+    overall: { fiveHour: number | null; sevenDay: number | null; n: number; points: { fiveHour: number; sevenDay: number } }
+    ready: boolean
+  }
+  /**
+   * What one plan window costs to fill, in USD, and whether that is measured or the setting's
+   * guess. A window is 100 points, so the calibration gives it directly; `planWeekUsd` is only
+   * the fallback for a service that has never measured a run.
+   *
+   * An ESTIMATE either way, and a wide one. Anthropic states the plan's limits as multiples of
+   * the Pro plan and a weekly cap in (internally weighted) tokens - never in dollars - so no
+   * figure here can be checked against an official one. What the service measures is a counter
+   * that moves in whole percent, and other surfaces on the same account move it too. Treat it
+   * as an order of magnitude; the reserve, which reads the plan's own utilization, is what
+   * actually protects the subscription.
+   */
+  planUsd: { week: number; fiveHour: number; measured: boolean }
+  consumption: { weekPct: number | null; fiveHourPct: number | null; weekUsd: number; fiveHourUsd: number; weekRuns: number; fiveHourRuns: number }
+  settings: { researchShareWeekPct: number; researchShare5hPct: number; reserve5hPct: number; reserveWeekPct: number; planWeekUsd: number; plan5hUsd: number; planName: string }
+  shares: { unit: 'points' | 'usd'; week: number; fiveHour: number; weekUsed: number; fiveHourUsed: number; stepsLeftWeek: number | null }
+  gate: { code: 'reserve' | 'share'; window: string; reason: string; resetsAt: string | null } | null
+}
+
+// ---- The reading list (docs/agents/SPEC.md section 10.6) ----
+
+/** One question on the pinboard (prototype 2026-09-17): a bullet under a page's "Open questions". */
+export interface QuestionItem {
+  id: string
+  text: string
+  page: string
+  domain: string | null
+  /** Struck through on its page: closed for the Fellows, kept on the page. */
+  archived: boolean
+  planned: { proposalId: string; agentId: string; fellow: string; status: string } | null
+  researching: { runId: string } | null
+}
+
+export interface ReadingItem {
+  title: string
+  url: string
+  ref: string | null
+  domain: string | null
+  why: string | null
+  /** The finder as older entries wrote it, one string; newer ones carry `by` and `at`. */
+  found: string | null
+  by: string | null
+  at: string | null
+  /** What the run could do with the document, as the Fellow reported it. */
+  access: 'open' | 'paywalled' | 'unreachable' | null
+  /** Why it could not be read: an HTTP status, "subscription", "no extractable text". */
+  blocked: string | null
+  /** `access` where given, else read off the host; what the paywalled toggle filters on. */
+  reach: 'open' | 'paywalled' | 'unreachable' | 'unknown'
+  /** The source page this publication became, whatever route it took into the vault. */
+  page: string | null
+  /**
+   * Whether the vault holds the DOCUMENT, and not only a page about it: a research step can
+   * write a source page from a web read, and that page carries the publication's identity.
+   * `page` says a write-up exists, `held` says the paper is here - the board says which.
+   */
+  held: boolean
+  /** How it was recognized: the ingest that ran for its url, or its DOI / arXiv id. */
+  via: 'job' | 'ref' | 'url' | 'file' | null
+  filed: string | null
+  filedAt: string | null
+  /** When the user put it out of sight; null while it is current. A mark, not a removal. */
+  archivedAt: string | null
+  /**
+   * A legal open-access copy of this publication, found by the nightly sweep or by the ingest
+   * that read one (docs/sources/SPEC.md sections 5.4 and 6.2). Null while none is known.
+   */
+  oa: { url: string; version: string | null; at: string | null; chars: number | null } | null
+  /**
+   * True when the copy above was already fetched by an ingest and did not read as full text, and
+   * no other copy is known. The mark stays - a copy does exist at that address - but the board
+   * says so rather than offering a click that would repeat the same failure.
+   */
+  oaExhausted: boolean
+  /**
+   * Whether "Find open-access" applies: nobody could read this one, nothing is known yet, and it
+   * names a DOI, an arXiv id or a PMC id - the three identities a copy can be found by. The
+   * service decides it, so the board and the route cannot disagree.
+   */
+  oaEligible: boolean
+  /** The ingest of this url, when the service has one. */
+  job: { id: string; status: string; pages: number } | null
+}

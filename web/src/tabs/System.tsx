@@ -21,7 +21,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
-import type { AuthMode, Stats } from '../api/types.ts'
+import type { AuthMode, PlanStatus, Stats } from '../api/types.ts'
 import { Maintenance } from './Maintenance.tsx'
 import { SettingsEditor } from '../components/SettingsEditor.tsx'
 import { GrowthChart } from '../components/GrowthChart.tsx'
@@ -37,6 +37,7 @@ import { navigate } from '../lib/router.ts'
 import { runTitle } from '../lib/runLabels.ts'
 import { contentPages } from '../lib/activity.ts'
 import { spendByChannel, spendItems, topSpend, totalSpend, withinDays } from '../lib/usage.ts'
+import { shareLine } from '../lib/plan.ts'
 
 type SectionId = 'checks' | 'usage' | 'vault' | 'service' | 'integrations'
 
@@ -59,9 +60,12 @@ const DIR_LABELS: Record<string, string> = {
   questions: 'Questions',
   folds: 'Folds',
   meta: 'Meta',
+  // Pages that sit directly in `wiki/` - the index, the hot cache, the journal. They have no
+  // folder to be named after, and used to be counted by nobody.
+  root: 'Wiki root',
 }
 
-export function System({ section = '' }: { section?: string }): React.ReactElement {
+export function System({ section = '', setting = '' }: { section?: string; setting?: string }): React.ReactElement {
   const [active, setActive] = useState<SectionId>(() => (isSection(section) ? section : 'checks'))
 
   // `?section=` from elsewhere (the setup banner points at integrations) - the screen stays
@@ -194,7 +198,7 @@ export function System({ section = '' }: { section?: string }): React.ReactEleme
           {active === 'vault' && <VaultStatsSection />}
           {active === 'service' && (
             <div className="sys-pane">
-              <SettingsEditor section="service" />
+              <SettingsEditor section="service" focus={setting} />
             </div>
           )}
           {active === 'integrations' && (
@@ -220,6 +224,73 @@ function dense(daily: Stats['kpisDaily'], key: 'done' | 'failed', days: number):
 }
 
 /**
+ * The plan (docs/agents/SPEC.md section 8): utilization of the 5-hour and 7-day windows as
+ * the SDK or the usage endpoint last reported it, the research share the Fellows consumed
+ * against the configured share, and whether the gate would let a standard step start now.
+ * Without plan data (an API key, or a token the usage endpoint refuses) the share is
+ * accounted in USD-equivalent against the configured plan sizes.
+ */
+function PlanPanel({ plan }: { plan: PlanStatus }): React.ReactElement {
+  const five = plan.windows.find((w) => w.window === 'five_hour')
+  const week = plan.windows.find((w) => w.window === 'seven_day')
+  const buckets = plan.windows.filter((w) => w.window !== 'five_hour' && w.window !== 'seven_day' && w.window !== 'seven_day_oauth_apps')
+  const sharePct = plan.shares.week > 0 ? Math.min(100, Math.round((plan.shares.weekUsed / plan.shares.week) * 100)) : 0
+  const models = Object.entries(plan.calibration.perModel).filter(([, c]) => c.sevenDay !== null && c.n >= 3)
+  return (
+    <section className="subcard">
+      <div className="sc-head">
+        <h3 className="sc-title">
+          Plan
+          <Tip text="What the subscription's rate-limit windows show, sampled through the SDK inside Fellow runs and from the usage endpoint between them. The research share and the reserves are settings keys (researchShareWeekPct, researchShare5hPct, reserve5hPct, reserveWeekPct, planWeekUsd, plan5hUsd)." />
+        </h3>
+        <span className="spacer" />
+        <span className={`badge ${plan.gate ? 'deferred' : 'ok'}`}>{plan.gate ? 'steps blocked' : plan.available ? `${plan.subscription ?? 'plan'} · measured` : 'USD-equivalent'}</span>
+      </div>
+      <div className="sc-body">
+        {plan.available ? (
+          <div className="sc-meta">
+            <span>5-hour window {five ? `${five.utilization}%` : '-'}</span>
+            <span>week {week ? `${week.utilization}%` : '-'}</span>
+            {buckets.map((b) => (
+              <span key={b.window}>
+                {b.window.replace('seven_day_', '').replace('model:', '')} {b.utilization}%
+              </span>
+            ))}
+            <span className="spacer" />
+            <span>sampled {plan.sampledAt ? timeAgo(plan.sampledAt) : 'never'}</span>
+          </div>
+        ) : (
+          <p className="tab-hint">
+            No plan windows: {plan.reason ?? 'no sample yet'}. The research share is accounted in USD against{' '}
+            {plan.planUsd.measured
+              ? `what a week of the plan was measured to cost (${plan.planUsd.week.toFixed(0)} USD, from the calibration)`
+              : 'the configured plan size'}
+            .
+            {plan.resets['five_hour'] ? ` The 5-hour window resets ${timeAgo(plan.resets['five_hour'])}.` : ''}
+          </p>
+        )}
+        <div className="meter">
+          <i className={plan.gate ? 'over' : ''} style={{ width: `${sharePct}%` }} />
+        </div>
+        <div className="sc-meta">
+          <span>Research share: {shareLine(plan)}</span>
+          <span className="spacer" />
+          <span>{plan.shares.stepsLeftWeek !== null ? `about ${plan.shares.stepsLeftWeek} standard step(s) left` : 'no estimate yet'}</span>
+        </div>
+        {plan.gate && <p className="tab-hint">Steps wait: {plan.gate.reason}.</p>}
+        <p className="mono-meta">
+          {models.length > 0
+            ? `Calibrated: ${models
+                .map(([m, c]) => `${m} ${c.sevenDay!.toFixed(4)} points/USD from ${c.n} run(s)`)
+                .join(', ')}. Over every measured run, the plan's own rate is ${plan.calibration.overall.sevenDay?.toFixed(4) ?? '-'} points/USD from ${plan.calibration.overall.n} run(s) that moved the week by ${plan.calibration.overall.points.sevenDay} point(s) in all - which prices a week at roughly ${plan.planUsd.week.toFixed(0)} USD${plan.planUsd.measured ? '' : ' (the configured size; nothing measured yet)'}. A rough figure by nature: the plan states its limits in weighted tokens and never in dollars, the counter behind this moves in whole percent, and every other surface on the same account moves it too. The reserve is what protects the subscription; this only sizes the share.`
+            : `Not calibrated yet: the points per USD come from the first 3 measured runs per model. Runs measured so far: ${Object.values(plan.calibration.perModel).reduce((a, c) => a + c.n, 0)}.`}
+        </p>
+      </div>
+    </section>
+  )
+}
+
+/**
  * Usage & cost. Every figure here comes from data the service already stored - the point of
  * the section is that it was never added up anywhere.
  */
@@ -233,6 +304,9 @@ function UsageSection(): React.ReactElement {
     queryKey: ['maintenance-history', 'all'],
     queryFn: () => api.maintenanceHistory({ limit: 200 }),
   })
+  // The plan panel (docs/agents/SPEC.md section 8, A5) exists only with the Fellows.
+  const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
+  const plan = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, enabled: health.data?.fellows === true, refetchInterval: 60_000, retry: false })
 
   const items = useMemo(
     () => spendItems(jobs.data?.jobs ?? [], runs.data?.runs ?? []),
@@ -333,6 +407,8 @@ function UsageSection(): React.ReactElement {
           </div>
         </section>
       </div>
+
+      {plan.data && <PlanPanel plan={plan.data} />}
 
       <section className="subcard">
         <div className="sc-head">
@@ -464,13 +540,13 @@ function VaultStatsSection(): React.ReactElement {
           k="Orphans"
           v={graph.data !== undefined ? String(orphans) : '…'}
           tone={orphans > 0 ? 'warn' : undefined}
-          onOpen={() => navigate('/library')}
+          onOpen={() => navigate('/catalog')}
         />
         <Fact
           k="Stubs"
           v={graph.data !== undefined ? String(stubs) : '…'}
           tone={stubs > 0 ? 'warn' : undefined}
-          onOpen={() => navigate('/library')}
+          onOpen={() => navigate('/catalog')}
         />
         <Fact k="Gaps" v={gaps === null ? '…' : String(gaps)} onOpen={() => navigate('/graph?gaps=1')} />
         <Fact

@@ -17,10 +17,11 @@ import { PageLink } from './PageLink.tsx'
 import { useRunProgressLine } from '../hooks/useRunProgressLine.ts'
 import { useState } from 'react'
 import { duration, parsePages, timeAgo } from '../lib/format.ts'
-import { jobNote, type ActivityEvent } from '../lib/activity.ts'
+import { jobNote, type ActivityEvent, contentPages } from '../lib/activity.ts'
 import { RUN_RUNNING_TITLES, runTitle } from '../lib/runLabels.ts'
 import { navigate, pageRoute } from '../lib/router.ts'
 import { openableRow } from '../lib/tableRow.ts'
+import { parseQuoteSummary, quotesChip, quotesTitle } from '../lib/quotes.ts'
 
 /** Stable per-channel colour, so a row's origin reads without parsing the word. */
 export function channelColor(source: string): string {
@@ -45,7 +46,7 @@ export function channelLabel(source: string): string {
     url: 'Link',
     telegram: 'Telegram',
     manual: 'Manual edits',
-    research: 'Research runs',
+    research: 'Research',
     git: 'Vault commit',
   }
   return map[source] ?? source
@@ -65,7 +66,7 @@ function PageChips({ vaultName, paths }: { vaultName: string; paths: readonly st
   return (
     <span className="rowpages">
       {paths.slice(0, 3).map((p) => (
-        <PageLink key={p} vaultName={vaultName} path={p} />
+        <PageLink key={p} vaultName={vaultName} path={p} tabbable={false} />
       ))}
       {paths.length > 3 && <span className="chip-n">+{paths.length - 3} more</span>}
     </span>
@@ -80,36 +81,60 @@ function PageChips({ vaultName, paths }: { vaultName: string; paths: readonly st
  * Lives in the seventh column, visible on hover and keyboard focus (`.rowacts`), and stops
  * the click so the row does not open underneath it.
  */
+/** What the trash does to this row, in the words its tooltip uses. */
+const VERBS = {
+  remove: { idle: (label: string) => `Remove from history: ${label}`, armed: 'Click again to remove this entry from the history' },
+  cancel: { idle: (label: string) => `Cancel this job: ${label}`, armed: 'Click again to cancel the job; it stays in the history as cancelled' },
+  dismiss: { idle: (label: string) => `Take this commit off the stream: ${label}`, armed: 'Click again to take it off the stream; the vault keeps the commit' },
+} as const
+
+/**
+ * The trash at the right edge of every row (second sweep, chunk 1): always there, in the same
+ * place on every row, so a stream of settled things has one way to be thinned. First click
+ * arms it, the second acts, four seconds and it stands down. A row nothing can be done to yet
+ * (a run or an ingest in flight, a record the service keeps for itself) shows it disabled
+ * and says why on hover.
+ */
 export function RowDelete({
   label,
   remove,
   onRemoved,
+  verb = 'remove',
+  disabledReason,
 }: {
   label: string
-  remove: () => Promise<unknown>
+  remove?: () => Promise<unknown>
   onRemoved?: () => void
+  verb?: keyof typeof VERBS
+  /** When set, the trash is disabled and this is its tooltip. */
+  disabledReason?: string
 }): React.ReactElement {
   const qc = useQueryClient()
   const [armed, setArmed] = useState(false)
   const del = useMutation({
-    mutationFn: remove,
+    mutationFn: async () => remove?.(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['jobs'] })
       void qc.invalidateQueries({ queryKey: ['stats'] })
       void qc.invalidateQueries({ queryKey: ['maintenance-history'] })
+      void qc.invalidateQueries({ queryKey: ['library-scene'] })
       onRemoved?.()
     },
     onSettled: () => setArmed(false),
   })
+  const words = VERBS[verb]
+  const off = disabledReason !== undefined || remove === undefined
   return (
-    <span className="rowacts">
+    <span className="rowacts always">
       <button
-        className={`btn ghost sm${armed ? ' danger' : ''}`}
-        disabled={del.isPending}
-        title={armed ? 'Click again to remove this entry from the history' : `Remove from history: ${label}`}
-        aria-label={armed ? 'Confirm removal' : `Remove from history: ${label}`}
+        className={`btn ghost sm trash${armed ? ' danger' : ''}`}
+        tabIndex={-1}
+        disabled={off || del.isPending}
+        title={off ? disabledReason : armed ? words.armed : words.idle(label)}
+        aria-label={off ? (disabledReason ?? 'Nothing to remove') : armed ? 'Confirm' : words.idle(label)}
         onClick={(e) => {
           e.stopPropagation()
+          if (off) return
           if (armed) del.mutate()
           else {
             setArmed(true)
@@ -118,11 +143,16 @@ export function RowDelete({
         }}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        {del.isPending ? '…' : armed ? 'Sure?' : <Icon name="x" />}
+        {del.isPending ? '…' : armed ? 'Sure?' : <Icon name="trash" />}
       </button>
     </span>
   )
 }
+
+const IN_FLIGHT_RUN = 'A run in flight is left to finish; it can be removed once it has settled.'
+const IN_FLIGHT_JOB = 'An ingest in flight is left to finish; it can be removed once it has settled.'
+const KEPT_SETTLE = "The kind's last settle, kept by the service for its own status; it has no history entry to remove."
+
 
 /** The pipeline as three ticks - enough to see movement, not enough to need a legend. */
 const PHASES: JobStatus[] = ['queued', 'preprocessing', 'ingesting']
@@ -152,7 +182,9 @@ export function RunRow({ run }: { run: MaintenanceRun }): React.ReactElement {
       </td>
       <td className="num">-</td>
       <td className="faintc">{timeAgo(run.startedAt)}</td>
-      <td className="acts" />
+      <td className="acts">
+        <RowDelete label={run.label ?? run.kind} disabledReason={IN_FLIGHT_RUN} />
+      </td>
     </tr>
   )
 }
@@ -162,7 +194,10 @@ export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): R
   const qc = useQueryClient()
   const cancel = useMutation({
     mutationFn: () => api.cancel(job.id),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+      void qc.invalidateQueries({ queryKey: ['library-scene'] })
+    },
   })
   const phase = PHASES.indexOf(job.status)
   const name = job.original_name ?? job.url ?? job.id
@@ -170,11 +205,26 @@ export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): R
     <tr className="live" {...openableRow(onOpen, `Open job detail: ${name}`)}>
       <td>
         <span className="hrow-name">
-          <span className={`hrow-dot ${job.status === 'queued' ? 'queued' : 'running'}`} aria-hidden />
+          {/* A job held for the night wears a crescent where the others wear the status
+              dot (2026-09-11): the amber dot said "waiting", and a night job is waiting for
+              something the row should name. It keeps the dot's slot, so the names align. */}
+          {job.hold === 'night' ? (
+            <span className="hrow-moon" aria-hidden>
+              <Icon name="moon" />
+            </span>
+          ) : (
+            <span className={`hrow-dot ${job.status === 'queued' ? 'queued' : 'running'}`} aria-hidden />
+          )}
           <span className="nm" title={name}>
             {name}
           </span>
           <span className="badge type">{job.type}</span>
+          {/* Held for the night shift: queued, but not before the shift begins. */}
+          {job.hold === 'night' && (
+            <span className="hrow-state tonight" title="Held for the night shift, which runs it ahead of the Fellows">
+              tonight
+            </span>
+          )}
         </span>
         <span className="live-phase">{job.status}</span>
       </td>
@@ -187,10 +237,13 @@ export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): R
         </span>
       </td>
       <td className="num">
-        {job.status === 'queued' && (
+        {/* A waiting job says so with a Cancel of its own, at the trash's height so the row
+            keeps the column's rhythm; the trash at the edge cancels it too. */}
+        {job.status === 'queued' ? (
           <button
-            className="btn ghost danger sm"
+            className="btn ghost danger sm cancel"
             disabled={cancel.isPending}
+            title={job.hold === 'night' ? 'Take it off tonight: the job is cancelled and stays in the history' : 'Cancel this job; it stays in the history as cancelled'}
             onClick={(e) => {
               e.stopPropagation()
               cancel.mutate()
@@ -198,10 +251,19 @@ export function LiveJobRow({ job, onOpen }: { job: Job; onOpen: () => void }): R
           >
             Cancel
           </button>
+        ) : (
+          '-'
         )}
       </td>
       <td className="faintc">{timeAgo(job.started_at ?? job.created_at)}</td>
-      <td className="acts" />
+      <td className="acts">
+        {/* The trash cancels while the job still waits; once it runs, it is left to finish. */}
+        {job.status === 'queued' ? (
+          <RowDelete label={name} verb="cancel" remove={() => api.cancel(job.id)} />
+        ) : (
+          <RowDelete label={name} disabledReason={IN_FLIGHT_JOB} />
+        )}
+      </td>
     </tr>
   )
 }
@@ -242,10 +304,14 @@ export function HistoryJobRow({
   onOpen: () => void
 }): React.ReactElement {
   const name = job.original_name ?? job.url ?? job.id
-  const pages = parsePages(job.created_pages)
+  // The same pages the record lists: the index hubs every ingest rewrites are not what it
+  // produced, and a row that counted them said +7 where the record said +4.
+  const pages = contentPages(parsePages(job.created_pages))
   const showState = job.status !== 'done'
   const noChanges = job.status === 'done' && job.outcome === 'no-changes'
   const note = jobNote(job)
+  const quotes = parseQuoteSummary(job.validation)
+  const quoteChip = quotesChip(quotes)
   return (
     <tr {...openableRow(onOpen, `Open job detail: ${name}`)}>
       <td>
@@ -258,6 +324,15 @@ export function HistoryJobRow({
           {showState && <span className={`hrow-state ${job.status}`}>{job.status}</span>}
           {noChanges && <span className="hrow-state nochanges">no changes</span>}
           {job.reverted_at != null && <span className="hrow-state reverted">reverted</span>}
+          {/*
+           * A quotation this run added that is not in the text it read. Beside the badges rather
+           * than in the note line: it is about the pages, not about the run's outcome (7.5).
+           */}
+          {quoteChip !== null && (
+            <span className="hrow-state quotes" title={quotesTitle(quotes)}>
+              {quoteChip}
+            </span>
+          )}
         </span>
         {/* A failure's line is red; a duplicate's or a no-change run's is an explanation, not an alarm. */}
         {note !== undefined && <span className={job.status === 'failed' ? 'rowerr' : 'rownote'}>{note}</span>}
@@ -320,7 +395,9 @@ export function SettleRow({
       <td className="num">{duration(event.startedIso ?? null, event.whenIso)}</td>
       <td className="num">{event.costUsd !== null ? <Cost value={event.costUsd} authMode={authMode} /> : '-'}</td>
       <td className="faintc">{timeAgo(event.whenIso)}</td>
-      <td className="acts">{remove !== undefined && <RowDelete label={name} remove={remove} />}</td>
+      <td className="acts">
+        {remove !== undefined ? <RowDelete label={name} remove={remove} /> : <RowDelete label={name} disabledReason={KEPT_SETTLE} />}
+      </td>
     </tr>
   )
 }
@@ -333,14 +410,17 @@ export function SettleRow({
 export function CommitRow({
   event,
   vaultName,
+  onOpen,
 }: {
   event: ActivityEvent
   vaultName: string
+  /** Opens the commit's record when it is not a single page: the pages it touched, its hash. */
+  onOpen?: () => void
 }): React.ReactElement {
   const single = event.pages.length === 1 ? event.pages[0]! : null
-  const open = single !== null ? () => navigate(pageRoute(single)) : undefined
+  const open = single !== null ? () => navigate(pageRoute(single)) : onOpen
   return (
-    <tr {...openableRow(open, single !== null ? `Open ${single}` : '')}>
+    <tr {...openableRow(open, single !== null ? `Open ${single}` : `Open the record: ${event.title}`)}>
       <td>
         <span className="hrow-name">
           <span className="hrow-dot edit" aria-hidden />
@@ -356,7 +436,15 @@ export function CommitRow({
       <td className="num">-</td>
       <td className="num">-</td>
       <td className="faintc">{timeAgo(event.whenIso)}</td>
-      <td className="acts" />
+      <td className="acts">
+        {/* Off the stream, not out of the vault: the service remembers the hash and the
+            history it reads from git leaves it out from then on. */}
+        {event.commit !== null ? (
+          <RowDelete label={event.title} verb="dismiss" remove={() => api.dismissCommit(event.commit!)} />
+        ) : (
+          <RowDelete label={event.title} disabledReason="This record carries no commit hash to take off the stream." />
+        )}
+      </td>
     </tr>
   )
 }

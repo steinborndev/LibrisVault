@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type {
   GraphNode,
@@ -66,6 +66,14 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
   const lintFix = useMaintenanceRun(() => api.lintFix())
   const hot = useMaintenanceRun(() => api.hotCache())
   const backfill = useMaintenanceRun(() => api.domainBackfill())
+  // Joining wikilinks a line wrap broke is mechanical, so it runs in code rather than in a
+  // fix run: no model, no cost, one commit. It sits beside lint because that is where those
+  // links are reported (as 'wrapped-link', apart from the genuinely dead ones).
+  const [joined, setJoined] = useState<{ fixed: number; pages: number; left: number } | null>(null)
+  const rejoin = useMutation({
+    mutationFn: () => api.rejoinLinks(),
+    onSuccess: (r) => setJoined({ fixed: r.fixed, pages: r.pages.length, left: r.left }),
+  })
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   // How much of the vault is still unfiled - the number that says whether a backfill is due.
@@ -155,6 +163,14 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
               >
                 {lintFix.running ? 'Fixing…' : 'Fix safe findings'}
               </button>
+              <button
+                className="btn"
+                disabled={rejoin.isPending || lint.running || lintFix.running}
+                onClick={() => rejoin.mutate()}
+                title="Join wikilinks a line wrap broke apart, where the collapsed title names a page that exists (one git commit, no agent run)"
+              >
+                {rejoin.isPending ? 'Joining…' : 'Join broken links'}
+              </button>
               <button className="btn primary" disabled={lint.running || lintFix.running} onClick={lint.start}>
                 {lint.running ? 'Running…' : 'Start lint'}
               </button>
@@ -177,7 +193,15 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
             ) : (
               <>No lint report in the vault yet.</>
             )}
+            {joined !== null && (
+              <span>
+                {' '}
+                · joined {joined.fixed} broken link(s) in {joined.pages} page(s)
+                {joined.left > 0 ? `, ${joined.left} left as genuinely dead` : ''}
+              </span>
+            )}
           </div>
+          {rejoin.error != null && <div className="toast err">{(rejoin.error as Error).message}</div>}
           {lastReport !== null && !lint.running && lint.result === undefined && (
             <ReportPeek path={lastReport.path} />
           )}
@@ -217,15 +241,34 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
             </button>
           </div>
           <div className="tool-meta">
-            {/* "Anzeige des letzten Refresh-Zeitpunkts" (SPEC.md §6.4) - the file's mtime. */}
-            {stats.data?.hotCacheUpdatedAt ? (
-              <span title={new Date(stats.data.hotCacheUpdatedAt).toLocaleString('en-US')}>
-                Last refresh {timeAgo(stats.data.hotCacheUpdatedAt)}
-              </span>
-            ) : (
-              <span>Never refreshed.</span>
+            {/*
+             * Two different facts, told apart since 2026-09-07: the file's mtime says when the
+             * cache was last WRITTEN, and every research run writes it, so dating the refresh
+             * from the mtime made a cache that had never been refreshed look fresh. The
+             * refresh is dated from the last `hot-cache` run instead.
+             */}
+            {(() => {
+              const refresh = maintStatus.data?.lastRuns.get('hot-cache')
+              return refresh ? (
+                <span title={new Date(refresh.finishedAt).toLocaleString('en-US')}>
+                  Last refresh {timeAgo(refresh.finishedAt)}
+                  {refresh.ok ? '' : ' (failed)'}
+                </span>
+              ) : (
+                <span>Never refreshed.</span>
+              )
+            })()}
+            {stats.data?.hotCacheUpdatedAt && <span> · last written {timeAgo(stats.data.hotCacheUpdatedAt)}</span>}
+            {stats.data?.hotCacheWords != null && (
+              <span> · {stats.data.hotCacheWords} words, budget {stats.data.hotCacheBudget}</span>
             )}
           </div>
+          {stats.data?.hotCacheWords != null && stats.data.hotCacheWords > stats.data.hotCacheLimit && (
+            <div className="toast warn">
+              The cache is {stats.data.hotCacheWords} words against a budget of {stats.data.hotCacheBudget}. It is read at
+              the start of every run, so refreshing it makes each of them cheaper.
+            </div>
+          )}
           {hot.running && <JobLog jobId="maintenance:hot-cache" seed={false} />}
           {hot.error && <div className="toast err">{hot.error}</div>}
           {hot.result && <RunResult result={hot.result} vaultName={vaultName} label="Refreshed" />}
@@ -1406,6 +1449,8 @@ function GuidedRun({
       const base = r.result.pages.length > 0 ? `${r.result.pages.length} page(s) committed` : 'No changes needed.'
       finish(step.id, 'done', base + costSuffix(r.result.usage.costUsd))
     }
+    // Fires when one of the three auto runs SETTLES; `autoRuns` and `costSuffix` are read
+    // at that moment and their identity changing must not re-report a finished step.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backfill1.result, backfill2.result, hot.result])
 
@@ -1417,6 +1462,7 @@ function GuidedRun({
       lintFixStarted.current = true
       lintFix.start()
     }
+    // The ref is the once-per-run guard; `lintFix` is only started, never observed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lint.result, step])
   useEffect(() => {
@@ -1425,6 +1471,8 @@ function GuidedRun({
       const usd = (lint.result?.usage.costUsd ?? 0) + lintFix.result.usage.costUsd
       finish('lint', 'done', `Report written · ${lintFix.result.pages.length} page(s) auto-fixed.` + costSuffix(usd))
     }
+    // Reports the pair's total once the fix settles; `lint.result` was already final when
+    // the fix started, so its identity is not what should re-fire this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lintFix.result, step])
 

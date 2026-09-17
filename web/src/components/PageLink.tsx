@@ -42,7 +42,23 @@ function copyTextLegacy(text: string): boolean {
   }
 }
 
-export function PageLink({ vaultName, path }: { vaultName: string; path: string }): React.ReactElement {
+/**
+ * `plain` drops the kind tag. The band that groups pages by kind states the kind once, as a
+ * column label; a tag on every chip inside it said the same word four times over.
+ */
+export function PageLink({
+  vaultName,
+  path,
+  plain = false,
+  tabbable = true,
+}: {
+  vaultName: string
+  path: string
+  plain?: boolean
+  /** False inside a row that is itself the tab stop: Tab then walks rows, not the chips in them. */
+  tabbable?: boolean
+}): React.ReactElement {
+  const tab = tabbable ? undefined : -1
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
 
   const copy = (): void => {
@@ -65,24 +81,26 @@ export function PageLink({ vaultName, path }: { vaultName: string; path: string 
   // rather than to the band around it: the band is most of a row's height, and stopping the
   // click there made "click the row" mean "hit the title line".
   return (
-    <span className="pagelink" onClick={(e) => e.stopPropagation()}>
+    <span className={`pagelink${plain ? ' plain' : ''}`} onClick={(e) => e.stopPropagation()}>
       <a
         className="pagelink-main"
         href={pageRoute(path)}
+        tabIndex={tab}
         onClick={(e) => {
           e.preventDefault()
           navigate(pageRoute(path))
         }}
         title={`Open in the vault viewer: ${path}`}
       >
-        <span className="bucket">{pageBucket(path)}</span>
-        {pageLabel(path)}
+        {!plain && <span className="bucket">{pageBucket(path)}</span>}
+        <span className="pagelink-label">{pageLabel(path)}</span>
       </a>
-      <button className="copy" onClick={openObsidian} title="Open in Obsidian" aria-label="Open in Obsidian">
+      <button className="copy" tabIndex={tab} onClick={openObsidian} title="Open in Obsidian" aria-label="Open in Obsidian">
         <Icon name="link" />
       </button>
       <button
         className="copy"
+        tabIndex={tab}
         onClick={copy}
         title={copied === 'failed' ? `Copy failed - path: ${path}` : 'Copy vault path'}
         aria-label="Copy path"

@@ -39,7 +39,7 @@ export function useMaintenanceRun(starter: () => Promise<MaintenanceRun>): Maint
       // The tab badges read the server's run registry, which polls every 15 s while idle.
       // Without this the badge for a run you just started appeared up to fifteen seconds
       // after the click - long enough to read as "nothing happened".
-      qc.invalidateQueries({ queryKey: ['maintenance-runs'] })
+      void qc.invalidateQueries({ queryKey: ['maintenance-runs'] })
     },
   })
 
@@ -59,17 +59,17 @@ export function useMaintenanceRun(starter: () => Promise<MaintenanceRun>): Maint
     // data from them, and the dependency ordering the wizard exists for only holds when a
     // backfill's result is visible to the domain/tag steps that follow it.
     if (settled) {
-      qc.invalidateQueries({ queryKey: ['stats'] })
-      qc.invalidateQueries({ queryKey: ['maintenance-state'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
+      void qc.invalidateQueries({ queryKey: ['maintenance-state'] })
       // …and the same registry on the way out, so the badge clears on settle rather than
       // on the next poll.
-      qc.invalidateQueries({ queryKey: ['maintenance-runs'] })
+      void qc.invalidateQueries({ queryKey: ['maintenance-runs'] })
       // The run just wrote its own row in the persistent log (schema v12) - the research
       // run list reads from there.
-      qc.invalidateQueries({ queryKey: ['maintenance-history'] })
-      qc.invalidateQueries({ queryKey: ['graph'] })
-      qc.invalidateQueries({ queryKey: ['domains'] })
-      qc.invalidateQueries({ queryKey: ['domain-candidates'] })
+      void qc.invalidateQueries({ queryKey: ['maintenance-history'] })
+      void qc.invalidateQueries({ queryKey: ['graph'] })
+      void qc.invalidateQueries({ queryKey: ['domains'] })
+      void qc.invalidateQueries({ queryKey: ['domain-candidates'] })
     }
   }, [settled, qc])
 

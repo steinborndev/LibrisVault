@@ -65,19 +65,50 @@ describe('vault-stats page counts', () => {
     fs.writeFileSync(path.join(vault, 'wiki', 'entities', 'e.md'), '# e')
     fs.writeFileSync(path.join(vault, 'wiki', 'concepts', 'ignore.txt'), 'not md')
     fs.writeFileSync(path.join(vault, 'wiki', 'hot.md'), '# hot cache')
+    fs.writeFileSync(path.join(vault, 'wiki', 'concepts', '_index.md'), '# concepts')
   })
   afterEach(() => fs.rmSync(vault, { recursive: true, force: true }))
 
   it('counts markdown pages per dir, lists recent, reads hot cache', () => {
     const counts = pageCounts(vault)
-    expect(counts.byDir['concepts']).toBe(2)
+    // 3, not 2: `_index.md` is a file in the folder and this is a count of files. The graph's
+    // per-type chip reads one lower because it counts knowledge nodes - a different axis.
+    expect(counts.byDir['concepts']).toBe(3)
     expect(counts.byDir['entities']).toBe(1)
-    expect(counts.total).toBe(3)
+    // `wiki/hot.md` sits in no folder. It used to be counted by nobody, because the counter
+    // summed a fixed list of subfolders - the Home tab was short by exactly the pages at the
+    // wiki root while the graph, which walks the tree, had them all.
+    expect(counts.byDir['root']).toBe(1)
+    expect(counts.total).toBe(5)
 
-    const recent = recentPages(vault, 5)
-    expect(recent.length).toBe(3)
+    const recent = recentPages(vault, 8)
+    // One fewer than the count: an `_index.md` is rewritten by every run that files a page in
+    // its folder, so it would sit at the top of "recently changed" forever.
+    expect(recent.length).toBe(4)
+    expect(recent.map((p) => p.path)).not.toContain('wiki/concepts/_index.md')
     expect(recent.every((p) => p.path.startsWith('wiki/') && p.path.endsWith('.md'))).toBe(true)
+    // hot.md is touched by every ingest, so the most-changed page in a real vault was the one
+    // "recently changed" structurally could not report.
+    expect(recent.map((p) => p.path)).toContain('wiki/hot.md')
+    expect(recent.find((p) => p.path === 'wiki/hot.md')?.dir).toBe('root')
 
     expect(readHotCache(vault)).toContain('hot cache')
+  })
+
+  it('gives an unknown folder its own bucket instead of dropping it', () => {
+    /*
+     * The failure mode the walk replaces: an allowlist is silent about what it does not know.
+     * A vault that grows a new page type would lose it from the dashboard's headline figure
+     * with no error anywhere - which is how five pages went missing in the first place.
+     */
+    fs.mkdirSync(path.join(vault, 'wiki', 'decisions'), { recursive: true })
+    fs.writeFileSync(path.join(vault, 'wiki', 'decisions', 'd.md'), '# d')
+    const counts = pageCounts(vault)
+    expect(counts.byDir['decisions']).toBe(1)
+    expect(counts.total).toBe(6)
+  })
+
+  it('keeps a known folder visible at zero, so the bars do not reshuffle', () => {
+    expect(pageCounts(vault).byDir['questions']).toBe(0)
   })
 })

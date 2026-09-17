@@ -29,6 +29,14 @@ import { contentPages } from './activity.ts'
 
 export interface ResearchRunEntry {
   readonly id: string
+  /**
+   * The persistent history row this entry can be taken out of, or null when there is none.
+   *
+   * Only a settled run HAS such a row. A run still in flight, and an entry reconstructed from
+   * a synthesis page whose run record is long gone, have nothing to remove - and offering a
+   * cross that cannot do anything is worse than offering none.
+   */
+  readonly removableId: string | null
   /** The topic as typed, with the lens suffix stripped back off. */
   readonly topic: string
   readonly profileKey: string | null
@@ -49,6 +57,8 @@ export interface ResearchRunEntry {
 }
 
 export const RESEARCH_PREFIX = 'Research: '
+/** Both research kinds file synthesis pages: a full run and a Fellow's bounded step. */
+export const isResearchKind = (kind: string): boolean => kind === 'research' || kind === 'research-step'
 
 /** How far apart a page mtime and a run settle may be and still be the same run. */
 const SAME_RUN_MS = 60 * 60 * 1000
@@ -98,7 +108,7 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   const runFingerprints: Array<{ topic: string; profileKey: string | null; at: number }> = []
 
   for (const h of input.history ?? []) {
-    if (h.kind !== 'research') continue
+    if (!isResearchKind(h.kind)) continue
     seenIds.add(h.id)
     for (const p of h.pages) claimedPages.add(p)
     runFingerprints.push({
@@ -108,6 +118,7 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
     })
     out.push({
       id: h.id,
+      removableId: h.id,
       topic: h.label ?? 'Research run',
       profileKey: h.profileKey,
       status: h.ok ? 'done' : 'failed',
@@ -126,7 +137,7 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   }
 
   for (const r of input.runs) {
-    if (r.kind !== 'research') continue
+    if (!isResearchKind(r.kind)) continue
     // The run log already carries every settled run; the registry only adds what is live.
     if (seenIds.has(r.id)) continue
     const status: ResearchRunEntry['status'] =
@@ -146,6 +157,8 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
     }
     out.push({
       id: r.id,
+      // A run still in flight has no history row yet; it gets one when it settles.
+      removableId: null,
       topic: r.label ?? 'Research run',
       profileKey: r.profileKey ?? null,
       status,
@@ -187,6 +200,8 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
     if (duplicate) continue
     out.push({
       id: `page:${n.path}`,
+      // Reconstructed from the page alone: the run that wrote it left no record to remove.
+      removableId: null,
       topic: split.topic,
       profileKey: split.profileKey,
       status: 'done',
@@ -203,10 +218,12 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   // A failed run writes no page and leaves no tracked record after a restart - the settle
   // record is the only trace it ever happened, so it earns a row of its own.
   for (const a of input.lastRuns) {
-    if (a.kind !== 'research' || a.ok) continue
+    if (!isResearchKind(a.kind) || a.ok) continue
     if (seenIds.has(a.runId) || out.some((e) => e.id === a.runId)) continue
     out.push({
       id: `state:${a.runId}`,
+      // The last settle of a kind. If its run were in the history it would be an `h` entry.
+      removableId: null,
       topic: 'Research run',
       profileKey: null,
       status: 'failed',
@@ -228,9 +245,31 @@ export function buildResearchRuns(input: ResearchRunsInput): ResearchRunEntry[] 
   })
 }
 
-/** The deterministic page title a run with this topic and lens will file as. */
+/**
+ * The deterministic page title a run with this topic and lens will file as.
+ *
+ * Mirrors `titleSafe` in `server/src/pipeline/research-profiles.ts`, which is what actually
+ * pins the title in the prompt. A topic with a path separator in it would otherwise be shown
+ * here as one name and filed under another - and the lookup below, which finds a run's page
+ * by its title, would miss it.
+ */
 export function targetTitle(topic: string, profile: ResearchProfile | undefined): string {
-  return `${RESEARCH_PREFIX}${topic}${profile?.titleSuffix ?? ''}`
+  return `${RESEARCH_PREFIX}${titleSafe(topic)}${profile?.titleSuffix ?? ''}`
+}
+
+/** A topic reduced to something that can be a file name. See the server-side original. */
+export function titleSafe(topic: string): string {
+  const cleaned = [...topic.replace(/[/\\]+/g, '-')]
+    // Control characters, the other half of what the vault's own `safe_name()` strips. A
+    // character class would say this more directly, but the lint rule that forbids control
+    // characters in a regex is right about every other use of one.
+    .filter((c) => (c.codePointAt(0) ?? 0) > 0x1f)
+    .join('')
+    .trim()
+    // After the trim, not before: leading whitespace used to shelter the dot behind it.
+    .replace(/^[.-]+/, '')
+    .trim()
+  return cleaned === '' ? 'untitled' : cleaned
 }
 
 /**

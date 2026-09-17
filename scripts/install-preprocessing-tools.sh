@@ -35,6 +35,26 @@ echo "==> Python extractors (pip)"
 if ! python3 -m pip --version >/dev/null 2>&1; then
   sudo apt-get install -y python3-pip
 fi
+# ...and check that it arrived, because everything below this line is a pip install. Without
+# the check `set -e` kills the run at the next command with "No module named pip" and nothing
+# that says what to do about it - eleven lines above the step that was supposed to fix it, and
+# with four apt packages already installed, so a re-run looks like it got further than it did
+# (found in the fresh-environment e2e run, 2026-09-17). The likeliest cause is not a failed
+# apt: it is a python3 from pyenv, conda or a venv shadowing the system one, which is why the
+# message names the interpreter it actually used.
+if ! python3 -m pip --version >/dev/null 2>&1; then
+  cat >&2 <<EOF
+error: python3 has no pip, and installing python3-pip did not give it one.
+
+  python3 in use: $(command -v python3 || echo '<not on PATH>')
+  version:        $(python3 --version 2>&1 || true)
+
+  If that is not /usr/bin/python3, a pyenv, conda or venv interpreter is shadowing the system
+  one and apt's python3-pip went to a different python. Either give that interpreter pip
+  (python3 -m ensurepip --upgrade) or run this script with the system python first on PATH.
+EOF
+  exit 1
+fi
 PIP_FLAGS="--user"
 if python3 -c 'import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)' 2>/dev/null; then
   PIP_FLAGS=""  # inside a virtualenv

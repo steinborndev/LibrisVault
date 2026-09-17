@@ -349,6 +349,20 @@ export const DOMAINS = {
     ],
     entities: ['Regional Fungarium'],
   },
+
+  /*
+   * The one domain the generator does not populate. It exists so the REAL research runs under
+   * `scripts/demo-research/` have a registry entry to file against: their pages carry
+   * `domain: oncology`, and a page whose domain is not in the registry is unfiled. Deliberately
+   * small - a domain a run opened and nothing else has filled yet is a real state of a vault,
+   * and one worth showing.
+   */
+  oncology: {
+    blurb: 'targeted cancer therapeutics, their resistance mechanisms, and the patent landscape around them',
+    tags: ['oncology', 'adc', 'targeted-therapy', 'resistance', 'payload'],
+    concepts: [],
+    entities: [],
+  },
 }
 
 /** Pages linked from somewhere but never written - the backlog the graph surfaces. */

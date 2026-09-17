@@ -24,6 +24,7 @@ import {
 import { RetrieveScriptsMissingError, retrieveIndexStats } from '../../pipeline/retrieve-index.js'
 import { readDomainRegistry, DOMAIN_REGISTRY_PATH } from '../../pipeline/domains.js'
 import { findDomainCandidates } from '../../pipeline/domain-candidates.js'
+import { repairWrappedLinks } from '../../pipeline/link-repair.js'
 import {
   researchProfileList,
   isResearchProfileKey,
@@ -44,7 +45,7 @@ export function registerMaintenanceRoute(
   const credentialMissing = (reply: FastifyReply): boolean => {
     if (ctx.config.auth !== null) return false
     void reply.code(503).send({
-      error: 'no Anthropic credential configured — add it under Maintenance → Settings, then restart',
+      error: 'no Anthropic credential configured: add it under System → Integrations, then restart',
     })
     return true
   }
@@ -88,6 +89,21 @@ export function registerMaintenanceRoute(
   app.post('/api/v1/maintenance/hot-cache', async (_req, reply) => {
     if (credentialMissing(reply)) return reply
     return reply.code(202).send(maintenance.startHotCache())
+  })
+
+  /**
+   * Joins wikilinks a line wrap broke, across the whole wiki. No agent and no credential: the
+   * rule is mechanical, so this is the one maintenance action that costs nothing and cannot
+   * invent anything. `?dry=1` reports what it would join without writing.
+   */
+  app.post('/api/v1/maintenance/rejoin-links', async (req, reply) => {
+    const dry = (req.query as { dry?: string } | undefined)?.dry === '1'
+    const out = await repairWrappedLinks(ctx.config.vaultRoot, {
+      ...(ctx.commitMutex ? { commitMutex: ctx.commitMutex } : {}),
+      autoCommit: () => ctx.settings?.effective(ctx.config).gitAutoCommit ?? true,
+      ...(dry ? { dryRun: true } : {}),
+    })
+    return reply.send(out)
   })
 
   /**

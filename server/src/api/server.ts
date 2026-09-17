@@ -35,7 +35,22 @@ import { registerSettingsRoute } from './routes/settings.js'
 import { registerPagesRoute } from './routes/pages.js'
 import { registerGraphRoute } from './routes/graph.js'
 import { registerSourcesRoute } from './routes/sources.js'
+import type { SourceIndexBuilder } from '../pipeline/sources.js'
 import { registerDomainsRoute } from './routes/domains.js'
+import { registerAgentsRoute } from './routes/agents.js'
+import type { FellowService } from '../pipeline/fellows.js'
+import type { NightShift } from '../pipeline/shift.js'
+import type { RecapService } from '../pipeline/recap.js'
+import { registerRecapsRoute } from './routes/recaps.js'
+import type { LibraryService } from '../pipeline/library.js'
+import { registerLibraryRoute } from './routes/library.js'
+import type { UsageMonitor } from '../pipeline/usage-monitor.js'
+import { registerUsageRoute } from './routes/usage.js'
+import { SAMPLE_LIMIT } from '../pipeline/run-duration.js'
+import type { ReadingListService } from '../pipeline/reading-list.js'
+import { registerReadingListRoute, type OpenAccessFinder } from './routes/reading-list.js'
+import { registerQuestionsRoute } from './routes/questions.js'
+import type { QuestionsService } from '../pipeline/questions.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
@@ -64,6 +79,8 @@ export interface AppContext {
   readonly autoCommit?: () => boolean
   /** Dismissed domain candidates (SPEC.md §12.4 Stufe 3); defaults to a non-persistent store. */
   readonly domainDismissals?: DismissalStore
+  /** Commits taken off the Activity stream (schema v25); a memory store when a test omits it. */
+  readonly commitDismissals?: DismissalStore
   /** Per-kind maintenance settle state (SPEC.md §12.7 Stufe b); omitted → empty state list. */
   readonly maintenanceState?: MaintenanceStateStore
   /** Persistent per-run history (schema v12); omitted → the history endpoint answers empty. */
@@ -81,6 +98,32 @@ export interface AppContext {
    * the graph cache is warmed once; when omitted (tests) the server builds its own.
    */
   readonly graph?: GraphBuilder
+  /**
+   * Shared page-to-source index. main.ts passes the instance the reading list already asks
+   * whether a document stands behind a page, so the Source column and the board read one
+   * cache; when omitted (tests) the route builds its own.
+   */
+  readonly sources?: SourceIndexBuilder
+  /** Fellows (docs/agents/SPEC.md); present only with `AGENTS_ENABLED`, which registers the routes. */
+  readonly fellows?: FellowService
+  /** The Fellows' night shift; absent in tests that do not need it (the shift routes then 503). */
+  readonly shift?: NightShift
+  /** The daily recap (docs/agents/SPEC.md section 9); registers its routes when present. */
+  readonly recaps?: RecapService
+  /** The Library screen's scene and rooms (section 10); registers its routes when present. */
+  readonly library?: LibraryService
+  /** Plan utilization (section 8); registers its routes when present. */
+  readonly usage?: UsageMonitor
+  /** What the Fellows found on the web (section 10.6); registers its routes when present. */
+  readonly reading?: ReadingListService
+  /** The pinboard of open questions; with the Fellows, like the reading list. */
+  readonly questions?: QuestionsService
+  /**
+   * Looks for an open copy of one reading-list entry on demand, verifying it (docs/sources
+   * SPEC.md 6.3). Absent = the board's "Find open-access" button answers 503, which is what a
+   * service without the mechanism should say.
+   */
+  readonly findOpenAccess?: OpenAccessFinder
 }
 
 /** Location of the built frontend (`web/dist`), resolved relative to this source file. */
@@ -136,8 +179,37 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerMaintenanceRoute(app, ctx, graphBuilder, dismissals, ctx.maintenanceState, ctx.agentRuns)
   registerPagesRoute(app, ctx, graphBuilder)
   registerGraphRoute(app, ctx, graphBuilder)
-  registerSourcesRoute(app, ctx)
+  registerSourcesRoute(app, ctx, ctx.sources)
   registerDomainsRoute(app, ctx, graphBuilder, dismissals)
+  if (ctx.fellows !== undefined) registerAgentsRoute(app, ctx, ctx.fellows)
+  if (ctx.fellows !== undefined && ctx.recaps !== undefined) registerRecapsRoute(app, ctx, ctx.recaps, ctx.fellows)
+  if (ctx.library !== undefined) registerLibraryRoute(app, ctx.library)
+  if (ctx.usage !== undefined)
+    registerUsageRoute(app, ctx.usage, () => (ctx.settings ? ctx.settings.effective(ctx.config).researchModelDefault : 'sonnet-5'), {
+      enabled: () => ctx.settings?.effective(ctx.config).fiveHourOverrideEnabled ?? false,
+      weekEnabled: () => ctx.settings?.effective(ctx.config).weekOverrideEnabled ?? false,
+      /*
+       * The night a week release would be granted for: the window we are inside, or the next
+       * one. The shift owns the window, so it owns the answer - a second reading of the same
+       * two settings here is how the grant and the night it was meant for drift apart.
+       */
+      nightEndsAt: () => ctx.shift?.nightEndsAt() ?? null,
+      runInFlight: () => ctx.fellows?.anyRunInFlight() ?? false,
+      /*
+       * A shift round, right away and outside the night window - the same 'manual' trigger the
+       * "run the shift now" button uses. Detached on purpose: the round takes minutes, the
+       * caller gets its answer at once, and the round's own gate stops it when the released
+       * share is used up or the release ends.
+       */
+      workNow: () => {
+        void ctx.shift?.run('manual').catch((err: unknown) => {
+          app.log.warn(`[usage] the round after a 5-hour release failed: ${(err as Error).message}`)
+        })
+      },
+      runs: () => ctx.agentRuns?.list({ limit: SAMPLE_LIMIT }) ?? [],
+    })
+  if (ctx.reading !== undefined) registerReadingListRoute(app, ctx.reading, ctx.queue, ctx.findOpenAccess)
+  if (ctx.questions !== undefined) registerQuestionsRoute(app, ctx.questions)
 
   await registerFrontend(app)
 

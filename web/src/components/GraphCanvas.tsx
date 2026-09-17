@@ -125,10 +125,39 @@ export interface GraphCanvasProps {
    * Live SSE updates leave this key alone, so mid-ingest arrivals still never move the camera.
    */
   fitKey?: string
-  /** Rendered in the canvas control bar, right of Fit (scope line, tip, fullscreen). */
-  barExtra?: React.ReactNode
+  /** The bar's own Fit button. Off where the screen offers the action somewhere better. */
+  showFit?: boolean
+  /**
+   * Which graph this canvas is - the key its camera and its laid-out positions are kept
+   * under. Two canvases are mounted at once (every screen stays in the DOM behind `hidden`),
+   * and a positions array belongs to exactly one node list, so they must not share a slot.
+   * Stable for the life of a view: the Graph screen is one, a department window is one per
+   * department, so each opens where it was left.
+   */
+  view: string
+  /**
+   * The canvas bar's three groups (2026-09-11): what follows Fit on the left (the scope
+   * line), the middle block (the domain heading, at the bar's true centre whatever stands
+   * left and right of it), and the right group (fullscreen, the search). The Catalog draws
+   * the same bar by hand; the groups keep the two in step.
+   */
+  barLeft?: React.ReactNode
+  barMid?: React.ReactNode
+  barRight?: React.ReactNode
   /** Single click/tap on a node (when the click doesn't isolate - see onClusterClick). */
   onSelect: (node: GraphNode) => void
+  /**
+   * A single click opens instead of selecting. The Library's department window reads pages
+   * in place, where selecting a node has nothing to open a panel with.
+   */
+  openOnClick?: boolean
+  /**
+   * Fit once on mount, whatever the fit key says. The camera outlives the component, so a
+   * canvas that mounts on an already-placed subgraph inherits the pan and zoom that view
+   * was left at - right for a view continuing, wrong for one being opened again. Hosts that
+   * open and close (the Library's department window) set it.
+   */
+  fitOnMount?: boolean
   /**
    * Spotlight click on an isolatable community - on one of its member nodes OR anywhere
    * inside its hull (the hull is one clickable surface; demanding a precise node hit made
@@ -173,10 +202,101 @@ function parseRgb(color: string): [number, number, number] | null {
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
   }
   const rgb = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i.exec(s)
-  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : null
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
+  // The domain palette is generated as `hsl(<hue> 62% 52%)`, so anything that wants to do
+  // arithmetic on a domain colour has to be able to read one (2026-09-16).
+  const hsl = /^hsla?\(\s*([\d.]+)(?:deg)?[,\s]+([\d.]+)%[,\s]+([\d.]+)%/i.exec(s)
+  if (!hsl) return null
+  const h = Number(hsl[1]) / 360
+  const sat = Number(hsl[2]) / 100
+  const li = Number(hsl[3]) / 100
+  const q = li < 0.5 ? li * (1 + sat) : li + sat - li * sat
+  const base = 2 * li - q
+  const channel = (t: number): number => {
+    const x = t < 0 ? t + 1 : t > 1 ? t - 1 : t
+    if (x < 1 / 6) return base + (q - base) * 6 * x
+    if (x < 1 / 2) return q
+    if (x < 2 / 3) return base + (q - base) * (2 / 3 - x) * 6
+    return base
+  }
+  return [Math.round(channel(h + 1 / 3) * 255), Math.round(channel(h) * 255), Math.round(channel(h - 1 / 3) * 255)]
 }
 
 /** Linear RGB interpolation between two CSS colors; falls back to `b` if either can't parse. */
+/**
+ * OKLab, for the one thing this file does that needs a perceptual colour space: the authority
+ * ramp. Mixing two colours channel-by-channel in sRGB (what `mixColor` does, and what the
+ * ramp used to do) bunches its steps - the middle sags into a muddy low-chroma stretch while
+ * the ends barely move - so pages a few backlinks apart came out the same colour.
+ */
+function srgbToLinear(u: number): number {
+  const v = u / 255
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+}
+function linearToSrgb(v: number): number {
+  const u = v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055
+  return Math.max(0, Math.min(255, Math.round(u * 255)))
+}
+function rgbToOklab(rgb: readonly number[]): [number, number, number] {
+  const r = srgbToLinear(rgb[0] ?? 0)
+  const g = srgbToLinear(rgb[1] ?? 0)
+  const b = srgbToLinear(rgb[2] ?? 0)
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
+}
+function oklabToCss(L: number, a: number, b: number): string {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
+  const r8 = linearToSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)
+  const g8 = linearToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)
+  const b8 = linearToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)
+  return `rgb(${r8}, ${g8}, ${b8})`
+}
+
+/** Whether the tokens currently in force are the dark set - asked of the colour, not of the
+ *  media query, so it follows the theme however the theme is decided. */
+export function isDarkSurface(bg: string): boolean {
+  const rgb = parseRgb(bg)
+  return rgb === null ? true : rgbToOklab(rgb)[0] < 0.5
+}
+
+/**
+ * A page's authority as a colour: `t` (0 = least linked, 1 = most) on a ramp built around one
+ * hue, which is the page's own DOMAIN (2026-09-16). Two facts in one channel - where a page
+ * belongs, and how much of the vault leans on it.
+ *
+ * LIGHTNESS carries the metric, and it carries it across the whole usable range. The old ramp
+ * mixed a grey toward the accent and spanned 26 of 100 L*, which is a quarter of the axis a
+ * six-pixel dot is read by: at that size the eye resolves lightness long before hue or chroma,
+ * so the lens showed a field of one colour with a few bright dots. This spans about 70, and
+ * chroma rises with it so the top of the ramp is the domain's colour at full strength.
+ *
+ * The low end is deliberately close to the background. That is the cost of the range, and it
+ * is the right way round: a page nothing links to should be the one that recedes.
+ */
+export function authorityRamp(base: string, t: number, dark: boolean): string {
+  const [, a, b] = rgbToOklab(parseRgb(base) ?? [90, 140, 240])
+  const chroma = Math.hypot(a, b) || 0.001
+  const L = dark ? 0.34 + 0.54 * t : 0.9 - 0.52 * t
+  // Scaled by the base's own chroma, so a muted domain colour stays muted and a vivid one
+  // reaches its full strength at the top of the ramp rather than being flattened to a norm.
+  const C = (dark ? 0.02 + 0.1 * t : 0.015 + 0.13 * t) * Math.min(1.6, 0.5 + chroma * 6)
+  return oklabToCss(L, (a / chroma) * C, (b / chroma) * C)
+}
+
+/** The same ramp as a CSS gradient, for the legend that has to explain it. */
+export function authorityGradient(base: string, dark: boolean): string {
+  const stops = [0, 0.25, 0.5, 0.75, 1].map((t) => `${authorityRamp(base, t, dark)} ${t * 100}%`)
+  return `linear-gradient(90deg, ${stops.join(', ')})`
+}
+
 function mixColor(a: string, b: string, t: number): string {
   const pa = parseRgb(a)
   const pb = parseRgb(b)
@@ -223,31 +343,75 @@ interface LayoutMsg {
 /**
  * Camera + layout memory that OUTLIVES the component: the canvas unmounts on every
  * graph ↔ page-view switch, and refs die with it - which used to reset the user's zoom
- * and re-run the whole force layout each time. Module scope is safe because the app has
- * exactly one graph view.
+ * and re-run the whole force layout each time.
+ *
+ * ONE SLOT PER VIEW (2026-09-10). This was a single module-level object, on the reasoning
+ * that the app has exactly one graph view. It has two: the Graph screen and the Library's
+ * department window, and every screen stays mounted behind `hidden`, so both canvases are
+ * live at once. `positions` is index-aligned with the node list it was laid out for, and a
+ * department holds a fraction of the pages the whole graph does - so opening a department
+ * graph left the Graph screen holding an array too short for its own nodes, and its draw,
+ * which bails on exactly that, painted nothing at all. Nothing re-ran the layout either:
+ * the screen's nodes had not changed, so the effect that rebuilds the array never fired,
+ * and the canvas stayed blank until the vault next updated.
+ *
+ * A slot per view also makes the camera per view, which is what a reader expects: the Graph
+ * screen keeps the pan and zoom it had while you look at a department, rather than adopting
+ * the department's frame and needing the re-fit-on-return that used to paper over it.
  */
-const persist = {
+interface ViewMemory {
   /** Positions aligned with the CURRENT `nodes` prop, [x0, y0, x1, y1, …]; NaN = unplaced. */
-  positions: { current: new Float32Array(0) as Float32Array },
-  /** The persistent position memory, keyed by page path - index-stable across updates. */
-  posByPath: { current: new Map<string, { x: number; y: number }>() },
-  transform: { current: { x: 0, y: 0, k: 1 } as Transform },
+  positions: { current: Float32Array }
+  transform: { current: Transform }
   /** Set once the user pans/zooms, so an automatic re-fit never yanks the view away. */
-  userMoved: { current: false },
-  fitted: { current: false },
+  userMoved: { current: boolean }
+  fitted: { current: boolean }
   /** The last posted layout, re-postable (remounts and StrictMode re-create the worker). */
-  lastMsg: { current: null as LayoutMsg | null },
+  lastMsg: { current: LayoutMsg | null }
   /** True once the posted layout finished cooling - a remount then skips the replay. */
-  settled: { current: true },
+  settled: { current: boolean }
 }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, fitKey, barExtra, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+const views = new Map<string, ViewMemory>()
+
+function viewMemory(view: string): ViewMemory {
+  let mem = views.get(view)
+  if (mem === undefined) {
+    mem = {
+      positions: { current: new Float32Array(0) },
+      transform: { current: { x: 0, y: 0, k: 1 } },
+      userMoved: { current: false },
+      fitted: { current: false },
+      lastMsg: { current: null },
+      settled: { current: true },
+    }
+    views.set(view, mem)
+  }
+  return mem
+}
+
+/**
+ * Where every view's nodes are, keyed by page path - and SHARED on purpose, unlike the rest.
+ * A path is a path in any view, so a page opened in the whole graph and then in its
+ * department starts where the reader last saw it instead of flying in from d3's spiral.
+ */
+const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
+
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+  /*
+   * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
+   * across renders exactly as they did when there was one module-level set of them.
+   */
+  const mem = useMemo(() => viewMemory(view), [view])
+  const positionsRef = mem.positions
+  const transformRef = mem.transform
+  const fittedRef = mem.fitted
+  const userMovedRef = mem.userMoved
+  const lastMsgRef = mem.lastMsg
+  const settledRef = mem.settled
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const positionsRef = persist.positions
-  const posByPathRef = persist.posByPath
   /** Paths recently added to the view → timestamp, for the arrival flash. */
   const flashRef = useRef<Map<string, number>>(new Map())
-  const transformRef = persist.transform
   const [hover, setHover] = useState<number | null>(null)
   const hoverRef = useRef<number | null>(null)
   hoverRef.current = hover
@@ -262,6 +426,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   /** No placed node is on screen: zoom and pan left the picture empty (graphZoom.ts). */
   const [offMap, setOffMap] = useState(false)
   const offMapRef = useRef(false)
+  /**
+   * Did the last pass paint a graph? The overlays describe one - the overview frames it, and
+   * "go to nearest cluster" says where it went - so on a canvas that drew nothing they have
+   * nothing to say. The entrance holds the canvas blank on purpose while the first layout
+   * cools (lib/graphReveal.ts), and the overview used to appear over that emptiness and then
+   * vanish as the fit landed, which reads as a glitch rather than as an entrance.
+   */
+  const paintedRef = useRef(false)
   const miniRef = useRef<HTMLCanvasElement>(null)
   // Hover-driven neighborhood spotlight, OFF by default: it dims the rest of the graph and
   // drops their labels, which makes precise clicking hard as it flickers under the pointer.
@@ -405,6 +577,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     if (!ctx) return
     // Anything worth redrawing may have moved the world - invalidate the hull hit cache.
     drawEpochRef.current++
+    // Cleared up front, set at the end: every early return below leaves an empty canvas.
+    paintedRef.current = false
     const pos = positionsRef.current
     const t = transformRef.current
     const dpr = window.devicePixelRatio || 1
@@ -417,6 +591,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // Neutral floor for the metric-gradient lenses (a dim, low-contrast base the metric lifts from).
     const dimBase = mixColor(cssVar('--bg-elev-2', '#1f2637'), muted, 0.55)
     const nowMs = Date.now()
+    const darkSurface = isDarkSurface(cssVar('--bg-elev', '#131928'))
     const colorFor = (n: GraphNode): string => {
       switch (lens) {
         case 'domain':
@@ -424,9 +599,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         case 'type':
           return cssVar(TYPE_VARS[n.type] ?? '--muted', '#888')
         case 'authority':
-          // Rank-and-magnitude position on the ramp → dim-to-accent gradient: the vault's
-          // authorities light up, and the crowded middle still separates.
-          return mixColor(dimBase, cssVar('--accent', '#5b8def'), 0.1 + 0.9 * authorityT(n.in))
+          // On the page's own domain hue, with the accent standing in for a page that has no
+          // domain - see `authorityRamp` for why lightness carries the metric.
+          return authorityRamp(n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'), authorityT(n.in), darkSurface)
         case 'orphans':
           // No backlinks = unreachable except by search. Everything else recedes.
           return n.in === 0 ? cssVar('--err', '#e0645b') : dimBase
@@ -441,6 +616,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const edgeColor = cssVar('--border', '#444')
     const textColor = cssVar('--text-dim', '#aaa')
+    /**
+     * A node's colour, computed once per frame. The edge pass asks for it twice per bridge
+     * and the node pass asks again, and for the metric lenses `colorFor` mixes two colours
+     * to get there.
+     */
+    const nodeColors = new Array<string | undefined>(nodes.length)
+    const nodeColor = (i: number): string => (nodeColors[i] ??= colorFor(nodes[i]!))
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
@@ -633,6 +815,37 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // point-cloud into a legible network. Classification needs cluster ids and is skipped for
     // ghost links (those keep their dashed "points at a missing page" treatment).
     ctx.lineWidth = 1 / t.k
+    /*
+     * The context's state is set only where it CHANGES (2026-09-10). Every edge used to
+     * assign the dash pattern, the stroke and the alpha before its own stroke() - counted on
+     * a vault of a thousand pages that was 5933 setLineDash calls a frame, almost all of them
+     * setting an empty dash to an empty dash, and as many redundant style assignments.
+     *
+     * Batching the segments into one path per look was tried first and is NOT what this is:
+     * measured here it HALVED the frame rate, because stroking one path of thousands of
+     * segments makes the rasteriser resolve the overlaps analytically, where thousands of
+     * one-segment strokes each take a fast path. Kept as a note so it is not tried twice.
+     */
+    let curDash = false
+    let curStroke = ''
+    let curAlpha = -1
+    const dash = [3 / t.k, 3 / t.k]
+    const setDash = (on: boolean): void => {
+      if (on === curDash) return
+      ctx.setLineDash(on ? dash : [])
+      curDash = on
+    }
+    const setStroke = (color: string): void => {
+      if (color === curStroke) return
+      ctx.strokeStyle = color
+      curStroke = color
+    }
+    const setAlpha = (a: number): void => {
+      if (a === curAlpha) return
+      ctx.globalAlpha = a
+      curAlpha = a
+    }
+    ctx.setLineDash([])
     for (const [a, b] of edges) {
       const x1 = pos[a * 2]!
       const y1 = pos[a * 2 + 1]!
@@ -650,26 +863,39 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const cb = clusters?.[b] ?? -1
       const isBridge = netOn && ca >= 0 && cb >= 0 && ca !== cb
 
-      let stroke: string | CanvasGradient = edgeColor
-      if (isBridge) {
-        const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-        grad.addColorStop(0, colorFor(nodes[a]!))
-        grad.addColorStop(1, colorFor(nodes[b]!))
-        stroke = grad
-      }
       let alpha: number
       if (highlight !== null) alpha = lit ? 0.9 : dimEdge
       else if (isBridge) alpha = 0.85
       else if (netOn) alpha = 0.5 // intra-cluster mesh, subtly more present than the 0.35 default
       else alpha = toGhost ? 0.45 : 0.35
 
-      ctx.setLineDash(toGhost ? [3 / t.k, 3 / t.k] : [])
-      ctx.strokeStyle = stroke
-      ctx.globalAlpha = alpha * edgeRev
-      ctx.beginPath()
-      ctx.moveTo(x1, y1)
-      ctx.lineTo(x2, y2)
-      ctx.stroke()
+      setDash(toGhost)
+      setAlpha(alpha * edgeRev)
+      if (isBridge) {
+        /*
+         * A bridge reads from→to in the two node colours. That was a two-stop linear gradient
+         * built per edge per frame - an allocation, and a slower rasterisation than a flat
+         * colour. Two solid halves say the same thing at one pixel wide.
+         */
+        const mx = (x1 + x2) / 2
+        const my = (y1 + y2) / 2
+        setStroke(nodeColor(a))
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(mx, my)
+        ctx.stroke()
+        setStroke(nodeColor(b))
+        ctx.beginPath()
+        ctx.moveTo(mx, my)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+      } else {
+        setStroke(edgeColor)
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+      }
 
       // Direction arrowhead on bridges only (few, so cheap), suppressed when the spotlight
       // dims this edge. Points at the link TARGET, wearing the target node's colour.
@@ -678,9 +904,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         const tx = x1 + (x2 - x1) * 0.62
         const ty = y1 + (y2 - y1) * 0.62
         const ah = 6 / t.k
-        ctx.setLineDash([])
-        ctx.fillStyle = colorFor(nodes[b]!)
-        ctx.globalAlpha = 0.9 * edgeRev
+        setDash(false)
+        ctx.fillStyle = nodeColor(b)
+        setAlpha(0.9 * edgeRev)
         ctx.beginPath()
         ctx.moveTo(tx + Math.cos(ang) * ah, ty + Math.sin(ang) * ah)
         ctx.lineTo(tx + Math.cos(ang + 2.5) * ah, ty + Math.sin(ang + 2.5) * ah)
@@ -689,7 +915,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.fill()
       }
     }
-    ctx.setLineDash([])
+    setDash(false)
+    ctx.globalAlpha = 1
 
     // Nodes.
     const now = performance.now()
@@ -723,7 +950,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.stroke()
         ctx.setLineDash([])
       } else {
-        ctx.fillStyle = colorFor(nodes[i]!)
+        ctx.fillStyle = nodeColor(i)
         ctx.beginPath()
         ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
@@ -744,7 +971,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           flashActive = true
           const p = age / FLASH_MS
           ctx.globalAlpha = (1 - p) * 0.9 * nodeRev
-          ctx.strokeStyle = colorFor(nodes[i]!)
+          ctx.strokeStyle = nodeColor(i)
           ctx.lineWidth = 2 / t.k
           ctx.beginPath()
           ctx.arc(x, y, r + (3 + p * 14) / t.k, 0, Math.PI * 2)
@@ -778,8 +1005,18 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         candidates.push(i)
       }
     }
+    /*
+     * A handful of matches belong in the top tier with hover and selection: you searched for
+     * them, and three labels among a hundred nodes is the answer. Eighty of them is not - the
+     * tier has no collision budget of its own, so every match then fights every other match
+     * for the same space and the drawing reads as a word cloud (measured 2026-09-16 on a tag
+     * search). Past the threshold they fall back into the ordinary ranking, where degree and
+     * the collision check decide, and the picture labels its hubs again.
+     */
+    const MATCH_LABEL_LIMIT = 8
+    const matchesLead = matches.size <= MATCH_LABEL_LIMIT
     const interactive = (i: number): boolean =>
-      i === hovered || i === selectedIndex || i === focusIndex || matches.has(i)
+      i === hovered || i === selectedIndex || i === focusIndex || (matchesLead && matches.has(i))
     const prio = (i: number): number =>
       interactive(i) ? 4
       : highlight !== null && highlight.has(i) ? 3
@@ -838,11 +1075,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ctx.fillText(text, x, y)
     }
     ctx.globalAlpha = 1
+    paintedRef.current = true
 
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT])
+  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, positionsRef, transformRef])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -851,6 +1089,15 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const overlayPass = useCallback((): void => {
     const canvas = canvasRef.current
     if (!canvas) return
+    if (!paintedRef.current) {
+      const blank = miniRef.current
+      if (blank !== null && !blank.hidden) blank.hidden = true
+      if (offMapRef.current) {
+        offMapRef.current = false
+        setOffMap(false)
+      }
+      return
+    }
     const dpr = window.devicePixelRatio || 1
     const vp: Viewport = { w: canvas.width / dpr, h: canvas.height / dpr }
     const pos = positionsRef.current
@@ -870,8 +1117,6 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   })
   const scheduleDrawRef = useRef<(() => void) | null>(null)
   scheduleDrawRef.current = scheduleDraw
-  const fittedRef = persist.fitted
-  const userMovedRef = persist.userMoved
 
   /** Centers and scales the transform so the whole layout fits with a small margin. */
   const fitToView = useCallback((): void => {
@@ -905,17 +1150,38 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const [minX, maxX] = bounds(xs)
     const [minY, maxY] = bounds(ys)
-    const spanX = Math.max(1, maxX - minX)
-    const spanY = Math.max(1, maxY - minY)
-    const pad = 110 // room for the labels that sit around the rim
-    const k = Math.min(8, Math.max(0.15, Math.min((w - pad) / spanX, (h - pad) / spanY)))
+    /*
+     * A node is not its centre (fixed 2026-09-16). The extent above was the centres alone, and
+     * the frame then cut the outermost circles in half and their labels off entirely - worst
+     * on a small subgraph, where a handful of nodes zooms in far enough that a 12-unit radius
+     * is most of a hundred screen pixels. Two corrections, in the two spaces they belong to:
+     *
+     *   the RADIUS is world-space, so it widens the span;
+     *   the LABEL is screen-space (11px text, 13px line, 3px gap, whatever the zoom), so it
+     *   is a pad - and it hangs BELOW its node, which is why the pads are asymmetric.
+     */
+    let rMax = 0
+    for (let i = 0; i < pos.length; i += 2) {
+      if (Number.isNaN(pos[i]!)) continue
+      rMax = Math.max(rMax, radius(i / 2))
+    }
+    const spanX = Math.max(1, maxX - minX + 2 * rMax)
+    const spanY = Math.max(1, maxY - minY + 2 * rMax)
+    // Sideways the labels are centred on their nodes and reach further than any radius does;
+    // this is the old flat pad, kept, because a title's width is not worth measuring here.
+    const padX = 110
+    const padTop = 18
+    const padBottom = 40 // the label's own line, plus the gap above it and air below
+    const k = Math.min(8, Math.max(0.15, Math.min((w - padX) / spanX, (h - padTop - padBottom) / spanY)))
     transformRef.current = {
       k,
       x: -((minX + maxX) / 2) * k,
-      y: -((minY + maxY) / 2) * k,
+      // The usable box sits above the viewport's middle by half the difference of the pads,
+      // so the content has to move with it or the room made at the bottom is spent at the top.
+      y: -((minY + maxY) / 2) * k - (padBottom - padTop) / 2,
     }
     scheduleDraw()
-  }, [scheduleDraw])
+  }, [scheduleDraw, positionsRef, transformRef, radius])
 
   // ---------------------------------------------------------------- layout worker session
   //
@@ -929,9 +1195,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     gen: 0,
     // A remount picks up the persisted layout's paths so replayed worker frames land
     // in the right posByPath slots.
-    paths: persist.lastMsg.current?.paths ?? [],
+    paths: mem.lastMsg.current?.paths ?? [],
   })
-  const lastMsgRef = persist.lastMsg
   const fitPendingRef = useRef(false)
 
   /**
@@ -996,7 +1261,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ? null
       : performance.now()
     scheduleDrawRef.current?.()
-  }, [fitToView])
+  }, [fitToView, fittedRef])
   const beginEntranceRef = useRef(beginEntrance)
   beginEntranceRef.current = beginEntrance
   useEffect(
@@ -1017,7 +1282,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       { gen: layoutRef.current.gen, nodes: msg.degrees, edges: msg.edges, groups: msg.groups, seed, alpha: msg.alpha },
       { transfer: [seed.buffer] },
     )
-  }, [])
+  }, [lastMsgRef])
 
   useEffect(() => {
     const worker = new Worker(new URL('../lib/graphLayout.worker.ts', import.meta.url), { type: 'module' })
@@ -1032,7 +1297,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         byPath.set(paths[i]!, { x: positions[i * 2]!, y: positions[i * 2 + 1]! })
       }
       if (type === 'done') {
-        persist.settled.current = true
+        settledRef.current = true
         setLayouting(false)
         // Frame the FIRST finished layout once, so a graph of any size lands filling the
         // viewport instead of as a speck, and build it in from there. Later layouts (live
@@ -1048,12 +1313,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // A recreated worker (remount, dev StrictMode double-mount) starts empty. Replay only
     // when the last layout was still cooling - a settled layout's positions are already
     // persisted, and re-posting would make the graph jiggle on every return to this view.
-    if (!persist.settled.current) postLayout()
+    if (!settledRef.current) postLayout()
     return () => {
       worker.terminate()
       workerRef.current = null
     }
-  }, [fitToView, postLayout])
+  }, [fitToView, postLayout, positionsRef, settledRef])
 
   useEffect(() => {
     if (nodes.length === 0) {
@@ -1166,30 +1431,40 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       seed,
       alpha: cold ? 1 : 0.3,
     }
-    persist.settled.current = false
+    settledRef.current = false
     postLayout()
-  }, [nodes, edges, scheduleDraw, postLayout])
+  }, [nodes, edges, scheduleDraw, postLayout, lastMsgRef, positionsRef, settledRef])
 
   // A changed fitKey = the user changed the visible subgraph (filter/depth toggle) - re-fit
   // so the remaining graph fills the canvas. Runs AFTER the layout effect above, so
-  // `persist.settled` already reflects whether that change posted a re-layout: when one is
+  // `settledRef` already reflects whether that change posted a re-layout: when one is
   // cooling the canvas goes blank and the entrance frames and builds it in on settle, and
   // when none is (a view change that only re-frames) the fit here is the whole job. First
   // mount keeps the first-layout fit path.
-  const prevFitKeyRef = useRef(fitKey)
+  // `undefined` when the host wants a fit on mount: the first run of the effect below then
+  // sees a changed key and frames the graph, instead of trusting a camera from another view.
+  const prevFitKeyRef = useRef<string | undefined>(fitOnMount ? undefined : fitKey)
   useEffect(() => {
     if (prevFitKeyRef.current === fitKey) return
+    const first = prevFitKeyRef.current === undefined
     prevFitKeyRef.current = fitKey
     userMovedRef.current = false // an explicit view change wins over an old pan/zoom
-    if (!persist.settled.current) {
+    if (!settledRef.current) {
       // A re-layout is cooling: blank the canvas and let the entrance do the framing when it
       // settles. The fit below still runs, on positions nothing is drawing - what the reader
       // used to see instead was that half-cooled frame, fitted, until the build-in cut it.
       fitPendingRef.current = true
       armEntranceRef.current()
     }
+    // A mount fit has to wait for the canvas to be measured: the sizing effect runs after
+    // this one, and fitting a zero-sized canvas leaves the camera anywhere but on the graph.
+    if (first) {
+      const raf = requestAnimationFrame(() => fitToView())
+      return () => cancelAnimationFrame(raf)
+    }
     fitToView()
-  }, [fitKey, fitToView])
+    return undefined
+  }, [fitKey, fitToView, settledRef, userMovedRef])
 
   // Canvas sizing (device-pixel aware) + redraw on resize and theme change.
   useEffect(() => {
@@ -1220,7 +1495,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ro.disconnect()
       mq.removeEventListener('change', onTheme)
     }
-  }, [scheduleDraw, fitToView])
+  }, [scheduleDraw, fitToView, fittedRef, userMovedRef])
 
   // Repaint when pure-presentation props change (search rings, focus, selection, color axis)
   // - these must not depend on a pointer move or a layout tick happening to come along.
@@ -1237,7 +1512,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       x: (sx - rect.left - rect.width / 2 - t.x) / t.k,
       y: (sy - rect.top - rect.height / 2 - t.y) / t.k,
     }
-  }, [])
+  }, [transformRef])
 
   const hitTest = useCallback(
     (sx: number, sy: number): number | null => {
@@ -1259,7 +1534,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       return best
     },
-    [nodes, radius, toWorld],
+    [nodes, radius, toWorld, positionsRef, transformRef],
   )
 
   /**
@@ -1344,7 +1619,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       return best
     },
-    [spotlight, clusters, clusterSets, nodes.length, ghostIndices, toWorld, clusterGeoms],
+    [spotlight, clusters, clusterSets, nodes.length, ghostIndices, toWorld, clusterGeoms, positionsRef],
   )
 
   // ---- hover refresh: the hover is only correct at the moment of a pointer event, but the
@@ -1429,7 +1704,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     zoomTransform(transformRef.current, vp, sx - rect.left, sy - rect.top, next)
     leash(transformRef.current, vp, worldBounds(positionsRef.current))
     userMovedRef.current = true
-  }, [transformRef, userMovedRef, positionsRef])
+  }, [positionsRef, transformRef, userMovedRef])
 
   /** Button zoom: around the canvas center. */
   const zoomBy = (factor: number): void => {
@@ -1625,7 +1900,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         if (hit !== null) {
           const node = nodes[hit]!
           const isGhost = ghostIndices?.has(hit) ?? false
-          if (spotlight && onOpen !== undefined && !isGhost) {
+          if ((spotlight || openOnClick) && onOpen !== undefined && !isGhost) {
             // Spotlight/drill mode: a click ON a node opens its article directly. Isolating
             // the community is the AREA click (below), so an article is reachable at any
             // drill level without first bottoming out the cluster hierarchy.
@@ -1733,28 +2008,39 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // pointer cursor. The two are mutually exclusive (hullHover is only set when no node is hit).
   const hoveredIsGhost = hover !== null && (ghostIndices?.has(hover) ?? false)
   const hoverAreaDrills = hover === null && hullHover !== null && onClusterClick !== undefined
-  const hoverNodeOpens = hover !== null && spotlight && onOpen !== undefined && !hoveredIsGhost
+  const hoverNodeOpens = hover !== null && (spotlight || openOnClick) && onOpen !== undefined && !hoveredIsGhost
 
   return (
     <div className="graph-canvas-wrap">
-      {/* The canvas bar: Fit, then whatever the screen puts beside it (the scope line,
-          the shortcut tip, fullscreen). The −/+ buttons are gone - Ctrl+wheel and the
-          +/- keys do the same job without spending bar width on it.
+      {/* The canvas bar: Fit and the scope line on the left, the domain heading in the
+          middle, fullscreen and the search on the right. The −/+ buttons are gone - the
+          wheel and the +/- keys do the same job without spending bar width on it.
           It is the panel's HEADER ROW, not a floating box (2026-08-26): a second bordered
           box inset inside the first read as a box in a box, and the graph kept drawing
           underneath it, so whatever the layout put up there was hidden behind the bar. */}
-      <div className="graph-controls">
-        <button
-          className="btn ghost"
-          onClick={() => {
-            userMovedRef.current = false
-            fitToView()
-          }}
-          title="Fit the view to the graph (f)"
-        >
-          Fit
-        </button>
-        {barExtra}
+      <div className="graph-controls scope-bar">
+        <span className="bar-l">
+          {/* The first slot has one width in every bar that copies this one (the
+              Catalog's), so "Showing" starts at the same x on both screens.
+              Off where the screen has a control panel of its own: the graph screen moved Fit
+              into it on 2026-09-16, beside Reset, because the two are one pair of actions and
+              a bar is for saying what is drawn. The shelf window has no panel and keeps it. */}
+          {showFit && (
+            <button
+              className="btn ghost head-slot"
+              onClick={() => {
+                userMovedRef.current = false
+                fitToView()
+              }}
+              title="Fit the view to the graph (f)"
+            >
+              Fit
+            </button>
+          )}
+          {barLeft}
+        </span>
+        {barMid}
+        <span className="bar-r">{barRight}</span>
       </div>
       {/* Everything positioned against the drawing - the overlays, the tooltip, and the
           canvas sizing itself (the canvas measures its PARENT) - hangs off this box, so
@@ -2220,8 +2506,8 @@ export function placeRegionLabels(
 function traceSmooth(ctx: CanvasRenderingContext2D, pts: Pt[]): void {
   if (pts.length < 3) return
   const mid = (a: Pt, b: Pt): Pt => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
-  let prev = pts[pts.length - 1]!
-  let start = mid(prev, pts[0]!)
+  const prev = pts[pts.length - 1]!
+  const start = mid(prev, pts[0]!)
   ctx.moveTo(start[0], start[1])
   for (let i = 0; i < pts.length; i++) {
     const cur = pts[i]!

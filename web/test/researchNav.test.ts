@@ -1,10 +1,11 @@
 /**
  * Every view of the Research screen must offer a way back to the overview.
  *
- * The screen has three: the start view, a run's detail, and a conversation. The run detail
- * shipped with an "All runs" button; the conversation shipped with nothing at all, so
- * opening one was a one-way trip - the only routes back were the stat tiles in the control
- * column, which nobody reads as navigation (2026-08-26).
+ * The screen has four: the start view, a run's detail, a conversation, and the backlog of
+ * gaps. The run detail shipped with an "All runs" button; the conversation shipped with
+ * nothing at all, so opening one was a one-way trip - the only routes back were the stat
+ * tiles in the control column, which nobody reads as navigation (2026-08-26). The gaps view
+ * is newer (2026-09-08) and had to earn the same guarantee before it could ship.
  *
  * Asserted against the source rather than a rendered tree, the way the App.tsx wiring is
  * checked next door: what matters is that the branch EXISTS, and a component test would
@@ -46,9 +47,9 @@ function goesBackToStart(source: string): boolean {
 }
 
 describe('the Research screen can always be left', () => {
-  it('has exactly the three views this test knows about', () => {
+  it('has exactly the four views this test knows about', () => {
     const kinds = [...chat.matchAll(/\{view\.kind === '(\w+)'/g)].map((m) => m[1])
-    expect([...new Set(kinds)].sort()).toEqual(['run', 'start', 'thread'])
+    expect([...new Set(kinds)].sort()).toEqual(['gaps', 'run', 'start', 'thread'])
   })
 
   it('gets back to the overview from a conversation', () => {
@@ -59,6 +60,16 @@ describe('the Research screen can always be left', () => {
 
   it('gets back to the overview from a run detail', () => {
     expect(goesBackToStart(branch('run'))).toBe(true)
+  })
+
+  /*
+   * The backlog stands in the ledger's place rather than under it, so it needs the way back
+   * that a permanent band never did. Two of them, in fact: the control in its head, and
+   * picking a gap - which fills the composer and hands the ledger back, because a gap is a
+   * way in rather than a place to stay.
+   */
+  it('gets back to the overview from the gaps view', () => {
+    expect(goesBackToStart(branch('gaps'))).toBe(true)
   })
 
   /**
@@ -75,8 +86,10 @@ describe('the Research screen can always be left', () => {
   })
 
   it('keeps the back control out of the band that scrolls', () => {
-    // A back button inside the scrolling band is gone from the first screenful onward, which
-    // is the same as not having one. In the shell the bar is a SIBLING above that band.
+    // A back button that scrolls away with the article is gone from the second screenful
+    // onward, which is the same as not having one. The shell is one scrolling box now
+    // (2026-09-08), and the bar is the element in it that STICKS - it comes first in source
+    // and is pinned in style, so the way back is there whatever is scrolled under it.
     const shell = chat.slice(chat.indexOf('function DetailShell('))
     const bar = shell.indexOf('className={`detail-bar')
     const content = shell.indexOf('className="detail-content"')

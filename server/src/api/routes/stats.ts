@@ -8,6 +8,7 @@
  * landed) so the Overview updates without a manual refresh (DoD).
  */
 
+import { MemoryDismissalStore } from '../../db/domain-dismissals.js'
 import type { FastifyInstance } from 'fastify'
 import type { AppContext } from '../server.js'
 import {
@@ -17,6 +18,7 @@ import {
   growth,
   readHotCache,
   hotCacheUpdatedAt,
+  hotCacheWords,
   latestLintReport,
   type PageCounts,
   type RecentPage,
@@ -24,6 +26,7 @@ import {
   type GrowthPoint,
 } from '../../pipeline/vault-stats.js'
 import { unversionedWikiPages } from '../../pipeline/git.js'
+import { HOT_CACHE_WORD_BUDGET, HOT_CACHE_WORD_LIMIT } from '../../pipeline/validator.js'
 import { budgetStatus, budgetUnit, startOfToday } from '../../pipeline/budget.js'
 
 const CACHE_TTL_MS = 5_000
@@ -36,6 +39,10 @@ interface VaultDerived {
   readonly growth: GrowthPoint[]
   readonly hotCache: string | null
   readonly hotCacheUpdatedAt: string | null
+  /** Its length, the budget it is written to, and the size the check warns at (validator.ts). */
+  readonly hotCacheWords: number | null
+  readonly hotCacheBudget: number
+  readonly hotCacheLimit: number
   readonly lintReport: { path: string; date: string | null } | null
   readonly unversioned: UnversionedSummary
 }
@@ -50,6 +57,9 @@ interface UnversionedSummary {
 
 export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void {
   const { config, store, queue, settings } = ctx
+  // Commits the user took off the Activity stream: filtered out of the history below and
+  // fetched over, so a row removed does not shorten the history it was removed from.
+  const dismissed = ctx.commitDismissals ?? new MemoryDismissalStore()
 
   // Short-TTL cache for the filesystem+git scan. Invalidated eagerly on a `stats` bus event
   // so a completed ingest shows up immediately, and lazily after the TTL as a backstop.
@@ -63,10 +73,13 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
     if (cache && now - cache.at < CACHE_TTL_MS) return cache.data
     const pages = pageCounts(config.vaultRoot)
     // git can fail (no commits, not a repo) — never let it sink the whole Overview.
+    const hidden = dismissed.keys()
     const [commits, growthPoints, unversionedPages] = await Promise.all([
       // 12, not 8: the System tab lists these as the vault's history, and eight rows of a
       // busy day is not a history. Home reads the same array for its activity stream.
-      recentCommits(config.vaultRoot, 12).catch(() => [] as Commit[]),
+      recentCommits(config.vaultRoot, 12 + hidden.size)
+        .then((all) => all.filter((c) => !hidden.has(c.hash)).slice(0, 12))
+        .catch(() => [] as Commit[]),
       growth(config.vaultRoot, GROWTH_DAYS, pages.total).catch(() => [] as GrowthPoint[]),
       // One `git status` (~8ms on a 750-page vault), and it rides this cache like the rest.
       unversionedWikiPages(config.vaultRoot).catch(() => ({ untracked: [], modified: [] })),
@@ -78,6 +91,9 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
       growth: growthPoints,
       hotCache: readHotCache(config.vaultRoot),
       hotCacheUpdatedAt: hotCacheUpdatedAt(config.vaultRoot),
+      hotCacheWords: hotCacheWords(config.vaultRoot),
+      hotCacheBudget: HOT_CACHE_WORD_BUDGET,
+      hotCacheLimit: HOT_CACHE_WORD_LIMIT,
       lintReport: latestLintReport(config.vaultRoot),
       unversioned: {
         untracked: unversionedPages.untracked.length,
@@ -121,6 +137,9 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
       growth: derived.growth,
       hotCache: derived.hotCache,
       hotCacheUpdatedAt: derived.hotCacheUpdatedAt,
+      hotCacheWords: derived.hotCacheWords,
+      hotCacheBudget: derived.hotCacheBudget,
+      hotCacheLimit: derived.hotCacheLimit,
       /** Newest lint report page in the vault — the Maintenance tab's persistent link. */
       lintReport: derived.lintReport,
       /** Wiki pages on disk with no committed copy - F4's blind spot, made visible. */
@@ -142,4 +161,27 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
       generatedAt: new Date().toISOString(),
     }
   })
+
+  /*
+   * Take a commit off the Activity stream, or put it back. The vault keeps the commit; only
+   * the stream forgets it. A short hash, as the stream shows it.
+   */
+  const validHash = (hash: string): boolean => /^[0-9a-f]{7,40}$/i.test(hash)
+  app.post('/api/v1/stats/commits/:hash/dismiss', async (req, reply) => {
+    const { hash } = req.params as { hash: string }
+    if (!validHash(hash)) return reply.code(400).send({ error: 'not a commit hash' })
+    dismissed.dismiss(hash.toLowerCase())
+    cache = undefined
+    ctx.events.publish({ kind: 'stats' })
+    return reply.send({ ok: true, hash: hash.toLowerCase() })
+  })
+  app.delete('/api/v1/stats/commits/:hash/dismiss', async (req, reply) => {
+    const { hash } = req.params as { hash: string }
+    if (!validHash(hash)) return reply.code(400).send({ error: 'not a commit hash' })
+    dismissed.restore(hash.toLowerCase())
+    cache = undefined
+    ctx.events.publish({ kind: 'stats' })
+    return reply.send({ ok: true, hash: hash.toLowerCase() })
+  })
+
 }

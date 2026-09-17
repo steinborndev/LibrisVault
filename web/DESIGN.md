@@ -3,28 +3,34 @@
 The goal: moving between areas must feel like moving inside ONE application. These
 conventions are what every screen follows; new UI goes through this list before it ships.
 
-Rewritten for the 2026-08 redesign (sidebar shell, 7 screens). The findings that motivated
-it are in the frontend deep review; the task list is `docs/tasks/TASKS-REDESIGN.md`.
+Rewritten for the 2026-08 redesign; the shell became a tab row on 2026-08-27 and this file
+follows the tabs since 2026-09-17. The findings that motivated the redesign are in the frontend
+deep review; the task list is `docs/tasks/TASKS-REDESIGN.md`.
 
 ## Shell and navigation
 
-- **Sidebar, three groups:** *Knowledge* is what you browse (Library, Graph), *Work* is what
-  you do (Research, Inbox), *System* is what you tend and configure (Health, Settings). Home
-  sits above the groups. A new screen has to belong to one of the three, or the grouping is
-  wrong.
-- **The topbar carries context, not navigation:** the current screen name (the app's single
-  `h1`) plus a short state line, the global-search trigger, the live pill. Screens never
-  re-invent their own service-status corner - the live pill's popover is the one home for
-  watcher / queue / budget / vault / last commit.
-- **Sidebar badges own attention:** Inbox shows outstanding jobs (pulsing while running),
-  Health shows due/soon. Both stay silent when there is nothing to say.
+- **One tab row, in the order of a day:** Home (what arrived and what is in flight), Research
+  (what you go and find out), Library (the room, only with the research agents on), Graph and
+  Catalog (what is there, as a picture and as a table), System (the machine room: queue,
+  maintenance, integrations, settings). A new screen has to earn a place in that order, or it
+  belongs inside one of the six.
+- **The row's right end carries state, not navigation:** the Watcher and Telegram chips and
+  the live pill, whose popover is the one home for watcher / queue / budget / vault / last
+  commit. Screens never re-invent their own service-status corner.
+- **Tab badges own attention, one thing at a time:** Home counts everything in flight
+  (ingests and runs, pulsing while something runs), Research its own runs, System a
+  maintenance run in flight or else what is due. A badge stays silent when there is nothing
+  to say.
 - **Ctrl+K reaches everything:** pages (from the shared graph query), navigation, and a
   research handoff for the typed topic. Anything that spends money keeps its own consent
   surface and stays out of the palette.
-- **Routes:** `/`, `/library`, `/graph`, `/page/<path>`, `/research`, `/inbox`, `/health`,
-  `/settings`. Every view is deep-linkable; renamed routes keep a prefix alias that
-  normalizes via `replaceState` (`/vault` → `/graph`, `/ingestion` → `/inbox`,
-  `/maintenance` → `/health`, `/chat` → `/research`).
+- **Routes:** `/`, `/research`, `/library`, `/graph`, `/page/<path>`, `/catalog`,
+  `/catalog/page/<path>`, `/system?section=…`. Every view is deep-linkable; a retired route
+  keeps a prefix alias that normalizes via `replaceState` (`/vault` → `/graph`, `/inbox` and
+  `/ingestion` → `/`, `/health`, `/maintenance` and `/settings` → `/system`, `/chat` →
+  `/research`, and `/library?domain=` → the Catalog's filter).
+- **Screens stay mounted** behind `[hidden]` once visited, so a tab switch keeps the graph's
+  camera, the chat session, filters and scroll positions (see State survival).
 - **Desktop-only for now.** Below ~1000px the shell scrolls horizontally rather than
   degrading into a mobile layout.
 
@@ -41,10 +47,18 @@ it are in the frontend deep review; the task list is `docs/tasks/TASKS-REDESIGN.
   centers them. Padding-derived heights drift apart as soon as one control carries
   different content (a `<kbd>`, an icon, another font size).
 - **Canvas-like areas** (the graph) carry their controls ON the canvas: overview (minimap)
-  top-right, legend bottom-right, trail bottom-left; zoom and search live in the bar above
-  the canvas since 2026-08-26. The way-back button ("Go to nearest cluster") sits dead
-  center and exists only while no node is on screen. Panels beside a canvas **dock** (the
-  canvas shrinks) - they never overlay a corner that holds a control.
+  top-right, legend bottom-right, the lock and then the trail bottom-left; zoom and search
+  live in the bar above the canvas since 2026-08-26. The way-back button ("Go to nearest
+  cluster") sits dead center and exists only while no node is on screen. Panels beside a
+  canvas **dock** (the canvas shrinks) - they never overlay a corner that holds a control.
+  The lock (2026-09-17) holds the picture: while it is closed the explorer panel stays away,
+  one click on a node opens its page, and Escape brings the held picture back from wherever
+  you went - a page, a filter, another tab, a reload. It lives in sessionStorage, for one
+  sitting; it opens only by its own button.
+- **A search folds behind a magnifier** wherever a bar or a head carries one (graph, Catalog,
+  the Research ledgers since 2026-09-17): the slot keeps the box's width in both states so
+  nothing beside it moves, `/` opens the box, Escape clears the text and then folds it, and
+  folding clears the text - a filter you cannot see is one you cannot undo.
 
 ## Type and color
 

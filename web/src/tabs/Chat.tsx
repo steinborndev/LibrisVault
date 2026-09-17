@@ -42,18 +42,24 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { CitationChip } from '../components/CitationChip.tsx'
 import { JobLog } from '../components/JobLog.tsx'
-import { AskSteps, ResearchSteps } from '../components/AgentSteps.tsx'
 import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
-import { QueueState } from '../components/ActivityRows.tsx'
-import { Icon } from '../components/Icon.tsx'
+import { Icon, type IconName } from '../components/Icon.tsx'
+import { planCorner } from '../lib/library/planCorner.ts'
+import { PlanCard } from '../components/PlanCard.tsx'
+import { RunActivity, AskActivity } from '../components/RunActivity.tsx'
+import { useAskTrail } from '../hooks/useAskTrail.ts'
+import { useJobLog } from '../hooks/useJobLog.ts'
+import { deriveResearchProgress, EMPTY_PROGRESS } from '../lib/researchProgress.ts'
+import { groupPages, countLine } from '../lib/wrotePages.ts'
 import { queryState, merge } from '../components/QueryState.tsx'
-import { navigate } from '../lib/router.ts'
+import { navigate, pageRoute } from '../lib/router.ts'
 import { openableRow } from '../lib/tableRow.ts'
 import { chatStream } from '../lib/chatStream.ts'
-import { duration, timeAgo, tokens } from '../lib/format.ts'
+import { timeAgo, tokens } from '../lib/format.ts'
 import { Cost, ESTIMATE_LABEL, isEstimate } from '../components/Cost.tsx'
-import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry } from '../lib/researchRuns.ts'
+import { RowDelete } from '../components/ActivityRows.tsx'
+import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry, RESEARCH_PREFIX } from '../lib/researchRuns.ts'
 import { frontmatter } from '../lib/frontmatter.ts'
 
 type ComposerMode = 'research' | 'ask'
@@ -63,10 +69,63 @@ type ComposerMode = 'research' | 'ask'
  * already showing it, in the same place it sits while idle, so starting a run changes state
  * rather than layout. `run` is a settled run picked out of the list.
  */
-type View = { kind: 'start' } | { kind: 'run'; id: string } | { kind: 'thread'; id: string | null }
+/**
+ * `gaps` is the backlog, and it is a VIEW rather than a band under the ledgers now. It used to
+ * stand there permanently, read about once a week, taking a third of the screen from the two
+ * things that are read daily. It is behind the count that names it: the rail's "gaps worth a
+ * run" opens it in the ledger's place, picking one fills the composer and hands the ledger
+ * back, and Escape leaves it like every other opened thing.
+ */
+type View = { kind: 'start' } | { kind: 'run'; id: string } | { kind: 'thread'; id: string | null } | { kind: 'gaps' }
+
+/**
+ * A research topic is often a paragraph - a whole brief typed into the box. The delete
+ * button names the row it removes, and a tooltip carrying 400 characters names nothing.
+ */
+function shortTopic(topic: string): string {
+  return topic.length <= 60 ? topic : `${topic.slice(0, 57).trimEnd()}...`
+}
+
+/**
+ * `m:ss` for the Took column. The run in flight counts from its start to now; a settled run
+ * from its start to its end; a run whose start was never recorded (pre-v12 history) shows a
+ * dash rather than a made-up zero.
+ */
+function took(e: ResearchRunEntry, now: number): string {
+  if (e.startedAt === null) return '-'
+  const end = e.status === 'running' ? now : e.finishedAt !== null ? Date.parse(e.finishedAt) : null
+  if (end === null) return '-'
+  const total = Math.max(0, Math.floor((end - Date.parse(e.startedAt)) / 1000))
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/** The current time, re-read once a second while `active` - so a live duration can tick. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [active])
+  return now
+}
 
 /** How many gaps the research backlog offers at once. */
 const BACKLOG_SIZE = 40
+
+/**
+ * The mark for a lens. Keyed by the profile key the service ships (`broad`, `sota`, `patents`,
+ * `startups`); a key this does not know falls back to the sweep rather than to nothing, because
+ * a row with no mark would look like a different kind of row.
+ */
+const LENS_ICON: Record<string, IconName> = {
+  broad: 'lens-broad',
+  sota: 'lens-sota',
+  patents: 'lens-patents',
+  startups: 'lens-startups',
+}
+export const lensIcon = (key: string | null | undefined): IconName => LENS_ICON[key ?? 'broad'] ?? 'lens-broad'
 
 export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): React.ReactElement {
   const qc = useQueryClient()
@@ -74,13 +133,25 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   const [draft, setDraft] = useState('')
   const [profileKey, setProfileKey] = useState('broad')
   const [view, setView] = useState<View>({ kind: 'start' })
+  /**
+   * Whether the finished-run line has been closed. Per RESULT, not forever: starting the next
+   * run clears it, so dismissing one outcome never hides the next.
+   */
+  const [resultDismissed, setResultDismissed] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
-  /** Narrows the web ledger to one lens; null = all of them. */
-  const [lensFilter, setLensFilter] = useState<string | null>(null)
 
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const vaultName = stats.data?.vaultName ?? 'vault'
   const authMode: AuthMode = stats.data?.authMode ?? 'oauth'
+
+  /*
+   * The plan windows, the same card the Library's corner carries (section 8.3). The question
+   * it answers - can I afford this run - is asked HERE, in front of the composer, so the
+   * answer belongs here too. Same query key as the Library's, so the two share one cached
+   * reading rather than sampling a rate-limited endpoint twice.
+   */
+  const planQ = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
+  const corner = planCorner(planQ.data, Date.now())
 
   const sessionsQ = useQuery({ queryKey: ['sessions'], queryFn: api.sessions })
   const sessions = sessionsQ.data?.sessions ?? []
@@ -109,6 +180,12 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     () => chatStream.snapshot(streamKey),
   )
 
+  // What retrieval did for the answer in flight - the server says so once, before the text.
+  const retrieval = useSyncExternalStore(
+    (cb) => chatStream.subscribe(streamKey, cb),
+    () => chatStream.retrieval(streamKey),
+  )
+
   const ask = useMutation({
     mutationFn: (question: string) => api.query(question, activeId ?? undefined, requestIdRef.current || undefined),
     onSuccess: (res) => {
@@ -118,8 +195,8 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
       if (requestIdRef.current !== '') chatStream.clear(requestIdRef.current)
       setActiveId(res.sessionId)
       setView({ kind: 'thread', id: res.sessionId })
-      qc.invalidateQueries({ queryKey: ['sessions'] })
-      qc.invalidateQueries({ queryKey: ['session', res.sessionId] })
+      void qc.invalidateQueries({ queryKey: ['sessions'] })
+      void qc.invalidateQueries({ queryKey: ['session', res.sessionId] })
     },
     onError: (_e, question) => {
       chatStream.clear(streamKey)
@@ -127,8 +204,23 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
       // Give the typed question back instead of forcing a retype - but never clobber
       // something the user already started writing while the query was in flight.
       setDraft((current) => (current.trim() === '' ? question : current))
-      qc.invalidateQueries({ queryKey: ['sessions'] })
+      void qc.invalidateQueries({ queryKey: ['sessions'] })
     },
+  })
+
+  /*
+   * The activity box's lines for the question: the moments this tab observed, each with its
+   * time. `ask.data` resets when the next question goes out, which is what starts the trail
+   * over; the question itself outlives the answer in `ask.variables`, so the box can still
+   * name it.
+   */
+  const askQuestion = typeof ask.variables === 'string' ? ask.variables : ''
+  const askTrail = useAskTrail({
+    pending: ask.isPending,
+    retrieval,
+    writing: streamed !== '',
+    landed: ask.isSuccess ? ask.data.citations.length : null,
+    error: ask.isError ? (ask.error as Error).message : null,
   })
 
   // Research lenses ("Achse A"): the closed profile list the control column offers.
@@ -164,10 +256,15 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   const topicRef = useRef('')
   const profileKeyRef = useRef('broad')
   const [lastTopic, setLastTopic] = useState('')
-  const [runProfileKey, setRunProfileKey] = useState('broad')
-  const [runStartedAt, setRunStartedAt] = useState<string | null>(null)
   const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current))
-  const runProfile = profiles.find((p) => p.key === runProfileKey)
+  const liveRunning = research.running || liveEntry !== undefined
+  /*
+   * The run's own log, read once here and handed to both the activity box and the list. The
+   * list's Wrote cell counts the pages the run has written so far off the same lines, so the
+   * two can never disagree about what the run has done.
+   */
+  const researchLines = useJobLog('maintenance:research', { seed: false })
+  const progress = liveRunning && researchLines.length > 0 ? deriveResearchProgress(researchLines) : EMPTY_PROGRESS
 
   const composerRef = useRef<HTMLTextAreaElement>(null)
   /** The thread is its own scroll container, so following it means scrolling THIS. */
@@ -195,7 +292,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     // `scrollHeight: 0`. Writing that back pinned the field to `height: 0px`, where it stayed
     // until the first keystroke, because `draft` never changed in between. Reloading straight
     // onto /research measured a laid-out element and looked fine, which is why it read as "too
-    // small until you reload". With no inline height the `rows={1}` height stands, which is
+    // small until you reload". With no inline height the `rows={2}` height stands, which is
     // exactly the height this would have computed anyway.
     if (ta.offsetParent === null) return
     ta.style.height = 'auto'
@@ -233,12 +330,52 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     topicRef.current = text
     profileKeyRef.current = profileKey
     setLastTopic(text)
-    setRunProfileKey(profileKey)
-    setRunStartedAt(new Date().toISOString())
     setDraft('')
     setView({ kind: 'start' })
+    // Per result: closing one outcome must never hide the next one.
+    setResultDismissed(false)
     research.start()
   }
+
+  /**
+   * The keys, the same ones the Library gives its rooms (SPEC section 10.7), because they
+   * mean the same things here.
+   *
+   * Left and right switch the two modes: they are two sides of one screen, and reaching for
+   * the toggle to compare them costs more than the comparison. Escape walks back out of
+   * whatever is open, innermost first, so a detail is never a one-way trip. Never while the
+   * caret sits in a field, where the arrows move the text and Escape may be closing something
+   * of the browser's.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const el = e.target
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)) return
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        setMode((m) => (m === 'research' ? 'ask' : 'research'))
+        // The open thing belongs to the mode you are leaving, so it closes with it.
+        setView({ kind: 'start' })
+      } else if (e.key === 'Escape') {
+        setView((v) => (v.kind === 'start' ? v : { kind: 'start' }))
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        /*
+         * Up and down walk the rows of whichever list is open. The rows are already the
+         * focusable, Enter-openable things (lib/tableRow.ts), so this only moves focus between
+         * them - no cursor state of its own, and Enter keeps meaning what it already meant. It
+         * wraps at both ends, like the Library's shelves.
+         */
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.rmain .rtable tr[tabindex="0"]'))
+        if (rows.length === 0) return
+        e.preventDefault()
+        const at = rows.indexOf(document.activeElement as HTMLElement)
+        const next = at === -1 ? (e.key === 'ArrowDown' ? 0 : rows.length - 1) : (at + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length
+        rows[next]!.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // "Save to vault" (SPEC.md §6.3): a write-enabled agent run that resumes this chat's SDK
   // session and triggers the vault's /save flow. Async like the maintenance runs.
@@ -284,12 +421,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   const pagesFiled = entries.reduce((sum, e) => sum + e.pages.length, 0)
   const costed = settled.filter((e) => e.costUsd !== null)
   const spend = costed.reduce((sum, e) => sum + (e.costUsd ?? 0), 0)
-  const lensCounts = new Map<string, number>()
-  for (const e of entries) {
-    const key = e.profileKey ?? 'broad'
-    lensCounts.set(key, (lensCounts.get(key) ?? 0) + 1)
-  }
-  const shownEntries = lensFilter === null ? entries : entries.filter((e) => (e.profileKey ?? 'broad') === lensFilter)
 
   // What the thread bar calls this conversation. A session that was never saved has no
   // title yet, and the sessions list already names that state "New conversation".
@@ -302,13 +433,24 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   const gaps = graphQ.data?.gaps ?? []
 
   return (
-    <div className="workspace">
-      <aside className="gpanel" aria-label="Research controls">
-        <div className={`gp-sec${lensDisabled ? ' off' : ''}`} aria-disabled={lensDisabled}>
+    <div className="workspace research">
+      {/*
+        * The control column is three boxes, and each takes its height from what stands beside
+        * it (2026-09-15): the lens against the mode toggle AND the topic field together, the
+        * plan against the run's own section, what research came to against the list of it.
+        * All six are items of ONE grid for that reason - a column laid out on its own can
+        * only guess at heights its neighbour's content decides.
+        */}
+      <aside className="gpanel gp-lens" aria-label="Research lens">
+        {/* The same box in both modes. The lens shapes a web research run only; under a
+            vault question it stays where it is, greyed, and says why on hover, so the
+            column does not change shape when the mode does. */}
+        <div
+          className={`gp-sec${lensDisabled ? ' off' : ''}`}
+          title={lensDisabled ? 'The lens shapes a web research run: which kind of source it reaches for first. A question to the vault reads what is already here, so it has no lens.' : undefined}
+        >
           <div className="gp-head">
             <span className="gp-eyebrow">Lens</span>
-            <span className="spacer" />
-            <span className="gp-state">{lensDisabled ? 'not used' : (selectedProfile?.label ?? '…')}</span>
           </div>
           <div className="lenslist" role="radiogroup" aria-label="Research lens">
             {profiles.map((p) => (
@@ -327,81 +469,45 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 <span className="lname" title={p.blurb}>
                   {p.label}
                 </span>
+                {/* The lens's own mark, where the run count used to stand. How often a lens
+                    was used is a fact nobody acts on; the mark is, because the same one leads
+                    every row of the run list - so this picker is also that list's legend. */}
+                <span className="lensmark" aria-hidden>
+                  <Icon name={lensIcon(p.key)} />
+                </span>
               </button>
             ))}
             {profiles.length === 0 && <div className="gp-none">Loading lenses…</div>}
           </div>
-          {/* All this still has to say is the one thing the console cannot: that an ask has
-              no lens. It keeps its height in both modes so nothing under it moves. */}
-          <div className="pillhint">
-            {lensDisabled && (
-              <>
-                Not used here.{' '}
-                <button className="linkish" onClick={() => setMode('research')}>
-                  Switch to Web Research
-                </button>
-              </>
-            )}
-          </div>
         </div>
 
-        {/* Narrows the web ledger. The backlog under the ledgers is never filtered: it is
-            what the vault is missing, not what you did. */}
-        <div className="gp-sec">
-          {/* No Clear button here. It appeared only once a filter was set, which made this
-              head 8px taller than the others and pushed the running totals below it down the
-              moment a filter was clicked - and it did nothing the "All lenses" row under it
-              does not already do. */}
-          <div className="gp-head">
-            <span className="gp-eyebrow">Filter</span>
-          </div>
-          <div className="pillrow stacked" role="radiogroup" aria-label="Filter web research by lens">
-            <button
-              className="viewpill"
-              role="radio"
-              aria-checked={lensFilter === null}
-              onClick={() => setLensFilter(null)}
-            >
-              <span className="pl">All lenses</span>
-              <span className="pn">{entries.length}</span>
-            </button>
-            {profiles.map((p) => {
-              const n = lensCounts.get(p.key) ?? 0
-              return (
-                <button
-                  key={p.key}
-                  className="viewpill"
-                  role="radio"
-                  aria-checked={lensFilter === p.key}
-                  disabled={n === 0}
-                  title={n === 0 ? `No run has used the ${p.label} lens yet` : undefined}
-                  onClick={() => setLensFilter(lensFilter === p.key ? null : p.key)}
-                >
-                  <span className="pl">{p.label}</span>
-                  <span className="pn">{n}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
+      </aside>
 
+      {/* The plan, as the Library states it: which windows are how full, what an unmeasured
+          run has probably added on top, and how old the reading is. */}
+      {corner !== null && (
+        <aside className="gpanel gp-plan" aria-label="Plan usage">
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Plan usage</span>
+            </div>
+            <PlanCard corner={corner} />
+          </div>
+        </aside>
+      )}
+
+      <aside className="gpanel gp-facts" aria-label="Research so far">
         {/* What the two ledgers add up to, in the same metric-list shape Home uses. */}
         <div className="gp-sec grow">
           <div className="gp-head">
             <span className="gp-eyebrow">Research so far</span>
           </div>
           <div className="railfacts">
-            <button
-              className="vzf"
-              onClick={() => {
-                setLensFilter(null)
-                setView({ kind: 'start' })
-              }}
-            >
+            <button className="vzf" onClick={() => setView({ kind: 'start' })}>
               <b>{entries.length}</b>
               <span>{failedRuns > 0 ? `runs, ${failedRuns} failed` : 'web research runs'}</span>
             </button>
-            <button className="vzf" onClick={() => navigate('/library')}>
+            <button className="vzf" onClick={() => navigate('/catalog')}>
               <b>{pagesFiled}</b>
               <span>pages filed</span>
             </button>
@@ -417,27 +523,26 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 recorded across {costed.length} run{costed.length === 1 ? '' : 's'}
               </span>
             </div>
-            <button className="vzf" onClick={() => navigate('/graph?gaps=1')}>
+            {/* A fact about the vault, so it stands in both modes; the gaps are run down
+                with web research, so from a vault question it turns the mode there first. */}
+            <button
+              className="vzf"
+              aria-pressed={view.kind === 'gaps'}
+              onClick={() => {
+                if (mode === 'ask') {
+                  setMode('research')
+                  setView({ kind: 'gaps' })
+                  return
+                }
+                setView(view.kind === 'gaps' ? { kind: 'start' } : { kind: 'gaps' })
+              }}
+            >
               <b>{gaps.length}</b>
               <span>gaps worth a run</span>
             </button>
           </div>
         </div>
 
-        {/* A run takes a queue slot, the same as a drop - so Research states the queue in the
-            same place, and the same shape, that Home does. */}
-        <div className="gp-sec gp-foot">
-          <div className="gp-head">
-            <span className="gp-eyebrow">Queue</span>
-          </div>
-          <QueueState
-            paused={stats.data?.queue.paused === true}
-            reason={stats.data?.queue.pauseReason ?? null}
-            concurrency={stats.data?.queue.concurrency}
-            active={stats.data?.queue.active ?? 0}
-            queued={stats.data?.queue.queued ?? 0}
-          />
-        </div>
       </aside>
 
       {/* The screen's own column: the console, a region that swaps, and the backlog pinned
@@ -449,9 +554,12 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             on the same ground as the run table below them, and the tab had no visible place
             to start. The card is inset, lifted a step, and carries a rail in the mode's own
             colour - so which mode is armed is legible from the shape, not just the label. */}
-        <div className={`console${mode === 'ask' ? ' ask' : ''}`}>
-          <div className="console-head">
-            <div className="seg" role="radiogroup" aria-label="Mode">
+        {/* The headline (2026-09-08): the mode toggle on the left, what the mode may do on the
+            right - the three zones the Library keeps. The toggle used to sit in the console and
+            switch only the console; it switches the whole tab now, so it stands above it. */}
+        <div className="box rhead-box">
+        <div className="rhead">
+          <div className="seg" role="radiogroup" aria-label="Mode">
               <button
                 role="radio"
                 aria-checked={mode === 'research'}
@@ -469,30 +577,16 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 Vault Research
               </button>
             </div>
-            <span className="spacer" />
+            <span className="rhead-mid">
+              {mode === 'research' ? 'Reads the web, writes pages, one commit.' : 'Reads the vault only, cites every page, writes nothing.'}
+            </span>
             {/* What the armed mode is ALLOWED to do. The two modes differ in exactly these
                 two capabilities, and a run that can reach the web and write pages should not
                 announce itself in the same faint grey as a read-only query. */}
-            <span className="caps">
-              {mode === 'research' ? (
-                <>
-                  <span className="cap">
-                    <Icon name="globe" /> Web access
-                  </span>
-                  <span className="cap">
-                    <Icon name="file" /> Writes pages
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="cap">
-                    <Icon name="book" /> Reads the vault
-                  </span>
-                  <span className="cap off">No commit</span>
-                </>
-              )}
-            </span>
-          </div>
+            <span className="rhead-cap">{mode === 'research' ? 'Web access' : 'Read-only'}</span>
+        </div>
+        </div>
+        <div className={`console${mode === 'ask' ? ' ask' : ''}`}>
           <div className="console-main">
             <textarea
               ref={composerRef}
@@ -509,7 +603,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                   ? 'Name a topic - the run reads the web and files one synthesis page…'
                   : 'Ask the vault… (Enter to send, Shift+Enter for a new line)'
               }
-              rows={1}
+              rows={2}
             />
             <button className="btn-run" disabled={draft.trim() === '' || busy} onClick={send}>
               {sendLabel}
@@ -543,13 +637,13 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                   </span>
                   <span className="pl-fact">
                     <span className="pl-key">Budget</span>
-                    <span className="pl-val">
+                    <span className="pl-val pl-fig">
                       up to <b>{selectedProfile.fetchEstimate}</b> fetches
                     </span>
                   </span>
                   <span className="pl-fact">
                     <span className="pl-key">Commits</span>
-                    <span className="pl-val">
+                    <span className="pl-val pl-fig">
                       <b>1</b>
                     </span>
                   </span>
@@ -574,37 +668,43 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 </span>
                 <span className="pl-fact">
                   <span className="pl-key">Fetches</span>
-                  <span className="pl-val">
+                  <span className="pl-val pl-fig">
                     <b>0</b>
                   </span>
                 </span>
                 <span className="pl-fact">
                   <span className="pl-key">Commits</span>
-                  <span className="pl-val">
+                  <span className="pl-val pl-fig">
                     <b>0</b>
                   </span>
                 </span>
               </div>
             </div>
           )}
-          {/* The rail is the console's FOOTER, not a sibling: it describes the run this
-              console starts. Always here, in both modes - dimmed while nothing runs, lit as
-              it happens, so a run starting never moves the screen. */}
-          {mode === 'research' ? (
-            <ResearchSteps
-              running={research.running || liveEntry !== undefined}
-              startedAt={runStartedAt ?? liveEntry?.startedAt ?? null}
-              profile={runProfile ?? selectedProfile}
-            />
-          ) : (
-            <AskSteps
-              pending={ask.isPending}
-              streamed={streamed}
-              citations={lastCitations}
-              answered={messages.some((m) => m.role === 'assistant')}
-            />
-          )}
+          {/* The step strips that used to be the console's footer moved into the activity
+              box below (2026-09-08): they belong to the work in flight, not to the console
+              that starts it. */}
         </div>
+
+        {/*
+          * The run's own section and whatever it has to say about itself, in one wrapper: the
+          * main column is placed row by row against the control column now, so it has to have
+          * one child per row. The banners belong to the run, and a run that ends in a warning
+          * pushes its own row taller rather than opening a row of its own.
+          */}
+        <div className="rrun">
+        {/* The agent's own section, above the list: the run in flight, or the question. */}
+        {mode === 'research' && <RunActivity live={liveRunning} topic={lastTopic !== '' ? lastTopic : (liveEntry?.topic ?? '')} />}
+        {mode === 'ask' && (
+          <AskActivity
+            question={askQuestion}
+            lines={askTrail}
+            pending={ask.isPending}
+            streamed={streamed}
+            citations={lastCitations}
+            answered={messages.some((m) => m.role === 'assistant')}
+          />
+        )}
 
         {mode === 'research' && research.error !== null && (
           <div className="toast err runbanner">
@@ -616,8 +716,14 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
         )}
         {/* A run that came back ok but owes its synthesis page reads as a WARNING, not a
             success: the pages it wrote are real and linked below, but nothing pulls them
-            together, so presenting it in the green band would overstate what happened. */}
-        {mode === 'research' && research.result?.ok === true && (
+            together, so presenting it in the green band would overstate what happened.
+
+            One line, and it closes. A finished run is news for about as long as it takes to
+            read; what is worth keeping - the pages, the cost - is in the run's own row a few
+            pixels below, which is where anyone would look for it tomorrow. The band used to
+            sit there until the next run, holding a strip of the screen for a fact nobody was
+            still reading. */}
+        {mode === 'research' && research.result?.ok === true && !resultDismissed && (
           <div className={`toast ${research.result.warning !== undefined ? 'warn' : 'ok'} runbanner`}>
             {lastTopic === '' ? 'Run finished' : `Run finished: ${lastTopic}`}
             {research.result.usage.costUsd > 0 && (
@@ -633,8 +739,12 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
             ) : (
               <> - no changes.</>
             )}
+            <button className="toast-x" onClick={() => setResultDismissed(true)} aria-label="Dismiss">
+              ×
+            </button>
           </div>
         )}
+        </div>
 
         {/* The region that swaps: the two ledgers, or ONE detail in their place. The
             console above and the backlog below stay mounted either way, so opening a run
@@ -642,7 +752,9 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
         <div className="rstack">
           {view.kind === 'start' && (
             <StartView
-              entries={shownEntries}
+              mode={mode}
+              entries={entries}
+              livePaths={progress.pagePaths}
               totalRuns={entries.length}
               profiles={profiles}
               sessions={sessions}
@@ -652,8 +764,50 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               activeSessionId={activeId}
               onOpen={openEntry}
               onOpenThread={openThread}
-              onSessionsChanged={() => qc.invalidateQueries({ queryKey: ['sessions'] })}
+              onSessionsChanged={() => void qc.invalidateQueries({ queryKey: ['sessions'] })}
             />
+          )}
+
+          {view.kind === 'gaps' && (
+            <section className="box gaps grow">
+              <div className="sub-head">
+                <h3 className="sub-title">Worth a run</h3>
+                <span className="box-sub">pages your vault links to but has never written</span>
+                <span className="spacer" />
+                <span className="count">{gaps.length}</span>
+                {/* Escape does this too, but a key nobody can see is not a control. */}
+                <button className="btn ghost sm" onClick={() => setView({ kind: 'start' })}>
+                  Back to runs
+                </button>
+              </div>
+              <div className="box-body gaplist">
+                {queryState(graphQ, 'the knowledge gaps') ??
+                  (gaps.length === 0 ? (
+                    <div className="empty">No open knowledge gaps - every link resolves to a page.</div>
+                  ) : (
+                    gaps.slice(0, BACKLOG_SIZE).map((g) => (
+                      <button
+                        key={g.title}
+                        className="gaprow"
+                        onClick={() => {
+                          // A gap is a way in, not a place to stay: the composer takes it and
+                          // the list comes back.
+                          setView({ kind: 'start' })
+                          startAbout(g.title)
+                        }}
+                      >
+                        <span className="nm" title={g.title}>
+                          {g.title}
+                        </span>
+                        <span className="links">
+                          {g.refBy.length} page{g.refBy.length === 1 ? '' : 's'} link{g.refBy.length === 1 ? 's' : ''} here
+                        </span>
+                        <span className="go">Research &rarr;</span>
+                      </button>
+                    ))
+                  ))}
+              </div>
+            </section>
           )}
 
           {view.kind === 'run' && (
@@ -662,7 +816,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               profiles={profiles}
               nodes={graphQ.data?.nodes ?? []}
               vaultName={vaultName}
-              authMode={authMode}
               onBack={() => setView({ kind: 'start' })}
               onRerun={(topic, key) => {
                 setProfileKey(key ?? 'broad')
@@ -697,40 +850,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
           )}
         </div>
 
-        {/* The backlog is an offer, not a record - so it is a band of cards with a verb on
-            them, and it keeps that band whether or not a detail is open. Opening a run
-            should not cost the reader the thing they might do next. */}
-        <section className="box band">
-          <div className="sub-head">
-            <h3 className="sub-title">Worth a run</h3>
-            <span className="box-sub">pages your vault links to but has never written</span>
-            <span className="spacer" />
-            <span className="count">{gaps.length}</span>
-          </div>
-          <div className="box-body">
-            {queryState(graphQ, 'the knowledge gaps') ??
-              (gaps.length === 0 ? (
-                <div className="empty">No open knowledge gaps - every link resolves to a page.</div>
-              ) : (
-                <div className="offers">
-                  {gaps.slice(0, BACKLOG_SIZE).map((g) => (
-                    <button key={g.title} className="offer" onClick={() => startAbout(g.title)}>
-                      <span className="of-t" title={g.title}>
-                        {g.title}
-                      </span>
-                      <span className="of-m">
-                        <span className="of-n">
-                          {g.refBy.length} page{g.refBy.length === 1 ? '' : 's'} link
-                          {g.refBy.length === 1 ? 's' : ''} here
-                        </span>
-                        <span className="of-go">Research</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ))}
-          </div>
-        </section>
       </div>
     </div>
   )
@@ -745,7 +864,9 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
  * whatever is left instead of the numbers being crushed against the right edge.
  */
 function StartView({
+  mode,
   entries,
+  livePaths,
   totalRuns,
   profiles,
   sessions,
@@ -757,7 +878,15 @@ function StartView({
   onOpenThread,
   onSessionsChanged,
 }: {
+  /**
+   * Which half of the tab is open. The two ledgers used to stand side by side, each in half
+   * the width, and every reader was looking at one of them - so the mode moved up to the tab
+   * (2026-09-08) and the half you are not reading is not rendered at all.
+   */
+  mode: ComposerMode
   entries: ResearchRunEntry[]
+  /** The pages the run in flight has written so far, counted off its log. */
+  livePaths: readonly string[]
   /** Runs before the lens filter, so the count can say "6 of 13" rather than lying. */
   totalRuns: number
   profiles: ResearchProfile[]
@@ -773,78 +902,213 @@ function StartView({
 }): React.ReactElement {
   const lensLabel = (key: string | null): string =>
     key === null ? '-' : (profiles.find((p) => p.key === key)?.label ?? key)
+  const liveRow = entries.find((e) => e.status === 'running')
+  const now = useNow(liveRow !== undefined)
+  /*
+   * One search over the ledger on show, in its head where the count stood; the count is in
+   * the box's placeholder now, and "4 of 12" beside the text while it narrows. A run is
+   * found by its topic, its lens, the pages it filed or the error it ended in; a question
+   * by its title.
+   */
+  const [ledgerQuery, setLedgerQuery] = useState('')
+  const q = ledgerQuery.trim().toLowerCase()
+  const listedEntries = q === '' ? entries : entries.filter((e) => [e.topic, lensLabel(e.profileKey), ...e.pages, e.error ?? ''].join(' ').toLowerCase().includes(q))
+  const listedSessions = q === '' ? sessions : sessions.filter((s) => (s.title ?? '').toLowerCase().includes(q))
+  /*
+   * The box folds away behind a magnifier, the way the graph's and the Catalog's do
+   * (2026-09-17): the same slot at the right edge of the head, the same two states, the same
+   * two keys. Closing clears the text - a query narrowing the ledger from behind a folded-away
+   * box is a filter you cannot see and therefore cannot undo. Switching modes closes it too:
+   * the other ledger is a fresh visit.
+   */
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const ledgerRef = useRef<HTMLElement>(null)
+  const openSearch = (): void => {
+    setSearchOpen(true)
+    // Focus after the field exists; without the frame the ref is still null.
+    requestAnimationFrame(() => searchRef.current?.focus())
+  }
+  const closeSearch = (): void => {
+    setLedgerQuery('')
+    setSearchOpen(false)
+  }
+  useEffect(() => {
+    setLedgerQuery('')
+    setSearchOpen(false)
+  }, [mode])
+  // `/` opens the box, Escape folds it away when the caret has moved on - the graph's keys.
+  // Only while this ledger is the one on screen: the shell keeps every screen mounted and
+  // hidden, and hidden means no box to measure.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const root = ledgerRef.current
+      if (root === null || (root.offsetWidth === 0 && root.offsetHeight === 0)) return
+      const t = e.target
+      const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable)
+      if (inField) return
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        openSearch()
+      } else if (e.key === 'Escape' && searchOpen) {
+        e.preventDefault()
+        closeSearch()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [searchOpen])
+  const search = (total: number, shown: number, noun: string, label: string): React.ReactElement => (
+    <div className={`graph-search-slot${searchOpen ? ' open' : ''}`}>
+      {searchOpen && (
+        <div className="graph-search graph-search-inbar">
+          <input
+            ref={searchRef}
+            type="search"
+            value={ledgerQuery}
+            placeholder={`Search ${total} ${noun}${total === 1 ? '' : 's'}…`}
+            aria-label={label}
+            onChange={(e) => setLedgerQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              e.preventDefault()
+              // Text first, then the box: one step out per press, the shape Escape has on
+              // the graph and everywhere else here.
+              if (ledgerQuery !== '') setLedgerQuery('')
+              else {
+                e.currentTarget.blur()
+                setSearchOpen(false)
+              }
+            }}
+          />
+          {q !== '' && (
+            <span className="graph-matches">
+              {shown} of {total}
+            </span>
+          )}
+        </div>
+      )}
+      {/* One magnifier, at the right edge in both states, so it does not move between them. */}
+      <button
+        className="canvas-corner search-open"
+        aria-expanded={searchOpen}
+        onClick={() => (searchOpen ? closeSearch() : openSearch())}
+        aria-label={searchOpen ? 'Close the search' : label}
+        title={searchOpen ? 'Close the search · Esc' : `${label} · /`}
+      >
+        <Icon name="search" />
+      </button>
+    </div>
+  )
   return (
     <>
-      <section className="box ledger">
+      {mode === 'research' && (
+      <section className="box ledger grow" ref={ledgerRef}>
         <div className="sub-head">
           <h3 className="sub-title">Web Research</h3>
           <span className="box-sub">topic, lens, the pages it filed and what it cost</span>
           <span className="spacer" />
-          <span className="count">
-            {entries.length}
-            {entries.length !== totalRuns ? ` of ${totalRuns}` : ''}
-          </span>
+          {search(entries.length, listedEntries.length, 'run', 'Search the runs')}
         </div>
         <div className="box-body">
           {runState ??
-            (entries.length === 0 ? (
+            (listedEntries.length === 0 ? (
               <div className="empty">
                 {totalRuns === 0
                   ? 'No research run yet. Name a topic above, pick a lens on the left, and the run files one synthesis page.'
-                  : 'No run used that lens. Clear the filter on the left to see the rest.'}
+                  : entries.length === 0
+                    ? 'No run used that lens. Clear the filter on the left to see the rest.'
+                    : `No run matches “${ledgerQuery.trim()}”.`}
               </div>
             ) : (
               <table className="dtable rtable">
                 <thead>
                   <tr>
                     <th>Topic</th>
-                    <th>Lens</th>
-                    <th className="num">Pages</th>
-                    <th className="num">Cost</th>
-                    <th>When</th>
-                    <th aria-label="Actions" />
+                    <th className="c-wrote">Wrote</th>
+                    <th className="c-took">Took</th>
+                    <th className="num c-cost">Cost</th>
+                    <th className="c-when">When</th>
+                    {/* The run log is operational; a row can be taken out of it without the
+                        vault noticing. Only settled runs have such a row, so the column is
+                        declared once and the cell is empty for the rest. */}
+                    <th className="c-acts" aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map((e) => (
-                    <tr key={e.id} {...openableRow(() => onOpen(e), `Open the run about ${e.topic}`)}>
-                      <td>
-                        <span className="hrow-name">
-                          <span className={`hrow-dot ${e.status === 'running' ? 'running' : e.status}`} aria-hidden />
-                          <span className="nm" title={e.topic}>
-                            {e.topic}
+                  {listedEntries.map((e) => {
+                    // Bound outside the JSX: the narrowing on `e.removableId` does not
+                    // survive into the callback the button holds.
+                    const removable = e.removableId
+                    return (
+                      <tr key={e.id} {...openableRow(() => onOpen(e), `Open the run about ${e.topic}`)}>
+                        <td>
+                          <span className="hrow-name">
+                            {/* The lens leads the row, in a lane of its own so the topics of
+                                four lenses still start on one x. It replaces a whole column:
+                                a mark says the same thing as a word and leaves the width to
+                                the topic. */}
+                            <span className="lensmark rowlens" title={lensLabel(e.profileKey)}>
+                              <Icon name={lensIcon(e.profileKey)} />
+                            </span>
+                            <span className={`hrow-dot ${e.status === 'running' ? 'running' : e.status}`} aria-hidden />
+                            <span className="nm" title={e.topic}>
+                              {e.topic}
+                            </span>
                           </span>
-                        </span>
-                        {e.error !== null && <span className="rowerr">{e.error}</span>}
-                      </td>
-                      <td className="dimc">{lensLabel(e.profileKey)}</td>
-                      <td className="num dimc">{e.pages.length > 0 ? `+${e.pages.length}` : '-'}</td>
-                      <td className="num dimc">
-                        {e.costUsd !== null ? <Cost value={e.costUsd} authMode={authMode} /> : '-'}
-                      </td>
-                      <td className="faintc">{e.status === 'running' ? 'running' : timeAgo(e.finishedAt)}</td>
-                      <td />
-                    </tr>
-                  ))}
+                          {e.error !== null && <span className="rowerr">{e.error}</span>}
+                        </td>
+                        {/* What it wrote, by kind. The width is declared for the run that wrote
+                            all four, so a figure that moves while a run works cannot push the
+                            columns beside it sideways. */}
+                        {/* Live while it runs: the pages come off the log, not the settle
+                            record, and the clock ticks. Cost stays a dash until it settles - a
+                            running total is not the final one, and a dash says "not known yet"
+                            where a 0 would lie. */}
+                        {/* One figure, live for the run in flight: the kinds are stated in the
+                            opened run, where there is room for them. */}
+                        <td className={`wrotec${e.status === 'running' ? ' pending' : ''}`} title={countLine(e.status === 'running' ? livePaths : e.pages)}>
+                          {(() => {
+                            const n = e.status === 'running' ? livePaths.length : e.pages.length
+                            if (n === 0) return e.status === 'running' ? 'nothing yet' : '-'
+                            return `${n} page${n === 1 ? '' : 's'}`
+                          })()}
+                        </td>
+                        <td className={`tookc${e.status === 'running' ? ' pending' : ''}`}>{took(e, now)}</td>
+                        <td className={`num dimc${e.status === 'running' ? ' pending' : ''}`}>
+                          {e.costUsd !== null ? <Cost value={e.costUsd} authMode={authMode} /> : '-'}
+                        </td>
+                        <td className="faintc">{e.status === 'running' ? 'running' : timeAgo(e.finishedAt)}</td>
+                        <td className="c-acts">
+                          {removable !== null && (
+                            <RowDelete label={shortTopic(e.topic)} remove={() => api.deleteRun(removable)} />
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             ))}
         </div>
       </section>
 
-      <section className="box ledger">
+      )}
+      {mode === 'ask' && (
+      <section className="box ledger grow" ref={ledgerRef}>
         <div className="sub-head">
           <h3 className="sub-title">Vault Research</h3>
           <span className="box-sub">questions the vault answered from what it already holds</span>
           <span className="spacer" />
-          <span className="count">{sessions.length}</span>
+          {search(sessions.length, listedSessions.length, 'question', 'Search the questions')}
         </div>
         <div className="box-body">
           {sessionState ??
-            (sessions.length === 0 ? (
+            (listedSessions.length === 0 ? (
               <div className="empty">
-                Nothing asked yet. Switch the composer to Vault Research and ask - the answer cites the pages
-                it came from, and nothing is written.
+                {sessions.length === 0
+                  ? 'Nothing asked yet. Ask above - the answer cites the pages it came from, and nothing is written.'
+                  : `No question matches “${ledgerQuery.trim()}”.`}
               </div>
             ) : (
               <table className="dtable rtable">
@@ -861,7 +1125,7 @@ function StartView({
                   </tr>
                 </thead>
                 <tbody>
-                  {sessions.map((s) => (
+                  {listedSessions.map((s) => (
                     <SessionLedgerRow
                       key={s.id}
                       session={s}
@@ -876,6 +1140,7 @@ function StartView({
             ))}
         </div>
       </section>
+      )}
     </>
   )
 }
@@ -903,6 +1168,8 @@ function DetailShell({
   facts,
   chipsKey,
   chips,
+  band,
+  heading,
   contentRef,
   children,
   provenance,
@@ -916,37 +1183,66 @@ function DetailShell({
   tag?: React.ReactNode
   state: React.ReactNode
   action: React.ReactNode
-  facts: React.ReactNode
+  /** The facts strip. A run has none any more - its figures are in the list it came from. */
+  facts?: React.ReactNode
   chipsKey: string
   chips: React.ReactNode
+  /** Replaces the flat chip band outright. A run's pages are grouped by kind; a
+      conversation's citations are a flat list and keep the band. */
+  band?: React.ReactNode
+  /**
+   * A heading at the top of the scrolling box, in place of the bar's title. A run's title used
+   * to appear three times - in the bar, as a fact, and as the page's own first line - and this
+   * is the one place it stands now.
+   */
+  heading?: React.ReactNode
+  /** The scrolling element, for a caller that keeps its content scrolled to the end. */
   contentRef?: React.RefObject<HTMLDivElement | null>
   children: React.ReactNode
   provenance: React.ReactNode
   footAction: React.ReactNode
 }): React.ReactElement {
+  /*
+   * One box that scrolls (2026-09-08). It used to be a fixed head - bar, facts, chips - over a
+   * band that scrolled on its own, which spent a third of the height on figures the list
+   * above had already shown. Everything is in one scrolling element now; only the bar sticks,
+   * because the way back should not scroll away with the article.
+   *
+   * The foot is the other half of that (2026-09-15) and sits OUTSIDE the scroller for it. It
+   * carries the two ways out of a result - the graph and the page it wrote - and those are
+   * facts about the result, not the end of the article: scrolling an article to reach the
+   * button that opens what it is about is a scroll the reader should not have to make.
+   */
   return (
     <section className="box detail">
-      <div className={`detail-bar ${kind}`}>
-        <button className="backlink" onClick={onBack}>
-          <Icon name="back" />
-          {backLabel}
-        </button>
-        <Icon name={icon} />
-        <h3 className="detail-title" title={title}>
-          {title}
-        </h3>
-        {tag}
-        {state}
-        <span className="spacer" />
-        {action}
-      </div>
-      <Facts size="lead">{facts}</Facts>
-      <div className="chipband">
-        <span className="bandkey">{chipsKey}</span>
-        {chips}
-      </div>
-      <div className="detail-content" ref={contentRef}>
-        {children}
+      <div className="detail-scroll" ref={contentRef}>
+        <div className={`detail-bar ${kind}`}>
+          <button className="backlink" onClick={onBack}>
+            <Icon name="back" />
+            {backLabel}
+          </button>
+          {heading === undefined && (
+            <>
+              <Icon name={icon} />
+              <h3 className="detail-title" title={title}>
+                {title}
+              </h3>
+            </>
+          )}
+          {tag}
+          {state}
+          <span className="spacer" />
+          {action}
+        </div>
+        {heading}
+        {facts !== undefined && <Facts size="lead">{facts}</Facts>}
+        {band ?? (
+          <div className="chipband">
+            <span className="bandkey">{chipsKey}</span>
+            {chips}
+          </div>
+        )}
+        <div className="detail-content">{children}</div>
       </div>
       <div className="detail-foot">
         <span className="prov">{provenance}</span>
@@ -957,13 +1253,53 @@ function DetailShell({
   )
 }
 
+/**
+ * The pages a run wrote, grouped by kind (2026-09-08).
+ *
+ * The band was a flat row of chips in a container fixed at two rows' height, so a run that
+ * wrote nine pages showed four and put the rest behind a scrollbar - and printed the kind on
+ * every chip, which is the same word four times over. Now the kind is a column label stated
+ * once, the names take the full width, and a group longer than `PILLS_SHOWN` ends in a
+ * control that opens the rest in place. Nothing is behind a scrollbar.
+ */
+const PILLS_SHOWN = 4
+
+function WroteBand({ paths, vaultName, empty }: { paths: readonly string[]; vaultName: string; empty: string }): React.ReactElement {
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const groups = groupPages(paths)
+  if (groups.length === 0) return <div className="wroteband empty-band">{empty}</div>
+  return (
+    <div className="wroteband">
+      {groups.map((g) => {
+        const all = open[g.kind] === true
+        const shown = all ? g.paths : g.paths.slice(0, PILLS_SHOWN)
+        const rest = g.paths.length - shown.length
+        return (
+          <div key={g.kind} className="wrow">
+            <span className="wkey">{g.name}</span>
+            <span className="wpills">
+              {shown.map((path) => (
+                <PageLink key={path} vaultName={vaultName} path={path} plain />
+              ))}
+              {(rest > 0 || all) && g.paths.length > PILLS_SHOWN && (
+                <button className="chip more" onClick={() => setOpen({ ...open, [g.kind]: !all })}>
+                  {rest > 0 ? `+${rest} more` : 'show fewer'}
+                </button>
+              )}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /** A settled run from the list: its facts, its pages, and the way to run the topic again. */
 function RunDetail({
   entry,
   profiles,
   nodes,
   vaultName,
-  authMode,
   onBack,
   onRerun,
 }: {
@@ -972,7 +1308,6 @@ function RunDetail({
   /** The graph's pages, to resolve the synthesis page by the name it calls itself. */
   nodes: readonly GraphNode[]
   vaultName: string
-  authMode: AuthMode
   onBack: () => void
   onRerun: (topic: string, profileKey: string | null) => void
 }): React.ReactElement {
@@ -985,7 +1320,6 @@ function RunDetail({
       profiles={profiles}
       nodes={nodes}
       vaultName={vaultName}
-      authMode={authMode}
       onBack={onBack}
       onRerun={onRerun}
     />
@@ -1002,7 +1336,6 @@ function RunDetailBody({
   profiles,
   nodes,
   vaultName,
-  authMode,
   onBack,
   onRerun,
 }: {
@@ -1011,7 +1344,6 @@ function RunDetailBody({
   profiles: ResearchProfile[]
   nodes: readonly GraphNode[]
   vaultName: string
-  authMode: AuthMode
   onBack: () => void
   onRerun: (topic: string, profileKey: string | null) => void
 }): React.ReactElement {
@@ -1021,10 +1353,15 @@ function RunDetailBody({
     queryFn: () => api.pageFull(articlePath as string),
     enabled: articlePath !== null,
   })
-  const body = article.data ? frontmatter(article.data.markdown).body : ''
+  const raw = article.data ? frontmatter(article.data.markdown).body : ''
+  // The page's own first line is its title, which the heading above it already states: the
+  // third copy of the same words on one screen, and the one that scrolled.
+  const body = raw.replace(/^\s*#\s[^\n]*\n+/, '')
   // What the run FILED, which is not always what the deterministic title predicted - the
-  // agent names the page itself. State the real one; the prediction belongs in the composer.
+  // agent names the page itself. The heading shows the real one, without the prefix every
+  // synthesis page carries: the lens mark beside it says what kind of page this is.
   const filedTitle = articlePath !== null ? (articlePath.split('/').pop() ?? '').replace(/\.md$/, '') : null
+  const heading = (filedTitle ?? entry.topic).replace(new RegExp(`^${RESEARCH_PREFIX}`), '')
   return (
     <DetailShell
       kind="web"
@@ -1032,36 +1369,25 @@ function RunDetailBody({
       backLabel="All runs"
       onBack={onBack}
       title={entry.topic}
-      tag={profile !== undefined ? <span className="lens-tag">{profile.label}</span> : undefined}
+      heading={
+        <div className="art-head">
+          <span className="art-lens" title={profile?.label ?? 'lens'}>
+            <Icon name={lensIcon(entry.profileKey)} />
+          </span>
+          <h2 className="art-title" title={heading}>
+            {heading}
+          </h2>
+        </div>
+      }
       state={<span className={`badge ${entry.status === 'failed' ? 'failed' : 'ok'}`}>{entry.status}</span>}
       action={
         <button className="btn sm" onClick={() => onRerun(entry.topic, entry.profileKey)}>
           Run again
         </button>
       }
-      facts={
-        <>
-          <Fact
-            k="Filed as"
-            v={<span className="mono-meta">{filedTitle ?? targetTitle(entry.topic, profile)}</span>}
-          />
-          <Fact k="When" v={timeAgo(entry.finishedAt)} />
-          <Fact k="Took" v={duration(entry.startedAt, entry.finishedAt)} />
-          <Fact
-            k="Cost"
-            v={entry.costUsd !== null ? <Cost value={entry.costUsd} authMode={authMode} /> : 'not kept'}
-          />
-          <Fact k="Pages written" v={entry.pages.length} />
-        </>
-      }
       chipsKey="Wrote"
-      chips={
-        entry.pages.length > 0 ? (
-          entry.pages.map((p) => <PageLink key={p} vaultName={vaultName} path={p} />)
-        ) : (
-          <span className="empty">This run wrote no page of its own.</span>
-        )
-      }
+      chips={null}
+      band={<WroteBand paths={entry.pages} vaultName={vaultName} empty="This run wrote no page of its own." />}
       provenance={
         entry.source === 'state'
           ? 'From the restart-proof settle record - the run wrote no page.'
@@ -1069,7 +1395,23 @@ function RunDetailBody({
             ? 'From the run record the service still holds in memory.'
             : 'From the run log - recorded when the run settled, and kept across restarts.'
       }
-      footAction={articlePath !== null ? <PageLink vaultName={vaultName} path={articlePath} /> : null}
+      footAction={
+        articlePath !== null ? (
+          <>
+            {/* Both land on the page. The graph is asked to drop every filter first, so the
+                page is seen among everything rather than inside the last visit's narrowing;
+                the reader opens the page itself, the way a catalog row does. */}
+            <button className="btn sm" onClick={() => navigate(`/graph?focus=${encodeURIComponent(articlePath)}&all=1`)}>
+              <Icon name="graph" />
+              View in graph
+            </button>
+            <button className="btn sm" onClick={() => navigate(pageRoute(articlePath))}>
+              <Icon name="file" />
+              Open page
+            </button>
+          </>
+        ) : null
+      }
     >
       {entry.error !== null && <div className="toast err">{entry.error}</div>}
       {articlePath === null ? (
@@ -1377,13 +1719,16 @@ function SessionLedgerRow({
           >
             <Icon name="edit" />
           </button>
+        </span>
+        {/* The same trash as Home's stream: always there, armed by the first click. */}
+        <span className="rowacts always">
           <button
-            className={`session-act${confirming ? ' danger' : ''}`}
+            className={`btn ghost sm trash${confirming ? ' danger' : ''}`}
             onClick={() => void del()}
-            title={confirming ? 'Really delete?' : 'Delete'}
+            title={confirming ? 'Click again to delete the conversation' : `Delete this conversation: ${session.title ?? 'untitled'}`}
             aria-label={confirming ? 'Confirm delete' : 'Delete conversation'}
           >
-            {confirming ? 'Really?' : <Icon name="x" />}
+            {confirming ? 'Sure?' : <Icon name="trash" />}
           </button>
         </span>
       </td>

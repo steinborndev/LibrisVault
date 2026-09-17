@@ -32,6 +32,7 @@ const job = (over: Partial<Job> = {}): Job => ({
  * from the runner's in-memory registry, which is empty after every restart.
  */
 const run = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
+  commitHash: null,
   id: 'r1',
   kind: 'research',
   label: 'Batteries',

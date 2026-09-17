@@ -54,6 +54,18 @@ describe('deriveResearchProgress', () => {
     expect(p.turns).toBe(3)
   })
 
+  it('hands the written pages over by path, in first-seen order, counted from the same calls', () => {
+    const p = deriveResearchProgress([
+      line('[assistant] → Write({"file_path":"wiki/concepts/A.md"})'),
+      line('[assistant] → Write({"file_path":"wiki/sources/S.md"})'),
+      line('[assistant] → Edit({"file_path":"wiki/concepts/A.md"})'),
+      line('[assistant] → Write({"file_path":"wiki/index.md"})'),
+    ])
+    // The list's Wrote cell groups these by kind; a count alone could not say "1 concept · 1 source".
+    expect(p.pagePaths).toEqual(['wiki/concepts/A.md', 'wiki/sources/S.md'])
+    expect(p.pages).toBe(p.pagePaths.length)
+  })
+
   it('a wiki Write enters the file step; bookkeeping pages are not research output', () => {
     const p = deriveResearchProgress([
       call('Write', { file_path: 'wiki/concepts/Dry Electrode Coating.md' }),

@@ -19,6 +19,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { doisIn, normalizeDoi } from './identifiers.js'
 
 /** An original the vault already holds, by content hash. */
 export interface KnownSource {
@@ -38,22 +39,13 @@ export interface DoiMatch {
   readonly pageMtimeMs: number
 }
 
-/**
- * A DOI as it appears in running text or a URL. The prefix is fixed by the standard
- * (`10.` + a 4-9 digit registrant); the suffix is anything up to whitespace or a delimiter
- * that cannot be part of one in practice.
+/*
+ * The DOI pattern and its normalization live in `identifiers.ts` now (docs/sources/SPEC.md
+ * section 2.2): the dedupe index, the URL lane, the open-access resolver and the reading list
+ * all read DOIs, and a disagreement between any two of them shows up as a document ingested
+ * twice. Re-exported so this module's own callers keep importing it from here.
  */
-const DOI_RE = /\b10\.\d{4,9}\/[^\s"'<>()[\]{}]+/g
-
-/** Lowercases (DOIs are case-insensitive) and drops the punctuation a sentence appends. */
-export function normalizeDoi(raw: string): string {
-  return raw.replace(/[.,;:]+$/, '').toLowerCase()
-}
-
-/** Every DOI in `text`, normalized, in order of appearance. */
-function doisIn(text: string): string[] {
-  return (text.match(DOI_RE) ?? []).map(normalizeDoi)
-}
+export { normalizeDoi }
 
 /**
  * How much of a document the "own DOI" heuristic looks at, in whitespace-collapsed
@@ -88,6 +80,52 @@ export function extractDoi(text: string): string | undefined {
   return best
 }
 
+/**
+ * An arXiv identifier, as an id and inside an abs/pdf link: `2506.20907`, `arXiv:2506.20907v2`,
+ * `https://arxiv.org/abs/2506.20907`, and the old scheme (`astro-ph/0601001`). Papers on the
+ * reading list are named this way far more often than by DOI, and a preprint's id is as stable
+ * an identity as a DOI is - which is what the list needs to tell "already in the vault" from
+ * "not fetched yet" whatever route the document took in.
+ */
+const ARXIV = /(?:arxiv\.org\/(?:abs|pdf)\/|arxiv[:\s]\s*)((?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?)/gi
+
+/** Every arXiv id in a string, normalized to `arxiv:<id>` without the version suffix. */
+export function arxivIn(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(ARXIV)) out.push(`arxiv:${m[1]!.toLowerCase().replace(/v\d+$/, '')}`)
+  return [...new Set(out)]
+}
+
+/**
+ * PubMed Central accessions (`PMC12214508`). The open-access mirror of a paper is often the
+ * only version a run can read, and it is what a Fellow then writes down - so it has to count
+ * as an identity like a DOI does, or the entry never matches the page it became.
+ */
+const PMC = /\bPMC\d{5,9}\b/gi
+
+export function pmcIn(text: string): string[] {
+  return [...new Set([...text.matchAll(PMC)].map((m) => `pmc:${m[0]!.toUpperCase()}`))]
+}
+
+/**
+ * One stable identity for a publication: its DOI where it has one, else its arXiv id. Both
+ * normalized, so `https://doi.org/10.1/x`, `doi:10.1/X` and `10.1/x` are one key, and so are
+ * an abs link, a pdf link and a bare id.
+ */
+/**
+ * The url as identity: the same document with a tracking parameter or a trailing slash is
+ * the same document. Lives here rather than in the reading list because the page index needs
+ * it too, and the reading list already imports its identity helpers from this module.
+ */
+export const urlKey = (url: string): string => url.trim().replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase()
+
+export function refKey(text: string | null | undefined): string | undefined {
+  if (text === null || text === undefined || text.trim() === '') return undefined
+  const doi = doisIn(text)[0]
+  if (doi !== undefined) return `doi:${doi}`
+  return arxivIn(text)[0] ?? pmcIn(text)[0]
+}
+
 /** The frontmatter block of a markdown page, or null when the page has none. */
 function frontmatterOf(markdown: string): string | null {
   if (!markdown.startsWith('---')) return null
@@ -108,6 +146,47 @@ export function pageDois(markdown: string): string[] {
     const m = /^(url|doi|source_url)\s*:\s*(.*)$/i.exec(line)
     if (m === null) continue
     out.push(...doisIn(m[2]!))
+  }
+  return [...new Set(out)]
+}
+
+/**
+ * What a source page identifies ITSELF by: the DOIs and arXiv ids in its `url`, `doi` and
+ * `source_url` frontmatter keys. Same rule as {@link pageDois} - the body is not scanned,
+ * because a review cites dozens of other papers' identifiers.
+ */
+export function pageRefs(markdown: string): string[] {
+  const fm = frontmatterOf(markdown)
+  if (fm === null) return []
+  const out: string[] = []
+  for (const line of fm.split('\n')) {
+    const m = /^(url|doi|source_url|arxiv)\s*:\s*(.*)$/i.exec(line)
+    if (m === null) continue
+    for (const d of doisIn(m[2]!)) out.push(`doi:${d}`)
+    out.push(...arxivIn(m[2]!), ...pmcIn(m[2]!))
+  }
+  return [...new Set(out)]
+}
+
+/**
+ * The urls a source page declares about ITSELF: its `url` and `source_url` frontmatter,
+ * normalized. Same rule as {@link pageDois} - the body is not scanned, because a review's
+ * body links dozens of other papers.
+ *
+ * This is the identity of last resort. A publication with a DOI is matched by that, whatever
+ * route it took into the vault; one without a DOI - and a great many articles have none in
+ * their url - can only be recognised by where it came from.
+ */
+export function pageUrls(markdown: string): string[] {
+  const fm = frontmatterOf(markdown)
+  if (fm === null) return []
+  const out: string[] = []
+  for (const line of fm.split('\n')) {
+    const m = /^(url|source_url)\s*:\s*(.*)$/i.exec(line)
+    if (m === null) continue
+    // Frontmatter values are often quoted; the quotes are not part of the url.
+    const raw = m[2]!.trim().replace(/^["']|["']$/g, '')
+    if (/^https?:\/\//i.test(raw)) out.push(urlKey(raw))
   }
   return [...new Set(out)]
 }
@@ -137,6 +216,10 @@ interface RawEntry {
 interface PageEntry {
   readonly stamp: string
   readonly dois: readonly string[]
+  /** DOIs and arXiv ids together: the identity the reading list matches on. */
+  readonly refs: readonly string[]
+  /** Normalized `url`/`source_url` frontmatter: the fallback identity, for pages with no DOI. */
+  readonly urls: readonly string[]
   readonly mtimeMs: number
 }
 
@@ -165,6 +248,38 @@ export class DedupeIndex {
   }
 
   /** The source page (and the job behind it) that declares this DOI, if any. */
+  /**
+   * The source page that already stands for this publication, by DOI or arXiv id - whatever
+   * route the document took into the vault. The reading list asks this: an entry whose paper
+   * arrived as a dropped PDF has no url in the job log to match on, but it has an identity.
+   */
+  byRef(ref: string): { readonly ref: string; readonly page: string } | undefined {
+    const wanted = refKey(ref)
+    if (wanted === undefined) return undefined
+    this.refreshPages()
+    for (const [page, entry] of this.pages) {
+      if (entry.refs.includes(wanted)) return { ref: wanted, page }
+    }
+    return undefined
+  }
+
+  /**
+   * The source page that came from this url, if any. The weaker sibling of {@link byRef} and
+   * deliberately second in line: an identifier says two documents ARE the same publication,
+   * a url only says one page recorded that address. It is what catches the case a DOI cannot
+   * - a paper whose url carries no identifier, dropped in as a PDF by hand, where the only
+   * thing the entry and the page have in common is where the document came from.
+   */
+  byUrl(url: string): { readonly url: string; readonly page: string } | undefined {
+    const wanted = urlKey(url)
+    if (wanted === '') return undefined
+    this.refreshPages()
+    for (const [page, entry] of this.pages) {
+      if (entry.urls.includes(wanted)) return { url: wanted, page }
+    }
+    return undefined
+  }
+
   byDoi(doi: string): DoiMatch | undefined {
     const wanted = normalizeDoi(doi)
     this.refreshPages()
@@ -173,6 +288,31 @@ export class DedupeIndex {
       return { doi: wanted, page, jobId: this.jobForPage(page), pageMtimeMs: entry.mtimeMs }
     }
     return undefined
+  }
+
+  /**
+   * Whether the vault's own delta tracker credits any wiki page to this job (2026-09-16).
+   *
+   * `.raw/<job-id>/manifest.json` is written by PREPROCESSING, before an agent has read a
+   * word, so its mere existence says a file was staged here - not that anything came of it.
+   * `.raw/.manifest.json` is the other half: the ingest skill records what each raw file
+   * produced. A job dir the tracker credits with pages is an ingest that happened; one it
+   * credits with nothing is a file the vault took in and never wrote up.
+   *
+   * Measured over this vault's 120 hash-bearing job dirs: 114 are credited, and the handful
+   * that are not are either genuinely unfinished or old enough that no tracker entry was
+   * kept. So this is evidence FOR an ingest, never against one - the caller asks the job
+   * history first and only falls back here.
+   */
+  producedPages(jobId: string): boolean {
+    const manifest = readJson<RawManifest>(path.join(this.vaultRoot, '.raw', '.manifest.json'))
+    if (manifest?.sources === undefined) return false
+    const prefix = `.raw/${jobId}/`
+    for (const [rawPath, entry] of Object.entries(manifest.sources)) {
+      if (!rawPath.startsWith(prefix)) continue
+      if (Array.isArray(entry.pages_created) && entry.pages_created.length > 0) return true
+    }
+    return false
   }
 
   /**
@@ -252,6 +392,8 @@ export class DedupeIndex {
       const stamp = `${st.mtimeMs}:${st.size}`
       if (this.pages.get(rel)?.stamp === stamp) continue
       let dois: string[]
+      let refs: string[]
+      let urls: string[]
       try {
         // Frontmatter sits at the top; 8 KB covers any page's header without reading a
         // long article for a field that is never past its first lines.
@@ -259,14 +401,19 @@ export class DedupeIndex {
         try {
           const buf = Buffer.alloc(8192)
           const n = fs.readSync(fd, buf, 0, buf.length, 0)
-          dois = pageDois(buf.subarray(0, n).toString('utf8'))
+          const head = buf.subarray(0, n).toString('utf8')
+          dois = pageDois(head)
+          refs = pageRefs(head)
+          urls = pageUrls(head)
         } finally {
           fs.closeSync(fd)
         }
       } catch {
         dois = []
+        refs = []
+        urls = []
       }
-      this.pages.set(rel, { stamp, dois, mtimeMs: st.mtimeMs })
+      this.pages.set(rel, { stamp, dois, refs, urls, mtimeMs: st.mtimeMs })
     }
   }
 }

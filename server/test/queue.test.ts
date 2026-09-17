@@ -7,6 +7,7 @@ import { JobStore } from '../src/db/jobs.js'
 import { IngestQueue, classifyFailure, guessType, sanitizeOriginalName, type IngestRunner } from '../src/pipeline/queue.js'
 import type { AgentRunResult } from '../src/pipeline/agent-runner.js'
 import type { Validator } from '../src/pipeline/validator.js'
+import { ReadingListService, parseReadingList, READING_LIST_PAGE } from '../src/pipeline/reading-list.js'
 import { PreprocessError, type PreprocessResult, type ToolAvailability } from '../src/pipeline/preprocess/index.js'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
@@ -82,6 +83,7 @@ interface QueueOverrides {
   maxRetries?: number
   budgetExceeded?: () => boolean
   validate?: Validator
+  reading?: ReadingListService
 }
 
 function makeQueue(over: QueueOverrides = {}): IngestQueue {
@@ -102,6 +104,7 @@ function makeQueue(over: QueueOverrides = {}): IngestQueue {
     runIngest: over.runIngest ?? (async () => okResult()),
     ...(over.budgetExceeded ? { budgetExceeded: over.budgetExceeded } : {}),
     ...(over.validate ? { validate: over.validate } : {}),
+    ...(over.reading ? { reading: over.reading } : {}),
   })
 }
 
@@ -144,6 +147,114 @@ describe('system-prompt extension', () => {
     await q.onIdle()
     expect(extra).toContain('<page_hygiene>')
     expect(extra).toContain('<entity_notability>')
+    // A link split by a paragraph wrap stops resolving and reads as a dead link everywhere.
+    expect(extra).toContain('NEVER break a wikilink across a line')
+    // The reading list is NOT in it: a queue without a list is a base product without the
+    // Fellows extension, and it must not be told to write a page only the extension has.
+    expect(extra).not.toContain('<reading_list>')
+    expect(extra).not.toContain('reading-list.md')
+  })
+
+  /*
+   * The other half of the same rule (TASKS-A6 D1). With a list wired - which `main.ts` does
+   * only behind `AGENTS_ENABLED` - the run gets the entry shape, the actor to sign with, and
+   * the append-only rule that protects a request from the run that fulfils it: one ingest
+   * deleted the entry asking for the very document it was filing, which is how a request and
+   * the Fellow behind it disappear (docs/agents/SPEC.md 10.6).
+   */
+  it('carries the reading list only when one is wired, and signs it as the ingest', async () => {
+    let extra = ''
+    const q = makeQueue({
+      reading: new ReadingListService(vaultRoot, store),
+      runIngest: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        return okResult()
+      },
+    })
+    q.start()
+    await q.enqueueFile({ sourcePath: writeSource('note.md'), source: 'drop' })
+    await q.onIdle()
+    expect(extra).toContain('<reading_list>')
+    // Signed as the ingest: without the name the run copied the one it saw on the entries
+    // already there, a retired Fellow's.
+    expect(extra).toContain('by: ingest')
+    expect(extra).toMatch(/at: \d{4}-\d{2}-\d{2}/)
+    expect(extra).toContain('append-only')
+    expect(extra).toContain('NEVER remove or rewrite an entry')
+  })
+
+  /*
+   * The ingest prompt is `ingest <path>` and nothing else, so a url job's address used to stop
+   * at the queue: the run filed the document without ever being told where it came from, and
+   * the source page came out with an empty `sources:`. That page is the reading list's most
+   * reliable route to "this document is already here", so the address has to reach the run.
+   */
+  it('tells a url run the address the service knows', async () => {
+    let extra = ''
+    const q = new IngestQueue({
+      store,
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      detectToolsFn: async () => NO_TOOLS,
+      commit: async () => ({ committed: true, hash: 'h', committedPages: ['wiki/x.md'] }),
+      refreshHotCache: async () => 'noop',
+      runIngest: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        return okResult()
+      },
+      preprocessUrlFn: async (input) => {
+        fs.mkdirSync(input.jobDir, { recursive: true })
+        return {
+          type: 'web',
+          deferred: false,
+          manifestPath: path.join(input.jobDir, 'manifest.json'),
+          primaryArtifact: `.raw/${input.jobId}/normalized.md`,
+          manifest: {} as never,
+        }
+      },
+    })
+    q.start()
+    q.enqueueUrl({ url: 'https://example.org/report.pdf', source: 'drop' })
+    await q.onIdle()
+    expect(extra).toContain('<provenance>')
+    expect(extra).toContain('https://example.org/report.pdf')
+  })
+
+  it('signs the reading list entries the run added as the ingest, in the ingest commit', async () => {
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'meta'), { recursive: true })
+    const page = path.join(vaultRoot, READING_LIST_PAGE)
+    fs.writeFileSync(page, '# Reading list\n\n## Entries\n\n- title: An earlier find\n  url: https://a.invalid/1\n  by: Ada\n  at: 2026-09-01\n')
+    const q = makeQueue({
+      reading: new ReadingListService(vaultRoot, store),
+      runIngest: async () => {
+        // The agent copies the name it sees on the page.
+        fs.appendFileSync(page, '\n- title: A paper the ingest found\n  url: https://a.invalid/2\n  why: Primary source.\n  by: Ada\n  at: 2026-09-10\n')
+        return okResult()
+      },
+    })
+    q.start()
+    await q.enqueueFile({ sourcePath: writeSource('note.md'), source: 'drop' })
+    await q.onIdle()
+    expect(parseReadingList(fs.readFileSync(page, 'utf8')).map((e) => e.by)).toEqual(['Ada', 'ingest'])
+    // Staged into the ingest's own commit, and said in the job log.
+    expect(commitPathspecs.at(-1)).toContain(READING_LIST_PAGE)
+    const job = store.list({ limit: 1 })[0]!
+    expect(store.logs(job.id).map((l) => l.message)).toContainEqual(expect.stringContaining('reading list: 1 new entry signed "ingest" (the run had written: Ada)'))
+  })
+
+  it('tells a dropped file that the service has no address for it', async () => {
+    let extra = ''
+    const q = makeQueue({
+      runIngest: async (opts) => {
+        extra = opts.systemPromptExtra ?? ''
+        return okResult()
+      },
+    })
+    q.start()
+    await q.enqueueFile({ sourcePath: writeSource('note.md'), source: 'drop' })
+    await q.onIdle()
+    // Said out loud rather than left silent: silence is what a run fills with a guess.
+    expect(extra).toContain('handed over as a file; the service has no address for it')
   })
 })
 
@@ -613,5 +724,80 @@ describe('concurrency', () => {
     await q.onIdle()
     expect(peak).toBe(2)
     expect(store.listByStatus('done')).toHaveLength(5)
+  })
+})
+
+describe('jobs held for the night shift', () => {
+  it('holds a job until it is released, then runs it; the queue is idle meanwhile', async () => {
+    let runs = 0
+    const q = makeQueue({
+      runIngest: async () => {
+        runs++
+        return okResult()
+      },
+    })
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource('tonight.md'), source: 'drop', hold: 'night' })
+    expect(job).toMatchObject({ status: 'queued', hold: 'night' })
+    // Resolves with a job still queued: a held job does not keep the queue awake, or the
+    // shift's wait for an empty queue (and every test's) would never end.
+    await q.onIdle()
+    expect(runs).toBe(0)
+    expect(store.getOrThrow(job.id).status).toBe('queued')
+
+    expect(q.releaseHeld('night')).toEqual([job.id])
+    // Released, the job keeps its place in tonight's queue (v26) until it is through.
+    expect(store.getOrThrow(job.id).night_released_at).toEqual(expect.any(String))
+    await q.onIdle()
+    expect(runs).toBe(1)
+    // Through: done AND committed (the commit step ran), so the place is cleared.
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'done', hold: null, night_released_at: null, commit_hash: 'abcd1234ef' })
+    expect(q.releaseHeld('night')).toEqual([])
+  })
+
+  it('keeps a released job in tonight\'s queue while a retry is pending, and drops it once it gives up', async () => {
+    let attempts = 0
+    const q = makeQueue({
+      maxRetries: 1,
+      runIngest: async () => {
+        attempts++
+        return failResult('fetch failed ECONNRESET')
+      },
+    })
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource('tonight.md'), source: 'drop', hold: 'night' })
+    q.releaseHeld('night')
+    await q.onIdle()
+    // Two attempts (the retry is immediate: the job is queued again), then it gave up.
+    expect(attempts).toBe(2)
+    expect(store.getOrThrow(job.id)).toMatchObject({ status: 'failed', night_released_at: null })
+  })
+
+  it('holds a batch as a unit and runs it as one combined ingest once released', async () => {
+    let runs = 0
+    const q = makeQueue({
+      runIngest: async () => {
+        runs++
+        return okResult()
+      },
+    })
+    q.start()
+    const { jobs } = await q.enqueueBatch(
+      [
+        { kind: 'file', sourcePath: writeSource('h1.md'), originalName: 'h1.md' },
+        { kind: 'file', sourcePath: writeSource('h2.md', 'a different note'), originalName: 'h2.md' },
+      ],
+      'drop',
+      { hold: 'night' },
+    )
+    await q.onIdle()
+    expect(runs).toBe(0)
+    for (const r of jobs) expect(store.getOrThrow(r.job.id)).toMatchObject({ status: 'queued', hold: 'night' })
+
+    expect(q.releaseHeld('night').sort()).toEqual(jobs.map((r) => r.job.id).sort())
+    await q.onIdle()
+    // One run for the batch, not one per member.
+    expect(runs).toBe(1)
+    for (const r of jobs) expect(store.getOrThrow(r.job.id).status).toBe('done')
   })
 })

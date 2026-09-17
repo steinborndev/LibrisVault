@@ -53,11 +53,17 @@ beforeEach(() => {
   srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'src-'))
   // A real vault-like git repo.
   git(vaultRoot, 'init', '-q')
+  // Repo-local identity, the way every other git-using test here sets it. Not decoration: the
+  // commands below that WRITE a commit (the seed, and the revert in step 8) fall back to the
+  // global git config, and a CI runner has none. A laptop cannot catch this.
+  git(vaultRoot, 'config', 'user.email', 't@t')
+  git(vaultRoot, 'config', 'user.name', 't')
+  git(vaultRoot, 'config', 'commit.gpgsign', 'false')
   fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
   fs.mkdirSync(path.join(vaultRoot, '.raw'), { recursive: true })
   fs.writeFileSync(path.join(vaultRoot, 'wiki', 'index.md'), '# Index\n')
   git(vaultRoot, 'add', '-A')
-  git(vaultRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
+  git(vaultRoot, 'commit', '-q', '-m', 'init')
 })
 afterEach(() => {
   fs.rmSync(vaultRoot, { recursive: true, force: true })
@@ -281,5 +287,60 @@ describe('reconcile: pages no run could stage, under real concurrency', () => {
     }
     expect(git(vaultRoot, 'status', '--porcelain').trim()).toBe('')
     expect(() => git(vaultRoot, 'fsck', '--full')).not.toThrow()
+  })
+})
+
+describe('quote integrity after a run (docs/sources/SPEC.md section 7)', () => {
+  it('finds the invented quote, keeps the held one, and puts both numbers on the job', async () => {
+    const source = ['# A paper', '', 'The trial enrolled 412 adults.', 'The measurement held across every site.'].join('\n')
+    /*
+     * A run that quotes once faithfully and once from thin air - which is what the check is for,
+     * and what the calibration over the live vault found the runs do (section 7.6).
+     */
+    const runIngest: IngestRunner = async (opts) => {
+      const page = path.join(vaultRoot, 'wiki', 'sources', 'A Paper.md')
+      fs.mkdirSync(path.dirname(page), { recursive: true })
+      fs.writeFileSync(
+        page,
+        '# A Paper\n\nThe authors write that "the measurement held across every site", and add that\n"every site reported the same funding source".\n',
+      )
+      opts.onMessage({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: page } }] },
+      } as never)
+      return {
+        ok: true,
+        result: 'wrote A Paper',
+        usage: { tokensIn: 100, tokensOut: 10, costUsd: 0.01 },
+        durationMs: 5,
+        numTurns: 2,
+        sessionId: 's1',
+        timedOut: false,
+      }
+    }
+    const queue = new IngestQueue({
+      store,
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      concurrency: 1,
+      detectToolsFn: async () => NO_TOOLS,
+      refreshHotCache: async () => 'noop',
+      runIngest,
+    })
+    queue.start()
+    const src = path.join(srcDir, 'paper.md')
+    fs.writeFileSync(src, source)
+    const { job } = await queue.enqueueFile({ sourcePath: src, source: 'drop' })
+    await queue.onIdle()
+
+    expect(store.getOrThrow(job.id).status).toBe('done')
+    // The summary the record shows, on the job row (schema v27).
+    expect(JSON.parse(store.getOrThrow(job.id).validation ?? 'null')).toEqual({ quotes: { checked: 2, unverified: 1 } })
+    const log = store.logs(job.id).map((l) => `${l.level} ${l.message}`)
+    expect(log).toContain('warn quotes: 2 checked, 1 not found in the source')
+    expect(log.some((l) => l.includes('validation [quote] wiki/sources/A Paper.md') && l.includes('every site reported the same funding source'))).toBe(true)
+    // Advisory only: the page is in the vault exactly as the run wrote it.
+    expect(fs.readFileSync(path.join(vaultRoot, 'wiki', 'sources', 'A Paper.md'), 'utf8')).toMatch(/same funding source/)
+    expect(git(vaultRoot, 'status', '--porcelain').trim()).toBe('')
   })
 })

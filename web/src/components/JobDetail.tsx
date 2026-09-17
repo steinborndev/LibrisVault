@@ -14,7 +14,7 @@
  * Escape leaves, the way it did from the drawer.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { AuthMode, JobStatus } from '../api/types.ts'
@@ -27,8 +27,11 @@ import { Markdown } from './Markdown.tsx'
 import { JobLog } from './JobLog.tsx'
 import { StatusBadge } from './StatusBadge.tsx'
 import { mainArticle, readerPages } from '../lib/homeArticle.ts'
+import { parseQuoteSummary, quotesFact, quotesTitle } from '../lib/quotes.ts'
+import { wikilinkResolver } from '../lib/wikilink.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
 import { duration, timeAgo, tokens } from '../lib/format.ts'
+import { catalogPageRoute, navigate } from '../lib/router.ts'
 
 /** Exact wall-clock timestamp; relative time is the table's job. */
 const exact = (iso: string | null | undefined): string =>
@@ -42,11 +45,18 @@ export function JobDetail({
   vaultName,
   authMode,
   onBack,
+  bar = true,
+  tab: tabProp,
+  onTab,
 }: {
   event: ActivityEvent
   vaultName: string
   authMode: AuthMode
   onBack: () => void
+  /** Home mockup (2026-09-11): with `bar={false}` the screen's headline carries the path and the tab. */
+  bar?: boolean
+  tab?: 'article' | 'log'
+  onTab?: (t: 'article' | 'log') => void
 }): React.ReactElement {
   const qc = useQueryClient()
   const jobId = event.job?.id ?? null
@@ -60,8 +70,17 @@ export function JobDetail({
   const job = detail.data?.job
 
   const pages = readerPages(event.pages)
+  const quotes = parseQuoteSummary(job?.validation)
+  /*
+   * The page index, for the article's wikilinks. The same query the Home tab already holds, so
+   * this is a cache read rather than a fetch; without it the links would be text.
+   */
+  const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
+  const linkTo = useMemo(() => wikilinkResolver(graph.data?.nodes ?? []), [graph.data])
   const articlePath = mainArticle(event.pages)
-  const [tab, setTab] = useState<'article' | 'log'>(articlePath === null ? 'log' : 'article')
+  const [tabState, setTabState] = useState<'article' | 'log'>(articlePath === null ? 'log' : 'article')
+  const tab = tabProp ?? tabState
+  const setTab = onTab ?? setTabState
 
   const article = useQuery({
     queryKey: ['page-full', articlePath],
@@ -128,6 +147,7 @@ export function JobDetail({
 
   return (
     <>
+      {bar && (
       <div className={`detail-bar ${event.kind === 'research' ? 'research' : 'ingest'}`}>
         <button className="backlink" onClick={onBack}>
           <Icon name="back" />
@@ -163,6 +183,7 @@ export function JobDetail({
           </button>
         )}
       </div>
+      )}
 
       <Facts size="lead">
         <Fact k="Source" v={job !== undefined ? `${job.source} · ${job.type}` : event.channel} />
@@ -178,6 +199,11 @@ export function JobDetail({
           }
         />
         <Fact k="Pages written" v={pages.length > 0 ? `+${pages.length}` : '-'} />
+        {/* What a run's quotations are worth: checked against the text it read (7.5). */}
+        <Fact k="Quotes" v={<span title={quotesTitle(quotes)}>{quotesFact(quotes)}</span>} />
+        {/* The vault commit this record produced, where the other facts are (2026-09-11);
+            the foot used to carry it, and says only when the record finished now. */}
+        <Fact k="Commit" v={<span className="mono-meta">{event.commit !== null ? event.commit.slice(0, 10) : '-'}</span>} />
       </Facts>
 
       <div className="chipband">
@@ -191,7 +217,9 @@ export function JobDetail({
         </div>
       </div>
 
-      <div className="detail-content">
+      {/* The log fills what is left of the pane instead of a 320px box over empty space, so
+          there is less to scroll; the article keeps its own flow. */}
+      <div className={`detail-content${tab === 'log' || articlePath === null ? ' logview' : ''}`}>
         {/* One line, one tone: a failure is red, a duplicate's or no-change run's explanation is not. */}
         {note !== undefined && <div className={`toast ${noteTone}`}>{note}</div>}
         {revertNote !== null && <div className="toast ok">{revertNote}</div>}
@@ -208,33 +236,33 @@ export function JobDetail({
         ) : article.isError ? (
           <div className="empty">That page could not be read: {(article.error as Error).message}</div>
         ) : (
-          <Markdown source={body} />
+          /* The page this record wrote, read here the way the Catalog reads it: a wikilink is
+             a link (lib/wikilink.tsx). It used to render as plain emphasis, so the same page
+             had links in one view and none in the other. */
+          <Markdown source={body} renderWikilink={linkTo} />
         )}
       </div>
 
       <div className="detail-foot">
         <span className="prov">
-          {event.commit !== null ? (
-            <>
-              Commit <span className="mono-meta">{event.commit.slice(0, 10)}</span> · finished {timeAgo(event.whenIso)}
-            </>
-          ) : (
-            <>Finished {timeAgo(event.whenIso)} · nothing was committed</>
-          )}
+          Finished {timeAgo(event.whenIso)}
+          {event.commit === null && ' · nothing was committed'}
         </span>
         <span className="spacer" />
-        {articlePath !== null && <PageLink vaultName={vaultName} path={articlePath} />}
-        {canDelete && (
-          <button
-            className={`btn sm ghost${armedDelete ? ' danger' : ''}`}
-            disabled={del.isPending}
-            onClick={() => (armedDelete ? del.mutate() : setArmedDelete(true))}
-            title="Removes this entry from the history. The vault, its pages and its commit stay as they are."
-          >
-            {del.isPending ? 'Removing…' : armedDelete ? 'Really remove?' : 'Remove from history'}
-          </button>
+        {/* Two doors to the page it wrote: the graph with the node selected, or the Catalog
+            reading it. One pill that opened the viewer used to stand here. */}
+        {articlePath !== null && (
+          <>
+            <button className="btn sm" onClick={() => navigate(`/graph?select=${encodeURIComponent(articlePath)}`)} title={`Open the graph with this page selected: ${articlePath}`}>
+              <Icon name="graph" /> Graph view
+            </button>
+            <button className="btn sm" onClick={() => navigate(catalogPageRoute(articlePath))} title={`Read this page in the Catalog: ${articlePath}`}>
+              <Icon name="book" /> Catalog view
+            </button>
+          </>
         )}
-        {del.error != null && <span className="dim">Removing failed: {(del.error as Error).message}</span>}
+        {/* The revert first, the removal last: the one that touches the vault before the one
+            that only forgets a row. Both in the foot's one button shape. */}
         {canRevert && (
           <button
             className={`btn sm${armedRevert ? ' danger' : ''}`}
@@ -249,6 +277,17 @@ export function JobDetail({
                 : 'Revert ingest'}
           </button>
         )}
+        {canDelete && (
+          <button
+            className={`btn sm${armedDelete ? ' danger' : ''}`}
+            disabled={del.isPending}
+            onClick={() => (armedDelete ? del.mutate() : setArmedDelete(true))}
+            title="Removes this entry from the history. The vault, its pages and its commit stay as they are."
+          >
+            {del.isPending ? 'Removing…' : armedDelete ? 'Really remove?' : 'Remove from history'}
+          </button>
+        )}
+        {del.error != null && <span className="dim">Removing failed: {(del.error as Error).message}</span>}
       </div>
     </>
   )

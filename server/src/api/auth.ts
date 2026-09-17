@@ -53,6 +53,9 @@ function originAllowed(req: FastifyRequest): boolean {
  * sides first gives equal-length buffers for `timingSafeEqual` without leaking length.
  */
 function tokenMatches(provided: string, expected: string): boolean {
+  // Belt to the config guard's braces: an empty expected token matches an empty bearer, so
+  // it can never be the thing that lets a request through.
+  if (expected === '') return false
   const a = crypto.createHash('sha256').update(provided).digest()
   const b = crypto.createHash('sha256').update(expected).digest()
   return crypto.timingSafeEqual(a, b)

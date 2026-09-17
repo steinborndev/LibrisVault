@@ -18,6 +18,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { pageUrls, urlKey } from './dedupe.js'
 
 /** Where one wiki page came from. */
 export interface SourceRef {
@@ -49,7 +50,7 @@ interface JobManifest {
 
 /** The ingest skill's delta tracker at `.raw/.manifest.json`. */
 interface RawManifest {
-  sources?: Record<string, { ingested_at?: string; pages_created?: string[] }>
+  sources?: Record<string, { ingested_at?: string; pages_created?: string[]; pages_updated?: string[] }>
 }
 
 /** Type guess for pre-manifest ingests, from the extension alone. */
@@ -113,13 +114,31 @@ export function buildSourceIndex(vaultRoot: string): SourceIndex {
   const cache = new Map<string, SourceRef | null>()
 
   for (const [rawPath, entry] of entries) {
-    const created = entry.pages_created
-    if (!Array.isArray(created) || created.length === 0) continue
+    const created = Array.isArray(entry.pages_created) ? entry.pages_created : []
+    const updated = Array.isArray(entry.pages_updated) ? entry.pages_updated : []
+    if (created.length === 0 && updated.length === 0) continue
 
     const ref = resolveRef(vaultRoot, rawRoot, rawPath, cache)
     if (ref === null) continue
 
-    for (const page of created) {
+    /*
+     * A page the ingest UPDATED counts only when it is the document's own page, and the page
+     * says so itself: its `url` frontmatter is the address this ingest fetched (2026-09-15).
+     *
+     * Creation alone was too strict in one order of events. A Fellow reads a publication on
+     * the web and writes a source page for it; the ingest of the paper comes later and can
+     * only update that page, so the document and the page it is about never found each other -
+     * the Catalog kept offering the web address and the reading-list entry stayed unanswered
+     * with the paper sitting in `.raw/` beside it.
+     *
+     * It is not a loosening to every updated page. An ingest touches `hot.md`, `log.md` and
+     * whatever hub pages it passes, and attaching the document to those is exactly what the
+     * created-only rule was written to prevent. What separates them is not a heuristic: it is
+     * the same identity the dedupe index matches on, and only one of those pages carries it.
+     */
+    const claims = ref.url === null ? [] : updated.filter((page) => typeof page === 'string' && pageIsAbout(vaultRoot, page, ref.url!))
+
+    for (const page of [...created, ...claims]) {
       if (typeof page !== 'string' || page in pages) continue
       const abs = path.resolve(vaultRoot, page)
       const rel = relWithin(vaultRoot, abs)
@@ -131,6 +150,25 @@ export function buildSourceIndex(vaultRoot: string): SourceIndex {
     }
   }
   return { pages, builtAt }
+}
+
+/**
+ * Whether a page records THIS address as its own, which is what makes it the document's page
+ * rather than one the ingest touched on the way past.
+ *
+ * Normalised by the same `urlKey` the dedupe index uses, so a trailing slash or a tracking
+ * parameter on one side does not separate a page from its own document.
+ */
+function pageIsAbout(vaultRoot: string, page: string, url: string): boolean {
+  const abs = path.resolve(vaultRoot, page)
+  if (relWithin(vaultRoot, abs) === null) return false
+  let markdown: string
+  try {
+    markdown = fs.readFileSync(abs, 'utf8')
+  } catch {
+    return false
+  }
+  return pageUrls(markdown).includes(urlKey(url))
 }
 
 /**

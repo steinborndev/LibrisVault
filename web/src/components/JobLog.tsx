@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useJobLog } from '../hooks/useJobLog.ts'
+import { linkifyText } from '../lib/linkify.tsx'
 
 export function JobLog({ jobId, seed = true }: { jobId: string; seed?: boolean }): React.ReactElement {
   const lines = useJobLog(jobId, { seed })
@@ -31,7 +32,9 @@ export function JobLog({ jobId, seed = true }: { jobId: string; seed?: boolean }
         lines.map((l, i) => (
           <div key={`${l.ts}-${i}`} className={`log-line ${l.level}`}>
             <span className="lt">{l.ts.slice(11, 19)}</span>
-            <span className="lm">{l.message}</span>
+            {/* A source the run names (a further-reading link, a cited address) is a link
+                here, not a string to copy out. */}
+            <span className="lm">{linkifyText(l.message, `${l.ts}-${i}`)}</span>
           </div>
         ))
       )}

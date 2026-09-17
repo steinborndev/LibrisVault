@@ -811,3 +811,63 @@ unchanged, only what the three places COUNT and call it:
       screen has to be visible as a filter, not just as a shorter table.
 - [x] Fixed while there: Home's gap cards navigated to `/research?topic=`, which nothing
       reads - the composer opened empty. Research reads `?prefill=`.
+
+## Phase 12: Home after the Library's rules (2026-09-11)
+
+Scope from a reviewed mockup, four rounds, every round rendered from the real app through a
+dev server against the dev instance (the mockup lived in a worktree; the patch is this pass).
+The complaint: Home showed the controls of three views at once, and its resting state - the
+daily recaps - sat beside a column that filtered a table nobody could see.
+
+- [x] **One headline, three zones** (`.lib-headline`, the Library's own): the view on the
+      left (Daily recaps | Activity), where you are in the middle, the one action on the right
+      (Build now; a record's Article | Log and Retry). The sides take `flex: 1 1 0` and the
+      middle holds two slots of fixed width, so switching the view or walking the days moves
+      the letters and nothing else - measured across six states: the date at the same x and
+      y, the fact strip at one height, the table edge at one y.
+- [x] **The column answers for what is visible.** Intake first; then the calendar week as
+      one list that filters BOTH views (a night for the recaps, a day for the stream; two
+      arrows and PageUp/PageDown step weeks; days the view in front has nothing on are no
+      stops); then the view's own: the Fellows, or the kind and the state, or the record list
+      while a record is open. When, Channel, the seven-state grid and the five spawn slots
+      are gone; the stream is windowed to a week or a day, and a `?filter=<state>` from
+      elsewhere jumps to the week of its newest match.
+- [x] **Keys, the room's grammar:** left/right switch the view, up/down walk the days (or
+      the records), PageUp/PageDown step the week, Escape steps back a level (a record, a
+      picked day, a filter), Enter opens a focused row. Never while the caret is in a field.
+- [x] **The band without heads:** the number is the header, the picture is the door to the
+      graph, the domain list stands alone. The duplicate page count and both panel feet are
+      gone; the week is a door in the growth line, the gaps are the door to the graph's gaps
+      view. `HomePanel.tsx` keeps only `DomainRanks`.
+- [x] **The gap picker moved to the graph** (`components/GapCleanup.tsx`, wired into the
+      gaps list of `Vault.tsx`): the same bounded cleanup run, the same two-step start, the
+      pick control on hover, focus or once picked.
+- [x] **The recap as a decision sheet:** a label rail on the left for the day (Reading list,
+      Skipped, Merged, Vault page) and for every Fellow (Tonight, Last night, Found, Open
+      questions, Note, Notebook), one item per line, a Fellow opening behind a rule and air
+      with its domain's colour, its index and its name. Home's feed has no sticky day bar;
+      the headline's date and the night's figures follow the scroll. Pause, model and step
+      left the feed for the dossier, which the Fellow's name opens.
+- [x] **`Fact` line heights are explicit** (`.fact .k`, `.fact .s`): a clickable fact is a
+      button with the UA line height, a plain one a div with the body's 1.5, so a strip of
+      doors stood 6px shorter than a strip of figures. The Night figure is one line; its cost
+      and shift moved under it.
+- [x] `RecapFeed` is controllable from outside (`control`, `compact`); the Library's recap
+      board keeps its rail and its day bars. `JobDetail` folds its bar into the caller's
+      headline (`bar={false}`, `tab`/`onTab`). `Dropzone` drops its channel legend on request.
+- [x] Dev: `web/vite.mock.config.ts` serves the SPA from source against the dev instance on
+      8421. Start it with the root's vite binary; `web/node_modules/.bin/vite` (7.3.6) fails
+      every transform against `@vitejs/plugin-react` 5.2.0.
+
+### Open
+
+- [ ] SPEC.md section 6's table still describes Home with the filter column and the second
+      panel's three views; a correction line the shape of 2026-08-27's is proposed.
+- [ ] The key handling in `Home.tsx` has no tests yet.
+- [x] The standalone Recap screen (`/recap/<date>`) has no door in the dashboard any more;
+      it stays for Telegram links. **Removed 2026-09-14.** The premise did not hold: the recap
+      service delivers its text to Telegram and links nothing back, so no link needed the page.
+      Its last door was "Open day" in the feed's day header, which opened a second reading of
+      the night already on screen, with a row of day chips that repeated the stepper the night
+      shift board now carries. `RecapBody`, `RecapFacts` and the sections stay in `tabs/Recap.tsx`;
+      only the screen around them and its route are gone, and `/recap/...` falls back to Home.

@@ -68,6 +68,19 @@ export const FINISHED_STATES: readonly JobStatus[] = [
  * `failed`/`deferred` route back to `queued` - that is how a retry (SPEC.md §3.1) and a
  * later manual re-trigger of a deferred job re-enter the pipeline.
  */
+/**
+ * The statuses in which a job still stands for its content, so that a second drop of the same
+ * bytes is a duplicate of it rather than a fresh attempt (2026-09-16). `done` is the vault
+ * holding it; the three working states are it being on its way there; `deferred` is a job set
+ * aside with its original staged, which a re-drop would only duplicate.
+ *
+ * What is NOT here is the point: `failed` and `cancelled` wrote nothing and will write nothing
+ * without a person, and `duplicate` never stood for anything. A row in one of those states owns
+ * no bytes, and the file can be dropped in again - which is what anyone does after a run that
+ * did not finish.
+ */
+export const SOLE_OWNERS: readonly JobStatus[] = ['done', 'queued', 'preprocessing', 'ingesting', 'deferred']
+
 export const ALLOWED_TRANSITIONS: Readonly<Record<JobStatus, readonly JobStatus[]>> = {
   queued: ['preprocessing', 'cancelled', 'failed'],
   preprocessing: ['ingesting', 'deferred', 'failed', 'cancelled', 'duplicate'],
@@ -112,9 +125,32 @@ export interface JobRow {
    * ingested. NULL for every ordinary run.
    */
   outcome: JobOutcome | null
+  /** Set while the job waits for its moment (v24); NULL for every ordinary job. */
+  hold: JobHold | null
+  /**
+   * Set when the night shift released the job (v26), cleared once the job is through: its
+   * commit made, or its run ended with nothing left to run tonight. Between the two the job
+   * is still part of tonight's ingest queue, whatever its status says - `done` comes before
+   * the commit, and the queue is drawn until the commit is made.
+   */
+  night_released_at: string | null
+  /**
+   * What the post-run validation could say about this job in numbers (v27), as JSON: today the
+   * quote counts (docs/sources/SPEC.md section 7.4), extensible to other rules. Operational
+   * state; the findings themselves are in the job log.
+   */
+  validation: string | null
 }
 
 export type JobOutcome = 'no-changes'
+
+/**
+ * Why a queued job is not being claimed (schema v24): `night` waits for the night shift,
+ * which releases every held job at its start, ahead of the Fellows. A column beside the
+ * status, not a status of its own - the lifecycle stays the eight states SPEC.md section 8
+ * names, and a held job is a queued job waiting for a particular moment.
+ */
+export type JobHold = 'night'
 
 export interface CreateJobInput {
   readonly source: JobSource
@@ -136,6 +172,8 @@ export interface CreateJobInput {
   readonly duplicateOf?: string
   /** The one line that explains the duplicate to a reader; stored on the row. */
   readonly duplicateNote?: string
+  /** Hold the job for its moment instead of running it now; see {@link JobHold}. */
+  readonly hold?: JobHold
 }
 
 export interface CreateJobResult {
@@ -174,12 +212,22 @@ export class JobStore {
   ) {}
 
   /**
-   * Creates a job. If `sha256` matches an existing job that still owns its hash, the new
-   * job is recorded as a `duplicate` (visible in history, SPEC.md §3.2) and skipped.
+   * Creates a job. If `sha256` matches an earlier job that still STANDS FOR this content, the
+   * new job is recorded as a `duplicate` (visible in history, SPEC.md §3.2) and skipped.
    *
-   * The duplicate row stores `sha256 = NULL`: the column is UNIQUE, so only the first
-   * job keeps the hash and later dupes point at it via a log line. This keeps dedupe a
-   * single indexed lookup while still leaving every attempt visible in the dashboard.
+   * "Still stands for it" is the whole rule, and it is narrower than "has the same hash"
+   * (2026-09-16). An earlier row blocks when its content either already reached the vault
+   * (`done`) or is still on its way there without anyone lifting a finger (`queued`,
+   * `preprocessing`, `ingesting`). A `failed` or `cancelled` attempt wrote nothing and will
+   * write nothing until a person says so, and until 2026-09-16 it still owned the bytes: a
+   * file whose ingest failed could not be dropped in again, and the answer it got back -
+   * "same content as job X" - read as if the vault held it. `deferred` keeps blocking; it is
+   * a job waiting on a decision with its original staged, and re-dropping the file would make
+   * a second one of it. See `SOLE_OWNERS`.
+   *
+   * The duplicate row itself stores `sha256 = NULL`. Not a constraint any more (v30 dropped
+   * the UNIQUE) but a statement: a duplicate produced nothing, so it stands for nothing, and
+   * the next drop of those bytes should find the job that does.
    */
   create(input: CreateJobInput): CreateJobResult {
     const id = ulid()
@@ -190,30 +238,42 @@ export class JobStore {
       // The service's own row wins over the vault's memory of the same hash: while the row
       // exists it is the better link (it opens in the dashboard). The vault answer takes
       // over exactly when history has been cleared, which is the case it exists for.
+      //
+      // Newest first: with the UNIQUE gone (v30) several rows can carry one hash - a failed
+      // attempt and the retry that followed it - and the one that still stands for the
+      // content is the last one to have tried.
       const inDb =
         input.sha256 !== undefined
           ? (this.db
-              .prepare('SELECT id FROM jobs WHERE sha256 = ?')
-              .get(input.sha256) as { id: string } | undefined)
+              .prepare(
+                `SELECT id, status FROM jobs
+                  WHERE sha256 = ? AND status IN (${SOLE_OWNERS.map(() => '?').join(',')})
+                  ORDER BY created_at DESC LIMIT 1`,
+              )
+              .get(input.sha256, ...SOLE_OWNERS) as { id: string; status: JobStatus } | undefined)
           : undefined
       const original = inDb ?? (input.duplicateOf !== undefined ? { id: input.duplicateOf } : undefined)
 
       const isDuplicate = original !== undefined
       const status: JobStatus = isDuplicate ? 'duplicate' : 'queued'
+      // The one line under the row in the dashboard, so it says what happened and what to do
+      // about it rather than just naming an id.
       const note = !isDuplicate
         ? null
         : inDb !== undefined
-          ? `same content as job ${original.id}, which is still in the history`
+          ? inDb.status === 'done'
+            ? `already ingested by job ${original.id}: open that job to see the pages it wrote`
+            : `job ${original.id} is already ingesting this file (${inDb.status}): this copy would repeat it`
           : (input.duplicateNote ?? `same content as job ${original.id}, whose original the vault still holds`)
 
       this.db
         .prepare(
           `INSERT INTO jobs
              (id, user_id, batch_id, source, type, original_name, url, sha256, status,
-              raw_path, attempts, created_at, finished_at, notify_channel, duplicate_of, error)
+              raw_path, attempts, created_at, finished_at, notify_channel, duplicate_of, error, hold)
            VALUES
              (@id, @user_id, @batch_id, @source, @type, @original_name, @url, @sha256, @status,
-              @raw_path, 0, @created_at, @finished_at, @notify_channel, @duplicate_of, @error)`,
+              @raw_path, 0, @created_at, @finished_at, @notify_channel, @duplicate_of, @error, @hold)`,
         )
         .run({
           id,
@@ -236,6 +296,8 @@ export class JobStore {
           // The explanation rides in `error`, which the dashboard already renders as the one
           // line under a settled row - a duplicate's "why" is that line, not a failure.
           error: note,
+          // A duplicate is terminal on arrival; there is nothing to hold.
+          hold: isDuplicate ? null : (input.hold ?? null),
         })
 
       this.log(
@@ -243,7 +305,7 @@ export class JobStore {
         isDuplicate ? 'warn' : 'info',
         isDuplicate
           ? `duplicate of job ${original.id} (sha256 match${inDb === undefined ? ' in the vault .raw manifests' : ''}) - skipped`
-          : `job created from ${input.source}${input.originalName ? ` (${input.originalName})` : ''}`,
+          : `job created from ${input.source}${input.originalName ? ` (${input.originalName})` : ''}${!isDuplicate && input.hold === 'night' ? '; held for the night shift' : ''}`,
       )
 
       return { job: this.getOrThrow(id), ...(isDuplicate ? { duplicateOf: original.id } : {}) }
@@ -418,12 +480,70 @@ export class JobStore {
     return this.db.prepare('DELETE FROM jobs WHERE id = ?').run(id).changes > 0
   }
 
+  /**
+   * Says a row changed without changing its status (2026-09-14).
+   *
+   * Most of what a finished ingest shows up with arrives AFTER it reaches `done`: the pages
+   * come from the commit, and the commit happens next; the revert anchor, the validation
+   * summary and the "wrote nothing" outcome follow the same way. Those writes were silent, so
+   * the dashboard - which refetches the job list on a `job` event - held the version it had
+   * fetched the moment the status changed: a finished ingest with no pages and no Article tab,
+   * until something unrelated happened to invalidate the list.
+   */
+  private touched(id: string): void {
+    if (this.bus === undefined) return
+    const job = this.get(id)
+    if (job !== undefined) this.bus.publish({ kind: 'job', job })
+  }
+
   /** Records how a `done` run ended when the status alone would mislead (v14). */
   setOutcome(id: string, outcome: JobOutcome | null): void {
     this.db.prepare('UPDATE jobs SET outcome = ? WHERE id = ?').run(outcome, id)
+    this.touched(id)
   }
 
   /** Job counts grouped by status — for the dashboard/health overview (SPEC.md §6.1). */
+  /** Queued jobs the queue may claim now: the held ones do not count, or an idle queue would never be idle. */
+  queuedReady(): number {
+    return (this.db.prepare("SELECT COUNT(*) n FROM jobs WHERE status = 'queued' AND hold IS NULL").get() as { n: number }).n
+  }
+
+  /** The queued jobs waiting for this moment, oldest first. */
+  held(hold: JobHold): JobRow[] {
+    return this.db.prepare("SELECT * FROM jobs WHERE status = 'queued' AND hold = ? ORDER BY created_at").all(hold) as JobRow[]
+  }
+
+  /** The jobs the night shift released that are not through yet, oldest first (v26). */
+  nightReleased(): JobRow[] {
+    return this.db.prepare('SELECT * FROM jobs WHERE night_released_at IS NOT NULL ORDER BY created_at').all() as JobRow[]
+  }
+
+  /** The job is through: it leaves tonight's ingest queue (v26). A no-op for any other job. */
+  clearNightRelease(id: string): void {
+    this.db.prepare('UPDATE jobs SET night_released_at = NULL WHERE id = ?').run(id)
+  }
+
+  /**
+   * Lets every job held for this moment be claimed, and says which they were. The status
+   * does not change - they were queued all along - so this is not a transition; the rows
+   * are announced the way a transition is, because the dashboard shows the hold.
+   */
+  release(hold: JobHold): string[] {
+    const run = this.db.transaction((): string[] => {
+      const ids = this.held(hold).map((j) => j.id)
+      if (ids.length === 0) return ids
+      this.db.prepare("UPDATE jobs SET hold = NULL, night_released_at = ? WHERE status = 'queued' AND hold = ?").run(nowIso(), hold)
+      for (const id of ids) this.log(id, 'info', 'released to the queue by the night shift')
+      return ids
+    })
+    const ids = run()
+    for (const id of ids) {
+      const job = this.get(id)
+      if (job !== undefined) this.bus?.publish({ kind: 'job', job })
+    }
+    return ids
+  }
+
   counts(): Record<string, number> {
     const rows = this.db.prepare('SELECT status, COUNT(*) n FROM jobs GROUP BY status').all() as Array<{
       status: string
@@ -442,8 +562,9 @@ export class JobStore {
       // Batch members (batch_id set) are NEVER claimed individually — the batch
       // coordinator drives them as a unit so they share one combined ingest run
       // (SPEC.md §4.1). Only standalone jobs are claimed here.
+      // A held job is queued but not claimable: it waits for its moment (v24).
       const next = this.db
-        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL ORDER BY created_at LIMIT 1")
+        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL AND hold IS NULL ORDER BY created_at LIMIT 1")
         .get() as { id: string } | undefined
       if (next === undefined) return undefined
       return this.transition(next.id, 'preprocessing', { log: 'claimed by worker' })
@@ -523,7 +644,7 @@ export class JobStore {
   queuedBatches(): Array<{ batchId: string; memberIds: string[] }> {
     const rows = this.db
       .prepare(
-        "SELECT batch_id, id FROM jobs WHERE status = 'queued' AND batch_id IS NOT NULL ORDER BY created_at",
+        "SELECT batch_id, id FROM jobs WHERE status = 'queued' AND batch_id IS NOT NULL AND hold IS NULL ORDER BY created_at",
       )
       .all() as Array<{ batch_id: string; id: string }>
     const byBatch = new Map<string, string[]>()
@@ -539,6 +660,18 @@ export class JobStore {
    * Moves a job to `to`, patching related fields and logging the transition — all in one
    * transaction. Throws `JobStateError` on an illegal move. `started_at` is stamped the
    * first time a job leaves `queued`; `finished_at` when it reaches a terminal state.
+   */
+  /**
+   * Moves a job to another state, logging the step.
+   *
+   * A cancelled job used to give up its content hash here (2026-09-14), because a cancelled
+   * job owns nothing and holding the hash turned "take this out of my way" into "and never let
+   * it back in". It was cleared rather than filtered in the lookup for one reason: the column
+   * was UNIQUE, so a lookup that skipped the row would have collided with it on the insert.
+   *
+   * v30 dropped the UNIQUE and `create` filters by status (see `SOLE_OWNERS`), which says the
+   * same thing about failed attempts too. So the hash stays on the row: it is what the job
+   * WAS, and a retry that succeeds should be able to say so.
    */
   transition(
     id: string,
@@ -578,7 +711,10 @@ export class JobStore {
              batch_id = COALESCE(@batch_id, batch_id),
              duplicate_of = COALESCE(@duplicate_of, duplicate_of),
              started_at = CASE WHEN started_at IS NULL AND @set_started = 1 THEN @now ELSE started_at END,
-             finished_at = CASE WHEN @set_finished = 1 THEN @now ELSE NULL END
+             finished_at = CASE WHEN @set_finished = 1 THEN @now ELSE NULL END,
+             -- A cancelled job leaves tonight's ingest queue (v26); every other move keeps
+             -- its place until the queue says it is through.
+             night_released_at = CASE WHEN @status = 'cancelled' THEN NULL ELSE night_released_at END
            WHERE id = @id`,
         )
         .run({
@@ -635,6 +771,15 @@ export class JobStore {
     this.db.prepare('UPDATE jobs SET type = ? WHERE id = ?').run(type, id)
   }
 
+  /**
+   * Records the post-run validation summary (v27). Written after the validation step; a job
+   * that was never validated keeps NULL, which reads as "nothing to say" rather than "clean".
+   */
+  setValidation(id: string, summary: unknown): void {
+    this.db.prepare('UPDATE jobs SET validation = ? WHERE id = ?').run(JSON.stringify(summary), id)
+    this.touched(id)
+  }
+
   /** Records where the job's `.raw/<job-id>/` directory lives (vault-relative). */
   setRawPath(id: string, rawPath: string): void {
     this.db.prepare('UPDATE jobs SET raw_path = ? WHERE id = ?').run(rawPath, id)
@@ -643,11 +788,13 @@ export class JobStore {
   /** Records the wiki pages this ingest committed (read back from the commit itself). */
   setCreatedPages(id: string, pages: readonly string[]): void {
     this.db.prepare('UPDATE jobs SET created_pages = ? WHERE id = ?').run(JSON.stringify(pages), id)
+    this.touched(id)
   }
 
   /** Records the vault commit a job produced (v9). Batch members share one hash by design. */
   setCommitHash(id: string, hash: string): void {
     this.db.prepare('UPDATE jobs SET commit_hash = ? WHERE id = ?').run(hash, id)
+    this.touched(id)
   }
 
   /**

@@ -61,6 +61,36 @@ function dragonScale(counter = 100, legacyLines: string[] = []): void {
 
 const rules = (findings: ValidationFinding[]): string[] => findings.map((f) => f.rule)
 
+describe('source url shape', () => {
+  /*
+   * The dedupe index and the reading list compare this field literally, so a value that a
+   * human can read an address out of is still no address to them. Both shapes below were
+   * found on real pages.
+   */
+  it('flags a value that merely contains an address', () => {
+    page('wiki/sources/A.md', { type: 'source', url: '"local file: .raw/j1/x.pdf (example.org/media/123)"' })
+    const findings = validatePages(vaultRoot, ['wiki/sources/A.md'])
+    expect(rules(findings)).toContain('source-url')
+    expect(findings[0]!.message).toContain('bare address')
+  })
+
+  it('flags a placeholder word', () => {
+    page('wiki/sources/B.md', { type: 'source', url: 'unknown' })
+    expect(rules(validatePages(vaultRoot, ['wiki/sources/B.md']))).toContain('source-url')
+  })
+
+  it('says nothing about a bare address, an empty field, or a page of another type', () => {
+    page('wiki/sources/C.md', { type: 'source', url: '"https://example.org/a"' })
+    page('wiki/sources/D.md', { type: 'source', url: '""' })
+    // Plenty of documents state no address; an empty field is the correct way to say so.
+    page('wiki/sources/E.md', { type: 'source' })
+    // Only source pages carry an address of their own.
+    page('wiki/concepts/F.md', { url: 'see the sources below' })
+    const paths = ['wiki/sources/C.md', 'wiki/sources/D.md', 'wiki/sources/E.md', 'wiki/concepts/F.md']
+    expect(rules(validatePages(vaultRoot, paths)).filter((r) => r === 'source-url')).toEqual([])
+  })
+})
+
 describe('frontmatter and dates', () => {
   it('a complete page yields no findings', () => {
     page('wiki/concepts/Alpha.md')
@@ -89,6 +119,30 @@ describe('frontmatter and dates', () => {
 
   it('ignores non-wiki and vanished paths', () => {
     expect(validatePages(vaultRoot, ['.raw/j1/file.pdf', 'wiki/concepts/Gone.md'])).toEqual([])
+  })
+})
+
+/**
+ * The shape a title with a path separator in it makes: a folder named after the first half,
+ * and a page inside it named after the second. Found the long way round, weeks later, because
+ * every wikilink aimed at the whole title resolved to nothing while the run that wrote it
+ * reported a synthesis filed.
+ */
+describe('pages a folder below their bucket', () => {
+  it('flags a page written into a folder inside its bucket', () => {
+    page('wiki/questions/Research: A/b.md')
+    expect(rules(validatePages(vaultRoot, ['wiki/questions/Research: A/b.md']))).toEqual(['nested-page'])
+  })
+
+  it('leaves a page directly in its bucket alone', () => {
+    page('wiki/questions/Research: A-b.md')
+    expect(validatePages(vaultRoot, ['wiki/questions/Research: A-b.md'])).toEqual([])
+  })
+
+  it('leaves wiki/meta alone, where the journals legitimately live in folders', () => {
+    page('wiki/meta/recaps/Recap 2026-09-08.md')
+    page('wiki/meta/agents/somebody.md')
+    expect(validatePages(vaultRoot, ['wiki/meta/recaps/Recap 2026-09-08.md', 'wiki/meta/agents/somebody.md'])).toEqual([])
   })
 })
 
@@ -227,57 +281,57 @@ describe('orphans (graph-backed)', () => {
 })
 
 describe('single-source entities (graph-backed)', () => {
-  /** A seed entity plus one source page linking it — the Fokki/0xCodez class. */
+  /** A seed entity plus one source page linking it - the single-post-creator class. */
   function seedEntityWithOneSource(): void {
-    page('wiki/entities/Fokki.md', { type: 'entity', status: 'seed' })
-    page('wiki/sources/Viral Post.md', { type: 'source' }, 'By [[Fokki]].\n')
+    page('wiki/entities/Solo Poster.md', { type: 'entity', status: 'seed' })
+    page('wiki/sources/Viral Post.md', { type: 'source' }, 'By [[Solo Poster]].\n')
   }
 
   it('flags a seed entity referenced by only one source page', () => {
     seedEntityWithOneSource()
     const graph = new GraphBuilder(vaultRoot).build()
-    const findings = validatePages(vaultRoot, ['wiki/entities/Fokki.md'], graph)
+    const findings = validatePages(vaultRoot, ['wiki/entities/Solo Poster.md'], graph)
     expect(findings).toHaveLength(1)
-    expect(findings[0]).toMatchObject({ rule: 'single-source-entity', path: 'wiki/entities/Fokki.md' })
+    expect(findings[0]).toMatchObject({ rule: 'single-source-entity', path: 'wiki/entities/Solo Poster.md' })
     expect(findings[0]!.message).toContain('only one source page')
   })
 
   it('flags a seed entity linked only from concept pages — concept backlinks do not launder it', () => {
-    page('wiki/entities/Fokki.md', { type: 'entity', status: 'seed' })
-    page('wiki/concepts/Outlier Score.md', {}, 'Coined by [[Fokki]].\n')
-    page('wiki/concepts/Faceless Pipeline.md', {}, 'See [[Fokki]].\n')
+    page('wiki/entities/Solo Poster.md', { type: 'entity', status: 'seed' })
+    page('wiki/concepts/Reach Multiplier.md', {}, 'Coined by [[Solo Poster]].\n')
+    page('wiki/concepts/Repost Funnel.md', {}, 'See [[Solo Poster]].\n')
     const graph = new GraphBuilder(vaultRoot).build()
-    const findings = validatePages(vaultRoot, ['wiki/entities/Fokki.md'], graph)
+    const findings = validatePages(vaultRoot, ['wiki/entities/Solo Poster.md'], graph)
     expect(rules(findings)).toEqual(['single-source-entity'])
     expect(findings[0]!.message).toContain('no source page')
   })
 
   it('stays quiet once a second independent source references the entity', () => {
     seedEntityWithOneSource()
-    page('wiki/sources/Second Source.md', { type: 'source' }, 'Also features [[Fokki]].\n')
+    page('wiki/sources/Second Source.md', { type: 'source' }, 'Also features [[Solo Poster]].\n')
     const graph = new GraphBuilder(vaultRoot).build()
-    expect(validatePages(vaultRoot, ['wiki/entities/Fokki.md'], graph)).toEqual([])
+    expect(validatePages(vaultRoot, ['wiki/entities/Solo Poster.md'], graph)).toEqual([])
   })
 
   it('a source _index hub does not count as an independent source', () => {
     seedEntityWithOneSource()
-    page('wiki/sources/_index.md', { type: 'meta' }, '- [[Fokki]]\n')
+    page('wiki/sources/_index.md', { type: 'meta' }, '- [[Solo Poster]]\n')
     const graph = new GraphBuilder(vaultRoot).build()
-    expect(rules(validatePages(vaultRoot, ['wiki/entities/Fokki.md'], graph))).toEqual(['single-source-entity'])
+    expect(rules(validatePages(vaultRoot, ['wiki/entities/Solo Poster.md'], graph))).toEqual(['single-source-entity'])
   })
 
   it('bumping status past seed is the deliberate keep-anyway override', () => {
-    page('wiki/entities/Fokki.md', { type: 'entity', status: 'developing' })
-    page('wiki/sources/Viral Post.md', { type: 'source' }, 'By [[Fokki]].\n')
+    page('wiki/entities/Solo Poster.md', { type: 'entity', status: 'developing' })
+    page('wiki/sources/Viral Post.md', { type: 'source' }, 'By [[Solo Poster]].\n')
     const graph = new GraphBuilder(vaultRoot).build()
-    expect(validatePages(vaultRoot, ['wiki/entities/Fokki.md'], graph)).toEqual([])
+    expect(validatePages(vaultRoot, ['wiki/entities/Solo Poster.md'], graph)).toEqual([])
   })
 
   it('skips the check when no graph is provided, and never fires outside entities/', () => {
     seedEntityWithOneSource()
     page('wiki/concepts/Seedling.md', { status: 'seed' })
     page('wiki/index.md', { type: 'meta' }, '[[Seedling]]\n')
-    expect(validatePages(vaultRoot, ['wiki/entities/Fokki.md'])).toEqual([])
+    expect(validatePages(vaultRoot, ['wiki/entities/Solo Poster.md'])).toEqual([])
     const graph = new GraphBuilder(vaultRoot).build()
     expect(validatePages(vaultRoot, ['wiki/concepts/Seedling.md'], graph)).toEqual([])
   })
