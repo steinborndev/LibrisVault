@@ -803,8 +803,8 @@ Status as measured 2026-09-15, on the working tree:
       only lint tooling (`eslint`, `eslint-plugin-react-hooks`,
       `eslint-plugin-react-refresh`, `typescript-eslint`, `globals`, `@eslint/js`). 303
       files and 61k added lines, no new runtime supply chain.
-- [x] **Drafted in `PR-A6-draft.md` and scanned with `--file` on 2026-09-17** (the only match
-      is `Anthropic`). Paste it rather than paraphrasing at the last minute. The original item:
+- [x] **Drafted in `PR-A6-draft.md` and scanned with `--file` on 2026-09-17: nothing matched.**
+      Paste it rather than paraphrasing at the last minute. The original item:
       PR title and description describe the change by its mechanism, never by a vault
       subject (hard rule 7). This is the text most likely to leak, because it is the one
       written last and in a hurry - **and the `commit-msg` hook does not see it at all**
