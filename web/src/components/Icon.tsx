@@ -40,6 +40,8 @@ export type IconName =
   | 'bolt'
   | 'expand'
   | 'shrink'
+  | 'lock'
+  | 'unlock'
   | 'globe'
   | 'image'
   | 'archive'
@@ -125,6 +127,19 @@ const PATHS: Record<Exclude<IconName, 'logo'>, React.ReactNode> = {
     </>
   ),
   check: <path d="M4 12.5l5 5L20 6.5" />,
+  // The graph's lock, bottom left of the canvas: closed holds the picture, open lets it move.
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </>
+  ),
+  unlock: (
+    <>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0" />
+    </>
+  ),
   search: (
     <>
       <circle cx="11" cy="11" r="7" />

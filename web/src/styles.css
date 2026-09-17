@@ -3424,7 +3424,8 @@ span.head-slot { display: inline-block; }
    the tooltip follows the pointer; the zoom controls live up top. */
 .graph-trail {
   position: absolute;
-  left: 12px;
+  /* Right of the lock, which has the corner itself. */
+  left: 54px;
   bottom: 10px;
   display: flex;
   align-items: center;
@@ -4375,8 +4376,8 @@ kbd {
  * a `right` offset measured off the outer one's width - a number that is wrong the moment a
  * label changes. A flex row with a gap has no such number in it.
  *
- * The bottom LEFT is the trail's: it grows out from under the panel as you follow links, and
- * anything parked there ends up underneath it.
+ * The bottom LEFT is the lock's, and right of it the trail's: the trail grows out from under
+ * the panel as you follow links, and anything parked in its way ends up underneath it.
  */
 .canvas-corners {
   position: absolute;
@@ -4412,6 +4413,22 @@ kbd {
 .shortcut-wrap.corner .shortcut-pop {
   top: auto;
   bottom: calc(100% + 8px);
+}
+/* The lock, bottom left (2026-09-17): the one control that is about the PICTURE rather than
+   about the canvas, so it stands apart from the pair on the right. Closed, it wears the
+   accent - the picture is held, and the drawing should say so from a distance. */
+.canvas-lock {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 7;
+  padding: 0 8px;
+  font-size: 14px;
+}
+.canvas-lock.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 90%, transparent);
 }
 .shortcut-pop {
   position: absolute;

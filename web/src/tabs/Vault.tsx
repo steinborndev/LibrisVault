@@ -30,6 +30,7 @@ import { scopeHeading } from '../lib/scopeHeading.ts'
 import { linkifyText } from '../lib/linkify.tsx'
 import { navigate, pageRoute, pageFromPath, originPath, catalogPageRoute } from '../lib/router.ts'
 import { stepTrail } from '../lib/trail.ts'
+import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFreeze } from '../lib/graphFreeze.ts'
 import { detectClusters } from '../lib/communities.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
@@ -82,11 +83,11 @@ const TYPE_LABELS: Record<string, string> = {
  * the arrows were in the flat domain list until 2026-09-16.
  */
 const GRAPH_SHORTCUTS = [
-  { keys: ['2x click'], what: 'open a page from the graph' },
+  { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked' },
   { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens' },
   { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
-  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a tag, the trail, the panel, a cluster, the gaps, a focus' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a tag, the trail, the panel, a cluster, the gaps, a focus - or, with the picture locked, back to it' },
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
   { keys: ['/'], what: 'open the search for pages and tags; a click outside folds the list, the filter stays' },
   { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
@@ -262,6 +263,32 @@ const savedPrefs = loadViewPrefs()
  * GraphCanvas.tsx; safe because the app has exactly one graph view. The ViewPrefs subset
  * additionally survives reloads via localStorage (seeded here, written by saveViewPrefs).
  */
+/**
+ * The held picture (2026-09-17), read once per load. It lives in sessionStorage: a reload keeps
+ * it, closing the browser tab lets it go - a bookmark for one sitting, not a preference.
+ */
+function loadFrozen(): GraphFreeze | null {
+  try {
+    return parseGraphFreeze(sessionStorage.getItem(GRAPH_FREEZE_KEY))
+  } catch {
+    return null // storage unavailable (private mode) - nothing was held
+  }
+}
+
+let lastSavedFreeze: string | null = null
+
+function saveFrozen(f: GraphFreeze | null): void {
+  const json = f === null ? null : serializeGraphFreeze(f)
+  if (json === lastSavedFreeze) return
+  lastSavedFreeze = json
+  try {
+    if (json === null) sessionStorage.removeItem(GRAPH_FREEZE_KEY)
+    else sessionStorage.setItem(GRAPH_FREEZE_KEY, json)
+  } catch {
+    // Storage unavailable - the lock still holds for this session, through viewMemory.
+  }
+}
+
 const viewMemory = {
   query: '',
   selectedTypes: new Set(savedPrefs.selectedTypes ?? []) as ReadonlySet<string>,
@@ -275,6 +302,7 @@ const viewMemory = {
   showSystem: savedPrefs.showSystem ?? false,
   selection: null as Selection,
   trail: [] as string[],
+  frozen: loadFrozen(),
 }
 
 /** Last-written prefs JSON - the snapshot effect runs on every commit, writes only on change. */
@@ -416,6 +444,30 @@ function GraphView({
    * domains. (The old hide-semantics did the exact opposite of what a click intends.)
    */
   const [selectedDomains, setSelectedDomains] = useState<ReadonlySet<string>>(viewMemory.selectedDomains)
+  /**
+   * The lock (2026-09-17): the picture on screen, held. `frozen` is the snapshot of everything
+   * that decides which nodes are drawn and how - filters, room, focus and depth, gaps and
+   * system pages, the search, a tag, the drill-down, the lens and the overlays. While it is
+   * set the explorer panel stays away and one click on a node opens its page: the picture is
+   * a reading list, and Escape - from the page, from a filter, from anything - brings it
+   * back. The lock opens only by its own button. A reset, a search, a shelf click in the
+   * Library or a "view in graph" elsewhere are excursions the next Escape returns from.
+   *
+   * The effect that restores it is bound HERE, ahead of the one-shot URL commands below, so a
+   * command arriving with the visit lands on top of the held picture rather than under it:
+   * effects run in the order they are written, and the later setter wins.
+   */
+  const [frozen, setFrozen] = useState<GraphFreeze | null>(viewMemory.frozen)
+  const frozenRef = useRef(frozen)
+  frozenRef.current = frozen
+  const applyFreezeRef = useRef<(f: GraphFreeze) => void>(() => {})
+  // A visit starts at the held picture - the first one (a return from an article remounts
+  // this screen) and every one after a tab away, whatever was left on the canvas meanwhile.
+  useEffect(() => {
+    if (!active) return
+    const f = frozenRef.current
+    if (f !== null) applyFreezeRef.current(f)
+  }, [active])
   useEffect(() => {
     if (domainParam !== null && domainParam !== '') setSelectedDomains(new Set([domainParam]))
   }, [domainParam])
@@ -545,8 +597,10 @@ function GraphView({
       showSystem,
       selection,
       trail,
+      frozen,
     })
     saveViewPrefs()
+    saveFrozen(frozen)
   })
 
   const selectPage = (path: string): void => {
@@ -573,7 +627,8 @@ function GraphView({
    * switch while a reload restores them would be two rules disagreeing.
    */
   useEffect(() => {
-    if (active) return
+    // Locked, the picture is the resting state, and it is restored on the way back in.
+    if (active || frozenRef.current !== null) return
     closeExplorer()
     setTagFilter(null)
     setInput('')
@@ -1091,6 +1146,60 @@ function GraphView({
     setFitNonce((n) => n + 1)
   }
 
+  /** Everything that decides the picture, as it stands now. */
+  const snapshotFreeze = (): GraphFreeze => ({
+    v: 1,
+    selectedTypes: [...selectedTypes].sort(),
+    selectedDomains: [...selectedDomains].sort(),
+    wingMode: wingMode.mode,
+    wing,
+    localDepth,
+    focusPath,
+    showGaps,
+    showSystem,
+    // The raw input, as the view memory keeps it: what the field showed is what comes back.
+    query: input,
+    tagFilter,
+    clusterStack: clusterStack.map((c) => ({ paths: [...c.paths], label: c.label, domain: c.domain, anchor: c.anchor })),
+    lens,
+    showClusters,
+    showNetwork,
+    spotlight,
+  })
+  /** Back to the held picture, whatever is on the canvas now; the drawing is framed to it. */
+  const applyFreeze = (f: GraphFreeze): void => {
+    setSelectedTypes(new Set(f.selectedTypes))
+    setSelectedDomains(new Set(f.selectedDomains))
+    if (f.wingMode === 'wing' && f.wing !== null) wingMode.setWing(f.wing)
+    else wingMode.setMode(f.wingMode)
+    setLocalDepth(f.localDepth)
+    setShowGaps(f.showGaps)
+    setShowSystem(f.showSystem)
+    setInput(f.query)
+    setSearchOpen(f.query !== '')
+    setTagFilter(f.tagFilter)
+    setClusterStack(f.clusterStack.map((c) => ({ paths: new Set(c.paths), label: c.label, domain: c.domain, anchor: c.anchor })))
+    setLens(f.lens)
+    setShowClusters(f.showClusters)
+    setShowNetwork(f.showNetwork)
+    setSpotlight(f.spotlight)
+    closeExplorer()
+    navigate(f.focusPath === null ? '/graph' : `/graph?focus=${encodeURIComponent(f.focusPath)}`, { replace: true })
+    setFitNonce((n) => n + 1)
+  }
+  applyFreezeRef.current = applyFreeze
+  /** The padlock: closed holds what is on screen now, open lets it move again - as it stands. */
+  const toggleFreeze = (): void => {
+    if (frozen !== null) {
+      setFrozen(null)
+      return
+    }
+    // The panel goes with the lock: a picture held as a reading list has no page selected
+    // in it, and a ring left on one node would say otherwise.
+    closeExplorer()
+    setFrozen(snapshotFreeze())
+  }
+
   // ---- keyboard layer. Window-level (the canvas isn't focusable), via the same stable-
   // listener ref pattern the canvas uses for wheel/zoom keys; gated on this view being the
   // VISIBLE tab - tabs stay mounted but hidden (App.tsx), and hidden = no offsetParent.
@@ -1135,6 +1244,14 @@ function GraphView({
       const now = performance.now()
       const doublePress = now - lastEscRef.current < DOUBLE_ESC_MS
       lastEscRef.current = now
+      if (frozen !== null) {
+        // Locked, every press is the way back to the held picture - fullscreen first, as
+        // ever, then the picture. No double press resets here: the lock is the one thing a
+        // reset must not lose, and its own button is how it opens.
+        if (fullscreen) setFullscreen(false)
+        else applyFreeze(frozen)
+        return
+      }
       if (doublePress) {
         resetView() // second quick press: back to the full vault in one go
         return
@@ -1463,9 +1580,14 @@ function GraphView({
                field - at the end of the bar it has room to. */
             searchOverlay
           }
-          onSelect={(n) =>
-            n.path.startsWith(GAP_PATH_PREFIX) ? selectGap(n.title) : selectPage(n.path)
-          }
+          // Locked, a click on a node opens its page (the canvas's own switch); a gap has no
+          // page, and with the panel away there is nothing to select it for.
+          openOnClick={frozen !== null}
+          onSelect={(n) => {
+            if (frozen !== null) return
+            if (n.path.startsWith(GAP_PATH_PREFIX)) selectGap(n.title)
+            else selectPage(n.path)
+          }}
           // The spotlight click, on a member node or anywhere in the community's hull: it
           // isolates the community (the hover previews exactly this set) - recursively:
           // inside a focus the ids come from re-detection on the isolated subgraph, so the
@@ -1522,9 +1644,9 @@ function GraphView({
               />
               {/*
                 * Both in the bottom RIGHT corner, side by side: these two are about the canvas
-                * rather than about what it shows, and the bottom left belongs to the trail,
-                * which walks out from under the panel as you follow links and would sit on top
-                * of anything standing there.
+                * rather than about what it shows. The bottom left belongs to the lock, which is
+                * about the picture, and right of it to the trail, which walks out from under the
+                * panel as you follow links.
                 */}
               <div className="canvas-corners">
                 <Shortcuts rows={GRAPH_SHORTCUTS} corner />
@@ -1536,6 +1658,19 @@ function GraphView({
                   <Icon name={fullscreen ? 'shrink' : 'expand'} /> {fullscreen ? 'Exit' : 'Fullscreen'}
                 </button>
               </div>
+              <button
+                className={`canvas-corner canvas-lock${frozen !== null ? ' on' : ''}`}
+                aria-pressed={frozen !== null}
+                onClick={toggleFreeze}
+                aria-label={frozen !== null ? 'Unlock the picture' : 'Lock the picture'}
+                title={
+                  frozen !== null
+                    ? 'Locked: these nodes are held. A click opens a page, Esc brings the picture back. Click to unlock.'
+                    : 'Lock the picture: hold these nodes, open a page with one click, come back to them with Esc.'
+                }
+              >
+                <Icon name={frozen !== null ? 'lock' : 'unlock'} />
+              </button>
               {trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">
                   {trail.map((p, i) => {
@@ -1556,6 +1691,7 @@ function GraphView({
             </>
           }
         />
+        {frozen === null && (
         <GraphExplorer
           graph={graph}
           selection={selection}
@@ -1576,6 +1712,7 @@ function GraphView({
           showSystem={showSystem}
           onClose={closeExplorer}
         />
+        )}
           </div>
         </div>
       </div>

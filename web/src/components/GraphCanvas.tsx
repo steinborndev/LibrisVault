@@ -2008,7 +2008,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // pointer cursor. The two are mutually exclusive (hullHover is only set when no node is hit).
   const hoveredIsGhost = hover !== null && (ghostIndices?.has(hover) ?? false)
   const hoverAreaDrills = hover === null && hullHover !== null && onClusterClick !== undefined
-  const hoverNodeOpens = hover !== null && spotlight && onOpen !== undefined && !hoveredIsGhost
+  const hoverNodeOpens = hover !== null && (spotlight || openOnClick) && onOpen !== undefined && !hoveredIsGhost
 
   return (
     <div className="graph-canvas-wrap">
