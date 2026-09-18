@@ -349,9 +349,20 @@ export function App(): React.ReactElement {
           </div>
         )}
         {demoMode && (
-          <div className="setup-banner" role="status">
-            <strong>Read-only demo:</strong>&nbsp;browse the vault freely - ingestion, research and
-            system actions are switched off in this hosted instance.
+          /* Centred, and the data's nature first: a visitor must not take the pages, the
+             Fellows or their nights for anyone's real notes. The read-only part comes second. */
+          <div className="setup-banner demo" role="status">
+            <strong className="demo-lead">Synthetic demo data</strong>
+            <span>
+              the vault, its Fellows and their nights are generated for this demo, nobody's real notes.
+            </span>
+            <span className="demo-sep" aria-hidden="true">
+              ·
+            </span>
+            <span>
+              <strong>Read-only:</strong> ingestion, research and system actions are switched off in this hosted
+              instance.
+            </span>
           </div>
         )}
 
