@@ -201,6 +201,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     // A blocked or abstract-thin page with a DOI is worth one look for an open copy (5.1).
     oaRecovery: () => settings.effective(config).oaRecovery,
     oaLookups: oaCacheOver(oaLookups),
+    urlDedupe: () => settings.effective(config).urlDedupe,
     // Same pattern for the daily budget — evaluated through the shared budget module so the
     // queue's pause decision and the dashboard's display can never disagree (SPEC.md §11.3).
     budgetExceeded: () => budgetStatus(config, settings.effective(config), store).exceeded,

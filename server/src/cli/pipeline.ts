@@ -96,7 +96,7 @@ async function main(): Promise<number> {
       }
       const { job } = queue.enqueueUrl({ url, source: 'drop' })
       jobIds.push(job.id)
-      console.log(`  queued ${path.basename(file)} → ${job.id} (url: ${url})`)
+      console.log(`  queued ${path.basename(file)} → ${job.id} (url: ${url})${job.status === 'duplicate' ? ' (duplicate)' : ''}`)
       continue
     }
     const { job, duplicateOf } = await queue.enqueueFile({ sourcePath: file, source: 'drop' })

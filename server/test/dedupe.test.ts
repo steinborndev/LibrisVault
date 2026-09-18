@@ -9,6 +9,12 @@
  *      `duplicate` after preprocessing, its staged copy discarded, no run paid for;
  *   3. a run that finishes without writing a wiki page is marked `no-changes` rather than
  *      passing as an ordinary `done`.
+ *
+ * Added 2026-09-18: stage 2 for LINKS, decided at enqueue - the canonical address of a URL
+ * job (share-link tracking stripped, a post by its status id) is one a source page already
+ * declares, so nothing is fetched and no run is paid for; and stage 3 no longer counts the
+ * vault's meta pages (log, index, hot cache), so a run that only wrote its own log entry is
+ * a no-change run.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
@@ -74,7 +80,7 @@ function writeSource(name: string, content: string): string {
 const SHA_OF_SAME = 'a'.repeat(64)
 
 /** A prior ingest the vault remembers: a `.raw/` job dir with its manifest, and a source page. */
-function seedPriorIngest(opts: { sha256?: string; doi?: string } = {}): void {
+function seedPriorIngest(opts: { sha256?: string; doi?: string; url?: string } = {}): void {
   write(
     '.raw/JOBOLD/manifest.json',
     JSON.stringify({
@@ -91,7 +97,7 @@ function seedPriorIngest(opts: { sha256?: string; doi?: string } = {}): void {
   write('.raw/JOBOLD/normalized.txt', 'old text\n')
   write(
     'wiki/sources/Paper.md',
-    `---\ntype: source\ntitle: Paper\nurl: "https://doi.org/${opts.doi ?? '10.1000/xyz123'}"\n---\n# Paper\n`,
+    `---\ntype: source\ntitle: Paper\nurl: "${opts.url ?? `https://doi.org/${opts.doi ?? '10.1000/xyz123'}`}"\n---\n# Paper\n`,
   )
   write(
     '.raw/.manifest.json',
@@ -109,12 +115,16 @@ interface Over {
   discard?: (vaultRoot: string, relDir: string) => Promise<boolean>
   preprocessText?: string
   doiDedupe?: () => boolean
+  urlDedupe?: () => boolean
 }
 
 let discarded: string[]
+/** How many URL jobs reached the (stubbed) fetch - a duplicate recognised at enqueue never does. */
+let urlFetches: number
 
 function makeQueue(over: Over = {}): IngestQueue {
   discarded = []
+  urlFetches = 0
   return new IngestQueue({
     store,
     vaultRoot,
@@ -126,6 +136,36 @@ function makeQueue(over: Over = {}): IngestQueue {
     setTimeoutFn: () => undefined,
     runIngest: over.runIngest ?? (async () => okResult()),
     ...(over.doiDedupe ? { doiDedupe: over.doiDedupe } : {}),
+    ...(over.urlDedupe ? { urlDedupe: over.urlDedupe } : {}),
+    // A stand-in URL preprocessor: no network, writes what the pipeline expects of a web job.
+    preprocessUrlFn: async (input) => {
+      urlFetches++
+      fs.mkdirSync(input.jobDir, { recursive: true })
+      fs.writeFileSync(path.join(input.jobDir, 'normalized.md'), '# fetched page\n')
+      const manifest = {
+        jobId: input.jobId,
+        source: 'url' as const,
+        type: 'web' as const,
+        originalName: input.url,
+        url: input.url,
+        createdAt: new Date().toISOString(),
+        original: 'page.html',
+        normalized: 'normalized.md',
+        ocrApplied: false,
+        passImageToAgent: false,
+        deferred: false,
+        notes: [],
+      }
+      const manifestPath = path.join(input.jobDir, 'manifest.json')
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+      return {
+        type: 'web',
+        deferred: false,
+        manifestPath,
+        primaryArtifact: `.raw/${input.jobId}/normalized.md`,
+        manifest,
+      }
+    },
     discardStaging:
       over.discard ??
       (async (_root, relDir) => {
@@ -200,12 +240,21 @@ describe('pageDois', () => {
 
 describe('pageUrls', () => {
   it('takes url and source_url from the frontmatter, quoted or not, and nothing from the body', () => {
-    const md = `---\ntitle: T\nurl: "https://Example.invalid/a/?utm=1"\nsource_url: https://example.invalid/b\ndoi: 10.1/x\n---\nbody links https://example.invalid/c\n`
+    const md = `---\ntitle: T\nurl: "https://Example.invalid/a/?utm_source=1"\nsource_url: https://example.invalid/b\ndoi: 10.1/x\n---\nbody links https://example.invalid/c\n`
     expect(pageUrls(md)).toEqual(['https://example.invalid/a', 'https://example.invalid/b'])
     // A `doi:` line is an identifier, not an address, and a relative value is not a url.
     expect(pageUrls(`---\nurl: paper.pdf\n---\n`)).toEqual([])
     expect(pageUrls('# no frontmatter')).toEqual([])
-    expect(urlKey('https://X.invalid/A/#frag')).toBe('https://x.invalid/a')
+    // The host is case-insensitive, the path is not (RFC 3986): only the host folds.
+    expect(urlKey('https://X.invalid/A/#frag')).toBe('https://x.invalid/A')
+  })
+
+  it('reads the canonical address from url/source_url keys, quoted or bare, and ignores the body', () => {
+    const md =
+      '---\ntitle: T\nurl: "https://www.Example.org/post/?utm_source=x"\nsource_url: https://youtu.be/dQw4w9WgXcQ?si=1\n---\n# T\nhttps://example.org/other\n'
+    expect(pageUrls(md).sort()).toEqual(['https://example.org/post', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'])
+    expect(pageUrls('---\nurl: ""\n---\n')).toEqual([])
+    expect(pageUrls('# no frontmatter\nurl: https://example.org\n')).toEqual([])
   })
 })
 
@@ -244,6 +293,15 @@ describe('DedupeIndex', () => {
     expect(index.byUrl('https://Journal.invalid/abt/article/9/3/332/8697373/?utm_source=x')?.page).toBe('wiki/sources/Approved Antibodies.md')
     expect(index.byUrl('https://journal.invalid/other')).toBeUndefined()
     expect(index.byUrl('')).toBeUndefined()
+  })
+
+  it('maps a canonical address to its source page and the job that created it', () => {
+    seedPriorIngest({ url: 'https://x.com/someone/status/123456' })
+    const idx = new DedupeIndex(vaultRoot)
+    const m = idx.byUrl('https://x.com/i/status/123456')
+    expect(m?.page).toBe('wiki/sources/Paper.md')
+    expect(m?.jobId).toBe('JOBOLD')
+    expect(idx.byUrl('https://x.com/i/status/999')).toBeUndefined()
   })
 
   it('resolves no job for a page the delta tracker does not attribute', () => {
@@ -448,6 +506,90 @@ describe('stage 2: a DOI the vault already holds, decided after preprocessing', 
   })
 })
 
+describe('stage 2 for links: an address the vault already holds, decided at enqueue', () => {
+  const POST = 'https://x.com/someone/status/1234567890123456789'
+
+  it('settles a re-shared link as duplicate at creation: no fetch, no staging, no run', async () => {
+    seedPriorIngest({ url: POST })
+    let runs = 0
+    const q = makeQueue({ runIngest: async () => (runs++, okResult()) })
+    q.start()
+    // The app's share link: a tracking tag appended, the same post.
+    const created = q.enqueueUrl({ url: `${POST}?s=52&t=shareTagAbc123`, source: 'telegram' })
+    await q.onIdle()
+
+    const row = store.getOrThrow(created.job.id)
+    expect(row.status).toBe('duplicate')
+    expect(created.duplicateOf).toBe('JOBOLD')
+    expect(row.duplicate_of).toBe('JOBOLD')
+    expect(row.error).toMatch(/already in the vault as wiki\/sources\/Paper\.md/)
+    expect(row.error).toMatch(/same URL https:\/\/x\.com\/i\/status\/1234567890123456789/)
+    expect(row.finished_at).not.toBeNull()
+    expect(runs).toBe(0)
+    expect(urlFetches).toBe(0)
+    expect(fs.existsSync(path.join(vaultRoot, '.raw', created.job.id))).toBe(false)
+    const log = store.logs(created.job.id).map((l) => l.message).join('\n')
+    expect(log).toMatch(/duplicate of job JOBOLD \(already in the vault/)
+  })
+
+  it('needs a source page as evidence: a link no page declares is fetched and ingested', async () => {
+    seedPriorIngest({ url: POST })
+    let runs = 0
+    const q = makeQueue({ runIngest: async () => (runs++, okResult()) })
+    q.start()
+    const { job } = q.enqueueUrl({ url: 'https://x.com/someone/status/1111111111111111111', source: 'telegram' })
+    await q.onIdle()
+    expect(store.getOrThrow(job.id).status).toBe('done')
+    expect(runs).toBe(1)
+    expect(urlFetches).toBe(1)
+  })
+
+  it('names no job when the delta tracker does not attribute the page, and is still a duplicate', async () => {
+    seedPriorIngest({ url: POST })
+    write('.raw/.manifest.json', JSON.stringify({ sources: {} }))
+    const q = makeQueue()
+    q.start()
+    const created = q.enqueueUrl({ url: 'https://twitter.com/someone/status/1234567890123456789', source: 'drop' })
+    await q.onIdle()
+    expect(created.duplicateOf).toBeUndefined()
+    const row = store.getOrThrow(created.job.id)
+    expect(row.status).toBe('duplicate')
+    expect(row.duplicate_of).toBeNull()
+    expect(row.error).toMatch(/ingested by an earlier ingest/)
+    expect(urlFetches).toBe(0)
+  })
+
+  it('drops a duplicate link out of a batch and ingests the rest', async () => {
+    seedPriorIngest({ url: POST })
+    const prompts: string[] = []
+    const q = makeQueue({ runIngest: async (o) => (prompts.push(o.prompt), okResult()) })
+    q.start()
+    const { jobs } = await q.enqueueBatch(
+      [
+        { kind: 'url', url: `${POST}?s=20` },
+        { kind: 'file', sourcePath: writeSource('n.md', 'a note') },
+      ],
+      'drop',
+    )
+    await q.onIdle()
+    expect(store.getOrThrow(jobs[0]!.job.id).status).toBe('duplicate')
+    expect(store.getOrThrow(jobs[1]!.job.id).status).toBe('done')
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).not.toContain(jobs[0]!.job.id)
+  })
+
+  it('is switched off by the urlDedupe setting (the escape hatch for a page that changed)', async () => {
+    seedPriorIngest({ url: POST })
+    let runs = 0
+    const q = makeQueue({ runIngest: async () => (runs++, okResult()), urlDedupe: () => false })
+    q.start()
+    const { job } = q.enqueueUrl({ url: `${POST}?s=52`, source: 'telegram' })
+    await q.onIdle()
+    expect(store.getOrThrow(job.id).status).toBe('done')
+    expect(runs).toBe(1)
+  })
+})
+
 describe('stage 3: a run that wrote nothing is marked no-changes', () => {
   it('sets outcome when the commit landed with zero wiki pages', async () => {
     const q = makeQueue({ commitPages: [] })
@@ -459,6 +601,17 @@ describe('stage 3: a run that wrote nothing is marked no-changes', () => {
     expect(row.commit_hash).toBe('abcd1234ef')
     expect(row.outcome).toBe('no-changes')
     expect(store.logs(job.id).map((l) => l.message).join('\n')).toMatch(/no changes: the run finished but wrote no wiki page/)
+  })
+
+  it('treats a run that only touched meta pages (its own log entry, the indexes) as no changes', async () => {
+    const q = makeQueue({ commitPages: ['wiki/log.md', 'wiki/index.md', 'wiki/sources/_index.md'] })
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource('a.md', 'plain'), source: 'drop' })
+    await q.onIdle()
+    const row = store.getOrThrow(job.id)
+    expect(row.outcome).toBe('no-changes')
+    // The commit record stays complete: the pages are real, they are just not content.
+    expect(JSON.parse(row.created_pages ?? '[]')).toEqual(['wiki/log.md', 'wiki/index.md', 'wiki/sources/_index.md'])
   })
 
   it('leaves an ordinary run unmarked', async () => {

@@ -437,7 +437,7 @@ the effective value is `override ?? baseline`. Overrides live in SQLite and surv
 
 Runtime-settable under System → Service & config: watch folder, concurrency, upload limit, the
 research shares and reserves, the plan name, the five-hour release, the duplicate judge, git
-auto-commit, open-access rescue, DOI dedupe, the daily budget. The bind address is **not** settable
+auto-commit, open-access rescue, DOI and URL dedupe, the daily budget. The bind address is **not** settable
 through the UI, by design; the credential only through the guarded endpoint that writes the env
 file, and it is never displayed or stored elsewhere.
 

@@ -119,7 +119,7 @@ export function registerSettingsRoute(app: FastifyInstance, ctx: AppContext): vo
 
     // Apply live where it is safe to do so; the rest is flagged for a restart.
     if (after.concurrency !== before.concurrency) queue.setConcurrency(after.concurrency)
-    // gitAutoCommit and doiDedupe need no action: the queue reads both through providers.
+    // gitAutoCommit, doiDedupe and urlDedupe need no action: the queue reads them through providers.
 
     const touched = Object.keys(patch)
     const pendingRestart = RESTART_REQUIRED_KEYS.filter(

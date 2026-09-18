@@ -28,17 +28,32 @@ export function textDelta(message: SDKMessage): string | undefined {
   return typeof event.delta.text === 'string' && event.delta.text !== '' ? event.delta.text : undefined
 }
 
+/**
+ * Longest user-side text kept verbatim in a log line. The user turn of a headless run carries
+ * no user: what arrives there is injected material, above all the full body of a skill the
+ * agent invoked (the ingest skill is ~18 KB and was 47 % of all job_logs bytes, once per run,
+ * 2026-09-18). The first line says what was injected; the rest is on disk in the vault.
+ * Assistant text is the run's own narrative and stays whole.
+ */
+const USER_TEXT_MAX = 400
+
+function clipUserText(text: string): string {
+  if (text.length <= USER_TEXT_MAX) return text
+  return `${text.slice(0, USER_TEXT_MAX)}… [+${text.length - USER_TEXT_MAX} chars]`
+}
+
 export function formatMessage(message: SDKMessage): string | undefined {
   switch (message.type) {
     case 'assistant':
     case 'user': {
       const content = (message.message as { content?: unknown }).content
-      if (typeof content === 'string') return `[${message.type}] ${content}`
+      const text = (raw: string): string => (message.type === 'user' ? clipUserText(raw) : raw)
+      if (typeof content === 'string') return `[${message.type}] ${text(content)}`
       if (!Array.isArray(content)) return undefined
       const parts: string[] = []
       for (const block of content as Array<Record<string, unknown>>) {
         if (block['type'] === 'text' && typeof block['text'] === 'string') {
-          parts.push(block['text'] as string)
+          parts.push(text(block['text'] as string))
         } else if (block['type'] === 'tool_use') {
           parts.push(`→ ${String(block['name'])}(${JSON.stringify(block['input']).slice(0, 160)})`)
         } else if (block['type'] === 'tool_result') {
@@ -48,6 +63,10 @@ export function formatMessage(message: SDKMessage): string | undefined {
       return parts.length > 0 ? `[${message.type}] ${parts.join('\n')}` : undefined
     }
     case 'system':
+      // The SDK's live thinking-token estimate (`SDKThinkingTokensMessage`) is a progress frame
+      // for spinners, emitted every second or so while the model thinks: ~135 rows per run in
+      // job_logs and nothing a reader can use. Hook and init frames stay, they are diagnostics.
+      if (message.subtype === 'thinking_tokens') return undefined
       return `[system] ${message.subtype}`
     case 'result':
       return undefined // summarised separately by the caller

@@ -170,7 +170,11 @@ export interface CreateJobInput {
    * `duplicate` exactly as if the hash had matched in `jobs`.
    */
   readonly duplicateOf?: string
-  /** The one line that explains the duplicate to a reader; stored on the row. */
+  /**
+   * The one line that explains the duplicate to a reader; stored on the row. Given WITHOUT
+   * `duplicateOf`, it alone makes the row a duplicate: the caller recognised a source page
+   * the vault holds (same URL, SPEC.md §12.9) but no delta-tracker entry names the job.
+   */
   readonly duplicateNote?: string
   /** Hold the job for its moment instead of running it now; see {@link JobHold}. */
   readonly hold?: JobHold
@@ -254,7 +258,9 @@ export class JobStore {
           : undefined
       const original = inDb ?? (input.duplicateOf !== undefined ? { id: input.duplicateOf } : undefined)
 
-      const isDuplicate = original !== undefined
+      // A duplicate the caller could not attribute to a job (a source page with the same URL,
+      // no delta-tracker entry) is still a duplicate: the note is its whole explanation.
+      const isDuplicate = original !== undefined || input.duplicateNote !== undefined
       const status: JobStatus = isDuplicate ? 'duplicate' : 'queued'
       // The one line under the row in the dashboard, so it says what happened and what to do
       // about it rather than just naming an id.
@@ -262,9 +268,11 @@ export class JobStore {
         ? null
         : inDb !== undefined
           ? inDb.status === 'done'
-            ? `already ingested by job ${original.id}: open that job to see the pages it wrote`
-            : `job ${original.id} is already ingesting this file (${inDb.status}): this copy would repeat it`
-          : (input.duplicateNote ?? `same content as job ${original.id}, whose original the vault still holds`)
+            ? `already ingested by job ${inDb.id}: open that job to see the pages it wrote`
+            : `job ${inDb.id} is already ingesting this file (${inDb.status}): this copy would repeat it`
+          : original !== undefined
+            ? (input.duplicateNote ?? `same content as job ${original.id}, whose original the vault still holds`)
+            : (input.duplicateNote ?? null)
 
       this.db
         .prepare(
@@ -292,7 +300,7 @@ export class JobStore {
           finished_at: isDuplicate ? now : null,
           notify_channel: input.notifyChannel ?? null,
           // Persisted, not just returned: the history must be able to answer "of what?".
-          duplicate_of: isDuplicate ? original.id : null,
+          duplicate_of: original?.id ?? null,
           // The explanation rides in `error`, which the dashboard already renders as the one
           // line under a settled row - a duplicate's "why" is that line, not a failure.
           error: note,
@@ -303,12 +311,14 @@ export class JobStore {
       this.log(
         id,
         isDuplicate ? 'warn' : 'info',
-        isDuplicate
-          ? `duplicate of job ${original.id} (sha256 match${inDb === undefined ? ' in the vault .raw manifests' : ''}) - skipped`
-          : `job created from ${input.source}${input.originalName ? ` (${input.originalName})` : ''}${!isDuplicate && input.hold === 'night' ? '; held for the night shift' : ''}`,
+        !isDuplicate
+          ? `job created from ${input.source}${input.originalName ? ` (${input.originalName})` : ''}${input.hold === 'night' ? '; held for the night shift' : ''}`
+          : input.sha256 !== undefined && original !== undefined
+            ? `duplicate of job ${original.id} (sha256 match${inDb === undefined ? ' in the vault .raw manifests' : ''}) - skipped`
+            : `duplicate${original !== undefined ? ` of job ${original.id}` : ''} (${note ?? 'recognised at enqueue'}) - skipped`,
       )
 
-      return { job: this.getOrThrow(id), ...(isDuplicate ? { duplicateOf: original.id } : {}) }
+      return { job: this.getOrThrow(id), ...(original !== undefined ? { duplicateOf: original.id } : {}) }
     })
 
     return run()

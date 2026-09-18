@@ -94,6 +94,7 @@ describe('formatJobOutcome', () => {
           'wiki/index.md',
           'wiki/hot.md',
           'wiki/log.md',
+          'wiki/overview.md',
           'wiki/concepts/Log.md', // a REAL page that happens to be titled "Log" stays
         ]),
       }),
@@ -102,6 +103,7 @@ describe('formatJobOutcome', () => {
     expect(text).toContain('Log')
     expect(text).not.toContain('_index')
     expect(text).not.toContain('hot')
+    expect(text).not.toContain('overview')
     // Only maintenance pages touched → no Pages block at all.
     const onlyMaintenance = formatJobOutcome(
       makeJob({ created_pages: JSON.stringify(['wiki/hot.md', 'wiki/sources/_index.md']) }),

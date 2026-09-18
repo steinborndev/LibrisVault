@@ -13,19 +13,37 @@
  * the frontmatter of `wiki/sources/*.md` (`url:` / `doi:`) back to their page, and the queue
  * asks it once the normalized text exists - BEFORE an agent run is paid for.
  *
- * READ-ONLY over the vault. Both indexes re-read only what changed on disk since the last
+ * A link (2026-09-18) has no hash at all, and the same post re-shared from an app arrives with
+ * a tracking tag on its address. The page index therefore also maps the CANONICAL address a
+ * source page declares (`url:`, see `url-identity.ts`) back to the page, and the queue asks
+ * it at enqueue, before anything is fetched. A source page is the only evidence accepted for
+ * a URL: a failed earlier job leaves no page, so resubmitting its link is a retry.
+ *
+ * READ-ONLY over the vault. All indexes re-read only what changed on disk since the last
  * call, so asking on every enqueue is cheap.
  */
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { doisIn, normalizeDoi } from './identifiers.js'
+import { canonicalUrl } from './url-identity.js'
 
 /** An original the vault already holds, by content hash. */
 export interface KnownSource {
   /** The job whose `.raw/<job-id>/` holds the original: the directory name. */
   readonly jobId: string
   readonly originalName: string | null
+}
+
+/** A source page that declares the same canonical address as a submitted link. */
+export interface UrlMatch {
+  /** The canonical form both sides were compared in (see `urlKey`). */
+  readonly url: string
+  /** Vault-relative POSIX path of the source page (`wiki/sources/....md`). */
+  readonly page: string
+  /** The job that created the page, when `.raw/.manifest.json` names one; null otherwise. */
+  readonly jobId: string | null
+  readonly pageMtimeMs: number
 }
 
 /** A source page that carries the same DOI as a freshly normalized document. */
@@ -108,17 +126,22 @@ export function pmcIn(text: string): string[] {
 }
 
 /**
+ * The url as identity: the same document with a tracking parameter or a trailing slash is
+ * the same document. ONE definition for the reading list and for dedupe (2026-09-18): the
+ * canonical form from `url-identity.ts` - https, lowercase host without `www.`, no fragment
+ * or trailing slash, known click-tracking parameters removed, every other parameter kept and
+ * sorted, a post identified by its status id and a video by its video id. Anything that is
+ * not an http(s) url keys to '' and matches nothing. Lives here rather than in the reading
+ * list because the page index needs it too, and the reading list already imports its
+ * identity helpers from this module.
+ */
+export const urlKey = (url: string): string => canonicalUrl(url) ?? ''
+
+/**
  * One stable identity for a publication: its DOI where it has one, else its arXiv id. Both
  * normalized, so `https://doi.org/10.1/x`, `doi:10.1/X` and `10.1/x` are one key, and so are
  * an abs link, a pdf link and a bare id.
  */
-/**
- * The url as identity: the same document with a tracking parameter or a trailing slash is
- * the same document. Lives here rather than in the reading list because the page index needs
- * it too, and the reading list already imports its identity helpers from this module.
- */
-export const urlKey = (url: string): string => url.trim().replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase()
-
 export function refKey(text: string | null | undefined): string | undefined {
   if (text === null || text === undefined || text.trim() === '') return undefined
   const doi = doisIn(text)[0]
@@ -186,7 +209,8 @@ export function pageUrls(markdown: string): string[] {
     if (m === null) continue
     // Frontmatter values are often quoted; the quotes are not part of the url.
     const raw = m[2]!.trim().replace(/^["']|["']$/g, '')
-    if (/^https?:\/\//i.test(raw)) out.push(urlKey(raw))
+    const key = urlKey(raw)
+    if (key !== '') out.push(key)
   }
   return [...new Set(out)]
 }
@@ -270,12 +294,12 @@ export class DedupeIndex {
    * - a paper whose url carries no identifier, dropped in as a PDF by hand, where the only
    * thing the entry and the page have in common is where the document came from.
    */
-  byUrl(url: string): { readonly url: string; readonly page: string } | undefined {
+  byUrl(url: string): UrlMatch | undefined {
     const wanted = urlKey(url)
     if (wanted === '') return undefined
     this.refreshPages()
     for (const [page, entry] of this.pages) {
-      if (entry.urls.includes(wanted)) return { url: wanted, page }
+      if (entry.urls.includes(wanted)) return { url: wanted, page, jobId: this.jobForPage(page), pageMtimeMs: entry.mtimeMs }
     }
     return undefined
   }

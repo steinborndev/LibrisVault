@@ -97,8 +97,8 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
 
         const only = items[0]!
         if (only.kind === 'url') {
-          const { job } = queue.enqueueUrl({ url: only.url, source: 'drop', ...hold })
-          enqueued.push({ id: job.id, name: staged[0]!.name, status: job.status })
+          const { job, duplicateOf } = queue.enqueueUrl({ url: only.url, source: 'drop', ...hold })
+          enqueued.push({ id: job.id, name: staged[0]!.name, status: job.status, ...(duplicateOf ? { duplicateOf } : {}) })
         } else {
           const { job, duplicateOf } = await queue.enqueueFile({
             sourcePath: only.sourcePath,
@@ -117,8 +117,10 @@ export function registerJobsRoute(app: FastifyInstance, ctx: AppContext): void {
     // JSON body: a pasted URL or pasted text (SPEC.md §4.1).
     const body = (req.body ?? {}) as { url?: unknown; text?: unknown; title?: unknown }
     if (typeof body.url === 'string' && body.url.trim() !== '') {
-      const { job } = queue.enqueueUrl({ url: body.url.trim(), source: 'drop', ...hold })
-      return reply.code(202).send({ jobs: [{ id: job.id, name: body.url.trim(), status: job.status }] })
+      const { job, duplicateOf } = queue.enqueueUrl({ url: body.url.trim(), source: 'drop', ...hold })
+      return reply
+        .code(202)
+        .send({ jobs: [{ id: job.id, name: body.url.trim(), status: job.status, ...(duplicateOf ? { duplicateOf } : {}) }] })
     }
     if (typeof body.text === 'string' && body.text.trim() !== '') {
       const title = typeof body.title === 'string' && body.title.trim() !== '' ? body.title.trim() : 'pasted-text'

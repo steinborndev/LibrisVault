@@ -32,6 +32,8 @@ export const DEFAULT_CONCURRENCY = 2
 export const DEFAULT_GIT_AUTO_COMMIT = true
 /** The post-preprocessing DOI dedupe (SPEC.md §12.9) is on unless switched off. */
 export const DEFAULT_DOI_DEDUPE = true
+/** The enqueue-time URL dedupe (SPEC.md §12.9, 2026-09-18) is on unless switched off. */
+export const DEFAULT_URL_DEDUPE = true
 
 /**
  * The settable keys. `null` clears an override (falls back to the baseline). `.strict()` makes
@@ -58,6 +60,12 @@ export const SETTINGS_SCHEMA = z
      * wrong match: switch it off, drop the file again. Applied live.
      */
     doiDedupe: z.boolean().nullable(),
+    /**
+     * Whether a link whose canonical address a source page already declares is settled as a
+     * duplicate at enqueue, before anything is fetched (SPEC.md §12.9). The escape hatch for
+     * re-ingesting a page that changed since: switch it off, submit the link again. Applied live.
+     */
+    urlDedupe: z.boolean().nullable(),
     /**
      * Per-day ceiling before the queue pauses (SPEC.md §7.1, §11.3). The UNIT depends on the
      * auth mode — ingests/day in oauth (subscription) mode, USD/day with an API key — see
@@ -130,6 +138,7 @@ export interface EffectiveSettings {
   readonly maxUploadBytes: number
   readonly gitAutoCommit: boolean
   readonly doiDedupe: boolean
+  readonly urlDedupe: boolean
   /** null = no daily budget (the default). Unit depends on auth mode — see pipeline/budget.ts. */
   readonly dailyBudget: number | null
   /** The Fellows' night shift, local `HH:MM` (docs/agents/SPEC.md section 8.2). */
@@ -184,6 +193,7 @@ export function baselineSettings(config: Config): EffectiveSettings {
     gitAutoCommit: DEFAULT_GIT_AUTO_COMMIT,
     doiDedupe: DEFAULT_DOI_DEDUPE,
     oaRecovery: DEFAULT_OA_RECOVERY,
+    urlDedupe: DEFAULT_URL_DEDUPE,
     // No env baseline: a budget is opt-in, so "unset" means unlimited. Clearing the override
     // therefore lands back on null, which reads the same as never having set one.
     dailyBudget: null,
@@ -205,6 +215,7 @@ export function effectiveSettings(config: Config, overrides: SettingsOverrides):
     gitAutoCommit: overrides.gitAutoCommit ?? base.gitAutoCommit,
     doiDedupe: overrides.doiDedupe ?? base.doiDedupe,
     oaRecovery: overrides.oaRecovery ?? base.oaRecovery,
+    urlDedupe: overrides.urlDedupe ?? base.urlDedupe,
     dailyBudget: overrides.dailyBudget ?? base.dailyBudget,
     nightWindowStart: overrides.nightWindowStart ?? base.nightWindowStart,
     nightWindowEnd: overrides.nightWindowEnd ?? base.nightWindowEnd,

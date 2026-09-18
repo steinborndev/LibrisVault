@@ -585,6 +585,8 @@ export interface EffectiveSettings {
   doiDedupe: boolean
   /** Look for an open-access copy when a URL job is blocked or reads as an abstract only. */
   oaRecovery: boolean
+  /** Settle a link whose canonical address a source page already declares as a duplicate, before any fetch. */
+  urlDedupe: boolean
   /** null = no budget. Unit depends on authMode: ingests/day (oauth) or USD/day (api-key). */
   dailyBudget: number | null
   /**

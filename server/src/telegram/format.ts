@@ -10,6 +10,7 @@
 import path from 'node:path'
 import type { JobRow } from '../db/jobs.js'
 import type { MaintenanceRun } from '../pipeline/maintenance.js'
+import { isMetaPage } from '../pipeline/wiki-meta.js'
 
 /** Telegram's hard cap per message. */
 export const MAX_MESSAGE_CHARS = 4096
@@ -47,14 +48,14 @@ function jobName(job: JobRow): string {
 }
 
 /**
- * Vault maintenance pages the ingest touches on every run (indexes, hot cache, log). They are
- * real entries in `created_pages`, but as notification "titles" they are pure noise — filtered
- * HERE only (live acceptance observation, 2026-07-20); the DB keeps the full list. Matched by
- * PATH, not title, so a genuine content page named "Index" or "Log" still shows.
+ * Vault meta pages the ingest touches on every run (indexes, hot cache, log, overview). They
+ * are real entries in `created_pages`, but as notification "titles" they are pure noise -
+ * filtered HERE (live acceptance observation, 2026-07-20); the DB keeps the full list. The
+ * definition is shared with the queue's "no changes" outcome (`pipeline/wiki-meta.ts`), so
+ * the badge and the message can never disagree about what counts as a page. Matched by PATH,
+ * not title, so a genuine content page named "Index" or "Log" still shows.
  */
-const MAINTENANCE_PATHS = new Set(['wiki/index.md', 'wiki/hot.md', 'wiki/log.md'])
-const isMaintenancePage = (pagePath: string): boolean =>
-  MAINTENANCE_PATHS.has(pagePath) || path.basename(pagePath) === '_index.md'
+const isMaintenancePage = isMetaPage
 
 function pagesBlock(pages: readonly string[]): string {
   const content = pages.filter((p) => !isMaintenancePage(p))

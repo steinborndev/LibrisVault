@@ -258,7 +258,9 @@ export function openCopyCandidates(
  */
 export function urlFileName(url: string): string | undefined {
   const trimmed = urlKey(url)
-  const last = trimmed.slice(trimmed.lastIndexOf('/') + 1)
+  // File names compare case-insensitively (`Report_EN.PDF` is `report_en.pdf`); the url key
+  // itself keeps the path's case, so the folding happens here.
+  const last = trimmed.slice(trimmed.lastIndexOf('/') + 1).toLowerCase()
   return /^[^/]+\.[a-z0-9]{2,5}$/.test(last) ? last : undefined
 }
 
