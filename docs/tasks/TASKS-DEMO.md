@@ -75,3 +75,15 @@ must start on a vault it cannot write.
 - **F4: the demo guard's body shape.** It names the reason in `error` and the text in `message`,
   the opposite of the `code`/`error` convention the other endpoints use. The client recognises it
   by status and reason rather than changing the server contract §12.8 documents.
+
+## Delivered
+
+- Merged as pull request #14, squashed to one commit (`ee4f09f`), on 2026-09-18.
+- The hosted demo was cut over the same day: the build from that merge, the synthetic seed with
+  its Fellows, `DEMO_MODE=1` with `AGENTS_ENABLED=1`, the vault mounted read-only for the service,
+  a reseed every morning after the seeded night window, and `robots.txt` and `security.txt`
+  answered by the reverse proxy in front. Checked from outside and in a browser: health says demo
+  and Fellows, a write is refused with the notice, the main room shows its two favorites and the
+  four Fellows, and Research shows the seed's runs and conversations with the composer disabled.
+  The service log carried the one expected warning and no error.
+- Still open here: re-shoot the README's room screenshot with the next screenshot round.
