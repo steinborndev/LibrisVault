@@ -27,6 +27,7 @@ import { runAgent, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import { formatMessage } from './format-message.js'
 import { sha256File } from './hash.js'
 import { DedupeIndex, extractDoi } from './dedupe.js'
+import { contentPages } from './wiki-meta.js'
 import {
   preprocess,
   detectTools,
@@ -200,6 +201,17 @@ interface CommitScope {
 
 /** How an ingest signs the reading list entries it adds (the Fellow's name on a Fellow's run). */
 const INGEST_ACTOR = 'ingest'
+
+/** The `created_pages` JSON column as a list; anything unreadable counts as no pages. */
+function parsePageList(raw: string | null): string[] {
+  if (raw === null || raw === '') return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : []
+  } catch {
+    return []
+  }
+}
 
 /** Classifies an agent failure to decide retry vs pause vs give-up. */
 export function classifyFailure(res: AgentRunResult): FailureClass {
@@ -771,25 +783,26 @@ export class IngestQueue {
   }
 
   /**
-   * A `done` run that wrote no wiki page gets `outcome = 'no-changes'` (SPEC.md §12.9): the
+   * A `done` run that wrote no CONTENT page gets `outcome = 'no-changes'` (SPEC.md §12.9): the
    * agent finished cleanly and found nothing to add - typically a source it recognised as
-   * already ingested by means the two dedupe stages do not cover. Said in the log too, so the
-   * row and its record agree.
+   * already ingested by means the dedupe stages do not cover. The vault's meta pages do not
+   * count (`wiki-meta.ts`): such a run still appends its own entry to `wiki/log.md`, and until
+   * 2026-09-18 that one line made it pass as an ingest with "1 page". Said in the log too, so
+   * the row and its record agree.
    */
-  private markNoChanges(jobId: string, committedWiki: number): void {
-    if (committedWiki > 0) return
+  private markNoChanges(jobId: string, committed: readonly string[]): void {
+    if (contentPages(committed).length > 0) return
     const row = this.store.get(jobId)
     if (row === undefined || row.status !== 'done') return
     // Only a run whose commit LANDED and carried no page is a no-change run. A skipped or
     // failed commit says nothing about what the run wrote - those pages are on disk.
     if (row.commit_hash === null) return
-    const recorded = row.created_pages !== null && row.created_pages !== '' && row.created_pages !== '[]'
-    if (recorded) return
+    if (contentPages(parsePageList(row.created_pages)).length > 0) return
     this.store.setOutcome(jobId, 'no-changes')
     this.store.log(
       jobId,
       'warn',
-      'no changes: the run finished but wrote no wiki page (the agent found nothing to add - usually a source it recognised as already ingested)',
+      'no changes: the run finished but wrote no wiki page beyond index, log and hot cache (the agent found nothing to add - usually a source it recognised as already ingested)',
     )
   }
 
@@ -1182,7 +1195,7 @@ export class IngestQueue {
         readingBefore,
       })
       endRun()
-      this.markNoChanges(job.id, committed.length)
+      this.markNoChanges(job.id, committed)
       await this.validateStep(job.id, [...written, ...committed], [job.id])
       const note = await this.refreshHotCache(this.vaultRoot)
       this.store.log(job.id, 'info', note)
@@ -1522,7 +1535,7 @@ export class IngestQueue {
         readingBefore,
       })
       endRun()
-      for (const r of ready) this.markNoChanges(r.id, committed.length)
+      for (const r of ready) this.markNoChanges(r.id, committed)
       // The corpus is the union over the batch: one combined run read all of their documents.
       await this.validateStep(lead, [...written, ...committed], ready.map((r) => r.id))
       const note = await this.refreshHotCache(this.vaultRoot)

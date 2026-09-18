@@ -461,6 +461,17 @@ describe('stage 3: a run that wrote nothing is marked no-changes', () => {
     expect(store.logs(job.id).map((l) => l.message).join('\n')).toMatch(/no changes: the run finished but wrote no wiki page/)
   })
 
+  it('treats a run that only touched meta pages (its own log entry, the indexes) as no changes', async () => {
+    const q = makeQueue({ commitPages: ['wiki/log.md', 'wiki/index.md', 'wiki/sources/_index.md'] })
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource('a.md', 'plain'), source: 'drop' })
+    await q.onIdle()
+    const row = store.getOrThrow(job.id)
+    expect(row.outcome).toBe('no-changes')
+    // The commit record stays complete: the pages are real, they are just not content.
+    expect(JSON.parse(row.created_pages ?? '[]')).toEqual(['wiki/log.md', 'wiki/index.md', 'wiki/sources/_index.md'])
+  })
+
   it('leaves an ordinary run unmarked', async () => {
     const q = makeQueue()
     q.start()
