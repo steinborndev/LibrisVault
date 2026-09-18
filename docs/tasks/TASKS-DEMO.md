@@ -38,6 +38,16 @@ must start on a vault it cannot write.
       instead of the notice, with the seed's saved conversations and finished research runs; the
       composer is disabled with a hint and `send` returns early, and the guard refuses a query or
       a run anyway. System keeps its notice: it is the machine room.
+- [x] The banner names the data (2026-09-18, asked while viewing the demo): centred, with
+      "Synthetic demo data" as a badge ahead of the read-only note, so nobody takes the pages, the
+      Fellows or their nights for real notes. Checked in light, dark and at phone width.
+- [x] Two favorites in the main room (same round): the seed places astronomy and climate-science
+      side by side in the pair left of the wing door, `placed_by = 'user'`, as only the user fills
+      those; the wings are auto-placed on the first scene build as before (Wing A 12, Wing B 4).
+      With all four empty the room read as nobody's. The pair had to differ in colour, and a
+      domain's colour is a hash of its name: the first pick, astronomy and machine-learning, sat
+      on the same hue. The README's `library-room.png` was shot before this and shows four
+      silhouettes; re-shoot it with the next screenshot round, not for this.
 - [x] Docs: SPEC.md §12.8 and §12.10, README (`DEMO_MODE` row, "Hosting a read-only demo"),
       `docs/API.md`, the header of `agents-flag-off.test.ts`.
 - [x] Verification (2026-09-18): a fresh seed (917 pages, 4 Fellows, 4 recaps), served from source
