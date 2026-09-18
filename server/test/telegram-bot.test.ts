@@ -56,13 +56,13 @@ function makeFakeClient(batches: TgUpdate[][]) {
   return { client, sent, getFile, downloadFile }
 }
 
-function makeFakeQueue() {
+function makeFakeQueue(urlJob?: Record<string, unknown>) {
   const enqueueFile = vi.fn(async () => ({ job: { id: 'JOBFILE123456', status: 'queued' } }))
   const enqueueBatch = vi.fn(async (items: unknown[]) => ({
     batchId: 'BATCH00999999',
     jobs: (items as unknown[]).map((_item, i) => ({ job: { id: `MEMBER${i}`, status: 'queued' } })),
   }))
-  const enqueueUrl = vi.fn(() => ({ job: { id: 'JOBURL7777777', status: 'queued' } }))
+  const enqueueUrl = vi.fn(() => ({ job: urlJob ?? { id: 'JOBURL7777777', status: 'queued' } }))
   const stats = vi.fn(() => ({ inFlight: 1, paused: false, pauseReason: null, concurrency: 2 }))
   const queue = { enqueueFile, enqueueBatch, enqueueUrl, stats } as unknown as IngestQueue
   return { queue, enqueueFile, enqueueBatch, enqueueUrl }
@@ -98,9 +98,11 @@ function makeBot(over: {
   noResearch?: boolean
   /** The recap answer hook (docs/agents/SPEC.md section 9.3). */
   recapAnswer?: (text: string) => Promise<string | null>
+  /** What `enqueueUrl` answers - a `duplicate` row tests the immediate reply. */
+  urlJob?: Record<string, unknown>
 }) {
   const fake = makeFakeClient(over.batches ?? [])
-  const q = makeFakeQueue()
+  const q = makeFakeQueue(over.urlJob)
   const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-bot-test-'))
   const logs: Array<{ level: string; message: string }> = []
   const dropCalls: Array<[number, string | undefined]> = []
@@ -424,6 +426,22 @@ describe('telegram bot — url and text ingest', () => {
         notifyChannel: `telegram:${CHAT}`,
       }),
     )
+  })
+
+  it('a link the vault already holds is answered at once instead of being queued', async () => {
+    const b = makeBot({
+      batches: [[update({ text: 'https://example.org/article?utm_source=share' })]],
+      urlJob: {
+        id: 'JOBDUP0000001',
+        status: 'duplicate',
+        error: 'already in the vault as wiki/sources/Article.md (same URL https://example.org/article, ingested by job JOBOLD)',
+      },
+    })
+    await vi.waitFor(() => expect(b.sent.length).toBe(1))
+    await b.bot.stop()
+    expect(b.sent[0]!.text).toMatch(/already in the vault/)
+    expect(b.sent[0]!.text).toMatch(/Article\.md/)
+    expect(b.sent[0]!.text).not.toMatch(/Queued URL/)
   })
 
   it('plain text becomes a staged .md file job, staging cleaned after enqueue', async () => {

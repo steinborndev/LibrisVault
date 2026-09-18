@@ -171,7 +171,7 @@ async function handleGroup(
       const only = items[0]!
       if (only.kind === 'url') {
         const { job } = queue.enqueueUrl({ url: only.url, source: 'watch' })
-        log('info', `enqueued URL → ${job.id}`)
+        log('info', `enqueued URL → ${job.id}${job.status === 'duplicate' ? ' (duplicate)' : ''}`)
       } else {
         const originalName = only.originalName ?? path.basename(only.sourcePath)
         const { job, duplicateOf } = await queue.enqueueFile({ sourcePath: only.sourcePath, source: 'watch', originalName })

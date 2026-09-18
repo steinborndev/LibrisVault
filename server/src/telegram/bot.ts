@@ -211,6 +211,12 @@ export function startTelegramBot(options: StartTelegramBotOptions): TelegramBot 
       source: 'telegram',
       notifyChannel: notifyChannel(chatId),
     })
+    if (job.status === 'duplicate') {
+      // Recognised at enqueue (SPEC.md §12.9): nothing is fetched and nothing completes later,
+      // so the explanation goes out now instead of a completion notice that would never come.
+      await reply(chatId, `That link is already in the vault (${job.error ?? 'duplicate'}).`)
+      return
+    }
     await reply(chatId, `Queued URL as job ${job.id.slice(-6)} — I'll report back when it's done.`)
   }
 

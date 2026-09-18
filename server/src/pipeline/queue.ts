@@ -27,6 +27,7 @@ import { runAgent, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import { formatMessage } from './format-message.js'
 import { sha256File } from './hash.js'
 import { DedupeIndex, extractDoi } from './dedupe.js'
+import { canonicalUrl } from './url-identity.js'
 import { contentPages } from './wiki-meta.js'
 import {
   preprocess,
@@ -183,6 +184,12 @@ export interface IngestQueueOptions {
   readonly oaRecovery?: () => boolean
   /** The `oa_lookups` table, so three APIs are not asked the same DOI twice (5.5). */
   readonly oaLookups?: OaLookupCache
+  /**
+   * Whether the enqueue-time URL check runs (settings `urlDedupe`, SPEC.md §12.9, 2026-09-18).
+   * A provider like `doiDedupe`; switching it off is how a page that changed since its ingest
+   * gets fetched again.
+   */
+  readonly urlDedupe?: () => boolean
 }
 
 /**
@@ -309,6 +316,7 @@ export class IngestQueue {
   private readonly doiDedupe: () => boolean
   private readonly oaRecovery: () => boolean
   private readonly oaLookups: OaLookupCache | undefined
+  private readonly urlDedupe: () => boolean
   private running = false
   private paused = false
   /**
@@ -364,6 +372,7 @@ export class IngestQueue {
     this.doiDedupe = opts.doiDedupe ?? ((): boolean => true)
     this.oaRecovery = opts.oaRecovery ?? ((): boolean => false)
     this.oaLookups = opts.oaLookups
+    this.urlDedupe = opts.urlDedupe ?? ((): boolean => true)
   }
 
   /**
@@ -707,6 +716,27 @@ export class IngestQueue {
   }
 
   /**
+   * Stage two of dedupe for a LINK (SPEC.md §12.9, 2026-09-18), decided at enqueue: the
+   * canonical form of the address (share-link tracking stripped, a post by its status id, see
+   * `url-identity.ts`) is one a source page already declares in its frontmatter. Nothing is
+   * fetched and no staging dir is created; the row is a `duplicate` at creation, exactly like
+   * a remembered hash. A source page is the only evidence accepted: a failed earlier job
+   * leaves no page, so resubmitting its link is a retry, not a duplicate.
+   */
+  private vaultKnowsUrl(url: string): { duplicateOf?: string; duplicateNote: string } | Record<never, never> {
+    if (!this.urlDedupe()) return {}
+    const canonical = canonicalUrl(url)
+    if (canonical === undefined) return {}
+    const match = this.dedupe.byUrl(canonical)
+    if (match === undefined) return {}
+    const via = match.jobId !== null ? `job ${match.jobId}` : 'an earlier ingest'
+    return {
+      ...(match.jobId !== null ? { duplicateOf: match.jobId } : {}),
+      duplicateNote: `already in the vault as ${match.page} (same URL ${canonical}, ingested by ${via})`,
+    }
+  }
+
+  /**
    * Stage two of dedupe (SPEC.md §12.9), after preprocessing: the document identifies itself
    * by a DOI that a source page in the vault already declares. Bytes differ between two
    * downloads of the same paper (publisher watermarks), so only the normalized text can
@@ -835,7 +865,7 @@ export class IngestQueue {
     const jobs: CreateJobResult[] = []
     for (const item of items) {
       if (item.kind === 'url') {
-        jobs.push(this.store.create({ source, type: 'web', url: item.url, batchId, ...notify }))
+        jobs.push(this.store.create({ source, type: 'web', url: item.url, ...this.vaultKnowsUrl(item.url), batchId, ...notify }))
         continue
       }
       const originalName = sanitizeOriginalName(item.originalName ?? path.basename(item.sourcePath))
@@ -917,6 +947,7 @@ export class IngestQueue {
       source: input.source ?? 'url',
       type: 'web',
       url: input.url,
+      ...this.vaultKnowsUrl(input.url),
       ...(input.batchId ? { batchId: input.batchId } : {}),
       ...(input.notifyChannel ? { notifyChannel: input.notifyChannel } : {}),
       ...(input.hold ? { hold: input.hold } : {}),

@@ -34,6 +34,24 @@ describe('create', () => {
     expect(store.logs(second.job.id)[0]?.message).toMatch(/duplicate of/)
   })
 
+  it('records a duplicate the caller recognised by a source page, with or without a job to point at', () => {
+    const note = 'already in the vault as wiki/sources/P.md (same URL https://example.org/p, ingested by job JOBOLD)'
+    const attributed = store.create({ source: 'telegram', type: 'web', url: 'https://example.org/p?s=1', duplicateOf: 'JOBOLD', duplicateNote: note })
+    expect(attributed.job.status).toBe('duplicate')
+    expect(attributed.duplicateOf).toBe('JOBOLD')
+    expect(attributed.job.duplicate_of).toBe('JOBOLD')
+    expect(attributed.job.error).toBe(note)
+    expect(store.logs(attributed.job.id)[0]?.message).toMatch(/^duplicate of job JOBOLD \(already in the vault/)
+
+    const unattributed = store.create({ source: 'telegram', type: 'web', url: 'https://example.org/p', duplicateNote: note })
+    expect(unattributed.job.status).toBe('duplicate')
+    expect(unattributed.duplicateOf).toBeUndefined()
+    expect(unattributed.job.duplicate_of).toBeNull()
+    expect(unattributed.job.finished_at).not.toBeNull()
+    expect(unattributed.job.error).toBe(note)
+    expect(store.logs(unattributed.job.id)[0]?.message).toMatch(/^duplicate \(already in the vault/)
+  })
+
   it('does not dedupe URL jobs (no sha256)', () => {
     const a = store.create({ source: 'url', type: 'web', url: 'https://x' })
     const b = store.create({ source: 'url', type: 'web', url: 'https://x' })

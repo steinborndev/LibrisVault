@@ -286,6 +286,17 @@ export function SettingsEditor({ section = 'all', focus = '' }: { section?: Sett
         )}
 
         {row(
+          'urlDedupe',
+          'URL dedupe',
+          'Skip a link whose address a source page already declares, before fetching it; share-link tracking parameters are ignored. Off: fetch and ingest it anyway (switch off to re-ingest a page that changed).',
+          <input
+            type="checkbox"
+            checked={draft.urlDedupe}
+            onChange={(e) => setDraft({ ...draft, urlDedupe: e.target.checked })}
+          />,
+        )}
+
+        {row(
           'dailyBudget',
           'Daily budget',
           budgetUnit === 'jobs'
