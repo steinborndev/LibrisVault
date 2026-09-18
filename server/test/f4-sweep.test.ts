@@ -5,7 +5,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { JobStore } from '../src/db/jobs.js'
-import { IngestQueue } from '../src/pipeline/queue.js'
+import { IngestQueue, type IngestRunner } from '../src/pipeline/queue.js'
 import { RunRegistry } from '../src/pipeline/run-registry.js'
 import type { AgentRunResult } from '../src/pipeline/agent-runner.js'
 import type { ToolAvailability } from '../src/pipeline/preprocess/index.js'
@@ -74,7 +74,7 @@ afterEach(() => {
   fs.rmSync(srcDir, { recursive: true, force: true })
 })
 
-function makeQueue(runRegistry: RunRegistry): IngestQueue {
+function makeQueue(runRegistry: RunRegistry, runIngest?: IngestRunner): IngestQueue {
   return new IngestQueue({
     store,
     vaultRoot,
@@ -89,12 +89,30 @@ function makeQueue(runRegistry: RunRegistry): IngestQueue {
     refreshHotCache: async () => 'noop',
     // Simulates the agent writing a page with Bash: it lands on disk, but nothing is reported
     // through onMessage, so `written` stays empty for it.
-    runIngest: async () => {
-      fs.writeFileSync(path.join(vaultRoot, BASH_PAGE), '# made by bash')
-      return okResult()
-    },
+    runIngest:
+      runIngest ??
+      (async () => {
+        fs.writeFileSync(path.join(vaultRoot, BASH_PAGE), '# made by bash')
+        return okResult()
+      }),
   })
 }
+
+/** The page the agent announced through an Edit call: on disk AND in the tool stream. */
+const REPORTED_PAGE = 'wiki/log.md'
+
+/** An agent that edits `REPORTED_PAGE` the reported way and, optionally, makes a page with Bash. */
+const reportingAgent =
+  (alsoBash: boolean): IngestRunner =>
+  async (opts) => {
+    fs.writeFileSync(path.join(vaultRoot, REPORTED_PAGE), '## log entry')
+    opts.onMessage?.({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: path.join(vaultRoot, REPORTED_PAGE) } }] },
+    } as never)
+    if (alsoBash) fs.writeFileSync(path.join(vaultRoot, BASH_PAGE), '# made by bash')
+    return okResult()
+  }
 
 function writeSource(name = 'note.md'): string {
   const p = path.join(srcDir, name)
@@ -129,6 +147,31 @@ describe('F4 sweep', () => {
     // Not staged: with two writers active, this page cannot be attributed to either run, and
     // committing it under the wrong job is worse than leaving it for the operator.
     expect(pathspecs[0]).not.toContain(BASH_PAGE)
+  })
+
+  it('counts only the pages the tool stream did not report in its F4 line', async () => {
+    const q = makeQueue(new RunRegistry(), reportingAgent(true))
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource(), source: 'drop' })
+    await q.onIdle()
+
+    expect(pathspecs[0]).toContain(REPORTED_PAGE)
+    expect(pathspecs[0]).toContain(BASH_PAGE)
+    const log = store.logs(job.id).map((l) => l.message).join('\n')
+    // Until 2026-09-18 this said "2": the sweep sees the reported Edit too, and announced it as
+    // unreported. The staging itself was right, only the line was wrong.
+    expect(log).toMatch(/staging 1 page\(s\) the tool stream did not report \(F4\)/)
+  })
+
+  it('says nothing about F4 when every dirtied page was tool-reported', async () => {
+    const q = makeQueue(new RunRegistry(), reportingAgent(false))
+    q.start()
+    const { job } = await q.enqueueFile({ sourcePath: writeSource(), source: 'drop' })
+    await q.onIdle()
+
+    expect(pathspecs[0]).toContain(REPORTED_PAGE)
+    const log = store.logs(job.id).map((l) => l.message).join('\n')
+    expect(log).not.toMatch(/did not report/)
   })
 
   it('leaves files the user already had dirty alone (SPEC risk 5)', async () => {

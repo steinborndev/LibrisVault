@@ -1243,8 +1243,12 @@ export class IngestQueue {
   private async buildPathspec(scope: CommitScope, log: (message: string) => void): Promise<string[]> {
     const sole = this.runRegistry.isSoleWriter()
     const swept = sole ? newWikiPaths(scope.dirtyBefore, await dirtyPaths(this.vaultRoot)) : []
-    if (swept.length > 0) {
-      log(`staging ${swept.length} page(s) the tool stream did not report (F4)`)
+    // The sweep sees every page the run dirtied, tool-reported ones included; only the rest
+    // is the F4 blind spot worth a log line (until 2026-09-18 an Edit of `wiki/log.md` was
+    // announced as a page "the tool stream did not report").
+    const unreported = swept.filter((p) => !scope.written.has(p))
+    if (unreported.length > 0) {
+      log(`staging ${unreported.length} page(s) the tool stream did not report (F4)`)
     } else if (!sole) {
       log('another run is writing — staging only tool-reported paths (F4 sweep skipped)')
     }
