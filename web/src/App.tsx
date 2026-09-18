@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from './api/client.ts'
+import { api, onDemoRefusal } from './api/client.ts'
 import { useEvents } from './hooks/useEvents.ts'
 import { useMaintenanceStatus } from './hooks/useMaintenanceStatus.ts'
 import { useActiveRuns } from './hooks/useActiveRuns.ts'
@@ -146,6 +146,16 @@ export function App(): React.ReactElement {
   // A demo instance intentionally runs without a credential - that is its normal state,
   // not an onboarding gap, so demo wins over the setup banner.
   const setupMode = !demoMode && (health.data ? !health.data.credentialConfigured : false)
+  // One notice for every write a read-only instance refuses (SPEC.md §12.8). The guard covers
+  // every route, so the reaction lives here once instead of in each screen's mutation; the
+  // buttons stay, which is how a visitor sees what the full app can do.
+  const [refusedAt, setRefusedAt] = useState<number | null>(null)
+  useEffect(() => onDemoRefusal(() => setRefusedAt(Date.now())), [])
+  useEffect(() => {
+    if (refusedAt === null) return
+    const timer = setTimeout(() => setRefusedAt(null), 4000)
+    return () => clearTimeout(timer)
+  }, [refusedAt])
   // Both header chips show their channel's state rather than hiding when it is off: a
   // Telegram chip that vanishes when no bot is configured cannot tell you that none is.
   const watcherActive = stats.data?.watcher.active === true
@@ -214,8 +224,10 @@ export function App(): React.ReactElement {
   // that wrote it. Only on an instance with Fellows; the server attributes the page.
   const fellowsOn = health.data?.fellows === true
   useEffect(() => {
-    if (openPage !== null && fellowsOn) api.valueEvent({ kind: 'page_open', page: openPage })
-  }, [openPage, fellowsOn])
+    // Not on a read-only instance: the guard would refuse it, and a visitor's browsing says
+    // nothing about the value of a Fellow's work anyway.
+    if (openPage !== null && fellowsOn && !demoMode) api.valueEvent({ kind: 'page_open', page: openPage })
+  }, [openPage, fellowsOn, demoMode])
 
   const badgeFor = (id: ScreenId): React.ReactElement | null => {
     if (id === 'home' && outstanding > 0) {
@@ -337,9 +349,20 @@ export function App(): React.ReactElement {
           </div>
         )}
         {demoMode && (
-          <div className="setup-banner" role="status">
-            <strong>Read-only demo:</strong>&nbsp;browse the vault freely - ingestion, research and
-            system actions are switched off in this hosted instance.
+          /* Centred, and the data's nature first: a visitor must not take the pages, the
+             Fellows or their nights for anyone's real notes. The read-only part comes second. */
+          <div className="setup-banner demo" role="status">
+            <strong className="demo-lead">Synthetic demo data</strong>
+            <span>
+              the vault, its Fellows and their nights are generated for this demo, nobody's real notes.
+            </span>
+            <span className="demo-sep" aria-hidden="true">
+              ·
+            </span>
+            <span>
+              <strong>Read-only:</strong> ingestion, research and system actions are switched off in this hosted
+              instance.
+            </span>
           </div>
         )}
 
@@ -356,14 +379,10 @@ export function App(): React.ReactElement {
           <section className="screen flush" hidden={screen !== 'research'} aria-label="Research">
             <div className="lane wide">
               <ErrorBoundary label="Research">
-                {demoMode ? (
-                  <DemoNotice
-                    title="Research is switched off here"
-                    text="Research drives live agent sessions over the vault and the web - answering questions with citations, saving sessions as pages."
-                  />
-                ) : (
-                  <Chat researchPrefill={screen === 'research' ? (query.get('prefill') ?? '') : ''} />
-                )}
+                {/* Shown on a read-only demo too (2026-09-18): the saved conversations and the
+                    finished runs are the screen's substance; what it would start is disabled
+                    inside, and refused by the guard anyway. System keeps its notice below. */}
+                <Chat researchPrefill={screen === 'research' ? (query.get('prefill') ?? '') : ''} />
               </ErrorBoundary>
             </div>
           </section>
@@ -442,6 +461,11 @@ export function App(): React.ReactElement {
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {!demoMode && <DropGuard />}
+      {refusedAt !== null && (
+        <div className="toast note demo-refusal" role="status">
+          <strong>Read-only demo:</strong>&nbsp;this action is switched off in the hosted instance.
+        </div>
+      )}
     </div>
   )
 }

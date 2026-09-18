@@ -129,6 +129,10 @@ export const lensIcon = (key: string | null | undefined): IconName => LENS_ICON[
 
 export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): React.ReactElement {
   const qc = useQueryClient()
+  // A read-only demo shows this screen for what it holds (the saved conversations and the
+  // finished runs) and disables what it would start; the guard would refuse that anyway.
+  const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
+  const demoMode = health.data?.demoMode === true
   const [mode, setMode] = useState<ComposerMode>('research')
   const [draft, setDraft] = useState('')
   const [profileKey, setProfileKey] = useState('broad')
@@ -316,6 +320,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   }, [researchPrefill])
 
   const send = (): void => {
+    if (demoMode) return
     const text = draft.trim()
     if (text === '') return
     if (mode === 'ask') {
@@ -590,6 +595,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
           <div className="console-main">
             <textarea
               ref={composerRef}
+              disabled={demoMode}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -599,13 +605,15 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
                 }
               }}
               placeholder={
-                mode === 'research'
-                  ? 'Name a topic - the run reads the web and files one synthesis page…'
-                  : 'Ask the vault… (Enter to send, Shift+Enter for a new line)'
+                demoMode
+                  ? 'Switched off in the hosted demo: open a saved conversation or a finished run below.'
+                  : mode === 'research'
+                    ? 'Name a topic - the run reads the web and files one synthesis page…'
+                    : 'Ask the vault… (Enter to send, Shift+Enter for a new line)'
               }
               rows={2}
             />
-            <button className="btn-run" disabled={draft.trim() === '' || busy} onClick={send}>
+            <button className="btn-run" disabled={demoMode || draft.trim() === '' || busy} onClick={send}>
               {sendLabel}
             </button>
           </div>

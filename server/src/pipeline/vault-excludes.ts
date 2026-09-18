@@ -73,20 +73,35 @@ const ALL_ENTRIES = [
 ] as const
 
 /**
+ * What the call found: `present` (nothing to add), `written` (entries appended), `no-git` (not
+ * a repository, nothing to exclude from) or `unwritable`: the vault is read-only for this
+ * process, as on a hosted demo whose unit mounts it that way. The last is reported rather than
+ * thrown, because the exclude file protects writers and such an instance has none.
+ */
+export type VaultExcludesResult = 'present' | 'written' | 'no-git' | 'unwritable'
+
+/**
  * Idempotently appends the entries to the vault's `.git/info/exclude`. No-op when the vault
  * is not a git repo (fresh clone, test fixture) - this is hygiene, never a gate.
  *
  * Only appends what is missing, so a user's own additions to that file are left alone.
  */
-export function ensureVaultExcludes(vaultRoot: string, entries: readonly string[] = ALL_ENTRIES): void {
-  if (!fs.existsSync(path.join(vaultRoot, '.git'))) return
+export function ensureVaultExcludes(vaultRoot: string, entries: readonly string[] = ALL_ENTRIES): VaultExcludesResult {
+  if (!fs.existsSync(path.join(vaultRoot, '.git'))) return 'no-git'
   const infoDir = path.join(vaultRoot, '.git', 'info')
-  fs.mkdirSync(infoDir, { recursive: true })
   const file = path.join(infoDir, 'exclude')
   const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
   const present = new Set(existing.split('\n').map((line) => line.trim()))
   const missing = entries.filter((entry) => !present.has(entry))
-  if (missing.length === 0) return
+  if (missing.length === 0) return 'present'
   const sep = existing === '' || existing.endsWith('\n') ? '' : '\n'
-  fs.appendFileSync(file, `${sep}${missing.join('\n')}\n`)
+  try {
+    fs.mkdirSync(infoDir, { recursive: true })
+    fs.appendFileSync(file, `${sep}${missing.join('\n')}\n`)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EROFS' || code === 'EACCES' || code === 'EPERM') return 'unwritable'
+    throw err
+  }
+  return 'written'
 }

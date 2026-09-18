@@ -9,9 +9,10 @@
  * WHAT THIS FILE CAN AND CANNOT COVER, because the distinction is the whole point of reading
  * it. The extension is gated in two steps:
  *
- *   1. `main.ts` turns the FLAG into PRESENCE: `config.agentsEnabled === true && !demoMode`
- *      decides whether a `FellowService`, a `NightShift`, a `RecapService`, a `UsageMonitor`
- *      and a `LibraryService` are constructed at all.
+ *   1. `main.ts` turns the FLAG into PRESENCE: `config.agentsEnabled === true` decides whether
+ *      a `FellowService`, a `NightShift`, a `RecapService`, a `UsageMonitor` and a
+ *      `LibraryService` are constructed at all (a read-only demo constructs them too and starts
+ *      none of them; demo-mode.test.ts covers that side, SPEC.md §12.8).
  *   2. `buildServer` turns PRESENCE into ROUTES: `if (ctx.fellows !== undefined) register…`.
  *
  * This file tests step 2 exhaustively, from both sides. It does NOT test step 1, and that is

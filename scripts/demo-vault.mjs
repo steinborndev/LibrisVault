@@ -1040,6 +1040,20 @@ FELLOWS.forEach((f, i) => {
 const shelfStmt = db.prepare(`INSERT INTO shelf_order (user_id, domain, rank, updated_at) VALUES ('local', ?, ?, ?)`)
 ;['astronomy', 'climate-science', 'machine-learning', 'materials-science'].forEach((d, i) => shelfStmt.run(d, i, at(day(3))))
 
+/**
+ * Two of the main room's four favorite places are taken (2026-09-18): the home domains of the
+ * two sweeping Fellows, side by side in the pair left of the wing door. Only the user fills
+ * these, so the rows say so; every other department is placed into the wings on the first
+ * scene build, the way a real instance does it. With all four empty the room read as nobody's.
+ * The pair must differ in colour, and the colour is a hash of the name: astronomy and
+ * machine-learning land on the same hue (196), astronomy and climate-science (84) do not.
+ */
+const placeStmt = db.prepare(
+  `INSERT INTO library_layout (domain, user_id, room, slot, placed_by, updated_at) VALUES (?, 'local', 'main', ?, 'user', ?)`,
+)
+placeStmt.run('astronomy', 0, at(day(9)))
+placeStmt.run('climate-science', 1, at(day(9)))
+
 /** Runs the Fellows made, which the ledger, the dossier and the night's arithmetic read. */
 /*
  * Durations follow the KIND, because that is what the night's schedule is drawn from: a full
