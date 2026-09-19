@@ -20,6 +20,7 @@ import {
   recordSectionPass,
   titleLinkPass,
   bucketRegroupPass,
+  demoUnlinkPass,
 } from '../src/pipeline/repair.js'
 import { fieldOf, CONTENT_UPDATED, bodyOf } from '../src/pipeline/page-dates.js'
 
@@ -982,5 +983,81 @@ describe('bucketRegroupPass', () => {
     const body = hub('## X (2026-07-17)\n\n- [[Alpha]] - one\n')
     expect(run()('wiki/index.md', body, root)).toBeNull()
     expect(run()('wiki/concepts/Alpha.md', body, root)).toBeNull()
+  })
+})
+
+/**
+ * `demoUnlinkPass` (8.7): removing the demo pages means removing what points at them.
+ *
+ * Measured before deleting: the 13 marked pages are not isolated. 54 knowledge pages mention
+ * them, 252 times, woven in over months. Three shapes, three rules - and the third is the one
+ * that matters, because cutting a clause out of a sentence is the prose rewrite this phase
+ * forbids.
+ */
+describe('demoUnlinkPass', () => {
+  let root = ''
+  const write = (rel: string, body: string): void => {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, body)
+  }
+  const run = (): ReturnType<typeof demoUnlinkPass> => demoUnlinkPass(root)
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-unlink-'))
+    write('wiki/concepts/Shipped.md', '---\ntype: concept\norigin: upstream-demo\n---\n\n# Shipped\n')
+    write('wiki/concepts/Real.md', '---\ntype: concept\n---\n\n# Real\n')
+  })
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it('drops a frontmatter list item, because a set member that is gone is not a member', () => {
+    const rel = 'wiki/concepts/Cites.md'
+    write(rel, '---\ntype: concept\nrelated:\n  - "[[Shipped]]"\n  - "[[Real]]"\n---\n\nBody.\n')
+    const out = run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)!
+    expect(out.after).not.toContain('Shipped')
+    expect(out.after).toContain('- "[[Real]]"')
+  })
+
+  it('drops a bullet whose only link is the page being removed', () => {
+    const rel = 'wiki/concepts/Cites.md'
+    write(rel, '---\ntype: concept\n---\n\n- [[Shipped]] - what it said\n- [[Real]] - kept\n')
+    const out = run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)!
+    expect(out.after).not.toContain('what it said')
+    expect(out.after).toContain('- [[Real]] - kept')
+  })
+
+  it('UNWRAPS a mention inside a sentence instead of cutting the clause', () => {
+    // The sentence still says what it said; it just no longer promises a page that is gone.
+    const rel = 'wiki/concepts/Cites.md'
+    write(rel, '---\ntype: concept\n---\n\nThe idea [[Shipped]] describes also appears here.\n')
+    const out = run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)!
+    expect(out.after).toContain('The idea Shipped describes also appears here.')
+  })
+
+  it('keeps a link\'s display text when it had one', () => {
+    const rel = 'wiki/concepts/Cites.md'
+    write(rel, '---\ntype: concept\n---\n\nAs [[Shipped|the earlier note]] put it, yes.\n')
+    expect(run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)!.after).toContain(
+      'As the earlier note put it, yes.',
+    )
+  })
+
+  it('unwraps rather than drops a bullet that carries another link too', () => {
+    const rel = 'wiki/concepts/Cites.md'
+    write(rel, '---\ntype: concept\n---\n\n- [[Shipped]] and [[Real]] disagree about this\n')
+    const out = run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)!
+    expect(out.after).toContain('- Shipped and [[Real]] disagree about this')
+  })
+
+  it('leaves a page mentioning nothing marked alone', () => {
+    const rel = 'wiki/concepts/Innocent.md'
+    write(rel, '---\ntype: concept\n---\n\nSee [[Real]].\n')
+    expect(run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)).toBeNull()
+  })
+
+  it('does not edit a demo page itself - it is about to be deleted', () => {
+    const rel = 'wiki/concepts/Shipped.md'
+    write(rel, '---\ntype: concept\norigin: upstream-demo\n---\n\nSee [[Shipped]].\n')
+    expect(run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)).toBeNull()
   })
 })

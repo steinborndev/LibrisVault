@@ -1198,3 +1198,79 @@ export function bucketRegroupPass(vaultRoot: string): RepairPass {
     }
   }
 }
+
+/* ------------------------------------------- removing the demo pages and what points at them */
+
+/**
+ * Takes the plugin's own demo pages out of the vault, and the mentions of them with it (8.7).
+ *
+ * MEASURED BEFORE DOING IT, and the number is why this pass has three rules rather than one:
+ * the 13 marked pages are not isolated. **54 knowledge pages mention them, 252 times.** They
+ * were woven into the vault over months, which is what marking them revealed and deleting them
+ * has to deal with.
+ *
+ * THE THREE SHAPES, and what each deserves:
+ *
+ *   - **a `related:` or `sources:` list item** (74): the line goes. A frontmatter list is a
+ *     machine-readable set, and a member that no longer exists is simply not a member.
+ *   - **a bullet whose only link is the demo page** (110): the bullet goes. It exists to point
+ *     at that page and says nothing without it.
+ *   - **a mention inside a sentence** (68): the link is UNWRAPPED, not deleted. `[[Name]]`
+ *     becomes `Name`. Cutting a clause out of a sentence is the prose rewrite this phase
+ *     forbids, and the sentence still says what it said - it just no longer promises a page
+ *     that is gone.
+ *
+ * A bullet that links to the demo page AND to something else is unwrapped rather than dropped,
+ * for the same reason: it carries content beyond the mention.
+ */
+export function demoUnlinkPass(vaultRoot: string): RepairPass {
+  const demo = new Set(
+    collectPages(vaultRoot)
+      .pages.filter((p) => p.origin === UPSTREAM_DEMO)
+      .map((p) => p.name.toLowerCase()),
+  )
+  const isDemoLink = (target: string): boolean => demo.has(target.trim().toLowerCase())
+
+  return (rel, markdown) => {
+    if (demo.has(rel.split('/').pop()!.slice(0, -3).toLowerCase())) return null
+    const fmEnd = /^---\r?\n[\s\S]*?\r?\n---/.exec(markdown)?.[0].length ?? 0
+    const lines = markdown.split('\n')
+    const out: string[] = []
+    let dropped = 0
+    let unwrapped = 0
+    let offset = 0
+
+    for (const line of lines) {
+      const start = offset
+      offset += line.length + 1
+      const links = [...line.matchAll(/\[\[([^\]|#]+)((?:\|[^\]]*)?)\]\]/g)]
+      const demoLinks = links.filter((l) => isDemoLink(l[1]!))
+      if (demoLinks.length === 0) {
+        out.push(line)
+        continue
+      }
+      // A frontmatter list item, or a bullet that exists only to point at the page.
+      const isFmItem = start < fmEnd && /^\s+-\s/.test(line)
+      const isSoleBullet = start >= fmEnd && /^\s*[-*]\s/.test(line) && links.length === demoLinks.length
+      if (isFmItem || isSoleBullet) {
+        dropped++
+        continue
+      }
+      // Anything else: keep the words, drop the brackets.
+      out.push(
+        line.replace(/\[\[([^\]|#]+)((?:\|([^\]]*))?)\]\]/g, (whole, target: string, _rest: string, display?: string) => {
+          if (!isDemoLink(target)) return whole
+          unwrapped++
+          return (display ?? target).trim()
+        }),
+      )
+    }
+    if (dropped === 0 && unwrapped === 0) return null
+    const after = out.join('\n').replace(/\n{3,}/g, '\n\n')
+    if (after === markdown) return null
+    return {
+      after,
+      why: `${dropped} mention(s) dropped, ${unwrapped} unwrapped - the page they name is being removed`,
+    }
+  }
+}

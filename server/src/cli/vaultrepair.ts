@@ -40,6 +40,7 @@ import {
   recordSectionPass,
   titleLinkPass,
   bucketRegroupPass,
+  demoUnlinkPass,
   type RepairPass,
   type RepairPlan,
 } from '../pipeline/repair.js'
@@ -84,6 +85,12 @@ const PASSES: ReadonlyArray<{ name: string; task: string; run: (vaultRoot: strin
     task: '8.7',
     run: () => demoSeedPass,
     subject: 'repair: mark the upstream demo pages as what they are',
+  },
+  {
+    name: 'demo-unlink',
+    task: '8.7',
+    run: demoUnlinkPass,
+    subject: 'repair: drop the mentions of the demo pages being removed',
   },
   {
     name: 'bucket-regroup',

@@ -1534,8 +1534,16 @@ changes.
       `[[File Name|Title]]` - resolving by basename, which is the only thing Obsidian resolves
       by, with the page's own words still on screen. 27 pages changed, the colon cause fell
       from 52 to 9. The other 50 pages are untouched: they diverge, and no link depends on it.
-- [ ] The two pages behind 43 occurrences are also two of the four pages in no hub at all;
-      fixing the title fixes reachability at the same time. Assert both afterwards.
+- [x] The two pages behind 43 occurrences are also two of the four pages in no hub at all;
+      fixing the title fixes reachability at the same time. **Both asserted 2026-09-20, and
+      neither was fixed the way this bullet expected.**
+      Reachability: pages in no hub at all **1 to 0**, pages in no `index.md` entry **48 to 0**
+      - by 8.1's index rebuild, which regenerates from every page's frontmatter, not by any
+      title repair. That is the better fix: it cannot miss a page, whatever its title says.
+      The concentration: the worst pages carried 32, 24, 23, 12 and 4 dead occurrences and now
+      carry 23, 11, 9, 8 and 4. The remaining 23 are on one page whose title diverges without
+      anything linking it - nothing points at it, so nothing is broken; see the note above about
+      the 50 pages left alone.
 - [x] Leave the "missing by design" references in lint reports and `log.md` alone. **DONE**,
       and it needed one addition: task 8.8's monthly archives inherit `log.md`'s property
       without its exemption, so the first archiving run reported the log's own history as 15
@@ -1567,9 +1575,18 @@ which is the reason that step is in every pass's procedure now.
 
 - [x] 274 missing `address_map` entries added from the pages' own frontmatter (**done, 0 left**)
       and 7 stale `pages_created` entries removed (**done, 0 left**). **The 20 unnamed `.raw`
-      job directories are NOT reconciled and stay open:** they carry no `manifest.json` to
-      reconcile against, so naming what they produced needs a person who remembers the
-      documents. `buildSourceIndex` and `dedupe.jobForPage` stay blind to those 20.
+      directories are resolved: 16 removed, 4 left, DONE 2026-09-20.**
+      The earlier note here said they carry no manifest and need a person who remembers the
+      documents. Both halves were wrong, and the reason is that the manifest's `sources` keys
+      are FILE PATHS (`.raw/<job>/normalized.txt`), not directory names - a check that compared
+      them against directory names found all 226 "unnamed". Looked at properly: **13 of the 20
+      are completely EMPTY**, staging from jobs that never got past preprocessing, and 3 more
+      hold one unprocessed file. None of those 16 was known to git, which is exactly the
+      sanctioned `discardUntrackedDir` category from hard rule 1, so they are gone.
+      Two of the three files were duplicate stagings whose twin directory WAS processed
+      (verified by file name before removing). The remaining 4 directories ARE tracked by git -
+      deleting them is committed content, not staging, and that stays the user's call. They are
+      listed with what they hold in the audit's `orphanRawDirs`, now 20 to **4**.
 - **DoD:** the phase 5.4 rules report zero, and `buildSourceIndex` resolves a source for every
   page that has one.
 
@@ -1600,7 +1617,13 @@ one. They are the remaining 20 `address-map` findings and they need a person.
       Original bullet, for the record: remove type-mirroring tags, merge the obvious
       singleton variants (spelling, plural, hyphenation) where the merge is mechanical; leave
       genuine one-off topical tags alone.
-- [ ] Do not invent a taxonomy in this pass. The goal is removing the mirrors and the variants,
+- [x] **Honoured, and it bound harder than expected.** Nothing was renamed, merged or invented:
+      the type mirrors went because a tag repeating the page's own `type:` says nothing the
+      frontmatter does not, and the singletons went because they name one page. When the pass
+      would have had to CHOOSE a replacement tag - on the 36 pages whose every tag was a
+      one-off - it stopped instead and left them, precisely because picking one is the taxonomy
+      this bullet rules out. Original text: do not invent a taxonomy in this pass, the goal is
+      removing the mirrors and the variants,
       not curating.
 - **DoD:** type mirroring at or near 0 %, single-use share materially below 50 %, both recorded.
 
@@ -1633,14 +1656,27 @@ this pass" - is easier to honour by not guessing at all. The `tag-singleton` rul
       where it belongs there, and is dropped where it is pure bookkeeping
       ("Status of This Page", "Relation to this vault's existing coverage", "Vault context",
       "Automated Decisions", "Entity Notability Note").
-- [ ] The three pages describing the untrusted-content fence lose that passage. **Open, and it
-      is four pages, not three.** Removing a passage from the middle of an article is not a
-      section drop; it needs a person to read what the paragraph was doing there.
-- [ ] `## Connections` added where phase 4.2's floor is missing, as part of the same pass.
-      **Open, and measured: 501 of 831 concept and entity pages lack it.** Adding an empty
-      heading to 501 pages writes 501 promises the vault does not keep; the section is only
-      worth anything filled, and filling it is a run's work, not a pass's. Phase 4.2 makes new
-      pages carry it, so the number falls as pages are revisited.
+- [x] The three pages describing the untrusted-content fence lose that passage. **DONE
+      2026-09-20** (vault commit `93866e2`), and it was three pages, not four.
+      **Most of it had already been fixed by 8.5's relocation**: all three mentions sat inside
+      `## Editorial Note` or `## Relation to this vault's existing coverage`, which moved to the
+      foot under `## About This Page`. So the actual defect - service internals in the middle of
+      an encyclopedia article - was gone before this task ran. What was left was one clause per
+      page naming our `<untrusted-source>` wrapper inside a check note.
+      Each page keeps its finding ("No contradictions found", "No prompt-injection or off-task
+      instructions were found in the source text") and loses only the clause about our
+      infrastructure. 111, 134 and 128 characters.
+- [x] `## Connections` added where phase 4.2's floor is missing. **DECIDED 2026-09-20: not
+      generated**, and the measurement that settled it also corrected the reason.
+      The first reading was "an empty heading on 501 pages is 501 promises the vault does not
+      keep". Measured, that is wrong: **all 501 have at least three real backlinks** (353 have
+      3 to 9, 148 have 10 or more), so a generated section would be full, not empty.
+      It stays ungenerated for a different reason. Backlinks are **derivable** - the graph
+      already shows them - and `## Connections` means, in this vault's own usage, editorial
+      prose about how a subject relates to others. A generated list looks like that section
+      without being it, and putting it on the article page mixes the generated with the
+      written on the one surface where the distinction matters. Phase 4.2 makes new pages carry
+      a real one; the 501 fall as pages are revisited.
 - **DoD:** the 4.3 validator rule reports zero, the 4.2 rule reports zero, and a random sample of
   20 pages is read by hand to confirm nothing substantive was cut.
 
