@@ -1493,16 +1493,40 @@ changes.
       `title:`, so the class does not regenerate from the title on the next mention.
 - [ ] The two pages behind 43 occurrences are also two of the four pages in no hub at all;
       fixing the title fixes reachability at the same time. Assert both afterwards.
-- [ ] Leave the "missing by design" references in lint reports and `log.md` alone.
+- [x] Leave the "missing by design" references in lint reports and `log.md` alone. **DONE**,
+      and it needed one addition: task 8.8's monthly archives inherit `log.md`'s property
+      without its exemption, so the first archiving run reported the log's own history as 15
+      new defects. Both the validator and the audit harness now exempt `wiki/folds/log-*.md`.
 - **DoD:** `vault-audit` reports zero occurrences in the three mechanical classes, the four
   hub-orphans drop to at most one (the fold page, which is legitimately unlinked), and no link
   that resolved before stops resolving.
 
+**Result: PARTIALLY DONE, and the DoD is deliberately not met.** Dead links went **231
+occurrences over 96 targets to 164 over 48**, and the hub-orphan half of the DoD is met twice
+over: pages in no hub at all went 1 to **0**, pages in no `index.md` entry 48 to **0** - not by
+this task but by 8.1's rebuild, which is the better fix. "No link that resolved before stops
+resolving" holds, and it was tested the hard way (see below).
+
+**What is not done: the three mechanical classes.** After the repair the audit reports colon
+52, slash 30, trailing-backslash 5. Repairing them means changing a page's `title:` - deciding
+that a page called `X: Y` should be titled something a file name can carry. That is a naming
+judgement on 61 pages with 39 more linking to them, and the task itself says to repair BOTH
+ends or the class regenerates from the title on the next mention. `planTitleDrift` finds them
+and prints the pairs; the spellings are the user's.
+
+**What this task did do, and it was not in the plan.** The em-dash pass of 8.6 rewrote dashes
+inside `[[...]]` targets and broke **199 wikilinks** - dead links went 12 to 209 - because a
+link target is a name and not prose. `dashLinkPass` repaired all of them across 131 pages and
+the count went back to 12. Caught by re-running the validator after applying, never by a test,
+which is the reason that step is in every pass's procedure now.
+
 ### 8.3 Backfill the address map (N1) - DONE 2026-09-19
 
-- [ ] 274 missing `address_map` entries added from the pages' own frontmatter. 20 unnamed
-      `.raw` job directories reconciled against their own `manifest.json` where one exists, and
-      listed here where it does not. 7 stale `pages_created` entries removed.
+- [x] 274 missing `address_map` entries added from the pages' own frontmatter (**done, 0 left**)
+      and 7 stale `pages_created` entries removed (**done, 0 left**). **The 20 unnamed `.raw`
+      job directories are NOT reconciled and stay open:** they carry no `manifest.json` to
+      reconcile against, so naming what they produced needs a person who remembers the
+      documents. `buildSourceIndex` and `dedupe.jobForPage` stay blind to those 20.
 - **DoD:** the phase 5.4 rules report zero, and `buildSourceIndex` resolves a source for every
   page that has one.
 
@@ -1541,8 +1565,14 @@ this pass" - is easier to honour by not guessing at all. The `tag-singleton` rul
       where it belongs there, and is dropped where it is pure bookkeeping
       ("Status of This Page", "Relation to this vault's existing coverage", "Vault context",
       "Automated Decisions", "Entity Notability Note").
-- [ ] The three pages describing the untrusted-content fence lose that passage.
+- [ ] The three pages describing the untrusted-content fence lose that passage. **Open, and it
+      is four pages, not three.** Removing a passage from the middle of an article is not a
+      section drop; it needs a person to read what the paragraph was doing there.
 - [ ] `## Connections` added where phase 4.2's floor is missing, as part of the same pass.
+      **Open, and measured: 501 of 831 concept and entity pages lack it.** Adding an empty
+      heading to 501 pages writes 501 promises the vault does not keep; the section is only
+      worth anything filled, and filling it is a run's work, not a pass's. Phase 4.2 makes new
+      pages carry it, so the number falls as pages are revisited.
 - **DoD:** the 4.3 validator rule reports zero, the 4.2 rule reports zero, and a random sample of
   20 pages is read by hand to confirm nothing substantive was cut.
 
@@ -1574,10 +1604,14 @@ ingest's note about what it had not verified, and the body above it is untouched
 
 ### 8.6 Remove the em-dashes (B9) - DONE 2026-09-19
 
-- [ ] 10,257 occurrences across 819 pages. Mechanical replacement is not safe in every context
+- [x] 10,257 occurrences across 819 pages. Mechanical replacement is not safe in every context
       (an em-dash between numbers is a range, inside a code fence it is content), so the pass
       needs a classifier and a dry-run diff that is actually read before it is applied.
-- [ ] Code fences, inline code, frontmatter values and URLs are left alone.
+      **DONE - and the "actually read" is not a formality: the classifier was missing
+      `[[...]]`, the diff did not show it, and applying the pass broke 199 wikilinks.** What
+      caught it was re-running the validator afterwards. 8.2's `dashLinkPass` repaired them.
+- [x] Code fences, inline code, frontmatter values and URLs are left alone. **DONE:** 750
+      dashes remain over 262 pages and every one is in an excluded context.
 - **DoD:** `vault-audit` reports zero outside the excluded contexts, and the dry-run diff was
   reviewed.
 
@@ -1608,13 +1642,16 @@ occurs.
 
 ### 8.7 Separate the demo seed content (B8) - PARTIALLY DONE 2026-09-19
 
-- [ ] 47 pages created 2026-04 to 2026-06, 17 carrying the upstream community footer. They are
+- [x] 47 pages created 2026-04 to 2026-06, 17 carrying the upstream community footer. They are
       the plugin author's release and demo material sitting in the same graph, the same BM25
-      index and the same page counts as real knowledge.
+      index and the same page counts as real knowledge. **Identified and marked**; the count
+      that matters is 17, not 47, and the Result below says why.
 - [ ] Do **not** delete them. Mark them (`origin: upstream-demo` in frontmatter, or a dedicated
       domain), exclude them from the generated hubs, from the page counters and from the
       retrieval index, and leave them readable.
-- [ ] The decision on eventual deletion stays with the user and is recorded here either way.
+- [x] The decision on eventual deletion stays with the user and is recorded here either way.
+      **Recorded: nothing is deleted.** They are marked and readable; whether they eventually
+      go is the user's call and there is no pass waiting to do it.
 - **DoD:** page counters drop by the marked count, the graph and the catalog no longer mix them
   in, and every marked page is still readable in Obsidian.
 
@@ -1632,16 +1669,19 @@ pass, and the decision about eventually deleting them stays with the user.
 
 ### 8.8 Shrink `log.md` (B1, C-1) - last, and only after 2.4 - DONE 2026-09-19
 
-- [ ] 777 kB, 258 entries, one third of the wiki's entire git history. `wiki-fold` does not
-      shrink it (C-1), so this is a deliberate archival: fold the older entries with the vault's
-      own skill for the summary page, then move the folded range out of `log.md` into
-      `.vault-meta/hot-archive/` or a dated archive page under `wiki/folds/`, and leave the
-      recent window in place.
-- [ ] Decide and record the retention window (proposal: the current quarter plus the fold pages
-      for everything older).
-- [ ] **Verify 2.4 first.** If any code path still decides job status from `log.md` content,
-      this task breaks crash recovery silently. Grep for it and run
-      `reconcile-interrupted.test.ts` before and after.
+- [x] 777 kB, 258 entries, one third of the wiki's entire git history. **DONE: 776 kB to
+      83.6 kB**, the older entries moved into one dated archive page per month under
+      `wiki/folds/`. `wiki-fold` was deliberately NOT used, per C-1: it is additive and would
+      have left a summary page beside an unchanged log.
+- [x] Decide and record the retention window. **Recorded: `LOG_KEEP_ENTRIES = 25` entries, not
+      a date range.** A count rather than a quarter because the log's job is crash recovery and
+      recent context, and both care how many entries back you can see, not how long ago they
+      were: a quiet quarter would leave three entries and a busy one four hundred.
+- [x] **Verify 2.4 first.** **DONE, and it gated the task rather than decorating it:** the
+      completion marker was confirmed off `log.md` (task 2.4), `reconcile-interrupted.test.ts`
+      was green before and after, and the queue was checked for jobs in `ingesting` - zero -
+      before anything truncated the file. `vaultprobe`'s completion-marker contract is the
+      standing version of that check.
 - **DoD:** `log.md` under 100 kB, every removed entry reachable through a fold or archive page,
   `vaultprobe` green, and a deliberately interrupted scratch ingest still recovers correctly.
 
