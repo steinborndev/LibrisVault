@@ -85,8 +85,11 @@ describe('the hot cache', () => {
     expect(prompt).toContain('REWRITE wiki/hot.md from scratch')
     expect(prompt).toContain(`under ${HOT_CACHE_WORD_BUDGET} words`)
     expect(prompt).toContain('never append')
-    // The skill's own step would leave it at "update"; index and log stay appendable.
-    expect(prompt).toContain('update wiki/index.md and wiki/log.md')
+    // The skill's own step would leave the hot cache at "update". The index and the log are
+    // no longer the run's at all: the service writes both afterwards (SPEC.md §12.12), so the
+    // prompt says so rather than asking for work the next render overwrites.
+    expect(prompt).toContain('Do not edit wiki/index.md or wiki/log.md')
+    expect(prompt).toContain('from your final answer')
   })
 
   it('queues one refresh when a run leaves the cache oversized, and not a second that day', async () => {

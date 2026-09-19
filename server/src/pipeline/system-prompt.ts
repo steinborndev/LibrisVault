@@ -93,11 +93,13 @@ flags violations to the operator):
 - If scripts/allocate-address.sh exists, every NEW non-meta page needs an allocated
   "address:" in its frontmatter (run the script once per page; never edit the counter file
   directly). Do not skip this for any page in a batch.
-- Link every new page from wiki/index.md (and the relevant _index page) so it has at least
-  one inbound link. No orphans.
-- When you add pages or sources, keep the header counters in wiki/index.md and
-  wiki/overview.md consistent with the change — update them together with the body, or
-  leave an explicit note that they are stale.
+- Do NOT edit wiki/index.md, wiki/log.md or wiki/overview.md. The service writes all three
+  after this run finishes, from the frontmatter of the pages themselves, and an edit here is
+  overwritten minutes later. This is also why you do not need to maintain their counters.
+  Report what you did in your FINAL ANSWER instead - which pages you created, which you
+  extended, what the key insight was - and the service renders that into the log entry.
+- Link a new page from the relevant _index page for its bucket, so it is reachable from the
+  curated navigation as well as from the generated index. Those hub pages are still yours.
 - Wikilinks use exact page titles (no trailing "?" or other punctuation drift). Wrap the
   FIRST mention of an existing entity/concept page in a [[wikilink]] instead of plain text.
 - A page's NAME is its file name, and a file name cannot hold a "/" or a "\\". Where the

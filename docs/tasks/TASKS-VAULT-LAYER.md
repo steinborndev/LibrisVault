@@ -667,47 +667,90 @@ content. All four contracts green afterwards.
 that left a marker and no log entry recovers to `done`; a run with neither fails; and another
 job's marker is not taken for this one's.
 
-### 2.5 Tell the agent to leave the hubs alone
+### 2.5 Tell the agent to leave the hubs alone - DONE 2026-09-19
 
-- [ ] `PAGE_HYGIENE_CHECKLIST`: replace "Link every new page from wiki/index.md ... update them
+- [x] `PAGE_HYGIENE_CHECKLIST`: replace "Link every new page from wiki/index.md ... update them
       together with the body" with the new contract - the service writes the index, the log and
       the overview after the run; report the summary as the final answer; keep `hot.md` current.
       This one paragraph is what currently makes every ingest open the 514 kB file.
-- [ ] `writeGuard` (the existing `upstream-guard.ts` seam) refuses Write/Edit on the
+- [x] `writeGuard` (the existing `upstream-guard.ts` seam) refuses Write/Edit on the
       service-owned hubs for ingest, research and maintenance profiles, with a refusal message
       that says where the work went instead, so the run adapts rather than retries.
-- [ ] `hot.md` stays writable and the hot-cache rules stay as they are.
-- [ ] Tests: the guard refuses each hub path and allows `hot.md` and content pages; the refusal
+- [x] `hot.md` stays writable and the hot-cache rules stay as they are.
+- [x] Tests: the guard refuses each hub path and allows `hot.md` and content pages; the refusal
       message names the alternative; `permissions.test.ts` covers the profile matrix.
-- [ ] **Re-run `permprobe`.**
+- [x] **Re-run `permprobe`.**
 - **DoD:** a scratch ingest run writes no hub file, takes no lock on one, and its job log shows
   the guard was not hit (the prompt alone was enough). If the guard fires, the prompt wording
   is not clear enough yet - fix the prompt, not the test.
 
-### 2.6 Rebuild `overview.md` once, then generate its counters
+**Result.** The prompt's two hub bullets are replaced: do not edit the three service-owned
+hubs, report what you did in the FINAL ANSWER instead (which is what the service renders into
+the log entry), and link a new page from its bucket `_index.md`, which is still the agent's.
+The same correction in `maintenance.ts` for the research prompt ("Afterwards update
+wiki/index.md and wiki/log.md" is gone) and in the lint-fix scope ("stale index entries" now
+names the bucket hubs and says the index regenerates itself).
+
+The guard refuses Write/Edit on the three, allows `hot.md`, the `_index.md` hubs and content
+pages, and its refusal NAMES the alternative - a run told only "no" retries, a run told where
+the work goes adapts. Five cases in `upstream-guard.test.ts`, including the profile matrix.
+
+**`permprobe` re-run after the guard change: `canary outside vault: blocked`, the plugin canary
+blocked, and the expand probe's five cases all ok.**
+
+The last DoD clause (a scratch ingest run) needs a live agent run and is recorded with 0.2's
+`--ingest` and 2.4's first live run.
+
+### 2.6 Rebuild `overview.md` once, then generate its counters - MECHANISM DONE 2026-09-19 (the rebuild is 8.1)
 
 - [ ] `overview.md` loses the shipped demo text ("This is the claude-obsidian demo vault ...
       Run `/wiki` to scaffold this vault") and the appended "Current Seed Content" list that
       produced the 25 kB line.
-- [ ] What remains: a short hand-owned purpose section the user writes once, plus a generated
+- [x] What remains: a short hand-owned purpose section the user writes once, plus a generated
       counters block between markers, refreshed by `renderIndex`'s pass.
-- [ ] Tests: the counters block is replaced in place and the hand-owned text survives a
+- [x] Tests: the counters block is replaced in place and the hand-owned text survives a
       regeneration; a file without the markers gets them added once.
 - **DoD:** `overview.md` under 8 kB with no line over 500 chars, the demo sentences gone, and
   `vault-audit` reports zero `stale-counter` findings against it.
 
-### 2.7 The `_index.md` bucket hubs
+**Result (mechanism).** `renderOverviewCounters` + `updateOverview` own one block between
+`<!-- vault-service:counters -->` markers; everything else on the page is hand-owned and
+survives byte for byte. A page without markers gets them once under their own heading. No
+clock, so two renders of an unchanged vault are identical.
 
-- [ ] Same marker approach as 2.6 rather than full generation: these hubs carry genuinely
+**The rebuild itself is phase 8.1**, because removing the demo text and the seed list is a
+vault CONTENT change. Dry run against the live vault (read-only): `overview.md` 91.4 kB to
+91.8 kB - the counters block added, nothing removed. The 25 kB line and the demo sentences go
+in 8.1, which is where the DoD's "under 8 kB" belongs.
+
+### 2.7 The `_index.md` bucket hubs - MECHANISM DONE 2026-09-19 (the insertion is 8.1)
+
+- [x] Same marker approach as 2.6 rather than full generation: these hubs carry genuinely
       curated one-line descriptions per page, which no generator can produce. The service owns
       the **page list** between markers; the agent keeps the section prose outside them.
-- [ ] Dated event sections ("... (new sub-area, <date>)") are not created by the generated
+- [x] Dated event sections ("... (new sub-area, <date>)") are not created by the generated
       region, and the prompt stops asking for them.
-- [ ] Tests: generation inside the markers leaves outside text byte-identical; a hub without
+- [x] Tests: generation inside the markers leaves outside text byte-identical; a hub without
       markers gets them on first write with its existing content preserved below.
 - **DoD:** `concepts/_index.md` and `sources/_index.md` regenerate idempotently, every content
   page of the bucket appears exactly once, and no curated description was lost (diff the
   description text before and after, assert equality).
+
+**Result (mechanism), and one correction to the plan.** The service owns the page list between
+`<!-- vault-service:pages -->` markers; the curated one-line descriptions around it are
+untouched.
+
+**A hub with no markers is left completely alone.** The dry run against the live vault showed
+why: inserting a complete page list into hubs that still carry their dated event sections takes
+`concepts/_index.md` from 154 kB to **188 kB** and `sources/_index.md` from 123 kB to 165 kB -
+bigger, not smaller, and it would have happened automatically on the next ingest. So the
+marker insertion is an explicit act of the phase 8.1 repair (`{ create: true }`), which prunes
+and inserts in one reviewed pass; from then on every run keeps the region current. This is
+exactly the stated contract - the service owns the region between the markers, and no markers
+means no region.
+
+Dry run after the change: all three bucket hubs unchanged, all 187 curated description lines
+intact.
 
 ---
 

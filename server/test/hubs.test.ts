@@ -11,6 +11,15 @@ import {
   narrativeOf,
   prependLogEntry,
   LOG_NARRATIVE_CAP,
+  renderOverviewCounters,
+  updateOverview,
+  OVERVIEW_MARKER_START,
+  OVERVIEW_MARKER_END,
+  renderBucketPages,
+  updateBucketHub,
+  bucketHubs,
+  BUCKET_MARKER_START,
+  BUCKET_MARKER_END,
 } from '../src/pipeline/hubs.js'
 
 /**
@@ -273,5 +282,151 @@ describe('prependLogEntry', () => {
     const second = prependLogEntry(first, renderLogEntry({ date: '2026-09-19', kind: 'ingest', title: 'B' }))
     const titles = second.split('\n').filter((l) => l.startsWith('## ')).map((l) => l.split('| ')[1])
     expect(titles).toEqual(['B', 'A', 'Older'])
+  })
+})
+
+describe('the overview counters', () => {
+  it('replaces the block in place and leaves every other byte alone', () => {
+    const page = [
+      '---',
+      'type: overview',
+      '---',
+      '',
+      '# Wiki Overview',
+      '',
+      '## Purpose',
+      '',
+      'What this vault is for, written by a person.',
+      '',
+      '## Vault counters',
+      '',
+      OVERVIEW_MARKER_START,
+      '',
+      '- Pages: 2 across 9 domains',
+      '',
+      OVERVIEW_MARKER_END,
+      '',
+      '## Key themes',
+      '',
+      'Also written by a person.',
+      '',
+    ].join('\n')
+    const out = updateOverview(page, renderOverviewCounters(vault))
+    expect(out).toContain('What this vault is for, written by a person.')
+    expect(out).toContain('Also written by a person.')
+    expect(out).toContain('- Pages: 4 across 2 domains')
+    expect(out).not.toContain('- Pages: 2 across 9 domains')
+    // Exactly one block, still fenced by its markers.
+    expect(out.split(OVERVIEW_MARKER_START)).toHaveLength(2)
+    expect(out.split(OVERVIEW_MARKER_END)).toHaveLength(2)
+  })
+
+  it('adds the markers once to a page that has none, keeping its content', () => {
+    const page = '# Wiki Overview\n\n## Purpose\n\nMonths of hand-written prose.\n'
+    const once = updateOverview(page, renderOverviewCounters(vault))
+    expect(once).toContain('Months of hand-written prose.')
+    expect(once).toContain('## Vault counters')
+    // A second pass replaces the block rather than appending a second one.
+    const twice = updateOverview(once, renderOverviewCounters(vault))
+    expect(twice.split(OVERVIEW_MARKER_START)).toHaveLength(2)
+    expect(twice).toBe(once)
+  })
+
+  it('counts what the index counts, without reading the clock', () => {
+    const block = renderOverviewCounters(vault)
+    expect(block).toContain('- Pages: 4 across 2 domains')
+    expect(block).toContain('- Concepts: 2')
+    expect(block).toContain('- Entities: 1')
+    expect(block).toContain('- Sources: 1')
+    expect(block).toContain('- Newest page date: 2026-01-03')
+    expect(renderOverviewCounters(vault)).toBe(block)
+  })
+
+  it('says how many pages it could not read, rather than counting them silently', () => {
+    fs.writeFileSync(path.join(vault, 'wiki/concepts/Broken.md'), '# Broken\n')
+    expect(renderOverviewCounters(vault)).toContain('could not read: 1')
+  })
+})
+
+describe('the bucket hubs', () => {
+  const curated = [
+    '---',
+    'type: meta',
+    'title: "Concepts Index"',
+    '---',
+    '',
+    '# Concepts Index',
+    '',
+    'All concept pages - ideas, patterns and frameworks extracted from sources.',
+    '',
+    '## Physics',
+    '',
+    '- [[Alpha]] - the one a person wrote a sentence about',
+    '',
+    '## All pages',
+    '',
+    BUCKET_MARKER_START,
+    '',
+    '- [[Alpha]]',
+    '',
+    BUCKET_MARKER_END,
+    '',
+    '## Notes',
+    '',
+    'Curated prose below the block, too.',
+    '',
+  ].join('\n')
+
+  it('owns the page list and nothing else', () => {
+    const out = updateBucketHub(curated, renderBucketPages(vault, 'concepts'), 'concepts')
+    // Every curated line survives byte for byte - the descriptions are what no generator can
+    // produce, and losing them would be the one unrecoverable mistake here.
+    expect(out).toContain('- [[Alpha]] - the one a person wrote a sentence about')
+    expect(out).toContain('Curated prose below the block, too.')
+    expect(out).toContain('All concept pages - ideas, patterns and frameworks extracted from sources.')
+    // And the block now lists every page of the bucket exactly once.
+    const block = out.slice(out.indexOf(BUCKET_MARKER_START), out.indexOf(BUCKET_MARKER_END))
+    expect(block.match(/^- \[\[/gm)).toHaveLength(2)
+    expect(block).toContain('- [[Alpha]] `c-000001`')
+    expect(block).toContain('- [[Beta]] `c-000002`')
+  })
+
+  it('regenerates idempotently', () => {
+    const once = updateBucketHub(curated, renderBucketPages(vault, 'concepts'), 'concepts')
+    const twice = updateBucketHub(once, renderBucketPages(vault, 'concepts'), 'concepts')
+    expect(twice).toBe(once)
+  })
+
+  it('leaves a hub that has no markers completely alone', () => {
+    // Inserting a full page list into a hub that still carries its dated event sections makes
+    // the file BIGGER (measured: 154 kB to 188 kB on the working vault). Those sections go in
+    // the one-off repair, and that pass is what puts the markers in.
+    const plain = '# Concepts Index\n\nWritten by hand over months.\n'
+    expect(updateBucketHub(plain, renderBucketPages(vault, 'concepts'), 'concepts')).toBe(plain)
+  })
+
+  it('creates the region when the repair pass asks for it, below what is there', () => {
+    const plain = '# Concepts Index\n\nWritten by hand over months.\n'
+    const out = updateBucketHub(plain, renderBucketPages(vault, 'concepts'), 'concepts', { create: true })
+    expect(out.indexOf('Written by hand over months.')).toBeLessThan(out.indexOf(BUCKET_MARKER_START))
+    expect(out).toContain('## All pages')
+    // And from then on the ordinary path keeps it current without the flag.
+    expect(updateBucketHub(out, renderBucketPages(vault, 'concepts'), 'concepts')).toBe(out)
+  })
+
+  it('carries no dated event section', () => {
+    // 131 of 135 headings in one real bucket hub were "(new sub-area, <date>)" entries: a
+    // second changelog inside a navigation page.
+    const block = renderBucketPages(vault, 'concepts')
+    expect(block.split('\n').filter((l) => l.startsWith('## '))).toEqual([])
+    expect(block).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+  })
+
+  it('lists only the buckets that actually have a hub', () => {
+    expect(bucketHubs(vault)).toEqual([])
+    fs.writeFileSync(path.join(vault, 'wiki/concepts/_index.md'), curated)
+    fs.mkdirSync(path.join(vault, 'wiki/sources'), { recursive: true })
+    fs.writeFileSync(path.join(vault, 'wiki/sources/_index.md'), '# Sources Index\n')
+    expect(bucketHubs(vault)).toEqual(['wiki/concepts/_index.md', 'wiki/sources/_index.md'])
   })
 })

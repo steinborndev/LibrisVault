@@ -59,6 +59,7 @@ import { withWikiLocks } from './wiki-lock.js'
 import { hasRunMarker, runMarkerPath } from './run-marker.js'
 import {
   SERVICE_OWNED_HUBS,
+  bucketHubs,
   writeHubs,
   classifyLoggedPages,
   readAddresses,
@@ -1365,7 +1366,12 @@ export class IngestQueue {
       updated,
       summary: summary ?? null,
     }
-    const plan: HubPlan = { index: held.has('wiki/index.md'), entry: held.has('wiki/log.md') ? entry : null }
+    const plan: HubPlan = {
+      index: held.has('wiki/index.md'),
+      // Only the bucket hubs this run actually holds: one somebody else is writing is left alone.
+      buckets: bucketHubs(this.vaultRoot).filter((rel) => held.has(rel)),
+      entry: held.has('wiki/log.md') ? entry : null,
+    }
     const { paths, warnings } = writeHubs(this.vaultRoot, plan)
     // Loud, and not fatal: the pages are what matters, the job stays `done`, and the next run
     // regenerates the index anyway.
@@ -1391,7 +1397,7 @@ export class IngestQueue {
        * mutex, the write and the commit inside it. The plan is built from the pathspec that is
        * about to be committed, so the entry names exactly the pages this commit carries.
        */
-      const result = await withWikiLocks(this.vaultRoot, [...SERVICE_OWNED_HUBS], async (held, busy) => {
+      const result = await withWikiLocks(this.vaultRoot, [...SERVICE_OWNED_HUBS, ...bucketHubs(this.vaultRoot)], async (held, busy) => {
         if (busy.length > 0) {
           this.store.log(job.id, 'warn', `hub write: another writer holds ${busy.join(', ')} - leaving ${busy.length} hub(s) alone`)
         }

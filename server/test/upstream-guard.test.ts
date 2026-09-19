@@ -91,7 +91,10 @@ describe('createUpstreamGuard.writeRefusalReason', () => {
     expect(refuse('wiki/getting-started.md')).toBeDefined()
     // The knowledge base and operational state stay writable.
     expect(refuse('wiki/concepts/Compound Interest.md')).toBeUndefined()
-    expect(refuse('wiki/index.md')).toBeUndefined() // mutable hub — every ingest updates it
+    // The service-owned hubs are refused since 2026-09-19 (SPEC.md §12.12); the hot cache and
+    // the bucket hubs are still the agent's. Covered in full further down.
+    expect(refuse('wiki/index.md')).toBeDefined()
+    expect(refuse('wiki/hot.md')).toBeUndefined()
     expect(refuse('wiki/meta/lint-report-2026-07-19.md')).toBeUndefined()
     expect(refuse('.raw/01ABC/normalized.md')).toBeUndefined()
     expect(refuse('.vault-meta/address-counter.txt')).toBeUndefined()
@@ -118,5 +121,56 @@ describe('createUpstreamGuard.writeRefusalReason', () => {
       content: 'x',
     })
     expect(page.behavior).toBe('allow')
+  })
+})
+
+/**
+ * The hubs the service writes (SPEC.md §12.12, task 2.5). The load-bearing mechanism is
+ * regeneration, not this guard: an index derived from frontmatter is overwritten by the next
+ * run whatever a guard caught. The guard is here so a run does not spend a turn writing
+ * something that cannot survive - and so the refusal can say where the work belongs instead.
+ */
+describe('the service-owned hubs', () => {
+  it('refuses a write to each hub the service owns', () => {
+    const guard = createUpstreamGuard(repo)
+    for (const hub of ['wiki/index.md', 'wiki/log.md', 'wiki/overview.md']) {
+      const reason = guard.writeRefusalReason(path.join(repo, hub))
+      expect(reason, hub).toBeDefined()
+      expect(reason).toContain('written by the ingestion service')
+    }
+  })
+
+  it('names the alternative, because a run that is told only "no" retries', () => {
+    const reason = createUpstreamGuard(repo).writeRefusalReason(path.join(repo, 'wiki/log.md')) ?? ''
+    expect(reason).toContain('final answer')
+    expect(reason).toContain('wiki/hot.md')
+  })
+
+  it('leaves the hot cache and the bucket hubs with the agent', () => {
+    const guard = createUpstreamGuard(repo)
+    // hot.md is a semantic summary no generator can produce, and the bucket hubs carry
+    // curated one-line descriptions per page.
+    expect(guard.writeRefusalReason(path.join(repo, 'wiki/hot.md'))).toBeUndefined()
+    expect(guard.writeRefusalReason(path.join(repo, 'wiki/concepts/_index.md'))).toBeUndefined()
+    expect(guard.writeRefusalReason(path.join(repo, 'wiki/concepts/A Page.md'))).toBeUndefined()
+  })
+
+  it('is enforced by decidePermission for writes and edits, not for reads', () => {
+    const guard = createUpstreamGuard(repo)
+    const ctx = { vaultRoot: repo, writeGuard: guard.writeRefusalReason }
+    const index = path.join(repo, 'wiki/index.md')
+    expect(decidePermission(ctx, 'Write', { file_path: index, content: 'x' }).behavior).toBe('deny')
+    expect(decidePermission(ctx, 'Edit', { file_path: index }).behavior).toBe('deny')
+    // Reading the index stays allowed: a run may legitimately want to know what exists.
+    expect(decidePermission(ctx, 'Read', { file_path: index }).behavior).toBe('allow')
+  })
+
+  it('holds for every write profile, including research and maintenance', () => {
+    const guard = createUpstreamGuard(repo)
+    for (const profile of ['ingest', 'research'] as const) {
+      const ctx = { vaultRoot: repo, profile, writeGuard: guard.writeRefusalReason }
+      expect(decidePermission(ctx, 'Write', { file_path: path.join(repo, 'wiki/index.md'), content: 'x' }).behavior).toBe('deny')
+      expect(decidePermission(ctx, 'Write', { file_path: path.join(repo, 'wiki/hot.md'), content: 'x' }).behavior).toBe('allow')
+    }
   })
 })

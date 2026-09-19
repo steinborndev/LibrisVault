@@ -20,13 +20,36 @@
  *     onboarding page). These are derived from git — the files present under
  *     wiki/references/ + wiki/getting-started.md at the nearest reachable upstream tag
  *     (`git describe --tags`) — with a static fallback when the vault has no usable git
- *     history. NOT protected: the upstream demo wiki content and the mutable hubs
- *     (index/log/hot/overview/_index) — domain backfill, lint-fix and every ingest
- *     legitimately edit those.
+ *     history. NOT protected: the upstream demo wiki content.
+ *
+ *  3. SERVICE-OWNED HUBS (added 2026-09-19, SPEC.md §12.12): `wiki/index.md`, `wiki/log.md`
+ *     and `wiki/overview.md` are written by the SERVICE after every run, from the pages
+ *     themselves. A run that edits them is doing work that will be overwritten minutes later,
+ *     and the refusal says where that work belongs instead - a run adapts to a reason and
+ *     retries a bare "no". `wiki/hot.md` and the `_index.md` hubs stay writable: the hot cache
+ *     is a semantic summary no generator can produce, and the bucket hubs carry curated prose.
+ *
+ *     The load-bearing mechanism is still regeneration, not this guard. An index derived from
+ *     frontmatter is overwritten by the next run whatever a guard did or did not catch; the
+ *     guard is here so a run does not waste a turn writing something that cannot survive.
  */
 
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+
+/**
+ * The hubs the service writes after every run (SPEC.md §12.12). An agent write to one is
+ * refused with a reason that names the alternative, because a run that is told only "no"
+ * retries, and a run that is told where the work goes adapts.
+ *
+ * `wiki/hot.md` is deliberately absent: it is a semantic summary of what matters right now,
+ * no generator can produce it, and a lost update there costs a cache rather than knowledge.
+ */
+export const SERVICE_OWNED_HUBS: ReadonlySet<string> = new Set([
+  'wiki/index.md',
+  'wiki/log.md',
+  'wiki/overview.md',
+])
 
 /** Top-level vault areas agent write tools may touch. Everything else is the plugin's. */
 export const WRITABLE_AREAS: ReadonlySet<string> = new Set([
@@ -129,6 +152,14 @@ export function createUpstreamGuard(vaultRoot: string): UpstreamGuard {
         return (
           `"${rel}" is plugin-shipped documentation that skills consult by exact path ` +
           `(claude-obsidian upstream). It must not be edited by agent runs.`
+        )
+      }
+      if (SERVICE_OWNED_HUBS.has(rel)) {
+        return (
+          `"${rel}" is written by the ingestion service after this run finishes, from the pages ` +
+          `themselves - an edit here would be overwritten. Report what you did in your final ` +
+          `answer instead: the service renders it into the log entry. Keep wiki/hot.md current ` +
+          `yourself; that one is still yours.`
         )
       }
       return undefined

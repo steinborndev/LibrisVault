@@ -429,6 +429,8 @@ export interface HubPlan {
   readonly entry: LogEntryInput | null
   /** Whether to regenerate `wiki/index.md`. False for a run that changed no page. */
   readonly index: boolean
+  /** Bucket hubs whose page list this run may refresh: the ones whose lock it holds. */
+  readonly buckets?: readonly string[]
 }
 
 export interface HubWriteResult {
@@ -473,6 +475,49 @@ export function writeHubs(vaultRoot: string, plan: HubPlan): HubWriteResult {
       }
     } catch (err) {
       warnings.push(`hub write: the index could not be regenerated (${(err as Error).message})`)
+    }
+  }
+
+  if (plan.index) {
+    // The overview's counters ride with the index: same pass over the same pages, and the
+    // drift they used to have was the same drift.
+    try {
+      const abs = path.join(vaultRoot, 'wiki', 'overview.md')
+      let current = ''
+      try {
+        current = fs.readFileSync(abs, 'utf8')
+      } catch {
+        /* no overview: one is created with the block under its own heading */
+      }
+      const next = updateOverview(current, renderOverviewCounters(vaultRoot))
+      if (next !== current) {
+        fs.writeFileSync(abs, next)
+        paths.push('wiki/overview.md')
+      }
+    } catch (err) {
+      warnings.push(`hub write: the overview counters could not be refreshed (${(err as Error).message})`)
+    }
+  }
+
+  if (plan.index) {
+    for (const rel of plan.buckets ?? []) {
+      const bucket = rel.split('/')[1] ?? ''
+      try {
+        const abs = path.join(vaultRoot, rel)
+        let current = ''
+        try {
+          current = fs.readFileSync(abs, 'utf8')
+        } catch {
+          /* a bucket without a hub yet gets one with its page list */
+        }
+        const next = updateBucketHub(current, renderBucketPages(vaultRoot, bucket), bucket)
+        if (next !== current) {
+          fs.writeFileSync(abs, next)
+          paths.push(rel)
+        }
+      } catch (err) {
+        warnings.push(`hub write: ${rel} could not be refreshed (${(err as Error).message})`)
+      }
     }
   }
 
@@ -535,4 +580,124 @@ export function readAddresses(vaultRoot: string, rels: readonly string[]): Map<s
     }
   }
   return out
+}
+
+/* --------------------------------------------------------------------------- the overview */
+
+/**
+ * The generated region of `wiki/overview.md`.
+ *
+ * `overview.md` is not generated whole, and deliberately so: it carries what the vault is FOR,
+ * which is the user's to write and no generator's to produce. What the service owns is the
+ * block between these markers - the counters that were maintained by hand and drifted
+ * (`stale-counter` was 77 of 406 validator findings, and the header on this page claimed 487
+ * pages against a real 805).
+ *
+ * Same idempotence rule as the index: no clock, so two renders of an unchanged vault produce
+ * identical bytes and the file stays out of the commit.
+ */
+export const OVERVIEW_MARKER_START = '<!-- vault-service:counters -->'
+export const OVERVIEW_MARKER_END = '<!-- /vault-service:counters -->'
+
+/** The counters block, markers included, ready to be spliced into the page. */
+export function renderOverviewCounters(vaultRoot: string): string {
+  const { pages, unfiled } = collectPages(vaultRoot)
+  const byBucket = new Map<string, number>()
+  for (const p of pages) byBucket.set(p.bucket, (byBucket.get(p.bucket) ?? 0) + 1)
+  const domains = new Set(pages.map((p) => p.domain))
+  const dates = pages.map((p) => p.updated).filter((d): d is string => d !== null).sort()
+  const newest = dates[dates.length - 1] ?? 'not recorded'
+
+  const lines = [OVERVIEW_MARKER_START, '']
+  lines.push(`- Pages: ${pages.length} across ${domains.size} domains`)
+  for (const [bucket, heading] of BUCKET_HEADINGS) {
+    const n = byBucket.get(bucket)
+    if (n !== undefined) lines.push(`- ${heading}: ${n}`)
+  }
+  if (unfiled.length > 0) lines.push(`- Pages the generator could not read: ${unfiled.length} (listed in [[index]])`)
+  lines.push(`- Newest page date: ${newest}`)
+  lines.push('')
+  lines.push('These counts are written by the ingestion service after every run; the prose around them is not.')
+  lines.push('')
+  lines.push(OVERVIEW_MARKER_END)
+  return lines.join('\n')
+}
+
+/**
+ * Splices a generated block into a hand-owned page, leaving every other byte alone.
+ *
+ * A page without the markers gets them once, appended under their own heading, and nothing
+ * above is touched - the hand-written prose of a vault that has been running for months is
+ * exactly what a generator must not rewrite.
+ */
+function spliceBlock(existing: string, block: string, start: string, end: string, heading: string, fallbackTitle: string): string {
+  const from = existing.indexOf(start)
+  const to = existing.indexOf(end)
+  if (from >= 0 && to > from) {
+    return existing.slice(0, from) + block + existing.slice(to + end.length)
+  }
+  const head = existing.replace(/\s*$/, '')
+  return `${head === '' ? `# ${fallbackTitle}` : head}\n\n## ${heading}\n\n${block}\n`
+}
+
+/** The counters block into `wiki/overview.md`. */
+export function updateOverview(existing: string, block: string): string {
+  return spliceBlock(existing, block, OVERVIEW_MARKER_START, OVERVIEW_MARKER_END, 'Vault counters', 'Wiki Overview')
+}
+
+/* ------------------------------------------------------------------------ the bucket hubs */
+
+/**
+ * The generated region of a bucket's `_index.md`.
+ *
+ * These hubs are NOT generated whole, and that is the difference from `index.md`: they carry a
+ * curated one-line description per page, written by the runs that filed those pages, and no
+ * generator can produce that. What the service owns is the complete page LIST between the
+ * markers, so the answer to "is every page of this bucket reachable" stops depending on whether
+ * a run remembered to add its entry. The prose sections around it stay the agent's.
+ *
+ * What the generated region deliberately does NOT carry: dated event sections. 131 of the 135
+ * `##` headings in one bucket hub were "(new sub-area, <date>)" entries - a second changelog
+ * beside `log.md`, in a file whose job is navigation.
+ */
+export const BUCKET_MARKER_START = '<!-- vault-service:pages -->'
+export const BUCKET_MARKER_END = '<!-- /vault-service:pages -->'
+
+/** Every bucket that has a hub page, vault-relative. */
+export function bucketHubs(vaultRoot: string): string[] {
+  return CONTENT_BUCKETS.map((b) => `wiki/${b}/_index.md`).filter((rel) =>
+    fs.existsSync(path.join(vaultRoot, rel)),
+  )
+}
+
+/** The page list for one bucket, markers included. */
+export function renderBucketPages(vaultRoot: string, bucket: string): string {
+  const pages = collectPages(vaultRoot).pages.filter((p) => p.bucket === bucket).sort(sortPages)
+  const lines = [BUCKET_MARKER_START, '']
+  lines.push(`Every page in this bucket (${pages.length}), written by the ingestion service:`)
+  lines.push('')
+  for (const p of pages) lines.push(`- ${pageLink(p)}${p.address === null ? '' : ` \`${p.address}\``}`)
+  lines.push('')
+  lines.push(BUCKET_MARKER_END)
+  return lines.join('\n')
+}
+
+/**
+ * The page list into one bucket hub, leaving its curated prose alone.
+ *
+ * A hub with no markers is left UNTOUCHED unless `create` is passed, and that asymmetry is
+ * deliberate. Measured on the working vault: inserting a complete page list into hubs that
+ * still carry their 131 dated event sections would take `concepts/_index.md` from 154 kB to
+ * 188 kB - bigger, not smaller, which is the opposite of what this work is for. Those sections
+ * go in the one-off repair (phase 8.1), and that pass is what inserts the markers. Afterwards
+ * every run keeps the region between them current, automatically.
+ *
+ * So the rule is exactly the contract: the service owns the region between the markers. No
+ * markers, no region, nothing written.
+ */
+export function updateBucketHub(existing: string, block: string, bucket: string, opts: { create?: boolean } = {}): string {
+  const hasMarkers = existing.includes(BUCKET_MARKER_START) && existing.includes(BUCKET_MARKER_END)
+  if (!hasMarkers && opts.create !== true) return existing
+  const title = `${bucket.charAt(0).toUpperCase()}${bucket.slice(1)} Index`
+  return spliceBlock(existing, block, BUCKET_MARKER_START, BUCKET_MARKER_END, 'All pages', title)
 }
