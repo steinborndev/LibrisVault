@@ -24,7 +24,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { stampDates } from './page-dates.js'
-import { CONTENT_BUCKETS, UPSTREAM_DEMO } from './hubs.js'
+import { CONTENT_BUCKETS, UPSTREAM_DEMO, collectPages, orderDomains, pageLink, sortPages, type HubPage } from './hubs.js'
+import { readDomainRegistry, UNASSIGNED } from './domains.js'
 
 /** One proposed change to one page. `before` and `after` are the whole file. */
 export interface PageEdit {
@@ -1105,5 +1106,95 @@ export function titleLinkPass(vaultRoot: string): RepairPass {
     }
     if (n === 0 || after === markdown) return null
     return { after, why: `${n} link(s) repointed from a title its file name cannot carry` }
+  }
+}
+
+/* ------------------------------------------------- the bucket hubs, regrouped (2.7 / 8.1) */
+
+/**
+ * The `_index.md` bucket hubs: keep every description, group them by subject (2.7, applied
+ * in 8.1).
+ *
+ * WHAT THESE PAGES ACTUALLY ARE, because the plan and the first reading of it both got this
+ * wrong. They look like event logs - 394 headings across three files, most of them of the form
+ * `## mRNA Delivery (new domain, 2026-07-17)` - and the plan called for dropping the dated
+ * sections and generating a page list in their place. Measured before doing it: those sections
+ * hold **1129 entries and every single one carries a hand-written one-line description**,
+ * covering 595 of 604 concepts, 327 of 338 sources and 206 of 225 entities. Deleting them
+ * would have been the largest content loss of this whole phase, and the text exists nowhere
+ * else.
+ *
+ * So the defect is not the content, it is the ORGANISATION: the hub is grouped by the ingest
+ * that happened to write each entry, which is the vault's history rather than its subject.
+ * A reader looking for what the vault holds on a topic has to know when it arrived.
+ *
+ * WHAT THIS DOES. Every `- [[Page]] description` line is kept verbatim and re-filed under the
+ * page's own `domain:`, in the same domain order the index uses. The dates leave the headings
+ * because a domain is not an event. Pages the hub never listed are appended to their domain
+ * with no description - a gap a person or a later run can fill, and visible rather than
+ * silent. A page listed twice keeps its longer description.
+ *
+ * WHAT IT DOES NOT DO. It writes no description, edits none, and drops none - not even one
+ * whose link no longer resolves, because that is a record of what was there. The page's head,
+ * its frontmatter and everything above the first `##` survive byte for byte.
+ */
+export function bucketRegroupPass(vaultRoot: string): RepairPass {
+  const { pages } = collectPages(vaultRoot)
+  const byName = new Map(pages.map((p) => [p.name.toLowerCase(), p]))
+  const order = readDomainRegistry(vaultRoot)?.domains.map((d) => d.key) ?? []
+
+  return (rel, markdown) => {
+    const m = /^wiki\/([^/]+)\/_index\.md$/.exec(rel)
+    if (m === null) return null
+    const bucket = m[1]!
+    const firstHead = markdown.search(/^## /m)
+    if (firstHead < 0) return null
+    const head = markdown.slice(0, firstHead).replace(/\s+$/, '')
+
+    /** Every entry, in the order it was written, first mention winning. */
+    const entries = new Map<string, { line: string; page: HubPage | undefined }>()
+    for (const line of markdown.slice(firstHead).split(/\r?\n/)) {
+      const item = /^- \[\[([^\]|#]+)(?:[^\]]*)\]\]/.exec(line)
+      if (item === null) continue
+      const target = item[1]!.trim()
+      const key = target.toLowerCase()
+      const clean = line.replace(/\s+$/, '')
+      // A page listed twice keeps the LONGER description rather than the first. Both were
+      // written by runs and neither is authoritative; the longer one carries more, and
+      // "whichever came first" is a coin toss dressed as a rule.
+      const seen = entries.get(key)
+      if (seen !== undefined && seen.line.length >= clean.length) continue
+      entries.set(key, { line: clean, page: byName.get(key) })
+    }
+    if (entries.size === 0) return null
+
+    const inBucket = pages.filter((p) => p.bucket === bucket)
+    const listed = new Set(entries.keys())
+    const missing = inBucket.filter((p) => !listed.has(p.name.toLowerCase()))
+
+    const grouped = new Map<string, string[]>()
+    const add = (domain: string, line: string): void => {
+      const list = grouped.get(domain)
+      if (list === undefined) grouped.set(domain, [line])
+      else list.push(line)
+    }
+    for (const { line, page } of entries.values()) add(page?.domain ?? UNASSIGNED, line)
+    for (const p of missing.sort(sortPages)) add(p.domain, `- ${pageLink(p)}`)
+
+    const out = [head, '']
+    for (const domain of orderDomains([...grouped.keys()], order)) {
+      const lines = grouped.get(domain) ?? []
+      out.push(`## ${domain} (${lines.length})`, '')
+      out.push(...lines)
+      out.push('')
+    }
+    const after = `${out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')}\n`
+    if (after === markdown) return null
+    return {
+      after,
+      why:
+        `${entries.size} description(s) kept, regrouped into ${grouped.size} domain(s)` +
+        (missing.length > 0 ? `, ${missing.length} unlisted page(s) added` : ''),
+    }
   }
 }

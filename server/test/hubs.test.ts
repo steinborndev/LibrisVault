@@ -485,3 +485,32 @@ describe('upstream demo pages in the generated hubs', () => {
     expect(renderOverviewCounters(root)).toBe(renderOverviewCounters(root))
   })
 })
+
+/**
+ * The bucket hubs after the regrouping (2.7, revisited 2026-09-19).
+ *
+ * They were read as event logs and turned out to hold 1129 hand-written descriptions covering
+ * almost every page in the bucket. Regrouped by domain rather than replaced, the list is now
+ * complete AND annotated - so a generated block beside it would write every entry a second
+ * time, bare.
+ */
+describe('updateBucketHub and a hub that already lists its pages', () => {
+  const annotated = '# Concepts Index\n\n## physics\n\n- [[Alpha]] - what it is, in one line\n'
+
+  it('refuses to create a generated block beside a hand-written list', () => {
+    expect(updateBucketHub(annotated, 'BLOCK', 'concepts', { create: true })).toBe(annotated)
+  })
+
+  it('still creates one in a hub that lists nothing', () => {
+    const empty = '# Concepts Index\n\nNothing here yet.\n'
+    expect(updateBucketHub(empty, 'BLOCK', 'concepts', { create: true })).toContain('BLOCK')
+  })
+
+  it('still refreshes a region that has markers, list or no list', () => {
+    const marked = `${annotated}\n${BUCKET_MARKER_START}\nold\n${BUCKET_MARKER_END}\n`
+    const out = updateBucketHub(marked, `${BUCKET_MARKER_START}\nnew\n${BUCKET_MARKER_END}`, 'concepts')
+    expect(out).toContain('new')
+    expect(out).not.toContain('old')
+    expect(out).toContain('- [[Alpha]] - what it is, in one line')
+  })
+})

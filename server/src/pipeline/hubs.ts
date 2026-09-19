@@ -204,7 +204,20 @@ export function pageLink(page: HubPage): string {
 }
 
 /** Total and stable: two machines, two runs, one byte-identical file. */
-function sortPages(a: HubPage, b: HubPage): number {
+/**
+ * Registry order first, then anything the registry does not know, alphabetically, then the
+ * unassigned bucket last - it is a waiting room, not a subject.
+ *
+ * Shared by the index and the bucket hubs so a reader moving between them sees one order.
+ */
+export function orderDomains(present: readonly string[], order: readonly string[]): string[] {
+  const set = new Set(present)
+  const known = order.filter((k) => set.has(k))
+  const rest = present.filter((k) => !order.includes(k) && k !== UNASSIGNED).sort()
+  return [...known, ...rest, ...(set.has(UNASSIGNED) ? [UNASSIGNED] : [])]
+}
+
+export function sortPages(a: HubPage, b: HubPage): number {
   return a.title.localeCompare(b.title, 'en') || a.rel.localeCompare(b.rel, 'en')
 }
 
@@ -242,11 +255,7 @@ export function renderIndex(vaultRoot: string, opts: RenderIndexOptions = {}): s
     if (list === undefined) byDomain.set(p.domain, [p])
     else list.push(p)
   }
-  // Registry order first, then anything the registry does not know, alphabetically, then the
-  // unassigned bucket last - it is a waiting room, not a subject.
-  const known = order.filter((k) => byDomain.has(k))
-  const rest = [...byDomain.keys()].filter((k) => !order.includes(k) && k !== UNASSIGNED).sort()
-  const domains = [...known, ...rest, ...(byDomain.has(UNASSIGNED) ? [UNASSIGNED] : [])]
+  const domains = orderDomains([...byDomain.keys()], order)
 
   const byBucket = new Map<string, number>()
   for (const p of pages) byBucket.set(p.bucket, (byBucket.get(p.bucket) ?? 0) + 1)
@@ -770,6 +779,20 @@ export function renderBucketPages(vaultRoot: string, bucket: string): string {
  */
 export function updateBucketHub(existing: string, block: string, bucket: string, opts: { create?: boolean } = {}): string {
   const hasMarkers = existing.includes(BUCKET_MARKER_START) && existing.includes(BUCKET_MARKER_END)
+  /*
+   * `create` NEVER applies to a hub that already lists pages, and this guard is what the
+   * regrouping of 2026-09-19 turned from theory into a real footgun.
+   *
+   * These hubs were read as event logs and turned out to hold 1129 entries, every one carrying
+   * a hand-written one-line description, covering almost every page in the bucket. They were
+   * regrouped by domain rather than replaced, so the LIST is now complete and annotated - and
+   * inserting a generated block beside it would write all 604 entries a second time, bare.
+   *
+   * That is the same contract as everywhere else, read the other way round: the service owns
+   * the region between the markers, and here there is nothing for it to own, because what
+   * makes these pages worth reading is exactly the part no generator can produce.
+   */
+  if (!hasMarkers && opts.create === true && /^- \[\[/m.test(existing)) return existing
   if (!hasMarkers && opts.create !== true) return existing
   const title = `${bucket.charAt(0).toUpperCase()}${bucket.slice(1)} Index`
   return spliceBlock(existing, block, BUCKET_MARKER_START, BUCKET_MARKER_END, 'All pages', title)

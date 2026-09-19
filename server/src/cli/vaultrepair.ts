@@ -39,6 +39,7 @@ import {
   tagSingletonPass,
   recordSectionPass,
   titleLinkPass,
+  bucketRegroupPass,
   type RepairPass,
   type RepairPlan,
 } from '../pipeline/repair.js'
@@ -83,6 +84,12 @@ const PASSES: ReadonlyArray<{ name: string; task: string; run: (vaultRoot: strin
     task: '8.7',
     run: () => demoSeedPass,
     subject: 'repair: mark the upstream demo pages as what they are',
+  },
+  {
+    name: 'bucket-regroup',
+    task: '2.7 / 8.1',
+    run: bucketRegroupPass,
+    subject: 'repair: group the bucket hubs by subject, not by ingest date',
   },
   {
     name: 'title-link',

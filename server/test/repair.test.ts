@@ -19,6 +19,7 @@ import {
   tagSingletonPass,
   recordSectionPass,
   titleLinkPass,
+  bucketRegroupPass,
 } from '../src/pipeline/repair.js'
 import { fieldOf, CONTENT_UPDATED, bodyOf } from '../src/pipeline/page-dates.js'
 
@@ -888,5 +889,98 @@ describe('titleLinkPass', () => {
   it('is idempotent: a repointed link is not repointed again', () => {
     const once = titleLinkPass(root)('wiki/concepts/Cites It.md', readOf('wiki/concepts/Cites It.md'), root)!.after
     expect(titleLinkPass(root)('wiki/concepts/Cites It.md', once, root)).toBeNull()
+  })
+})
+
+/**
+ * `bucketRegroupPass` (2.7, applied in 8.1) - and the measurement that changed the plan.
+ *
+ * The `_index.md` hubs look like event logs: 394 headings across three files, most of the form
+ * `## mRNA Delivery (new domain, 2026-07-17)`, and the plan called for dropping them and
+ * generating a page list in their place. Measured before doing it: those sections hold 1129
+ * entries and EVERY ONE carries a hand-written one-line description, covering 595 of 604
+ * concepts, 327 of 338 sources, 206 of 225 entities. The text exists nowhere else.
+ *
+ * So the defect is the organisation, not the content: grouped by the ingest that wrote each
+ * entry, which is the vault's history rather than its subject.
+ */
+describe('bucketRegroupPass', () => {
+  let root = ''
+  const hub = (body: string): string =>
+    `---\ntype: meta\n---\n\n# Concepts Index\n\nCurated prose nobody generated.\n\n${body}`
+  const page = (name: string, domain: string): void => {
+    const abs = path.join(root, 'wiki', 'concepts', `${name}.md`)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, `---\ntype: concept\ndomain: ${domain}\n---\n\n# ${name}\n`)
+  }
+  const run = (): ReturnType<typeof bucketRegroupPass> => bucketRegroupPass(root)
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'bucket-regroup-'))
+    page('Alpha', 'physics')
+    page('Beta', 'biology')
+    page('Gamma', 'physics')
+  })
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it('keeps every description, word for word', () => {
+    const before = hub(
+      '## Something (new domain, 2026-07-17)\n\n- [[Alpha]] - the first one, in detail\n\n## Later (2026-08-01)\n\n- [[Beta]] - a different subject entirely\n',
+    )
+    const out = run()('wiki/concepts/_index.md', before, root)!.after
+    expect(out).toContain('- [[Alpha]] - the first one, in detail')
+    expect(out).toContain('- [[Beta]] - a different subject entirely')
+  })
+
+  it('groups by the page\'s own domain and drops the dates from the headings', () => {
+    const before = hub('## Whatever (2026-07-17)\n\n- [[Alpha]] - one\n- [[Beta]] - two\n')
+    const out = run()('wiki/concepts/_index.md', before, root)!.after
+    expect(out).toContain('## physics')
+    expect(out).toContain('## biology')
+    expect(out).not.toContain('2026-07-17')
+  })
+
+  it('adds a page the hub never listed, so the gap is visible rather than silent', () => {
+    const out = run()('wiki/concepts/_index.md', hub('## X (2026-07-17)\n\n- [[Alpha]] - one\n'), root)!
+    expect(out.after).toContain('[[Gamma]]')
+    expect(out.why).toContain('unlisted page')
+  })
+
+  it('writes no description for a page it is adding', () => {
+    // Inventing one is exactly what this pass may not do.
+    const out = run()('wiki/concepts/_index.md', hub('## X (2026-07-17)\n\n- [[Alpha]] - one\n'), root)!.after
+    expect(out).toMatch(/^- \[\[Gamma\]\]$/m)
+  })
+
+  it('keeps the LONGER description when a page is listed twice', () => {
+    // Both were written by runs and neither is authoritative; "whichever came first" is a coin
+    // toss dressed as a rule.
+    const before = hub('## A (2026-07-17)\n\n- [[Alpha]] - short\n\n## B (2026-08-01)\n\n- [[Alpha]] - a much longer account\n')
+    const out = run()('wiki/concepts/_index.md', before, root)!.after
+    expect(out).toContain('a much longer account')
+    expect(out.match(/\[\[Alpha\]\]/g)).toHaveLength(1)
+  })
+
+  it('leaves the head byte for byte, frontmatter and curated prose included', () => {
+    const before = hub('## X (2026-07-17)\n\n- [[Alpha]] - one\n')
+    const out = run()('wiki/concepts/_index.md', before, root)!.after
+    expect(out.slice(0, out.search(/^## /m))).toBe(before.slice(0, before.search(/^## /m)))
+    expect(out).toContain('Curated prose nobody generated.')
+  })
+
+  it('keeps an entry whose link resolves to nothing, because it is a record', () => {
+    const out = run()('wiki/concepts/_index.md', hub('## X (2026-07-17)\n\n- [[A Deleted Page]] - what it was\n'), root)!
+    expect(out.after).toContain('[[A Deleted Page]] - what it was')
+  })
+
+  it('is idempotent, which is what lets a run keep it current later', () => {
+    const once = run()('wiki/concepts/_index.md', hub('## X (2026-07-17)\n\n- [[Alpha]] - one\n'), root)!.after
+    expect(run()('wiki/concepts/_index.md', once, root)).toBeNull()
+  })
+
+  it('touches nothing but a bucket hub', () => {
+    const body = hub('## X (2026-07-17)\n\n- [[Alpha]] - one\n')
+    expect(run()('wiki/index.md', body, root)).toBeNull()
+    expect(run()('wiki/concepts/Alpha.md', body, root)).toBeNull()
   })
 })
