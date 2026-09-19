@@ -5,6 +5,7 @@
  *   npm run vaultrepair -- --pass em-dash    # one pass
  *   npm run vaultrepair -- --pass em-dash --diff 3   # with three sample diffs
  *   npm run vaultrepair -- --pass em-dash --apply    # write it, one commit
+ *   npm run vaultrepair -- --pass hubs --with-buckets  # also insert the bucket page lists
  *
  * **A DRY RUN IS THE DEFAULT AND `--apply` IS THE ONLY WAY PAST IT.** Every pass here rewrites
  * pages a person wrote months ago, in bulk, by rule, so the summary comes first and the diff
@@ -37,6 +38,8 @@ import {
   type RepairPass,
   type RepairPlan,
 } from '../pipeline/repair.js'
+import { planManifestRepair } from '../pipeline/repair.js'
+import { renderIndex, renderOverviewCounters, updateOverview, renderBucketPages, updateBucketHub, bucketHubs, SERVICE_OWNED_HUBS } from '../pipeline/hubs.js'
 import { withWikiLocks } from '../pipeline/wiki-lock.js'
 import { commitPaths } from '../pipeline/git.js'
 
@@ -129,6 +132,89 @@ async function apply(vaultRoot: string, plan: RepairPlan, subject: string): Prom
   return 0
 }
 
+/**
+ * 8.3: the address map, both directions. Not a page pass - it writes one JSON file - so it has
+ * its own plan-and-apply, with the same rule: report first, write only with `--apply`.
+ */
+async function addressMap(vaultRoot: string, wantApply: boolean): Promise<void> {
+  const plan = planManifestRepair(vaultRoot)
+  console.log(`\naddress-map (8.3): ${plan.added.length} page(s) to add, ${plan.droppedPages.length} stale pages_created to drop`)
+  if (plan.unnamedDirs.length > 0) {
+    console.log(`  ${plan.unnamedDirs.length} job director(ies) named in no source entry - reported, never invented:`)
+    console.log(`    ${plan.unnamedDirs.slice(0, 6).join(', ')}${plan.unnamedDirs.length > 6 ? ', ...' : ''}`)
+  }
+  if (plan.after === null) {
+    console.log('  nothing to change')
+    return
+  }
+  if (!wantApply) return
+  const rel = '.raw/.manifest.json'
+  fs.writeFileSync(path.join(vaultRoot, rel), plan.after, 'utf8')
+  const commit = await commitPaths(vaultRoot, 'repair: record every addressed page in the address map', [rel])
+  console.log(`  wrote ${rel}${commit.hash ? `, commit ${commit.hash.slice(0, 8)}` : ', not committed'}`)
+}
+
+/**
+ * 8.1: the hubs, rendered by the same code that keeps them current after every run.
+ *
+ * The bucket hubs are the one place this passes `create: true`: their marker region does not
+ * exist yet, and inserting it is exactly what this one-off is for (see `updateBucketHub`).
+ */
+async function hubs(vaultRoot: string, wantApply: boolean, withBuckets = false): Promise<void> {
+  const planned: Array<{ rel: string; before: string; after: string }> = []
+  const read = (rel: string): string => {
+    try {
+      return fs.readFileSync(path.join(vaultRoot, rel), 'utf8')
+    } catch {
+      return ''
+    }
+  }
+  const index = read('wiki/index.md')
+  planned.push({ rel: 'wiki/index.md', before: index, after: renderIndex(vaultRoot) })
+  const overview = read('wiki/overview.md')
+  planned.push({ rel: 'wiki/overview.md', before: overview, after: updateOverview(overview, renderOverviewCounters(vaultRoot)) })
+  /*
+   * THE BUCKET HUBS ARE OPT-IN, and the dry run over the live vault is why (2026-09-19).
+   *
+   * Inserting the generated page list into them adds 83 kB: `concepts/_index.md` 153 to 187,
+   * `sources/_index.md` 123 to 164. Nothing is removed in exchange, because what is already
+   * in those files is the curated one-line description per page, which no generator can
+   * produce and which this work is forbidden to throw away.
+   *
+   * And the value the region would add - "every page of this bucket is reachable" - is already
+   * delivered for the WHOLE vault by the generated `index.md`, at a fifth of the size the old
+   * one had. A second copy per bucket buys nothing and costs exactly the kind of hub bloat
+   * this phase exists to remove.
+   *
+   * The mechanism stays: where a marker region exists, every run keeps it current. It is only
+   * the one-off INSERTION that is a judgement, and the judgement is no.
+   */
+  if (withBuckets) {
+    for (const rel of bucketHubs(vaultRoot)) {
+      const bucket = rel.split('/')[1] ?? ''
+      const before = read(rel)
+      planned.push({ rel, before, after: updateBucketHub(before, renderBucketPages(vaultRoot, bucket), bucket, { create: true }) })
+    }
+  }
+  const changed = planned.filter((p) => p.after !== p.before)
+  console.log(`\nhubs (8.1): ${changed.length} hub file(s) would change`)
+  for (const p of changed) {
+    const delta = p.after.length - p.before.length
+    console.log(`  ${p.rel.padEnd(28)} ${Math.round(p.before.length / 100) / 10} kB -> ${Math.round(p.after.length / 100) / 10} kB (${delta > 0 ? '+' : ''}${Math.round(delta / 100) / 10} kB)`)
+  }
+  if (!wantApply || changed.length === 0) return
+  const written = await withWikiLocks(vaultRoot, changed.map((p) => p.rel), async (held, busy) => {
+    if (busy.length > 0) console.log(`  skipping ${busy.length} hub(s) somebody else is writing`)
+    const mine = changed.filter((p) => held.includes(p.rel))
+    for (const p of mine) fs.writeFileSync(path.join(vaultRoot, p.rel), p.after, 'utf8')
+    if (mine.length === 0) return []
+    const commit = await commitPaths(vaultRoot, 'repair: regenerate the hub layer from the pages themselves', mine.map((p) => p.rel))
+    console.log(`  wrote ${mine.length} hub file(s)${commit.hash ? `, commit ${commit.hash.slice(0, 8)}` : ', not committed'}`)
+    return mine.map((p) => p.rel)
+  })
+  void written
+}
+
 async function main(): Promise<number> {
   const args = process.argv.slice(2)
   const valueOf = (name: string): string | undefined => {
@@ -147,9 +233,20 @@ async function main(): Promise<number> {
   const wantApply = args.includes('--apply')
 
   console.log(`vaultrepair: ${vaultRoot}${wantApply ? '  (APPLYING)' : '  (dry run)'}`)
+  // The two passes that are not page passes: one writes a JSON file, one writes the hubs.
+  if (only === 'address-map') {
+    await addressMap(vaultRoot, wantApply)
+    if (!wantApply) console.log('\nnothing was written. Add --apply to run it for real.')
+    return 0
+  }
+  if (only === 'hubs') {
+    await hubs(vaultRoot, wantApply, args.includes('--with-buckets'))
+    if (!wantApply) console.log('\nnothing was written. Add --apply to run it for real.')
+    return 0
+  }
   const chosen = only === undefined ? PASSES : PASSES.filter((p) => p.name === only)
   if (chosen.length === 0) {
-    console.error(`no such pass: ${only}. Known: ${PASSES.map((p) => p.name).join(', ')}`)
+    console.error(`no such pass: ${only}. Known: ${[...PASSES.map((p) => p.name), 'address-map', 'hubs'].join(', ')}`)
     return 2
   }
 
@@ -161,7 +258,11 @@ async function main(): Promise<number> {
       if (code !== 0) return code
     }
   }
-  if (only === undefined) reportTitleDrift(vaultRoot)
+  if (only === undefined) {
+    await addressMap(vaultRoot, wantApply)
+    await hubs(vaultRoot, wantApply)
+    reportTitleDrift(vaultRoot)
+  }
   if (!wantApply) console.log('\nnothing was written. Add --apply to run it for real.')
   return 0
 }

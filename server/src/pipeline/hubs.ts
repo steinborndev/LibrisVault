@@ -109,17 +109,30 @@ function walk(dir: string, out: string[]): string[] {
  * LISTED rather than skipped: a generator that silently drops a page is a generator that can
  * lose knowledge, and the whole point of the index is that everything is reachable from it.
  */
-export function collectPages(vaultRoot: string): { pages: HubPage[]; unfiled: UnfiledPage[] } {
+export function collectPages(vaultRoot: string): { pages: HubPage[]; unfiled: UnfiledPage[]; machinery: string[] } {
   const pages: HubPage[] = []
   const unfiled: UnfiledPage[] = []
+  /*
+   * Everything under `wiki/` that is not a content page and not one of the hubs: the meta
+   * pages, the fold pages, the bucket hubs, the onboarding page.
+   *
+   * They are listed because the index has to be COMPLETE. The hand-maintained one linked to
+   * eight of them, and a generated index that dropped those links would lose reachability -
+   * which is the one thing the rebuild is not allowed to do. Two kilobytes against ninety-two.
+   */
+  const machinery: string[] = []
   for (const abs of walk(path.join(vaultRoot, 'wiki'), [])) {
     const rel = toPosix(path.relative(vaultRoot, abs))
     const parts = rel.split('/')
     const name = parts[parts.length - 1]!.slice(0, -3)
     const bucket = parts.length > 2 ? parts[1]! : 'root'
     // Navigation and operational pages are what the index IS, not what it lists.
-    if (!CONTENT_BUCKETS.includes(bucket as (typeof CONTENT_BUCKETS)[number])) continue
-    if (name.startsWith('_')) continue
+    // The hot cache is a hub too, though the agent owns it: it is in the navigation line.
+    const isHub = SERVICE_OWNED_HUBS.includes(rel as (typeof SERVICE_OWNED_HUBS)[number]) || rel === 'wiki/hot.md'
+    if (!CONTENT_BUCKETS.includes(bucket as (typeof CONTENT_BUCKETS)[number]) || name.startsWith('_')) {
+      if (!isHub) machinery.push(rel)
+      continue
+    }
 
     let markdown: string
     try {
@@ -150,7 +163,7 @@ export function collectPages(vaultRoot: string): { pages: HubPage[]; unfiled: Un
       updated: updated && /^\d{4}-\d{2}-\d{2}/.test(updated) ? updated.slice(0, 10) : null,
     })
   }
-  return { pages, unfiled }
+  return { pages, unfiled, machinery: machinery.sort() }
 }
 
 /**
@@ -186,7 +199,7 @@ export interface RenderIndexOptions {
  * had drifted.
  */
 export function renderIndex(vaultRoot: string, opts: RenderIndexOptions = {}): string {
-  const { pages, unfiled } = collectPages(vaultRoot)
+  const { pages, unfiled, machinery } = collectPages(vaultRoot)
   const registry = readDomainRegistry(vaultRoot)
   const order = opts.domainOrder ?? registry?.domains.map((d) => d.key) ?? []
 
@@ -258,6 +271,17 @@ export function renderIndex(vaultRoot: string, opts: RenderIndexOptions = {}): s
       for (const p of group) out.push(`- ${pageLink(p)}${p.address === null ? '' : ` \`${p.address}\``}`)
       out.push('')
     }
+  }
+
+  if (machinery.length > 0) {
+    // Last, and named for what it is: these are not knowledge, and a reader looking for the
+    // vault's own pages should not have to know where they live.
+    out.push(`## Vault machinery (${machinery.length})`)
+    out.push('')
+    out.push('The vault\'s own pages: navigation, reports, notebooks, folds.')
+    out.push('')
+    for (const rel of machinery) out.push(`- [[${rel.split('/').pop()!.slice(0, -3)}]]`)
+    out.push('')
   }
 
   if (unfiled.length > 0) {
