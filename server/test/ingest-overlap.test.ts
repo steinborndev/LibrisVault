@@ -199,7 +199,7 @@ describe('the heading a web capture really carries', () => {
   it('drops an identifier that names no subject', () => {
     // Real originalNames from this vault: a publisher id, a DOI suffix, a journal code. A
     // topic made of one is worse than no topic - it returns pages that overlap nothing.
-    for (const id of ['PMC12214508', 'd6pm00290k', 'evcna7038']) {
+    for (const id of ['PMC12214508', 'q4zt00817b', 'kbxlq2291']) {
       expect(deriveTopic({ originalName: `${id}.pdf` })).toBe('')
     }
   })
@@ -209,7 +209,7 @@ describe('the heading a web capture really carries', () => {
  * The title of a PDF, which carries no headings (3.1's DoD).
  *
  * Found by replaying the last 20 real ingests: six were journal PDFs named `1.pdf` .. `5.pdf`
- * and `d6pm00290k.pdf`. `isIdentifier` rejects all six names, correctly, and `pdftotext` writes
+ * and `q4zt00817b.pdf`. `isIdentifier` rejects all six names, correctly, and `pdftotext` writes
  * no markdown headings - so those six documents reached the agent with no overlap block at all,
  * which is exactly the case this phase exists for. Their titles were two or three lines into
  * the text, under the publisher's masthead.

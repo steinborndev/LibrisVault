@@ -85,7 +85,7 @@ const PUBLISHER_BOILERPLATE =
  * WHY THIS EXISTS. `pdftotext` writes no headings, so `firstHeading` returned nothing for every
  * PDF, and the file name was then the only signal left. Measured by replaying the last 20 real
  * ingests (task 3.1's DoD): six of them were journal PDFs named `1.pdf` .. `5.pdf` and
- * `d6pm00290k.pdf`, all of which `isIdentifier` correctly rejects - so those six documents
+ * `q4zt00817b.pdf`, all of which `isIdentifier` correctly rejects - so those six documents
  * reached the agent with NO overlap block at all, and a journal PDF on a subject the vault
  * already covers is the case this whole phase exists for. Their normalised text carried the
  * real title two or three lines down, under the journal's masthead.
@@ -114,10 +114,13 @@ function firstTitleLines(text: string, max = 2): string {
 const isUrlLike = (value: string): boolean => /^https?:\/\//i.test(value.trim())
 
 /**
- * An identifier is not a subject. `PMC12214508`, `d6pm00290k`, `evcna7038` are real
- * `originalName`s from this vault's own history: a publisher's id, a DOI suffix, a journal's
- * article code. As a topic each is noise, and a topic that is noise is worse than no topic -
- * it produces a block of pages that overlap nothing.
+ * An identifier is not a subject. `q4zt00817b` and `kbxlq2291` have the SHAPE of the
+ * `originalName`s this vault's history really carries - a publisher's id, a DOI suffix, a
+ * journal's article code - and are INVENTED, because a real one points at a real document and
+ * this repo is public (hard rule 7). Keep it that way when adding a case.
+ *
+ * As a topic each is noise, and a topic that is noise is worse than no topic: it produces a
+ * block of pages that overlap nothing.
  */
 function isIdentifier(value: string): boolean {
   const words = value.split(/\s+/).filter((w) => w !== '')

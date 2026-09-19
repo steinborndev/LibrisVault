@@ -911,7 +911,7 @@ and the head text is the strongest signal there is. Fixing the replay took it to
 The second was real. `firstHeading` looked for a markdown heading, `pdftotext` writes none, so
 for a PDF the file name was the only signal left - and `isIdentifier` rightly rejects a name
 that is a publisher's article code or a browser's download counter. Six of the twenty were
-named `1.pdf` to `5.pdf` and `d6pm00290k.pdf`. **Those six reached the agent with no overlap
+named `1.pdf` to `5.pdf` and `q4zt00817b.pdf`. **Those six reached the agent with no overlap
 block at all**, which is precisely the case this phase exists for: a journal PDF on a subject
 the vault already holds twelve pages about. Their titles sat two or three lines into the text,
 under the publisher's masthead. `firstTitleLines` now reads them, skipping the metadata lines a
