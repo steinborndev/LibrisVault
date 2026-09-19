@@ -176,6 +176,13 @@ export interface Health {
    * read-only demo too, where their surfaces show a seeded database and no run ever starts.
    */
   fellows?: boolean
+  /**
+   * False means the vault's own plugin hook is committing this service's writes out from under
+   * it: a run's pages land in a "wiki: auto-commit" commit, the job row records none, and the
+   * revert button has nothing to revert. The service creates the flag at startup, so a false
+   * here means it could not (a read-only mount) or something removed it since.
+   */
+  autoCommitDisabled?: boolean
   queue: { inFlight: number; paused: boolean; pauseReason: PauseReason; concurrency: number }
   jobs: Record<string, number>
   /** Server-side caps the client pre-checks against (dropzone size warning). */

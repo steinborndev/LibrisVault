@@ -76,6 +76,9 @@ export function System({ section = '', setting = '' }: { section?: string; setti
 
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings })
+  // Base product, no Fellow dependency, so it needs no flag guard (hard rule 8). Shares the
+  // key and staleTime the usage pane below already uses, so the screen makes one request.
+  const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
   const maint = useMaintenanceStatus()
   const due = maint.data?.status.due ?? 0
   const recommended = maint.data?.status.recommended ?? 0
@@ -172,6 +175,22 @@ export function System({ section = '', setting = '' }: { section?: string; setti
             <div className="kv">
               <span className="k">Concurrency</span>
               <span className="v">{stats.data?.queue.concurrency ?? '…'}</span>
+            </div>
+            {/* Who commits the vault. The plugin's own hook commits after every Write unless
+                the service's flag is there, and then a run's pages belong to no run (hard
+                rule 1). Shown here rather than in a check, because it is a standing property
+                of the vault rather than something that comes due. */}
+            <div className="kv">
+              <span className="k">Commits</span>
+              {health.data === undefined ? (
+                <span className="v">…</span>
+              ) : health.data.autoCommitDisabled === false ? (
+                <span className="v bad" title="The vault plugin commits on its own, so a run's pages are committed out from under the service that wrote them. Expected only on a read-only instance.">
+                  vault commits too
+                </span>
+              ) : (
+                <span className="v">service only</span>
+              )}
             </div>
           </div>
         </div>

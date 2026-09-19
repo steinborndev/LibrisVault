@@ -68,6 +68,7 @@ import { Mutex } from './util/mutex.js'
 import { refreshTransportPin } from './pipeline/transport.js'
 import { buildServer } from './api/server.js'
 import { ensureVaultExcludes } from './pipeline/vault-excludes.js'
+import { ensureAutoCommitDisabled } from './pipeline/vault-guards.js'
 import { VaultReconciler } from './pipeline/reconcile.js'
 import { startWatcher, type Watcher } from './pipeline/watcher.js'
 import { startVaultWatcher, type VaultWatcher } from './pipeline/vault-watcher.js'
@@ -120,6 +121,11 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // A vault this process cannot write (a read-only demo mount) is reported below, not fatal:
   // the exclude file is hygiene for writers, and such an instance has none.
   const excludes = ensureVaultExcludes(config.vaultRoot)
+  // And before anything can COMMIT: the vault plugin's own PostToolUse hook commits after every
+  // Write and Edit unless this flag is present, which would take every run's pages out from
+  // under the service that wrote them (hard rule 1). Asserted here because until now the flag
+  // was written by the dev-instance script and by nothing else, so a fresh clone was unguarded.
+  const autoCommitGuard = ensureAutoCommitDisabled(config.vaultRoot)
 
   const db = openDb(defaultDbPath())
   // The live-update bus is shared: the store publishes job/log events, the queue publishes
@@ -601,9 +607,21 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   if (recaps !== undefined && !passive) recaps.start()
 
   // Log what the service actually runs with (overrides applied), not the bare baseline.
-  app.log.info({ ...describeConfig(effectiveConfig), transportPin: pin, vaultExcludes: excludes }, 'vault-service started')
+  app.log.info(
+    { ...describeConfig(effectiveConfig), transportPin: pin, vaultExcludes: excludes, vaultAutoCommitGuard: autoCommitGuard },
+    'vault-service started',
+  )
   if (excludes === 'unwritable') {
     app.log.warn('the vault is not writable by this process: .git/info/exclude was left as it is (expected on a read-only instance)')
+  }
+  if (autoCommitGuard === 'created') {
+    app.log.warn(
+      'the vault was auto-committing its own writes: .vault-meta/auto-commit.disabled created, this service now owns every commit',
+    )
+  } else if (autoCommitGuard === 'unwritable') {
+    app.log.warn(
+      'the vault plugin may auto-commit: .vault-meta/auto-commit.disabled is missing and cannot be written (expected on a read-only instance)',
+    )
   }
   if (config.demoMode) {
     app.log.info(

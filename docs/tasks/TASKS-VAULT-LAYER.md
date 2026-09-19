@@ -306,23 +306,42 @@ into a scratch directory and its `git log` ends at the recorded commit with **76
 
 Small, independent, no content change. Ship as one commit per task.
 
-### 1.1 Assert the auto-commit opt-out from the service (A1)
+### 1.1 Assert the auto-commit opt-out from the service (A1) - DONE 2026-09-19
 
-- [ ] `server/src/pipeline/vault-guards.ts` (new, or extend `vault-excludes.ts`):
+- [x] `server/src/pipeline/vault-guards.ts` (new, or extend `vault-excludes.ts`):
       `ensureAutoCommitDisabled(vaultRoot)` returning
       `'present' | 'created' | 'no-vault' | 'unwritable'`, idempotent, creating the flag file
       when the vault is a claude-obsidian vault and the flag is missing.
-- [ ] Called from startup next to `ensureVaultExcludes`, with a log line either way.
-- [ ] Reported in `GET /api/v1/health` as a boolean (`autoCommitDisabled`), and surfaced on the
+- [x] Called from startup next to `ensureVaultExcludes`, with a log line either way.
+- [x] Reported in `GET /api/v1/health` as a boolean (`autoCommitDisabled`), and surfaced on the
       System screen as a red state when false.
-- [ ] `scripts/setup-all.sh` no longer needs to know about it (the service owns it), but add a
+- [x] `scripts/setup-all.sh` no longer needs to know about it (the service owns it), but add a
       comment where step 4 clones the vault saying the service asserts it at startup.
-- [ ] Tests: fresh vault without the flag gets it; existing flag untouched (mtime preserved);
+- [x] Tests: fresh vault without the flag gets it; existing flag untouched (mtime preserved);
       non-vault directory is a no-op; read-only vault reports `unwritable` instead of throwing
       (same shape as `ensureVaultExcludes`'s EROFS path, which a hosted demo relies on).
 - **DoD:** delete the flag from a scratch vault, start the service against it, the flag is back
   and `/health` says `autoCommitDisabled: true`. Make the vault read-only, start again, the
   service starts and `/health` says false. Both as tests, plus one manual run.
+
+**Result.** Both manual runs done against a scratch vault on a spare port (never `~/vault`):
+
+- flag deleted, service started: flag back on disk, `/health` `autoCommitDisabled: true`, and
+  the startup log carries `the vault was auto-committing its own writes: ... created, this
+  service now owns every commit`.
+- `.vault-meta` made read-only before the service ever saw it: the service **starts**,
+  `/health` says `autoCommitDisabled: false`, and the log says `may auto-commit: ... is missing
+  and cannot be written (expected on a read-only instance)`.
+
+Five unit tests in `server/test/vault-guards.test.ts`, including the one that matters most: an
+existing flag is not rewritten, because its mtime is the only record of when this vault stopped
+auto-committing. `/health` reads the flag live rather than reporting the startup verdict - a
+`git clean` in the vault removes it without restarting us - and the System screen's Service
+panel shows `Commits: service only` or a red `vault commits too`.
+
+Worth recording for later: the mechanism is the vault's `hooks/hooks.json` `PostToolUse` hook,
+which runs `git add -- wiki/ .raw/ .vault-meta/` plus a commit after every Write and Edit and
+exits early only when the flag file exists. That is the file this task asserts.
 
 ### 1.2 Deny history-destroying commands in an agent run (N5)
 

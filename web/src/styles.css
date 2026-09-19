@@ -6550,6 +6550,10 @@ tr:focus-within .rowacts {
 .kv .k.warnish {
   color: var(--warn);
 }
+/* A value that is a problem rather than a fact: the vault guard the System panel reports. */
+.kv .v.bad {
+  color: var(--err);
+}
 .kv .v {
   font-family: var(--mono);
   font-size: 11.5px;
