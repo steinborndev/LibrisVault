@@ -510,6 +510,8 @@ export interface ManifestRepair {
   readonly added: ReadonlyArray<{ rel: string; address: string }>
   /** `pages_created` entries naming a page that no longer exists, to drop. */
   readonly droppedPages: ReadonlyArray<{ source: string; page: string }>
+  /** `address_map` entries whose page is gone: the address retires with it. */
+  readonly droppedAddresses: ReadonlyArray<{ rel: string; address: string }>
   /** `.raw/<job>/` directories named in no source entry: reported, never invented. */
   readonly unnamedDirs: readonly string[]
   /** The manifest as it would be written, or null when nothing would change. */
@@ -534,16 +536,37 @@ export function planManifestRepair(vaultRoot: string): ManifestRepair {
   try {
     raw = fs.readFileSync(manifestPath, 'utf8')
   } catch {
-    return { added: [], droppedPages: [], unnamedDirs: [], after: null }
+    return { added: [], droppedPages: [], droppedAddresses: [], unnamedDirs: [], after: null }
   }
   let manifest: { address_map?: Record<string, string>; sources?: Record<string, { pages_created?: string[] }> }
   try {
     manifest = JSON.parse(raw) as typeof manifest
   } catch {
-    return { added: [], droppedPages: [], unnamedDirs: [], after: null }
+    return { added: [], droppedPages: [], droppedAddresses: [], unnamedDirs: [], after: null }
   }
 
   const map = { ...(manifest.address_map ?? {}) }
+  /*
+   * The OTHER direction, and it took a deleted page to make it fire.
+   *
+   * N1's complaint was that nothing walked the pages asking whether each had a map entry, and
+   * that is what `added` below fixes. But the reverse - a map entry whose page is gone - was
+   * only ever REPORTED by the validator and never repaired, because until 2026-09-20 no page
+   * had ever been deleted from this vault. Removing the 13 pages the plugin shipped with left
+   * exactly one entry pointing at nothing, and the first ingest afterwards reported it.
+   *
+   * Dropped, not kept: the address is retired with its page. Nothing recycles it - the counter
+   * only ever increments - so a dangling entry buys nothing and costs `buildSourceIndex` and
+   * `dedupe.jobForPage` a target that resolves to no file.
+   */
+  const droppedAddresses: Array<{ rel: string; address: string }> = []
+  for (const [rel, address] of Object.entries(map)) {
+    const abs = path.resolve(vaultRoot, rel)
+    if (abs.startsWith(vaultRoot + path.sep) && fs.existsSync(abs)) continue
+    delete map[rel]
+    droppedAddresses.push({ rel, address })
+  }
+
   const added: Array<{ rel: string; address: string }> = []
   for (const rel of wikiPages(vaultRoot)) {
     if (map[rel] !== undefined) continue
@@ -592,13 +615,13 @@ export function planManifestRepair(vaultRoot: string): ManifestRepair {
     /* no .raw: nothing to reconcile */
   }
 
-  if (added.length === 0 && droppedPages.length === 0) {
-    return { added, droppedPages, unnamedDirs, after: null }
+  if (added.length === 0 && droppedPages.length === 0 && droppedAddresses.length === 0) {
+    return { added, droppedPages, droppedAddresses, unnamedDirs, after: null }
   }
   // Key order preserved where it was, new entries appended: the file is read by the vault's
   // own skill, and a wholesale reordering would make every future diff unreadable.
   const after = `${JSON.stringify({ ...manifest, address_map: map, sources }, null, 2)}\n`
-  return { added, droppedPages, unnamedDirs, after }
+  return { added, droppedPages, droppedAddresses, unnamedDirs, after }
 }
 
 /**

@@ -1061,3 +1061,54 @@ describe('demoUnlinkPass', () => {
     expect(run()(rel, fs.readFileSync(path.join(root, rel), 'utf8'), root)).toBeNull()
   })
 })
+
+/**
+ * `planManifestRepair` and an address whose page is gone (N1, the other direction).
+ *
+ * N1's complaint was that nothing walked the PAGES asking whether each had a map entry. The
+ * reverse - a map entry whose page is gone - was only ever reported by the validator, never
+ * repaired, because until 2026-09-20 no page had ever been deleted from this vault. Removing
+ * the 13 the plugin shipped with left exactly one dangling entry, and the first ingest
+ * afterwards reported it.
+ */
+describe('planManifestRepair and retired addresses', () => {
+  let root = ''
+  const manifest = (map: Record<string, string>): void => {
+    fs.mkdirSync(path.join(root, '.raw'), { recursive: true })
+    fs.writeFileSync(path.join(root, '.raw', '.manifest.json'), JSON.stringify({ address_map: map, sources: {} }))
+  }
+  const page = (rel: string, address: string): void => {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, `---\ntype: concept\naddress: ${address}\n---\n\n# X\n`)
+  }
+
+  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'manifest-')) })
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it('drops an entry whose page no longer exists', () => {
+    page('wiki/concepts/Alive.md', 'c-000001')
+    manifest({ 'wiki/concepts/Alive.md': 'c-000001', 'wiki/concepts/Gone.md': 'c-000002' })
+    const plan = planManifestRepair(root)
+    expect(plan.droppedAddresses).toEqual([{ rel: 'wiki/concepts/Gone.md', address: 'c-000002' }])
+    expect(JSON.parse(plan.after!).address_map).toEqual({ 'wiki/concepts/Alive.md': 'c-000001' })
+  })
+
+  it('keeps every entry whose page is still there', () => {
+    page('wiki/concepts/Alive.md', 'c-000001')
+    manifest({ 'wiki/concepts/Alive.md': 'c-000001' })
+    expect(planManifestRepair(root).droppedAddresses).toEqual([])
+  })
+
+  it('never follows a path out of the vault', () => {
+    // A map is a file the agent writes; a `../` in it must not make this stat someone's disk.
+    manifest({ '../outside.md': 'c-000009' })
+    expect(planManifestRepair(root).droppedAddresses).toEqual([{ rel: '../outside.md', address: 'c-000009' }])
+  })
+
+  it('reports nothing to change when the map is already right', () => {
+    page('wiki/concepts/Alive.md', 'c-000001')
+    manifest({ 'wiki/concepts/Alive.md': 'c-000001' })
+    expect(planManifestRepair(root).after).toBeNull()
+  })
+})

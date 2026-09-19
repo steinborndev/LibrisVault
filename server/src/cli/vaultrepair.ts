@@ -180,7 +180,10 @@ async function apply(vaultRoot: string, plan: RepairPlan, subject: string): Prom
  */
 async function addressMap(vaultRoot: string, wantApply: boolean): Promise<void> {
   const plan = planManifestRepair(vaultRoot)
-  console.log(`\naddress-map (8.3): ${plan.added.length} page(s) to add, ${plan.droppedPages.length} stale pages_created to drop`)
+  console.log(
+    `\naddress-map (8.3): ${plan.added.length} page(s) to add, ${plan.droppedPages.length} stale pages_created to drop, ` +
+      `${plan.droppedAddresses.length} retired address(es) to drop`,
+  )
   if (plan.unnamedDirs.length > 0) {
     console.log(`  ${plan.unnamedDirs.length} job director(ies) named in no source entry - reported, never invented:`)
     console.log(`    ${plan.unnamedDirs.slice(0, 6).join(', ')}${plan.unnamedDirs.length > 6 ? ', ...' : ''}`)
