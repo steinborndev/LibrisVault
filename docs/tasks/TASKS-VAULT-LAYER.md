@@ -577,24 +577,53 @@ the entry dropped.
 The `- Source: \`.raw/...\`` line stays deliberately: crash recovery still falls back to
 searching this file for it, and 2.4 is where that dependency is removed.
 
-### 2.3 Wiring: when the hubs are written
+### 2.3 Wiring: when the hubs are written - DONE 2026-09-19
 
-- [ ] After a vault-writing run, inside the existing commit path: take the vault lock on each
+- [x] After a vault-writing run, inside the existing commit path: take the vault lock on each
       hub file (foreign-then-ours, outside the commit mutex), render, write, then commit with
       the run's own commit. One commit per run stays true.
-- [ ] Covers ingest, batch ingest, research, Fellow research and maintenance runs. A run that
+- [x] Covers ingest, batch ingest, research, Fellow research and maintenance runs. A run that
       wrote no page writes no log entry and does not regenerate the index.
-- [ ] Failure is non-fatal and loud: a hub write that fails logs a warning against the job and
+- [x] Failure is non-fatal and loud: a hub write that fails logs a warning against the job and
       leaves the run `done`, exactly as the commit failure path does today. The next run
       regenerates the index anyway, which is the safety net a generated file gives us.
-- [ ] `CLAUDE.md` hard rule 1 gains this writer, with the date and the reasoning (D2).
-- [ ] `SPEC.md` gains a subsection describing the hub layer as service-owned.
-- [ ] Tests: run completes, hubs written, one commit; hub write throws, job still `done` and a
+- [x] `CLAUDE.md` hard rule 1 gains this writer, with the date and the reasoning (D2).
+- [x] `SPEC.md` gains a subsection describing the hub layer as service-owned.
+- [x] Tests: run completes, hubs written, one commit; hub write throws, job still `done` and a
       warning is logged; a no-page run leaves the hubs untouched; the lock is taken before the
       mutex in the right order (assert on the call sequence).
 - **DoD:** a scratch ingest produces exactly one commit containing the new pages, the
   regenerated index and the new log entry, and `git show --stat` on it shows no other hub
   churn.
+
+**Result.** Asserted in `server/test/hub-wiring.test.ts` against real git and the real queue:
+one ingest, one `ingest:` commit, containing the page, `wiki/index.md` and `wiki/log.md` and
+nothing else; the working tree clean afterwards. Six cases: the commit's shape, the `.raw`
+source line crash recovery keys on, a run that wrote no page leaving both hubs byte-identical,
+a hub write that FAILS leaving the job `done` with a named warning and the page still
+committed, an unchanged index never reaching a second commit, and the lock order.
+
+The lock-order case is asserted on the real call sequence - the lock script and the commit both
+append to one trace file - and it was checked against a deliberately broken build: with the
+lock removed, it fails. A test that only passes is not evidence.
+
+**One real finding on the way in, worth reading before phase 8.** The M1 integration test
+failed the moment the hubs landed: with the hubs in every commit, every LATER commit touches
+them, so `git revert` of a whole older commit conflicts on the hub files rather than on
+anything the run wrote. **That is the undo button of SPEC.md §9 breaking for every ingest
+except the most recent one**, silently, the first time somebody uses it - and it would have
+been just as true of the old agent-written hubs, which is presumably why nobody had reverted an
+old ingest.
+
+`revertCommit` now reverts the commit's own paths and leaves `index.md`, `log.md`,
+`overview.md`, `hot.md` and the `_index.md` hubs alone. That is also what reverting MEANS here:
+the index is derived, so restoring an old copy would list pages that no longer exist, and the
+log is an append-only record of something that really did happen. Mechanism: `git revert`
+cannot take a pathspec, so it is the commit's reverse diff applied to the commit's own paths -
+all-or-nothing, so the "leaves the vault exactly as it found it" guarantee holds without an
+abort path to get wrong. A failed apply is checked against its own reverse to tell
+`already-reverted` from a genuine `conflict`. Four regression tests in
+`revert-ingest.test.ts`.
 
 ### 2.4 Move the completion marker off `log.md` (A6 contract 1, prerequisite for 8.8)
 

@@ -684,3 +684,37 @@ Six mechanisms that harden how the service acquires and reads sources, and how a
 **The one part of this that IS behind the flag** is the **reading-list sweep**: entries a Fellow could not read are re-checked for an open copy each night and marked, so the user can ingest the copy with one click. It lives inside the night shift and therefore exists only with `AGENTS_ENABLED`. It is source-integrity work running on the Fellows' schedule, and the seam is named here because it is the one place the two subsystems are not cleanly separable.
 
 **Delimitation.** Scholarly discovery - searching open indexes as a research tool rather than as a rescue for one blocked document - is deliberately out of scope and recorded as an extension axis. The fence bounds what an agent is told about a document; it is not a claim that a document cannot influence a run at all, which no boundary of this kind can promise.
+
+
+### 12.12 The hub layer is service-owned (added 2026-09-19)
+
+`wiki/index.md` and the `wiki/log.md` entry are written by the SERVICE after every run that
+wrote a page, deterministically, inside that run's own commit. `wiki/hot.md` deliberately stays
+with the agent: it is a semantic summary of what matters right now, no generator can produce it,
+and a lost update there costs a cache rather than knowledge.
+
+**Why.** The prompt used to tell every ingest to link its new pages from the index. Measured on
+the working vault before the change: the index had grown to 514 kB against the ~1000 tokens the
+vault's own skill budgets for reading it; **83 % of the wiki's entire git history** was six hub
+files being rewritten whole (roughly 570 kB of permanent history per ingest, for bookkeeping);
+the long per-file lock holds that made §3.1's race real were all on these files; and the
+hand-maintained header counters accounted for 77 of 406 validator findings.
+
+**What makes it hold.** Not the write guard - **regeneration**. The index is derived from page
+frontmatter, so an agent write to it is overwritten by the next run rather than having to be
+prevented. Two renders of an unchanged vault are byte-identical, which is what keeps an
+unchanged index out of a commit; nothing in the render reads the clock.
+
+**Mechanism.** The vault's own per-file lock on the hubs is taken OUTSIDE the commit mutex and
+the write and commit happen inside it (foreign-then-ours, CLAUDE.md hard rule 1). A run that
+wrote no content page writes no log entry and does not regenerate the index. A hub write that
+fails is loud and non-fatal: the run stays `done`, a warning lands on the job, and the next run
+regenerates the index anyway - the safety net a derived file gives that a maintained one never
+did. Links in the index are written from the FILE NAME with the title as display text, because a
+title the file name cannot carry is this vault's largest dead-link class.
+
+**Undo.** Because every commit now carries the hubs, every later commit touches them too, so
+`git revert` of a whole older commit would conflict on the hub files rather than on anything the
+run wrote. `revertCommit` therefore reverts the commit's own paths and leaves the hubs alone,
+which is also what reverting means here: the index is regenerated from the pages that remain, and
+the log is a record of something that really did happen.

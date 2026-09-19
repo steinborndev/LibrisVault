@@ -420,3 +420,119 @@ export const DEFAULT_LOG_HEAD = [
   '',
   'One entry per run, newest first, written by the ingestion service.',
 ].join('\n')
+
+/* ------------------------------------------------------------------------------ the writer */
+
+/** What a run asks the hub layer to do: log this, and regenerate the catalog. */
+export interface HubPlan {
+  /** The entry to prepend, or null for a run that wrote no page. */
+  readonly entry: LogEntryInput | null
+  /** Whether to regenerate `wiki/index.md`. False for a run that changed no page. */
+  readonly index: boolean
+}
+
+export interface HubWriteResult {
+  /** Vault-relative paths actually written, for the caller's commit pathspec. */
+  readonly paths: string[]
+  /** Non-fatal problems, one line each: the caller logs them against the job. */
+  readonly warnings: string[]
+}
+
+/**
+ * Writes the hubs this run's plan asks for, and returns what it wrote.
+ *
+ * MUST be called with the vault's own per-file lock on the hubs already held, and inside the
+ * commit mutex - foreign-then-ours, the order hard rule 1 states. The caller does both,
+ * because the commit that follows belongs to the caller.
+ *
+ * Nothing here throws. A hub write that fails leaves the run `done` with a warning: the pages
+ * are what matters, and the next run regenerates the index anyway, which is the safety net a
+ * generated file gives us that a maintained one never did.
+ *
+ * A write is SKIPPED when the rendered bytes match what is on disk. That is not an
+ * optimisation - it is what keeps an unchanged index out of the commit, which is the whole
+ * difference between this and the churn it replaces.
+ */
+export function writeHubs(vaultRoot: string, plan: HubPlan): HubWriteResult {
+  const paths: string[] = []
+  const warnings: string[] = []
+
+  if (plan.index) {
+    try {
+      const abs = path.join(vaultRoot, 'wiki', 'index.md')
+      const next = renderIndex(vaultRoot)
+      let current = ''
+      try {
+        current = fs.readFileSync(abs, 'utf8')
+      } catch {
+        /* no index yet: writing one IS the change */
+      }
+      if (next !== current) {
+        fs.writeFileSync(abs, next)
+        paths.push('wiki/index.md')
+      }
+    } catch (err) {
+      warnings.push(`hub write: the index could not be regenerated (${(err as Error).message})`)
+    }
+  }
+
+  if (plan.entry !== null) {
+    try {
+      const abs = path.join(vaultRoot, 'wiki', 'log.md')
+      let current = ''
+      try {
+        current = fs.readFileSync(abs, 'utf8')
+      } catch {
+        /* no log yet: prependLogEntry writes the head itself */
+      }
+      fs.writeFileSync(abs, prependLogEntry(current, renderLogEntry(plan.entry)))
+      paths.push('wiki/log.md')
+    } catch (err) {
+      warnings.push(`hub write: the log entry could not be written (${(err as Error).message})`)
+    }
+  }
+
+  return { paths, warnings }
+}
+
+/**
+ * Splits a commit's pathspec into the pages a log entry should name.
+ *
+ * `untracked` and `modified` come from git's own view of the working tree, so a page the run
+ * wrote through Bash is classified correctly and a page it merely read is not named at all.
+ * Hub files are excluded: an entry that said it updated the index and the log on every run is
+ * how the old entries grew a line nobody could learn anything from.
+ */
+export function classifyLoggedPages(
+  pathspec: readonly string[],
+  git: { readonly untracked: readonly string[]; readonly modified: readonly string[] },
+  addresses: ReadonlyMap<string, string> = new Map(),
+): { created: LoggedPage[]; updated: LoggedPage[] } {
+  const inCommit = new Set(pathspec)
+  const isContent = (p: string): boolean =>
+    p.startsWith('wiki/') &&
+    p.endsWith('.md') &&
+    !SERVICE_OWNED_HUBS.includes(p as (typeof SERVICE_OWNED_HUBS)[number]) &&
+    p !== 'wiki/hot.md' &&
+    !p.endsWith('/_index.md')
+  const pick = (list: readonly string[]): LoggedPage[] =>
+    list
+      .filter((p) => inCommit.has(p) && isContent(p))
+      .sort()
+      .map((rel) => ({ rel, address: addresses.get(rel) ?? null }))
+  return { created: pick(git.untracked), updated: pick(git.modified) }
+}
+
+/** `address:` for each of the given pages, read from the pages themselves. */
+export function readAddresses(vaultRoot: string, rels: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const rel of rels) {
+    try {
+      const address = frontmatterFields(fs.readFileSync(path.join(vaultRoot, rel), 'utf8'))?.get('address')
+      if (address) out.set(rel, address)
+    } catch {
+      /* a page that vanished between the status call and this read names no address */
+    }
+  }
+  return out
+}

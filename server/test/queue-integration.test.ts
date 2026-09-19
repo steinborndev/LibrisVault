@@ -24,6 +24,7 @@ import type { ToolAvailability } from '../src/pipeline/preprocess/index.js'
 import { RunRegistry } from '../src/pipeline/run-registry.js'
 import { VaultReconciler } from '../src/pipeline/reconcile.js'
 import { EventBus } from '../src/pipeline/events.js'
+import { revertCommit } from '../src/pipeline/git.js'
 import { Mutex } from '../src/util/mutex.js'
 
 const NO_TOOLS: ToolAvailability = {
@@ -165,13 +166,23 @@ describe('M1 acceptance: 10 mixed files at concurrency 2 (deterministic)', () =>
     }
 
     // 8. Reverting one ingest removes only its page; siblings are untouched.
+    //
+    // Through the service's own `revertCommit`, which is what the dashboard's button calls -
+    // a plain `git revert` cannot do this any more and should not be asked to. Every commit
+    // now carries the service-written hub files (SPEC.md §12.12), so every later commit
+    // touches them too, and reverting a whole older commit conflicts on the hubs rather than
+    // on anything the run wrote. `revertCommit` reverts the commit's own paths and leaves the
+    // hubs alone, which is also what reverting means here: the index is regenerated from the
+    // pages that remain, and the log is a record of something that really did happen.
     const target = 'wiki/concepts/Page-3.md'
     const targetHash = ingestHashes.find((h) =>
       git(vaultRoot, 'show', '--name-only', '--pretty=format:', h).includes(target),
     )!
-    git(vaultRoot, 'revert', '--no-edit', targetHash)
+    const undone = await revertCommit(vaultRoot, targetHash)
+    expect(undone).toMatchObject({ reverted: true })
     expect(fs.existsSync(path.join(vaultRoot, target))).toBe(false)
     expect(fs.existsSync(path.join(vaultRoot, 'wiki', 'concepts', 'Page-4.md'))).toBe(true)
+    expect(git(vaultRoot, 'status', '--porcelain').trim()).toBe('')
   })
 
   it('processes a batch with a duplicate: the dup is skipped, the rest complete', async () => {

@@ -30,7 +30,24 @@ import {
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
 import { formatMessage } from './format-message.js'
-import { commitVault, dirtyPaths, newWikiPaths, BOOKKEEPING_PATHS, type CommitResult, type CommitOptions } from './git.js'
+import {
+  commitVault,
+  dirtyPaths,
+  newWikiPaths,
+  unversionedWikiPages,
+  BOOKKEEPING_PATHS,
+  type CommitResult,
+  type CommitOptions,
+} from './git.js'
+import { withWikiLocks } from './wiki-lock.js'
+import {
+  SERVICE_OWNED_HUBS,
+  writeHubs,
+  classifyLoggedPages,
+  readAddresses,
+  type HubPlan,
+  type LogEntryInput,
+} from './hubs.js'
 import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
@@ -477,6 +494,45 @@ export class MaintenanceRunner {
    * just before the run (the previous run's last sample, an endpoint tick), else against
    * the run's own first sample; undefined without an "after" or any "before".
    */
+  /**
+   * The hub write for one maintenance, research or Fellow run (D2), inside its own commit.
+   *
+   * Same rule as the ingest queue's: a run that wrote no content page writes no log entry and
+   * does not regenerate the index, and a hub whose lock somebody else holds is left alone -
+   * the next run regenerates it, which is the safety net a derived file gives us.
+   *
+   * `kind` is what the entry is headed with, because a reader of `log.md` wants to know which
+   * kind of run wrote a page: an ingest, a research step or a repair pass are three different
+   * provenances for the same sentence.
+   */
+  private async writeHubsFor(
+    kind: MaintenanceKind,
+    opts: RunOptions,
+    pathspec: readonly string[],
+    held: ReadonlySet<string>,
+    summary: string | undefined,
+    log: (level: 'info' | 'warn' | 'error', message: string) => void,
+  ): Promise<string[]> {
+    const git = await unversionedWikiPages(this.vaultRoot)
+    const addresses = readAddresses(this.vaultRoot, [...git.untracked, ...git.modified])
+    const { created, updated } = classifyLoggedPages(pathspec, git, addresses)
+    if (created.length === 0 && updated.length === 0) return []
+
+    const entry: LogEntryInput = {
+      date: new Date().toISOString().slice(0, 10),
+      kind,
+      title: opts.label ?? kind,
+      created,
+      updated,
+      summary: summary ?? null,
+    }
+    const plan: HubPlan = { index: held.has('wiki/index.md'), entry: held.has('wiki/log.md') ? entry : null }
+    const { paths, warnings } = writeHubs(this.vaultRoot, plan)
+    for (const w of warnings) log('warn', w)
+    if (paths.length > 0) log('info', `hub layer: wrote ${paths.join(', ')}`)
+    return paths
+  }
+
   private planDelta(res: AgentRunResult, startedMs: number): Record<string, number> | undefined {
     if (!this.usage || !res.planUsage?.after) return undefined
     const after = parseSdkUsage(res.planUsage.after)
@@ -1337,7 +1393,15 @@ export class MaintenanceRunner {
       // sweep both happen INSIDE the commit mutex, so no other run can start writing between
       // asking the question and acting on the answer.
       let soleWriter = false
-      const commit = await this.commitMutex.runExclusive(async () => {
+      /*
+       * The hub layer (SPEC.md §12.12): a research, Fellow or maintenance run gets its log
+       * entry and its regenerated index from the service too, inside its own commit. The
+       * vault's per-file lock on the hubs is taken OUTSIDE our commit mutex and released after
+       * it - foreign-then-ours, the order hard rule 1 states.
+       */
+      const commit = await withWikiLocks(this.vaultRoot, [...SERVICE_OWNED_HUBS], async (heldHubs, busyHubs) => {
+      if (busyHubs.length > 0) log('warn', `hub write: another writer holds ${busyHubs.join(', ')} - leaving ${busyHubs.length} hub(s) alone`)
+      return await this.commitMutex.runExclusive(async () => {
         const swept = this.runRegistry.isSoleWriter()
           ? newWikiPaths(dirtyBefore, await dirtyPaths(this.vaultRoot))
           : []
@@ -1358,7 +1422,11 @@ export class MaintenanceRunner {
         // Read inside the mutex and before `endRun`, which is what "sole writer" means: with
         // the run deregistered the count is zero and the question no longer has an answer.
         soleWriter = this.runRegistry.isSoleWriter()
-        return this.commit(this.vaultRoot, opts.commitMessage ?? `maintenance: ${kind}`, { pathspec })
+        const hubs = await this.writeHubsFor(kind, opts, pathspec, new Set(heldHubs), res.result, log)
+        return this.commit(this.vaultRoot, opts.commitMessage ?? `maintenance: ${kind}`, {
+          pathspec: [...pathspec, ...hubs],
+        })
+      })
       })
       endRun()
       /*

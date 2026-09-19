@@ -10,6 +10,7 @@
  */
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { runTool } from './preprocess/tools.js'
 
@@ -299,6 +300,49 @@ export interface RevertResult {
  *  3. On conflict (a later commit touched the same lines) we `git revert --abort` and report it,
  *     rather than leaving conflict markers in wiki pages for the next ingest to read as content.
  */
+/**
+ * Files a revert leaves exactly as they are.
+ *
+ * The hub layer (SPEC.md §12.12) is written by the service into EVERY run's commit, so every
+ * one of these files is touched by every later commit. `git revert` on the whole commit
+ * therefore conflicts on them for any ingest that is not the most recent one - which is the
+ * revert button, the undo mechanism of SPEC.md §9, failing on exactly the runs somebody would
+ * want to undo.
+ *
+ * Leaving them alone is also what reverting MEANS here:
+ *
+ *  - `index.md` is derived from the pages. Once the pages are gone the next run regenerates it,
+ *    and restoring an old copy would only put back entries for pages that no longer exist.
+ *  - `log.md` is an append-only record. The run really did happen, and the revert is a second
+ *    event rather than a reason to forget the first.
+ *  - `hot.md` and the `_index.md` hubs are caches and curated navigation that later runs have
+ *    rewritten; an old copy of either is not a better copy.
+ */
+const isHubPath = (p: string): boolean =>
+  p === 'wiki/index.md' || p === 'wiki/log.md' || p === 'wiki/overview.md' || p === 'wiki/hot.md' || p.endsWith('/_index.md')
+
+/** git's empty tree, so a root commit (no parent) can still be diffed against "before". */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+/**
+ * Undoes exactly one vault commit (SPEC.md §9's undo mechanism, surfaced as the dashboard's
+ * "revert this ingest"). Callers MUST hold the shared commit mutex — this writes the vault.
+ *
+ * The whole value of this function is that it either fully succeeds or leaves the vault exactly
+ * as it found it. Three guards, in order:
+ *
+ *  1. The commit must exist and be an ancestor of HEAD.
+ *  2. The working tree must be CLEAN. A revert on a dirty tree either refuses or mixes an
+ *     in-flight agent's half-written pages into the revert; the commit mutex serializes
+ *     COMMITS but agents write files outside it, so this check is what actually protects us.
+ *  3. On conflict (a later commit touched the same lines) nothing is applied and we report it,
+ *     rather than leaving conflict markers in wiki pages for the next ingest to read as content.
+ *
+ * Mechanism: the commit's own reverse diff, applied to the commit's paths MINUS the hub files
+ * (see `isHubPath`). `git revert` cannot take a pathspec, which is why this is a reverse-diff
+ * apply rather than a revert - and `git apply` is all-or-nothing, so guard 3 holds without an
+ * abort path to get wrong.
+ */
 export async function revertCommit(vaultRoot: string, hash: string): Promise<RevertResult> {
   try {
     await git(vaultRoot, ['cat-file', '-e', `${hash}^{commit}`])
@@ -325,19 +369,64 @@ export async function revertCommit(vaultRoot: string, hash: string): Promise<Rev
     }
   }
 
-  const before = (await git(vaultRoot, ['rev-parse', 'HEAD'])).trim()
+  const touched = (await gitRead(vaultRoot, ['show', '--name-only', '--pretty=format:', '-z', hash]))
+    .split('\0')
+    .filter((p) => p !== '')
+  const paths = touched.filter((p) => !isHubPath(p))
+  if (paths.length === 0) {
+    return {
+      reverted: false,
+      refusal: 'already-reverted',
+      message: `nothing to undo — ${hash.slice(0, 8)} carries only hub bookkeeping, which the next run regenerates`,
+    }
+  }
+
+  let parent = EMPTY_TREE
   try {
-    await git(vaultRoot, [...AUTHOR_ARGS, 'revert', '--no-edit', '--no-commit', hash])
+    parent = (await gitRead(vaultRoot, ['rev-parse', `${hash}^`])).trim()
+  } catch {
+    /* a root commit has no parent: "before" is the empty tree */
+  }
+
+  const patch = await gitRead(vaultRoot, ['diff', '--binary', hash, parent, '--', ...paths])
+  if (patch.trim() === '') {
+    return {
+      reverted: false,
+      refusal: 'already-reverted',
+      message: `nothing to undo — ${hash.slice(0, 8)} has already been reverted or superseded`,
+    }
+  }
+
+  // The patch goes through a file rather than a pipe: the git helper runs a tool and reads its
+  // output, and a temp file keeps that one-way shape. It lands outside the vault, always.
+  const patchFile = path.join(os.tmpdir(), `vault-revert-${hash.slice(0, 8)}-${process.pid}.patch`)
+  fs.writeFileSync(patchFile, patch)
+  try {
+    await git(vaultRoot, ['apply', '--index', '--binary', '--whitespace=nowarn', patchFile])
   } catch (err) {
-    // Leave nothing half-applied: restore the index and tree we started from.
+    // `git apply` applies nothing when it cannot apply everything, so there is no half state
+    // to clean up - but the index is reset anyway, for the case where git surprises us.
     try {
-      await git(vaultRoot, ['revert', '--abort'])
+      await git(vaultRoot, ['reset', '--hard', 'HEAD'])
     } catch {
-      try {
-        await git(vaultRoot, ['reset', '--hard', before])
-      } catch {
-        /* nothing further we can safely do; the message below tells the operator */
+      /* nothing further we can safely do; the message below tells the operator */
+    }
+    /*
+     * "Will not apply" has two causes and they need different answers. If the patch's own
+     * REVERSE applies, the tree already looks the way this revert would leave it: the commit
+     * was undone earlier, or superseded. Only the other case is a real conflict with later
+     * work, and telling them apart is the difference between "nothing to do" and "look at
+     * this by hand".
+     */
+    try {
+      await git(vaultRoot, ['apply', '--check', '--reverse', '--binary', patchFile])
+      return {
+        reverted: false,
+        refusal: 'already-reverted',
+        message: `nothing to undo — ${hash.slice(0, 8)} has already been reverted or superseded`,
       }
+    } catch {
+      /* not already applied: a genuine conflict, reported below */
     }
     return {
       reverted: false,
@@ -347,12 +436,14 @@ export async function revertCommit(vaultRoot: string, hash: string): Promise<Rev
         `Undo it by hand if you still want it: git -C <vault> revert ${hash.slice(0, 8)}. ` +
         `(${(err as Error).message.split('\n')[0]})`,
     }
+  } finally {
+    fs.rmSync(patchFile, { force: true })
   }
 
   const staged = await git(vaultRoot, ['diff', '--cached', '--name-only'])
   if (staged.trim() === '') {
     // Nothing to undo — the commit's changes are already gone (reverted earlier, or overwritten).
-    await git(vaultRoot, ['reset', '--hard', before])
+    await git(vaultRoot, ['reset', '--hard', 'HEAD'])
     return {
       reverted: false,
       refusal: 'already-reverted',
