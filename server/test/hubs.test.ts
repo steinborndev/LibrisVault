@@ -2,7 +2,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { renderIndex, collectPages, pageLink, SERVICE_OWNED_HUBS } from '../src/pipeline/hubs.js'
+import {
+  renderIndex,
+  collectPages,
+  pageLink,
+  SERVICE_OWNED_HUBS,
+  renderLogEntry,
+  narrativeOf,
+  prependLogEntry,
+  LOG_NARRATIVE_CAP,
+} from '../src/pipeline/hubs.js'
 
 /**
  * The generated catalog (D2). The property that carries the whole design is IDEMPOTENCE: an
@@ -161,5 +170,108 @@ describe('collectPages', () => {
     // cache, not knowledge.
     expect([...SERVICE_OWNED_HUBS]).toEqual(['wiki/index.md', 'wiki/log.md', 'wiki/overview.md'])
     expect(SERVICE_OWNED_HUBS).not.toContain('wiki/hot.md')
+  })
+})
+
+describe('renderLogEntry', () => {
+  const base = { date: '2026-09-19', kind: 'ingest', title: 'A Short Note On Tide Tables' }
+
+  it('renders an ingest: the shape the log has always carried', () => {
+    const entry = renderLogEntry({
+      ...base,
+      source: '.raw/01JOBID/normalized.md',
+      created: [
+        { rel: 'wiki/sources/A Short Note On Tide Tables.md', address: 'c-001190' },
+        { rel: 'wiki/concepts/Tide Table.md', address: 'c-001191' },
+      ],
+      updated: [{ rel: 'wiki/concepts/Harmonic Analysis.md', address: 'c-000442' }],
+      summary: 'Filed one source page and one concept; the harmonic-constants page gained a paragraph.',
+    })
+    expect(entry).toContain('## [2026-09-19] ingest | A Short Note On Tide Tables')
+    // The `.raw` line is load-bearing while crash recovery still falls back to reading this
+    // file for it (2.4): the queue decides a crashed job's status by finding it.
+    expect(entry).toContain('- Source: `.raw/01JOBID/normalized.md`')
+    expect(entry).toContain('- Pages created: [[A Short Note On Tide Tables]] `c-001190`, [[Tide Table]] `c-001191`')
+    expect(entry).toContain('- Pages updated: [[Harmonic Analysis]] `c-000442`')
+    expect(entry).toContain('the harmonic-constants page gained a paragraph.')
+  })
+
+  it('says none rather than leaving a line out, so an entry always answers the same questions', () => {
+    const entry = renderLogEntry({ ...base, created: [], updated: [] })
+    expect(entry).toContain('- Pages created: none')
+    expect(entry).toContain('- Pages updated: none')
+  })
+
+  it('names an outcome that is not the ordinary one', () => {
+    const dup = renderLogEntry({ ...base, kind: 'ingest', outcome: 'duplicate', source: '.raw/01JOBID/normalized.md' })
+    expect(dup).toContain('- Outcome: duplicate')
+    // `done` is the default and would be noise on every entry.
+    expect(renderLogEntry({ ...base, outcome: 'done' })).not.toContain('- Outcome:')
+  })
+
+  it('renders a batch, a research run and a Fellow run in the same shape', () => {
+    for (const kind of ['batch ingest', 'research', 'fellow', 'maintenance']) {
+      const entry = renderLogEntry({ ...base, kind, title: 'Something', created: [{ rel: 'wiki/concepts/X.md' }] })
+      expect(entry.startsWith(`## [2026-09-19] ${kind} | Something`)).toBe(true)
+      expect(entry).toContain('- Pages created: [[X]]')
+    }
+  })
+
+  it('takes a page by name as readily as by path', () => {
+    const entry = renderLogEntry({ ...base, created: [{ rel: 'Tide Table' }] })
+    expect(entry).toContain('- Pages created: [[Tide Table]]')
+  })
+})
+
+describe('narrativeOf', () => {
+  it('flattens a run report into one paragraph of log prose', () => {
+    const answer = '## What I did\n\n- Filed two pages\n- Updated one\n\n```bash\ngit commit\n```\n\nThe second page needed a new address.'
+    expect(narrativeOf(answer)).toBe('What I did Filed two pages Updated one The second page needed a new address.')
+  })
+
+  it('caps a long answer on a sentence boundary and says it cut', () => {
+    const long = `${'One sentence that goes on. '.repeat(80)}End.`
+    const out = narrativeOf(long)
+    expect(out.length).toBeLessThanOrEqual(LOG_NARRATIVE_CAP + 6)
+    expect(out.endsWith('[...]')).toBe(true)
+    expect(out).toContain('goes on.')
+  })
+
+  it('is empty for a run that said nothing', () => {
+    expect(narrativeOf(null)).toBe('')
+    expect(narrativeOf('   ')).toBe('')
+  })
+})
+
+describe('prependLogEntry', () => {
+  const head = '---\ntype: meta\n---\n\n# Operation Log\n\nNavigation: [[index]]\n'
+  const older = '## [2026-09-18] ingest | Older\n\n- Pages created: none\n'
+
+  it('puts the newest entry first, under the head', () => {
+    const out = prependLogEntry(`${head}\n${older}`, '## [2026-09-19] ingest | Newer\n\n- Pages created: none\n')
+    expect(out.indexOf('Newer')).toBeLessThan(out.indexOf('Older'))
+    expect(out.indexOf('# Operation Log')).toBeLessThan(out.indexOf('Newer'))
+  })
+
+  it('keeps the file parseable: frontmatter intact, one blank line between entries', () => {
+    const out = prependLogEntry(`${head}\n${older}`, '## [2026-09-19] ingest | Newer\n\n- Pages created: none\n')
+    expect(out.startsWith('---\ntype: meta\n---')).toBe(true)
+    expect(out).not.toMatch(/\n{3,}/)
+    expect(out.split('\n').filter((l) => l.startsWith('## ')).length).toBe(2)
+  })
+
+  it('writes the head itself when the log does not exist yet', () => {
+    const out = prependLogEntry('', '## [2026-09-19] ingest | First\n\n- Pages created: none\n')
+    expect(out).toContain('# Operation Log')
+    expect(out).toContain('First')
+  })
+
+  it('loses no entry when two renders are applied one after the other', () => {
+    // The mutex is what makes them sequential; this is the other half - that applying two
+    // entries in a row keeps both, which a naive "write the whole file" would not.
+    const first = prependLogEntry(`${head}\n${older}`, renderLogEntry({ date: '2026-09-19', kind: 'ingest', title: 'A' }))
+    const second = prependLogEntry(first, renderLogEntry({ date: '2026-09-19', kind: 'ingest', title: 'B' }))
+    const titles = second.split('\n').filter((l) => l.startsWith('## ')).map((l) => l.split('| ')[1])
+    expect(titles).toEqual(['B', 'A', 'Older'])
   })
 })

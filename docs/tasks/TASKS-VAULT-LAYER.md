@@ -546,22 +546,36 @@ Two design points worth keeping in view:
   and `created:` is preserved from the existing file. A timestamp would make every render a
   different file, which is exactly the history churn this replaces.
 
-### 2.2 The log entry, written by the service
+### 2.2 The log entry, written by the service - DONE 2026-09-19
 
-- [ ] `renderLogEntry(...)`: one entry per run, from what the service already knows (date, run
+- [x] `renderLogEntry(...)`: one entry per run, from what the service already knows (date, run
       kind, the job's raw path, pages created and updated with their addresses, duplicate or
       skipped state) plus the run's **final answer** as the narrative paragraph. No new agent
       contract: the final answer already exists on every run.
-- [ ] Prepended to `wiki/log.md` (the file is newest-first).
-- [ ] The run-protocol sections B5 counts belong here: the prompt already asks for automated
+- [x] Prepended to `wiki/log.md` (the file is newest-first).
+- [x] The run-protocol sections B5 counts belong here: the prompt already asks for automated
       decisions "in the log entry", and this is what finally gives that instruction a home the
       run does not own. Phase 4.3 removes them from pages.
-- [ ] One entry per run, capped in length, with the cap stated in the code.
-- [ ] Tests: an ingest, a batch, a duplicate, a research run and a Fellow run each render their
+- [x] One entry per run, capped in length, with the cap stated in the code.
+- [x] Tests: an ingest, a batch, a duplicate, a research run and a Fellow run each render their
       expected shape; prepending keeps the file parseable; two concurrent renders through the
       mutex produce two entries and lose neither.
 - **DoD:** a scratch ingest produces exactly one log entry, written by the service, and the
   agent produced none. Entry size is within the cap; the current median entry is 3.0 kB.
+
+**Result (renderer only; the scratch ingest is 2.3's DoD, once the wiring exists).**
+`renderLogEntry` is pure - date in, entry out - so the five run kinds are covered as a table
+rather than as five integration runs. `prependLogEntry` takes the file's content and returns
+the new content; the caller writes it inside the mutex behind the vault's own lock.
+
+The narrative cap is **1200 characters** (`LOG_NARRATIVE_CAP`), against a current median entry
+of 3.0 kB. A run's final answer is a report to a human, so it arrives with headings, bullets
+and sometimes a code fence; `narrativeOf` flattens those into one paragraph and cuts on a
+sentence boundary with a visible `[...]`. A run that writes an essay gets the essay cut, never
+the entry dropped.
+
+The `- Source: \`.raw/...\`` line stays deliberately: crash recovery still falls back to
+searching this file for it, and 2.4 is where that dependency is removed.
 
 ### 2.3 Wiring: when the hubs are written
 

@@ -286,3 +286,137 @@ function existingCreated(vaultRoot: string): string | null {
     return null
   }
 }
+
+/* ------------------------------------------------------------------------------- the log */
+
+/**
+ * How much of a run's own account of itself the log entry keeps.
+ *
+ * The median entry the agent wrote is 3.0 kB, and `log.md` reached 777 kB over 258 of them -
+ * one third of the wiki's entire git history. The narrative is worth keeping (it is the only
+ * prose record of why a run did what it did); its length is not. A run that writes an essay
+ * gets the essay cut, not the entry dropped.
+ */
+export const LOG_NARRATIVE_CAP = 1200
+
+/** One page as the log names it: the link a reader can follow, and its address. */
+export interface LoggedPage {
+  /** Vault-relative path, or the page name; either is accepted and reduced to the name. */
+  readonly rel: string
+  readonly address?: string | null
+}
+
+export interface LogEntryInput {
+  /** `YYYY-MM-DD`. The caller's clock, so the renderer stays pure and testable. */
+  readonly date: string
+  /** What kind of run this was: `ingest`, `batch ingest`, `research`, `fellow`, `maintenance`. */
+  readonly kind: string
+  /** What it was about: the document's name, the topic, the maintenance kind. */
+  readonly title: string
+  /** The job's `.raw` directory or file - the provenance link, and the crash-recovery marker. */
+  readonly source?: string | null
+  readonly created?: readonly LoggedPage[]
+  readonly updated?: readonly LoggedPage[]
+  /** `done` by default; `duplicate` and `no changes` are outcomes a reader needs to see. */
+  readonly outcome?: string
+  /** The run's final answer, which every run already produces. No new agent contract. */
+  readonly summary?: string | null
+}
+
+/** `wiki/concepts/Foo Bar.md` -> `Foo Bar`, and a bare name through unchanged. */
+const pageName = (rel: string): string => {
+  const base = rel.split('/').pop() ?? rel
+  return base.endsWith('.md') ? base.slice(0, -3) : base
+}
+
+const linkList = (pages: readonly LoggedPage[]): string =>
+  pages.map((p) => `[[${pageName(p.rel)}]]${p.address ? ` \`${p.address}\`` : ''}`).join(', ')
+
+/**
+ * Collapses a run's final answer into one paragraph of log prose.
+ *
+ * Markdown headings, bullets and code fences are flattened: the answer is a report to a human,
+ * the log is a record, and a run that returned six `##` sections used to put six sections into
+ * `log.md`. Capped at {@link LOG_NARRATIVE_CAP} on a sentence boundary where there is one.
+ */
+export function narrativeOf(summary: string | null | undefined, cap = LOG_NARRATIVE_CAP): string {
+  if (!summary) return ''
+  const flat = summary
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,6}[ \t]+/gm, '')
+    .replace(/^[ \t]*[-*+][ \t]+/gm, '')
+    .replace(/\s*\n\s*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  if (flat.length <= cap) return flat
+  const cut = flat.slice(0, cap)
+  const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '))
+  return `${(stop > cap * 0.6 ? cut.slice(0, stop + 1) : cut).trimEnd()} [...]`
+}
+
+/**
+ * One log entry, in the shape `wiki/log.md` has always carried - `## [date] kind | title`
+ * followed by a fact list and a paragraph.
+ *
+ * The format is now OURS rather than a skill's prose (A6 contract 1): the queue used to decide
+ * whether a crashed ingest had finished by searching this file for the job's `.raw` path, which
+ * made a skill's log template load-bearing for crash recovery. The `- Source:` line is kept
+ * deliberately while that fallback exists (see 2.4).
+ */
+export function renderLogEntry(input: LogEntryInput): string {
+  const created = input.created ?? []
+  const updated = input.updated ?? []
+  const lines: string[] = []
+  lines.push(`## [${input.date}] ${input.kind} | ${input.title}`)
+  lines.push('')
+  if (input.source) lines.push(`- Source: \`${input.source}\``)
+  lines.push(`- Pages created: ${created.length === 0 ? 'none' : linkList(created)}`)
+  lines.push(`- Pages updated: ${updated.length === 0 ? 'none' : linkList(updated)}`)
+  if (input.outcome && input.outcome !== 'done') lines.push(`- Outcome: ${input.outcome}`)
+  const narrative = narrativeOf(input.summary)
+  if (narrative !== '') {
+    lines.push('')
+    lines.push(narrative)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+/** Everything above the first `## ` entry: frontmatter, title and navigation line. */
+function splitLogHead(markdown: string): { head: string; entries: string } {
+  const at = markdown.search(/^## /m)
+  if (at < 0) return { head: markdown.replace(/\s*$/, ''), entries: '' }
+  return { head: markdown.slice(0, at).replace(/\s*$/, ''), entries: markdown.slice(at) }
+}
+
+/**
+ * The log with one entry prepended - newest first, which is the order the file has always had
+ * and the reason only its head ever matters to a reader or to crash recovery.
+ *
+ * Pure: it takes the file's content and returns the new content. The caller does the writing,
+ * inside the commit mutex and behind the vault's own per-file lock.
+ */
+export function prependLogEntry(existing: string, entry: string): string {
+  const { head, entries } = splitLogHead(existing === '' ? DEFAULT_LOG_HEAD : existing)
+  return `${head}\n\n${entry.trimEnd()}\n${entries === '' ? '' : `\n${entries.trimStart()}`}`
+}
+
+/** What a log looks like before it has an entry: enough frontmatter for the vault's own lint. */
+export const DEFAULT_LOG_HEAD = [
+  '---',
+  'type: meta',
+  'domain: meta',
+  'title: "Operation Log"',
+  'created: 1970-01-01',
+  'updated: 1970-01-01',
+  'tags:',
+  '  - meta',
+  '  - log',
+  'status: evergreen',
+  '---',
+  '',
+  '# Operation Log',
+  '',
+  'Navigation: [[index]] | [[hot]] | [[overview]]',
+  '',
+  'One entry per run, newest first, written by the ingestion service.',
+].join('\n')
