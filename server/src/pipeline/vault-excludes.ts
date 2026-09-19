@@ -2,7 +2,7 @@
  * Keeps derived artifacts and agent scratch out of the vault's git history.
  *
  * The vault is a git repo whose history is the user's record of what their knowledge base
- * actually is. Four kinds of file must never enter it:
+ * actually is. Five kinds of file must never enter it:
  *
  *  - REBUILDABLE INDEX DATA (`.vault-meta/chunks`, `bm25`, `embed-cache.json`) - hundreds of
  *    megabytes that regenerate from the wiki, and that `dirtyPaths` bracketing would
@@ -16,6 +16,9 @@
  *  - SERVICE RUN STATE (`.vault-meta/runs/`, `.vault-meta/locks/`) - the per-run completion
  *    markers and the vault's own per-file locks. Both are derived and self-reaping: state
  *    ABOUT the vault, never content OF it.
+ *
+ *  - DERIVED PAYLOADS inside a tracked job directory (`.raw/*\/ocr.pdf`) - rebuildable from
+ *    the original lying beside them, and 37 % of this vault's entire git history.
  *
  *  - DEFERRED PAYLOADS (`.raw/deferred/`) - the waiting room for sources the pipeline
  *    recognises but deliberately does not process, which are large by the very criteria
@@ -75,6 +78,27 @@ export const SCRATCH_EXCLUDE_ENTRIES = [
 export const RUN_STATE_EXCLUDE_ENTRIES = ['.vault-meta/runs/', '.vault-meta/locks/'] as const
 
 /**
+ * Derived payloads inside a tracked job directory (N2, D4, added 2026-09-19).
+ *
+ * `.raw/` is tracked on purpose: a commit captures the source next to the pages made from it.
+ * `ocr.pdf` is not a source. `pdf.ts` writes it beside the original when a textless PDF has to
+ * be rasterised and re-OCRed, and it is rebuildable from that original by running the same
+ * tool again - the exact category this file exists for.
+ *
+ * The measurement: **627 MiB in 16 blobs, 37 % of the vault's entire git history**, against
+ * 232 MiB for every wiki page ever written. Three single OCR blobs exceed 150 MB.
+ *
+ * `normalized.md` and `normalized.txt` deliberately STAY tracked although they are derived
+ * too: they are 1.8 MB across 300 blobs, they are what the agent actually read, and the quote
+ * check and the provenance links both point at them. Cheap, and evidence.
+ *
+ * Note the limit this file's header states: an exclude binds only UNTRACKED files. The 16 OCR
+ * blobs already in history stay there - removing them would rewrite history and invalidate
+ * every `jobs.commit_hash` (decision D1).
+ */
+export const DERIVED_RAW_ENTRIES = ['.raw/*/ocr.pdf'] as const
+
+/**
  * The deferred waiting room (`.raw/deferred/`, SPEC.md §4.2).
  *
  * `.raw/` is otherwise TRACKED on purpose - a commit captures the original source next to the
@@ -92,6 +116,7 @@ const ALL_ENTRIES = [
   ...RETRIEVE_EXCLUDE_ENTRIES,
   ...SCRATCH_EXCLUDE_ENTRIES,
   ...RUN_STATE_EXCLUDE_ENTRIES,
+  ...DERIVED_RAW_ENTRIES,
   ...DEFERRED_EXCLUDE_ENTRIES,
 ] as const
 
@@ -110,6 +135,14 @@ export type VaultExcludesResult = 'present' | 'written' | 'no-git' | 'unwritable
  * Only appends what is missing, so a user's own additions to that file are left alone.
  */
 export function ensureVaultExcludes(vaultRoot: string, entries: readonly string[] = ALL_ENTRIES): VaultExcludesResult {
+  return appendExcludeEntries(vaultRoot, entries)
+}
+
+/**
+ * The append itself, exported for callers with entries of their own to add - the size cap
+ * (`raw-payload.ts`) excludes ONE named file per over-cap payload, which no pattern expresses.
+ */
+export function appendExcludeEntries(vaultRoot: string, entries: readonly string[]): VaultExcludesResult {
   if (!fs.existsSync(path.join(vaultRoot, '.git'))) return 'no-git'
   const infoDir = path.join(vaultRoot, '.git', 'info')
   const file = path.join(infoDir, 'exclude')

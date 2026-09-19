@@ -1122,31 +1122,64 @@ ignored rather than followed.
 
 ## Phase 6: repo and manifest hygiene (N2, D4)
 
-### 6.1 Derived payloads leave vault git
+### 6.1 Derived payloads leave vault git - DONE 2026-09-19
 
-- [ ] `vault-excludes.ts`: a new `DERIVED_RAW_ENTRIES` group covering `ocr.pdf` and any other
+- [x] `vault-excludes.ts`: a new `DERIVED_RAW_ENTRIES` group covering `ocr.pdf` and any other
       derived artifact preprocessing writes into the job directory. The header comment already
       carries the reasoning for exactly this category; extend it with the measurement (627 MB in
       16 blobs, 37 % of the whole history).
-- [ ] Check every preprocessing plugin for other derived files landing in the tracked job
+- [x] Check every preprocessing plugin for other derived files landing in the tracked job
       directory, and cover them.
-- [ ] Tests: the entries are appended idempotently; a user's own additions to the exclude file
+- [x] Tests: the entries are appended idempotently; a user's own additions to the exclude file
       survive; a vault without git is a no-op.
 - **DoD:** a scratch OCR ingest leaves `ocr.pdf` on disk and out of `git status`, the pages
   still commit normally, and the run's provenance link still resolves.
 
-### 6.2 The size cap for originals
+**Result.** `DERIVED_RAW_ENTRIES = ['.raw/*/ocr.pdf']`, asserted against real git in
+`vault-excludes.test.ts`: the pattern has to match a job directory one level down AND leave the
+original beside it alone, which only a real `git status` can show.
 
-- [ ] A configured cap (default 25 MB, settable) above which an original payload stays on disk
+**The survey of what a job directory really holds** (over 300 of this vault's own, rather than
+from reading the plugins): `manifest.json` 207, `normalized.txt` 94, `normalized.md` 89,
+`tweet.json` 35, `video.json` 32, `*.vtt` 38, `raw.html` 19, **`ocr.pdf` 16**, the rest
+originals. Of those, `ocr.pdf` is the only true derivative with its own source beside it -
+`tweet.json`, `raw.html` and the subtitle tracks ARE the original for their job type.
+
+**`normalized.md` and `normalized.txt` deliberately stay tracked** although they are derived:
+1.8 MB across 300 blobs, they are what the agent actually read, and both the quote check and
+the provenance links point at them. Cheap, and evidence. `pdf.ts` needed no change, so
+`preprocprobe` is not implicated - nothing under `preprocess/` was touched.
+
+### 6.2 The size cap for originals - DONE 2026-09-19
+
+- [x] A configured cap (default 25 MB, settable) above which an original payload stays on disk
       and is excluded from the commit, with the job manifest recording that the payload is
       local-only and where it is.
-- [ ] The dashboard's source view says "payload not versioned" for such a job instead of
+- [x] The dashboard's source view says "payload not versioned" for such a job instead of
       offering a broken link.
-- [ ] The revert path is unaffected for everything under the cap; state in the code comment what
+- [x] The revert path is unaffected for everything under the cap; state in the code comment what
       reverting an over-cap ingest does and does not restore.
-- [ ] Tests: under and over the cap; the manifest note; the UI state; revert behaviour.
+- [x] Tests: under and over the cap; the manifest note; the UI state; revert behaviour.
 - **DoD:** dropping a file over the cap produces a normal ingest whose commit contains the pages
   and the manifest note but not the payload, and `/health` or the job row says so plainly.
+
+**Result.** `RAW_PAYLOAD_MAX_BYTES`, default **25 MB**, decided after preprocessing and before
+the run so the payload is never in a commit at all. One exclude entry per over-cap file rather
+than a pattern - the cap is about THIS file's size, which no pattern expresses - plus
+`localOnly` and a note in the job's manifest, and a line in the job log.
+
+**What a revert does, stated in the code and in the manifest note:** the pages and the manifest
+come back, the payload is untouched because it was never in the commit. The honest behaviour;
+the alternative would be a revert deleting a file it never captured.
+
+The dashboard's source link is unchanged in one respect and changed in another: the document
+still opens (it is on disk, where the provenance link points), and the tooltip says it is not
+versioned. A broken link was never the risk - the risk is a reader assuming a revert would
+bring the file back.
+
+A vault with no git, or one this process cannot write, keeps its old behaviour and commits the
+payload: saying "not versioned" there would be a lie in the manifest, which is worse than a
+large commit.
 
 ### 6.3 Untrack the committed agent scratch
 

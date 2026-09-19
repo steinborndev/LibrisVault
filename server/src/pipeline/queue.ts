@@ -59,6 +59,7 @@ import { withWikiLocks } from './wiki-lock.js'
 import { hasRunMarker, runMarkerPath } from './run-marker.js'
 import { topicForJob, vaultOverlapFor } from './ingest-overlap.js'
 import { runTilingCheck, pairsTouching } from './tiling.js'
+import { keepPayloadLocal, type LocalOnlyPayload } from './raw-payload.js'
 import type { ValidationStore } from '../db/validation.js'
 import { retrieveCandidates } from './retrieve-index.js'
 import {
@@ -184,6 +185,8 @@ export interface IngestQueueOptions {
    * defaulted to the real one - which skips itself on any vault that cannot run it.
    */
   readonly tilingCheck?: (vaultRoot: string) => Promise<Awaited<ReturnType<typeof runTilingCheck>>>
+  /** The size cap for an ingested original (D4); injected so tests need no huge files. */
+  readonly keepPayloadLocal?: (vaultRoot: string, jobDirRel: string, manifestPath: string) => LocalOnlyPayload[]
   /**
    * The vault-backed dedupe memory (SPEC.md §12.9): content hashes from `.raw/` manifests and
    * DOIs from source pages. Defaults to one over `vaultRoot`; tests inject a stub.
@@ -339,6 +342,7 @@ export class IngestQueue {
   private readonly validationStore: ValidationStore | undefined
   /** Injected in tests; the real one spawns the vault's own `tiling-check.py`. */
   private readonly tiling: (vaultRoot: string) => Promise<Awaited<ReturnType<typeof runTilingCheck>>>
+  private readonly keepPayloadLocal: (vaultRoot: string, jobDirRel: string, manifestPath: string) => LocalOnlyPayload[]
   private readonly dedupe: DedupeIndex
   private readonly reading: ReadingListService | undefined
 
@@ -400,6 +404,7 @@ export class IngestQueue {
     this.validate = opts.validate
     this.validationStore = opts.validationStore
     this.tiling = opts.tilingCheck ?? ((root) => runTilingCheck(root))
+    this.keepPayloadLocal = opts.keepPayloadLocal ?? keepPayloadLocal
     this.dedupe = opts.dedupe ?? new DedupeIndex(opts.vaultRoot)
     this.reading = opts.reading
     this.discardStaging = opts.discardStaging ?? discardUntrackedDir
@@ -1135,6 +1140,19 @@ export class IngestQueue {
       })
       if (err instanceof PreprocessError && err.transient) this.schedulePreprocessRetry(job.id)
       return
+    }
+
+    /*
+     * The size cap (D4): an original past it stays on disk and out of git history. Decided
+     * HERE, after preprocessing and before the run, so the payload is never in a commit - the
+     * measured alternative is 786 MiB of scans in the history of a 16 MB knowledge base.
+     */
+    for (const kept of this.keepPayloadLocal(this.vaultRoot, path.posix.join('.raw', job.id), pre.manifestPath)) {
+      this.store.log(
+        job.id,
+        'info',
+        `payload not versioned: ${kept.rel} is ${Math.round(kept.bytes / (1024 * 1024))} MB, over the cap - it stays on disk, the pages and the manifest commit as usual`,
+      )
     }
 
     this.store.setType(job.id, pre.type)

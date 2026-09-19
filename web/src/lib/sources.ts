@@ -106,6 +106,10 @@ export function sourceLink(ref: SourceRef | undefined): SourceLink | null {
     icon,
     href: `/api/v1/sources/raw?path=${encodeURIComponent(path)}`,
     external: false,
-    title: `Open the ingested document: ${ref.file}`,
+    // A payload over the size cap is on disk and opens the same way; what it is NOT is part
+    // of the vault's history, so reverting that ingest cannot bring it back (D4).
+    title: ref.localOnly === true
+      ? `Open the ingested document: ${ref.file} (kept on disk, not versioned - too large for the vault's history)`
+      : `Open the ingested document: ${ref.file}`,
   }
 }

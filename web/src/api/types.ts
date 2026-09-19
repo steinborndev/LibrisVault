@@ -276,6 +276,11 @@ export interface SourceRef {
   type: string
   /** Where a web ingest came from; null for anything dropped in as a file. */
   url: string | null
+  /**
+   * The payload is on disk but not in git history: over the size cap (SPEC.md §12.12, D4).
+   * The document opens exactly as any other; a revert of that ingest cannot restore it.
+   */
+  localOnly?: boolean
 }
 
 export interface SourceIndex {

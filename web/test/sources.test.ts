@@ -87,3 +87,22 @@ describe('addressLink', () => {
     expect(addressLink('')).toBeNull()
   })
 })
+
+/**
+ * A payload over the size cap (D4, 6.2). It stays on disk, so the link is the same one and
+ * the document opens exactly as any other. What it is NOT is part of the vault's history, and
+ * that is what the tooltip has to say - the alternative is a reader assuming a revert of that
+ * ingest would bring the file back.
+ */
+describe('a payload that is not versioned', () => {
+  it('still opens, and says why it is not in the history', () => {
+    const link = sourceLink(ref({ file: 'big-scan.pdf', localOnly: true }))
+    expect(link?.href).toContain('big-scan.pdf')
+    expect(link?.external).toBe(false)
+    expect(link?.title).toContain('not versioned')
+  })
+
+  it('says nothing extra about an ordinary payload', () => {
+    expect(sourceLink(ref({ file: 'ordinary.pdf' }))?.title).not.toContain('not versioned')
+  })
+})
