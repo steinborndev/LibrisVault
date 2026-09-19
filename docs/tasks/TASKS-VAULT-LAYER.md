@@ -1181,18 +1181,37 @@ A vault with no git, or one this process cannot write, keeps its old behaviour a
 payload: saying "not versioned" there would be a lie in the manifest, which is worse than a
 large commit.
 
-### 6.3 Untrack the committed agent scratch
+### 6.3 Untrack the committed agent scratch - DONE 2026-09-19
 
-- [ ] `.vault-meta/lint_scan.py`, `lint_scan_out.json` and `tag_repair_report.json` are tracked,
+- [x] `.vault-meta/lint_scan.py`, `lint_scan_out.json` and `tag_repair_report.json` are tracked,
       so the excludes never bound them. `git rm --cached` them in one vault commit (content
       stays on disk), and add the missing exclude entry for the report file.
-- [ ] This is a vault content change and therefore a phase 8 style operation: it goes through
+- [x] This is a vault content change and therefore a phase 8 style operation: it goes through
       the commit mutex, it is one commit, and it is listed here rather than in phase 8 only
       because it belongs to the same mechanism.
-- [ ] Add a note to `vault-excludes.ts`'s header that the exclude cannot retroactively bind an
+- [x] Add a note to `vault-excludes.ts`'s header that the exclude cannot retroactively bind an
       already-tracked file, with this as the worked example.
 - **DoD:** the three files are untracked, present on disk, and `git status` in the vault is
   clean.
+
+**Result. The first vault content change of this work, shown as a dry run first and approved.**
+
+Vault commit `378eef5`, author `vault-service`, containing exactly three path deletions from
+the index and nothing else: `lint_scan.py` (254 lines), `lint_scan_out.json` (10,195) and
+`tag_repair_report.json` (4,504). All three verified on disk afterwards with **identical
+SHA-1s to before the commit** - untracking moved nothing.
+
+`git status` in the vault now shows only what it showed before: three unprocessed `.raw`
+directories and one stray text file. `git check-ignore -v` confirms all three are bound by an
+exclude now, which is what makes this stick - the patterns for the first two existed since
+2026-09-08 and could never bind, because git had already been told those files matter.
+
+The blobs stay in history (557 kB) by decision D1. The gain is that they stop being
+re-committed on every change, not the 557 kB.
+
+Prepared beforehand in the repo: the missing exclude entry for the report file (the
+`lint_scan*` pattern never covered it), and the worked example in `vault-excludes.ts`'s header
+of why an exclude cannot fix an already-tracked file.
 
 ---
 
