@@ -45,8 +45,8 @@ describe('research profiles (Achse A)', () => {
     const sota = getResearchProfile('sota')
     const patents = getResearchProfile('patents')
     expect(researchTargetTitle(broad, 'tidal turbines')).toBe('Research - tidal turbines')
-    expect(researchTargetTitle(sota, 'tidal turbines')).toBe('Research - tidal turbines — State of the Art')
-    expect(researchTargetTitle(patents, 'tidal turbines')).toBe('Research - tidal turbines — Patent Landscape')
+    expect(researchTargetTitle(sota, 'tidal turbines')).toBe('Research - tidal turbines - State of the Art')
+    expect(researchTargetTitle(patents, 'tidal turbines')).toBe('Research - tidal turbines - Patent Landscape')
     // No two lenses share a synthesis title for the same topic.
     const titles = RESEARCH_PROFILES.map((p) => researchTargetTitle(p, 'x'))
     expect(new Set(titles).size).toBe(titles.length)
@@ -133,7 +133,7 @@ describe('research profiles (Achse A)', () => {
   describe('isSynthesisPath', () => {
     it('accepts a research synthesis, whatever the lens suffix', () => {
       expect(isSynthesisPath('wiki/questions/Research: tidal turbines.md')).toBe(true)
-      expect(isSynthesisPath('wiki/questions/Research: kelp farming — State of the Art.md')).toBe(true)
+      expect(isSynthesisPath('wiki/questions/Research: kelp farming - State of the Art.md')).toBe(true)
     })
 
     it('rejects a page a folder below the bucket - the shape a slashed title makes', () => {

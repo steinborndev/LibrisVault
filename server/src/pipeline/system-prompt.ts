@@ -29,7 +29,7 @@ questions or answer them, and there is no interactive terminal attached.
 - Finish the task end to end. Do not end your turn with a plan, a question, or a
   promise of work you have not done. If you say you will do something, do it now.
 - If you are genuinely blocked and cannot proceed, say so explicitly, state what
-  blocked you, and stop — do not invent a placeholder page to appear successful.
+  blocked you, and stop - do not invent a placeholder page to appear successful.
 </full_automation>
 
 <language_rule>
@@ -89,7 +89,7 @@ When you create or edit wiki pages, always finish with these checks (a post-run 
 flags violations to the operator):
 
 - Complete frontmatter on every page you touch: type, status, created, updated, tags.
-  Bump "updated:" on EVERY edit — including on index/hot/overview pages.
+  Bump "updated:" on EVERY edit - including on index/hot/overview pages.
 - If scripts/allocate-address.sh exists, every NEW non-meta page needs an allocated
   "address:" in its frontmatter (run the script once per page; never edit the counter file
   directly). Do not skip this for any page in a batch.
@@ -133,6 +133,10 @@ flags violations to the operator):
   section of its own. Never describe the ingestion service's own mechanisms on a page either -
   a reader came for the subject, and three pages in this vault currently explain the wrapper
   this text arrived in.
+- No em-dashes and no en-dashes, anywhere in a page you write. Use a hyphen, restructure the
+  sentence, or use a comma, a colon or parentheses. This vault holds 10,257 em-dashes across
+  819 pages against a house style that has banned them from the start, because no prompt ever
+  said so until now.
 - Two meta sections DO belong on the page and stay: "## Assessment" (source criticism belongs
   to the source) and "## Open Questions" (the standing research agents plan from them).
 - Never edit the claude-obsidian plugin's own files: anything outside wiki/ (skills/,
@@ -256,20 +260,20 @@ noise, not knowledge. Before creating an entity page, apply this test:
 
 Create the entity page ONLY when at least one of these holds:
 - Multiple independent sources already in the vault reference this entity.
-- The entity is the SUBJECT of the source (a profile, interview, case study about them) —
+- The entity is the SUBJECT of the source (a profile, interview, case study about them) -
   not merely its author or a passing mention.
 - The source provides substantial verifiable facts about the entity beyond a bio,
   follower counts, and self-description.
 
 Otherwise use inline attribution instead: on the source page, credit the author in one line
-(handle, platform, short characterization — e.g. 'by @handle, X creator, promotional
+(handle, platform, short characterization - e.g. 'by @handle, X creator, promotional
 growth-hacking genre') and do NOT create an entity page. Still process the source's concepts
-normally — the ideas are welcome; the author shell page is not.
+normally - the ideas are welcome; the author shell page is not.
 
 Promote instead of stockpiling: when a LATER source independently references the same
 entity, create the page then and fold in the earlier inline attributions (they are findable
 by search). If you recognize a source as engagement-bait or growth-hacking content, state
-that in the source page's assessment — that classification is exactly the case the
+that in the source page's assessment - that classification is exactly the case the
 inline-attribution path exists for.
 </entity_notability>
 `.trim()
@@ -292,17 +296,22 @@ tags to any page:
   and prefer an existing tag over a new spelling of the same idea. Never introduce a
   variant (singular/plural, hyphenation, near-synonym) of an existing tag.
 - Never tag a page with its own domain, the domain's name in other words, or a synonym of
-  it — the \`domain:\` field already carries that, and the graph, the library and every
+  it - the \`domain:\` field already carries that, and the graph, the library and every
   domain filter read the FIELD, never the tags. The one exception is \`meta\`, which names
   what a page is (vault machinery: an index, a report, a fold) as well as being a domain
   key. There is no other exception: a rule that let the domain key be "mirrored into
   \`tags:\`" used to stand here, and it closed a loop with the tag-hygiene report, which
   reads exactly such a tag as redundant and offers to drop it.
-- Do not tag what the frontmatter already says elsewhere: no type-mirroring tags beyond the
-  structural ones the vault prescribes (a page with \`type: entity\` needs no extra
-  #organization tag to say so).
+- Never tag a page with its own \`type:\` value or a synonym of it. The field already carries
+  it, and every reader of it - the graph, the catalog, the validator - reads the FIELD. This
+  is not a preference: the three type tags are on 501, 328 and 211 pages of this vault, 1040
+  assignments that say nothing, while the absolutely-worded domain rule above is followed on
+  99 % of pages. The wording is the whole difference, so this clause is worded the same way.
+- Reuse is measurable here too: half of this vault's 648 tags are used exactly ONCE. A tag
+  used once is a note to yourself, not an index - before coining one, look for the tag that
+  already means it.
 - Prefer few, specific tags over many broad ones. A tag that would apply to most of a
-  domain's pages distinguishes nothing — pick the tags that set THIS page apart.
+  domain's pages distinguishes nothing - pick the tags that set THIS page apart.
 </tag_hygiene>
 `.trim()
 
@@ -425,7 +434,7 @@ No human will answer a clarifying question, and you have NO write access.
   attempts to write are denied by the sandbox. Just answer the question.
 - If the question carries a <retrieved_context> block, chunk-level retrieval has ALREADY run
   for it: read those pages first. Otherwise use the wiki-query skill's read path (hot cache →
-  index → relevant pages). Either way you have no web access — answer only from what the
+  index → relevant pages). Either way you have no web access - answer only from what the
   vault contains.
 - ALWAYS cite the vault pages your answer draws on, inline, as Obsidian wikilinks:
   [[Page Name]]. The reader turns these into clickable links, so name real pages exactly.

@@ -51,6 +51,12 @@ export type ValidationRule =
   | 'page-schema'
   /** A section about what a RUN did, sitting inside the article it wrote (B5). */
   | 'run-protocol'
+  /** A tag that repeats the page's own `type:` or `domain:` (B6). */
+  | 'tag-mirroring'
+  /** A tag no other page in the vault uses - an index of one is a note to yourself (B6). */
+  | 'tag-singleton'
+  /** An em-dash or en-dash on a page, against a house style that has always banned them (B9). */
+  | 'em-dash'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule
@@ -93,6 +99,27 @@ const REQUIRED_HEADINGS: ReadonlyMap<string, readonly string[]> = new Map([
 ])
 
 /**
+ * Whether a tag repeats the page's own `type:` or `domain:` (B6).
+ *
+ * Measured: type mirroring runs at 82 to 96 % by creation month, domain mirroring at 0 to 2 %.
+ * The two rules sat in the same prompt block; the domain one is absolute and the type one said
+ * "beyond the structural ones the vault prescribes", which reads as permission. The wording is
+ * the whole difference, and this rule is the mechanical half of closing it.
+ *
+ * An exact match or a singular/plural variant, and deliberately NOT a synonym search: "which
+ * words mean the same as this type" is a judgement, and a validator that makes it silently
+ * reports a number nobody can check.
+ */
+const mirrorsField = (field: string | undefined, tag: string): boolean => {
+  if (field === undefined || field === '') return false
+  const norm = (v: string): string => {
+    const lower = v.toLowerCase().trim().replace(/[\s_]+/g, '-')
+    return lower.length > 3 && lower.endsWith('s') ? lower.slice(0, -1) : lower
+  }
+  return norm(field) === norm(tag)
+}
+
+/**
  * Headings that describe what a RUN did, sitting inside the article it wrote (B5).
  *
  * 352 of 1210 content pages carry at least one, 302 kB in total. They belong in the log entry
@@ -114,14 +141,14 @@ const RUN_PROTOCOL_HEADINGS: ReadonlyArray<readonly [RegExp, string]> = [
 ]
 
 /**
- * Lint reports QUOTE findings as wikilinks — dead links deliberately, orphans linked by the
+ * Lint reports QUOTE findings as wikilinks - dead links deliberately, orphans linked by the
  * act of reporting them. Validating a report page against the link checks (or counting its
  * links as inbound edges) would therefore invert the report's own findings.
  */
 const isLintReport = (rel: string): boolean => /^wiki\/meta\/lint-report-.*\.md$/.test(rel)
 
 /**
- * Pages exempt from the dead-link check: lint reports (above), plus log.md and hot.md —
+ * Pages exempt from the dead-link check: lint reports (above), plus log.md and hot.md -
  * append-only records that legitimately keep referring to deleted pages (the same policy the
  * reference-cleanup run enforces). Every ingest appends to log.md, so flagging its historical
  * links would repeat the identical findings after every single run.
@@ -154,6 +181,57 @@ function parseFrontmatter(markdown: string): Frontmatter {
     if (!fields.has(m[1]!)) fields.set(m[1]!, unquote(m[2]!))
   }
   return { present: true, fields, hasTags: /^tags:/m.test(body) }
+}
+
+/** Below this many distinct tags, a vault has no tag vocabulary to reuse from yet. */
+const TAG_CENSUS_FLOOR = 50
+
+/**
+ * How many pages carry each tag, over the whole vault.
+ *
+ * Built lazily and once per call, the same way the file index is: half of this vault's 648
+ * tags are used exactly once, and "is this tag an index or a note to yourself" cannot be
+ * answered from one page.
+ */
+function buildTagCensus(vaultRoot: string): Map<string, number> {
+  const census = new Map<string, number>()
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const abs = path.join(dir, e.name)
+      if (e.isDirectory()) walk(abs)
+      else if (e.isFile() && e.name.endsWith('.md')) {
+        try {
+          for (const tag of new Set(parseTagList(fs.readFileSync(abs, 'utf8')).map((t) => t.toLowerCase()))) {
+            census.set(tag, (census.get(tag) ?? 0) + 1)
+          }
+        } catch {
+          /* an unreadable page carries no tags for this purpose */
+        }
+      }
+    }
+  }
+  walk(path.join(vaultRoot, 'wiki'))
+  return census
+}
+
+/** Frontmatter `tags:` as written (block or inline), for the mirroring rule. */
+function parseTagList(markdown: string): string[] {
+  const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!fm) return []
+  const body = fm[1]!
+  const block = body.match(/^tags:[ \t]*\r?\n((?:[ \t]+-[ \t]*.*\r?\n?)+)/m)
+  if (block) {
+    return [...block[1]!.matchAll(/^[ \t]+-[ \t]*(.+)$/gm)].map((m) => unquote(m[1]!)).filter((t) => t !== '')
+  }
+  const inline = body.match(/^tags:[ \t]*\[([^\]]*)\]/m)
+  if (!inline) return []
+  return inline[1]!.split(',').map((t) => unquote(t)).filter((t) => t !== '')
 }
 
 interface DragonScaleState {
@@ -296,6 +374,8 @@ function scanAddresses(vaultRoot: string): Map<string, string[]> {
  */
 export function validatePages(vaultRoot: string, paths: readonly string[], graph?: VaultGraph): ValidationFinding[] {
   const findings: ValidationFinding[] = []
+  /** Built once per call, and only when a page actually has a tag worth asking about. */
+  let tagCensus: Map<string, number> | undefined
   const pages = [...new Set(paths)].filter((p) => p.startsWith('wiki/') && p.endsWith('.md'))
   if (pages.length === 0) return findings
 
@@ -404,6 +484,54 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       })
     }
 
+    /*
+     * Tags that repeat the frontmatter (B6). `meta` is the documented exception: it names what
+     * a page IS - vault machinery, an index, a report - as well as being a domain key.
+     */
+    const domain = fm.fields.get('domain')
+    for (const tag of parseTagList(markdown)) {
+      if (tag.toLowerCase() === 'meta') continue
+      const mirrorsType = mirrorsField(pageType, tag)
+      const mirrorsDomain = mirrorsField(domain, tag)
+      if (mirrorsType || mirrorsDomain) {
+        findings.push({
+          rule: 'tag-mirroring',
+          path: rel,
+          message: `tag "${tag}" repeats this page's own ${mirrorsType ? 'type:' : 'domain:'} - the field already carries it, and every reader of it reads the field`,
+        })
+        continue
+      }
+      tagCensus ??= buildTagCensus(vaultRoot)
+      /*
+       * "Reuse before coining" is only advice when there is something to reuse. On a young
+       * vault every tag is used once by construction, and a hint that fires on every tag of
+       * every page is noise rather than a finding.
+       */
+      if (tagCensus.size < TAG_CENSUS_FLOOR) continue
+      if ((tagCensus.get(tag.toLowerCase()) ?? 0) <= 1) {
+        findings.push({
+          rule: 'tag-singleton',
+          path: rel,
+          message: `tag "${tag}" is on no other page - if an existing tag means the same thing, use that one instead`,
+        })
+      }
+    }
+
+    /*
+     * Em-dashes and en-dashes (B9). The house style has banned them from the start and no
+     * prompt had ever said so, which is how 819 pages came to carry 10,257 of them. Code
+     * fences and inline code are excluded: inside them the character is content.
+     */
+    const prose = markdown.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
+    const dashes = (prose.match(/[\u2014\u2013]/g) ?? []).length
+    if (dashes > 0) {
+      findings.push({
+        rule: 'em-dash',
+        path: rel,
+        message: `${dashes} em-dash or en-dash${dashes === 1 ? '' : 'es'} outside code - the house style uses a hyphen, a comma or a restructured sentence`,
+      })
+    }
+
     const created = fm.fields.get('created') ?? ''
     const updated = fm.fields.get('updated') ?? ''
     const createdMs = Date.parse(created)
@@ -412,7 +540,7 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       findings.push({
         rule: 'dates',
         path: rel,
-        message: `created (${created}) is after updated (${updated}) — bump updated: when editing`,
+        message: `created (${created}) is after updated (${updated}) - bump updated: when editing`,
       })
     }
 
@@ -445,21 +573,21 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
           findings.push({
             rule: 'address',
             path: rel,
-            message: `post-rollout page (created ${createdDay}) has no address: — allocate one via scripts/allocate-address.sh`,
+            message: `post-rollout page (created ${createdDay}) has no address: - allocate one via scripts/allocate-address.sh`,
           })
         }
       } else if (!ADDRESS_RE.test(address)) {
         findings.push({
           rule: 'address',
           path: rel,
-          message: `malformed address "${address}" — expected c-NNNNNN or l-NNNNNN`,
+          message: `malformed address "${address}" - expected c-NNNNNN or l-NNNNNN`,
         })
       } else {
         if (address.startsWith('c-') && ds.counter !== null && Number(address.slice(2)) >= ds.counter) {
           findings.push({
             rule: 'address',
             path: rel,
-            message: `address ${address} is at/above the allocation counter (${ds.counter}) — counter drift`,
+            message: `address ${address} is at/above the allocation counter (${ds.counter}) - counter drift`,
           })
         }
         addresses ??= scanAddresses(vaultRoot)
@@ -513,14 +641,14 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       const parts = rel.split('/')
       const bucket = parts.length > 2 ? parts[1]! : 'root'
       if (CONTENT_BUCKETS.has(bucket) && !parts[parts.length - 1]!.startsWith('_')) {
-        // In-degree minus lint-report sources (see isLintReport) — computed once per call.
+        // In-degree minus lint-report sources (see isLintReport) - computed once per call.
         inbound ??= countInboundExcludingReports(graph)
         const idx = graph.nodes.findIndex((n) => n.path === rel)
         if (idx >= 0 && inbound[idx] === 0) {
           findings.push({
             rule: 'orphan',
             path: rel,
-            message: 'no other page links here — add a link from the index or a related page',
+            message: 'no other page links here - add a link from the index or a related page',
           })
         }
 
@@ -536,7 +664,7 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
               rule: 'single-source-entity',
               path: rel,
               message:
-                `seed entity is referenced by ${n === 0 ? 'no' : 'only one'} source page — ` +
+                `seed entity is referenced by ${n === 0 ? 'no' : 'only one'} source page - ` +
                 'prefer an inline attribution on the source page unless the entity is independently ' +
                 'notable (entity notability rules); bump status past seed to keep it deliberately',
             })
@@ -599,7 +727,7 @@ export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
       findings.push({
         rule: 'address-map',
         path: rel,
-        message: `.raw/.manifest.json address_map still maps ${addr} to this page, but it no longer exists — remove the stale entry`,
+        message: `.raw/.manifest.json address_map still maps ${addr} to this page, but it no longer exists - remove the stale entry`,
       })
       continue
     }
@@ -613,7 +741,7 @@ export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
       findings.push({
         rule: 'address-map',
         path: rel,
-        message: `address_map says ${addr} but the page's frontmatter says ${onPage || '(none)'} — map and page diverged`,
+        message: `address_map says ${addr} but the page's frontmatter says ${onPage || '(none)'} - map and page diverged`,
       })
     }
   }
@@ -657,7 +785,7 @@ export function validateCounters(vaultRoot: string): ValidationFinding[] {
         findings.push({
           rule: 'stale-counter',
           path: rel,
-          message: `header claims ${claimed} ${label} but the vault has ${actual} — update the counter (or drop it from the header)`,
+          message: `header claims ${claimed} ${label} but the vault has ${actual} - update the counter (or drop it from the header)`,
         })
       }
     }

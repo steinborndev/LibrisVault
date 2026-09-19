@@ -785,7 +785,7 @@ describe('POST /api/v1/query + sessions', () => {
     // A real wiki page so the [[Compound Interest]] citation resolves to a path.
     fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
     fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Compound Interest.md'), '# Compound Interest')
-    queryImpl = async () => okResult('Interest compounds — see [[Compound Interest]] and [[Nonexistent Page]].')
+    queryImpl = async () => okResult('Interest compounds - see [[Compound Interest]] and [[Nonexistent Page]].')
 
     const res = await fetch(`${baseUrl}/api/v1/query`, {
       method: 'POST',
@@ -1405,7 +1405,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     expect(run.status).toBe('done')
     // The service pins the synthesis title deterministically; the agent does not choose it.
     expect(prompt).toContain('research_lens')
-    expect(prompt).toContain('Research - tidal turbines — Patent Landscape')
+    expect(prompt).toContain('Research - tidal turbines - Patent Landscape')
     expect(prompt).toMatch(/does NOT\s+override the page-hygiene/)
   })
 

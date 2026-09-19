@@ -101,7 +101,7 @@ describe('reconcileInterrupted', () => {
     expect(recovered.error).toMatch(/interrupted by a service restart/)
     // The page is now VERSIONED (revertable), not orphaned, and the tree is clean so the retry
     // starts fresh. The commit subject marks it as an incomplete, retry-pending recovery.
-    expect(git('log', '--oneline', '-1')).toMatch(/ingest: a\.pdf \(recovered after restart — incomplete run, retry pending\)/)
+    expect(git('log', '--oneline', '-1')).toMatch(/ingest: a\.pdf \(recovered after restart - incomplete run, retry pending\)/)
     expect((await dirtyPaths(repo)).has(page)).toBe(false)
     expect(git('status', '--porcelain').trim()).toBe('')
     expect(git('log', '--diff-filter=A', '--name-only', '--pretty=format:', '-1').split('\n')).toContain(page)

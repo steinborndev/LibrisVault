@@ -530,10 +530,10 @@ export class IngestQueue {
         })
       } else {
         this.store.transition(job.id, 'failed', {
-          patch: { error: 'interrupted by a service restart before it finished — retry to run it again' },
+          patch: { error: 'interrupted by a service restart before it finished - retry to run it again' },
           log:
             pages.length > 0
-              ? `recovered after restart: mid-flight with no completion marker — committed ${pages.length} page(s) it had already written so the retry cannot orphan them (retry to finish)`
+              ? `recovered after restart: mid-flight with no completion marker - committed ${pages.length} page(s) it had already written so the retry cannot orphan them (retry to finish)`
               : 'recovered after restart: mid-flight with no completion marker',
         })
         recoveredToFailed++
@@ -561,7 +561,7 @@ export class IngestQueue {
    */
   private async commitReconciledPages(job: JobRow, label: string, completed: boolean): Promise<string[]> {
     if (!this.autoCommit()) {
-      this.store.log(job.id, 'info', 'reconcile: auto-commit disabled — pages left on disk, not committed')
+      this.store.log(job.id, 'info', 'reconcile: auto-commit disabled - pages left on disk, not committed')
       return []
     }
     const dirtyWiki = [...(await dirtyPaths(this.vaultRoot))].filter((p) => p.startsWith('wiki/'))
@@ -575,7 +575,7 @@ export class IngestQueue {
     const paths = fs.existsSync(path.join(this.vaultRoot, rawDir)) ? [...dirtyWiki, rawDir] : dirtyWiki
     const subject = completed
       ? `ingest: ${label} (recovered after restart)`
-      : `ingest: ${label} (recovered after restart — incomplete run, retry pending)`
+      : `ingest: ${label} (recovered after restart - incomplete run, retry pending)`
     try {
       const result = await this.commitMutex.runExclusive(() => commitPaths(this.vaultRoot, subject, paths))
       if (result.committed) {
@@ -635,7 +635,7 @@ export class IngestQueue {
   retryJob(id: string): JobRow {
     const job = this.store.getOrThrow(id)
     if (job.status !== 'failed' && job.status !== 'deferred') {
-      throw new Error(`job ${id} is ${job.status}, not failed/deferred — nothing to retry`)
+      throw new Error(`job ${id} is ${job.status}, not failed/deferred - nothing to retry`)
     }
     const updated = this.store.transition(id, 'queued', { log: 'manual retry requested (SPEC.md §6.2)' })
     if (job.batch_id) this.reloadPendingBatches()
@@ -970,7 +970,7 @@ export class IngestQueue {
     this.stageFile(created.job.id, input.sourcePath, originalName)
     return this.store.transition(created.job.id, 'failed', {
       patch: {
-        error: `file is ${input.sizeBytes} bytes — over the ${input.limitBytes}-byte limit (maxUploadBytes); raise the limit in settings and retry`,
+        error: `file is ${input.sizeBytes} bytes - over the ${input.limitBytes}-byte limit (maxUploadBytes); raise the limit in settings and retry`,
       },
       log: `refused: ${input.sizeBytes} bytes exceeds the configured maxUploadBytes (${input.limitBytes})`,
       level: 'error',
@@ -1138,7 +1138,7 @@ export class IngestQueue {
     if (pre.deferred) {
       this.deferJob(job, jobDir)
       this.store.transition(job.id, 'deferred', {
-        log: pre.manifest.notes.join('; ') || 'unsupported type — deferred',
+        log: pre.manifest.notes.join('; ') || 'unsupported type - deferred',
         level: 'warn',
       })
       return
@@ -1167,7 +1167,7 @@ export class IngestQueue {
   private async preprocessStep(job: JobRow, jobDir: string): Promise<PreprocessResult> {
     const manifestPath = path.join(jobDir, 'manifest.json')
     if (fs.existsSync(manifestPath)) {
-      this.store.log(job.id, 'info', 'preprocessing skipped — manifest from a prior attempt reused')
+      this.store.log(job.id, 'info', 'preprocessing skipped - manifest from a prior attempt reused')
       return resultFromManifest(this.vaultRoot, jobDir, manifestPath)
     }
     this.toolsCache ??= await this.detectToolsFn()
@@ -1301,7 +1301,7 @@ export class IngestQueue {
 
     if (outcome === 'rate_limit') {
       this.store.decrementAttempts(job.id) // a usage-limit pause is not the job's fault
-      this.store.transition(job.id, 'queued', { log: 'requeued — will retry after the usage-limit pause' })
+      this.store.transition(job.id, 'queued', { log: 'requeued - will retry after the usage-limit pause' })
       this.pauseForRateLimit(job.id, res.error)
       return
     }
@@ -1315,8 +1315,8 @@ export class IngestQueue {
       job.id,
       'error',
       outcome === 'transient'
-        ? `gave up after ${attempt} attempt(s) — retries exhausted`
-        : 'permanent failure — not retried',
+        ? `gave up after ${attempt} attempt(s) - retries exhausted`
+        : 'permanent failure - not retried',
     )
   }
 
@@ -1334,7 +1334,7 @@ export class IngestQueue {
     if (unreported.length > 0) {
       log(`staging ${unreported.length} page(s) the tool stream did not report (F4)`)
     } else if (!sole) {
-      log('another run is writing — staging only tool-reported paths (F4 sweep skipped)')
+      log('another run is writing - staging only tool-reported paths (F4 sweep skipped)')
     }
     // The reading list entries this run added are signed by it, whatever the agent wrote on
     // their by line - only while it is the sole writer, for the same reason the sweep is.
@@ -1424,7 +1424,7 @@ export class IngestQueue {
     if (!this.autoCommit()) {
       // Pages are already written; only the commit is skipped, so nothing is lost — the
       // operator (or the next run with auto-commit on) picks them up.
-      this.store.log(job.id, 'info', 'auto-commit disabled in settings — pages are on disk, not committed')
+      this.store.log(job.id, 'info', 'auto-commit disabled in settings - pages are on disk, not committed')
       return []
     }
     try {
@@ -1654,7 +1654,7 @@ export class IngestQueue {
         if (pre.deferred) {
           this.deferJob(job, jobDir)
           this.store.transition(id, 'deferred', {
-            log: pre.manifest.notes.join('; ') || 'unsupported type — deferred',
+            log: pre.manifest.notes.join('; ') || 'unsupported type - deferred',
             level: 'warn',
           })
           continue
@@ -1789,7 +1789,7 @@ export class IngestQueue {
     }
     if (outcome === 'rate_limit') {
       for (const r of ready) this.store.decrementAttempts(r.id)
-      requeue('batch requeued — will retry after the usage-limit pause')
+      requeue('batch requeued - will retry after the usage-limit pause')
       this.pauseForRateLimit(lead, res.error)
       return
     }
@@ -1800,7 +1800,7 @@ export class IngestQueue {
     this.store.log(
       lead,
       'error',
-      outcome === 'transient' ? `batch gave up after ${attempt} attempt(s)` : 'batch permanent failure — not retried',
+      outcome === 'transient' ? `batch gave up after ${attempt} attempt(s)` : 'batch permanent failure - not retried',
     )
   }
 
@@ -1809,7 +1809,7 @@ export class IngestQueue {
   private async batchCommit(memberIds: string[], names: string[], scope: CommitScope): Promise<string[]> {
     const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1} more`
     if (!this.autoCommit()) {
-      this.store.log(memberIds[0]!, 'info', 'auto-commit disabled in settings — pages are on disk, not committed')
+      this.store.log(memberIds[0]!, 'info', 'auto-commit disabled in settings - pages are on disk, not committed')
       return []
     }
     try {
@@ -1852,14 +1852,14 @@ export class IngestQueue {
   private schedulePreprocessRetry(jobId: string): void {
     const attempt = this.store.incrementAttempts(jobId)
     if (attempt > this.maxRetries) {
-      this.store.log(jobId, 'error', `gave up after ${attempt} attempt(s) — preprocess retries exhausted`)
+      this.store.log(jobId, 'error', `gave up after ${attempt} attempt(s) - preprocess retries exhausted`)
       return
     }
     const delayMs = this.preprocessRetryDelayMs * attempt
     this.store.log(
       jobId,
       'info',
-      `transient preprocess failure — retry ${attempt}/${this.maxRetries} in ${Math.round(delayMs / 1000)}s`,
+      `transient preprocess failure - retry ${attempt}/${this.maxRetries} in ${Math.round(delayMs / 1000)}s`,
     )
     this.preprocessRetries.add(jobId)
     this.setTimeoutFn(() => {

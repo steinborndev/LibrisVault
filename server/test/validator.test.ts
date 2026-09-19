@@ -564,3 +564,116 @@ describe('the run-protocol rule', () => {
     expect(withHeading('Open Questions')).toEqual([])
   })
 })
+
+/**
+ * Tags that repeat what the frontmatter already says (B6, 4.4).
+ *
+ * The two clauses sat in one prompt block: the domain one absolute, the type one hedged with
+ * "beyond the structural ones the vault prescribes". Measured result of that difference in
+ * wording: type mirroring at 82 to 96 % by month, domain mirroring at 0 to 2 %. Over the whole
+ * vault the rule finds 1051 type mirrors and no domain mirror at all.
+ */
+describe('the tag rules', () => {
+  const tagged = (fields: Record<string, string>, tags: readonly string[]): ValidationFinding[] => {
+    const rel = 'wiki/concepts/Tagged.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    const head = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')
+    fs.writeFileSync(
+      abs,
+      `---\n${head}\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n${tags.map((t) => `  - ${t}`).join('\n')}\n---\n\n# Tagged\n\n## Connections\n\nText.\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'tag-mirroring' || f.rule === 'tag-singleton')
+  }
+
+  it('fires on a tag that repeats the page type, and on its plural', () => {
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['concept']).map((f) => f.rule)).toContain('tag-mirroring')
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['concepts']).map((f) => f.rule)).toContain('tag-mirroring')
+  })
+
+  it('fires on a tag that repeats the domain', () => {
+    const findings = tagged({ type: 'concept', domain: 'machine-learning' }, ['machine-learning'])
+    expect(findings[0]?.message).toContain('domain:')
+  })
+
+  it('keeps the documented meta exception', () => {
+    // `meta` names what a page IS - vault machinery, an index, a report - as well as being a
+    // domain key, which is why it is the one exception the prompt states.
+    expect(tagged({ type: 'meta', domain: 'meta' }, ['meta'])).toEqual([])
+  })
+
+  it('does not guess synonyms', () => {
+    // "Which words mean the same as this type" is a judgement, and a validator that makes it
+    // silently reports a number nobody can check.
+    expect(tagged({ type: 'entity', domain: 'physics' }, ['organization'])).not.toContainEqual(
+      expect.objectContaining({ rule: 'tag-mirroring' }),
+    )
+  })
+
+  /** A vault with a real tag vocabulary: below that floor the hint is silent by design. */
+  const seedVocabulary = (): void => {
+    for (let i = 0; i < 60; i++) {
+      const abs = path.join(vaultRoot, `wiki/concepts/Vocab ${i}.md`)
+      fs.mkdirSync(path.dirname(abs), { recursive: true })
+      fs.writeFileSync(
+        abs,
+        `---\ntype: concept\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - vocab-${i}\n  - shared-tag\n---\n\n# Vocab ${i}\n\n## Connections\n\nText.\n`,
+      )
+    }
+  }
+
+  it('hints at a tag no other page uses', () => {
+    seedVocabulary()
+    const findings = tagged({ type: 'concept', domain: 'physics' }, ['a-tag-nothing-else-has'])
+    expect(findings.map((f) => f.rule)).toEqual(['tag-singleton'])
+    expect(findings[0]?.message).toContain('no other page')
+  })
+
+  it('stays quiet about a tag the vault already uses elsewhere', () => {
+    seedVocabulary()
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['shared-tag'])).toEqual([])
+  })
+
+  it('says nothing at all on a vault with no tag vocabulary yet', () => {
+    // Every tag of a three-page vault is used once by construction; a hint on each of them is
+    // noise, not a finding.
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['brand-new-tag'])).toEqual([])
+  })
+
+  it('reports a mirror as a mirror and not also as a singleton', () => {
+    seedVocabulary()
+    // One defect, one finding: a type tag is on 501 pages, so it is never a singleton anyway,
+    // but a domain tag used once is both and the mirror is the useful half.
+    const findings = tagged({ type: 'concept', domain: 'a-domain-used-once' }, ['a-domain-used-once'])
+    expect(findings.map((f) => f.rule)).toEqual(['tag-mirroring'])
+  })
+})
+
+/**
+ * Em-dashes on a page (B9, 4.5). 10,257 across 819 pages, against a house style that has
+ * banned them from the start - and no prompt had ever said so.
+ */
+describe('the em-dash rule', () => {
+  const body = (text: string): ValidationFinding[] => {
+    const rel = 'wiki/concepts/Dashes.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "Dashes"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Dashes\n\n## Connections\n\n${text}\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'em-dash')
+  }
+
+  it('counts em-dashes and en-dashes in prose', () => {
+    expect(body('One — two – three.')[0]?.message).toContain('2 em-dash or en-dashes')
+  })
+
+  it('leaves code alone, where the character is content', () => {
+    expect(body('```\nconst x = "a — b"\n```\n\nAnd `a — b` inline.')).toEqual([])
+  })
+
+  it('says nothing about a page that follows the style', () => {
+    expect(body('One - two, three: four (five).')).toEqual([])
+  })
+})

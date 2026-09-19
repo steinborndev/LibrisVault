@@ -74,7 +74,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     short: 'the last two years of results',
     sources: ['arXiv', 'official releases and changelogs', 'recent conference / peer-reviewed papers'],
     fetchEstimate: '30-40',
-    titleSuffix: ' — State of the Art',
+    titleSuffix: ' - State of the Art',
     emphasis:
       'what has changed recently, the current best results, and the open frontiers; treat ' +
       'sources older than ~2 years as background context only',
@@ -86,7 +86,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     short: 'filings, assignees and claim scope',
     sources: ['Google Patents', 'USPTO', 'EPO Espacenet'],
     fetchEstimate: '25-35',
-    titleSuffix: ' — Patent Landscape',
+    titleSuffix: ' - Patent Landscape',
     emphasis:
       'the intellectual-property landscape: notable filings and grants, their assignees, ' +
       'priority dates, and what the claims actually cover; note where a patent family is ' +
@@ -99,7 +99,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     short: 'who builds it and who funds it',
     sources: ['company sites', 'funding trackers', 'trade press'],
     fetchEstimate: '25-35',
-    titleSuffix: ' — Startup Landscape',
+    titleSuffix: ' - Startup Landscape',
     emphasis:
       'the commercial landscape: which companies are active, their funding stage and backers, ' +
       'and their product traction',
@@ -261,7 +261,7 @@ export function renderSynthesisMandate(profile: ResearchProfile, topic: string):
 /**
  * The lens block appended to the research prompt. Empty for `broad`, so a default run keeps
  * the base prompt verbatim. For a real lens it states the intent, the source preferences, the
- * synthesis framing and — explicitly — its subordination to the hygiene/notability/domain
+ * synthesis framing and - explicitly - its subordination to the hygiene/notability/domain
  * rules the system prompt already carries. The synthesis TITLE is pinned separately, by
  * `renderSynthesisMandate`, because every lens needs that and this block is lens-only.
  */

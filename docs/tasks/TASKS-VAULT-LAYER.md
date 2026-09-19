@@ -948,37 +948,75 @@ log entry), says that provenance is already in the frontmatter, and adds the sen
 describing the service's own mechanisms on a page - three pages currently explain the
 untrusted-content wrapper to a reader who came for the subject.
 
-### 4.4 Make the type-mirroring ban as concrete as the domain ban (B6)
+### 4.4 Make the type-mirroring ban as concrete as the domain ban (B6) - DONE 2026-09-19
 
-- [ ] Rewrite the type clause in `TAG_HYGIENE_RULES`. It currently says "no type-mirroring tags
+- [x] Rewrite the type clause in `TAG_HYGIENE_RULES`. It currently says "no type-mirroring tags
       beyond the structural ones the vault prescribes", and the hedge is doing the damage: type
       mirroring runs at 82 to 96 % while the absolutely-worded domain clause runs at 0 to 2 %.
       The evidence that precise wording is what gets followed is right there in the same rule.
-- [ ] New wording, in the domain clause's voice: never tag a page with its own `type:` value or
+- [x] New wording, in the domain clause's voice: never tag a page with its own `type:` value or
       a synonym of it. Name the three actual offenders by count (501, 328, 211 pages) as the
       reason, without naming pages.
-- [ ] Add the reuse-before-coining measurement to the rule: 50 % of tags are used exactly once.
-- [ ] `validator.ts` gains a `tag-mirroring` rule (type and domain) and a `tag-singleton` hint.
-- [ ] Tests: both rules over fixtures; the `meta` exception still holds.
+- [x] Add the reuse-before-coining measurement to the rule: 50 % of tags are used exactly once.
+- [x] `validator.ts` gains a `tag-mirroring` rule (type and domain) and a `tag-singleton` hint.
+- [x] Tests: both rules over fixtures; the `meta` exception still holds.
 - **DoD:** the rules fire on the measured population, and a scratch ingest produces a page with
   no type-mirroring tag.
 
-### 4.5 The em-dash ban reaches the prompts (B9, and the house style)
+**Result: 1051 type mirrors, 0 domain mirrors** - the same split the audit found, from a
+completely separate implementation. The rewritten clause carries the three counts (501, 328,
+211 pages) and says outright that the wording is the whole difference between a rule followed
+on 99 % of pages and one followed on 4 %.
 
-- [ ] The vault carries 10,257 em-dashes across 819 pages against a house style that bans them
+The `tag-singleton` hint reports **320** of the vault's 648 tags. It is deliberately silent
+below 50 distinct tags in the vault: on a young vault every tag is used once by construction,
+and a hint on each of them is noise rather than a finding.
+
+### 4.5 The em-dash ban reaches the prompts (B9, and the house style) - DONE 2026-09-19
+
+- [x] The vault carries 10,257 em-dashes across 819 pages against a house style that bans them
       everywhere, and **no prompt has ever said so**. Add the rule to
       `PAGE_HYGIENE_CHECKLIST`: no em-dashes and no en-dashes in any page the run writes; use a
       hyphen, restructure, or use a comma, colon or parentheses.
-- [ ] Clean the prompts themselves. Ten em-dashes sit inside the template literals the agent
+- [x] Clean the prompts themselves. Ten em-dashes sit inside the template literals the agent
       reads in `system-prompt.ts`, and `maintenance.ts` carries 51 across its prompt strings and
       comments. A rule the prompt breaks in its own text is not a rule.
-- [ ] A lint rule or a test that fails on an em-dash inside an agent-facing template literal, so
+- [x] A lint rule or a test that fails on an em-dash inside an agent-facing template literal, so
       it cannot come back.
-- [ ] `validator.ts` gains an `em-dash` rule over pages the run touched.
-- [ ] Tests: the guard test catches an em-dash added to a prompt literal; the validator rule
+- [x] `validator.ts` gains an `em-dash` rule over pages the run touched.
+- [x] Tests: the guard test catches an em-dash added to a prompt literal; the validator rule
       counts correctly.
 - **DoD:** zero em-dashes in every agent-facing string in `server/src`, the guard test proves it,
   and a scratch ingest produces pages with none.
+
+**Result.** 62 em-dashes removed from the strings of the prompt-building modules
+(`system-prompt.ts` 9, `maintenance.ts` 25, `queue.ts` 19, `research-profiles.ts` 5,
+`domains.ts` 4), comments untouched. Two of the research lens suffixes carried one, which means
+every synthesis page filed under those lenses had an em-dash in its FILE NAME.
+
+The guard (`server/test/prompt-style.test.ts`) tests the **rendered** text, not the source:
+"agent-facing" is a property of where a string ends up, not of which file it lives in. It
+renders every prompt block and every lens with plausible input and asserts no dash. Verified
+against a deliberately planted em-dash - it fails.
+
+The validator rule reports **818 pages** (the audit's 819 minus one whose dashes are all inside
+code fences), which is 8.6's work item.
+
+**The validator's whole standing population, measured over the live vault in 265 ms** - this is
+what phase 5 has to collapse and phase 8 has to work through:
+
+| rule | findings | pages |
+|---|---|---|
+| tag-mirroring | 1051 | 1051 |
+| em-dash | 818 | 818 |
+| page-schema | 801 | 801 |
+| tag-singleton | 320 | 264 |
+| run-protocol | 231 | 215 |
+| title-name | 133 | 119 |
+| dates | 28 | 28 |
+| address | 13 | 13 |
+| dead-link | 12 | 9 |
+| frontmatter | 9 | 9 |
 
 ---
 

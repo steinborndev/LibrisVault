@@ -146,7 +146,7 @@ export function domainBackfillPrompt(domainKeys: readonly string[]): string {
   const keys = domainKeys.join(', ')
   const keep = DOMAIN_TAGS_THAT_STAY.map((t) => `\`${t}\``).join(', ')
   return (
-    `Read ${DOMAIN_REGISTRY_PATH} — it is the closed list of allowed domains. Then go through ` +
+    `Read ${DOMAIN_REGISTRY_PATH} - it is the closed list of allowed domains. Then go through ` +
     'EVERY markdown page under wiki/ (all subdirectories, all page types: concepts, entities, ' +
     'sources, references, comparisons, questions, folds, meta, and the pages directly in wiki/) ' +
     'and make sure each one carries a `domain:` field in its YAML frontmatter.\n\n' +
@@ -155,18 +155,18 @@ export function domainBackfillPrompt(domainKeys: readonly string[]): string {
     `- A page that already has a REAL domain from the list keeps it. A page whose current ` +
     'value is NOT on the list (the field predates the registry, e.g. `investment-funds` or ' +
     '`mrna-delivery`) must be re-filed to the correct listed domain.\n' +
-    `- A page carrying \`${UNASSIGNED}\` is NOT settled: re-classify it against the list above — ` +
+    `- A page carrying \`${UNASSIGNED}\` is NOT settled: re-classify it against the list above - ` +
     'a domain added after the last backfill may fit it now. It keeps ' +
     `\`${UNASSIGNED}\` only when still no listed domain fits.\n` +
     `- If no listed domain fits, set \`${UNASSIGNED}\`. Do not invent new keys, and do not add ` +
-    `any key to ${DOMAIN_REGISTRY_PATH} — the registry is edited by humans only.\n` +
+    `any key to ${DOMAIN_REGISTRY_PATH} - the registry is edited by humans only.\n` +
     '- Classify by what the page is ABOUT. Tag hints in the registry are guidance, not a ' +
     'lookup table; ignore entity-shaped tags (person, organization, product, researcher).\n' +
     '- The domain belongs in the `domain:` field and NOWHERE else. A tag that merely names a ' +
     'domain key repeats what the field already says, so while you are in a page\'s ' +
     'frontmatter, REMOVE any tag equal to a domain key: the page\'s own domain, the domain it ' +
     `used to carry if you re-file it, and \`${UNASSIGNED}\`. The only exception is ${keep}, ` +
-    'which is a real content tag as well as a domain key — leave it exactly as you find it, ' +
+    'which is a real content tag as well as a domain key - leave it exactly as you find it, ' +
     'on every page.\n' +
     '- Beyond `domain:` and those redundant tags, change nothing: leave every other tag, all ' +
     'other frontmatter fields, page bodies, titles, and wikilinks untouched. Do not create, ' +
@@ -650,17 +650,17 @@ export class MaintenanceRunner {
   startLintFix(): MaintenanceRun {
     const report = this.readLatestLintReport()
     if (!report) {
-      throw new LintReportMissingError('no lint report in the vault — run a lint first, then fix its findings')
+      throw new LintReportMissingError('no lint report in the vault - run a lint first, then fix its findings')
     }
     return this.start(
       'lint-fix',
       `Read the lint report at ${report.path} and fix ONLY the safe, mechanical findings it lists.\n\n` +
         'You may do exactly these things:\n' +
         '- Frontmatter gaps: add missing required frontmatter fields (type, status, created, ' +
-        'updated, tags) with sensible values — type from the page directory, dates from today, ' +
+        'updated, tags) with sensible values - type from the page directory, dates from today, ' +
         'status: developing. Never overwrite a field that already has a value.\n' +
         '- Missing pages: create stub pages for concepts/entities the report says are mentioned ' +
-        'in multiple pages but have no page — proper frontmatter, a one-paragraph description ' +
+        'in multiple pages but have no page - proper frontmatter, a one-paragraph description ' +
         'from how the existing pages use the term, and wikilinks back to those pages.\n' +
         '- Missing cross-references: where the report lists unlinked mentions, wrap the EXISTING ' +
         'mention text in a [[wikilink]]. Do not add new sentences.\n' +
@@ -668,7 +668,7 @@ export class MaintenanceRunner {
         // stale entry in it repairs itself. The bucket hubs are still hand-written.
         '- Stale hub entries: update the relevant _index.md entries that point at renamed or deleted pages. ' +
         'Leave wiki/index.md alone - the service regenerates it from the pages themselves.\n\n' +
-        'Explicitly OUT of scope — do NOT do any of these, they need human judgment:\n' +
+        'Explicitly OUT of scope - do NOT do any of these, they need human judgment:\n' +
         '- Do not delete, rename, or merge any page (orphans stay; duplicates stay).\n' +
         '- Do not resolve stale claims or contradictions; do not rewrite prose.\n' +
         '- Do not remove dead links; only fix a dead link when the target is one of the stub ' +
@@ -949,9 +949,9 @@ export class MaintenanceRunner {
    * reference doc can only ever add links TO it from knowledge pages, never edit it.
    */
   startGraphRepair(tasks: readonly RepairTask[]): MaintenanceRun {
-    if (tasks.length === 0) throw new Error('graph repair started with no tasks (route validates — wiring bug)')
+    if (tasks.length === 0) throw new Error('graph repair started with no tasks (route validates - wiring bug)')
     const lines = tasks.map((t, i) => {
-      const reason = t.reason ? ` — context: ${t.reason}` : ''
+      const reason = t.reason ? ` - context: ${t.reason}` : ''
       return t.kind === 'connect'
         ? `${i + 1}. CONNECT ${t.path}${reason}`
         : `${i + 1}. REVIEW LINK ${t.from} -> ${t.to}${reason}`
@@ -963,10 +963,10 @@ export class MaintenanceRunner {
         'For a CONNECT task (an isolated page no knowledge page links to or from):\n' +
         '- Read the page, then find the existing wiki pages most closely related to its topic ' +
         '(search titles, tags and content).\n' +
-        '- Where a related page genuinely mentions — or naturally should mention — the topic, ' +
+        '- Where a related page genuinely mentions - or naturally should mention - the topic, ' +
         'wrap the existing mention in a [[wikilink]] or add ONE short, natural sentence linking ' +
         'to the page. Also add the page to the relevant _index page. 2-4 inbound links are enough.\n' +
-        '- If nothing in the vault genuinely relates, add NO links and say so in your report — ' +
+        '- If nothing in the vault genuinely relates, add NO links and say so in your report - ' +
         'forced links are worse than an isolated page.\n\n' +
         'For a REVIEW LINK task (an existing link flagged as possibly incidental):\n' +
         '- Read the source page and judge whether its [[wikilink]] to the target genuinely ' +
@@ -980,7 +980,7 @@ export class MaintenanceRunner {
         'CONNECT task, and the relevant index/_index pages.\n' +
         '- Do not create, delete, rename or merge any page. Do not rewrite prose beyond the ' +
         'specific link or mention a task is about.\n\n' +
-        'Finish by reporting, per task, exactly what you changed — or why you changed nothing.',
+        'Finish by reporting, per task, exactly what you changed - or why you changed nothing.',
       'ingest',
       { commitMessage: `maintenance: graph repair (${tasks.length} task${tasks.length === 1 ? '' : 's'})` },
     )
@@ -994,7 +994,7 @@ export class MaintenanceRunner {
    * revertable commit.
    */
   startTagFix(actions: readonly TagFixAction[]): MaintenanceRun {
-    if (actions.length === 0) throw new Error('tag fix started with no actions (route validates — wiring bug)')
+    if (actions.length === 0) throw new Error('tag fix started with no actions (route validates - wiring bug)')
     const lines = actions.map((a, i) =>
       a.kind === 'drop' ? `${i + 1}. DROP #${a.tag}` : `${i + 1}. MERGE #${a.from} INTO #${a.to}`,
     )
@@ -1007,8 +1007,8 @@ export class MaintenanceRunner {
         'bumping `updated:` on every page you change.\n' +
         '- DROP <tag>: remove exactly that tag from the `tags:` list of every page carrying it.\n' +
         '- MERGE <from> INTO <to>: on every page carrying <from>, replace it with <to>; when ' +
-        '<to> is already present, just remove <from> — never leave a duplicate tag.\n' +
-        '- Find affected pages exhaustively (Grep the frontmatter for each tag, exact match) — ' +
+        '<to> is already present, just remove <from> - never leave a duplicate tag.\n' +
+        '- Find affected pages exhaustively (Grep the frontmatter for each tag, exact match) - ' +
         'a page missed is a report finding that comes straight back.\n' +
         '- Match tags EXACTLY: never touch a tag that merely contains or resembles a listed ' +
         'one, and leave every other tag in place.\n' +
@@ -1038,7 +1038,7 @@ export class MaintenanceRunner {
     const registry = readDomainRegistry(this.vaultRoot)
     if (!registry) {
       throw new DomainRegistryMissingError(
-        `no domain registry at ${DOMAIN_REGISTRY_PATH} — install it (scripts/install-domain-registry.sh) before running a backfill`,
+        `no domain registry at ${DOMAIN_REGISTRY_PATH} - install it (scripts/install-domain-registry.sh) before running a backfill`,
       )
     }
     return this.start('domain-backfill', domainBackfillPrompt(registry.domains.map((d) => d.key)), 'ingest', {
@@ -1088,10 +1088,10 @@ export class MaintenanceRunner {
         `The domains that ALREADY exist:\n${existing || '(none)'}\n\n` +
         `Candidates:\n\n${blocks}\n\n` +
         'For each candidate decide ONE of:\n' +
-        '- `new-domain` — these pages form a real subject area worth its own domain. Propose a ' +
-        'key at the same altitude as the existing ones (broad — a domain is a shelf, not a book).\n' +
-        '- `existing` — they belong in a domain that already exists; name it.\n' +
-        '- `not-a-domain` — they merely share a label and are not one coherent subject.\n\n' +
+        '- `new-domain` - these pages form a real subject area worth its own domain. Propose a ' +
+        'key at the same altitude as the existing ones (broad - a domain is a shelf, not a book).\n' +
+        '- `existing` - they belong in a domain that already exists; name it.\n' +
+        '- `not-a-domain` - they merely share a label and are not one coherent subject.\n\n' +
         'Read a few of the pages before deciding; the tag alone is not enough evidence. ' +
         'Judge by what the pages are ABOUT.\n\n' +
         'Do NOT edit any file. Do not modify the registry, do not change page frontmatter, do ' +
@@ -1112,7 +1112,7 @@ export class MaintenanceRunner {
   startRetrieveIndex(): MaintenanceRun {
     if (!hasRetrieveScripts(this.vaultRoot)) {
       throw new RetrieveScriptsMissingError(
-        'vault has no wiki-retrieve scripts (scripts/retrieve.py, contextual-prefix.py, bm25-index.py) — the claude-obsidian clone needs v1.7+',
+        'vault has no wiki-retrieve scripts (scripts/retrieve.py, contextual-prefix.py, bm25-index.py) - the claude-obsidian clone needs v1.7+',
       )
     }
     const id = randomUUID()
@@ -1421,7 +1421,7 @@ export class MaintenanceRunner {
           // These are pages the Write/Edit stream never reported — created or renamed via Bash.
           log('info', `staging ${swept.length} page(s) the tool stream did not report (F4)`)
         } else if (!this.runRegistry.isSoleWriter()) {
-          log('info', 'another run is writing — staging only tool-reported paths (F4 sweep skipped)')
+          log('info', 'another run is writing - staging only tool-reported paths (F4 sweep skipped)')
         }
         // The reading list entries this run added are signed by it, whatever the agent wrote
         // on their by line - only while it is the sole writer, for the same reason the sweep is.
@@ -1504,7 +1504,7 @@ export class MaintenanceRunner {
           if (findings.length === 0) log('info', 'post-run validation: no findings')
           for (const f of findings) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
           if (findings.length > 0) {
-            log('warn', `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`)
+            log('warn', `post-run validation: ${findings.length} finding(s) - advisory only, nothing was modified`)
           }
           if (findings.some((f) => f.rule === 'hot-cache-size')) this.refreshOversizedHotCache(kind, log)
         } catch (err) {
