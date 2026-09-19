@@ -1686,7 +1686,17 @@ Each of these is a decision, not automatically a task. Wire it or record why not
       need); CLAUDE.md hard rule 1 (the nine-writer table), the one-ingest-at-a-time convention,
       and `vaultprobe` and `vault-audit` under Conventions. `docs/agents/SPEC.md` needed no
       change: nothing here alters a Fellow's own contract.
-- [x] `scripts/vault-name-scan.mjs --diff main` over everything added.
+- [x] `scripts/vault-name-scan.mjs --diff` over everything added. **It found two real leaks and
+      they are fixed**: a person's name with a real talk title, standing in a fixture for the
+      colon-in-title case and quoted again in the comment explaining it, and a real open
+      question verbatim in a fixture for title truncation. Both replaced with invented text of
+      the same shape. This is the leak class the 2026-09-15 audit named, and the reason the scan
+      reads content and the hook reads messages. Four matches remain and all four are the
+      expected false positives: `log-2026-07`, `log-2026-08` and `log-2026-09` are the archive
+      file names task 8.8 generates, which now exist as pages and so are their own page titles;
+      `As of September 2026` is a date hedge that is also a title fragment.
+      Note the flag's semantics before trusting a clean run: `--diff <base>` compares
+      `base...HEAD`, so it reads committed state and says nothing about the working tree.
 - [x] The two open measurements: **3.1 is measured, 19 of 20** (recorded at the task, together
       with what the first run got wrong and the defect it exposed). **3.3 cannot be measured
       yet** and that is by design: its after-figure is the next 50 ingested documents. The
