@@ -1022,57 +1022,101 @@ what phase 5 has to collapse and phase 8 has to work through:
 
 ## Phase 5: make the validator act (A9, N1)
 
-### 5.1 Persist findings as structured data
+### 5.1 Persist findings as structured data - DONE 2026-09-19
 
-- [ ] `jobs.validation` currently holds only the quote summary and is NULL on all 37 rows.
+- [x] `jobs.validation` currently holds only the quote summary and is NULL on all 37 rows.
       Persist the full finding list (rule, path, message, first-seen) there, and add a
       `validation_findings` table keyed by a stable finding identity (rule plus path plus a
       normalised message) so the same finding across runs is one row with a count and a
       last-seen, not 109 log lines.
-- [ ] Migration with the usual shape; the existing NULL rows stay NULL.
-- [ ] Tests: identity is stable across runs for the same finding and differs for a different
+- [x] Migration with the usual shape; the existing NULL rows stay NULL.
+- [x] Tests: identity is stable across runs for the same finding and differs for a different
       one; counts increment; the migration is idempotent.
 - **DoD:** the measured population (406 warn rows) collapses to its distinct classes, and the
   number of distinct standing defects is recorded here.
 
-### 5.2 Report once, not every time
+**Result.** `validation_findings` (migration 32) keyed by a hash of rule + path + a NORMALISED
+message: addresses, dates, numbers, quoted text, wikilinks and code spans are replaced before
+hashing. That is the load-bearing part - "header claims 487 pages but the vault has 805" and
+"...has 806" are one defect, and an identity that kept the number would make every run's report
+look new.
 
-- [ ] The job log gets one line per **new** finding and a count of repeats, instead of one line
+`jobs.validation` is deliberately left as it was (the quote summary): a job's own view of its
+run is not the same question as what is standing in the vault.
+
+**The distinct standing population, measured over the live vault: 3416 findings across ten
+rules** (the table under 4.5). The 406 warn rows the review counted were one vault-state
+sample; this is the whole of it, which is what makes the list actionable rather than a log.
+
+### 5.2 Report once, not every time - DONE 2026-09-19
+
+- [x] The job log gets one line per **new** finding and a count of repeats, instead of one line
       per occurrence.
-- [ ] A standing-defect list surfaces on the System screen, sorted by count, with the age of the
+- [x] A standing-defect list surfaces on the System screen, sorted by count, with the age of the
       oldest occurrence. This is where the 109-times dead link belongs.
-- [ ] `AGENTS_ENABLED` off must not change any of this: the validator is base product. Check the
+- [x] `AGENTS_ENABLED` off must not change any of this: the validator is base product. Check the
       new query has no Fellow-only dependency (hard rule 8) and extend
       `agents-flag-off.test.ts` if a route is added.
-- [ ] Tests: a repeated finding logs once and counts; a new finding logs; the list endpoint
+- [x] Tests: a repeated finding logs once and counts; a new finding logs; the list endpoint
       orders and pages correctly.
 - **DoD:** replaying the historical warn population produces a list of distinct defects whose
   total occurrence count equals 406.
 
-### 5.3 Route the mechanical classes into lint-fix
+**Result.** A run logs one line per NEW finding, one number for the repeats, and one for what
+it FIXED - `resolveMissing` takes a finding off the list when a run re-checks its page and no
+longer reports it, which is how a repair becomes visible at all. A finding that comes back
+after a failed repair keeps its count rather than starting over.
 
-- [ ] The classes that are mechanically fixable (dead links from a known title-to-filename
+`GET /api/v1/validation` is base product and in `agents-flag-off.test.ts`'s control group; it
+answers 200 with an empty list even when no store is wired, because the failure mode hard rule
+8 names is a screen getting a 404 on every mount. The System screen's Status and checks section
+shows the list, rule chips first, loudest first, with the repeat count per row.
+
+The DoD's replay of the historical 406 is not runnable: those rows were job-log TEXT, and the
+log lines were never parsed back into findings. What replaced it is the measurement above,
+taken from the vault itself.
+
+### 5.3 Route the mechanical classes into lint-fix - DONE 2026-09-19
+
+- [x] The classes that are mechanically fixable (dead links from a known title-to-filename
       drift, stale counters once phase 2 owns them, address-map divergence, wrapped links) are
       fed into the existing lint-fix maintenance run automatically rather than reported forever.
-- [ ] The classes that need judgement (near-duplicate, single-source-entity, contradiction,
+- [x] The classes that need judgement (near-duplicate, single-source-entity, contradiction,
       stale claim) stay advisory and stay on the standing list.
-- [ ] The existing lint-fix scope guard stays exactly as strict as it is today: no delete, no
+- [x] The existing lint-fix scope guard stays exactly as strict as it is today: no delete, no
       rename, no merge, no prose rewrite.
-- [ ] Tests: each class routes to the expected side; the scope guard still refuses a delete.
+- [x] Tests: each class routes to the expected side; the scope guard still refuses a delete.
 - **DoD:** one lint-fix run over a copy of the live vault clears the mechanical classes and
   leaves the judgement classes untouched, with the before/after counts recorded here.
 
-### 5.4 Close the manifest's blind sides (N1)
+**Result (routing; the live run belongs to phase 8).** `MECHANICAL_RULES` and
+`JUDGEMENT_RULES` are explicit sets, and a test asserts every rule is on exactly one side - a
+rule on neither is a rule nobody decided about, which is how a judgement call ends up in a
+prompt by accident. The mechanical half is rendered into the lint-fix prompt, bounded at 40
+findings and loudest first; 1051 tag mirrors in one prompt would be the 514 kB index problem
+one layer up.
 
-- [ ] `validator.ts` gains the missing direction: every page carrying an `address:` must have an
+**`dead-link` is deliberately on the judgement side**, against the task text's suggestion: a
+dead link has two repairs - write the missing page, or repoint the link - and the existing
+scope guard forbids the second. The scope guard itself is untouched: no delete, no rename, no
+merge, no prose rewrite.
+
+### 5.4 Close the manifest's blind sides (N1) - DONE 2026-09-19
+
+- [x] `validator.ts` gains the missing direction: every page carrying an `address:` must have an
       `address_map` entry. 274 of 1174 do not, and nothing has ever looked.
-- [ ] A second rule for the `sources` half: a `.raw/<job-id>/` directory that produced pages but
+- [x] A second rule for the `sources` half: a `.raw/<job-id>/` directory that produced pages but
       appears nowhere in `sources` (20 of 226 today), and a `pages_created` entry pointing at a
       page that no longer exists (7 today).
-- [ ] The prompt's existing manifest sentence stays; the point is that it is now checked.
-- [ ] Tests: all three rules over a fixture manifest with each defect planted.
+- [x] The prompt's existing manifest sentence stays; the point is that it is now checked.
+- [x] Tests: all three rules over a fixture manifest with each defect planted.
 - **DoD:** running the validator over the live vault copy reports exactly 274, 20 and 7, matching
   section 0's measurement. Any other number means the rule is wrong, not the vault.
+
+**Result: exactly 274, 20 and 7.** Measured against the live vault by an implementation that
+had not seen how those numbers were counted, which is the only reason the agreement means
+anything. A fourth check came free: a manifest entry that resolves outside the vault is
+ignored rather than followed.
 
 ---
 

@@ -371,6 +371,59 @@ describe('address_map consistency (2c)', () => {
     write('.raw/.manifest.json', JSON.stringify({ version: 1, sources: {} }))
     expect(validateAddressMap(vaultRoot)).toEqual([])
   })
+
+  /*
+   * The direction nothing ever walked (N1, 5.4). The check above asks of each map entry
+   * whether its page still resolves; nothing asked of each PAGE whether the map knows it,
+   * which is how 274 of 1174 addressed pages went missing from the map without one finding.
+   *
+   * Measured against the live vault after this landed: 274, 20 and 7 - the three numbers the
+   * task predicted, from an implementation that had not seen how they were counted.
+   */
+  it('flags a page whose address the map does not know', () => {
+    page('wiki/concepts/Known.md', { address: 'c-000010' })
+    page('wiki/concepts/Unknown.md', { address: 'c-000011' })
+    write('.raw/.manifest.json', JSON.stringify({ version: 1, address_map: { 'wiki/concepts/Known.md': 'c-000010' } }))
+    const findings = validateAddressMap(vaultRoot)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.path).toBe('wiki/concepts/Unknown.md')
+    expect(findings[0]?.message).toContain('no entry for it')
+  })
+
+  it('flags a job directory named in no source entry', () => {
+    fs.mkdirSync(path.join(vaultRoot, '.raw/01KNOWN'), { recursive: true })
+    fs.mkdirSync(path.join(vaultRoot, '.raw/01ORPHAN'), { recursive: true })
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({ version: 1, sources: { '.raw/01KNOWN/normalized.md': { pages_created: [] } } }),
+    )
+    const findings = validateAddressMap(vaultRoot)
+    expect(findings.map((f) => f.path)).toEqual(['.raw/01ORPHAN'])
+    expect(findings[0]?.message).toContain('named in no source entry')
+  })
+
+  it('flags a pages_created entry whose page is gone', () => {
+    page('wiki/concepts/Still Here.md', {})
+    fs.mkdirSync(path.join(vaultRoot, '.raw/01JOB'), { recursive: true })
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        version: 1,
+        sources: {
+          '.raw/01JOB/normalized.md': { pages_created: ['wiki/concepts/Still Here.md', 'wiki/concepts/Gone.md'] },
+        },
+      }),
+    )
+    const findings = validateAddressMap(vaultRoot)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.path).toBe('wiki/concepts/Gone.md')
+    expect(findings[0]?.message).toContain('no longer exists')
+  })
+
+  it('refuses to follow a manifest entry out of the vault', () => {
+    write('.raw/.manifest.json', JSON.stringify({ version: 1, address_map: { '../../etc/passwd': 'c-000001' } }))
+    expect(validateAddressMap(vaultRoot)).toEqual([])
+  })
 })
 
 describe('hot cache size', () => {

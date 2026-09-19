@@ -708,21 +708,19 @@ function countInboundExcludingReports(graph: VaultGraph): number[] {
  * manifest (or without address_map) yield no findings.
  */
 export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
-  let map: Record<string, unknown>
+  let manifest: { address_map?: Record<string, unknown>; sources?: Record<string, unknown> }
   try {
-    const parsed = JSON.parse(fs.readFileSync(path.join(vaultRoot, '.raw', '.manifest.json'), 'utf8')) as {
-      address_map?: Record<string, unknown>
-    }
-    map = parsed.address_map ?? {}
+    manifest = JSON.parse(fs.readFileSync(path.join(vaultRoot, '.raw', '.manifest.json'), 'utf8')) as typeof manifest
   } catch {
     return []
   }
+  const map = manifest.address_map ?? {}
 
   const findings: ValidationFinding[] = []
   for (const [rel, addr] of Object.entries(map)) {
     if (typeof addr !== 'string') continue
     const abs = path.resolve(vaultRoot, rel)
-    if (!abs.startsWith(vaultRoot + path.sep)) continue // hostile/garbled entry — not ours to judge
+    if (!abs.startsWith(vaultRoot + path.sep)) continue // hostile/garbled entry - not ours to judge
     if (!fs.existsSync(abs)) {
       findings.push({
         rule: 'address-map',
@@ -745,6 +743,72 @@ export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
       })
     }
   }
+
+  /*
+   * THE DIRECTION NOTHING EVER WALKED (N1). The loop above asks of each map entry whether its
+   * page still resolves. Nothing asked of each PAGE whether the map knows it - which is how
+   * 274 of 1174 addressed pages came to be missing from the map without a single finding.
+   *
+   * What it costs when the map is wrong in this direction: `buildSourceIndex` and
+   * `dedupe.jobForPage` both read the map, so a page missing from it has no document behind it
+   * as far as the service is concerned.
+   */
+  const mapped = new Set(Object.keys(map))
+  for (const [address, holders] of scanAddresses(vaultRoot)) {
+    for (const rel of holders) {
+      if (mapped.has(rel)) continue
+      findings.push({
+        rule: 'address-map',
+        path: rel,
+        message: `page carries ${address} but .raw/.manifest.json's address_map has no entry for it - the source index cannot find the document behind it`,
+      })
+    }
+  }
+
+  /*
+   * The `sources` half of the same file, which nothing checked either:
+   *
+   *  - a `.raw/<job-id>/` directory named in no source entry (20 of 226 today), so whatever
+   *    that document produced is invisible to the source index and to dedupe;
+   *  - a `pages_created` entry pointing at a page that is gone (7 today).
+   */
+  const sources = manifest.sources ?? {}
+  const namedDirs = new Set<string>()
+  for (const [key, entry] of Object.entries(sources)) {
+    const parts = key.split('/')
+    if (parts[0] === '.raw' && parts.length > 1) namedDirs.add(parts[1]!)
+    const created = (entry as { pages_created?: unknown })?.pages_created
+    if (!Array.isArray(created)) continue
+    for (const page of created) {
+      if (typeof page !== 'string') continue
+      const abs = path.resolve(vaultRoot, page)
+      if (!abs.startsWith(vaultRoot + path.sep) || fs.existsSync(abs)) continue
+      findings.push({
+        rule: 'address-map',
+        path: page,
+        message: `.raw/.manifest.json lists this page as created by ${key}, but it no longer exists - remove the stale entry`,
+      })
+    }
+  }
+
+  let rawDirs: string[] = []
+  try {
+    rawDirs = fs
+      .readdirSync(path.join(vaultRoot, '.raw'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+  } catch {
+    /* no .raw at all: the checks above already returned nothing */
+  }
+  for (const dir of rawDirs) {
+    if (namedDirs.has(dir)) continue
+    findings.push({
+      rule: 'address-map',
+      path: `.raw/${dir}`,
+      message: 'this job directory is named in no source entry of .raw/.manifest.json - whatever it produced has no document behind it',
+    })
+  }
+
   return findings
 }
 

@@ -40,6 +40,7 @@ import {
   type CommitOptions,
 } from './git.js'
 import { withWikiLocks } from './wiki-lock.js'
+import type { ValidationStore } from '../db/validation.js'
 import {
   SERVICE_OWNED_HUBS,
   bucketHubs,
@@ -253,6 +254,8 @@ export interface MaintenanceRunnerOptions {
    * one - whatever name the agent wrote. Without it the entries stand as written.
    */
   readonly reading?: ReadingListService
+  /** The standing defect list (A9): its mechanical half is routed into the lint-fix prompt. */
+  readonly validation?: ValidationStore
 }
 
 export interface MaintenanceResult {
@@ -413,6 +416,59 @@ interface RunOptions {
 /** What a run may be started as. `query` is read-only and is used by the `plan` kind only. */
 type StartProfile = 'ingest' | 'research' | 'query'
 
+/**
+ * The mechanically fixable half of the standing defect list, for the lint-fix prompt (A9, 5.3).
+ *
+ * The split is the point. A dead link from a title the file name cannot carry, a wrapped link,
+ * a page missing from the address map, a tag that repeats its own type: each has exactly one
+ * correct repair and no judgement in it. A near-duplicate pair, a single-source entity, a
+ * contradiction, a stale claim: each needs somebody to decide, and a run that "fixes" one of
+ * those is the silent-rewrite risk report-only lint exists to prevent.
+ *
+ * So the first set goes into the prompt with its repair named, and the second stays on the
+ * standing list where a person can see it.
+ */
+export const MECHANICAL_RULES: ReadonlySet<string> = new Set([
+  'wrapped-link',
+  'title-name',
+  'address-map',
+  'tag-mirroring',
+  'em-dash',
+  'frontmatter',
+  'dates',
+])
+
+/** Rules that name a defect but never its repair: they stay on the list, for a person. */
+export const JUDGEMENT_RULES: ReadonlySet<string> = new Set([
+  'near-duplicate',
+  'single-source-entity',
+  'orphan',
+  'page-schema',
+  'run-protocol',
+  'tag-singleton',
+  'dead-link',
+  'quote',
+])
+
+/** At most this many standing findings reach one prompt; the rest wait for the next run. */
+const STANDING_IN_PROMPT = 40
+
+export function renderStandingDefects(validation: ValidationStore | undefined): string {
+  if (validation === undefined) return ''
+  const mechanical = validation
+    .list({ limit: 200 })
+    .filter((f) => MECHANICAL_RULES.has(f.rule))
+    .slice(0, STANDING_IN_PROMPT)
+  if (mechanical.length === 0) return ''
+  const lines = mechanical.map((f) => `- [${f.rule}] ${f.path}: ${f.message}`).join('\n')
+  return (
+    'The service also keeps a standing list of mechanical defects it finds after every run. ' +
+    'Fix these too, in the same commit, with the same limits as above - each of them has one ' +
+    'correct repair and no judgement in it:\n' +
+    `${lines}\n\n`
+  )
+}
+
 export class MaintenanceRunner {
   private readonly vaultRoot: string
   private readonly auth: AgentAuth | null
@@ -429,6 +485,7 @@ export class MaintenanceRunner {
   private readonly now: () => Date
   private readonly usage: UsageMonitor | undefined
   private readonly reading: ReadingListService | undefined
+  private readonly validation: ValidationStore | undefined
   /** One maintenance run at a time — they all write the vault. */
   private readonly runMutex = new Mutex()
   /**
@@ -464,6 +521,7 @@ export class MaintenanceRunner {
     this.now = opts.now ?? ((): Date => new Date())
     this.usage = opts.usage
     this.reading = opts.reading
+    this.validation = opts.validation
   }
 
   /** The sampling hooks for one run, when a usage monitor is wired (section 8.3); each sample is a run log line. */
@@ -655,6 +713,7 @@ export class MaintenanceRunner {
     return this.start(
       'lint-fix',
       `Read the lint report at ${report.path} and fix ONLY the safe, mechanical findings it lists.\n\n` +
+        renderStandingDefects(this.validation) +
         'You may do exactly these things:\n' +
         '- Frontmatter gaps: add missing required frontmatter fields (type, status, created, ' +
         'updated, tags) with sensible values - type from the page directory, dates from today, ' +

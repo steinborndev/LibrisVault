@@ -70,6 +70,7 @@ import { buildServer } from './api/server.js'
 import { ensureVaultExcludes } from './pipeline/vault-excludes.js'
 import { ensureAutoCommitDisabled } from './pipeline/vault-guards.js'
 import { reapRunMarkers } from './pipeline/run-marker.js'
+import { ValidationStore } from './db/validation.js'
 import { VaultReconciler } from './pipeline/reconcile.js'
 import { startWatcher, type Watcher } from './pipeline/watcher.js'
 import { startVaultWatcher, type VaultWatcher } from './pipeline/vault-watcher.js'
@@ -147,6 +148,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // `watchFolder`/`maxUploadBytes` are read once here (they bind at startup — changing them is
   // flagged "restart required"); `concurrency`/`gitAutoCommit` apply live via the queue.
   const settings = new SettingsStore(db)
+  // Findings counted rather than repeated (A9): base product, not behind AGENTS_ENABLED.
+  const validation = new ValidationStore(db)
   const effective = settings.effective(config)
   // One graph builder for the whole service (its per-file cache makes rebuilds cheap): the
   // graph/pages/domains routes serve it, and the post-run validator reads in-degrees off it.
@@ -216,6 +219,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     // queue's pause decision and the dashboard's display can never disagree (SPEC.md §11.3).
     budgetExceeded: () => budgetStatus(config, settings.effective(config), store).exceeded,
     validate,
+    validationStore: validation,
   })
   // The other half of the F4 rule: the per-run sweep sits out whenever runs overlap, which
   // with concurrency above 1 is most of the time. This picks up what nobody staged, on the
@@ -298,6 +302,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     commitMutex,
     runRegistry,
     validate,
+    validation,
     stateStore: maintenanceState,
     runStore: agentRuns,
     // Same as the queue above: a maintenance run only hears about the list behind the flag.
@@ -539,6 +544,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     events,
     maintenance,
     settings,
+    validation,
     // User page edits/deletes commit behind the same mutex as ingest + maintenance, and
     // honour the live gitAutoCommit setting exactly like the queue does.
     commitMutex,

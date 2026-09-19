@@ -29,6 +29,8 @@ import { registerHealthRoute } from './routes/health.js'
 import { registerJobsRoute } from './routes/jobs.js'
 import { registerEventsRoute } from './routes/events.js'
 import { registerStatsRoute } from './routes/stats.js'
+import { registerValidationRoute } from './routes/validation.js'
+import type { ValidationStore } from '../db/validation.js'
 import { registerQueryRoute } from './routes/query.js'
 import { registerMaintenanceRoute } from './routes/maintenance.js'
 import { registerSettingsRoute } from './routes/settings.js'
@@ -67,6 +69,8 @@ export interface AppContext {
   readonly events: EventBus
   /** Read-only query runner; injectable so tests mock it (defaults to the real SDK runner). */
   readonly runQuery?: QueryRunner
+  /** The standing validation list (A9): findings counted rather than repeated per run. */
+  readonly validation?: ValidationStore
   /** Maintenance runner (lint / autoresearch / hot-cache). */
   readonly maintenance: MaintenanceRunner
   /**
@@ -169,6 +173,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerJobsRoute(app, ctx)
   registerEventsRoute(app, ctx)
   registerStatsRoute(app, ctx)
+  registerValidationRoute(app, ctx)
   registerQueryRoute(app, ctx)
   registerSettingsRoute(app, ctx)
   // One shared graph builder: the graph endpoint serves it, the pages DELETE consults it for

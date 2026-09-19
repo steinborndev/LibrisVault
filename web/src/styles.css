@@ -6559,6 +6559,14 @@ tr:focus-within .rowacts {
   color: var(--warn);
 }
 
+/* The rule filter above the standing defect list: the existing chips, wrapped. */
+.defect-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
 /* A value that is a problem rather than a fact: the vault guard the System panel reports. */
 .kv .v.bad {
   color: var(--err);

@@ -165,6 +165,26 @@ export interface Stats {
   generatedAt: string
 }
 
+/** One standing validation defect (A9): counted rather than repeated on every run. */
+export interface StandingFinding {
+  id: string
+  rule: string
+  path: string
+  message: string
+  /** How often this vault has had this defect reported. */
+  count: number
+  firstSeen: string
+  lastSeen: string
+  lastJobId: string | null
+  resolvedAt: string | null
+}
+
+export interface ValidationList {
+  findings: StandingFinding[]
+  byRule: Array<{ rule: string; findings: number; occurrences: number }>
+  total: number
+}
+
 export interface Health {
   status: string
   /** False = setup mode: no Anthropic credential yet, agent-running features disabled. */

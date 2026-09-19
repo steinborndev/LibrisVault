@@ -59,6 +59,7 @@ import { withWikiLocks } from './wiki-lock.js'
 import { hasRunMarker, runMarkerPath } from './run-marker.js'
 import { topicForJob, vaultOverlapFor } from './ingest-overlap.js'
 import { runTilingCheck, pairsTouching } from './tiling.js'
+import type { ValidationStore } from '../db/validation.js'
 import { retrieveCandidates } from './retrieve-index.js'
 import {
   SERVICE_OWNED_HUBS,
@@ -176,6 +177,8 @@ export interface IngestQueueOptions {
    * job's outcome. Omitted (e.g. in the CLI) means no validation.
    */
   readonly validate?: Validator
+  /** Where findings are counted rather than repeated (A9); absent leaves the old log behaviour. */
+  readonly validationStore?: ValidationStore
   /**
    * The vault's own near-duplicate check (A5). Injected so tests never spawn python, and
    * defaulted to the real one - which skips itself on any vault that cannot run it.
@@ -333,6 +336,7 @@ export class IngestQueue {
   private readonly commitMutex: Mutex
   private readonly runRegistry: RunRegistry
   private readonly validate: Validator | undefined
+  private readonly validationStore: ValidationStore | undefined
   /** Injected in tests; the real one spawns the vault's own `tiling-check.py`. */
   private readonly tiling: (vaultRoot: string) => Promise<Awaited<ReturnType<typeof runTilingCheck>>>
   private readonly dedupe: DedupeIndex
@@ -394,6 +398,7 @@ export class IngestQueue {
     this.commitMutex = opts.commitMutex ?? new Mutex()
     this.runRegistry = opts.runRegistry ?? new RunRegistry()
     this.validate = opts.validate
+    this.validationStore = opts.validationStore
     this.tiling = opts.tilingCheck ?? ((root) => runTilingCheck(root))
     this.dedupe = opts.dedupe ?? new DedupeIndex(opts.vaultRoot)
     this.reading = opts.reading
@@ -1619,6 +1624,29 @@ export class IngestQueue {
       }
     } catch (err) {
       this.store.log(jobId, 'warn', `duplicate check crashed (ignored): ${(err as Error).message}`)
+    }
+    /*
+     * One line per NEW finding, one number for the repeats (A9, 5.2). The old behaviour wrote
+     * a line per occurrence: 406 warnings over the measured population, of which one dead link
+     * accounted for 109. A defect reported again on every run cannot be told apart from one
+     * that was just introduced, which is why nothing ever acted on any of them.
+     */
+    if (this.validationStore !== undefined) {
+      const { created, repeated } = this.validationStore.record(findings, jobId)
+      // What this run looked at and no longer finds is repaired: taking it off the list is how
+      // a fix becomes visible at all.
+      const resolved = this.validationStore.resolveMissing(touched, findings)
+      for (const f of created) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+      const parts: string[] = []
+      if (created.length > 0) parts.push(`${created.length} new`)
+      if (repeated > 0) parts.push(`${repeated} standing`)
+      if (resolved > 0) parts.push(`${resolved} fixed since the last run`)
+      this.store.log(
+        jobId,
+        created.length > 0 ? 'warn' : 'info',
+        parts.length === 0 ? 'post-run validation: no findings' : `post-run validation: ${parts.join(', ')} (the standing list is on the System screen)`,
+      )
+      return
     }
     if (findings.length === 0) {
       this.store.log(jobId, 'info', 'post-run validation: no findings')
