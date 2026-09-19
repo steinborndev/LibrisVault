@@ -162,7 +162,14 @@ const isLintReport = (rel: string): boolean => /^wiki\/meta\/lint-report-.*\.md$
  * forbidden. The graph's gap list drops them for the same reason (graph.ts, GraphGap).
  */
 const skipLinkCheck = (rel: string, pluginDocs: ReadonlySet<string>): boolean =>
-  isLintReport(rel) || rel === 'wiki/log.md' || rel === 'wiki/hot.md' || pluginDocs.has(rel)
+  isLintReport(rel) ||
+  rel === 'wiki/log.md' ||
+  rel === 'wiki/hot.md' ||
+  // The log's own archive pages (task 8.8): the same append-only record, moved out of the live
+  // file by month. They quote what the log quoted, dead targets included, and flagging them
+  // reports the log's history as 15 new defects.
+  /^wiki\/folds\/log-\d{4}-\d{2}\.md$/.test(rel) ||
+  pluginDocs.has(rel)
 
 const unquote = (s: string): string => s.trim().replace(/^["']|["']$/g, '')
 
