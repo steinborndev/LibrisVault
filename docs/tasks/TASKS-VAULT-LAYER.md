@@ -759,20 +759,20 @@ intact.
 This is the phase that addresses the vault's central defect rather than its symptoms. It only
 works after phase 2, because the mechanism it replaces is "read the 514 kB index".
 
-### 3.1 An overlap block for ingest runs
+### 3.1 An overlap block for ingest runs - DONE 2026-09-19
 
-- [ ] Derive a topic for the incoming document from the preprocessing manifest (title, filename,
+- [x] Derive a topic for the incoming document from the preprocessing manifest (title, filename,
       the first N characters of the normalised text, the URL's own title). Put the derivation in
       its own tested function; it is the input quality that decides whether this phase works.
-- [ ] Feed it to the existing `findRelatedPages` + `renderOverlapBlock`, and to
+- [x] Feed it to the existing `findRelatedPages` + `renderOverlapBlock`, and to
       `retrieveCandidates` when the index is provisioned, and render both into the ingest
       prompt - the same two mechanisms the chat and the research paths already get.
-- [ ] The wording is scoped the way `renderOverlapBlock` already learned to be: prefer
+- [x] The wording is scoped the way `renderOverlapBlock` already learned to be: prefer
       extending existing concept, entity and source pages; the source page for **this** document
       is still this run's deliverable and is required. Getting this wrong once already produced
       a research run that filed nothing (2026-09-04, see `renderSynthesisMandate`).
-- [ ] Batch runs get one block per member, not one merged block.
-- [ ] Tests: topic derivation over fixtures for PDF, office, web, image and text sources; the
+- [x] Batch runs get one block per member, not one merged block.
+- [x] Tests: topic derivation over fixtures for PDF, office, web, image and text sources; the
       block is empty for a genuinely new topic and the prompt is then byte-identical to today's;
       the block lists existing pages for an overlapping topic; the deliverable sentence survives
       the "prefer what exists" sentence (assert the order).

@@ -57,6 +57,8 @@ import {
 import { RunRegistry } from './run-registry.js'
 import { withWikiLocks } from './wiki-lock.js'
 import { hasRunMarker, runMarkerPath } from './run-marker.js'
+import { topicForJob, vaultOverlapFor } from './ingest-overlap.js'
+import { retrieveCandidates } from './retrieve-index.js'
 import {
   SERVICE_OWNED_HUBS,
   bucketHubs,
@@ -1204,6 +1206,9 @@ export class IngestQueue {
     const attempt = this.store.incrementAttempts(job.id)
     const prompt = `ingest ${pre.primaryArtifact}`
     this.store.log(job.id, 'info', `ingest attempt ${attempt}: ${prompt}`)
+    // What the vault already holds on this subject (A8). The one run type whose job is
+    // "create or update" was the one with no pointer to existing pages but a 514 kB index.
+    const overlap = await this.vaultOverlap(job, pre.manifest, pre.primaryArtifact)
 
     // Bracket + register as a writer so Bash-written pages can be swept into the commit, but
     // only when this turns out to be the sole writer (finding F4).
@@ -1230,6 +1235,7 @@ export class IngestQueue {
         renderCompletionMarker(runMarkerPath(job.id) ?? ''),
         // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
         this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        overlap,
         renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
         // Where the text came from when it did not come from the address (5.4).
         renderOaNotice(pre.manifest.oa === undefined ? [] : [{ artifact: pre.primaryArtifact, oa: pre.manifest.oa }]),
@@ -1333,6 +1339,30 @@ export class IngestQueue {
 
   /** Returns the committed wiki pages, so the validation step can cover Bash-written pages
    * the tool stream never reported (empty when the commit was skipped or failed). */
+  /**
+   * The overlap block for one document (3.1): what the vault already holds on its subject.
+   *
+   * Both mechanisms, the same two the chat and the research paths get - title-token overlap
+   * plus chunk retrieval when the index is provisioned. Advisory throughout: a failure here
+   * leaves the prompt exactly as it was before this existed.
+   */
+  private async vaultOverlap(job: JobRow, manifest: Manifest, artifact: string): Promise<string> {
+    const topic = topicForJob(this.vaultRoot, manifest, artifact)
+    if (topic === '') return ''
+    const block = await vaultOverlapFor(this.vaultRoot, topic, async (t) => {
+      const { candidates } = await retrieveCandidates({ vaultRoot: this.vaultRoot, question: t })
+      return candidates.map((c) => c.pagePath)
+    })
+    this.store.log(
+      job.id,
+      'info',
+      block === ''
+        ? `vault overlap: nothing on "${topic}" yet - this is a new subject for the vault`
+        : `vault overlap on "${topic}": ${block.split('\n').filter((l) => l.startsWith('- ')).length} existing page(s) named in the prompt`,
+    )
+    return block
+  }
+
   /**
    * The hub write for one run (D2): the log entry and the regenerated index, inside this run's
    * own commit.
@@ -1564,7 +1594,7 @@ export class IngestQueue {
    * Deferred/failed members drop out but never sink the rest of the batch.
    */
   private async processBatch(unit: BatchUnit): Promise<void> {
-    const ready: Array<{ id: string; artifact: string; url: string | null; oa?: OaDisclosure }> = []
+    const ready: Array<{ id: string; artifact: string; url: string | null; oa?: OaDisclosure; manifest: Manifest }> = []
     const names: string[] = []
 
     for (const id of unit.memberIds) {
@@ -1590,7 +1620,7 @@ export class IngestQueue {
           await this.settleContentDuplicate(job, dup)
           continue
         }
-        ready.push({ id, artifact: pre.primaryArtifact, url: job.url, ...(pre.manifest.oa ? { oa: pre.manifest.oa } : {}) })
+        ready.push({ id, artifact: pre.primaryArtifact, url: job.url, manifest: pre.manifest, ...(pre.manifest.oa ? { oa: pre.manifest.oa } : {}) })
         names.push(job.original_name ?? job.url ?? id)
       } catch (err) {
         this.store.transition(id, 'failed', {
@@ -1610,6 +1640,16 @@ export class IngestQueue {
     const lead = ready[0]!.id
     const prompt = `ingest all of these:\n${ready.map((r) => `- ${r.artifact}`).join('\n')}`
     this.store.log(lead, 'info', `batch combined ingest of ${ready.length} artifact(s), attempt ${attempt}`)
+    /*
+     * One overlap block PER MEMBER, not one merged block (3.1). A batch is several documents
+     * on several subjects; merging their topics into one query returns the pages that overlap
+     * the mixture, which is nothing in particular.
+     */
+    const overlaps: string[] = []
+    for (const member of ready) {
+      const block = await this.vaultOverlap(this.store.getOrThrow(member.id), member.manifest, member.artifact)
+      if (block !== '') overlaps.push(`\n\nFor ${member.artifact}:${block}`)
+    }
 
     // Same F4 bracket as the single-job path.
     const dirtyBefore = await dirtyPaths(this.vaultRoot)
@@ -1633,6 +1673,7 @@ export class IngestQueue {
         renderCompletionMarker(runMarkerPath(lead) ?? ''),
         // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
         this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        overlaps.join(''),
         // Each member keeps its OWN origin: a batch is several documents, and one shared
         // address would file the wrong one on all but one of them.
         renderProvenance(ready.map((r) => ({ artifact: r.artifact, url: r.url }))),
