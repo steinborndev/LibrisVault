@@ -828,6 +828,24 @@ CREATE INDEX idx_validation_rule ON validation_findings(rule);
 CREATE INDEX idx_validation_last ON validation_findings(last_seen);
 `
 
+
+/*
+ * The float artifact in the stored plan samples (A7, 2026-09-19).
+ *
+ * `parseRateLimitEvent` rounded only the branch where the SDK sent a FRACTION, and passed a
+ * reading that already arrived as a percentage through untouched. The raw float then reached
+ * the database and a recap page: 12 of 748 samples hold `7.000000000000001`, and a committed
+ * page printed `57.99999999999999%`.
+ *
+ * The parser is fixed, which stops new ones. This normalises what is already stored, to the
+ * same two decimals, so the dashboard's history does not keep showing a number that no longer
+ * arises - and so nothing has to wonder later whether the fix worked.
+ */
+const V33 = `
+UPDATE usage_samples SET utilization = ROUND(utilization, 2)
+WHERE utilization IS NOT NULL AND utilization != ROUND(utilization, 2);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -861,4 +879,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 30, up: V30 },
   { version: 31, up: V31 },
   { version: 32, up: V32 },
+  { version: 33, up: V33 },
 ]

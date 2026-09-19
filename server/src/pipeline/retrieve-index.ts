@@ -353,32 +353,67 @@ export interface RetrieveIndexSchedulerOptions {
   readonly start: () => void
   /** Checked at FIRE time (not scheduling time), so provisioning mid-window needs no restart. */
   readonly isProvisioned: () => boolean
-  /** Quiet window after the last finished ingest before one rebuild runs. Default 5 min. */
+  /** Quiet window after the last vault change before one rebuild runs. Default 5 min. */
   readonly debounceMs?: number
+  /**
+   * The latest a rebuild may run after the first unserved signal, whatever keeps arriving.
+   * Default 30 min. Without it a continuous stream postpones the rebuild forever (N4).
+   */
+  readonly maxWaitMs?: number
 }
 
 /**
- * Keeps the index fresh (SPEC.md §12.6 "Frische"): every job that reaches `done` resets a
- * debounce timer; when the window elapses, ONE rebuild is started — a burst of watch-folder
- * jobs must not cause N rebuilds. Inert while the index is unprovisioned.
+ * Keeps the index fresh (SPEC.md §12.6 "Frische").
+ *
+ * WHAT IT USED TO KEY ON, AND WHY THAT WAS WRONG (N4). It subscribed to `kind: 'job'` events
+ * with status `done`, i.e. to INGESTS ONLY. Everything else that writes a page - research runs,
+ * the night shift, Fellow runs, lint-fix, `PUT`/`DELETE /pages`, the question archive, recap,
+ * notebook and reading-list writes - left the index stale until the next ingest happened to
+ * come along, and on a vault whose ingests had stopped that is forever.
+ *
+ * It now also listens to `kind: 'vault'`, the debounced signal the vault watcher publishes for
+ * ANY change under `wiki/`. That catches every writer by construction, the ones that write
+ * through Bash included, rather than by remembering to add a signal to each of them.
+ *
+ * THE SECOND DEFECT, in the same function: a pure debounce with no maximum wait. A continuous
+ * stream of signals - a batch drop, a night shift writing page after page - postponed the
+ * rebuild indefinitely. There is now a cap: the rebuild runs at the latest `maxWaitMs` after
+ * the FIRST unserved signal, whatever arrives in between.
  */
 export function startRetrieveIndexScheduler(opts: RetrieveIndexSchedulerOptions): RetrieveIndexScheduler {
   const debounceMs = opts.debounceMs ?? 5 * 60_000
+  const maxWaitMs = opts.maxWaitMs ?? 30 * 60_000
   let timer: NodeJS.Timeout | null = null
-  const unsubscribe = opts.events.subscribe((event) => {
-    if (event.kind !== 'job' || event.job.status !== 'done') return
+  let capTimer: NodeJS.Timeout | null = null
+
+  const fire = (): void => {
     if (timer !== null) clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = null
-      if (!opts.isProvisioned()) return
-      // A throw here would be an uncaught exception inside a timer — never let it escape.
-      try {
-        opts.start()
-      } catch {
-        /* the run records its own failure; scripts vanishing mid-flight lands here */
-      }
-    }, debounceMs)
+    if (capTimer !== null) clearTimeout(capTimer)
+    timer = null
+    capTimer = null
+    if (!opts.isProvisioned()) return
+    // A throw here would be an uncaught exception inside a timer - never let it escape.
+    try {
+      opts.start()
+    } catch {
+      /* the run records its own failure; scripts vanishing mid-flight lands here */
+    }
+  }
+
+  const bump = (): void => {
+    if (timer !== null) clearTimeout(timer)
+    timer = setTimeout(fire, debounceMs)
     timer.unref?.()
+    // Started on the FIRST unserved signal and never reset, which is what makes it a cap.
+    if (capTimer === null) {
+      capTimer = setTimeout(fire, maxWaitMs)
+      capTimer.unref?.()
+    }
+  }
+
+  const unsubscribe = opts.events.subscribe((event) => {
+    if (event.kind === 'vault') bump()
+    else if (event.kind === 'job' && event.job.status === 'done') bump()
   })
   return {
     close: () => {
@@ -386,6 +421,10 @@ export function startRetrieveIndexScheduler(opts: RetrieveIndexSchedulerOptions)
       if (timer !== null) {
         clearTimeout(timer)
         timer = null
+      }
+      if (capTimer !== null) {
+        clearTimeout(capTimer)
+        capTimer = null
       }
     },
   }

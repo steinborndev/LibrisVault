@@ -730,3 +730,32 @@ describe('the em-dash rule', () => {
     expect(body('One - two, three: four (five).')).toEqual([])
   })
 })
+
+/** The `status:` vocabulary (B7, 7.3). Advisory: what it catches is drift, not disagreement. */
+describe('the status vocabulary', () => {
+  const withStatus = (status: string): string[] => {
+    const rel = 'wiki/concepts/Status.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "Status"\nstatus: ${status}\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Status\n\n## Connections\n\nText.\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'status-vocabulary').map((f) => f.message)
+  }
+
+  it('accepts the five words the vault actually uses', () => {
+    for (const ok of ['seed', 'developing', 'mature', 'evergreen', 'retired']) {
+      expect(withStatus(ok), ok).toEqual([])
+    }
+  })
+
+  it('flags the tenth word, which is how nine of them got there', () => {
+    expect(withStatus('snapshot')[0]).toContain('outside the vocabulary')
+    expect(withStatus('current')).toHaveLength(1)
+  })
+
+  it('reads the value case-insensitively rather than flagging a capital', () => {
+    expect(withStatus('Developing')).toEqual([])
+  })
+})

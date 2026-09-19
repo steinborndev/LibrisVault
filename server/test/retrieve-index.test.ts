@@ -311,6 +311,90 @@ describe('startRetrieveIndexScheduler', () => {
     scheduler.close()
   })
 
+  /*
+   * N4, both halves. The scheduler used to key on finished INGESTS alone, so a research run, a
+   * night shift, a page edit, a question archived, a recap or a notebook write left the index
+   * stale until the next ingest happened along - on a vault whose ingests have stopped, that
+   * is forever. And a pure debounce with no cap let a continuous stream postpone the rebuild
+   * indefinitely.
+   */
+  it('rebuilds for any vault change, not just for a finished ingest', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({ events, start, isProvisioned: () => true, debounceMs: 1000 })
+    // The signal the vault watcher publishes for ANY change under wiki/ - which is how this
+    // catches every writer by construction, the ones writing through Bash included.
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    expect(start).toHaveBeenCalledTimes(1)
+    scheduler.close()
+  })
+
+  it('rebuilds at the cap however long the stream of changes goes on', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({
+      events,
+      start,
+      isProvisioned: () => true,
+      debounceMs: 1000,
+      maxWaitMs: 5000,
+    })
+    // A night shift writing page after page: a signal every 800 ms for half an hour.
+    for (let i = 0; i < 10; i++) {
+      events.publish({ kind: 'vault' })
+      vi.advanceTimersByTime(800)
+    }
+    // The quiet window never elapsed, and the rebuild ran anyway at the cap.
+    expect(start).toHaveBeenCalledTimes(1)
+    scheduler.close()
+  })
+
+  it('starts the cap at the first unserved signal, not at the last', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({
+      events,
+      start,
+      isProvisioned: () => true,
+      debounceMs: 10_000,
+      maxWaitMs: 5000,
+    })
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(4000)
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    // 5000 ms after the FIRST signal, although the second reset the quiet window.
+    expect(start).toHaveBeenCalledTimes(1)
+    scheduler.close()
+  })
+
+  it('starts a fresh cap for the next burst rather than firing twice for one', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({
+      events,
+      start,
+      isProvisioned: () => true,
+      debounceMs: 1000,
+      maxWaitMs: 5000,
+    })
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    expect(start).toHaveBeenCalledTimes(1)
+    // The cap from the first burst must not still be armed, or this fires early.
+    vi.advanceTimersByTime(10_000)
+    expect(start).toHaveBeenCalledTimes(1)
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    expect(start).toHaveBeenCalledTimes(2)
+    scheduler.close()
+  })
+
   it('close() cancels a pending rebuild, and a throwing start never escapes the timer', () => {
     vi.useFakeTimers()
     const events = new EventBus()

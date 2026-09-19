@@ -26,6 +26,7 @@ import { parseWikilinks } from './citations.js'
 import { findWrappedLinks } from './link-repair.js'
 import { pluginDocPages } from './upstream-guard.js'
 import { TITLE_MAX_CHARS } from './research-profiles.js'
+import { STATUS_VOCABULARY } from './page-dates.js'
 import { parseFrontmatterMeta, type VaultGraph } from './graph.js'
 
 export type ValidationRule =
@@ -57,6 +58,8 @@ export type ValidationRule =
   | 'tag-singleton'
   /** An em-dash or en-dash on a page, against a house style that has always banned them (B9). */
   | 'em-dash'
+  /** A `status:` outside the vocabulary the vault actually uses (B7). */
+  | 'status-vocabulary'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule
@@ -529,6 +532,20 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
         rule: 'em-dash',
         path: rel,
         message: `${dashes} em-dash or en-dash${dashes === 1 ? '' : 'es'} outside code - the house style uses a hyphen, a comma or a restructured sentence`,
+      })
+    }
+
+    /*
+     * The `status:` vocabulary (B7). Measured: 786 developing, 244 seed, 150 mature, then nine
+     * further values in ones and twos. Advisory, like everything here - a vault may want a word
+     * we did not think of, and what this catches is five words drifting into meaning one thing.
+     */
+    const status = (fm.fields.get('status') ?? '').toLowerCase().trim()
+    if (status !== '' && !STATUS_VOCABULARY.has(status)) {
+      findings.push({
+        rule: 'status-vocabulary',
+        path: rel,
+        message: `status "${status}" is outside the vocabulary this vault uses (${[...STATUS_VOCABULARY].join(', ')})`,
       })
     }
 

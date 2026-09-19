@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Mutex } from '../util/mutex.js'
 import { withWikiLocks } from './wiki-lock.js'
+import { stampDates } from './page-dates.js'
 import { commitPaths, type CommitResult } from './git.js'
 import { indexWikiPages } from './citations.js'
 
@@ -158,7 +159,15 @@ export async function repairWrappedLinks(
     const mine = changed.filter((c) => holding.has(c.rel))
     if (mine.length === 0) return { written: [] as string[], busy: busyPages }
     await mutex.runExclusive(async () => {
-      for (const c of mine) fs.writeFileSync(path.join(vaultRoot, c.rel), c.text, 'utf8')
+      /*
+       * `updated:` and NOT `content_updated:` (B7). Joining a wrapped link changes the file
+       * and changes nothing about what the page says, and a mechanical pass that stamped
+       * every page it touched as freshly written is how 99 % of this vault came to claim an
+       * update within thirty days.
+       */
+      for (const c of mine) {
+        fs.writeFileSync(path.join(vaultRoot, c.rel), stampDates(c.text, { content: false }), 'utf8')
+      }
       if (opts.autoCommit?.() ?? true) {
         const res = await commit(vaultRoot, `repair: join ${fixed} wikilink(s) broken across a line`, mine.map((c) => c.rel))
         hash = res.committed ? (res.hash ?? null) : null

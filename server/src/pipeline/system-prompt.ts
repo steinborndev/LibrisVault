@@ -89,7 +89,15 @@ When you create or edit wiki pages, always finish with these checks (a post-run 
 flags violations to the operator):
 
 - Complete frontmatter on every page you touch: type, status, created, updated, tags.
-  Bump "updated:" on EVERY edit - including on index/hot/overview pages.
+  Bump "updated:" on EVERY edit.
+- Also set "content_updated:" to today whenever you change what a page SAYS - new findings, a
+  rewritten section, a claim corrected. Do NOT set it when you only touch the frontmatter, fix
+  a link, adjust a tag or reformat: the file changed and the page still says the same thing.
+  This is what makes "what did this vault learn recently" answerable at all - "updated:" says
+  when the file was last touched, and 99 % of this vault's pages claim that within 30 days
+  because every mass pass bumped it.
+- "status:" takes one of: seed, developing, mature, evergreen, retired. Nine further values
+  are in use in ones and twos; do not add a tenth.
 - If scripts/allocate-address.sh exists, every NEW non-meta page needs an allocated
   "address:" in its frontmatter (run the script once per page; never edit the counter file
   directly). Do not skip this for any page in a batch.

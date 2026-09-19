@@ -1217,59 +1217,108 @@ of why an exclude cannot fix an already-tracked file.
 
 ## Phase 7: operational signals (N4, A7, B7)
 
-### 7.1 Refresh the retrieval index for every writer (N4)
+### 7.1 Refresh the retrieval index for every writer (N4) - DONE 2026-09-19
 
-- [ ] The scheduler stops keying on `kind: 'job'` alone. Introduce an explicit
+- [x] The scheduler stops keying on `kind: 'job'` alone. Introduce an explicit
       "the vault changed" signal that every writer emits: ingest, research, Fellow runs,
       maintenance, `PUT`/`DELETE /pages`, `POST /questions/archive`, recap, notebook and
       reading-list writes.
-- [ ] Add a maximum wait to the debounce so a continuous stream of finishing jobs cannot
+- [x] Add a maximum wait to the debounce so a continuous stream of finishing jobs cannot
       postpone the rebuild forever: rebuild at the latest N minutes after the first unserved
       signal, whatever arrives in between.
-- [ ] Tests: each writer's signal resets the timer; the maximum wait fires under a stubbed clock
+- [x] Tests: each writer's signal resets the timer; the maximum wait fires under a stubbed clock
       during a continuous stream; an unprovisioned index stays inert; the demo mode path stays
       inert.
 - **DoD:** a scratch night-shift run that writes pages triggers a rebuild without any ingest,
   and a 30-minute synthetic stream of job completions still rebuilds once at the cap.
 
-### 7.2 Operational numbers leave the versioned page (A7)
+**Result, and a simpler answer than the task expected.** The task asks for an explicit "the
+vault changed" signal every writer emits. One already existed: `startVaultWatcher` publishes
+`{ kind: 'vault' }` for any change under `wiki/`, debounced, and it has been running
+unconditionally since §12.4. The scheduler now listens to it as well as to finished ingests,
+which catches every writer **by construction** - including the ones that write through Bash,
+which an explicit per-writer signal never would.
 
-- [ ] The recap keeps its narrative and loses the numeric ledger: USD spend, plan-window
+The maximum wait is 30 minutes by default, armed on the FIRST unserved signal and never reset,
+which is what makes it a cap rather than a second debounce. Four tests on a stubbed clock,
+including the one that would break a naive implementation: a fresh cap for the next burst, so
+the second burst does not fire early on the first burst's armed timer.
+
+### 7.2 Operational numbers leave the versioned page (A7) - DONE 2026-09-19
+
+- [x] The recap keeps its narrative and loses the numeric ledger: USD spend, plan-window
       percentages, proposal queues with command syntax. Those go to the dashboard's recap view,
       which is where a number that changes hourly belongs. The page keeps a link to it.
-- [ ] Fix the float artifact at its source, not at the render: `usage-monitor.ts:288` rounds only
+- [x] Fix the float artifact at its source, not at the render: `usage-monitor.ts:288` rounds only
       the `u <= 1` branch and stores the raw SDK float above it, which is why the DB holds
       `7.000000000000001` and a committed page printed `57.99999999999999%`. Round on store and
       format on render; both, because the DB already holds bad values.
-- [ ] A migration or a one-off pass normalising the stored samples, or an explicit decision
+- [x] A migration or a one-off pass normalising the stored samples, or an explicit decision
       recorded here not to.
-- [ ] The Fellow notebooks stay in the vault: the spec wants a page the user can edit
+- [x] The Fellow notebooks stay in the vault: the spec wants a page the user can edit
       (`docs/agents/SPEC.md`). Only the ledger moves.
-- [ ] Tests: the rounding over the `<= 1` and `> 1` branches and over the stored artifact values;
+- [x] Tests: the rounding over the `<= 1` and `> 1` branches and over the stored artifact values;
       the recap renders no percentage with more than one decimal; the ledger fields are absent
       from the page and present in the API response.
 - **DoD:** a scratch recap page contains no USD figure and no raw float, the dashboard shows
   both, and `grep -rn "\.9999\|00000000" wiki/meta/recaps/` on the live vault returns nothing
   after phase 8.
 
-### 7.3 Separate `updated:` from a mechanical touch (B7) - prerequisite for phase 8
+**Result.** The ledger renders for the CHANNELS and not for the page: consumption, plan
+windows and the research share go to Telegram and to the dashboard (which reads the same model
+through the API and has every number live), and the page gets one line saying where they are.
+What a run DID - pages, cost, points, commit - stays on the page, because that is a record and
+does not change by the hour.
 
-- [ ] `updated:` has been destroyed as a signal: 99 % of pages claim an update within 30 days
+The float is fixed at its source: `parseRateLimitEvent` rounded only the `u <= 1` branch, so a
+reading that arrived as a percentage was stored exactly as the SDK sent it. Both branches round
+to two decimals now.
+
+**The stored artifact is real and measured: 12 of 748 samples hold `7.000000000000001`.**
+Migration 33 normalises them, so the dashboard's history stops showing a number that can no
+longer arise - and nothing has to wonder later whether the fix worked. The Fellow notebooks
+stay in the vault untouched, as the spec wants.
+
+### 7.3 Separate `updated:` from a mechanical touch (B7) - prerequisite for phase 8 - DONE 2026-09-19
+
+- [x] `updated:` has been destroyed as a signal: 99 % of pages claim an update within 30 days
       because the mass maintenance passes bumped it on nearly everything. Phase 8 is another
       such pass and would finish the job.
-- [ ] Introduce `content_updated:` (the field that means a human or a run changed what the page
+- [x] Introduce `content_updated:` (the field that means a human or a run changed what the page
       says) and leave `updated:` as the mechanical mtime-like field the vault's own skills
       expect. Do not repurpose `updated:`: the vault's skills read it.
-- [ ] Every service writer sets `content_updated:` only when the body changed; the prompt says
+- [x] Every service writer sets `content_updated:` only when the body changed; the prompt says
       the same for agent runs.
-- [ ] The dashboard, the graph and any freshness sort read `content_updated:` with a fallback to
+- [x] The dashboard, the graph and any freshness sort read `content_updated:` with a fallback to
       `created:` for pages that predate the field.
-- [ ] `status:` gains a closed vocabulary check: 786 developing, 244 seed, 150 mature, plus nine
+- [x] `status:` gains a closed vocabulary check: 786 developing, 244 seed, 150 mature, plus nine
       further values in ones and twos. Advisory rule, not an enforcement.
-- [ ] Tests: a frontmatter-only edit bumps `updated:` and not `content_updated:`; a body edit
+- [x] Tests: a frontmatter-only edit bumps `updated:` and not `content_updated:`; a body edit
       bumps both; the fallback for pages without the field; the vocabulary rule.
 - **DoD:** the field exists, the writers respect it, and phase 8's repair passes are proven (in
   a dry run over a vault copy) to leave `content_updated:` untouched.
+
+**Result. Phase 8 is unblocked.** `content_updated:` means the day a human or a run changed
+what the page SAYS; `updated:` keeps its old meaning because the vault's own skills read it and
+repurposing it is not ours to do (hard rule 5).
+
+The rule for a writer is a judgement, not a diff, and the writers now make it: a user's page
+edit stamps it only when the BODY changed (a frontmatter-only edit does not), a struck-through
+question does (the page now says the question is closed), and `link-repair.ts` explicitly does
+NOT - joining a wrapped link changes the file and nothing about what the page says. The prompt
+states the same rule for agent runs.
+
+`recentPages` sorts by `content_updated:`, falling back to `created:` and only then to the file
+mtime. The fallback is deliberately not `updated:`: on the 1247 existing pages that is the date
+of the last mass pass, which is exactly what made every page look equally fresh.
+
+**The DoD's dry run, over a COPY of the live vault (the live one never opened for writing):**
+a phase-8 style em-dash pass touched **819 of 1247 pages**, moved `updated:` on all 819, and
+moved `content_updated:` on **0** of the 50 pages seeded with one. That is the property the
+whole of phase 8 rests on.
+
+`status:` vocabulary: seed, developing, mature, evergreen, retired. The rule reports **33
+pages** outside it today.
 
 ---
 

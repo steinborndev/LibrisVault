@@ -285,7 +285,14 @@ export function parseRateLimitEvent(info: unknown): WindowSample | null {
   const resets = num(r['resetsAt'])
   return {
     window: type,
-    utilization: u <= 1 ? Math.round(u * 100 * 100) / 100 : u,
+    /*
+     * Rounded on BOTH branches (A7, 2026-09-19). Only the `u <= 1` branch used to round, so a
+     * reading that already arrived as a percentage was stored raw - and the SDK's raw float is
+     * what put `7.000000000000001` in the database and `57.99999999999999%` on a committed
+     * recap page. Two decimals is finer than any reader of this needs and coarse enough that
+     * the artifact cannot come back.
+     */
+    utilization: Math.round((u <= 1 ? u * 100 : u) * 100) / 100,
     resetsAt: resets !== null ? new Date(resets * 1000).toISOString() : null,
   }
 }
