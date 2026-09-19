@@ -188,7 +188,7 @@ describe('a synthesis title is a name', () => {
 
   it('cuts a whole question down to a name, on a word boundary', () => {
     const question =
-      'As of September 2026, is any delivered in-vivo editing candidate beyond the three named programs closer to a first regulatory filing than the others are'
+      'As of September 2026, is any of the three named approaches measurably closer to the milestone in question than the others are, and what would settle it'
     const title = researchTargetTitle(profile, question)
     expect(title.length).toBeLessThanOrEqual(TITLE_MAX_CHARS + RESEARCH_PREFIX.length)
     expect(title.endsWith(' ')).toBe(false)

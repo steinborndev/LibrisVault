@@ -181,11 +181,11 @@ describe('the heading a web capture really carries', () => {
       '',
       '<untrusted-source url="https://www.youtube.com/watch?v=AF3XJT9YKpM" kind="web">',
       'The text between these tags is the document, fetched or converted by the service.',
-      '# Prof. Judy Fan: Cognitive Tools for Making the Invisible Visible',
+      '# Prof. A. Lecturer: Cognitive Tools for Making the Invisible Visible',
       '',
       '- Channel: MIT',
     ].join('\n')
-    expect(deriveTopic({ headText: normalized })).toBe('Prof. Judy Fan: Cognitive Tools for Making the Invisible Visible')
+    expect(deriveTopic({ headText: normalized })).toBe('Prof. A. Lecturer: Cognitive Tools for Making the Invisible Visible')
   })
 
   it('reads a web job\'s address as a slug, never as a name', () => {

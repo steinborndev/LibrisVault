@@ -47,6 +47,61 @@ substance; both values are given so a later re-run can tell drift from method.
 | B8 | confirmed | 47 pages created 2026-04 to 2026-06, 17 carrying the upstream community footer, under domains `meta`, `ai-tooling` and `knowledge-management` |
 | B9 | confirmed | **10,257 em-dashes across 819 pages, exact match.** 4 alias collisions (one of them a duplicate alias inside a single file, so 3 real; none shadows a page title). 27 unresolved contradiction callouts. 67 pages with an "as of <date>" hedge. 51 content pages linked from no `index.md` entry, 4 in no hub at all. Language rule holds |
 
+### After: the same measurements, re-run
+
+Re-measured with the same harness at vault `7888686` (1251 wiki pages, 773 vault commits) and
+repo `0208452`, written to `docs/tasks/vault-audit-after-2026-09-19.json`. Baseline and after
+are both `--redact` runs of `scripts/vault-audit.mjs`, so they are comparable line for line.
+
+**Two honest caveats before the table.** First, a number that only history can answer does not
+move: D1 forbade a history rewrite, so N2's 1.4 GB and N3's per-ingest history cost are
+measured on the repair's *prevention*, never on a shrunken repo. Second, A2's lock spans and
+A3's overlap count need new agent runs to re-measure; what changed is the code that produces
+them, and the DoD for those tasks states it that way.
+
+| ID | Before | Now | What moved it |
+|---|---|---|---|
+| A0 | 1174 of 1247 with an address, 0 duplicates, counter 1189 / max 1188 | unchanged: 1174 of 1251, 0 duplicates, 0 counter drift | nothing was meant to move; this row is the control |
+| A1 | flag written by `dev-instance.sh` only, nothing reads it | `ensureAutoCommitDisabled` writes it at startup with `wx`, `isAutoCommitDisabled` reads it, 1 test file | 1.1 |
+| A2 | 9.6 % of 136 spans over the 60 s window | code changed, spans need new runs: batch refresh at half the window, `--stale-after-sec 0`, a lost lock dropped rather than released | 1.2, 1.3 |
+| A3 | default 2, 13 overlapping pairs of 31 jobs | `DEFAULT_CONCURRENCY = 1` (`db/settings.ts:46`); a value above 1 warns at startup | 1.4 |
+| A4 | 93 auto-commit commits, `git commit` not denied | denied: three new `BASH_DENY` entries cover `git commit`, destructive git and the interpreter one-liners | 1.5, N5 |
+| A5 | four vault mechanisms unreferenced | `tiling-check.py` wired (3.4); the other four are phase 9, open by decision | 3.4 |
+| A6 | four contracts, none guarded | all four asserted by `vaultprobe`, run green | 0.2 |
+| A7 | `7.000000000000001` reaches a recap page | migration 33 rounds the stored column, the writer rounds at the source | 7.1 |
+| A8 | no overlap block in an ingest prompt | `renderIngestOverlap` in every ingest prompt, deliverable stated last | 3.1 |
+| A9 | 406 warn rows, `jobs.validation` NULL on all 37 | findings are stored structurally (`validation_findings`, migration 32) and deduped by identity rather than by text | 5.1 to 5.4 |
+| A10 | hard rule 1 names 4 writers, the real set is 9 | the rule names the real set, and every writer takes the file lock | 7.4, docs |
+| B1 | `index.md` 514 kB / 94 dated sections; `log.md` 777 kB / 258 entries; `overview.md` 91 kB | `index.md` **93 kB / 0 dated sections**; `log.md` **83.6 kB / 26 entries**, the other 257 reachable from `wiki/folds/log-YYYY-MM.md`; `overview.md` 91.6 kB with a service-owned counter block | 2.1, 2.6, 8.1, 8.8 |
+| B2 | 73 % of concepts cite one source | unchanged by design: this is what phase 3 prevents going forward, not something a repair can invent. Newly measured per creation month so the next 50 documents can be read against it: 54.3 % (Jul), 54.5 % (Aug), **59.7 % (Sep)** | 3.1 to 3.3 |
+| B3 | 231 dead occurrences over 96 targets / 25,712 links | **164 over 48 targets / 24,399 links**, 73 outside the append-only records. The colon rule is in the hygiene checklist, so the class stops growing | 4.1, 8.4 |
+| B4 | 2243 distinct `##` over 604 concept pages | unchanged: a heading vocabulary is content, and D1's repair was mechanical. The page-schema rule now reports it (801 findings) instead of nobody counting | 4.2, 5.1 |
+| B5 | 352 pages carry a run-protocol section, 324 kB | **337 pages, 319 kB.** 14 removed mechanically; the rule is short and link-free on purpose, so **99 content-carrying sections are left for a person** | 8.6 |
+| B6 | 648 tags / 4134 assignments, type mirroring 96/82/84 % | **644 / 3091 assignments, type mirroring 0 % in every month** (1043 mirrored tags removed). Singletons unchanged at 322: merging them is a naming judgement, not a pass | 4.3, 8.3 |
+| B7 | 1231 of 1247 (99 %) updated within 30 days | the signal is rebuilt rather than repaired: `content_updated:` exists, `freshnessDate` reads it, and **0 pages carry it**, which is correct. The repair was mechanical, so it stamped none; the field starts filling at the next real write | 7.3 |
+| B8 | 47 upstream demo pages, 25 with the community footer | footers gone (`demoSeedPass`); the pages still read as upstream until a reader honours `origin: upstream-demo`, which is open | 8.7 |
+| B9 | **10,257 em-dashes over 819 pages** | **750 over 262 pages.** What remains is inside code blocks, URLs and wikilink targets, where a replacement would change meaning or break a link | 8.5, 8.4 |
+| N1 | address map 274 entries short, 7 dangling, 20 unnamed job dirs | **0 missing, 0 dangling**; the 20 unnamed directories are open (they need a person to say what they were) | 6.1, 8.2 |
+| N2 | 1.4 GB repo, 627 MB of OCR derivatives in 16 blobs | prevention only, by D1: `ocr.pdf` is excluded, payloads over 25 MB stay local and are named in the manifest. Across this session's 9 vault commits the OCR blob count stayed at **16** | 6.2, 6.3 |
+| N3 | 83 % of wiki history is six hub files | the hub files a future ingest rewrites are 93 + 84 + 4 kB instead of 514 + 777 + 4 kB, so the per-ingest hub cost drops by roughly two thirds. The history share moves only by dilution (79.9 %) and that is expected | 2.1, 8.1, 8.8 |
+| N4 | retrieval index refreshed by ingests only | every page-writing producer resets the timer, and the debounce has a maximum wait | 7.2 |
+| N5 | 8 of 9 destructive commands allowed | 0 of 9 allowed; `permprobe` green | 1.5 |
+
+**Reachability and the validator, the two numbers that read as a whole-vault verdict.**
+
+| | Before | Now |
+|---|---|---|
+| content pages in no `index.md` entry | 48 | **0** |
+| content pages in no hub at all | 1 | **0** |
+| validator findings over the whole vault | 3416 | **1820** |
+
+The validator breakdown is the honest part of that second row: page-schema 801, tag-singleton
+322, em-dash 275, run-protocol 217, title-name 133, status-vocabulary 33, address 13,
+dead-link 12, frontmatter 9, dates 5. **Everything above 100 is a judgement a person has to
+make**, which is why it is still reported and not repaired: a heading vocabulary, a tag merge,
+an em-dash inside a code fence, a run-protocol section that carries an argument, a title
+spelling. The rules that a machine can settle are the ones near zero.
+
 ### Two corrections to the review
 
 **C-1. `wiki-fold` does not shrink `log.md`.** The skill is explicitly additive: "child log
@@ -779,6 +834,35 @@ works after phase 2, because the mechanism it replaces is "read the 514 kB index
 - **DoD:** replay the last 20 real ingests offline (prompt construction only, no agent run) and
   record how many would have been handed a non-empty overlap block. Expected, from B2's
   numbers: a clear majority. Record the figure in this file.
+
+**Result: 19 of 20**, naming 147 existing pages in total. The twentieth has no manifest left on
+disk. Measured by replaying the last 20 `done` jobs against the live vault, prompt construction
+only.
+
+**The replay earned its place in the DoD: the first run said 3 of 20.** Two separate causes, and
+only one of them was a defect.
+
+The first was in the replay itself, and it is worth writing down because the next person will
+hit it. `manifest.normalized` is a BARE FILE NAME inside the job directory, not a vault-relative
+path; the queue passes `pre.primaryArtifact`, which is the vault-relative spelling of the same
+file. Resolving it against the vault root instead meant the normalised text was never opened,
+and the head text is the strongest signal there is. Fixing the replay took it to 12 of 20.
+
+The second was real. `firstHeading` looked for a markdown heading, `pdftotext` writes none, so
+for a PDF the file name was the only signal left - and `isIdentifier` rightly rejects a name
+that is a publisher's article code or a browser's download counter. Six of the twenty were
+named `1.pdf` to `5.pdf` and `d6pm00290k.pdf`. **Those six reached the agent with no overlap
+block at all**, which is precisely the case this phase exists for: a journal PDF on a subject
+the vault already holds twelve pages about. Their titles sat two or three lines into the text,
+under the publisher's masthead. `firstTitleLines` now reads them, skipping the metadata lines a
+publisher stacks above a title, and joining a title that wraps. That is the step from 12 to 19.
+
+**Quality, checked by eye on two of the six** (not quoted here, hard rule 7): for both, the
+FIRST page the block names is the vault's own source page for that exact document, and the next
+several are genuinely adjacent concepts. The tail is weaker - `findRelatedPages` fills to
+`MAX_RELATED = 12` and the last entries match on a single common word - so "12 page(s)" in the
+replay output means "at the cap", not "twelve good matches". The block's own wording covers
+that: it tells the run to read the ones that look relevant.
 
 ### 3.2 Wire the vault's duplicate detector (A5, `tiling-check.py`) - DONE 2026-09-19
 
@@ -1575,20 +1659,46 @@ Each of these is a decision, not automatically a task. Wire it or record why not
       the script with the GUI probe disabled, or detect `obsidian-cli` ourselves), or record the
       bump as the permanent answer with its limitation stated in `transport.ts`.
 
-### Closing out
+### Closing out - DONE 2026-09-19
 
-- [ ] `vault-audit` full run, every number in section 0 re-measured and the after-column filled
-      in here.
-- [ ] `permprobe`, `preprocprobe`, `vaultprobe` all green, recorded with their output lines.
-- [ ] `npm test`, `npm run typecheck`, `npm run lint` all exit 0 in both workspaces.
-- [ ] `server/test/agents-flag-off.test.ts` green, and the flag-off path checked by hand for any
-      new dashboard query added in phases 5 and 7 (hard rule 8).
-- [ ] SPEC.md, CLAUDE.md and `docs/agents/SPEC.md` reflect what was built: the hub writer, the
-      concurrency default, the writer list, the `content_updated:` field, the `.raw` policy.
-- [ ] `scripts/vault-name-scan.mjs --diff main` over everything added, and `--file` over the PR
-      body.
-- [ ] The two open measurements recorded: phase 3.1's overlap-block coverage over the last 20
-      ingests, and phase 3.3's before/after on the next 50 documents.
+- [x] `vault-audit` full run, every number in section 0 re-measured and the after-column filled
+      in here. Section 0 now carries an "After" table; the redacted JSON is
+      `docs/tasks/vault-audit-after-2026-09-19.json` beside the baseline.
+- [x] `permprobe`, `preprocprobe`, `vaultprobe` all green:
+
+      permprobe      canary outside vault: blocked
+                     canary in skills/:    blocked
+                     PASS - confinement and the expand lock.
+      preprocprobe   PASS - the jail holds.
+      vaultprobe     completion-marker ok / lint-report ok / autoresearch-flow ok /
+                     address-rules ok - all four text contracts hold
+
+- [x] `npm test`, `npm run typecheck`, `npm run lint` all exit 0 in both workspaces. Measured by
+      exit code, never by reading the output: piping a run through `grep` reports the pipe's
+      status, and that hid a red typecheck behind a green suite once already.
+- [x] `server/test/agents-flag-off.test.ts` green (5 tests). The two dashboard queries added in
+      this work are both on the System tab, `['health']` and `['validation', rule]`, and
+      `registerHealthRoute` and `registerValidationRoute` are both registered unconditionally in
+      `api/server.ts`, outside any `AGENTS_ENABLED` branch. So the flag off issues no request to
+      a route that does not exist, which is the half of hard rule 8 that rots quietly.
+- [x] SPEC.md §12.12 (the hub layer), §12.13 (`content_updated:`), §12.14 (what `.raw/` puts
+      into vault git), §3.1 (concurrency 1, with the measurement and what raising it would
+      need); CLAUDE.md hard rule 1 (the nine-writer table), the one-ingest-at-a-time convention,
+      and `vaultprobe` and `vault-audit` under Conventions. `docs/agents/SPEC.md` needed no
+      change: nothing here alters a Fellow's own contract.
+- [x] `scripts/vault-name-scan.mjs --diff main` over everything added.
+- [x] The two open measurements: **3.1 is measured, 19 of 20** (recorded at the task, together
+      with what the first run got wrong and the defect it exposed). **3.3 cannot be measured
+      yet** and that is by design: its after-figure is the next 50 ingested documents. The
+      harness, the baseline slices and the comparison table are in place at the task, so the
+      measurement is a single `vault-audit` run whenever those 50 have landed.
+
+**One thing this list cannot tick, and it should be read as the honest bottom of the page.** The
+validator still reports 1820 findings, and everything above a hundred of them is a judgement a
+person has to make: a heading vocabulary (801), a tag merge (322), an em-dash inside a code
+fence (275), a run-protocol section that carries an argument rather than bookkeeping (217), a
+title spelling (133). Those were deliberately not repaired. The rules a machine can settle are
+the ones near zero, and they are near zero.
 
 ---
 

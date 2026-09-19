@@ -55,8 +55,9 @@ function cleanFileName(name: string): string {
  *
  * Measured on this vault's own `.raw/` directories: a web capture's first heading is the
  * ADDRESS (`# https://x.com/...`), and the document's real title is the second one, inside the
- * untrusted-content fence (`# Prof. Judy Fan: Cognitive Tools for Making the Invisible
- * Visible`). Taking the first heading therefore produced a topic made of "http" and "com",
+ * untrusted-content fence (`# Prof. A. Lecturer: A Talk Title With a Colon In It`, invented
+ * here - the real one is a page in the vault). Taking the first heading therefore produced a
+ * topic made of "http" and "com",
  * which matched pages by accident and named nothing useful.
  *
  * The fenced text is read here as DATA for a vault lookup, never as instruction - the same
