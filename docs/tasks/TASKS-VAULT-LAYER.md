@@ -500,26 +500,51 @@ The centre of this work. Do not start it before phase 1 is green.
 The set is the one `expand.ts:isExemptPath` already names: `wiki/index.md`, `wiki/log.md`,
 `wiki/overview.md`, `*/_index.md`, with `hot.md` deliberately left to the agent (D2).
 
-### 2.1 `server/src/pipeline/hubs.ts`: the generated catalog
+### 2.1 `server/src/pipeline/hubs.ts`: the generated catalog - DONE 2026-09-19
 
-- [ ] `renderIndex(vaultRoot)`: builds `wiki/index.md` **entirely** from page frontmatter.
+- [x] `renderIndex(vaultRoot)`: builds `wiki/index.md` **entirely** from page frontmatter.
       Grouped by `domain:` (registry order), then by type; one deterministic line per page
       carrying the wikilink, the type and the address. Header counters computed, never
       maintained. Fixed navigation preamble. A bounded `related:` (the hubs only), not the
       unbounded accumulating list that is there today.
-- [ ] Idempotent by construction: running it twice without a vault change produces a
+- [x] Idempotent by construction: running it twice without a vault change produces a
       byte-identical file. This is the property that makes an agent write harmless.
-- [ ] A page whose frontmatter cannot be parsed is listed under an "unfiled" section rather
+- [x] A page whose frontmatter cannot be parsed is listed under an "unfiled" section rather
       than dropped, so the generator can never silently lose a page.
-- [ ] Sort order is total and stable (domain, type, title, path) so two runs on two machines
+- [x] Sort order is total and stable (domain, type, title, path) so two runs on two machines
       agree.
-- [ ] Tests: idempotence over a fixture vault; a new page appears in the right group; a page
+- [x] Tests: idempotence over a fixture vault; a new page appears in the right group; a page
       with a broken frontmatter lands in "unfiled"; counters match the page count; the output
       contains no dated event section; 1200-page fixture renders in under 2 s.
 - **DoD:** rendering against a copy of the live vault produces a file under 200 kB (today
   514 kB) whose link set is a **superset** of the links in the current `index.md` minus the
   dead ones - assert that explicitly, so the change cannot lose reachability. The 51 pages that
   are in no `index.md` entry today are all present afterwards.
+
+**Result, measured against the live vault read-only (nothing written):**
+
+| | before | after |
+|---|---|---|
+| size | 514,303 B | **92,159 B** (18 %) |
+| longest line | 13,345 | 563 |
+| `##` sections | 105, of which 94 dated events | 21, of which **0 dated** |
+| links | 1176 | 1211 |
+| render time | - | 53 ms first, 35 ms second (budget 2 s) |
+
+**Reachability, asserted both ways.** Not one link that resolves today is missing from the new
+index (0 of 1176), and all **48** pages that no `index.md` entry reached are now listed. (48,
+not the review's 51: the harness follows `related:` frontmatter as well as body links, see 0.1's
+method table.)
+
+Two design points worth keeping in view:
+
+- **Links are written from the FILE NAME, with the title as display text** (`[[Foo - Bar|Foo:
+  Bar]]`). The largest dead-link class in this vault is a title the file name cannot carry, and
+  an index that links by title would regenerate that class on every run. This is also why the
+  new link count is higher than the old one rather than merely different.
+- **Nothing in the render reads the clock.** `updated:` is the newest date the CONTENT carries
+  and `created:` is preserved from the existing file. A timestamp would make every render a
+  different file, which is exactly the history churn this replaces.
 
 ### 2.2 The log entry, written by the service
 
