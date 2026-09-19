@@ -18,6 +18,7 @@ import {
   overviewPass,
   tagSingletonPass,
   recordSectionPass,
+  titleLinkPass,
 } from '../src/pipeline/repair.js'
 import { fieldOf, CONTENT_UPDATED, bodyOf } from '../src/pipeline/page-dates.js'
 
@@ -809,5 +810,83 @@ describe('recordSectionPass', () => {
     const out = recordSectionPass('wiki/concepts/X.md', page('## Provenance\n\nA caveat.\n'), V)!.after
     expect(out.endsWith('\n')).toBe(true)
     expect(out.endsWith('\n\n')).toBe(false)
+  })
+})
+
+/**
+ * `titleLinkPass` (8.2, part two), and a correction to the plan it implements.
+ *
+ * The plan read the divergence as one mechanism: a page titled `Foo: Bar` is FILED as
+ * `Foo - Bar`, so repairing the title at the source stops the class regenerating. Measured, the
+ * best single transformation explains 7 of the 42 colon cases and nothing explains the rest -
+ * the file names were never derived from the titles. A run chose a name and separately chose a
+ * title, and a file name is often a deliberately shorter one.
+ *
+ * So the repair is the other half: of 61 drifted pages only 11 are linked from anywhere, and
+ * those links are repointed to the basename with the title kept as display text.
+ */
+describe('titleLinkPass', () => {
+  let root = ''
+  const write = (rel: string, body: string): void => {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, body)
+  }
+  const readOf = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'title-link-'))
+    // Filed under a name the colon cannot survive, titled with the colon.
+    write('wiki/sources/Paper - A Study.md', '---\ntype: source\ntitle: "Paper: A Study"\n---\n\n# Paper\n')
+    write('wiki/concepts/Cites It.md', '---\ntype: concept\n---\n\nSee [[Paper: A Study]] for detail.\n')
+  })
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it('repoints a link to the basename and keeps the title as display text', () => {
+    const out = titleLinkPass(root)('wiki/concepts/Cites It.md', readOf('wiki/concepts/Cites It.md'), root)
+    expect(out!.after).toContain('[[Paper - A Study|Paper: A Study]]')
+  })
+
+  it('rewrites only the target of a link that already has display text', () => {
+    write('wiki/concepts/Cites It.md', '---\ntype: concept\n---\n\nSee [[Paper: A Study|the paper]].\n')
+    const out = titleLinkPass(root)('wiki/concepts/Cites It.md', readOf('wiki/concepts/Cites It.md'), root)
+    expect(out!.after).toContain('[[Paper - A Study|the paper]]')
+  })
+
+  it('keeps a heading anchor', () => {
+    write('wiki/concepts/Cites It.md', '---\ntype: concept\n---\n\nSee [[Paper: A Study#Method]].\n')
+    expect(titleLinkPass(root)('wiki/concepts/Cites It.md', readOf('wiki/concepts/Cites It.md'), root)!.after).toContain(
+      '[[Paper - A Study#Method]]',
+    )
+  })
+
+  it('leaves an embed alone, because a missing image is not a link to repoint', () => {
+    write('wiki/concepts/Cites It.md', '---\ntype: concept\n---\n\n![[Paper: A Study]]\n')
+    expect(titleLinkPass(root)('wiki/concepts/Cites It.md', readOf('wiki/concepts/Cites It.md'), root)).toBeNull()
+  })
+
+  it('touches a page that links to nothing drifted not at all', () => {
+    write('wiki/concepts/Innocent.md', '---\ntype: concept\n---\n\nSee [[Something Else]].\n')
+    expect(titleLinkPass(root)('wiki/concepts/Innocent.md', readOf('wiki/concepts/Innocent.md'), root)).toBeNull()
+  })
+
+  it('never renames a page or rewrites its title', () => {
+    // 50 of the 61 are linked from nowhere. Nothing is broken about them, so nothing is done.
+    const before = readOf('wiki/sources/Paper - A Study.md')
+    expect(titleLinkPass(root)('wiki/sources/Paper - A Study.md', before, root)).toBeNull()
+  })
+
+  it('repoints links in frontmatter as well as in prose', () => {
+    write(
+      'wiki/concepts/Cites It.md',
+      '---\ntype: concept\nrelated:\n  - "[[Paper: A Study]]"\n---\n\nAnd [[Paper: A Study]] again.\n',
+    )
+    const out = titleLinkPass(root)('wiki/concepts/Cites It.md', readOf('wiki/concepts/Cites It.md'), root)
+    expect(out!.after.match(/\[\[Paper - A Study\|/g)).toHaveLength(2)
+  })
+
+  it('is idempotent: a repointed link is not repointed again', () => {
+    const once = titleLinkPass(root)('wiki/concepts/Cites It.md', readOf('wiki/concepts/Cites It.md'), root)!.after
+    expect(titleLinkPass(root)('wiki/concepts/Cites It.md', once, root)).toBeNull()
   })
 })

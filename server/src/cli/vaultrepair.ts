@@ -38,6 +38,7 @@ import {
   overviewPass,
   tagSingletonPass,
   recordSectionPass,
+  titleLinkPass,
   type RepairPass,
   type RepairPlan,
 } from '../pipeline/repair.js'
@@ -82,6 +83,12 @@ const PASSES: ReadonlyArray<{ name: string; task: string; run: (vaultRoot: strin
     task: '8.7',
     run: () => demoSeedPass,
     subject: 'repair: mark the upstream demo pages as what they are',
+  },
+  {
+    name: 'title-link',
+    task: '8.2',
+    run: titleLinkPass,
+    subject: 'repair: repoint links written from a title a file name cannot carry',
   },
   {
     name: 'record-section',

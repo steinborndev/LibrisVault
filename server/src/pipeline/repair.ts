@@ -1043,3 +1043,67 @@ export const recordSectionPass: RepairPass = (rel, markdown) => {
     why: `${moves.length} section(s) moved to "${RECORD_HEADING}": ${moves.map((m) => m.title).join(', ')}`,
   }
 }
+
+/* ------------------------------------------------- the title/link divergence (8.2, part two) */
+
+/**
+ * 8.2, part two: links written from a title the file name cannot carry.
+ *
+ * WHAT WAS ASSUMED, AND WHAT THE MEASUREMENT SAID. The plan read this as one mechanism: a page
+ * titled `Foo: Bar` is filed as `Foo - Bar` because a colon cannot go in a file name, so every
+ * link written from the title lands nowhere, and repairing the title at the source would stop
+ * the class regenerating. That is a clean story and it is mostly not what happened.
+ *
+ * Of the 42 colon cases, the best single transformation explains **7**. `": " -> " - "` gets 7,
+ * dropping the colon entirely gets 9, `"/" -> "_"` explains 3 of the 14 slash cases. Nothing
+ * explains the rest, because the file names were never DERIVED from the titles: a run chose a
+ * name and separately chose a title, and the two are simply different strings. A page's file
+ * name is often a deliberately shorter one.
+ *
+ * SO THE REPAIR IS THE OTHER HALF, and it is the half that actually costs something. Of 61
+ * drifted pages only **11 are linked from anywhere at all** - 36 linking pages between them.
+ * Those links are rewritten to `[[File Name|Title]]`: the target resolves by basename, which is
+ * the only thing Obsidian resolves by, and the reader still sees the page's own title. Nothing
+ * is renamed, no title is invented, and the other 50 pages are left exactly as they are because
+ * nothing is broken about them - they diverge, and no link depends on it.
+ */
+export function titleLinkPass(vaultRoot: string): RepairPass {
+  const drift = planTitleDrift(vaultRoot, wikiPages(vaultRoot)).filter((d) => d.linkedFrom.length > 0)
+  /** Linking page -> the rewrites it needs. */
+  const byPage = new Map<string, Array<{ title: string; fileName: string }>>()
+  for (const d of drift) {
+    for (const rel of d.linkedFrom) {
+      const list = byPage.get(rel)
+      const entry = { title: d.title, fileName: d.fileName }
+      if (list === undefined) byPage.set(rel, [entry])
+      else list.push(entry)
+    }
+  }
+
+  return (rel, markdown) => {
+    const rewrites = byPage.get(rel)
+    if (rewrites === undefined) return null
+    let after = markdown
+    let n = 0
+    for (const { title, fileName } of rewrites) {
+      const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      // Three shapes, and only these: a bare link, one that already carries display text, and
+      // one with a heading anchor. An embed (`![[...]]`) is left alone - a missing image is a
+      // broken picture, not a link to repoint.
+      after = after.replace(new RegExp(`(^|[^!])\\[\\[${escaped}\\]\\]`, 'g'), (_m, lead: string) => {
+        n++
+        return `${lead}[[${fileName}|${title}]]`
+      })
+      after = after.replace(new RegExp(`(^|[^!])\\[\\[${escaped}\\|`, 'g'), (_m, lead: string) => {
+        n++
+        return `${lead}[[${fileName}|`
+      })
+      after = after.replace(new RegExp(`(^|[^!])\\[\\[${escaped}#`, 'g'), (_m, lead: string) => {
+        n++
+        return `${lead}[[${fileName}#`
+      })
+    }
+    if (n === 0 || after === markdown) return null
+    return { after, why: `${n} link(s) repointed from a title its file name cannot carry` }
+  }
+}
