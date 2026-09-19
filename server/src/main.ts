@@ -65,7 +65,7 @@ import { createValidator } from './pipeline/validator.js'
 import { budgetStatus } from './pipeline/budget.js'
 import { startRetrieveIndexScheduler, isRetrieveProvisioned, type RetrieveIndexScheduler } from './pipeline/retrieve-index.js'
 import { Mutex } from './util/mutex.js'
-import { refreshTransportPin } from './pipeline/transport.js'
+import { checkTransport } from './pipeline/transport.js'
 import { buildServer } from './api/server.js'
 import { ensureVaultExcludes } from './pipeline/vault-excludes.js'
 import { ensureAutoCommitDisabled } from './pipeline/vault-guards.js'
@@ -117,7 +117,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // Fail fast, before opening anything, if the bind policy is violated (hard rule 2).
   assertBindAllowed(config.server)
 
-  const pin = refreshTransportPin(config.vaultRoot)
+  const transport = checkTransport(config.vaultRoot)
+  const pin = transport.pin
   // Before anything can write: derived artifacts and agent scratch stay out of vault history.
   // Startup, not first-index-build, because an agent run can leave scratch long before one.
   // A vault this process cannot write (a read-only demo mount) is reported below, not fatal:
@@ -618,12 +619,15 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
 
   // Log what the service actually runs with (overrides applied), not the bare baseline.
   app.log.info(
-    { ...describeConfig(effectiveConfig), transportPin: pin, vaultExcludes: excludes, vaultAutoCommitGuard: autoCommitGuard, reapedRunMarkers: reapedMarkers },
+    { ...describeConfig(effectiveConfig), transportPin: pin, transport: transport.pinned, vaultExcludes: excludes, vaultAutoCommitGuard: autoCommitGuard, reapedRunMarkers: reapedMarkers },
     'vault-service started',
   )
   if (excludes === 'unwritable') {
     app.log.warn('the vault is not writable by this process: .git/info/exclude was left as it is (expected on a read-only instance)')
   }
+  // The pin decides how a run writes a page, and therefore whether this service can see what
+  // it wrote (see transport.ts). Detected hang-proof; reported, never overwritten.
+  if (transport.warning !== null) app.log.warn(transport.warning)
   if (autoCommitGuard === 'created') {
     app.log.warn(
       'the vault was auto-committing its own writes: .vault-meta/auto-commit.disabled created, this service now owns every commit',
