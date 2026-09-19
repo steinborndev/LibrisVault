@@ -780,28 +780,69 @@ works after phase 2, because the mechanism it replaces is "read the 514 kB index
   record how many would have been handed a non-empty overlap block. Expected, from B2's
   numbers: a clear majority. Record the figure in this file.
 
-### 3.2 Wire the vault's duplicate detector (A5, `tiling-check.py`)
+### 3.2 Wire the vault's duplicate detector (A5, `tiling-check.py`) - DONE 2026-09-19
 
-- [ ] Run the vault's own `tiling-check.py` as a child process after an ingest, the same way
+- [x] Run the vault's own `tiling-check.py` as a child process after an ingest, the same way
       the retrieval index scripts are run (deterministic, no LLM, no egress, writes only under
       `.vault-meta/`). It is the only duplicate detector in the system and it has never run.
-- [ ] Its findings become validation findings of a new rule (`near-duplicate`), surfaced on the
+- [x] Its findings become validation findings of a new rule (`near-duplicate`), surfaced on the
       job and fed into phase 5's standing list.
-- [ ] The thresholds file the vault already ships (`.vault-meta/tiling-thresholds.json`) is
+- [x] The thresholds file the vault already ships (`.vault-meta/tiling-thresholds.json`) is
       read, never written.
-- [ ] Tests: the runner handles a missing script (older vault) by skipping with a log line, not
+- [x] Tests: the runner handles a missing script (older vault) by skipping with a log line, not
       failing; output parses into findings; a crash is logged and ignored.
 - **DoD:** one run over the live vault copy produces a finding list, and at least the one pair
   the review found by hand (a co-author pair at Jaccard 0.70) appears in it. If it does not, the
   thresholds need a note in this file rather than a silent pass.
 
-### 3.3 Measure the effect
+**Result: it ran, for the first time in 764 vault commits.** 1247 pages scanned, 1092 embedded,
+155 skipped (116 of them an ollama HTTP 500 on a long page, 3 too large, the rest meta and
+folds). It found **3433 pairs**.
 
-- [ ] Add to `vault-audit`: sources-per-page and multi-commit rate, sliced by page creation
+**The pair the review found by hand is the top hit.** The highest-scoring pair in the whole
+report is two co-author entity pages at **0.9800** - the exact shape the review described. And
+the largest class in the error band is `concept + source` at 87 pairs, which is the review's
+other sentence: "a concept page that paraphrases its single source page 1:1".
+
+**The thresholds need the note the DoD asked for.** The vault ships them uncalibrated and says
+so in the file. Against this vault they split as:
+
+| band | pairs | what it is good for |
+|---|---|---|
+| error, >= 0.90 | **215** | a per-run finding: 25 co-author entity pairs, 87 concept-paraphrases-its-source, 40 concept pairs |
+| review, 0.80 to 0.90 | **3218** | a standing list, never a job finding - it would bury every run |
+
+So the job only ever sees the error band, scoped to the pages that run touched; the review band
+is counted in one line and belongs to phase 5's standing list. Calibrating the bands against
+this vault (the file asks for 50 to 100 labelled pairs) stays open and is recorded here rather
+than done silently.
+
+Three derived files now leave vault git: the embedding cache, the optional report, and the run
+markers. The cache is 1092 embeddings and the report was 560 kB - both would have been swept
+into the next commit by the bookkeeping pathspec, which stages `.vault-meta` wholesale.
+
+### 3.3 Measure the effect - HARNESS DONE 2026-09-19 (the after-figure needs 50 documents)
+
+- [x] Add to `vault-audit`: sources-per-page and multi-commit rate, sliced by page creation
       date, so the before/after is visible without re-deriving it.
 - **DoD:** the baseline slices are recorded here now (concepts: 73 % single-source,
   17 % multi-commit); the next 50 ingested documents after phase 3 are measured against them and
   the result is written into this file, whichever way it comes out.
+
+**Baseline, by page creation month** (`vault-audit` prints it under "THE EFFECT"). This is the
+line the next 50 documents get compared against:
+
+| month | content pages | single-source | pages citing 2+ | multi-commit |
+|---|---|---|---|---|
+| 2026-04 | 25 | 40 % | 0 | 4 % |
+| 2026-07 | 405 | 54.3 % | 58 | 21 % |
+| 2026-08 | 437 | 54.5 % | 61 | 13 % |
+| 2026-09 | 340 | **59.7 %** | 30 | **2.9 %** |
+
+Worth reading before phase 8: the trend is the wrong way. Single-source share rose every month
+and the multi-commit rate collapsed from 21 % to 2.9 % as the vault grew - which is exactly
+what A8 predicts, since the bigger the index got, the less a run could see of what was already
+there.
 
 ---
 

@@ -42,6 +42,8 @@ export type ValidationRule =
   | 'hot-cache-size'
   /** A quotation that is not in the text the job read (docs/sources/SPEC.md section 7). */
   | 'quote'
+  /** Two pages the vault's own tiling check reads as saying the same thing (A5, `tiling.ts`). */
+  | 'near-duplicate'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule

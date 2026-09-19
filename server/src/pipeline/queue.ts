@@ -58,6 +58,7 @@ import { RunRegistry } from './run-registry.js'
 import { withWikiLocks } from './wiki-lock.js'
 import { hasRunMarker, runMarkerPath } from './run-marker.js'
 import { topicForJob, vaultOverlapFor } from './ingest-overlap.js'
+import { runTilingCheck, pairsTouching } from './tiling.js'
 import { retrieveCandidates } from './retrieve-index.js'
 import {
   SERVICE_OWNED_HUBS,
@@ -175,6 +176,11 @@ export interface IngestQueueOptions {
    * job's outcome. Omitted (e.g. in the CLI) means no validation.
    */
   readonly validate?: Validator
+  /**
+   * The vault's own near-duplicate check (A5). Injected so tests never spawn python, and
+   * defaulted to the real one - which skips itself on any vault that cannot run it.
+   */
+  readonly tilingCheck?: (vaultRoot: string) => Promise<Awaited<ReturnType<typeof runTilingCheck>>>
   /**
    * The vault-backed dedupe memory (SPEC.md §12.9): content hashes from `.raw/` manifests and
    * DOIs from source pages. Defaults to one over `vaultRoot`; tests inject a stub.
@@ -327,6 +333,8 @@ export class IngestQueue {
   private readonly commitMutex: Mutex
   private readonly runRegistry: RunRegistry
   private readonly validate: Validator | undefined
+  /** Injected in tests; the real one spawns the vault's own `tiling-check.py`. */
+  private readonly tiling: (vaultRoot: string) => Promise<Awaited<ReturnType<typeof runTilingCheck>>>
   private readonly dedupe: DedupeIndex
   private readonly reading: ReadingListService | undefined
 
@@ -386,6 +394,7 @@ export class IngestQueue {
     this.commitMutex = opts.commitMutex ?? new Mutex()
     this.runRegistry = opts.runRegistry ?? new RunRegistry()
     this.validate = opts.validate
+    this.tiling = opts.tilingCheck ?? ((root) => runTilingCheck(root))
     this.dedupe = opts.dedupe ?? new DedupeIndex(opts.vaultRoot)
     this.reading = opts.reading
     this.discardStaging = opts.discardStaging ?? discardUntrackedDir
@@ -1575,6 +1584,41 @@ export class IngestQueue {
       }
     } catch (err) {
       this.store.log(jobId, 'warn', `quote check crashed (ignored): ${(err as Error).message}`)
+    }
+    /*
+     * Near-duplicates, through the VAULT'S own tiling check (A5). It is the only duplicate
+     * detector in the system and it had never run; this is what finally asks it. Scoped to the
+     * pages this run touched, so an ingest hears about the duplicates it created rather than
+     * about every pair in the vault, and skipped silently on any of the reasons the script
+     * documents (no ollama, no model, older vault).
+     */
+    try {
+      const tiling = await this.tiling(this.vaultRoot)
+      if (tiling.skipped !== undefined) this.store.log(jobId, 'info', `duplicate check: ${tiling.skipped}`)
+      else {
+        /*
+         * The ERROR band only, on the job. Measured against the live vault with the thresholds
+         * the vault ships: 215 pairs at or above 0.90, and 3218 between 0.80 and 0.90. The
+         * shipped bands say of themselves that they are uncalibrated, and a review band that
+         * size is a standing list (phase 5), never a per-run finding.
+         */
+        const mine = pairsTouching(tiling.pairs, touched)
+        const review = mine.filter((p) => p.band === 'review').length
+        if (review > 0) {
+          this.store.log(jobId, 'info', `duplicate check: ${review} further pair(s) in the review band, below the vault's error threshold`)
+        }
+        for (const pair of mine.filter((p) => p.band === 'error')) {
+          findings.push({
+            rule: 'near-duplicate',
+            path: pair.a,
+            message:
+              `reads as the same subject as ${pair.b} (similarity ${pair.similarity.toFixed(3)}, ` +
+              `above the vault's own error threshold) - one of them should extend the other`,
+          })
+        }
+      }
+    } catch (err) {
+      this.store.log(jobId, 'warn', `duplicate check crashed (ignored): ${(err as Error).message}`)
     }
     if (findings.length === 0) {
       this.store.log(jobId, 'info', 'post-run validation: no findings')

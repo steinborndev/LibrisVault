@@ -35,11 +35,21 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-/** Rebuildable retrieval-index artifacts (SPEC.md §12.6). */
+/**
+ * Rebuildable index artifacts (SPEC.md §12.6).
+ *
+ * `tiling-cache.json` joins them (2026-09-19): the vault's own duplicate check writes one
+ * embedding per page there, it rebuilds from the pages in minutes, and until the service
+ * started running that check nothing had ever created it.
+ */
 export const RETRIEVE_EXCLUDE_ENTRIES = [
   '.vault-meta/chunks/',
   '.vault-meta/bm25/',
   '.vault-meta/embed-cache.json',
+  '.vault-meta/tiling-cache.json',
+  // The check can also write a full report; ours reads stdout, but a hand run with --report
+  // would otherwise leave half a megabyte for the next commit to sweep up.
+  '.vault-meta/tiling-report.md',
 ] as const
 
 /**

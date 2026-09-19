@@ -398,6 +398,23 @@ function measurePages(pages, now) {
     sourcesByType.set(type, slot)
   }
 
+  /*
+   * The same measurement sliced by WHEN the page was created (3.3). The vault's central defect
+   * is one document one page, and the only way to see whether a change to the ingest prompt
+   * moved it is to compare the pages written after the change against the ones before it.
+   */
+  const sourcesByMonth = new Map()
+  for (const p of content) {
+    const m = month(p.fm.fields.get('created'))
+    const n = (p.fm.lists.get('sources') ?? []).length
+    const slot = sourcesByMonth.get(m) ?? { pages: 0, none: 0, one: 0, many: 0 }
+    slot.pages++
+    if (n === 0) slot.none++
+    else if (n === 1) slot.one++
+    else slot.many++
+    sourcesByMonth.set(m, slot)
+  }
+
   const created = tally(content.map((p) => month(p.fm.fields.get('created'))))
   const updated = tally(pages.map((p) => month(p.fm.fields.get('updated'))))
   const status = tally(pages.map((p) => (p.fm.fields.get('status') ?? '(none)').toLowerCase()))
@@ -418,6 +435,11 @@ function measurePages(pages, now) {
       [...sourcesByType.entries()].map(([t, s]) => [t, { ...s, singleSourceShare: pct(s.one, s.total) }]),
     ),
     createdByMonth: asObject(created),
+    sourcesByMonth: Object.fromEntries(
+      [...sourcesByMonth.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([m, v]) => [m, { ...v, singleSourceShare: pct(v.one, v.pages) }]),
+    ),
     updatedByMonth: asObject(updated),
     status: asObject(status),
     freshness: { now, within30Days: fresh, share: pct(fresh, pages.length) },
@@ -732,6 +754,7 @@ function measureHistory(vaultRoot, pages) {
   }
   const existing = new Map(pages.filter((p) => p.isContent).map((p) => [p.rel, p]))
   const buckets = new Map()
+  const months = new Map()
   let one = 0
   let multi = 0
   let zero = 0
@@ -739,11 +762,16 @@ function measureHistory(vaultRoot, pages) {
     const seen = byPath.get(rel) ?? { all: 0, knowledge: 0 }
     const slot = buckets.get(page.bucket) ?? { pages: 0, multi: 0 }
     slot.pages++
+    const m = month(page.fm.fields.get('created'))
+    const byMonth = months.get(m) ?? { pages: 0, multi: 0 }
+    byMonth.pages++
+    months.set(m, byMonth)
     if (seen.knowledge === 0) zero++
     else if (seen.knowledge === 1) one++
     else {
       multi++
       slot.multi++
+      byMonth.multi++
     }
     buckets.set(page.bucket, slot)
   }
@@ -761,6 +789,11 @@ function measureHistory(vaultRoot, pages) {
     oneShare: pct(one, existing.size),
     byBucket: Object.fromEntries(
       [...buckets.entries()].map(([b, s]) => [b, { pages: s.pages, multi: s.multi, multiShare: pct(s.multi, s.pages) }]),
+    ),
+    byCreationMonth: Object.fromEntries(
+      [...months.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([m, s]) => [m, { pages: s.pages, multi: s.multi, multiShare: pct(s.multi, s.pages) }]),
     ),
   }
 }
@@ -947,6 +980,11 @@ function printReport(r) {
     line('written twice or more', `${r.history.multiKnowledgeCommit} (${r.history.multiShare}%)`)
     line('never by such a commit', r.history.noKnowledgeCommit)
     for (const [b, s] of Object.entries(r.history.byBucket)) line(`  ${b}`, `${s.multiShare}% multi`)
+    console.log('\nTHE EFFECT (3.3): one document, one page - by creation month')
+    for (const [m, s] of Object.entries(r.pages.sourcesByMonth)) {
+      const h = r.history.byCreationMonth[m]
+      line(m, `${s.pages} pages | single-source ${s.singleSourceShare}% | 2+ sources ${s.many} | multi-commit ${h ? `${h.multiShare}%` : 'n/a'}`)
+    }
   }
 
   console.log('\nHUBS')
