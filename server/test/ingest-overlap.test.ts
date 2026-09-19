@@ -204,3 +204,66 @@ describe('the heading a web capture really carries', () => {
     }
   })
 })
+
+/**
+ * The title of a PDF, which carries no headings (3.1's DoD).
+ *
+ * Found by replaying the last 20 real ingests: six were journal PDFs named `1.pdf` .. `5.pdf`
+ * and `d6pm00290k.pdf`. `isIdentifier` rejects all six names, correctly, and `pdftotext` writes
+ * no markdown headings - so those six documents reached the agent with no overlap block at all,
+ * which is exactly the case this phase exists for. Their titles were two or three lines into
+ * the text, under the publisher's masthead.
+ */
+describe('a title read off plain text', () => {
+  const topicOf = (head: string): string => deriveTopic({ originalName: '1.pdf', headText: head })
+
+  it('takes the title from under a journal masthead', () => {
+    const head = [
+      'RSC',
+      'Pharmaceutics',
+      '                    Published on 20 August 2026. Downloaded by guest.',
+      '',
+      'Optimization of an assay for total RNA quantification in lipid nanoparticles',
+    ].join('\n')
+    expect(topicOf(head)).toContain('Optimization of an assay for total RNA quantification')
+  })
+
+  it('skips a preprint banner, which is metadata and reads like prose', () => {
+    const head = [
+      'bioRxiv preprint doi: https://doi.org/10.1101/2026.08.17.745287; this version posted August 20, 2026.',
+      'The copyright holder for this preprint is the author.',
+      '',
+      'A Highly Sensitive Lateral Flow Assay for Small Extracellular Vesicles',
+    ].join('\n')
+    const topic = topicOf(head)
+    expect(topic).toContain('Highly Sensitive Lateral Flow Assay')
+    expect(topic).not.toContain('preprint')
+    expect(topic).not.toContain('copyright')
+  })
+
+  it('skips a masthead that is a journal name and an issue number', () => {
+    expect(topicOf('OpenNano 31 (2026) 100319\n\nProcess Intensification of Manufacturing via Flow Synthesis')).toBe(
+      'Process Intensification of Manufacturing via Flow Synthesis',
+    )
+  })
+
+  it('joins a title that wraps across two lines', () => {
+    const head = 'SwarmWorld: Stigmergic technological evolution in\n   societies of language-model agents\n\nAbstract'
+    expect(topicOf(head)).toBe('SwarmWorld: Stigmergic technological evolution in societies of language-model agents')
+  })
+
+  it('prefers a real markdown heading when the document has one', () => {
+    // The fallback is a fallback: a web capture's `# Heading` still wins over its first prose.
+    const head = '# The Heading That Counts\n\nA paragraph long enough to look like a title line.'
+    expect(topicOf(head)).toBe('The Heading That Counts')
+  })
+
+  it('stays empty for a head with nothing title-like in it', () => {
+    expect(deriveTopic({ originalName: '1.pdf', headText: 'a\nb\n12 34 56\nhttps://example.com/x\n' })).toBe('')
+  })
+
+  it('does not look past the first lines, so a body sentence is never the title', () => {
+    const head = `${'\n'.repeat(60)}A sentence deep in the body that would read like a title.`
+    expect(topicOf(head)).toBe('')
+  })
+})

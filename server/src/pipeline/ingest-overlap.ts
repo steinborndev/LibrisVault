@@ -68,7 +68,45 @@ function firstHeading(text: string): string {
     if (heading === '' || isUrlLike(heading)) continue
     return heading
   }
-  return ''
+  return firstTitleLines(text)
+}
+
+/**
+ * Lines a publisher puts above a title. Every one of these is a real first line from this
+ * vault's own `.raw/`, and each would otherwise be mistaken for the document's subject.
+ */
+const PUBLISHER_BOILERPLATE =
+  /\b(?:doi|issn|isbn|preprint|copyright|licen[cs]e|all rights reserved|published (?:on|online|by)|downloaded (?:from|by)|view article online|available (?:online|at)|received[: ]|accepted[: ]|vol\.?\s*\d|https?:\/\/|www\.)/i
+
+/**
+ * The title of a document that has no markdown headings, read off the top of its plain text.
+ *
+ * WHY THIS EXISTS. `pdftotext` writes no headings, so `firstHeading` returned nothing for every
+ * PDF, and the file name was then the only signal left. Measured by replaying the last 20 real
+ * ingests (task 3.1's DoD): six of them were journal PDFs named `1.pdf` .. `5.pdf` and
+ * `d6pm00290k.pdf`, all of which `isIdentifier` correctly rejects - so those six documents
+ * reached the agent with NO overlap block at all, and a journal PDF on a subject the vault
+ * already covers is the case this whole phase exists for. Their normalised text carried the
+ * real title two or three lines down, under the journal's masthead.
+ *
+ * WHAT IT TAKES. Up to two lines that read like a title: long enough, several real words, and
+ * not one of the metadata lines a publisher stacks above it. Two rather than one because a
+ * title wraps, and the topic is token overlap, so a half-title still matches and a full one
+ * matches better.
+ */
+function firstTitleLines(text: string, max = 2): string {
+  const taken: string[] = []
+  for (const raw of text.split(/\r?\n/).slice(0, TITLE_SCAN_LINES)) {
+    const line = raw.trim().replace(/\s+/g, ' ')
+    if (line.length < TITLE_MIN_CHARS || line.length > TITLE_MAX_CHARS) continue
+    if (PUBLISHER_BOILERPLATE.test(line) || isUrlLike(line) || isIdentifier(line)) continue
+    // Several words that are actually words: a masthead ("OpenNano 31 (2026) 100319") has
+    // numbers where a title has language.
+    if ((line.match(/\b[A-Za-z]{3,}\b/g) ?? []).length < TITLE_MIN_WORDS) continue
+    taken.push(line)
+    if (taken.length === max) break
+  }
+  return taken.join(' ')
 }
 
 /** Whether a string is an address rather than a file name - a URL job's `originalName` is one. */
@@ -102,6 +140,12 @@ function urlSlug(url: string): string {
     return ''
   }
 }
+
+/** How far into a plain-text head to look for a title, and what makes a line look like one. */
+const TITLE_SCAN_LINES = 40
+const TITLE_MIN_CHARS = 18
+const TITLE_MAX_CHARS = 200
+const TITLE_MIN_WORDS = 3
 
 export interface TopicInput {
   /** The document's own title, when preprocessing found one. */
