@@ -321,6 +321,26 @@ export interface RevertResult {
 const isHubPath = (p: string): boolean =>
   p === 'wiki/index.md' || p === 'wiki/log.md' || p === 'wiki/overview.md' || p === 'wiki/hot.md' || p.endsWith('/_index.md')
 
+/**
+ * The address allocator, which a revert must never roll back.
+ *
+ * `.vault-meta/address-counter.txt` holds the NEXT address to issue, and it only ever moves
+ * forward. A recovery commit carries it (so the reservation is versioned with the pages that
+ * used it), and that is what made this reachable: reverting such a commit would wind the
+ * allocator back past addresses that pages in OTHER commits still hold, and the next ingest
+ * would issue one of them a second time.
+ *
+ * Measured on the live vault, 2026-09-20, before it could happen: a recovery commit moved the
+ * counter 1200 -> 1208 while an earlier commit's surviving page held `c-001200`. Reverting it
+ * would have put the counter back at 1200, and the next page would have been the second
+ * `c-001200` in a vault whose duplicate-address count is zero and worth keeping at zero.
+ *
+ * Same reasoning as `isHubPath` one category over: state that is derived or monotonic is not
+ * content, and undoing content must not drag it backwards. Leaving it high costs nothing - an
+ * address nobody used is just never issued.
+ */
+const isMonotonicPath = (p: string): boolean => p === '.vault-meta/address-counter.txt'
+
 /** git's empty tree, so a root commit (no parent) can still be diffed against "before". */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
@@ -339,9 +359,9 @@ const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
  *     rather than leaving conflict markers in wiki pages for the next ingest to read as content.
  *
  * Mechanism: the commit's own reverse diff, applied to the commit's paths MINUS the hub files
- * (see `isHubPath`). `git revert` cannot take a pathspec, which is why this is a reverse-diff
- * apply rather than a revert - and `git apply` is all-or-nothing, so guard 3 holds without an
- * abort path to get wrong.
+ * (see `isHubPath`), and neither is the address allocator (see `isMonotonicPath`). `git revert`
+ * cannot take a pathspec, which is why this is a reverse-diff apply rather than a revert - and
+ * `git apply` is all-or-nothing, so guard 3 holds without an abort path to get wrong.
  */
 export async function revertCommit(vaultRoot: string, hash: string): Promise<RevertResult> {
   try {
@@ -372,7 +392,7 @@ export async function revertCommit(vaultRoot: string, hash: string): Promise<Rev
   const touched = (await gitRead(vaultRoot, ['show', '--name-only', '--pretty=format:', '-z', hash]))
     .split('\0')
     .filter((p) => p !== '')
-  const paths = touched.filter((p) => !isHubPath(p))
+  const paths = touched.filter((p) => !isHubPath(p) && !isMonotonicPath(p))
   if (paths.length === 0) {
     return {
       reverted: false,

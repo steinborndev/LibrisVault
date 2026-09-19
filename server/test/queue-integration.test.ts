@@ -449,3 +449,52 @@ describe('content_updated: after a run', () => {
     expect(store.logs(jobId).map((l) => l.message)).toContainEqual(expect.stringContaining('content date:'))
   })
 })
+
+/**
+ * A revert must not wind the address allocator backwards (2026-09-20).
+ *
+ * `.vault-meta/address-counter.txt` holds the NEXT address to issue and only moves forward. A
+ * recovery commit carries it, so the reservation is versioned with the pages that used it - and
+ * that is what made this reachable. Measured on the live vault before it could happen: a
+ * recovery commit moved the counter 1200 to 1208 while an EARLIER commit's surviving page held
+ * `c-001200`. Reverting it would have put the counter back to 1200 and the next page would have
+ * been the second `c-001200` in a vault whose duplicate-address count is zero.
+ */
+describe('revertCommit and the address allocator', () => {
+  const write = (rel: string, body: string): void => {
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, body)
+  }
+
+  it('undoes the pages but leaves the counter where it is', async () => {
+    write('.vault-meta/address-counter.txt', '1200\n')
+    write('wiki/concepts/Survivor.md', '---\naddress: c-001200\n---\n\n# Survivor\n')
+    git(vaultRoot, 'add', '-A')
+    git(vaultRoot, 'commit', '-q', '-m', 'earlier ingest')
+
+    write('.vault-meta/address-counter.txt', '1208\n')
+    write('wiki/concepts/Doomed.md', '---\naddress: c-001205\n---\n\n# Doomed\n')
+    git(vaultRoot, 'add', '-A')
+    git(vaultRoot, 'commit', '-q', '-m', 'ingest: recovered after restart')
+    const hash = git(vaultRoot, 'rev-parse', 'HEAD').trim()
+
+    const result = await revertCommit(vaultRoot, hash)
+    expect(result.reverted).toBe(true)
+    // The page is gone, which is what a revert is for.
+    expect(fs.existsSync(path.join(vaultRoot, 'wiki/concepts/Doomed.md'))).toBe(false)
+    // The counter is NOT rolled back: the surviving page still holds c-001200, and an address
+    // nobody used is simply never issued.
+    expect(fs.readFileSync(path.join(vaultRoot, '.vault-meta/address-counter.txt'), 'utf8').trim()).toBe('1208')
+    expect(git(vaultRoot, 'status', '--porcelain').trim()).toBe('')
+  })
+
+  it('refuses a commit that carries nothing but the counter, rather than making an empty one', async () => {
+    write('.vault-meta/address-counter.txt', '1300\n')
+    git(vaultRoot, 'add', '-A')
+    git(vaultRoot, 'commit', '-q', '-m', 'counter only')
+    const result = await revertCommit(vaultRoot, git(vaultRoot, 'rev-parse', 'HEAD').trim())
+    expect(result.reverted).toBe(false)
+    expect(result.refusal).toBe('already-reverted')
+  })
+})
