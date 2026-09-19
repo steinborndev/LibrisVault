@@ -206,7 +206,13 @@ export const emDashPass: RepairPass = (_rel, markdown) => {
   let replaced = 0
   let kept = 0
   const out = body
-    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|https?:\/\/\S+)/)
+    /*
+     * A WIKILINK TARGET IS A NAME, not prose (found the hard way on 2026-09-19: the first run
+     * of this pass rewrote dashes inside `[[...]]` and 199 links stopped resolving, because
+     * the pages they name still carry the dash in their own file names). Same reasoning as the
+     * addresses and the code below it: inside these, the character is an identifier.
+     */
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|!?\[\[[^\]]*\]\]|https?:\/\/\S+)/)
     .map((chunk, i) => {
       // Odd chunks are the delimiters themselves: code and addresses, left alone.
       if (i % 2 === 1) return chunk
@@ -446,4 +452,151 @@ export function planTitleDrift(vaultRoot: string, pages: readonly string[]): Tit
     }
     return { ...d, linkedFrom }
   })
+}
+
+/* ------------------------------------------------------- the address map backfill (8.3) */
+
+export interface ManifestRepair {
+  /** Pages carrying an `address:` the map did not know, with the address to record. */
+  readonly added: ReadonlyArray<{ rel: string; address: string }>
+  /** `pages_created` entries naming a page that no longer exists, to drop. */
+  readonly droppedPages: ReadonlyArray<{ source: string; page: string }>
+  /** `.raw/<job>/` directories named in no source entry: reported, never invented. */
+  readonly unnamedDirs: readonly string[]
+  /** The manifest as it would be written, or null when nothing would change. */
+  readonly after: string | null
+}
+
+/**
+ * 8.3: the address map, repaired in the direction nothing ever walked (N1).
+ *
+ * Adds an entry for every page that carries an `address:` and is missing from the map - 274 of
+ * 1174 today - and drops `pages_created` entries whose page is gone. Both are mechanical: the
+ * page's own frontmatter is the authority for its address, and a page that does not exist
+ * cannot have been created by anything.
+ *
+ * What it does NOT do: invent a source entry for the 20 job directories named nowhere. What
+ * document a directory holds and which pages came out of it is not derivable from the
+ * directory, and a made-up provenance record is worse than a missing one. They are reported.
+ */
+export function planManifestRepair(vaultRoot: string): ManifestRepair {
+  const manifestPath = path.join(vaultRoot, '.raw', '.manifest.json')
+  let raw: string
+  try {
+    raw = fs.readFileSync(manifestPath, 'utf8')
+  } catch {
+    return { added: [], droppedPages: [], unnamedDirs: [], after: null }
+  }
+  let manifest: { address_map?: Record<string, string>; sources?: Record<string, { pages_created?: string[] }> }
+  try {
+    manifest = JSON.parse(raw) as typeof manifest
+  } catch {
+    return { added: [], droppedPages: [], unnamedDirs: [], after: null }
+  }
+
+  const map = { ...(manifest.address_map ?? {}) }
+  const added: Array<{ rel: string; address: string }> = []
+  for (const rel of wikiPages(vaultRoot)) {
+    if (map[rel] !== undefined) continue
+    let markdown: string
+    try {
+      markdown = fs.readFileSync(path.join(vaultRoot, rel), 'utf8')
+    } catch {
+      continue
+    }
+    const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+    if (fm === null) continue
+    const address = (/^address:[ \t]*(.*)$/m.exec(fm[1]!)?.[1] ?? '').trim().replace(/^["']|["']$/g, '')
+    if (!/^[cl]-\d{6}$/.test(address)) continue
+    map[rel] = address
+    added.push({ rel, address })
+  }
+
+  const sources: Record<string, { pages_created?: string[] }> = {}
+  const droppedPages: Array<{ source: string; page: string }> = []
+  const named = new Set<string>()
+  for (const [key, entry] of Object.entries(manifest.sources ?? {})) {
+    const parts = key.split('/')
+    if (parts[0] === '.raw' && parts.length > 1) named.add(parts[1]!)
+    const created = entry?.pages_created
+    if (!Array.isArray(created)) {
+      sources[key] = entry
+      continue
+    }
+    const kept: string[] = []
+    for (const page of created) {
+      const abs = path.resolve(vaultRoot, page)
+      if (abs.startsWith(vaultRoot + path.sep) && fs.existsSync(abs)) kept.push(page)
+      else droppedPages.push({ source: key, page })
+    }
+    sources[key] = { ...entry, pages_created: kept }
+  }
+
+  let unnamedDirs: string[] = []
+  try {
+    unnamedDirs = fs
+      .readdirSync(path.join(vaultRoot, '.raw'), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !named.has(e.name))
+      .map((e) => e.name)
+      .sort()
+  } catch {
+    /* no .raw: nothing to reconcile */
+  }
+
+  if (added.length === 0 && droppedPages.length === 0) {
+    return { added, droppedPages, unnamedDirs, after: null }
+  }
+  // Key order preserved where it was, new entries appended: the file is read by the vault's
+  // own skill, and a wholesale reordering would make every future diff unreadable.
+  const after = `${JSON.stringify({ ...manifest, address_map: map, sources }, null, 2)}\n`
+  return { added, droppedPages, unnamedDirs, after }
+}
+
+/**
+ * Repairs a wikilink whose target differs from a real page only in which dash it uses.
+ *
+ * WHY THIS EXISTS. The first run of `emDashPass` over the live vault rewrote dashes inside
+ * `[[...]]` as well as in prose, and 199 links stopped resolving: the pages they name carry
+ * the dash in their own file names, so `[[Foo - Bar]]` no longer found `Foo — Bar`. The pass
+ * is fixed; this repairs what it did, and it repairs the same shape wherever else it occurs.
+ *
+ * It only ever rewrites a link that does NOT resolve today and whose dash-normalised form
+ * matches exactly ONE page. Two matches is an ambiguity a rule must not resolve silently.
+ */
+export function dashLinkPass(vaultRoot: string): RepairPass {
+  const byNormalised = new Map<string, string[]>()
+  const normalise = (name: string): string => name.replace(/[—–-]+/g, '-').replace(/\s+/g, ' ').trim().toLowerCase()
+  const known = new Set<string>()
+  for (const rel of wikiPages(vaultRoot)) {
+    const name = rel.split('/').pop()!.replace(/\.md$/, '')
+    known.add(name.toLowerCase())
+    const key = normalise(name)
+    const holders = byNormalised.get(key)
+    if (holders === undefined) byNormalised.set(key, [name])
+    else holders.push(name)
+    // A page's own title and aliases resolve too, so a link written from one is not dead.
+    try {
+      const fm = fs.readFileSync(path.join(vaultRoot, rel), 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/)
+      if (fm === null) continue
+      const title = (/^title:[ \t]*(.*)$/m.exec(fm[1]!)?.[1] ?? '').trim().replace(/^["']|["']$/g, '')
+      if (title !== '') known.add(title.toLowerCase())
+      for (const m of fm[1]!.matchAll(/^[ \t]+-[ \t]*(.+)$/gm)) known.add(m[1]!.trim().replace(/^["']|["']$/g, '').toLowerCase())
+    } catch {
+      /* unreadable: its file name is still in the index */
+    }
+  }
+
+  return (_rel, markdown) => {
+    let repaired = 0
+    const after = markdown.replace(/(!?\[\[)([^\]|#]+)([^\]]*\]\])/g, (whole, open: string, target: string, tail: string) => {
+      const name = target.trim()
+      if (name === '' || known.has(name.toLowerCase())) return whole
+      const matches = byNormalised.get(normalise(name))
+      if (matches === undefined || matches.length !== 1) return whole
+      repaired++
+      return `${open}${matches[0]}${tail}`
+    })
+    if (repaired === 0) return null
+    return { after, why: `repointed ${repaired} link(s) that differed from a real page only in the dash` }
+  }
 }

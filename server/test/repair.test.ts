@@ -12,6 +12,8 @@ import {
   tagMirrorPass,
   runProtocolPass,
   demoSeedPass,
+  planManifestRepair,
+  dashLinkPass,
 } from '../src/pipeline/repair.js'
 import { fieldOf, CONTENT_UPDATED } from '../src/pipeline/page-dates.js'
 
@@ -319,5 +321,133 @@ describe('the run-protocol pass refuses to drop content', () => {
       vault,
     )
     expect(out?.why).toContain('left 1 that carries content')
+  })
+})
+
+/**
+ * The address map, repaired in the direction nothing ever walked (8.3, N1).
+ *
+ * 274 of 1174 addressed pages are missing from the map, which makes the source index and the
+ * dedupe lookup blind to the documents behind them.
+ */
+describe('planManifestRepair', () => {
+  const manifest = (content: unknown): void => {
+    fs.mkdirSync(path.join(vault, '.raw'), { recursive: true })
+    fs.writeFileSync(path.join(vault, '.raw/.manifest.json'), JSON.stringify(content, null, 2))
+  }
+
+  it('adds an entry for every addressed page the map does not know', () => {
+    page('wiki/concepts/Known.md', 'type: concept\naddress: c-000001', '# Known\n')
+    page('wiki/concepts/Unknown.md', 'type: concept\naddress: c-000002', '# Unknown\n')
+    manifest({ version: 1, address_map: { 'wiki/concepts/Known.md': 'c-000001' } })
+    const plan = planManifestRepair(vault)
+    expect(plan.added).toEqual([{ rel: 'wiki/concepts/Unknown.md', address: 'c-000002' }])
+    expect(JSON.parse(plan.after!).address_map).toEqual({
+      'wiki/concepts/Known.md': 'c-000001',
+      'wiki/concepts/Unknown.md': 'c-000002',
+    })
+  })
+
+  it('takes the page\'s own frontmatter as the authority, and ignores a malformed address', () => {
+    page('wiki/concepts/Odd.md', 'type: concept\naddress: not-an-address', '# Odd\n')
+    manifest({ version: 1, address_map: {} })
+    expect(planManifestRepair(vault).added).toEqual([])
+  })
+
+  it('drops a pages_created entry whose page is gone, keeping the rest', () => {
+    page('wiki/concepts/Here.md', 'type: concept', '# Here\n')
+    manifest({
+      version: 1,
+      sources: { '.raw/01JOB/in.pdf': { pages_created: ['wiki/concepts/Here.md', 'wiki/concepts/Gone.md'] } },
+    })
+    const plan = planManifestRepair(vault)
+    expect(plan.droppedPages).toEqual([{ source: '.raw/01JOB/in.pdf', page: 'wiki/concepts/Gone.md' }])
+    expect(JSON.parse(plan.after!).sources['.raw/01JOB/in.pdf'].pages_created).toEqual(['wiki/concepts/Here.md'])
+  })
+
+  it('reports a job directory named nowhere rather than inventing a source for it', () => {
+    // What document a directory holds and which pages came out of it is not derivable from
+    // the directory, and a made-up provenance record is worse than a missing one.
+    fs.mkdirSync(path.join(vault, '.raw/01ORPHAN'), { recursive: true })
+    manifest({ version: 1, sources: {} })
+    const plan = planManifestRepair(vault)
+    expect(plan.unnamedDirs).toEqual(['01ORPHAN'])
+    expect(plan.after).toBeNull()
+  })
+
+  it('changes nothing when the map is already right', () => {
+    page('wiki/concepts/A.md', 'type: concept\naddress: c-000001', '# A\n')
+    manifest({ version: 1, address_map: { 'wiki/concepts/A.md': 'c-000001' }, sources: {} })
+    expect(planManifestRepair(vault).after).toBeNull()
+  })
+
+  it('is inert without a manifest, and on one that does not parse', () => {
+    expect(planManifestRepair(vault).after).toBeNull()
+    fs.mkdirSync(path.join(vault, '.raw'), { recursive: true })
+    fs.writeFileSync(path.join(vault, '.raw/.manifest.json'), 'not json')
+    expect(planManifestRepair(vault).after).toBeNull()
+  })
+})
+
+/**
+ * The regression this pass exists to repair, and the rule that caused it (2026-09-19).
+ *
+ * The first run of the em-dash pass over the live vault rewrote dashes inside `[[...]]` as
+ * well as in prose. 199 links stopped resolving, because the pages they name carry the dash in
+ * their own file names. A wikilink target is a NAME, the same as an address or a code span,
+ * and the pass leaves all three alone now.
+ */
+describe('a wikilink target is a name', () => {
+  it('is never touched by the em-dash pass', () => {
+    const out = emDashPass(
+      'wiki/concepts/A.md',
+      '---\ntype: concept\n---\n\nSee [[Foo — Bar]] about this — that.\n',
+      vault,
+    )
+    expect(out?.after).toContain('[[Foo — Bar]]')
+    expect(out?.after).toContain('this - that')
+  })
+
+  it('is not touched inside an aliased or anchored link either', () => {
+    const out = emDashPass(
+      'wiki/concepts/A.md',
+      '---\ntype: concept\n---\n\n[[Foo — Bar|the page]] and [[Foo — Bar#Section]] — here.\n',
+      vault,
+    )
+    expect(out?.after).toContain('[[Foo — Bar|the page]]')
+    expect(out?.after).toContain('[[Foo — Bar#Section]]')
+  })
+})
+
+describe('dashLinkPass', () => {
+  it('repoints a link that differs from a real page only in the dash', () => {
+    page('wiki/sources/Foo — Bar.md', 'type: source\ntitle: "Foo — Bar"', '# Foo\n')
+    page('wiki/concepts/Other.md', 'type: concept', '# Other\n\nSee [[Foo - Bar]].\n')
+    const out = dashLinkPass(vault)('wiki/concepts/Other.md', '# Other\n\nSee [[Foo - Bar]].\n', vault)
+    expect(out?.after).toContain('[[Foo — Bar]]')
+  })
+
+  it('leaves a link that already resolves', () => {
+    page('wiki/sources/Foo - Bar.md', 'type: source', '# Foo\n')
+    expect(dashLinkPass(vault)('x', 'See [[Foo - Bar]].\n', vault)).toBeNull()
+  })
+
+  it('refuses an ambiguous match rather than guessing', () => {
+    // Two pages whose names differ only in the dash: which one a link meant is not a rule's
+    // decision, and picking one silently is how a repair invents a fact.
+    page('wiki/sources/Foo — Bar.md', 'type: source', '# A\n')
+    page('wiki/sources/Foo – Bar.md', 'type: source', '# B\n')
+    expect(dashLinkPass(vault)('x', 'See [[Foo - Bar]].\n', vault)).toBeNull()
+  })
+
+  it('keeps an alias and an anchor when it repoints', () => {
+    page('wiki/sources/Foo — Bar.md', 'type: source', '# Foo\n')
+    const out = dashLinkPass(vault)('x', 'See [[Foo - Bar|the source]] and [[Foo - Bar#Method]].\n', vault)
+    expect(out?.after).toContain('[[Foo — Bar|the source]]')
+    expect(out?.after).toContain('[[Foo — Bar#Method]]')
+  })
+
+  it('leaves a link to a page that does not exist in any spelling', () => {
+    expect(dashLinkPass(vault)('x', 'See [[Nothing - Here]].\n', vault)).toBeNull()
   })
 })

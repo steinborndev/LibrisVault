@@ -1365,7 +1365,7 @@ Rules for every task in this phase, without exception:
 - **DoD:** the phase 5.4 rules report zero, and `buildSourceIndex` resolves a source for every
   page that has one.
 
-### 8.4 Normalise the tags (B6)
+### 8.4 Normalise the tags (B6) - PARTIALLY DONE 2026-09-19
 
 - [ ] Remove type-mirroring tags (the three account for 1040 assignments). Merge the obvious
       singleton variants (spelling, plural, hyphenation) where the merge is mechanical; leave
@@ -1374,7 +1374,17 @@ Rules for every task in this phase, without exception:
       not curating.
 - **DoD:** type mirroring at or near 0 %, single-use share materially below 50 %, both recorded.
 
-### 8.5 Move the run-protocol sections (B5)
+**Result: vault commit `ad7b099`, 1051 pages, 2099 lines removed.** Every tag that repeated
+its page's own `type:` or `domain:` is gone; `meta` stayed, because it names what a page IS as
+well as being a domain key.
+
+The second half of this task is **deliberately not done**: merging the singleton variants
+(spelling, plural, hyphenation) is not mechanical. "Which of these two spellings is the one
+this vault means" is a judgement, and the task's own sentence - "do not invent a taxonomy in
+this pass" - is easier to honour by not guessing at all. The `tag-singleton` rule reports the
+320 of them, which is where that decision belongs.
+
+### 8.5 Move the run-protocol sections (B5) - PARTIALLY DONE 2026-09-19
 
 - [ ] 352 pages, 302 kB. The seven relocated headings are removed from pages; the content is not
       thrown away where it carries a real judgement - it goes into the page's own Assessment
@@ -1385,6 +1395,32 @@ Rules for every task in this phase, without exception:
 - [ ] `## Connections` added where phase 4.2's floor is missing, as part of the same pass.
 - **DoD:** the 4.3 validator rule reports zero, the 4.2 rule reports zero, and a random sample of
   20 pages is read by hand to confirm nothing substantive was cut.
+
+**Result: 14 sections removed, 99 left standing, and the dry run is why.**
+
+The first version of the pass keyed on the HEADING, which is what this task's own list says to
+do. Against the live vault it would have touched 113 pages - and one of them carried, under
+"Relation to This Vault's ... Coverage", a paragraph distinguishing two sources with wikilinks
+to both. A judgement about the material, under a heading the list calls droppable.
+
+So the rule became: bookkeeping is a section that is SHORT (under 400 characters) **and** cites
+no page. The distribution over all 116 such sections:
+
+| heading | total | mechanically droppable |
+|---|---|---|
+| Status of This Page | 44 | 13 |
+| Relation to this vault | 38 | **0** |
+| Vault context | 18 | **0** |
+| Entity Notability Note | 9 | 1 |
+| Automated Decisions | 7 | **0** |
+
+75 of the remainder are long AND linked. Vault commit `182bcd5`, 14 pages, 57 lines removed,
+14 added (the `updated:` bumps). A page read by hand afterwards: the removed section was an
+ingest's note about what it had not verified, and the body above it is untouched.
+
+**Still open, and a decision rather than a task:** `## Editorial Note` (59 pages) and
+`## Provenance` (56) were never in this pass, and the 99 sections above now join them. That is
+115 pages of prose whose fate is a person's call, not a rule's.
 
 ### 8.6 Remove the em-dashes (B9)
 

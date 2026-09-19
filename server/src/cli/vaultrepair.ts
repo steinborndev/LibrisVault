@@ -33,36 +33,48 @@ import {
   tagMirrorPass,
   runProtocolPass,
   demoSeedPass,
+  dashLinkPass,
   type RepairPass,
   type RepairPlan,
 } from '../pipeline/repair.js'
 import { withWikiLocks } from '../pipeline/wiki-lock.js'
 import { commitPaths } from '../pipeline/git.js'
 
-/** The passes, in the order phase 8 runs them. Each is one commit. */
-const PASSES: ReadonlyArray<{ name: string; task: string; run: RepairPass; subject: string }> = [
+/**
+ * The passes, in the order phase 8 runs them. Each is one commit.
+ *
+ * `run` takes the vault root because one of them has to read the whole page set before it can
+ * decide anything: repointing a link needs to know which pages exist.
+ */
+const PASSES: ReadonlyArray<{ name: string; task: string; run: (vaultRoot: string) => RepairPass; subject: string }> = [
+  {
+    name: 'dash-link',
+    task: '8.2',
+    run: dashLinkPass,
+    subject: 'repair: repoint links that differ from a page only in the dash',
+  },
   {
     name: 'tag-mirror',
     task: '8.4',
-    run: tagMirrorPass,
+    run: () => tagMirrorPass,
     subject: 'repair: drop tags that repeat a page’s own type or domain',
   },
   {
     name: 'run-protocol',
     task: '8.5',
-    run: runProtocolPass,
+    run: () => runProtocolPass,
     subject: 'repair: move run bookkeeping out of the articles',
   },
   {
     name: 'em-dash',
     task: '8.6',
-    run: emDashPass,
+    run: () => emDashPass,
     subject: 'repair: replace em-dashes and en-dashes outside code',
   },
   {
     name: 'demo-seed',
     task: '8.7',
-    run: demoSeedPass,
+    run: () => demoSeedPass,
     subject: 'repair: mark the upstream demo pages as what they are',
   },
 ]
@@ -142,7 +154,7 @@ async function main(): Promise<number> {
   }
 
   for (const pass of chosen) {
-    const plan = planRepair(vaultRoot, `${pass.name} (${pass.task})`, pass.run)
+    const plan = planRepair(vaultRoot, `${pass.name} (${pass.task})`, pass.run(vaultRoot))
     summarise(plan, diffs)
     if (wantApply) {
       const code = await apply(vaultRoot, plan, pass.subject)
