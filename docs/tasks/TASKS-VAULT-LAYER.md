@@ -383,23 +383,51 @@ Not done: the scratch agent ingest the DoD's last clause asks for. It belongs wi
 `--ingest` and with 2.4, which changes what that run has to produce; running it three times
 costs three runs for one answer. Recorded rather than quietly skipped.
 
-### 1.3 Widen the service's lock window (A2)
+### 1.3 Widen the service's lock window (A2) - DONE 2026-09-19
 
-- [ ] `wiki-lock.ts`: pass `--stale-after-sec` on every `acquire`, from a constant with the
+- [x] `wiki-lock.ts`: pass `--stale-after-sec` on every `acquire`, from a constant with the
       measurement in its comment (median 23 s, p90 59 s, max 108 s). Default 600.
-- [ ] Configurable through the environment for a vault with different run lengths, not through
+- [x] Configurable through the environment for a vault with different run lengths, not through
       settings (it is a safety margin, not a preference).
-- [ ] `withWikiLocks`: re-acquire (refresh) held locks when a batch has been running longer
+- [x] `withWikiLocks`: re-acquire (refresh) held locks when a batch has been running longer
       than half the window, or cap the batch size so it cannot. Whichever is chosen, state it
       in the header comment; the current behaviour lets a 30-page repair outlive its own first
       lock.
-- [ ] Normalise the path before it reaches the script (POSIX separators, no leading `./`, no
+- [x] Normalise the path before it reaches the script (POSIX separators, no leading `./`, no
       duplicate slashes), so our side can never open a second lock namespace on one page.
-- [ ] Tests: the flag reaches the exec stub with the expected value; a normalised path is what
+- [x] Tests: the flag reaches the exec stub with the expected value; a normalised path is what
       the stub receives for four spellings of one page; the batch refresh fires on a stubbed
       clock.
 - **DoD:** a scratch vault run holding a lock for 90 s is not reaped by a second acquire, and
   is reaped at 610 s. Assert via the real script in a temp vault, not a mock.
+
+**Result.** Both DoD cases assert against the VAULT'S OWN `wiki-lock.sh`, copied into a temp
+vault (skipped on a machine with no vault to borrow it from): a lock aged 90 s is refused with
+`WikiLockBusy` where the script's own 60 s default would have reaped it, and one aged 610 s is
+still reaped, because the window is a bound on how long a crashed holder can wedge a page, not
+a promise never to reap. The ages are forged in the lockfile rather than waited for - the
+script decides staleness from the epoch it wrote - and a third test asserts that our forged
+lockfile really is the file the script reads (same SHA-1 of the same path string).
+
+`WIKI_LOCK_STALE_SEC` defaults to 600, ten times the longest hold ever measured, and is
+overridable from the environment rather than from settings.
+
+**One thing the task text did not cover, and it is half the finding.** The threshold is applied
+by the ACQUIRER. Passing `--stale-after-sec` on our own acquire only decides what WE reap; an
+agent run would still reap a lock this service holds after 60 s, which is the more likely of
+the two directions. Closed by exporting `STALE_AFTER_SEC` into the run's environment in
+`buildAgentEnv` - the global the script's own header documents, so no vault file is modified
+(hard rule 5).
+
+**Batch: refresh, not cap.** A phase 8 repair legitimately touches hundreds of pages, and a cap
+would only move the problem into every caller. Every half window the held locks are re-acquired
+with a zero threshold, which reaps and re-creates a lock this process already holds and puts
+its age back to zero. A refresh that does not come back 0 means the page is somebody else's
+now, so it is dropped from the set instead of being released out from under them at the end -
+the script's release is an unconditional `rm -f`.
+
+Two test stubs had to learn the flag (`wiki-lock.test.ts`, `pages-write.test.ts`): both read
+the page path from `$2`, which is now `--stale-after-sec`. Worth knowing for any future stub.
 
 ### 1.4 Concurrency default 1, and the deviation written down (A3)
 

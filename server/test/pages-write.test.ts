@@ -144,7 +144,9 @@ describe('PUT /api/v1/pages', () => {
     fs.mkdirSync(path.join(vaultRoot, 'scripts'), { recursive: true })
     fs.writeFileSync(
       path.join(vaultRoot, 'scripts/wiki-lock.sh'),
-      '#!/usr/bin/env bash\nset -u\nd="$WIKI_LOCK_VAULT/.vault-meta/locks"\nmkdir -p "$d"\nf="$d/$(printf \'%s\' "$2" | cksum | cut -d\' \' -f1).lock"\ncase "$1" in\n  acquire) set -o noclobber; { : > "$f"; } 2>/dev/null || exit 75 ;;\n  release) rm -f "$f" ;;\n  *) exit 2 ;;\nesac\n',
+      // `--stale-after-sec` is consumed the way the real script does: the service passes the
+      // window on every acquire (A2), so a stub reading the path from $2 locks the wrong name.
+      '#!/usr/bin/env bash\nset -u\nd="$WIKI_LOCK_VAULT/.vault-meta/locks"\nmkdir -p "$d"\ncmd="$1"; shift\nwhile [ $# -gt 1 ]; do case "$1" in --stale-after-sec) shift 2 ;; *) break ;; esac; done\nf="$d/$(printf \'%s\' "$1" | cksum | cut -d\' \' -f1).lock"\ncase "$cmd" in\n  acquire) set -o noclobber; { : > "$f"; } 2>/dev/null || exit 75 ;;\n  release) rm -f "$f" ;;\n  *) exit 2 ;;\nesac\n',
       { mode: 0o755 },
     )
     const before = fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Beta.md'), 'utf8')
