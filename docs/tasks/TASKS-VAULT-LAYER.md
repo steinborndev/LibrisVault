@@ -468,16 +468,28 @@ Still open, by construction: the "no new overlapping job pairs" half of the DoD 
 to have run under the new default. `vault-audit` reports overlapping pairs, so it is measurable
 at the next run.
 
-### 1.5 Correct hard rule 1's writer list (A10)
+### 1.5 Correct hard rule 1's writer list (A10) - DONE 2026-09-19
 
-- [ ] `CLAUDE.md` hard rule 1: the sanctioned writer list gains `notebook.ts`, `recap.ts`,
+- [x] `CLAUDE.md` hard rule 1: the sanctioned writer list gains `notebook.ts`, `recap.ts`,
       `reading-list.ts`, `link-repair.ts` and `routes/domains.ts`, each with what it writes and
       the date it was added. Keep the existing sentence about the lock and the mutex; it already
       covers them correctly, it just did not name them.
-- [ ] Add the sentence that the list is the thing future changes are checked against, so a new
+- [x] Add the sentence that the list is the thing future changes are checked against, so a new
       writer belongs in it before it ships. (Phase 2 adds the hub writer to the same list.)
 - **DoD:** every `withWikiLock` / `withWikiLocks` call site in `server/src` appears in the rule,
   verified by a grep listed in the commit message.
+
+**Result.** `grep -rn "withWikiLock" server/src` (excluding the module itself) names seven
+files: `pipeline/reading-list.ts` (6 call sites), `api/routes/pages.ts` (3), `pipeline/recap.ts`
+(2), `pipeline/questions.ts` (2), `pipeline/notebook.ts` (2), `pipeline/link-repair.ts` (2),
+`api/routes/domains.ts` (2). All seven are in the rule, plus agent runs, as a table with what
+each writes and the date it became a writer - the dates taken from `git log --diff-filter=A`
+rather than from memory, which moved four of them (the three Fellow writers are 2026-09-06, not
+-15; `link-repair.ts` is 2026-09-07; `domains.ts` existed from 2026-07-19 and only became a
+LOCKED writer on 2026-09-16, which is the distinction the table now makes).
+
+`pipeline/questions.ts` was already named in the rule's prose but not as a file; it is in the
+table now, so the grep and the rule can be compared mechanically.
 
 ---
 
