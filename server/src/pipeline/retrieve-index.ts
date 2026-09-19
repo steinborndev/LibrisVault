@@ -19,6 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { EventBus } from './events.js'
 import { ensureVaultExcludes, RETRIEVE_EXCLUDE_ENTRIES } from './vault-excludes.js'
+import { UPSTREAM_DEMO } from './hubs.js'
 
 export { RETRIEVE_EXCLUDE_ENTRIES }
 
@@ -243,6 +244,46 @@ const MIN_CHUNK_FETCH = 20
 const ROOT_PAGE_SLOTS = 1
 const isRootPage = (pagePath: string): boolean => /^wiki\/[^/]+\.md$/.test(pagePath)
 
+/** Enough of a page to see its frontmatter, which is all this needs. */
+const FRONTMATTER_PROBE_BYTES = 1024
+
+/**
+ * Whether a retrieved page is the plugin's own demo material (task 8.7).
+ *
+ * Filtered on the READ side rather than out of the index, deliberately. The chunk and BM25
+ * indexes are built by the vault's OWN scripts as child processes; teaching them to skip a page
+ * means editing them, which hard rule 5 forbids. Filtering what we hand to an agent is our side
+ * of the boundary and needs nobody's permission.
+ *
+ * Reads the candidate's own frontmatter rather than a cached set: a query over-fetches perhaps
+ * twenty pages, so this is twenty 1 kB reads, and a cache here would need invalidating on every
+ * vault write to stay correct. An unreadable page is not demo material - failing open keeps a
+ * retrieval failure from silently shrinking an answer.
+ */
+function isDemoPage(vaultRoot: string, pagePath: string): boolean {
+  let fd: number | undefined
+  try {
+    fd = fs.openSync(path.join(vaultRoot, pagePath), 'r')
+    const buffer = Buffer.alloc(FRONTMATTER_PROBE_BYTES)
+    const read = fs.readSync(fd, buffer, 0, FRONTMATTER_PROBE_BYTES, 0)
+    const head = buffer.subarray(0, read).toString('utf8')
+    const end = head.indexOf('\n---', 4)
+    return new RegExp(`^origin:[ \\t]*["']?${UPSTREAM_DEMO}["']?[ \\t]*$`, 'm').test(
+      end === -1 ? head : head.slice(0, end),
+    )
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd)
+      } catch {
+        /* the read already gave its answer */
+      }
+    }
+  }
+}
+
 /** One retrieved page, best first. Chunk hits are collapsed to their page. */
 export interface RetrievedCandidate {
   /** Vault-relative wiki path (`wiki/concepts/Foo.md`) — what the agent is told to read. */
@@ -329,6 +370,8 @@ export const retrieveCandidates: CandidateRetriever = async ({
       // keeping each page at its best rank.
       const pagePath = typeof c.page_path === 'string' ? c.page_path : ''
       if (pagePath === '' || seen.has(pagePath)) continue
+      // The plugin's demo material is readable in the vault and is not an answer about it.
+      if (isDemoPage(vaultRoot, pagePath)) continue
       if (isRootPage(pagePath)) {
         if (rootSlots >= ROOT_PAGE_SLOTS) continue
         rootSlots++

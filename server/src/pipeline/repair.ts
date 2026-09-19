@@ -24,6 +24,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { stampDates } from './page-dates.js'
+import { CONTENT_BUCKETS, UPSTREAM_DEMO } from './hubs.js'
 
 /** One proposed change to one page. `before` and `after` are the whole file. */
 export interface PageEdit {
@@ -382,11 +383,58 @@ export const runProtocolPass: RepairPass = (_rel, markdown) => {
 const DEMO_CUTOFF = '2026-07-01'
 const UPSTREAM_FOOTER = /claude-obsidian|Built with \[?claude-obsidian|github\.com\/AgriciDaniel/i
 
+/**
+ * Whether a page is material the vault COLLECTED, which is the only kind that can be demo
+ * material (8.7).
+ *
+ * The first run of this pass marked three hubs and would have marked a fold page: they were
+ * created when the vault was, and they quote the upstream footer because the entries they
+ * archive do. Both of the pass's conditions held and both conclusions were wrong - a page the
+ * SERVICE writes is not material at all, and `origin: upstream-demo` on the vault's own index
+ * tells every reader that counts pages to skip it.
+ *
+ * So the test is positive rather than a growing list of exclusions: a content bucket, and not
+ * a bucket hub. `wiki/meta/`, `wiki/folds/`, the root hubs and the `_index` MOCs all fail it
+ * without being named.
+ */
+function isContentPage(rel: string): boolean {
+  const parts = rel.split('/')
+  if (parts.length !== 3 || parts[0] !== 'wiki') return false
+  if (!CONTENT_BUCKETS.includes(parts[1] as (typeof CONTENT_BUCKETS)[number])) return false
+  return !parts[2]!.startsWith('_')
+}
+
 export const demoSeedPass: RepairPass = (rel, markdown) => {
-  if (rel.startsWith('wiki/meta/') || rel.endsWith('/_index.md')) return null
   const fm = markdown.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/)
   if (fm === null) return null
   const front = fm[2]!
+
+  /*
+   * A HUB IS NEVER DEMO MATERIAL, and the first run of this pass marked three of them.
+   *
+   * `log.md`, `overview.md` and `index.md` were created when the vault was created and they
+   * carried the upstream footer, so both of the pass's conditions held. But they are not
+   * material at all: they are the pages the SERVICE writes (SPEC.md 12.12), alive and
+   * regenerated after every run, and `origin: upstream-demo` on them tells every reader that
+   * counts pages to skip the vault's own index. `index.md` self-corrected on the next
+   * regeneration, which is what a generated file does; the other two are hand-owned in part
+   * and kept the mark.
+   *
+   * So the pass skips them, and REMOVES the mark where it already put one. A pass that only
+   * stops making a mistake leaves the mistake.
+   */
+  if (!isContentPage(rel)) {
+    const wrong = new RegExp(`^origin:[ \\t]*["']?${UPSTREAM_DEMO}["']?[ \\t]*$\\r?\\n?`, 'm')
+    if (!wrong.test(front)) return null
+    return {
+      after:
+        markdown.slice(0, fm[1]!.length) +
+        front.replace(wrong, '').replace(/\r?\n\s*$/, '') +
+        markdown.slice(fm[1]!.length + front.length),
+      why: 'not a content page: the mark is removed',
+    }
+  }
+
   if (/^origin:/m.test(front)) return null
   const created = /^created:[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(front)?.[1]
   if (created === undefined || created >= DEMO_CUTOFF) return null

@@ -603,3 +603,56 @@ describe('overviewPass', () => {
     expect(overviewPass('wiki/overview.md', once, VAULT_ROOT_UNUSED)).toBeNull()
   })
 })
+
+/**
+ * `demoSeedPass` and the pages the SERVICE writes (8.7, corrected).
+ *
+ * The first run marked three hubs and would have marked a fold page. All four were created
+ * when the vault was and quote the upstream footer, because the entries they carry do, so both
+ * of the pass's conditions held and both conclusions were wrong. `origin: upstream-demo` on
+ * the vault's own index tells every reader that counts pages to skip it.
+ */
+describe('demoSeedPass and service-written pages', () => {
+  const V = '/nowhere'
+  const shipped = (front = 'type: concept\ncreated: 2026-04-01'): string =>
+    `---\n${front}\n---\n\n# A page\n\nBody.\n\n---\n\n*Part of the [claude-obsidian](https://github.com/x) community vault.*\n`
+
+  it('still marks a content page that is really demo material', () => {
+    const out = demoSeedPass('wiki/concepts/Shipped.md', shipped(), V)
+    expect(out?.after).toContain('origin: upstream-demo')
+  })
+
+  it('does not mark a hub, however old it is', () => {
+    for (const rel of ['wiki/index.md', 'wiki/log.md', 'wiki/overview.md', 'wiki/hot.md']) {
+      // null, not "unchanged": the pass has nothing to say about a page the service writes.
+      expect(demoSeedPass(rel, shipped('type: meta\ncreated: 2026-04-01'), V), rel).toBeNull()
+    }
+  })
+
+  it('does not mark a fold page, which the service wrote in 8.8', () => {
+    // Dated by the entries it archives, and it quotes the footer because they did.
+    expect(demoSeedPass('wiki/folds/log-2026-04.md', shipped('type: fold\ncreated: 2026-04-01'), V)).toBeNull()
+  })
+
+  it('REMOVES a mark it already put on a page that is not content', () => {
+    // A pass that only stops making a mistake leaves the mistake.
+    const out = demoSeedPass('wiki/log.md', shipped('type: meta\ncreated: 2026-04-01\norigin: upstream-demo'), V)
+    expect(out).not.toBeNull()
+    expect(out!.after).not.toContain('origin:')
+    expect(out!.why).toContain('not a content page')
+  })
+
+  it('leaves no blank line where the mark was', () => {
+    const out = demoSeedPass('wiki/log.md', shipped('type: meta\norigin: upstream-demo'), V)
+    expect(out!.after).toContain('---\ntype: meta\n---')
+  })
+
+  it('leaves a mark alone on a page that really is content', () => {
+    expect(demoSeedPass('wiki/concepts/X.md', shipped('type: concept\ncreated: 2026-04-01\norigin: upstream-demo'), V)).toBeNull()
+  })
+
+  it('does not touch a bucket hub or a meta page', () => {
+    expect(demoSeedPass('wiki/concepts/_index.md', shipped(), V)).toBeNull()
+    expect(demoSeedPass('wiki/meta/notes.md', shipped(), V)).toBeNull()
+  })
+})

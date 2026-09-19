@@ -1640,15 +1640,23 @@ Forward rather than a revert, deliberately: reverting `110007d` would have had t
 commits that landed after it, and the forward fix also repairs the same shape wherever else it
 occurs.
 
-### 8.7 Separate the demo seed content (B8) - PARTIALLY DONE 2026-09-19
+### 8.7 Separate the demo seed content (B8) - DONE 2026-09-19
 
 - [x] 47 pages created 2026-04 to 2026-06, 17 carrying the upstream community footer. They are
       the plugin author's release and demo material sitting in the same graph, the same BM25
       index and the same page counts as real knowledge. **Identified and marked**; the count
       that matters is 17, not 47, and the Result below says why.
-- [ ] Do **not** delete them. Mark them (`origin: upstream-demo` in frontmatter, or a dedicated
+- [x] Do **not** delete them. Mark them (`origin: upstream-demo` in frontmatter, or a dedicated
       domain), exclude them from the generated hubs, from the page counters and from the
-      retrieval index, and leave them readable.
+      retrieval index, and leave them readable. **DONE 2026-09-19**, and the DoD is met:
+      **page counters 1208 to 1195, exactly the 13 marked content pages**, the graph and the
+      catalog put them behind the System toggle, the retrieval index never offers them as an
+      answer, and nothing was deleted.
+      One deviation from the wording, and it is deliberate: they are **not** excluded from the
+      generated index. 8.1 spent its whole effort getting pages-in-no-hub to zero and the index
+      is the one page where "everything is here" has to stay true, so they get their own
+      `## Upstream demo material` section instead - reachable, and not mixed into a domain a
+      reader is scanning.
 - [x] The decision on eventual deletion stays with the user and is recorded here either way.
       **Recorded: nothing is deleted.** They are marked and readable; whether they eventually
       go is the user's call and there is no pass waiting to do it.
@@ -1663,9 +1671,41 @@ material AND carrying the upstream community footer - because either alone catch
 The other 30 are real material ingested early, which is exactly why the second condition is
 there.
 
-**Still open:** the readers do not yet skip them. The generated hubs, the page counters and the
-retrieval index all need to honour `origin: upstream-demo`, which is code rather than a repair
-pass, and the decision about eventually deleting them stays with the user.
+**The readers honour the mark since 2026-09-19**, and getting there turned up a defect in the
+marking itself.
+
+| reader | what it does now |
+|---|---|
+| `renderOverviewCounters` | counts what the vault collected, and states the demo count on its own line |
+| `renderIndex` | its own `## Upstream demo material` section, out of the domains, still linked |
+| `retrieveCandidates` | drops them from the candidates a query hands an agent |
+| graph and catalog | `isKnowledgeNode`, behind the System toggle with the vault's own machinery |
+
+**Where the filter sits, and why it is not in the index.** The chunk and BM25 indexes are built
+by the VAULT's own scripts as child processes. Teaching them to skip a page means editing them,
+which hard rule 5 forbids, so the filter is on the read side - what we hand an agent is our side
+of that boundary. It reads each candidate's own frontmatter rather than a cached set: a query
+over-fetches perhaps twenty pages, and a cache would need invalidating on every vault write to
+stay correct. It fails open, because a retrieval failure silently shrinking an answer is worse
+than one demo page slipping into a reading list.
+
+**The defect: the pass had marked pages the SERVICE writes.** `wiki/index.md`, `wiki/log.md`,
+`wiki/overview.md` and `wiki/getting-started.md` were all created when the vault was and all
+quote the upstream footer, because the entries they carry do - so both of the pass's conditions
+held and both conclusions were wrong. `origin: upstream-demo` on the vault's own index tells
+every reader that counts pages to skip it. `index.md` self-corrected on its next regeneration,
+which is what a generated file does; the other three kept the mark and were found only by
+counting 16 marks against 13 content pages.
+
+The fix is a positive test rather than a longer list of exclusions: a page can be demo material
+only if it is a CONTENT page - a content bucket, not a bucket hub. `wiki/meta/`, `wiki/folds/`,
+the root hubs and the `_index` MOCs all fail it without being named, which matters because the
+next thing the pass would have marked was a fold page task 8.8 had just written. And the pass
+REMOVES a mark it wrongly placed, because a pass that only stops making a mistake leaves the
+mistake (vault commit `4ebb560`).
+
+**Still open:** the decision about eventually deleting them, which stays with the user. Nothing
+is waiting to do it.
 
 ### 8.8 Shrink `log.md` (B1, C-1) - last, and only after 2.4 - DONE 2026-09-19
 

@@ -37,7 +37,8 @@ import { readDomainRegistry, UNASSIGNED } from './domains.js'
 export const SERVICE_OWNED_HUBS = ['wiki/index.md', 'wiki/log.md', 'wiki/overview.md'] as const
 
 /** Buckets whose pages are knowledge rather than navigation or operations. */
-const CONTENT_BUCKETS = ['concepts', 'entities', 'sources', 'comparisons', 'questions', 'references'] as const
+/** The buckets that hold what the vault collected, as opposed to what it writes about itself. */
+export const CONTENT_BUCKETS = ['concepts', 'entities', 'sources', 'comparisons', 'questions', 'references'] as const
 
 /** Bucket -> the heading the index files it under, in the order they are rendered. */
 const BUCKET_HEADINGS: ReadonlyArray<readonly [string, string]> = [
@@ -48,6 +49,20 @@ const BUCKET_HEADINGS: ReadonlyArray<readonly [string, string]> = [
   ['questions', 'Questions'],
   ['references', 'References'],
 ]
+
+/**
+ * The `origin:` value marking the plugin's own release and demo material (task 8.7).
+ *
+ * 17 pages of this vault carry it: they were created before the vault started taking real
+ * material AND carry the upstream community footer. They are not deleted and not hidden - they
+ * are simply not this vault's knowledge, and counting them as such makes every number about
+ * the vault slightly false.
+ */
+export const UPSTREAM_DEMO = 'upstream-demo'
+
+/** Whether a page is the plugin's own demo material rather than this vault's knowledge. */
+export const isUpstreamDemo = (page: { readonly origin: string | null }): boolean =>
+  page.origin === UPSTREAM_DEMO
 
 export interface HubPage {
   /** Vault-relative POSIX path. */
@@ -64,6 +79,12 @@ export interface HubPage {
   readonly address: string | null
   /** Newest date the page states for itself, for the index's own `updated:`. */
   readonly updated: string | null
+  /**
+   * Frontmatter `origin:`, or null. `upstream-demo` marks the plugin's own release and demo
+   * material (task 8.7): readable, reachable, and counted separately from what this vault
+   * actually collected.
+   */
+  readonly origin: string | null
 }
 
 /** A page the walk could not read as a page. It is LISTED, never dropped - see `renderIndex`. */
@@ -151,6 +172,7 @@ export function collectPages(vaultRoot: string): { pages: HubPage[]; unfiled: Un
       continue
     }
     const domain = fields.get('domain')
+    const origin = fields.get('origin')
     const address = fields.get('address')
     const updated = fields.get('updated') ?? fields.get('created')
     pages.push({
@@ -161,6 +183,7 @@ export function collectPages(vaultRoot: string): { pages: HubPage[]; unfiled: Un
       domain: domain && domain !== '' ? domain : UNASSIGNED,
       address: address && address !== '' ? address : null,
       updated: updated && /^\d{4}-\d{2}-\d{2}/.test(updated) ? updated.slice(0, 10) : null,
+      origin: origin && origin !== '' ? origin : null,
     })
   }
   return { pages, unfiled, machinery: machinery.sort() }
@@ -199,7 +222,17 @@ export interface RenderIndexOptions {
  * had drifted.
  */
 export function renderIndex(vaultRoot: string, opts: RenderIndexOptions = {}): string {
-  const { pages, unfiled, machinery } = collectPages(vaultRoot)
+  const { pages: all, unfiled, machinery } = collectPages(vaultRoot)
+  /*
+   * The plugin's demo material gets its own section rather than a place in the domains (8.7).
+   *
+   * Not dropped: the index is the one page where "everything is here" has to stay true, and
+   * 8.1 spent its whole effort getting pages-in-no-hub to zero. Not mixed in either: these
+   * pages shipped with the plugin, and a reader scanning a domain should not have to know
+   * which entries were never about this vault.
+   */
+  const pages = all.filter((p) => !isUpstreamDemo(p))
+  const demo = all.filter(isUpstreamDemo)
   const registry = readDomainRegistry(vaultRoot)
   const order = opts.domainOrder ?? registry?.domains.map((d) => d.key) ?? []
 
@@ -271,6 +304,18 @@ export function renderIndex(vaultRoot: string, opts: RenderIndexOptions = {}): s
       for (const p of group) out.push(`- ${pageLink(p)}${p.address === null ? '' : ` \`${p.address}\``}`)
       out.push('')
     }
+  }
+
+  if (demo.length > 0) {
+    out.push(`## Upstream demo material (${demo.length})`)
+    out.push('')
+    out.push(
+      'Pages the claude-obsidian plugin shipped with, kept readable and reachable but counted ' +
+        'separately: they are its release and demo material, not this vault\'s knowledge.',
+    )
+    out.push('')
+    for (const p of [...demo].sort(sortPages)) out.push(`- ${pageLink(p)}`)
+    out.push('')
   }
 
   if (machinery.length > 0) {
@@ -625,7 +670,10 @@ export const OVERVIEW_MARKER_END = '<!-- /vault-service:counters -->'
 
 /** The counters block, markers included, ready to be spliced into the page. */
 export function renderOverviewCounters(vaultRoot: string): string {
-  const { pages, unfiled } = collectPages(vaultRoot)
+  const { pages: all, unfiled } = collectPages(vaultRoot)
+  // What this vault collected, which is the number the page is asking for (8.7).
+  const pages = all.filter((p) => !isUpstreamDemo(p))
+  const demo = all.length - pages.length
   const byBucket = new Map<string, number>()
   for (const p of pages) byBucket.set(p.bucket, (byBucket.get(p.bucket) ?? 0) + 1)
   const domains = new Set(pages.map((p) => p.domain))
@@ -638,6 +686,7 @@ export function renderOverviewCounters(vaultRoot: string): string {
     const n = byBucket.get(bucket)
     if (n !== undefined) lines.push(`- ${heading}: ${n}`)
   }
+  if (demo > 0) lines.push(`- Upstream demo pages, not counted above: ${demo} (listed in [[index]])`)
   if (unfiled.length > 0) lines.push(`- Pages the generator could not read: ${unfiled.length} (listed in [[index]])`)
   lines.push(`- Newest page date: ${newest}`)
   lines.push('')

@@ -74,7 +74,7 @@ describe('GraphBuilder', () => {
   })
 
   it('parseFrontmatterMeta handles absence and malformed frontmatter', () => {
-    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null }
+    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null, origin: null }
     expect(parseFrontmatterMeta('no frontmatter')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ntags:\n---\nbody')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ndomain:\n---\nbody')).toEqual(empty)
@@ -86,6 +86,9 @@ describe('GraphBuilder', () => {
     const meta = parseFrontmatterMeta('---\ntitle: "Does it work?"\naliases:\n  - "The Q"\n---\nbody')
     expect(meta.title).toBe('Does it work?')
     expect(meta.aliases).toEqual(['The Q'])
+    // `origin:` marks material the vault did not collect (task 8.7); quoted or bare.
+    expect(parseFrontmatterMeta('---\norigin: upstream-demo\n---\nbody').origin).toBe('upstream-demo')
+    expect(parseFrontmatterMeta('---\norigin: "upstream-demo"\n---\nbody').origin).toBe('upstream-demo')
 
     /*
      * The address a page states for itself, in the two spellings the vault has. An ingest

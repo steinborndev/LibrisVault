@@ -4,7 +4,7 @@
  * real python never runs here), the post-ingest debounce scheduler, and the maintenance
  * runner's `retrieve-index` kind (no agent, no credential, serialized builds).
  */
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -679,5 +679,73 @@ describe('MaintenanceRunner retrieve-index kind', () => {
     expect(maxInFlight).toBe(1)
     expect(m.getRun(a.id)?.status).toBe('done')
     expect(m.getRun(b.id)?.status).toBe('done')
+  })
+})
+
+/**
+ * The plugin's demo material never becomes an answer (task 8.7).
+ *
+ * Filtered on the READ side rather than out of the index: the chunk and BM25 indexes are built
+ * by the vault's OWN scripts, and teaching them to skip a page means editing them, which hard
+ * rule 5 forbids. What we hand an agent is our side of that boundary.
+ */
+describe('retrieveCandidates and upstream demo pages', () => {
+  let root = ''
+  const page = (rel: string, front: string): void => {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, `---\n${front}\n---\n\n# ${path.basename(rel, '.md')}\n`)
+  }
+  /** A retrieve.py that returns exactly these page paths, best first. */
+  const returning =
+    (paths: string[]): ProcessRunner =>
+    async () => ({
+      stdout: JSON.stringify({ strategy: 'bm25-only', candidates: paths.map((p) => ({ page_path: p })) }),
+      stderr: '',
+    })
+
+  beforeEach(() => {
+    root = makeVault()
+    provision(root)
+    page('wiki/concepts/Real.md', 'type: concept')
+    page('wiki/concepts/Shipped.md', 'type: concept\norigin: upstream-demo')
+    page('wiki/concepts/Quoted.md', 'type: concept\norigin: "upstream-demo"')
+  })
+
+  it('drops a demo page from the candidates', async () => {
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Shipped.md', 'wiki/concepts/Real.md']),
+    })
+    expect(out.candidates.map((c) => c.pagePath)).toEqual(['wiki/concepts/Real.md'])
+  })
+
+  it('reads the value quoted as well, because the marker pass writes it either way', async () => {
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Quoted.md', 'wiki/concepts/Real.md']),
+    })
+    expect(out.candidates.map((c) => c.pagePath)).toEqual(['wiki/concepts/Real.md'])
+  })
+
+  it('ranks the survivors from 1, so the agent is not told about a gap', async () => {
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Shipped.md', 'wiki/concepts/Real.md']),
+    })
+    expect(out.candidates[0]?.rank).toBe(1)
+  })
+
+  it('fails open: a page it cannot read is not demo material', async () => {
+    // A retrieval failure silently shrinking an answer is worse than one demo page slipping in.
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Gone.md']),
+    })
+    expect(out.candidates.map((c) => c.pagePath)).toEqual(['wiki/concepts/Gone.md'])
   })
 })

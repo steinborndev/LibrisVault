@@ -242,6 +242,13 @@ export interface GraphNode {
    * of where it came from. Absent on most pages and on hand-built fixtures.
    */
   url?: string | null
+  /**
+   * Frontmatter `origin:`, present only when the page states one. `upstream-demo` marks the
+   * material the claude-obsidian plugin shipped with: readable, reachable, and not this
+   * vault's knowledge. `isKnowledgeNode` is what every screen should ask rather than reading
+   * this directly.
+   */
+  origin?: string | null
   /** File size in bytes - the "stubs" lens threshold. */
   size?: number
 }

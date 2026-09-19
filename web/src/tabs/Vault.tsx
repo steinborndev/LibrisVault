@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
+import { isKnowledgeNode } from '../lib/knowledge.ts'
 import { staleLinks, useStaleLinks } from '../lib/staleLinks.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
 import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
@@ -160,7 +161,7 @@ interface ClusterFocus {
 
 
 /** Missing `kind` (ghost nodes, old cached responses) counts as knowledge - never hide it. */
-const isKnowledge = (n: GraphNode): boolean => (n.kind ?? 'knowledge') === 'knowledge'
+const isKnowledge = isKnowledgeNode
 
 /**
  * Tags that mirror a page's `type:`/kind rather than its subject - they say WHAT a page is,

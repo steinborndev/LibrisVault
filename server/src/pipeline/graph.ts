@@ -63,6 +63,15 @@ export interface GraphNode {
    * falls back to it.
    */
   readonly url?: string | null
+  /**
+   * Frontmatter `origin:`, present only when the page states one (task 8.7).
+   *
+   * `upstream-demo` marks the material claude-obsidian shipped with. The dashboard treats it
+   * exactly as it treats a non-knowledge page: hidden behind the System toggle by default,
+   * shown when the toggle is on, never removed. Omitted for almost every page, and the graph
+   * payload goes to every screen.
+   */
+  readonly origin?: string | null
 }
 
 /**
@@ -113,6 +122,8 @@ interface CacheEntry {
   readonly aliases: readonly string[]
   /** The web address the page states for itself; see `parseFrontmatterAddress`. */
   readonly url: string | null
+  /** Frontmatter `origin:`, marking material this vault did not collect (task 8.7). */
+  readonly origin: string | null
 }
 
 const toPosix = (p: string): string => p.split(path.sep).join(path.posix.sep)
@@ -176,9 +187,10 @@ export function parseFrontmatterMeta(markdown: string): {
   title: string | null
   aliases: string[]
   url: string | null
+  origin: string | null
 } {
   const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
-  if (!fm) return { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null }
+  if (!fm) return { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null, origin: null }
   const body = fm[1]!
 
   const domainMatch = body.match(/^domain:[ \t]*(.+)$/m)
@@ -190,6 +202,9 @@ export function parseFrontmatterMeta(markdown: string): {
   const titleMatch = body.match(/^title:[ \t]*(.+)$/m)
   const title = titleMatch ? unquote(titleMatch[1]!) || null : null
 
+  const originMatch = body.match(/^origin:[ \t]*(.+)$/m)
+  const origin = originMatch ? unquote(originMatch[1]!) || null : null
+
   return {
     tags: parseFmList(body, 'tags'),
     domain,
@@ -197,6 +212,7 @@ export function parseFrontmatterMeta(markdown: string): {
     title,
     aliases: parseFmList(body, 'aliases'),
     url: parseFrontmatterAddress(`\n${body}`),
+    origin,
   }
 }
 
@@ -305,6 +321,7 @@ export class GraphBuilder {
         title: null,
         aliases: [],
         url: null,
+        origin: null,
       }
       try {
         const markdown = fs.readFileSync(f.abs, 'utf8')
@@ -323,6 +340,7 @@ export class GraphBuilder {
         fmTitle: meta.title,
         aliases: meta.aliases,
         url: meta.url,
+        origin: meta.origin,
       })
     }
 
@@ -450,6 +468,7 @@ export class GraphBuilder {
         ...(names.length > 0 ? { names } : {}),
         // Omitted when there is none, which is most pages: the payload goes to every screen.
         ...(entry?.url != null ? { url: entry.url } : {}),
+        ...(entry?.origin != null ? { origin: entry.origin } : {}),
       }
     })
 

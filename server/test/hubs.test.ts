@@ -143,7 +143,7 @@ describe('renderIndex', () => {
 })
 
 describe('pageLink', () => {
-  const base = { rel: 'wiki/concepts/X.md', bucket: 'concepts', domain: 'physics', address: null, updated: null }
+  const base = { rel: 'wiki/concepts/X.md', bucket: 'concepts', domain: 'physics', address: null, updated: null, origin: null }
 
   it('links by file name, not by title', () => {
     // The largest dead-link class in this vault is a title the file name cannot carry: the
@@ -428,5 +428,60 @@ describe('the bucket hubs', () => {
     fs.mkdirSync(path.join(vault, 'wiki/sources'), { recursive: true })
     fs.writeFileSync(path.join(vault, 'wiki/sources/_index.md'), '# Sources Index\n')
     expect(bucketHubs(vault)).toEqual(['wiki/concepts/_index.md', 'wiki/sources/_index.md'])
+  })
+})
+
+/**
+ * The plugin's own demo material, kept apart (task 8.7).
+ *
+ * 17 pages of the working vault carry `origin: upstream-demo`. They are not deleted and not
+ * hidden; they are simply not this vault's knowledge, and counting them as such makes every
+ * number about the vault slightly false. The index keeps them reachable because 8.1 spent its
+ * whole effort getting pages-in-no-hub to zero, and undoing that here would be a poor trade.
+ */
+describe('upstream demo pages in the generated hubs', () => {
+  const vault = (): string => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-hubs-'))
+    fs.mkdirSync(path.join(root, 'wiki', 'concepts'), { recursive: true })
+    const page = (name: string, front: string): void =>
+      fs.writeFileSync(path.join(root, 'wiki', 'concepts', `${name}.md`), `---\n${front}\n---\n\n# ${name}\n`)
+    page('Real One', 'type: concept\ndomain: physics\nupdated: 2026-09-01')
+    page('Real Two', 'type: concept\ndomain: physics\nupdated: 2026-09-02')
+    page('Shipped', 'type: concept\ndomain: physics\nupdated: 2026-04-01\norigin: upstream-demo')
+    return root
+  }
+
+  it('counts only what the vault collected', () => {
+    const counters = renderOverviewCounters(vault())
+    expect(counters).toContain('- Pages: 2 across 1 domains')
+    expect(counters).toContain('- Upstream demo pages, not counted above: 1')
+  })
+
+  it('says nothing about demo pages when there are none', () => {
+    const root = vault()
+    fs.rmSync(path.join(root, 'wiki', 'concepts', 'Shipped.md'))
+    expect(renderOverviewCounters(root)).not.toContain('Upstream demo')
+  })
+
+  it('keeps them in the index, in their own section rather than in a domain', () => {
+    const index = renderIndex(vault())
+    expect(index).toContain('## Upstream demo material (1)')
+    expect(index).toContain('[[Shipped]]')
+    // The domain section is what a reader scans; a shipped page in it is a page they have to
+    // recognise as not theirs.
+    const domain = index.slice(index.indexOf('## physics'), index.indexOf('## Upstream demo'))
+    expect(domain).not.toContain('Shipped')
+    expect(domain).toContain('Real One')
+  })
+
+  it('does not count them in the index headline either', () => {
+    expect(renderIndex(vault())).toContain('**2 pages**')
+  })
+
+  it('is still byte-identical over two renders, demo pages included', () => {
+    // The whole hub layer rests on this: a render that varies turns the index back into churn.
+    const root = vault()
+    expect(renderIndex(root)).toBe(renderIndex(root))
+    expect(renderOverviewCounters(root)).toBe(renderOverviewCounters(root))
   })
 })
