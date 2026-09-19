@@ -19,7 +19,6 @@ GET    /events                   SSE: job updates, log streams, stats + vault in
 GET    /stats                    dashboard numbers, usage totals, budget
 POST   /query                    read-only question against the vault (+ citations)
 GET/POST/PATCH/DELETE /sessions  chat sessions
-POST   /sessions/:id/save        save a chat session into the vault (async run)
 GET    /pages?path=…[&full=1]    one wiki page's markdown - truncated preview, or the full
                                  page + title/type/mtime with full=1
 PUT    /pages                    user edit {path, markdown, baseMtime} → write + git commit

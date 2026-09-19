@@ -181,7 +181,13 @@ The heart of the operation. On top the dropzone (files + URLs), below it three a
 
 ### 6.3 Tab "Query/Chat"
 
-Chat surface against the query runner. Answers contain the page citations delivered by the wiki-query skill; cited pages are rendered as clickable chips (Obsidian deep link + inline preview of the page content). Several chat sessions in parallel, sessions nameable; a "Save session to vault" button triggers the repo's `/save` flow.
+Chat surface against the query runner. Answers contain the page citations delivered by the wiki-query skill; cited pages are rendered as clickable chips (Obsidian deep link + inline preview of the page content). Several chat sessions in parallel, sessions nameable.
+
+**A chat answer never becomes vault content (decided 2026-09-19, and this replaces the sentence that used to end this paragraph).** Until then a "Save session to vault" button started a write-enabled agent run that resumed the chat's SDK session and ran the vault's own `/save` flow; the button, the route `POST /api/v1/sessions/:id/save` and the runner behind it are all removed, and a test asserts the route 404s so the older wording here cannot bring it back.
+
+The reason is what a chat answer IS. It is assembled from pages the vault already holds and it cites them; filing it writes a third statement of what two pages already say, under a title nobody will look for again. That is the island-making this vault was measured to suffer from: 73 % of its concept pages cite exactly one source, and 61 % were written by exactly one commit and never revisited (SPEC.md §12.12's measurements). A mechanism that adds pages nothing links to makes that worse, and the work that could have made it better - folding an answer back into the pages it cited - is a different mechanism with a different cost, deliberately not built.
+
+**The chat is read-only, all the way down**, and that is now a property rather than a default: the query runner has no write profile, and there is no route by which a conversation reaches the vault.
 
 **As built 2026-08-26:** Lives in **Research**, together with the autoresearch from 6.4 (see the correction there). Both modes share one console; sessions can be renamed and deleted.
 
@@ -231,7 +237,7 @@ POST   /api/v1/maintenance/…        the maintenance runs: lint, lint-fix, hot-
 GET    /api/v1/maintenance/state    cadence status per area (12.7 stage b)
 GET    /api/v1/maintenance/history  persistent run history (schema v12)
 DELETE /api/v1/maintenance/history/:id  remove one run from the history (added 2026-09-05)
-GET    /api/v1/sessions[/:id]       chat sessions; …/save triggers the `/save` flow (6.3)
+GET    /api/v1/sessions[/:id]       chat sessions (read-only: no route files one into the vault, 6.3)
 GET    /api/v1/settings/telegram    bot status + rejected senders (4.3); PUT/DELETE
                                     write or remove token and allowlist together
 POST   /api/v1/jobs/:id/revert      undo one ingest (revert of its commit)

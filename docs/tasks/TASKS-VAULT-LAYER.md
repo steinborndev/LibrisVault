@@ -1716,13 +1716,29 @@ assume. Both are recorded below with what they actually do.
       field called `transport`. The vault writes `preferred` plus `fallback_chain`, so the draft
       reported `unknown` against a perfectly good pin. Both spellings are read now and a test
       asserts the real shape.
-- [ ] **`save` skill** - chat knowledge stays in SQLite and never becomes vault content. Decide
-      whether a chat answer worth keeping can be filed, and how the user triggers it.
-      **OPEN: this is a product decision, not cleanup, and it is the user's.** What is settled
-      is the shape of the question: a chat answer is already grounded in cited vault pages, so
-      filing one is closer to "extend the pages it cited" than to "create a new page", and the
-      vault's own `save` skill does the latter. Whichever way it goes it needs a trigger in the
-      dashboard and a writer in hard rule 1's table.
+- [x] **`save` skill: never. DECIDED 2026-09-19, and it was not the decision this task
+      expected.** The task asked whether a chat answer could be filed. The answer is that a chat
+      answer is not vault content, now or later.
+      **The finding was wrong about the state, which is why this ended up being a removal.** A5
+      listed the `save` skill among the mechanisms we never wired. We had: `POST
+      /api/v1/sessions/:id/save` started a write-enabled agent run that resumed the chat's SDK
+      session and ran the vault's own `/save` flow, with a "Save conversation to vault" button
+      in the thread, a client method, a `save` run kind through the whole UI, and three tests.
+      Shipped in M4 and specified in SPEC.md §6.3. The review measured "unused by us" from
+      `server/src` and `scripts` and did not see it, because it reaches the skill by resuming a
+      session rather than by naming a file.
+      **The reason, which is the part worth keeping.** A chat answer is assembled FROM pages the
+      vault already holds and cites them. Filing it writes a third statement of what two pages
+      already say, under a title nobody looks for again - and this vault's measured problem is
+      exactly that: 73 % of concept pages cite one source, 61 % were written by one commit and
+      never revisited. A mechanism that adds pages nothing links to makes B2 worse. The version
+      that would have helped, folding an answer back into the pages it cited, is a different
+      mechanism with a different cost and was not built either.
+      **Removed:** the route, `startSave`, the client method, the button and its toasts, the
+      `save` run kind from the server union, `web/src/api/types.ts`, `runLabels.ts` and the
+      library scene. SPEC.md §6.3 carries the decision and the endpoint table is corrected.
+      `api.test.ts` keeps a test that the route 404s - a route removed without one comes back
+      the next time someone reads the older spec wording.
 
 ### Closing out - DONE 2026-09-19
 

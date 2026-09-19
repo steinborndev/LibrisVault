@@ -34,14 +34,12 @@ import type {
   GraphNode,
   AuthMode,
   ChatMessage,
-  MaintenanceResult,
   ResearchProfile,
   Session,
 } from '../api/types.ts'
 import { Markdown } from '../components/Markdown.tsx'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { CitationChip } from '../components/CitationChip.tsx'
-import { JobLog } from '../components/JobLog.tsx'
 import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { Icon, type IconName } from '../components/Icon.tsx'
@@ -382,11 +380,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // "Save to vault" (SPEC.md §6.3): a write-enabled agent run that resumes this chat's SDK
-  // session and triggers the vault's /save flow. Async like the maintenance runs.
-  const save = useMaintenanceRun(() => api.saveSession(activeId as string))
-  const canSave = activeId !== null && messages.some((m) => m.role === 'assistant')
-
   /**
    * Leaving a conversation ends it as the ACTIVE one. Without this the composer would keep
    * appending to a thread the reader has walked away from - and since the ledger's "+ New"
@@ -403,7 +396,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     setMode('ask')
     setView({ kind: 'thread', id })
     ask.reset()
-    save.reset()
     composerRef.current?.focus()
   }
 
@@ -844,11 +836,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               vaultName={vaultName}
               authMode={authMode}
               contentRef={threadRef}
-              canSave={canSave}
-              saving={save.running}
-              saveError={save.error}
-              saveResult={save.result}
-              onSave={save.start}
               onBack={leaveThread}
               onAskAgain={() => {
                 setMode('ask')
@@ -1208,7 +1195,8 @@ function DetailShell({
   contentRef?: React.RefObject<HTMLDivElement | null>
   children: React.ReactNode
   provenance: React.ReactNode
-  footAction: React.ReactNode
+  /** Optional: the chat thread's foot carries only its provenance line. */
+  footAction?: React.ReactNode
 }): React.ReactElement {
   /*
    * One box that scrolls (2026-09-08). It used to be a fixed head - bar, facts, chips - over a
@@ -1469,11 +1457,6 @@ function ThreadDetail({
   vaultName,
   authMode,
   contentRef,
-  canSave,
-  saving,
-  saveError,
-  saveResult,
-  onSave,
   onBack,
   onAskAgain,
 }: {
@@ -1487,11 +1470,6 @@ function ThreadDetail({
   vaultName: string
   authMode: AuthMode
   contentRef: React.RefObject<HTMLDivElement | null>
-  canSave: boolean
-  saving: boolean
-  saveError: string | null
-  saveResult: MaintenanceResult | undefined
-  onSave: () => void
   onBack: () => void
   onAskAgain: () => void
 }): React.ReactElement {
@@ -1550,13 +1528,6 @@ function ThreadDetail({
       }
       contentRef={contentRef}
       provenance="Read-only. Nothing was written and nothing was fetched from the web."
-      footAction={
-        canSave ? (
-          <button className="btn" disabled={saving} onClick={onSave}>
-            {saving ? 'Saving…' : 'Save conversation to vault'}
-          </button>
-        ) : null
-      }
     >
       <div className="thread">
         {messages.length === 0 && !pending && askError === null && (
@@ -1600,19 +1571,6 @@ function ThreadDetail({
         {askError !== null && (
           <div className="bubble system">
             <div className="bubble-body">Error: {askError}</div>
-          </div>
-        )}
-
-        {saving && <JobLog jobId="maintenance:save" seed={false} />}
-        {saveError !== null && <div className="toast err">{saveError}</div>}
-        {saveResult?.ok === true && (
-          <div className="toast ok">
-            Session saved
-            {saveResult.pages.length > 0 ? (
-              <PageLinks vaultName={vaultName} paths={saveResult.pages} />
-            ) : (
-              <> - no new pages.</>
-            )}
           </div>
         )}
       </div>

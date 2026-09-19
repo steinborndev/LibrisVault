@@ -393,7 +393,6 @@ export interface LintReport {
   totalFindings: number
 }
 
-/** `save` is the chat's "Session in Vault sichern" - same async run machinery. */
 /**
  * One research lens ("Achse A") from `GET /maintenance/research/profiles`. A closed set the
  * composer offers; the selected `key` rides along on `POST /maintenance/research`. `titleSuffix`
@@ -421,7 +420,6 @@ export type MaintenanceKind =
   | 'lint-fix'
   | 'research'
   | 'hot-cache'
-  | 'save'
   | 'domain-backfill'
   | 'domain-review'
   | 'cleanup'

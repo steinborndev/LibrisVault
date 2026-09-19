@@ -192,27 +192,13 @@ export function registerQueryRoute(app: FastifyInstance, ctx: AppContext): void 
     return reply.code(200).send({ ok: true })
   })
 
-  /**
-   * "Session in Vault sichern" (SPEC.md §6.3). Starts a write-enabled agent run that resumes
-   * this chat's SDK session and triggers the vault's `/save` flow. Async like the other
-   * vault-mutating runs: returns a run id at once, poll `GET /maintenance/runs/:id`.
+  /*
+   * There is deliberately no route that turns a conversation into a vault page (decided
+   * 2026-09-19, SPEC.md §6.3). `POST /api/v1/sessions/:id/save` used to, and the reasoning for
+   * removing it is at the spec: a chat answer is assembled FROM pages the vault already holds,
+   * so filing it creates a third copy of what two pages already say, which is the island-making
+   * this vault was measured to suffer from. The chat is read-only, all the way down.
    */
-  app.post('/api/v1/sessions/:id/save', async (req, reply) => {
-    if (config.auth === null) {
-      return reply.code(503).send({
-        error: 'no Anthropic credential configured: add it under System → Integrations, then restart',
-      })
-    }
-    const { id } = req.params as { id: string }
-    const session = chat.getSession(id)
-    if (session === undefined) return reply.code(404).send({ error: 'no such session' })
-    if (!session.sdk_session_id) {
-      // Nothing to resume: the session exists but never completed a query, so there is no
-      // conversation for the agent to write up.
-      return reply.code(400).send({ error: 'session has no completed query yet — nothing to save' })
-    }
-    return reply.code(202).send(ctx.maintenance.startSave(session.sdk_session_id, session.title ?? undefined))
-  })
 }
 
 /** A first-question-derived session title (trimmed to a sensible chip length). */

@@ -85,7 +85,6 @@ export type MaintenanceKind =
   | 'plan'
   | 'recap'
   | 'hot-cache'
-  | 'save'
   | 'domain-backfill'
   | 'domain-review'
   | 'cleanup'
@@ -1105,19 +1104,6 @@ export class MaintenanceRunner {
     })
   }
 
-  /**
-   * Saves a chat session into the vault (SPEC.md §6.3 "Session in Vault sichern"): resumes the
-   * chat's SDK session so the agent has the conversation, then triggers the vault repo's own
-   * `/save` flow. Runs under `ingest` — write access, no web — because the chat itself is
-   * read-only by design and cannot write the page it is being asked to produce.
-   */
-  startSave(sdkSessionId: string, title?: string): MaintenanceRun {
-    const label = title?.trim() ? ` (${title.trim()})` : ''
-    return this.start('save', '/save', 'ingest', {
-      resumeSessionId: sdkSessionId,
-      commitMessage: `chat: save session${label}`,
-    })
-  }
 
   /**
    * Judges the candidate themes the deterministic finder surfaced (SPEC.md §12.4 Stufe 3).
