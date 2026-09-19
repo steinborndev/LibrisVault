@@ -39,7 +39,7 @@ import {
   type RepairPlan,
 } from '../pipeline/repair.js'
 import { planManifestRepair } from '../pipeline/repair.js'
-import { renderIndex, renderOverviewCounters, updateOverview, renderBucketPages, updateBucketHub, bucketHubs, SERVICE_OWNED_HUBS } from '../pipeline/hubs.js'
+import { renderIndex, renderOverviewCounters, updateOverview, renderBucketPages, updateBucketHub, bucketHubs } from '../pipeline/hubs.js'
 import { withWikiLocks } from '../pipeline/wiki-lock.js'
 import { commitPaths } from '../pipeline/git.js'
 
