@@ -237,11 +237,11 @@ tell drift from method; none of these change a verdict.
 | contradictions | 27 | 30 sections, 24 with content | the harness separates a section that says "none" from one that carries an open contradiction |
 | pages in no hub | 51 / 4 | 48 / 1 | the harness follows `related:` frontmatter as well as body links, and counts `overview.md` and `hot.md` as hubs |
 
-### 0.2 `server/src/cli/vaultprobe.ts`: the four text contracts (A6)
+### 0.2 `server/src/cli/vaultprobe.ts`: the four text contracts (A6) - DONE 2026-09-19
 
-- [ ] A probe on the same reasoning as `permprobe` and `preprocprobe`: unit tests read the
+- [x] A probe on the same reasoning as `permprobe` and `preprocprobe`: unit tests read the
       policy, only a probe proves the vault still speaks the language we parse.
-- [ ] It provisions a **scratch vault** (clone or fixture copy, never `~/vault`), runs one
+- [x] It provisions a **scratch vault** (clone or fixture copy, never `~/vault`), runs one
       minimal ingest, and asserts all four contracts:
       1. the completion marker the queue keys on exists in the shape the queue expects
          (after phase 2 this is the new marker, see 2.4; keep both assertions during the
@@ -252,12 +252,36 @@ tell drift from method; none of these change a verdict.
          cache;
       4. the address rules the validator mirrors still hold: `scripts/allocate-address.sh`
          present, `.vault-meta/legacy-pages.txt` parseable, the `# rollout:` line readable.
-- [ ] `npm run vaultprobe` wired in the root `package.json` beside the other two probes.
-- [ ] A line in CLAUDE.md conventions: **re-run `vaultprobe` after every vault upgrade**, next
+- [x] `npm run vaultprobe` wired in the root `package.json` beside the other two probes.
+- [x] A line in CLAUDE.md conventions: **re-run `vaultprobe` after every vault upgrade**, next
       to the existing permprobe and preprocprobe sentences.
 - **DoD:** the probe passes against the current vault, and fails with a named contract when run
   against a fixture whose log format, report headings, skill paths or address rules were
   deliberately broken (four negative cases, one per contract, as tests).
+
+**Result.** `npm run vaultprobe` reports all four contracts green against `~/vault`
+(`--verbose` prints the 22 individual assertions behind them). The checks live in
+`server/src/pipeline/vault-contracts.ts` so they are testable; the CLI is a thin printer.
+
+The four negative cases are `server/test/vault-contracts.test.ts` over
+`server/test/fixtures/contract-vault/`, each breaking one contract the way an upgrade
+plausibly would and asserting that **this** contract fails and the other three do not: a log
+entry that stops naming its `.raw` source, a report whose `## Summary` is renamed, the
+hardcoded `references/program.md` moved away, and an allocator that stops minting `c-NNNNNN`.
+Three further cases: the failing assertion is named rather than just the contract, a vault that
+has never been linted counts as undrifted rather than broken, and a missing vault reports four
+failures instead of throwing.
+
+**One deliberate deviation from the task text, for review.** The task says the probe
+"provisions a scratch vault, runs one minimal ingest". A live run needs a credential and plan
+quota and takes minutes, which would keep the probe out of every routine check - and the DoD
+below asks for four negative cases that are all *file shapes*, which no run is needed to
+assert. So the default form is static and takes milliseconds, and the live ingest is `--ingest`:
+it provisions a scratch vault from the real vault's MACHINERY only (skills, commands, scripts,
+plugin manifest; never the real `wiki/`), ingests one small note, and asserts the shape of the
+`wiki/log.md` entry the run actually wrote. `--ingest` has not been run yet - the systemd
+service is inactive and the first live run belongs with task 2.4, which changes this very
+marker. Recorded here rather than quietly skipped.
 
 ### 0.3 Backups and the working rule - DONE 2026-09-19
 

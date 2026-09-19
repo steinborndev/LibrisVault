@@ -1,0 +1,4 @@
+# DragonScale legacy-pages manifest
+# rollout: 2026-01-01
+#
+wiki/concepts/Grandfathered.md
