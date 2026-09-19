@@ -1405,7 +1405,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     expect(run.status).toBe('done')
     // The service pins the synthesis title deterministically; the agent does not choose it.
     expect(prompt).toContain('research_lens')
-    expect(prompt).toContain('Research: tidal turbines — Patent Landscape')
+    expect(prompt).toContain('Research - tidal turbines — Patent Landscape')
     expect(prompt).toMatch(/does NOT\s+override the page-hygiene/)
   })
 

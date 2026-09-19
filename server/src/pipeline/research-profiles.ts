@@ -125,8 +125,32 @@ export function getResearchProfile(key: string | undefined): ResearchProfile {
   return (key !== undefined && BY_KEY.get(key)) || BY_KEY.get(DEFAULT_PROFILE_KEY)!
 }
 
-/** The prefix every synthesis page title (and file name) carries. */
-export const RESEARCH_PREFIX = 'Research: '
+/**
+ * The prefix every synthesis page title (and file name) carries.
+ *
+ * Colon-free since 2026-09-19 (B3). `Research: ` was the machine that minted the worst of this
+ * vault's dead links: a colon survives in `title:`, a filer that replaces it produces
+ * `Research - Foo`, and every link written from the title then resolves to nothing. Two pages
+ * account for 43 of the 55 colon-class dead-link occurrences.
+ */
+export const RESEARCH_PREFIX = 'Research - '
+
+/**
+ * The spelling used before 2026-09-19. Recognition has to accept both forever: 31 synthesis
+ * pages carry it, and a run that no longer recognises them files a second page beside one it
+ * should have extended.
+ */
+export const LEGACY_RESEARCH_PREFIX = 'Research: '
+
+/**
+ * How long a page title may be.
+ *
+ * This vault holds five file names between 213 and 221 characters - within a few bytes of the
+ * 255-byte limit every common filesystem has, and already past what some sync tools accept.
+ * A title is a name, and a name that cannot be written down is not one. 120 leaves room for
+ * the prefix, a lens suffix and the `.md`.
+ */
+export const TITLE_MAX_CHARS = 120
 
 /** The deterministic synthesis-page title the service pins for this lens + topic. */
 /**
@@ -145,7 +169,7 @@ export const RESEARCH_PREFIX = 'Research: '
  * own `safe_name()` strips, so a title can neither escape its folder nor read as a flag.
  */
 export function titleSafe(topic: string): string {
-  const cleaned = [...topic.replace(/[/\\]+/g, '-')]
+  const cleaned = [...topic.replace(/[/\\]+/g, '-').replace(/\s*[:?*"<>|]+\s*/g, ' - ')]
     // Control characters, the other half of what the vault's own `safe_name()` strips. A
     // character class would say this more directly, but the lint rule that forbids control
     // characters in a regex is right about every other use of one.
@@ -154,8 +178,25 @@ export function titleSafe(topic: string): string {
     .trim()
     // After the trim, not before: leading whitespace used to shelter the dot behind it.
     .replace(/^[.-]+/, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/(?:\s-\s){2,}/g, ' - ')
     .trim()
-  return cleaned === '' ? 'untitled' : cleaned
+  return cleaned === '' ? 'untitled' : shortenTitle(cleaned)
+}
+
+/**
+ * Cuts a title to {@link TITLE_MAX_CHARS} on a word boundary, deterministically.
+ *
+ * The autoresearch template is `Research: [Topic]`, and the topic is whatever the user asked -
+ * a whole question, in this vault's worst cases. Truncating on a word keeps the name readable
+ * and keeps two runs on one topic from colliding on a cut in the middle of a word.
+ */
+export function shortenTitle(title: string, max: number = TITLE_MAX_CHARS): string {
+  const trimmed = title.trim()
+  if (trimmed.length <= max) return trimmed
+  const cut = trimmed.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  return (space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:-]+$/, '').trim()
 }
 
 /**
@@ -183,7 +224,8 @@ export function isSynthesisPath(relPath: string): boolean {
   // land as `<first half>/<second half>.md` and pass this check, so the run reported a
   // synthesis filed and the warning that would have caught it never fired (see `titleSafe`).
   if (name.includes('/')) return false
-  return name.startsWith(RESEARCH_PREFIX)
+  // Both spellings: the colon-free one this service pins now, and the one 31 pages carry.
+  return name.startsWith(RESEARCH_PREFIX) || name.startsWith(LEGACY_RESEARCH_PREFIX)
 }
 
 /**

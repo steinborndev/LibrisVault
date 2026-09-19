@@ -25,6 +25,7 @@ import path from 'node:path'
 import { parseWikilinks } from './citations.js'
 import { findWrappedLinks } from './link-repair.js'
 import { pluginDocPages } from './upstream-guard.js'
+import { TITLE_MAX_CHARS } from './research-profiles.js'
 import { parseFrontmatterMeta, type VaultGraph } from './graph.js'
 
 export type ValidationRule =
@@ -44,6 +45,8 @@ export type ValidationRule =
   | 'quote'
   /** Two pages the vault's own tiling check reads as saying the same thing (A5, `tiling.ts`). */
   | 'near-duplicate'
+  /** A `title:` its own file name cannot carry, or one too long to be a name at all (B3). */
+  | 'title-name'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule
@@ -66,6 +69,9 @@ const DEFAULT_ROLLOUT = '2026-04-23'
 const CONTENT_BUCKETS = new Set(['concepts', 'entities', 'sources', 'questions', 'comparisons', 'references'])
 
 const ADDRESS_RE = /^[cl]-\d{6}$/
+
+/** Characters a file name cannot portably carry, so a title holding one drifts from its name. */
+const UNSAFE_TITLE_CHARS = /[/\\:?*"<>|]/
 
 /**
  * Lint reports QUOTE findings as wikilinks — dead links deliberately, orphans linked by the
@@ -296,6 +302,36 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
           rule: 'frontmatter',
           path: rel,
           message: `missing required frontmatter field(s): ${missing.join(', ')}`,
+        })
+      }
+    }
+
+    /*
+     * A title its own file name cannot carry (B3). This is the vault's largest mechanical
+     * dead-link class: the title keeps the character, the file name loses it, and every link
+     * written from the title lands nowhere. 55 occurrences today, 43 of them from two pages.
+     *
+     * Checked against the file name AS IT IS, not against a guess: a page called `Foo - Bar`
+     * whose title says `Foo: Bar` is the defect, and one where both say the same thing is not,
+     * whatever characters that happens to be.
+     */
+    const title = (fm.fields.get('title') ?? '').trim()
+    if (title !== '') {
+      const fileName = rel.split('/').pop()!.replace(/\.md$/, '')
+      if (title !== fileName && UNSAFE_TITLE_CHARS.test(title)) {
+        findings.push({
+          rule: 'title-name',
+          path: rel,
+          message:
+            `title "${title}" carries a character the file name cannot (it is filed as "${fileName}"), ` +
+            `so every wikilink written from the title resolves to nothing - use a hyphen in both`,
+        })
+      }
+      if (title.length > TITLE_MAX_CHARS) {
+        findings.push({
+          rule: 'title-name',
+          path: rel,
+          message: `title is ${title.length} characters; keep it under ${TITLE_MAX_CHARS} so the file name stays inside every filesystem's limit`,
         })
       }
     }

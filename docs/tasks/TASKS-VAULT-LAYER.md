@@ -850,28 +850,43 @@ there.
 
 All of this is prompt and validator work. It prevents; phase 8 repairs.
 
-### 4.1 The name rule that covers the colon (B3)
+### 4.1 The name rule that covers the colon (B3) - DONE 2026-09-19
 
-- [ ] Extend the `PAGE_HYGIENE_CHECKLIST` rule that already covers `/` and `\` to cover **`:`**
+- [x] Extend the `PAGE_HYGIENE_CHECKLIST` rule that already covers `/` and `\` to cover **`:`**
       and every other character a file name cannot carry portably (`:`, `?`, `*`, `"`, `<`, `>`,
       `|`), in the same concrete voice as the slash rule, which is the one that measurably
       worked. State the mechanism, not just the ban: the link is written from the title, so a
       title the file name cannot carry produces a dead link on every mention.
-- [ ] Add the length rule: the vault holds five file names at 213 to 221 characters, which is
+- [x] Add the length rule: the vault holds five file names at 213 to 221 characters, which is
       within a few bytes of the 255-byte limit on every common filesystem and already over what
       some sync tools accept. Cap the title at a stated length.
-- [ ] The autoresearch title template is the machine that mints the worst of these: the skill's
+- [x] The autoresearch title template is the machine that mints the worst of these: the skill's
       `Research: [Topic]` with a whole user question as `[Topic]`. Add a service-side shortener
       that produces a bounded, colon-free synthesis title, and state it in the research prompt
       next to the synthesis mandate.
-- [ ] `validator.ts` gains a rule that fires when a page's `title:` cannot be carried by its own
+- [x] `validator.ts` gains a rule that fires when a page's `title:` cannot be carried by its own
       file name, and when a title exceeds the cap. This is the mechanical half; it catches the
       class at write time rather than at the next lint.
-- [ ] Tests: the validator rule over the six characters and over a 240-char title; the shortener
+- [x] Tests: the validator rule over the six characters and over a 240-char title; the shortener
       is deterministic, bounded and collision-free for two lenses on one topic; the existing
       slash tests still pass.
 - **DoD:** a scratch research run on a long question produces a title under the cap with no
   colon, and the validator flags a deliberately colon-titled fixture page.
+
+**Result.** The synthesis prefix itself was the machine: `Research: ` put a colon into every
+synthesis title, and `titleSafe` only ever repaired `/` and `\`. It is now `Research - `,
+`titleSafe` turns `: ? * " < > |` into a separator, and titles are cut to **120 characters** on
+a word boundary. `isSynthesisPath` accepts BOTH spellings forever - 31 pages carry the old one,
+and a run that stops recognising them files a second page beside one it should have extended.
+
+The validator rule fires on the DRIFT, not on the character: a page filed as `Foo - Bar` whose
+title says `Foo: Bar` is the defect; one where both say `Foo: Bar` is not, and a rule that
+flagged the character would have reported pages with nothing wrong with them (a colon is legal
+in a file name on this filesystem, which is exactly why the two can drift).
+
+**Measured over the live vault: 133 findings - 61 punctuation drifts and 72 titles over the
+cap.** That is phase 8.2's work item, and the 72 is a bigger number than B3's five worst file
+names suggested.
 
 ### 4.2 A minimal page schema (B4)
 

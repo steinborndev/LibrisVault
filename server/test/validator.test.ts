@@ -428,3 +428,51 @@ describe('createValidator', () => {
     expect(rules(findings)).toContain('orphan')
   })
 })
+
+/**
+ * A title its own file name cannot carry (B3, 4.1): this vault's largest mechanical dead-link
+ * class. The title keeps the character, the file name loses it, and every link written from
+ * the title lands nowhere - 55 occurrences today, 43 of them from two pages alone.
+ */
+describe('the title-name rule', () => {
+  const page = (rel: string, title: string): string => {
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "${title}"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# ${title}\n`,
+    )
+    return rel
+  }
+
+  it('fires on each character a file name cannot portably carry', () => {
+    for (const bad of [':', '?', '*', '"', '<', '>', '|', '/', '\\']) {
+      const rel = page('wiki/concepts/Foo - Bar.md', `Foo${bad}Bar`)
+      const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+      expect(findings, bad).toHaveLength(1)
+      expect(findings[0]?.message).toContain('resolves to nothing')
+    }
+  })
+
+  it('stays silent when the title and the file name agree, whatever they contain', () => {
+    // A colon is legal in a file name on this filesystem. The defect is the DRIFT, not the
+    // character, and a rule that fired on the character would flag pages nothing is wrong with.
+    const rel = page('wiki/concepts/Foo: Bar.md', 'Foo: Bar')
+    expect(validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')).toEqual([])
+  })
+
+  it('fires on a title too long to be a name', () => {
+    const long = `A ${'very '.repeat(40)}long title`
+    const rel = page(`wiki/concepts/${long}.md`, long)
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('characters; keep it under 120')
+  })
+
+  it('says nothing about a page with no title at all', () => {
+    const abs = path.join(vaultRoot, 'wiki/concepts/Untitled.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\ntype: concept\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Untitled\n')
+    expect(validatePages(vaultRoot, ['wiki/concepts/Untitled.md']).filter((f) => f.rule === 'title-name')).toEqual([])
+  })
+})
