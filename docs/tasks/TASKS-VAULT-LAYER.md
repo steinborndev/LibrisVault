@@ -343,26 +343,45 @@ Worth recording for later: the mechanism is the vault's `hooks/hooks.json` `Post
 which runs `git add -- wiki/ .raw/ .vault-meta/` plus a commit after every Write and Edit and
 exits early only when the flag file exists. That is the file this task asserts.
 
-### 1.2 Deny history-destroying commands in an agent run (N5)
+### 1.2 Deny history-destroying commands in an agent run (N5) - DONE 2026-09-19
 
-- [ ] Add one `BASH_DENY` entry covering git subcommands that destroy or rewrite history or
+- [x] Add one `BASH_DENY` entry covering git subcommands that destroy or rewrite history or
       discard uncommitted work: `reset --hard`, `clean`, `checkout --`/`restore` over a
       pathspec, `filter-branch`, `filter-repo`, `reflog expire`, `gc --prune=now`,
       `update-ref -d`, `branch -D`, `push --force`. Reason string names hard rule 1's
       "versioned and revertable".
-- [ ] Add a second entry for non-git bulk destruction inside the vault that the current `rm`
+- [x] Add a second entry for non-git bulk destruction inside the vault that the current `rm`
       pattern misses because it only guards paths *outside* the vault: `find ... -delete`,
       `find ... -exec rm`, `truncate -s 0` and `shred` against anything under `wiki/`.
-- [ ] Comment block above the new entries stating explicitly why this is not the whitelist
+- [x] Comment block above the new entries stating explicitly why this is not the whitelist
       hard rule 4 forbids: this is not an attempt to decide what an arbitrary shell string
       writes (still not tractable, still the sandbox's job), it is the one class the sandbox
       cannot contain at all, because `.git` lives inside the write-allowed root.
-- [ ] Tests in `permissions.test.ts`: the nine commands measured in N5, plus the legitimate git
+- [x] Tests in `permissions.test.ts`: the nine commands measured in N5, plus the legitimate git
       the ingest skill actually uses (`git add`, `git commit`, `git status`, `git log`,
       `git ls-files`, `git diff`) which must all stay allowed.
-- [ ] **Re-run `permprobe`.** Expect `canary outside vault: blocked`.
+- [x] **Re-run `permprobe`.** Expect `canary outside vault: blocked`.
 - **DoD:** the nine destructive shapes refuse with a named reason, the six legitimate ones pass,
   permprobe green, and a scratch agent run that does a normal ingest completes unchanged.
+
+**Result.** Three entries, not two. The nine measured shapes all refuse, plus four more of the
+same class found while writing them (`reflog expire`, `update-ref -d`, `branch -D`,
+`commit --amend` - the last because an amended commit invalidates a stored `jobs.commit_hash`
+exactly as a reset does). Nine legitimate git forms stay allowed, including the
+`rm -rf .vault-meta/chunks/` the vault's own retrieval skill documents.
+
+The third entry is the one the task text did not anticipate: `python3 -c "import shutil;
+shutil.rmtree('wiki')"` was still allowed after the first two, because the scan stopped at the
+`;` INSIDE the quoted script. It now matches named destructive calls in an inline `-c`/`-e`
+script and crosses semicolons but not newlines. Deliberately narrow - a script FILE doing the
+same passes, which is the sandbox's job, not this list's.
+
+`permprobe` re-run after the change, both halves green: `canary outside vault: blocked`,
+`canary in skills/: blocked`, and the expand probe's five cases all ok.
+
+Not done: the scratch agent ingest the DoD's last clause asks for. It belongs with 0.2's
+`--ingest` and with 2.4, which changes what that run has to produce; running it three times
+costs three runs for one answer. Recorded rather than quietly skipped.
 
 ### 1.3 Widen the service's lock window (A2)
 
