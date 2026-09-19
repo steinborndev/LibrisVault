@@ -72,7 +72,7 @@ them, and the DoD for those tasks states it that way.
 | A8 | no overlap block in an ingest prompt | `renderIngestOverlap` in every ingest prompt, deliverable stated last | 3.1 |
 | A9 | 406 warn rows, `jobs.validation` NULL on all 37 | findings are stored structurally (`validation_findings`, migration 32) and deduped by identity rather than by text | 5.1 to 5.4 |
 | A10 | hard rule 1 names 4 writers, the real set is 9 | the rule names the real set, and every writer takes the file lock | 7.4, docs |
-| B1 | `index.md` 514 kB / 94 dated sections; `log.md` 777 kB / 258 entries; `overview.md` 91 kB | `index.md` **93 kB / 0 dated sections**; `log.md` **83.6 kB / 26 entries**, the other 257 reachable from `wiki/folds/log-YYYY-MM.md`; `overview.md` 91.6 kB with a service-owned counter block | 2.1, 2.6, 8.1, 8.8 |
+| B1 | `index.md` 514 kB / 94 dated sections; `log.md` 777 kB / 258 entries; `overview.md` 91 kB with a 25 kB line | `index.md` **93 kB / 0 dated sections**; `log.md` **83.6 kB / 26 entries**, the other 257 reachable from `wiki/folds/log-YYYY-MM.md`; `overview.md` **1.7 kB, longest line 206**, with a service-owned counter block. The bucket hubs are deliberately untouched, which is most of the 497 kB the hubs still weigh | 2.1, 2.6, 8.1, 8.8 |
 | B2 | 73 % of concepts cite one source | unchanged by design: this is what phase 3 prevents going forward, not something a repair can invent. Newly measured per creation month so the next 50 documents can be read against it: 54.3 % (Jul), 54.5 % (Aug), **59.7 % (Sep)** | 3.1 to 3.3 |
 | B3 | 231 dead occurrences over 96 targets / 25,712 links | **164 over 48 targets / 24,399 links**, 73 outside the append-only records. The colon rule is in the hygiene checklist, so the class stops growing | 4.1, 8.4 |
 | B4 | 2243 distinct `##` over 604 concept pages | unchanged: a heading vocabulary is content, and D1's repair was mechanical. The page-schema rule now reports it (801 findings) instead of nobody counting | 4.2, 5.1 |
@@ -758,9 +758,11 @@ The last DoD clause (a scratch ingest run) needs a live agent run and is recorde
 
 ### 2.6 Rebuild `overview.md` once, then generate its counters - MECHANISM DONE 2026-09-19 (the rebuild is 8.1)
 
-- [ ] `overview.md` loses the shipped demo text ("This is the claude-obsidian demo vault ...
+- [x] `overview.md` loses the shipped demo text ("This is the claude-obsidian demo vault ...
       Run `/wiki` to scaffold this vault") and the appended "Current Seed Content" list that
-      produced the 25 kB line.
+      produced the 25 kB line. **DONE 2026-09-19** by `overviewPass`, applied as vault commit
+      `cc89013`: **89.4 kB to 1.6 kB, longest line 24,997 to 206**, zero `stale-counter`
+      findings against the page. The DoD's "under 8 kB, no line over 500" is met with room.
 - [x] What remains: a short hand-owned purpose section the user writes once, plus a generated
       counters block between markers, refreshed by `renderIndex`'s pass.
 - [x] Tests: the counters block is replaced in place and the hand-owned text survives a
@@ -777,6 +779,28 @@ clock, so two renders of an unchanged vault are identical.
 vault CONTENT change. Dry run against the live vault (read-only): `overview.md` 91.4 kB to
 91.8 kB - the counters block added, nothing removed. The 25 kB line and the demo sentences go
 in 8.1, which is where the DoD's "under 8 kB" belongs.
+
+**Result of that rebuild, and a correction to the first pass at 8.1.** 8.1 was ticked when the
+index and the log were rebuilt, and `overview.md` was not: it had gained the counters block and
+lost nothing, so the page was still 91.6 kB and this bullet was still open. Caught by going
+back through the unticked sub-bullets rather than by any check, which is the argument for
+having them.
+
+What the rebuild removed, and why each was safe to remove:
+
+| section | size | where it says the same thing |
+|---|---|---|
+| `## Purpose` (demo sentences) | 0.3 kB | nowhere; replaced by a note that the section is the user's to write |
+| `## Current Seed Content` | 1.3 kB | the six pages the plugin shipped with, all in the regenerated index |
+| `## Beyond the Seed Domain` | 25.0 kB **on one line** | a run-on sentence every run extended; the domain count is in the counters block |
+| `## Current State` | 63.5 kB | two stale counters (in the counters block) and 50 appended "Prior activity" lines (in `log.md`, whose whole job that is) |
+
+**The check that had to pass first**, and it is the one the hub rebuild taught: of the **319
+wikilinks in the dropped sections, 318 are also in the regenerated `index.md`**, and the 319th
+is `[[index]]` from the page's own navigation line, which stays. Zero reachability lost. The
+`## Current State` section was also read line by line before removal, the same way the
+run-protocol pass was: 50 of its 53 lines are dated activity entries, two are the stale
+counters, and none carries an argument.
 
 ### 2.7 The `_index.md` bucket hubs - MECHANISM DONE 2026-09-19 (the insertion is 8.1)
 
@@ -1421,10 +1445,15 @@ Rules for every task in this phase, without exception:
 
 ### 8.1 Rebuild the hubs - DONE 2026-09-19 (the bucket hubs deliberately not)
 
-- [ ] `index.md` regenerated by 2.1. 514 kB to an expected sub-200 kB catalog. The 94 dated
+- [x] `index.md` regenerated by 2.1. **514 kB to 93 kB, 94 dated sections to 0.** The 94 dated
       event sections stop being a second changelog beside `log.md`.
-- [ ] `overview.md` per 2.6.
-- [ ] `_index.md` hubs per 2.7, with the curated descriptions preserved.
+- [x] `overview.md` per 2.6. **89.4 kB to 1.6 kB** (vault commit `cc89013`); see 2.6's result.
+- [ ] `_index.md` hubs per 2.7, with the curated descriptions preserved. **DELIBERATELY NOT
+      DONE**, and this box stays open as the record of that: the dry run showed the insertion
+      takes `concepts/_index.md` from 154 kB to 188 kB and `sources/_index.md` from 123 to 165,
+      because the dated event sections are still under it. Bigger, not smaller. Doing it means
+      pruning those sections in the same reviewed pass, which is content the user has not
+      looked at. `--with-buckets` runs it when they have.
 - **DoD:** link set is a superset of today's minus the dead ones; the 51 pages absent from
   `index.md` are present; no curated description lost.
 

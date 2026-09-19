@@ -15,6 +15,7 @@ import {
   planManifestRepair,
   dashLinkPass,
   planLogArchive,
+  overviewPass,
 } from '../src/pipeline/repair.js'
 import { fieldOf, CONTENT_UPDATED } from '../src/pipeline/page-dates.js'
 
@@ -527,5 +528,78 @@ describe('planLogArchive', () => {
 
   it('is inert on a vault with no log at all', () => {
     expect(planLogArchive(vault, 25)).toEqual({ log: null, archives: [], kept: 0, archived: 0 })
+  })
+})
+
+/**
+ * `overview.md` (2.6's DoD, applied in 8.1).
+ *
+ * The page was 89.4 kB. 1.6 kB of that was the plugin's shipped demo text on a vault of 1208
+ * pages; the other 88 kB was two hand-maintained accumulations that the service now generates
+ * or that `log.md` already holds. Measured before applying: of the 319 wikilinks in the dropped
+ * sections, 318 are also in the regenerated index and the 319th is the page's own navigation
+ * line, so the removal costs no reachability.
+ */
+describe('overviewPass', () => {
+  // The pass reads nothing off disk; the vault root is part of the RepairPass contract.
+  const VAULT_ROOT_UNUSED = '/nowhere'
+  const page = (body: string): string => `---\ntype: overview\n---\n\n# Wiki Overview\n\nNav: [[index]]\n\n${body}`
+
+  it('drops the sections that are counted or logged elsewhere', () => {
+    const before = page(
+      '## Current Seed Content\n\n- [[A]]\n\n## Beyond the Seed Domain\n\nOne very long line.\n\n' +
+        '## Current State\n\n- Wiki pages: 1247\n- Prior activity: [[B]]\n\n## Key Themes\n\nKept.\n',
+    )
+    const out = overviewPass('wiki/overview.md', before, VAULT_ROOT_UNUSED)
+    expect(out).not.toBeNull()
+    expect(out!.after).not.toContain('Current Seed Content')
+    expect(out!.after).not.toContain('Beyond the Seed Domain')
+    expect(out!.after).not.toContain('Current State')
+    expect(out!.after).toContain('## Key Themes')
+    expect(out!.after).toContain('Kept.')
+  })
+
+  it('replaces the shipped demo text and says whose section it is', () => {
+    const out = overviewPass(
+      'wiki/overview.md',
+      page('## Purpose\n\nThis is the claude-obsidian demo vault. It demonstrates things.\n\n---\n'),
+      VAULT_ROOT_UNUSED,
+    )
+    expect(out!.after).not.toContain('claude-obsidian demo vault')
+    expect(out!.after).toContain('## Purpose')
+    expect(out!.after).toContain('hand-owned')
+  })
+
+  it('never writes a purpose for the vault, which is the user\'s sentence', () => {
+    // A generator inventing what a vault is FOR is the one thing this pass must not do.
+    const out = overviewPass('wiki/overview.md', page('## Purpose\n\nThis is the claude-obsidian demo vault.\n'), VAULT_ROOT_UNUSED)
+    expect(out!.after).toContain('This section is hand-owned')
+  })
+
+  it('leaves a purpose the user already wrote exactly as it is', () => {
+    const mine = page('## Purpose\n\nEverything I read about lipid chemistry.\n\n## Key Themes\n\nKept.\n')
+    expect(overviewPass('wiki/overview.md', mine, VAULT_ROOT_UNUSED)).toBeNull()
+  })
+
+  it('leaves the generated counters block alone, markers included', () => {
+    const before = page(
+      '## Current State\n\n- Wiki pages: 1\n\n## Vault counters\n\n<!-- vault-service:counters -->\n\n- Pages: 7\n\n<!-- /vault-service:counters -->\n',
+    )
+    const out = overviewPass('wiki/overview.md', before, VAULT_ROOT_UNUSED)
+    expect(out!.after).toContain('<!-- vault-service:counters -->')
+    expect(out!.after).toContain('- Pages: 7')
+    expect(out!.after).toContain('<!-- /vault-service:counters -->')
+  })
+
+  it('touches no other page, however much it looks like an overview', () => {
+    const other = page('## Current State\n\n- Wiki pages: 1247\n')
+    expect(overviewPass('wiki/meta/overview.md', other, VAULT_ROOT_UNUSED)).toBeNull()
+    expect(overviewPass('wiki/concepts/Overview.md', other, VAULT_ROOT_UNUSED)).toBeNull()
+  })
+
+  it('is idempotent: a second run finds nothing to do', () => {
+    const before = page('## Purpose\n\nThis is the claude-obsidian demo vault.\n\n## Current State\n\n- Wiki pages: 1\n')
+    const once = overviewPass('wiki/overview.md', before, VAULT_ROOT_UNUSED)!.after
+    expect(overviewPass('wiki/overview.md', once, VAULT_ROOT_UNUSED)).toBeNull()
   })
 })

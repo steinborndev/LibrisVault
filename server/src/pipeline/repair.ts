@@ -709,3 +709,94 @@ export function planLogArchive(vaultRoot: string, keep: number = LOG_KEEP_ENTRIE
   ].join('\n')
   return { log, archives, kept: recent.length, archived: older.length }
 }
+
+/* -------------------------------------------------- the overview rebuild (2.6's DoD, in 8.1) */
+
+/**
+ * `overview.md`: the sections that accumulated, and the demo text under them (2.6, applied in
+ * 8.1).
+ *
+ * MEASURED, and the numbers say what this is. The page is 91.6 kB. Its `## Purpose` still says
+ * "This is the claude-obsidian demo vault ... Run `/wiki` to scaffold this vault for your own
+ * domain and replace this overview" - on a vault of 1208 pages across 21 domains - and
+ * `## Current Seed Content` still lists the six pages the plugin shipped with. Those are 1.6 kB
+ * of the 91.6.
+ *
+ * The other 88 kB is two hand-maintained accumulations, and they are the same class the hub
+ * layer was built for one page further out:
+ *
+ *   - `## Current State`, 63.5 kB, is a page count, a source count and then one appended line
+ *     per ingest going back months. The counts are in the generated block at the foot of this
+ *     same page; the activity is `log.md`, which is the file whose whole job that is.
+ *   - `## Beyond the Seed Domain`, 25 kB **on one line**, is a run-on sentence that every run
+ *     extended with its domain. The domain count is in the generated block too.
+ *
+ * So this removes nothing that is not written down better elsewhere, which is the only reason
+ * a pass may touch a hand-owned page at all.
+ *
+ * WHAT IT DOES NOT DO. It does not write a purpose for this vault. That is the user's sentence
+ * and a generator has no business inventing it; the section is left with one line saying so.
+ * `## Key Themes`, `## Canvases` and the generated counters block are untouched.
+ */
+export const OVERVIEW_PAGE = 'wiki/overview.md'
+
+/** The demo sentence the plugin ships, and the marker of a vault nobody has adopted yet. */
+const DEMO_OVERVIEW = /This is the claude-obsidian demo vault\./
+
+/** Sections whose content is generated, logged or counted somewhere better. */
+const OVERVIEW_DROP = ['Current Seed Content', 'Beyond the Seed Domain', 'Current State'] as const
+
+const PURPOSE_PLACEHOLDER =
+  'What this vault is for, in a few sentences. This section is hand-owned: nothing generates it,\n' +
+  'and the ingestion service will not touch it again. It currently holds the text the\n' +
+  'claude-obsidian plugin ships with, which was true of an empty vault and is not true of this one.'
+
+/**
+ * Splits a page into its `##` sections, keeping everything before the first one as the head.
+ *
+ * Deliberately not a markdown parser: a `##` inside a fenced code block would fool it. The one
+ * page this runs against has no fences, and the dry run is what proves it rather than the
+ * regex - which is the same bargain every pass in this file makes.
+ */
+function sections(markdown: string): { head: string; parts: { heading: string; body: string }[] } {
+  const split = markdown.split(/^(?=## )/m)
+  const head = split[0] ?? ''
+  const parts = split.slice(1).map((chunk) => {
+    const nl = chunk.indexOf('\n')
+    return nl === -1
+      ? { heading: chunk.trim(), body: '' }
+      : { heading: chunk.slice(0, nl).trim(), body: chunk.slice(nl + 1) }
+  })
+  return { head, parts }
+}
+
+export const overviewPass: RepairPass = (rel, markdown) => {
+  if (rel !== OVERVIEW_PAGE) return null
+  const { head, parts } = sections(markdown)
+  const dropped: string[] = []
+
+  const kept = parts.filter((p) => {
+    const name = p.heading.replace(/^##\s*/, '').trim()
+    if (!OVERVIEW_DROP.includes(name as (typeof OVERVIEW_DROP)[number])) return true
+    dropped.push(`${name} (${p.body.length} B)`)
+    return false
+  })
+
+  let purposeRewritten = false
+  for (const p of kept) {
+    if (p.heading.replace(/^##\s*/, '').trim() !== 'Purpose') continue
+    if (!DEMO_OVERVIEW.test(p.body)) continue
+    // Keep the section's own trailing separator, which is what holds the page's rhythm.
+    const rule = /\n---\s*\n\s*$/.test(p.body) ? '\n---\n\n' : '\n'
+    p.body = `\n${PURPOSE_PLACEHOLDER}\n${rule}`
+    purposeRewritten = true
+  }
+
+  if (dropped.length === 0 && !purposeRewritten) return null
+  const after = head + kept.map((p) => `${p.heading}\n${p.body}`).join('')
+  const why = [
+    ...(purposeRewritten ? ['the shipped demo text replaced by a note that the section is the user\'s'] : []),
+    ...(dropped.length > 0 ? [`dropped: ${dropped.join(', ')} - all of it counted or logged elsewhere`] : []),
+  ].join('; ')
+  return { after, why }
+}

@@ -1,8 +1,8 @@
 {
   "meta": {
-    "measuredAt": "2026-09-19T19:50:35.064Z",
+    "measuredAt": "2026-09-19T20:40:54.556Z",
     "now": "2026-09-19",
-    "head": "78886861ebe7b57be893554c07d6ab5503c7dbfe"
+    "head": "cc8901384fbcaff1e54f68cbad906526f84a1d92"
   },
   "pages": {
     "total": 1251,
@@ -174,16 +174,6 @@
       "relatedDuplicates": 0
     },
     {
-      "path": "wiki/overview.md",
-      "bytes": 91607,
-      "lines": 150,
-      "longestLine": 24997,
-      "sections": 7,
-      "datedSections": 0,
-      "relatedEntries": 5,
-      "relatedDuplicates": 0
-    },
-    {
       "path": "wiki/log.md",
       "bytes": 83568,
       "lines": 228,
@@ -212,10 +202,20 @@
       "datedSections": 0,
       "relatedEntries": 4,
       "relatedDuplicates": 0
+    },
+    {
+      "path": "wiki/overview.md",
+      "bytes": 1684,
+      "lines": 64,
+      "longestLine": 206,
+      "sections": 4,
+      "datedSections": 0,
+      "relatedEntries": 5,
+      "relatedDuplicates": 0
     }
   ],
   "links": {
-    "total": 24399,
+    "total": 23918,
     "wrapped": 0,
     "dead": {
       "occurrences": 164,
@@ -382,8 +382,8 @@
   },
   "style": {
     "emDash": {
-      "occurrences": 750,
-      "pages": 262
+      "occurrences": 745,
+      "pages": 261
     },
     "enDash": {
       "occurrences": 53
@@ -483,7 +483,7 @@
     }
   },
   "git": {
-    "totalBlobBytes": 1772543911,
+    "totalBlobBytes": 1772545595,
     "byClass": {
       "rawOriginal": {
         "bytes": 822935139,
@@ -494,8 +494,8 @@
         "blobs": 16
       },
       "wiki": {
-        "bytes": 259966862,
-        "blobs": 8531
+        "bytes": 259968546,
+        "blobs": 8532
       },
       "other": {
         "bytes": 29811430,
@@ -524,8 +524,8 @@
         "versions": 271
       },
       "wiki/overview.md": {
-        "bytes": 3379051,
-        "versions": 94
+        "bytes": 3380735,
+        "versions": 95
       }
     },
     "hubShareOfWiki": 79.9,
