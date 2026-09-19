@@ -181,11 +181,11 @@ are not taken.
 Nothing in this phase changes behaviour. It exists so every later definition of done is a
 number that can be compared rather than a judgement.
 
-### 0.1 `scripts/vault-audit.mjs`: the measurement harness
+### 0.1 `scripts/vault-audit.mjs`: the measurement harness - DONE 2026-09-19
 
-- [ ] One script, read-only, that reproduces **every number in section 0 of this file** from a
+- [x] One script, read-only, that reproduces **every number in section 0 of this file** from a
       vault path given as an argument. Grouped output plus `--json` for diffing two runs.
-- [ ] It must cover at least: page counts by type; sources per page by type; multi-commit rate
+- [x] It must cover at least: page counts by type; sources per page by type; multi-commit rate
       by bucket; hub sizes, line counts, longest line, `##` section counts and how many of them
       are dated events; dead wikilinks with the cause classification (colon, slash, trailing
       backslash, other); distinct `##` headings by type with the best-shared share; run-protocol
@@ -195,7 +195,7 @@ number that can be compared rather than a judgement.
       contradiction callouts; pages absent from `index.md` and from every hub; address
       integrity in both directions plus orphan `.raw` job directories; git history bytes by
       class and by hub file.
-- [ ] Unit tests over a fixture vault under `server/test/fixtures/` (not the real one) covering
+- [x] Unit tests over a fixture vault under `server/test/fixtures/` (not the real one) covering
       at least the dead-link classifier, the mirroring detector and the address-map both-ways
       check.
 - **DoD:** `node scripts/vault-audit.mjs ~/vault` reproduces section 0's table within the
@@ -203,6 +203,39 @@ number that can be compared rather than a judgement.
   once as `docs/tasks/vault-audit-baseline-2026-09-19.json` (numbers only, no titles, no page
   paths - hard rule 7; the script needs a `--redact` mode that drops every path and title from
   the JSON, and that mode is what gets committed).
+
+**Result.** `node scripts/vault-audit.mjs ~/vault --now 2026-09-19` runs in **1.2 s** (budget
+60 s), writes nothing, and the redacted JSON is committed as
+`docs/tasks/vault-audit-baseline-2026-09-19.json` (9.8 kB; `vault-name-scan --file` over it
+matches nothing, and the only free text left in it is hub file names and the vault HEAD hash).
+28 unit tests over `server/test/fixtures/audit-vault/`, a hand-built vault carrying one planted
+instance of every defect class.
+
+Reproduced **exactly**: 1247 wiki pages; concepts 604 / entities 225 / sources 338; concepts
+443 single-source (73.3 %), 92 none, 69 two-or-more; entities 107 / 74; `index.md` 105 `##` of
+which 94 dated; `log.md` 258 entries; 2243 distinct concept headings at 41.1 % best-shared,
+635 source headings at 40.8 %, 194 entity headings at 36.4 %; 10,257 em-dashes across 819 pages;
+4 alias collisions; 1174 pages with an address, 900 map entries, 274 missing, 0 duplicates,
+counter 1189 against max 1188; 226 `.raw` job dirs, 20 named in no source, 7 dangling
+`pages_created`; 1231 pages (98.7 %) updated within 30 days; status 786 / 244 / 150 plus a tail
+of ten one-off values; type mirroring 96 % / 82.2 % / 83.5 % by month; hub share of wiki history
+83.3 %, `log.md` 257 versions, `index.md` 241, `hot.md` 271, `_index.md` 484, `overview.md` 89;
+OCR derivatives **658 MB in 16 blobs**, three single blobs over 150 MB.
+
+**Where the harness disagrees with section 0, and why.** Recorded here so a later re-run can
+tell drift from method; none of these change a verdict.
+
+| Number | Section 0 | Harness | Cause |
+|---|---|---|---|
+| hub and history sizes | 514 kB, 777 kB, 89 MB | 502 kB, 759 kB, 93.4 MB | section 0 is in KiB/MiB, the harness prints decimal kB/MB. The byte counts are identical |
+| dead links | 231 over 96 targets | 168 over 49 | the link COUNT agrees (25,711 against 25,712), so extraction is the same; resolution is not. The harness resolves a path-shaped target as a path and falls back to its basename, which is what Obsidian does. It reports the service's stricter answer beside it (`asTheServiceResolves`, 107) |
+| dead by cause | colon 56, slash 65, backslash 13 | colon 55, slash 30, backslash 5 | the colon class is stable across every method tried. The backslash class is down to 5 occurrences and **all five sit inside one lint report**, quoted as findings: `link-repair.ts` has since repaired the live ones. The slash gap is the basename fallback above |
+| multi-commit | 1194 pages, 149 multi, 727 once | 1208 pages, 153 multi, 714 once | section 0 counted paths history knows including deleted pages (the harness reports that too: 1195). The harness counts pages that exist now, because a deleted page is not repairable. Bucket rates agree: concepts 16.6 %, entities 16.4 %, sources 4.4 %, questions 0 % |
+| tags | 4131 / 646 / 320 | 4134 / 648 / 322 | rounding in the by-hand pass; both count every page |
+| domain mirroring | 1 %, 0 %, 2 % | 0 % in every month | the harness matches a domain tag exactly or as a singular/plural variant and **refuses to guess synonyms**. A near word ("biomedical" against `biomedicine`) is not counted. Same verdict either way: the absolute clause is followed, the hedged one is not |
+| run-protocol | 352 pages, 302 kB | 350 pages, 324 kB | the harness's relation-to-vault matcher is wider by 5 pages, and it counts a section's full byte span |
+| contradictions | 27 | 30 sections, 24 with content | the harness separates a section that says "none" from one that carries an open contradiction |
+| pages in no hub | 51 / 4 | 48 / 1 | the harness follows `related:` frontmatter as well as body links, and counts `overview.md` and `hot.md` as hubs |
 
 ### 0.2 `server/src/cli/vaultprobe.ts`: the four text contracts (A6)
 
@@ -234,6 +267,7 @@ number that can be compared rather than a judgement.
 - [ ] Note in this file which commit and which DB the backup covers.
 - **DoD:** the bundle restores into a scratch directory and `git log` in the restored clone ends
   at the recorded commit; `sqlite3 <db> "pragma integrity_check"` says `ok`.
+
 
 ---
 

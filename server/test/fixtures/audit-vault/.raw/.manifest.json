@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "created": "2026-01-01",
+  "description": "fixture manifest",
+  "sources": {
+    ".raw/job-a/input.pdf": {
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "ingested_at": "2026-01-01",
+      "pages_created": [
+        "wiki/concepts/Alpha.md",
+        "wiki/concepts/Removed Page.md"
+      ]
+    }
+  },
+  "address_map": {
+    "wiki/concepts/Alpha.md": "c-000001",
+    "wiki/concepts/Beta - Gamma.md": "c-000999",
+    "wiki/concepts/Removed Page.md": "c-000004"
+  }
+}
