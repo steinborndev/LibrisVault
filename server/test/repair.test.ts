@@ -16,8 +16,10 @@ import {
   dashLinkPass,
   planLogArchive,
   overviewPass,
+  tagSingletonPass,
+  recordSectionPass,
 } from '../src/pipeline/repair.js'
-import { fieldOf, CONTENT_UPDATED } from '../src/pipeline/page-dates.js'
+import { fieldOf, CONTENT_UPDATED, bodyOf } from '../src/pipeline/page-dates.js'
 
 /**
  * The one-off repair passes (phase 8).
@@ -654,5 +656,158 @@ describe('demoSeedPass and service-written pages', () => {
   it('does not touch a bucket hub or a meta page', () => {
     expect(demoSeedPass('wiki/concepts/_index.md', shipped(), V)).toBeNull()
     expect(demoSeedPass('wiki/meta/notes.md', shipped(), V)).toBeNull()
+  })
+})
+
+/**
+ * `tagSingletonPass` (8.4, part two).
+ *
+ * 643 distinct tags over the working vault, 322 used exactly once, and none of those 322 a
+ * spelling variant of a tag used elsewhere - so there was nothing to merge and the choice was
+ * keep or drop. A tag naming one page groups nothing; it is a second title in the tag field.
+ */
+describe('tagSingletonPass', () => {
+  let root = ''
+  const page = (name: string, tags: string[]): void => {
+    const abs = path.join(root, 'wiki', 'concepts', `${name}.md`)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    const block = tags.length === 0 ? '' : `tags:\n${tags.map((t) => `  - ${t}`).join('\n')}\n`
+    fs.writeFileSync(abs, `---\ntype: concept\n${block}status: seed\n---\n\n# ${name}\n`)
+  }
+  const run = (): ReturnType<typeof tagSingletonPass> => tagSingletonPass(root)
+  const readOf = (name: string): string => fs.readFileSync(path.join(root, 'wiki', 'concepts', `${name}.md`), 'utf8')
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'tag-single-'))
+    page('A', ['shared', 'only-on-a'])
+    page('B', ['shared', 'only-on-b'])
+    page('C', ['just-this-one'])
+  })
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it('drops a tag that names exactly one page', () => {
+    const out = run()('wiki/concepts/A.md', readOf('A'), root)
+    expect(out!.after).toContain('- shared')
+    expect(out!.after).not.toContain('only-on-a')
+  })
+
+  it('keeps a tag two pages share, however few that is', () => {
+    // Two is a group. The rule is "names one page", not "is rare".
+    expect(run()('wiki/concepts/A.md', readOf('A'), root)!.after).toContain('- shared')
+  })
+
+  it('leaves a page whose EVERY tag is a singleton completely alone', () => {
+    // Measured: emptying the block put 36 pages in violation of the vault's own page
+    // template, which requires `tags:`. The pass had not found those problems, it had made
+    // them. An imperfect tag beats a page the vault's own lint rejects.
+    expect(run()('wiki/concepts/C.md', readOf('C'), root)).toBeNull()
+  })
+
+  it('leaves a page with no singleton alone', () => {
+    page('D', ['shared'])
+    expect(run()('wiki/concepts/D.md', readOf('D'), root)).toBeNull()
+  })
+
+  it('touches nothing but the tag block', () => {
+    const before = readOf('A')
+    const out = run()('wiki/concepts/A.md', before, root)!.after
+    expect(out).toContain('type: concept')
+    expect(out).toContain('status: seed')
+    expect(bodyOf(out)).toBe(bodyOf(before))
+  })
+
+  it('is idempotent against its own output for the pages it already cleaned', () => {
+    const once = run()('wiki/concepts/A.md', readOf('A'), root)!.after
+    // The scan is of the vault on disk, so re-running the SAME pass over cleaned text finds
+    // nothing more: the singleton it knew about is gone from this page.
+    expect(run()('wiki/concepts/A.md', once, root)).toBeNull()
+  })
+
+  it('reads a quoted tag the same as a bare one', () => {
+    page('E', ['"quoted-singleton"', 'shared'])
+    const out = run()('wiki/concepts/E.md', readOf('E'), root)
+    expect(out!.after).not.toContain('quoted-singleton')
+  })
+})
+
+/**
+ * `recordSectionPass` (8.5, part two): the run's notes move to the foot, keeping every word.
+ *
+ * `runProtocolPass` removes a section that is short and cites nothing, which is boilerplate by
+ * any reading. It left 273 sections over eight headings, and they were left BECAUSE they carry
+ * arguments. Deleting those would be a prose rewrite, which the phase forbids; leaving them
+ * mid-article is what made the articles unreadable. So they move.
+ */
+describe('recordSectionPass', () => {
+  const V = '/nowhere'
+  const page = (body: string): string => `---\ntype: concept\n---\n\n# The Subject\n\nA paragraph.\n\n${body}`
+
+  it('moves a section to the foot under one heading, keeping its own name', () => {
+    const out = recordSectionPass('wiki/concepts/X.md', page('## Provenance\n\nA caveat with [[A Link]].\n'), V)
+    expect(out!.after).toContain('## About This Page')
+    expect(out!.after).toContain('### Provenance')
+    expect(out!.after).toContain('A caveat with [[A Link]].')
+    // The article now reads through: the subject's own prose comes before the record.
+    expect(out!.after.indexOf('A paragraph.')).toBeLessThan(out!.after.indexOf('## About This Page'))
+  })
+
+  it('keeps every word, so the page barely changes size', () => {
+    const before = page('## Assessment\n\nThe source overstates its case.\n\n## Findings\n\nReal content.\n')
+    const out = recordSectionPass('wiki/concepts/X.md', before, V)!.after
+    expect(out).toContain('The source overstates its case.')
+    expect(out).toContain('Real content.')
+  })
+
+  it('moves several sections in the order they appeared', () => {
+    const out = recordSectionPass(
+      'wiki/concepts/X.md',
+      page('## Editorial Note\n\nOne.\n\n## Findings\n\nKept.\n\n## Provenance\n\nTwo.\n'),
+      V,
+    )!.after
+    expect(out.indexOf('### Editorial Note')).toBeLessThan(out.indexOf('### Provenance'))
+    expect(out.indexOf('## Findings')).toBeLessThan(out.indexOf('## About This Page'))
+  })
+
+  it('is idempotent: a second run finds nothing to move', () => {
+    // What makes it safe to run after every ingest later.
+    const once = recordSectionPass('wiki/concepts/X.md', page('## Provenance\n\nA caveat.\n'), V)!.after
+    expect(recordSectionPass('wiki/concepts/X.md', once, V)).toBeNull()
+  })
+
+  it('merges into a container the page already has', () => {
+    const before = page('## Assessment\n\nNew.\n\n## About This Page\n\n### Provenance\n\nOld.\n')
+    const out = recordSectionPass('wiki/concepts/X.md', before, V)!.after
+    expect(out.match(/## About This Page/g)).toHaveLength(1)
+    expect(out).toContain('### Assessment')
+    expect(out).toContain('Old.')
+  })
+
+  it('NEVER moves Open Questions, which is a live feature', () => {
+    // `candidates.ts` reads that section BY NAME to plan a Fellow's work and
+    // `POST /questions/archive` strikes through its bullets. Renaming it breaks the planner
+    // silently, which is the same shape of mistake as correction C-1.
+    expect(recordSectionPass('wiki/concepts/X.md', page('## Open Questions\n\n- Does it?\n'), V)).toBeNull()
+  })
+
+  it('leaves a page with nothing to move alone', () => {
+    expect(recordSectionPass('wiki/concepts/X.md', page('## Findings\n\nJust content.\n'), V)).toBeNull()
+  })
+
+  it('does not touch the vault\'s own pages', () => {
+    const body = page('## Provenance\n\nA caveat.\n')
+    expect(recordSectionPass('wiki/meta/report.md', body, V)).toBeNull()
+    expect(recordSectionPass('wiki/folds/log-2026-04.md', body, V)).toBeNull()
+  })
+
+  it('leaves the frontmatter untouched', () => {
+    const before = page('## Provenance\n\nA caveat.\n')
+    const out = recordSectionPass('wiki/concepts/X.md', before, V)!.after
+    expect(out.startsWith('---\ntype: concept\n---\n')).toBe(true)
+  })
+
+  it('ends the page with exactly one newline', () => {
+    const out = recordSectionPass('wiki/concepts/X.md', page('## Provenance\n\nA caveat.\n'), V)!.after
+    expect(out.endsWith('\n')).toBe(true)
+    expect(out.endsWith('\n\n')).toBe(false)
   })
 })

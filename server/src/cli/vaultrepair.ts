@@ -36,6 +36,8 @@ import {
   demoSeedPass,
   dashLinkPass,
   overviewPass,
+  tagSingletonPass,
+  recordSectionPass,
   type RepairPass,
   type RepairPlan,
 } from '../pipeline/repair.js'
@@ -80,6 +82,18 @@ const PASSES: ReadonlyArray<{ name: string; task: string; run: (vaultRoot: strin
     task: '8.7',
     run: () => demoSeedPass,
     subject: 'repair: mark the upstream demo pages as what they are',
+  },
+  {
+    name: 'record-section',
+    task: '8.5',
+    run: () => recordSectionPass,
+    subject: 'repair: move the run record to the foot of the page',
+  },
+  {
+    name: 'tag-singleton',
+    task: '8.4',
+    run: tagSingletonPass,
+    subject: 'repair: drop tags that name exactly one page',
   },
   {
     name: 'overview',

@@ -848,3 +848,198 @@ export const overviewPass: RepairPass = (rel, markdown) => {
   ].join('; ')
   return { after, why }
 }
+
+/* --------------------------------------------------------- the tag singletons (8.4, part two) */
+
+/**
+ * 8.4, part two: tags that name exactly one page.
+ *
+ * MEASURED, and the measurement is what decided the shape. 643 distinct tags over the working
+ * vault, **322 used exactly once**, and - the part that was assumed rather than checked until
+ * now - **none of the 322 is a spelling variant of a tag that IS used elsewhere**. There was
+ * nothing to merge. They are 322 genuinely one-off names.
+ *
+ * A tag that names one page groups nothing. It is a second title, written in the tag field,
+ * and it costs the tag axis its whole purpose: a reader who opens the tag pane to see what a
+ * vault is about gets 322 entries of one.
+ *
+ * WHAT THIS IS NOT. It does not merge, rename or invent anything - the task rules that out and
+ * the measurement removes the reason. A tag that gains a second page later is welcome back;
+ * nothing here writes a rule against it. And it is reversible: one commit, one `git revert`.
+ *
+ * A page whose EVERY tag is a singleton keeps them all. See the note at the guard: emptying
+ * the block put 36 pages in violation of the vault's own page template, which requires
+ * `tags:`. The pass had not found those problems, it had made them.
+ */
+export function tagSingletonPass(vaultRoot: string): RepairPass {
+  const counts = new Map<string, number>()
+  for (const rel of wikiPages(vaultRoot)) {
+    for (const tag of readTags(vaultRoot, rel)) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+  }
+  const singletons = new Set([...counts].filter(([, n]) => n === 1).map(([t]) => t))
+
+  return (_rel, markdown) => {
+    const fm = markdown.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/)
+    if (fm === null) return null
+    const front = fm[2]!
+    const removed: string[] = []
+    const lines = front.split(/\r?\n/)
+    const out: string[] = []
+    let inTags = false
+    let kept = 0
+    for (const line of lines) {
+      if (/^tags:/.test(line)) {
+        inTags = true
+        out.push(line)
+        continue
+      }
+      if (inTags && /^[ \t]+-[ \t]*/.test(line)) {
+        const tag = line.replace(/^[ \t]+-[ \t]*/, '').trim().replace(/^["']|["']$/g, '')
+        if (singletons.has(tag)) {
+          removed.push(tag)
+          continue
+        }
+        kept++
+        out.push(line)
+        continue
+      }
+      if (inTags && !/^[ \t]/.test(line)) inTags = false
+      out.push(line)
+    }
+    if (removed.length === 0) return null
+    /*
+     * NEVER leave a page with no tags at all.
+     *
+     * Measured the hard way: the first run of this pass emptied the tag block on 36 pages
+     * whose every tag was a one-off, and the validator went from 9 frontmatter findings to
+     * 45. That rule is not ours - it mirrors the VAULT's own page template, which requires
+     * `tags:` (wiki-lint "Frontmatter Gaps") - so the pass had not found 36 problems, it had
+     * made them.
+     *
+     * A page whose only tags name nothing else keeps them. They group nothing, which is the
+     * whole complaint, but an imperfect tag beats a page that violates the vault's own
+     * template, and picking a replacement would be inventing the taxonomy this pass is
+     * forbidden to invent.
+     */
+    if (kept === 0) return null
+    return {
+      after: markdown.slice(0, fm[1]!.length) + out.join('\n') + markdown.slice(fm[1]!.length + front.length),
+      why: `${removed.length} tag${removed.length === 1 ? '' : 's'} naming only this page`,
+    }
+  }
+}
+
+/** The `tags:` a page carries, as written. Shared by the singleton scan and its tests. */
+function readTags(vaultRoot: string, rel: string): string[] {
+  let markdown: string
+  try {
+    markdown = fs.readFileSync(path.join(vaultRoot, rel), 'utf8')
+  } catch {
+    return []
+  }
+  const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (fm === null) return []
+  const block = fm[1]!.match(/^tags:[ \t]*\r?\n((?:[ \t]+-[ \t]*.*\r?\n?)+)/m)
+  if (block === null) return []
+  return [...block[1]!.matchAll(/^[ \t]+-[ \t]*(.+)$/gm)].map((m) =>
+    m[1]!.trim().replace(/^["']|["']$/g, ''),
+  )
+}
+
+/* ------------------------------------------- moving the run record to the foot (8.5, part two) */
+
+/**
+ * The heading every moved section ends up under.
+ *
+ * Named for what it separates rather than for what it contains: everything under it is about
+ * the PAGE - how it came to be, what the writer thought of the material - and everything above
+ * it is about the subject. That is the distinction a reader lost when a run wrote its own
+ * notes into the middle of an article.
+ */
+export const RECORD_HEADING = 'About This Page'
+
+/**
+ * Sections that belong to the record rather than to the article (8.5, part two).
+ *
+ * `## Open Questions` is deliberately NOT here and must not be added. It is a live feature:
+ * `candidates.ts` reads the section BY NAME to plan a Fellow's work, and
+ * `POST /api/v1/questions/archive` strikes through its bullets. Moving it under another
+ * heading would break the planner silently, which is the same shape of mistake as C-1.
+ */
+const RECORD_HEADINGS: ReadonlyArray<RegExp> = [
+  /^status of this page/i,
+  /^relation(?:ship)? to (?:this )?vault/i,
+  /^vault context/i,
+  /^entity notability/i,
+  /^automated decisions?/i,
+  /^editorial note/i,
+  /^provenance/i,
+  /^assessment/i,
+]
+
+/**
+ * Moves the run's own notes out of the article and to its foot, keeping every word (8.5).
+ *
+ * WHY MOVE RATHER THAN DELETE. `runProtocolPass` removes a section that is short and cites
+ * nothing, which is boilerplate by any reading. It left 273 sections over eight headings,
+ * 232 kB, and they were left because they carry arguments: a caveat about a source, a reason a
+ * claim is hedged, a paragraph distinguishing two papers. Deleting those is a prose rewrite,
+ * which this phase forbids. But they do not belong in the middle of an encyclopedia article
+ * either, so they go to the bottom under one heading and keep their own names as `###`.
+ *
+ * Nothing is dropped, nothing is reworded, and the byte count of the page barely moves - what
+ * changes is that the article reads through.
+ */
+export const recordSectionPass: RepairPass = (rel, markdown) => {
+  if (!rel.startsWith('wiki/') || rel.startsWith('wiki/meta/') || rel.startsWith('wiki/folds/')) return null
+  const heads = [...markdown.matchAll(/^(#{1,6})[ \t]+(.+?)[ \t]*$/gm)]
+  if (heads.length === 0) return null
+
+  const container = heads.find((h) => h[2]!.trim().toLowerCase() === RECORD_HEADING.toLowerCase())
+  const moves: Array<{ start: number; end: number; title: string }> = []
+  for (let i = 0; i < heads.length; i++) {
+    const h = heads[i]!
+    const level = h[1]!.length
+    // Level 3 and deeper is already a subsection of something, the container included.
+    if (level > 2) continue
+    if (!RECORD_HEADINGS.some((re) => re.test(h[2]!.trim()))) continue
+    // Already at the foot, under the container: nothing to do. This is what makes the pass
+    // idempotent, and idempotence is what lets it run after every ingest later.
+    if (container !== undefined && h.index! > container.index!) continue
+    let end = markdown.length
+    for (let j = i + 1; j < heads.length; j++) {
+      if (heads[j]![1]!.length <= level) {
+        end = heads[j]!.index!
+        break
+      }
+    }
+    moves.push({ start: h.index!, end, title: h[2]!.trim() })
+  }
+  if (moves.length === 0) return null
+
+  // Each section keeps its own name, one level deeper, and its text exactly as written.
+  const block = moves
+    .map((m) => {
+      const text = markdown.slice(m.start, m.end).replace(/^#{1,6}[ \t]+.*(\r?\n)?/, '').trim()
+      return `### ${m.title}\n\n${text}\n`
+    })
+    .join('\n')
+
+  let body = markdown
+  for (const m of [...moves].sort((a, b) => b.start - a.start)) {
+    body = body.slice(0, m.start) + body.slice(m.end)
+  }
+  body = body.replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')
+
+  const marker = `## ${RECORD_HEADING}`
+  const at = body.indexOf(marker)
+  const after =
+    at >= 0
+      ? `${body.slice(0, at + marker.length)}\n\n${block}\n${body.slice(at + marker.length).replace(/^\s*/, '')}`
+      : `${body}\n\n${marker}\n\n${block}`
+
+  return {
+    after: `${after.replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')}\n`,
+    why: `${moves.length} section(s) moved to "${RECORD_HEADING}": ${moves.map((m) => m.title).join(', ')}`,
+  }
+}
