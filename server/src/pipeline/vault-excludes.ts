@@ -30,9 +30,18 @@
  * this the one mechanism that holds regardless of what the agent does.
  *
  * `.git/info/exclude` rather than `.gitignore`: repo-local, never a tracked file, so the
- * service never modifies vault CONTENT to do this (hard rule 1). Note the limit - excludes
- * only affect untracked files. Anything already committed stays committed until someone
- * removes it deliberately, which is a decision about the user's history, not ours.
+ * service never modifies vault CONTENT to do this (hard rule 1).
+ *
+ * THE LIMIT, WITH THE WORKED EXAMPLE IT COST. An exclude binds only UNTRACKED files. Anything
+ * already committed stays committed until someone removes it deliberately, which is a decision
+ * about the user's history and not ours to make silently.
+ *
+ * The example: `.vault-meta/lint_scan.py` (a 254-line scanner an agent wrote itself),
+ * `lint_scan_out.json` (461 kB) and `tag_repair_report.json` (88 kB) were committed on
+ * 2026-08-24, BEFORE the patterns above existed. Adding the patterns changed nothing for
+ * them - git had already been told those files matter - so the scratch stayed permanent and
+ * was re-committed on every change. Untracking them is a deliberate vault commit
+ * (docs/tasks/TASKS-VAULT-LAYER.md 6.3), not something an exclude can do.
  */
 
 import fs from 'node:fs'
@@ -67,6 +76,8 @@ export const SCRATCH_EXCLUDE_ENTRIES = [
   '.vault-meta/*.py',
   '.vault-meta/lint-scan.json',
   '.vault-meta/lint_scan*',
+  // The tag-repair pass wrote its own report; the pattern above never covered it (2026-09-19).
+  '.vault-meta/tag_repair_report.json',
 ] as const
 
 /**
