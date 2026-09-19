@@ -376,6 +376,28 @@ These three requirements are architecturally connected and are therefore thought
 
 **Build-out stage:** activation of the auth mode (token/password per user, Argon2 hash in `users.token_hash`), login screen in the frontend, roles `admin` (settings, maintenance, all jobs) and `member` (own jobs, query, ingestion). Chat sessions are private per user; the vault itself stays **shared** in the first multi-user stage (one common second brain, which is the point of a shared vault). Should separate knowledge spaces become necessary later, the extension "several vaults per server" (vault registry table, `vault_id` on jobs/sessions) is the clean way; v1 therefore avoids hard-coded single-vault assumptions in the path logic (vault root as a configuration value, passed through everywhere instead of a global constant).
 
+**One assumption that IS hard-coded, and that this work inherits (measured 2026-09-19).** The
+vault root is a configuration value, but the BUCKET STRUCTURE under it is not. claude-obsidian
+has four methodology modes and `scripts/wiki-mode.py route` returns a materially different path
+for each: a concept is `wiki/concepts/X.md` under Generic, `wiki/notes/X.md` under LYT,
+`wiki/resources/concepts/X.md` under PARA, and `wiki/<timestamp>-X.md` under **Zettelkasten,
+which has no buckets at all**.
+
+The cost is not in the write path, which is where it looks like it should be. The service
+barely writes content paths; it **classifies** them, by prefix, in about twenty places:
+`startsWith('wiki/questions/')` is how `candidates.ts`, `recap.ts`, `related-pages.ts` and
+`research-profiles.ts` recognise a synthesis page, `startsWith('wiki/sources/')` is how
+`reading-list.ts` finds a source page, and `hubs.ts` decides what counts as a content page by
+its bucket before it reads `type:` from frontmatter. Under Zettelkasten every one of those
+prefixes matches nothing, silently: no error, just a service that finds no synthesis pages and
+an index that lists nothing.
+
+**So the constraint for a second vault is: it must be in Generic mode, or the classification has
+to move to frontmatter `type:` first.** Routing writes through `wiki-mode.py` would not help -
+it fixes the half that is not broken. The registry work should treat "classify by `type:`, never
+by path" as part of its own scope, and `hubs.ts` shows the shape: it already reads `type:` and
+only needs to stop gating on the bucket first.
+
 ### 12.2 Access across devices ("sync")
 
 **Model:** No vault sync between devices, but remote access to the one server. The simplest secure way is an overlay network (Tailscale/WireGuard): the service is additionally bound to the tailnet address (with auth then enforced, see the guard in section 9) and reachable from all of one's own devices without opening a port to the internet. Alternative for public access: a reverse proxy (Caddy) with TLS + auth.

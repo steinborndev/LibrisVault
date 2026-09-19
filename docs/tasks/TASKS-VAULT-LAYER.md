@@ -1642,22 +1642,87 @@ tree dirty - which is exactly what production does at startup.
 
 Each of these is a decision, not automatically a task. Wire it or record why not, in this file.
 
-- [ ] **`wiki-fold`** - used in 8.8 for the summary pages. Decide whether it also runs on a
-      schedule afterwards, given it does not shrink anything on its own.
-- [ ] **`tiling-check.py`** - wired in 3.2.
-- [ ] **`agents/verifier.md`** - the pre-commit review upstream added after its own audit, never
-      dispatched by us. Decide: dispatch it on runs above a size threshold, or record that our
-      own post-run validation plus the quote check covers the same ground and this stays unused.
-- [ ] **`wiki-mode.py route`** - every service-written path is hardcoded (`wiki/meta/...`).
-      Correct in Generic mode, wrong the moment a vault uses PARA, LYT or Zettelkasten, and
-      multi-vault is a planned extension (SPEC.md §12.1). Decide: route through it now, or
-      record the constraint in SPEC.md §12.1 so the multi-vault work inherits it.
+**A correction to A5 before the decisions.** The finding grouped five mechanisms as "unused",
+which is true of all five and misleading about two. `wiki-fold` and `agents/verifier.md` are not
+unused because nobody got round to them; they do not do what a reader of the finding would
+assume. Both are recorded below with what they actually do.
+
+- [x] **`wiki-fold`: no schedule. DECIDED 2026-09-19.** And it was not used in 8.8 either, which
+      is what correction C-1 already established: the skill is explicitly additive ("child log
+      entries and their referenced pages are never modified, moved, or deleted"), so a fold run
+      leaves a summary page BESIDE an unchanged `log.md`. The vault's one fold page is from
+      2026-04-24 and `log.md` still began at 2026-04-07. Task 8.8 therefore wrote its own
+      monthly archives (`planLogArchive`), which move entries rather than summarise them, and
+      that is the mechanism that took `log.md` from 777 kB to 83.6 kB. Scheduling a skill that
+      shrinks nothing would add one page a month and one commit a month for no gain. The
+      archiving that DOES shrink is already the service's, already bounded by
+      `LOG_KEEP_ENTRIES`, and runs when the log outgrows it.
+- [x] **`tiling-check.py`: wired in 3.2.** Every documented failure mode is a skip, so a
+      missing model or a refused download never fails an ingest.
+- [x] **`agents/verifier.md`: stays unused, and the finding's framing was wrong.
+      DECIDED 2026-09-19.** It is not a review of vault CONTENT. Read in full, it is a **code**
+      review agent for claude-obsidian's own development: it runs `git diff --cached`, reads
+      every precedent file the diff touches, and applies an engineering kernel - read before
+      write, smallest unit that works, delete more than you add, hermetic test coverage, data
+      egress needing a user opt-in, `.gitignore` hygiene for runtime artifacts. Its four-tier
+      verdict is SHIP / HOLD-FIX-FIRST / NEEDS-REWORK on a staged diff.
+      An ingest run stages wiki pages, not code. Dispatching this against one is a category
+      error: there is no staged diff of source, no precedent file, and nothing its checklist
+      asks about. Our post-run validation, the quote check and the expand lock cover the vault
+      side, and they are the right shape for it.
+      **Worth noting for later, since it is genuinely good and genuinely unusable as-is:** what
+      it checks is exactly this repo's own commits, and it names two precedents by file
+      (`--allow-remote-ollama`, `--allow-egress`) that have direct analogues here. Adopting it
+      would mean copying its checklist into our own review, not dispatching the agent - its
+      precedents are the vault's files, not ours. Out of scope here.
+- [x] **`wiki-mode.py route`: not wired; the constraint goes to SPEC.md §12.1.
+      DECIDED 2026-09-19.** Measured first, because the decision turns on where the assumption
+      actually lives, and it is not where the finding said.
+      The script is real and the modes differ materially. `route concept "X"` returns
+      `wiki/concepts/X.md` under Generic, `wiki/notes/X-.md` under LYT,
+      `wiki/resources/concepts/X.md` under PARA, and `wiki/<timestamp>-X.md` under
+      Zettelkasten - **which has no buckets at all**.
+      The finding said "every service-written path is hardcoded", and fixing the WRITE side is
+      what routing through the script would do. But the service barely writes content paths; it
+      **reads** them, and it classifies by path prefix in about twenty places:
+      `startsWith('wiki/questions/')` is how `candidates.ts`, `recap.ts`, `related-pages.ts` and
+      `research-profiles.ts` recognise a synthesis page, `startsWith('wiki/sources/')` is how
+      `reading-list.ts` finds a source page, and `hubs.ts` decides what counts as content by
+      `CONTENT_BUCKETS` before it reads `type:` from frontmatter. Under Zettelkasten every one
+      of those prefixes matches nothing, and routing the writes would not move a single one of
+      them.
+      So the real constraint is one sentence and it is not about a script: **the service
+      classifies pages by path prefix, and only Generic mode has prefixes.** The fix is to
+      classify by frontmatter `type:` throughout, which is a substantial piece of work whose
+      natural owner is the multi-vault extension. Recorded in SPEC.md §12.1 so that work
+      inherits it rather than rediscovering it.
+- [x] **`detect-transport.sh`: real detection, report-only. DONE 2026-09-19**
+      (`server/src/pipeline/transport.ts`, `server/test/transport.test.ts`, 14 tests).
+      The review called this latent. It is, for the pin's own correctness - but measuring it
+      turned up a dependency nobody had written down: **the service needs the filesystem
+      transport and never said so.** `written-paths.ts` learns which pages a run wrote by
+      reading Write/Edit calls out of the SDK stream; the filesystem transport writes pages with
+      the Write tool, the cli transport writes them through Bash, and under the latter a run's
+      commit would stage nothing and surface as `committed: false`. Loud, but untraceable to a
+      transport pin.
+      The bump stays, because it is what keeps the vault's script away from the branch that
+      hangs (`obsidian --version` on a host with the GUI binary and no `obsidian-cli`). What it
+      could not do is self-correct: a pin that never expires never re-detects. So the service
+      asks the one question the script asks that cannot hang - `command -v obsidian-cli`, which
+      resolves a name and never executes it - and **reports a disagreement rather than fixing
+      it**. The pin is the vault's file, this one carries `manual_override: true`, and hard rule
+      1's writer list does not name it.
+      One thing the live check caught that a unit test never would have: a first draft read a
+      field called `transport`. The vault writes `preferred` plus `fallback_chain`, so the draft
+      reported `unknown` against a perfectly good pin. Both spellings are read now and a test
+      asserts the real shape.
 - [ ] **`save` skill** - chat knowledge stays in SQLite and never becomes vault content. Decide
       whether a chat answer worth keeping can be filed, and how the user triggers it.
-- [ ] **`detect-transport.sh`** - the mtime bump is a workaround for a GUI hang, not a
-      detection. The pin is correct today (C-2). Decide: a real detection that cannot hang (run
-      the script with the GUI probe disabled, or detect `obsidian-cli` ourselves), or record the
-      bump as the permanent answer with its limitation stated in `transport.ts`.
+      **OPEN: this is a product decision, not cleanup, and it is the user's.** What is settled
+      is the shape of the question: a chat answer is already grounded in cited vault pages, so
+      filing one is closer to "extend the pages it cited" than to "create a new page", and the
+      vault's own `save` skill does the latter. Whichever way it goes it needs a trigger in the
+      dashboard and a writer in hard rule 1's table.
 
 ### Closing out - DONE 2026-09-19
 
