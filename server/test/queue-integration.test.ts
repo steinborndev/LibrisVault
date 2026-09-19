@@ -355,3 +355,97 @@ describe('quote integrity after a run (docs/sources/SPEC.md section 7)', () => {
     expect(git(vaultRoot, 'status', '--porcelain').trim()).toBe('')
   })
 })
+
+/**
+ * `content_updated:` on the pages a run wrote (SPEC.md §12.13, task 7.3).
+ *
+ * Found by the first real ingest after 7.3 shipped: four of five new pages carried `updated:`
+ * and no `content_updated:`. The field is written by OUR writers, and an ingest's pages are
+ * written by the AGENT from the vault's own frontmatter template, which has no such field - so
+ * the one path that produces most of the vault's pages was the one path not filling it.
+ *
+ * Stamped by the service after the run, inside the run's own commit, rather than asked of the
+ * agent: a prompt rule holds only as long as every run remembers it, and the point of the
+ * field is that a later reader can trust it.
+ */
+describe('content_updated: after a run', () => {
+  const writes = (pages: Record<string, string>): IngestRunner => {
+    return async (opts) => {
+      for (const [rel, body] of Object.entries(pages)) {
+        const abs = path.join(vaultRoot, rel)
+        fs.mkdirSync(path.dirname(abs), { recursive: true })
+        fs.writeFileSync(abs, body)
+        opts.onMessage({
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: abs } }] },
+        } as never)
+      }
+      return {
+        ok: true, result: 'wrote pages', usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 },
+        durationMs: 1, numTurns: 1, sessionId: 's', timedOut: false,
+      }
+    }
+  }
+  const run = async (runIngest: IngestRunner): Promise<string> => {
+    const queue = new IngestQueue({
+      store, vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      concurrency: 1, detectToolsFn: async () => NO_TOOLS, refreshHotCache: async () => 'noop', runIngest,
+    })
+    queue.start()
+    const src = path.join(srcDir, 'doc.md')
+    fs.writeFileSync(src, '# A document\n\nSomething to ingest.\n')
+    const { job } = await queue.enqueueFile({ sourcePath: src, source: 'drop' })
+    await queue.onIdle()
+    return job.id
+  }
+  const read = (rel: string): string => fs.readFileSync(path.join(vaultRoot, rel), 'utf8')
+  const field = (rel: string, name: string): string | null =>
+    new RegExp(`^${name}:[ \\t]*(.+)$`, 'm').exec(read(rel))?.[1]?.trim() ?? null
+
+  it('stamps a page the run wrote, which the agent never does itself', () => {
+    // The agent writes the vault's template: `updated:`, no `content_updated:`.
+    return run(writes({ 'wiki/concepts/New Thing.md': '---\ntype: concept\nupdated: 2020-01-01\n---\n\n# New Thing\n' })).then(() => {
+      expect(field('wiki/concepts/New Thing.md', 'content_updated')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(field('wiki/concepts/New Thing.md', 'updated')).toBe(field('wiki/concepts/New Thing.md', 'content_updated'))
+    })
+  })
+
+  it('does NOT stamp the hubs, which are navigation rather than a subject', async () => {
+    await run(writes({
+      'wiki/concepts/Real.md': '---\ntype: concept\n---\n\n# Real\n',
+      'wiki/hot.md': '---\ntype: meta\n---\n\n# Hot\n',
+    }))
+    expect(field('wiki/concepts/Real.md', 'content_updated')).not.toBeNull()
+    expect(field('wiki/hot.md', 'content_updated')).toBeNull()
+    // The index and the log are written by the service itself and must not carry it either.
+    expect(read('wiki/index.md')).not.toContain('content_updated:')
+    expect(read('wiki/log.md')).not.toContain('content_updated:')
+  })
+
+  it('does not stamp a bucket hub the run added a line to', async () => {
+    await run(writes({
+      'wiki/concepts/Real.md': '---\ntype: concept\n---\n\n# Real\n',
+      'wiki/concepts/_index.md': '---\ntype: meta\n---\n\n## physics\n\n- [[Real]] - a line\n',
+    }))
+    expect(field('wiki/concepts/_index.md', 'content_updated')).toBeNull()
+  })
+
+  it('leaves a page with no frontmatter exactly as the run wrote it', async () => {
+    await run(writes({ 'wiki/concepts/Bare.md': '# Bare\n\nNo frontmatter at all.\n' }))
+    expect(read('wiki/concepts/Bare.md')).toBe('# Bare\n\nNo frontmatter at all.\n')
+  })
+
+  it('never touches the body', async () => {
+    const body = '# Real\n\nA paragraph with --- in it.\n'
+    await run(writes({ 'wiki/concepts/Real.md': `---\ntype: concept\n---\n\n${body}` }))
+    expect(read('wiki/concepts/Real.md')).toContain(body)
+  })
+
+  it('rides in the run\'s own commit, so the vault is clean afterwards', async () => {
+    const jobId = await run(writes({ 'wiki/concepts/Real.md': '---\ntype: concept\n---\n\n# Real\n' }))
+    expect(git(vaultRoot, 'status', '--porcelain').trim()).toBe('')
+    expect(git(vaultRoot, 'show', '--name-only', 'HEAD')).toContain('wiki/concepts/Real.md')
+    expect(store.logs(jobId).map((l) => l.message)).toContainEqual(expect.stringContaining('content date:'))
+  })
+})

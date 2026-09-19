@@ -55,6 +55,7 @@ import {
   type CommitOptions,
 } from './git.js'
 import { RunRegistry } from './run-registry.js'
+import { stampDates, CONTENT_UPDATED } from './page-dates.js'
 import { withWikiLocks } from './wiki-lock.js'
 import { hasRunMarker, runMarkerPath } from './run-marker.js'
 import { topicForJob, vaultOverlapFor } from './ingest-overlap.js'
@@ -1390,6 +1391,73 @@ export class IngestQueue {
   }
 
   /**
+   * The content pages a run wrote, which are the ones whose `content_updated:` it earns
+   * (SPEC.md §12.13).
+   *
+   * Everything the run touched that is NOT a hub: the index, the log, the hot cache and the
+   * bucket `_index` MOCs are navigation, and a run adding a line to one of them has not said
+   * anything new about a subject. `wiki/meta/` is left out for the same reason - a notebook or
+   * a recap is the service writing about a run, and its own writer stamps it.
+   */
+  private contentPagesOf(written: Iterable<string>): string[] {
+    const hubs = new Set<string>([...SERVICE_OWNED_HUBS, 'wiki/hot.md'])
+    return [...new Set(written)]
+      .filter(
+        (rel) =>
+          rel.startsWith('wiki/') &&
+          rel.endsWith('.md') &&
+          !hubs.has(rel) &&
+          !rel.endsWith('/_index.md') &&
+          !rel.startsWith('wiki/meta/'),
+      )
+      .sort()
+  }
+
+  /**
+   * Stamps `content_updated:` on the pages this run wrote (SPEC.md §12.13, task 7.3).
+   *
+   * WHY THIS EXISTS AT ALL, when `stampDates` already does the work. The field is written by
+   * OUR writers, and an ingest's pages are written by the AGENT, from the vault's own
+   * frontmatter template - which has no such field. Measured on the first real ingest after
+   * 7.3 shipped: four of five new pages carried `updated:` and no `content_updated:`, so the
+   * one path that produces most of the vault's pages was the one path not filling the field.
+   *
+   * Doing it here rather than asking the agent to is deliberate: a prompt rule holds only as
+   * long as every run remembers it, and the whole point of the field is that a later reader can
+   * trust it. `bodyChanged` is not consulted - a run that wrote a page said something, which is
+   * exactly the judgement §12.13 asks the WRITER to make.
+   *
+   * Runs inside the commit mutex so the stamp rides in the run's own commit, and the pages'
+   * locks are taken by the caller OUTSIDE it, which is hard rule 1's order.
+   */
+  private stampContentDates(job: JobRow, pages: readonly string[], held: ReadonlySet<string>): void {
+    let stamped = 0
+    const skipped: string[] = []
+    for (const rel of pages) {
+      if (!held.has(rel)) {
+        skipped.push(rel)
+        continue
+      }
+      const abs = path.join(this.vaultRoot, rel)
+      try {
+        const before = fs.readFileSync(abs, 'utf8')
+        const after = stampDates(before, { content: true })
+        if (after === before) continue
+        fs.writeFileSync(abs, after)
+        stamped++
+      } catch (err) {
+        // Never fatal: the page is written and committed either way, and a missing date is a
+        // weaker signal, not a broken vault.
+        this.store.log(job.id, 'warn', `content date: ${rel} could not be stamped (${(err as Error).message})`)
+      }
+    }
+    if (stamped > 0) this.store.log(job.id, 'info', `content date: ${CONTENT_UPDATED} set on ${stamped} page(s)`)
+    if (skipped.length > 0) {
+      this.store.log(job.id, 'warn', `content date: another writer holds ${skipped.length} page(s) - left unstamped`)
+    }
+  }
+
+  /**
    * The hub write for one run (D2): the log entry and the regenerated index, inside this run's
    * own commit.
    *
@@ -1453,13 +1521,20 @@ export class IngestQueue {
        * mutex, the write and the commit inside it. The plan is built from the pathspec that is
        * about to be committed, so the entry names exactly the pages this commit carries.
        */
-      const result = await withWikiLocks(this.vaultRoot, [...SERVICE_OWNED_HUBS, ...bucketHubs(this.vaultRoot)], async (held, busy) => {
+      // The run's own content pages are locked alongside the hubs, because their
+      // `content_updated:` is stamped in the same commit (SPEC.md §12.13). Both lists are
+      // acquired here, OUTSIDE the mutex, which is hard rule 1's order.
+      const contentPages = this.contentPagesOf(scope.written)
+      const toLock = [...SERVICE_OWNED_HUBS, ...bucketHubs(this.vaultRoot), ...contentPages]
+      const result = await withWikiLocks(this.vaultRoot, toLock, async (held, busy) => {
         if (busy.length > 0) {
           this.store.log(job.id, 'warn', `hub write: another writer holds ${busy.join(', ')} - leaving ${busy.length} hub(s) alone`)
         }
         return await this.commitMutex.runExclusive(async () => {
+          const heldSet = new Set(held)
+          this.stampContentDates(job, contentPages, heldSet)
           const pathspec = await this.buildPathspec(scope, (m) => this.store.log(job.id, 'info', m))
-          const hubs = await this.writeHubsFor(job, label, pathspec, new Set(held), scope.summary)
+          const hubs = await this.writeHubsFor(job, label, pathspec, heldSet, scope.summary)
           return this.commit(this.vaultRoot, `ingest: ${label}`, { pathspec: [...pathspec, ...hubs] })
         })
       })

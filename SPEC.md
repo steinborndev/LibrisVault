@@ -770,11 +770,23 @@ onto one line, a tag dropped, an em-dash replaced, a heading moved, a counter re
 file changed and the page still says the same thing. `stampDates({ content })` takes that
 judgement as its argument; `bodyChanged` is available where a writer wants a diff to decide.
 
+**Who writes it, and why not the agent.** The field is set by the SERVICE, in the post-run step
+that rides inside the run's own commit, on every content page the run wrote. That is deliberate:
+an ingest's pages are written by the AGENT from the vault's own frontmatter template, which has
+no such field, so for the first day the field existed the one path that produces most of the
+vault's pages was the one path not filling it - measured on the first real ingest after it
+shipped, four of five new pages had `updated:` and no `content_updated:`. A prompt rule would
+have held only as long as every run remembered it, and the whole point of the field is that a
+later reader can trust it.
+
+The hubs are excluded, and so is `hot.md` and the bucket `_index` MOCs: a run adding a line to
+an index has not said anything new about a subject. The pages' own per-file locks are taken
+alongside the hubs' and OUTSIDE the commit mutex, which is hard rule 1's order.
+
 **Reading it.** `freshnessDate` prefers `content_updated:` and falls back to **`created:`**,
 deliberately not to `updated:`. On the pages that predate the field `updated:` is the date of
-the last mass pass, and sorting by it is what made every page look equally fresh. No page
-carries the new field yet, which is correct: the one-off repair of §12.14 was mechanical, so it
-stamped none of the 819 pages it touched, and the field starts filling at the next real write.
+the last mass pass, and sorting by it is what made every page look equally fresh. The one-off repair of §12.14 was mechanical, so it stamped none of the 819 pages it touched;
+the field fills from the next real write onwards.
 
 ### 12.14 What `.raw/` puts into vault git (added 2026-09-19)
 

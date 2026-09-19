@@ -235,9 +235,14 @@ describe('the hub layer, in a run\'s own commit', () => {
     // Every acquire happens before the commit, every release after it.
     expect(verbs.slice(0, commitAt).every((v) => v === 'acquire')).toBe(true)
     expect(verbs.slice(commitAt + 1).every((v) => v === 'release')).toBe(true)
-    // And the three hubs the service owns are exactly what was locked.
+    /*
+     * What is locked: the three hubs the service owns, AND the content pages the run wrote.
+     * The pages joined the list when `content_updated:` started being stamped after a run
+     * (SPEC.md §12.13) - that write needs the same protection as the hub write, and it has to
+     * be acquired out here, because hard rule 1 puts every foreign lock outside our mutex.
+     */
     const locked = steps.filter((l) => l.startsWith('acquire ')).map((l) => l.slice('acquire '.length)).sort()
-    expect(locked).toEqual(['wiki/index.md', 'wiki/log.md', 'wiki/overview.md'])
-    expect(steps.filter((l) => l.startsWith('release ')).length).toBe(3)
+    expect(locked).toEqual(['wiki/concepts/Ordered.md', 'wiki/index.md', 'wiki/log.md', 'wiki/overview.md'])
+    expect(steps.filter((l) => l.startsWith('release ')).length).toBe(locked.length)
   })
 })
