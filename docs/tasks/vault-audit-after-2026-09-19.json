@@ -1,8 +1,8 @@
 {
   "meta": {
-    "measuredAt": "2026-09-19T20:58:52.650Z",
+    "measuredAt": "2026-09-19T21:24:10.428Z",
     "now": "2026-09-19",
-    "head": "7d0017c657051751ea81e3ff86ed1580061aa8fe"
+    "head": "41bc8b01ac861a7b3020058e830e6aa2810a98fc"
   },
   "pages": {
     "total": 1251,
@@ -124,10 +124,9 @@
       }
     },
     "updatedByMonth": {
-      "2026-09": 1217,
-      "2026-08": 27,
-      "2026-04": 5,
-      "2026-07": 2
+      "2026-09": 1243,
+      "2026-08": 7,
+      "2026-04": 1
     },
     "status": {
       "developing": 786,
@@ -138,28 +137,28 @@
     },
     "freshness": {
       "now": "2026-09-19",
-      "within30Days": 1243,
-      "share": 99.4
+      "within30Days": 1250,
+      "share": 99.9
     }
   },
   "hubs": [
     {
       "path": "wiki/concepts/_index.md",
-      "bytes": 153079,
-      "lines": 1070,
+      "bytes": 143311,
+      "lines": 698,
       "longestLine": 559,
-      "sections": 135,
-      "datedSections": 131,
+      "sections": 21,
+      "datedSections": 0,
       "relatedEntries": 9,
       "relatedDuplicates": 3
     },
     {
       "path": "wiki/sources/_index.md",
-      "bytes": 122636,
-      "lines": 896,
+      "bytes": 111527,
+      "lines": 423,
       "longestLine": 810,
-      "sections": 169,
-      "datedSections": 160,
+      "sections": 20,
+      "datedSections": 0,
       "relatedEntries": 4,
       "relatedDuplicates": 0
     },
@@ -185,18 +184,18 @@
     },
     {
       "path": "wiki/entities/_index.md",
-      "bytes": 37962,
-      "lines": 511,
+      "bytes": 32358,
+      "lines": 310,
       "longestLine": 427,
-      "sections": 90,
-      "datedSections": 85,
+      "sections": 20,
+      "datedSections": 0,
       "relatedEntries": 4,
       "relatedDuplicates": 0
     },
     {
       "path": "wiki/hot.md",
-      "bytes": 4412,
-      "lines": 36,
+      "bytes": 4388,
+      "lines": 35,
       "longestLine": 595,
       "sections": 3,
       "datedSections": 0,
@@ -215,39 +214,39 @@
     }
   ],
   "links": {
-    "total": 23923,
+    "total": 23961,
     "wrapped": 0,
     "dead": {
-      "occurrences": 164,
-      "distinctTargets": 48,
-      "occurrencesOutsideRecords": 73,
+      "occurrences": 87,
+      "distinctTargets": 38,
+      "occurrencesOutsideRecords": 31,
       "byCause": {
-        "other": 77,
-        "colon": 52,
-        "slash": 30,
+        "other": 68,
+        "colon": 9,
+        "slash": 5,
         "trailing-backslash": 5
       },
       "byCauseOutsideRecords": {
-        "colon": 46,
-        "other": 26,
+        "other": 23,
+        "colon": 7,
         "slash": 1
       },
-      "asTheServiceResolves": 107,
+      "asTheServiceResolves": 80,
       "worstPages": [
         {
-          "count": 32
+          "count": 22
         },
         {
-          "count": 23
+          "count": 11
         },
         {
-          "count": 12
+          "count": 9
         },
         {
-          "count": 12
+          "count": 8
         },
         {
-          "count": 7
+          "count": 4
         }
       ]
     }
@@ -260,12 +259,12 @@
     },
     "concept": {
       "pages": 604,
-      "distinctHeadings": 2243,
+      "distinctHeadings": 2228,
       "bestSharedShare": 41.1
     },
     "entity": {
       "pages": 225,
-      "distinctHeadings": 193,
+      "distinctHeadings": 191,
       "bestSharedShare": 36.4
     },
     "question": {
@@ -285,13 +284,13 @@
     },
     "source": {
       "pages": 338,
-      "distinctHeadings": 635,
-      "bestSharedShare": 40.8
+      "distinctHeadings": 610,
+      "bestSharedShare": 48.2
     }
   },
   "runProtocol": {
     "pagesCarrying": 337,
-    "bytes": 319035,
+    "bytes": 319247,
     "byHeading": {
       "openQuestions": 88,
       "editorialNote": 59,
@@ -304,22 +303,22 @@
       "automatedDecisions": 7
     },
     "bytesByHeading": {
-      "openQuestions": 83167,
-      "relationToVault": 55052,
-      "assessment": 52376,
-      "editorialNote": 43563,
-      "provenance": 31376,
-      "statusOfThisPage": 18781,
-      "automatedDecisions": 16144,
-      "vaultContext": 13273,
+      "openQuestions": 83172,
+      "relationToVault": 55085,
+      "assessment": 52426,
+      "editorialNote": 43612,
+      "provenance": 31396,
+      "statusOfThisPage": 18812,
+      "automatedDecisions": 16151,
+      "vaultContext": 13290,
       "entityNotability": 5303
     }
   },
   "tags": {
-    "assignments": 3091,
-    "distinct": 644,
-    "singleUse": 322,
-    "singleUseShare": 50,
+    "assignments": 2817,
+    "distinct": 370,
+    "singleUse": 48,
+    "singleUseShare": 13,
     "top": [
       {
         "pages": 124
@@ -483,7 +482,7 @@
     }
   },
   "git": {
-    "totalBlobBytes": 1772725945,
+    "totalBlobBytes": 1777670709,
     "byClass": {
       "rawOriginal": {
         "bytes": 822935139,
@@ -494,8 +493,8 @@
         "blobs": 16
       },
       "wiki": {
-        "bytes": 260148896,
-        "blobs": 8536
+        "bytes": 265093660,
+        "blobs": 9146
       },
       "other": {
         "bytes": 29811430,
@@ -516,19 +515,19 @@
         "versions": 246
       },
       "*/_index.md": {
-        "bytes": 25870308,
-        "versions": 490
+        "bytes": 26440924,
+        "versions": 496
       },
       "wiki/hot.md": {
-        "bytes": 25293130,
-        "versions": 271
+        "bytes": 25297518,
+        "versions": 272
       },
       "wiki/overview.md": {
         "bytes": 3384126,
         "versions": 97
       }
     },
-    "hubShareOfWiki": 79.9,
+    "hubShareOfWiki": 78.6,
     "blobsOver50MB": [
       {
         "bytes": 203926407,
