@@ -259,15 +259,22 @@ tell drift from method; none of these change a verdict.
   against a fixture whose log format, report headings, skill paths or address rules were
   deliberately broken (four negative cases, one per contract, as tests).
 
-### 0.3 Backups and the working rule
+### 0.3 Backups and the working rule - DONE 2026-09-19
 
-- [ ] Full backup of `~/vault` (a git bundle plus a tar of the working tree including untracked
+- [x] Full backup of `~/vault` (a git bundle plus a tar of the working tree including untracked
       files) and of `~/.local/share/vault-service/jobs.db`, into `~/dev/brainvault-backups/`
       with the date in the name.
-- [ ] Note in this file which commit and which DB the backup covers.
+- [x] Note in this file which commit and which DB the backup covers.
 - **DoD:** the bundle restores into a scratch directory and `git log` in the restored clone ends
   at the recorded commit; `sqlite3 <db> "pragma integrity_check"` says `ok`.
 
+**Result.** In `~/dev/brainvault-backups/`, all dated `2026-09-19`: `vault-2026-09-19.bundle`
+(1.38 GB, every ref), `vault-2026-09-19.head` (the covered commit, `35556a9...`, recorded as a
+hash so no vault subject lands in this repo), `vault-worktree-2026-09-19.tar` (1.54 GB, the
+working tree with untracked files, `.git` left out because the bundle carries the history) and
+`jobs-2026-09-19.db` (5.7 MB, taken with sqlite's own `.backup`). Verified: the bundle clones
+into a scratch directory and its `git log` ends at the recorded commit with **764 commits**;
+`pragma integrity_check` on the DB copy says `ok`. The service was inactive for all of it.
 
 ---
 
