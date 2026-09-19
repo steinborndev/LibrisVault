@@ -1517,7 +1517,7 @@ there.
 retrieval index all need to honour `origin: upstream-demo`, which is code rather than a repair
 pass, and the decision about eventually deleting them stays with the user.
 
-### 8.8 Shrink `log.md` (B1, C-1) - last, and only after 2.4
+### 8.8 Shrink `log.md` (B1, C-1) - last, and only after 2.4 - DONE 2026-09-19
 
 - [ ] 777 kB, 258 entries, one third of the wiki's entire git history. `wiki-fold` does not
       shrink it (C-1), so this is a deliberate archival: fold the older entries with the vault's
@@ -1531,6 +1531,26 @@ pass, and the decision about eventually deleting them stays with the user.
       `reconcile-interrupted.test.ts` before and after.
 - **DoD:** `log.md` under 100 kB, every removed entry reachable through a fold or archive page,
   `vaultprobe` green, and a deliberately interrupted scratch ingest still recovers correctly.
+
+**Result, vault commit `7888686`: 776 kB to 83.6 kB.** 25 entries in the log, 232 in four
+archive pages under `wiki/folds/`, one per month, each a readable fold page linked from the
+log. 25 + 232 = 257 = every entry the log ever had.
+
+**The retention window is a COUNT, not the proposed date window, and the measurement is why.**
+"The current quarter plus fold pages for everything older" keeps 236 of 257 entries and takes
+the file from 776 kB to 752: this vault only started taking real material in July, so the
+quarter is almost the whole log. 25 entries is about two weeks at the current rate and the
+number that lands the file under 100 kB.
+
+**The 2.4 verification first, as the task demands.** `grep -n "log.md" server/src/pipeline/queue.ts`
+showed the fallback still reading the file for status, and the DB showed **zero jobs in
+`ingesting`** - the exact condition 2.4's own comment named for deleting it. So the fallback is
+gone, and `ingestCompletionMarker` is now one line. Without that, this task would have silently
+broken crash recovery for every job older than the window, which is what C-1 warned about.
+
+`reconcile-interrupted.test.ts` passes with its cases rewritten to the marker; it also gained
+`ensureVaultExcludes` in its setup, because a recovered run's marker would otherwise leave the
+tree dirty - which is exactly what production does at startup.
 
 ---
 

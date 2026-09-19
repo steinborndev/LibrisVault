@@ -600,3 +600,112 @@ export function dashLinkPass(vaultRoot: string): RepairPass {
     return { after, why: `repointed ${repaired} link(s) that differed from a real page only in the dash` }
   }
 }
+
+/* ------------------------------------------------------------ the log archive (8.8) */
+
+/**
+ * How many entries `wiki/log.md` keeps. The rest move to dated archive pages.
+ *
+ * WHY A COUNT AND NOT A DATE WINDOW. The plan proposed "the current quarter plus fold pages
+ * for everything older". Measured on the live vault, that keeps 236 of 257 entries and takes
+ * the file from 776 kB to 752: this vault only started taking real material in July, so the
+ * quarter IS almost the whole log. A count is what actually bounds the file, and 25 entries is
+ * about two weeks at the current rate - and the number that lands the file under 100 kB, which
+ * is the size at which it is still something a reader opens.
+ *
+ * NOTHING IS LOST. Every archived entry moves to a page under `wiki/folds/`, one per month,
+ * linked from the log. And the whole file is in git besides.
+ *
+ * This is only safe because nothing reads `log.md` for a job's status any more (task 2.4, and
+ * the fallback was removed once no job was left in `ingesting`). A truncated log under the old
+ * check would have answered "not finished" for every job older than the window.
+ */
+export const LOG_KEEP_ENTRIES = 25
+
+export interface LogArchivePlan {
+  /** `wiki/log.md` as it would be left: head, the recent window, and the archive links. */
+  readonly log: string | null
+  /** One archive page per month, oldest first. */
+  readonly archives: ReadonlyArray<{ rel: string; content: string; entries: number }>
+  readonly kept: number
+  readonly archived: number
+}
+
+/** Splits the log into its head and its `## [date] …` entries, newest first as written. */
+function splitLog(markdown: string): { head: string; entries: Array<{ month: string; text: string }> } {
+  const heads = [...markdown.matchAll(/^## \[(\d{4}-\d{2})-\d{2}\][^\n]*$/gm)]
+  if (heads.length === 0) return { head: markdown, entries: [] }
+  const head = markdown.slice(0, heads[0]!.index!).replace(/\s*$/, '')
+  const entries = heads.map((h, i) => ({
+    month: h[1]!,
+    text: markdown.slice(h.index!, i + 1 < heads.length ? heads[i + 1]!.index! : markdown.length).replace(/\s*$/, ''),
+  }))
+  return { head, entries }
+}
+
+/** The archive page for one month: a fold page, readable in Obsidian, linked from the log. */
+function archivePage(month: string, entries: ReadonlyArray<{ text: string }>): string {
+  return [
+    '---',
+    'type: fold',
+    'domain: meta',
+    `title: "Operation Log ${month}"`,
+    `created: ${month}-01`,
+    `updated: ${month}-01`,
+    'tags:',
+    '  - meta',
+    '  - log',
+    'status: evergreen',
+    'related:',
+    '  - "[[log]]"',
+    '---',
+    '',
+    `# Operation Log ${month}`,
+    '',
+    `Archived from [[log]]: ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} of ${month}, moved here to keep the live log readable. Nothing was changed.`,
+    '',
+    ...entries.map((e) => `${e.text}\n`),
+  ].join('\n')
+}
+
+/** Read-only: what the archival would produce. */
+export function planLogArchive(vaultRoot: string, keep: number = LOG_KEEP_ENTRIES): LogArchivePlan {
+  let markdown: string
+  try {
+    markdown = fs.readFileSync(path.join(vaultRoot, 'wiki', 'log.md'), 'utf8')
+  } catch {
+    return { log: null, archives: [], kept: 0, archived: 0 }
+  }
+  const { head, entries } = splitLog(markdown)
+  if (entries.length <= keep) return { log: null, archives: [], kept: entries.length, archived: 0 }
+
+  const recent = entries.slice(0, keep)
+  const older = entries.slice(keep)
+  const byMonth = new Map<string, Array<{ text: string }>>()
+  for (const e of older) {
+    const list = byMonth.get(e.month)
+    if (list === undefined) byMonth.set(e.month, [e])
+    else list.push(e)
+  }
+  const archives = [...byMonth.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, list]) => ({
+      rel: `wiki/folds/log-${month}.md`,
+      content: archivePage(month, list),
+      entries: list.length,
+    }))
+
+  const links = archives.map((a) => `- [[log-${a.rel.slice('wiki/folds/log-'.length, -3)}]] (${a.entries} entries)`)
+  const log = [
+    head,
+    '',
+    ...recent.map((e) => `${e.text}\n`),
+    '## Older entries',
+    '',
+    `The ${older.length} entries before these are archived by month, unchanged:`,
+    '',
+    ...links,
+    '',
+  ].join('\n')
+  return { log, archives, kept: recent.length, archived: older.length }
+}

@@ -613,19 +613,13 @@ export class IngestQueue {
    * last - a skill's prose template as the basis of crash recovery, and a 777 kB read per
    * stuck job.
    *
-   * The log check stays as a FALLBACK for jobs that were already `ingesting` when this version
-   * started: their run was told nothing about a marker and can only ever have left a log entry.
-   * It can be deleted once no `ingesting` job predates the deployment - in practice, once the
-   * first restart after this change has reconciled whatever was in flight.
+   * THE LOG FALLBACK IS GONE (2026-09-19). It existed for jobs that were already `ingesting`
+   * when the marker shipped, and the condition its own comment named has been met and
+   * measured: no job is in that state. Keeping it would also have blocked shrinking the log,
+   * because a truncated log would have answered "not finished" for anything old.
    */
   private ingestCompletionMarker(job: JobRow): boolean {
-    if (hasRunMarker(this.vaultRoot, job.id)) return true
-    try {
-      const log = fs.readFileSync(path.join(this.vaultRoot, 'wiki', 'log.md'), 'utf8')
-      return log.includes(`.raw/${job.id}`) || (job.raw_path !== null && log.includes(job.raw_path))
-    } catch {
-      return false
-    }
+    return hasRunMarker(this.vaultRoot, job.id)
   }
 
   /** Reconstructs pending batch units from queued batch members not already tracked in memory. */

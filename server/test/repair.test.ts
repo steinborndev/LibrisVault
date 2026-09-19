@@ -14,6 +14,7 @@ import {
   demoSeedPass,
   planManifestRepair,
   dashLinkPass,
+  planLogArchive,
 } from '../src/pipeline/repair.js'
 import { fieldOf, CONTENT_UPDATED } from '../src/pipeline/page-dates.js'
 
@@ -449,5 +450,82 @@ describe('dashLinkPass', () => {
 
   it('leaves a link to a page that does not exist in any spelling', () => {
     expect(dashLinkPass(vault)('x', 'See [[Nothing - Here]].\n', vault)).toBeNull()
+  })
+})
+
+/**
+ * The operation log, bounded (8.8). Last of the phase, and only safe because nothing decides a
+ * job's status from this file any more (2.4): a truncated log under the old check would have
+ * answered "not finished" for every job older than the window.
+ */
+describe('planLogArchive', () => {
+  const log = (entries: number, month = '2026-09'): void => {
+    const body = Array.from({ length: entries }, (_, i) => {
+      const day = String(28 - (i % 28)).padStart(2, '0')
+      return `## [${month}-${day}] ingest | Entry ${i}\n\n- Pages created: none\n`
+    }).join('\n')
+    page('wiki/log.md', 'type: meta\ntitle: "Operation Log"', `# Operation Log\n\nNavigation: [[index]]\n\n${body}`)
+  }
+
+  it('does nothing while the log is within the window', () => {
+    log(5)
+    expect(planLogArchive(vault, 25).log).toBeNull()
+  })
+
+  it('keeps the newest entries and archives the rest by month', () => {
+    log(10, '2026-09')
+    const before = fs.readFileSync(path.join(vault, 'wiki/log.md'), 'utf8')
+    const plan = planLogArchive(vault, 4)
+    expect(plan.kept).toBe(4)
+    expect(plan.archived).toBe(6)
+    expect(plan.archives.map((a) => a.rel)).toEqual(['wiki/folds/log-2026-09.md'])
+    // The four newest are still in the log, and the archived ones are not.
+    expect(plan.log).toContain('Entry 0')
+    expect(plan.log).toContain('Entry 3')
+    expect(plan.log).not.toContain('Entry 4')
+    expect(plan.archives[0]?.content).toContain('Entry 4')
+    // Nothing is lost: every entry is in one file or the other, unchanged.
+    for (let i = 0; i < 10; i++) {
+      const inLog = plan.log!.includes(`Entry ${i}\n`)
+      const inArchive = plan.archives.some((a) => a.content.includes(`Entry ${i}\n`))
+      expect(inLog !== inArchive, `Entry ${i}`).toBe(true)
+    }
+    expect(before).toContain('Entry 9')
+  })
+
+  it('keeps the head of the log and links to the archives', () => {
+    log(10)
+    const plan = planLogArchive(vault, 4)
+    expect(plan.log).toContain('# Operation Log')
+    expect(plan.log).toContain('Navigation: [[index]]')
+    expect(plan.log).toContain('## Older entries')
+    expect(plan.log).toContain('[[log-2026-09]]')
+  })
+
+  it('writes one archive page per month, each a readable fold page', () => {
+    page('wiki/log.md', 'type: meta', [
+      '# Operation Log',
+      '',
+      '## [2026-09-10] ingest | New',
+      '',
+      '- x',
+      '',
+      '## [2026-08-10] ingest | Older',
+      '',
+      '- y',
+      '',
+      '## [2026-07-10] ingest | Oldest',
+      '',
+      '- z',
+      '',
+    ].join('\n'))
+    const plan = planLogArchive(vault, 1)
+    expect(plan.archives.map((a) => a.rel)).toEqual(['wiki/folds/log-2026-07.md', 'wiki/folds/log-2026-08.md'])
+    expect(plan.archives[0]?.content).toContain('type: fold')
+    expect(plan.archives[0]?.content).toContain('Archived from [[log]]')
+  })
+
+  it('is inert on a vault with no log at all', () => {
+    expect(planLogArchive(vault, 25)).toEqual({ log: null, archives: [], kept: 0, archived: 0 })
   })
 })

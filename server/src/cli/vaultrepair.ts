@@ -38,7 +38,7 @@ import {
   type RepairPass,
   type RepairPlan,
 } from '../pipeline/repair.js'
-import { planManifestRepair } from '../pipeline/repair.js'
+import { planManifestRepair, planLogArchive } from '../pipeline/repair.js'
 import { renderIndex, renderOverviewCounters, updateOverview, renderBucketPages, updateBucketHub, bucketHubs } from '../pipeline/hubs.js'
 import { withWikiLocks } from '../pipeline/wiki-lock.js'
 import { commitPaths } from '../pipeline/git.js'
@@ -215,6 +215,44 @@ async function hubs(vaultRoot: string, wantApply: boolean, withBuckets = false):
   void written
 }
 
+/**
+ * 8.8: the operation log, bounded. Last of the phase, and only safe because nothing decides a
+ * job's status from this file any more (2.4).
+ */
+async function logArchive(vaultRoot: string, wantApply: boolean): Promise<void> {
+  const before = (() => {
+    try {
+      return fs.readFileSync(path.join(vaultRoot, 'wiki/log.md'), 'utf8').length
+    } catch {
+      return 0
+    }
+  })()
+  const plan = planLogArchive(vaultRoot)
+  if (plan.log === null) {
+    console.log(`\nlog-archive (8.8): ${plan.kept} entries, nothing to archive`)
+    return
+  }
+  console.log(`\nlog-archive (8.8): keeping ${plan.kept} entries, archiving ${plan.archived} into ${plan.archives.length} page(s)`)
+  console.log(`  wiki/log.md  ${Math.round(before / 100) / 10} kB -> ${Math.round(plan.log.length / 100) / 10} kB`)
+  for (const a of plan.archives) {
+    console.log(`  ${a.rel.padEnd(28)} ${a.entries} entries, ${Math.round(a.content.length / 100) / 10} kB`)
+  }
+  if (!wantApply) return
+  const paths = ['wiki/log.md', ...plan.archives.map((a) => a.rel)]
+  await withWikiLocks(vaultRoot, paths, async (held, busy) => {
+    if (busy.length > 0) {
+      console.log(`  another writer holds ${busy.join(', ')} - not archiving`)
+      return
+    }
+    void held
+    fs.mkdirSync(path.join(vaultRoot, 'wiki/folds'), { recursive: true })
+    for (const a of plan.archives) fs.writeFileSync(path.join(vaultRoot, a.rel), a.content, 'utf8')
+    fs.writeFileSync(path.join(vaultRoot, 'wiki/log.md'), plan.log!, 'utf8')
+    const commit = await commitPaths(vaultRoot, 'repair: archive the older log entries by month', paths)
+    console.log(`  wrote ${paths.length} file(s)${commit.hash ? `, commit ${commit.hash.slice(0, 8)}` : ', not committed'}`)
+  })
+}
+
 async function main(): Promise<number> {
   const args = process.argv.slice(2)
   const valueOf = (name: string): string | undefined => {
@@ -239,6 +277,11 @@ async function main(): Promise<number> {
     if (!wantApply) console.log('\nnothing was written. Add --apply to run it for real.')
     return 0
   }
+  if (only === 'log-archive') {
+    await logArchive(vaultRoot, wantApply)
+    if (!wantApply) console.log('\nnothing was written. Add --apply to run it for real.')
+    return 0
+  }
   if (only === 'hubs') {
     await hubs(vaultRoot, wantApply, args.includes('--with-buckets'))
     if (!wantApply) console.log('\nnothing was written. Add --apply to run it for real.')
@@ -246,7 +289,7 @@ async function main(): Promise<number> {
   }
   const chosen = only === undefined ? PASSES : PASSES.filter((p) => p.name === only)
   if (chosen.length === 0) {
-    console.error(`no such pass: ${only}. Known: ${[...PASSES.map((p) => p.name), 'address-map', 'hubs'].join(', ')}`)
+    console.error(`no such pass: ${only}. Known: ${[...PASSES.map((p) => p.name), 'address-map', 'hubs', 'log-archive'].join(', ')}`)
     return 2
   }
 
@@ -261,6 +304,7 @@ async function main(): Promise<number> {
   if (only === undefined) {
     await addressMap(vaultRoot, wantApply)
     await hubs(vaultRoot, wantApply)
+    await logArchive(vaultRoot, wantApply)
     reportTitleDrift(vaultRoot)
   }
   if (!wantApply) console.log('\nnothing was written. Add --apply to run it for real.')

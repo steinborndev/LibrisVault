@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { JobStore } from '../src/db/jobs.js'
 import { IngestQueue } from '../src/pipeline/queue.js'
+import { ensureVaultExcludes } from '../src/pipeline/vault-excludes.js'
 import { dirtyPaths } from '../src/pipeline/git.js'
 import type { ToolAvailability } from '../src/pipeline/preprocess/index.js'
 import type { JobRow } from '../src/db/jobs.js'
@@ -37,6 +38,9 @@ beforeEach(() => {
   write('wiki/log.md', '# Log\n')
   git('add', '-A')
   git('commit', '-q', '-m', 'base')
+  // What the service does at startup: the run markers are derived state and stay out of vault
+  // history, which is also why a recovered run leaves the tree clean.
+  ensureVaultExcludes(repo)
   db = openDb(MEMORY_DB)
   store = new JobStore(db)
 })
@@ -66,7 +70,13 @@ describe('reconcileInterrupted', () => {
     // the job's .raw dir) but before the commit — so the pages sit dirty in the working tree.
     const page = 'wiki/concepts/Recovered.md'
     write(page, '# recovered\n')
-    write('wiki/log.md', `# Log\n\n## [2026-07-21] ingest\n- Sources: \`.raw/${job.id}/normalized.txt\`\n`)
+    /*
+     * The completion MARKER, not a log entry (2.4, and the fallback was removed on
+     * 2026-09-19 once no job was left in `ingesting`). The service writes the log itself now,
+     * so a crashed run leaves no entry at all - and a truncated log would otherwise have
+     * answered "not finished" for every old job (8.8).
+     */
+    write(`.vault-meta/runs/${job.id}.done`, '')
 
     const q = makeQueue()
     q.start()
@@ -180,7 +190,8 @@ describe('reconcileInterrupted', () => {
     const a = seedIngesting({ sha256: 'ba', originalName: 'A.pdf', batchId: 'batch1' })
     const b = seedIngesting({ sha256: 'bb', originalName: 'B.pdf', batchId: 'batch1' })
     write('wiki/concepts/Shared.md', '# shared\n')
-    write('wiki/log.md', `# Log\n- Sources: \`.raw/${a.id}/n.txt\`, \`.raw/${b.id}/n.txt\`\n`)
+    write(`.vault-meta/runs/${a.id}.done`, '')
+    write(`.vault-meta/runs/${b.id}.done`, '')
 
     const q = makeQueue()
     q.start()
