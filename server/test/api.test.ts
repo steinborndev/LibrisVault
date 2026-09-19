@@ -176,7 +176,8 @@ describe('GET /api/v1/health', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as HealthResp
     expect(body.status).toBe('ok')
-    expect(body.queue.concurrency).toBe(2)
+    // One writer at a time (A3, 2026-09-19): the default the vault's ingest skill asks for.
+    expect(body.queue.concurrency).toBe(1)
     expect(body.jobs).toBeDefined()
     // Public route: must not leak filesystem layout.
     expect(body).not.toHaveProperty('vaultRoot')
@@ -725,7 +726,7 @@ describe('GET /api/v1/stats', () => {
     }
     expect(body.vaultName).toBe('vault')
     expect(typeof body.pages.total).toBe('number')
-    expect(body.queue.concurrency).toBe(2)
+    expect(body.queue.concurrency).toBe(1)
     expect(body.watcher.active).toBe(true)
     expect(body.kpis7d).toBeDefined()
   })
@@ -1033,7 +1034,7 @@ describe('GET/PUT /api/v1/settings', () => {
   })
 
   it('applies a concurrency change live to the running queue', async () => {
-    expect(queue.stats().concurrency).toBe(2)
+    expect(queue.stats().concurrency).toBe(1)
     const res = await put({ concurrency: 4 })
     expect(res.status).toBe(200)
     const body = (await res.json()) as SettingsResp

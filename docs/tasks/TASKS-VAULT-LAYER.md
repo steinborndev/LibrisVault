@@ -429,23 +429,44 @@ the script's release is an unconditional `rm -f`.
 Two test stubs had to learn the flag (`wiki-lock.test.ts`, `pages-write.test.ts`): both read
 the page path from `$2`, which is now `--stale-after-sec`. Worth knowing for any future stub.
 
-### 1.4 Concurrency default 1, and the deviation written down (A3)
+### 1.4 Concurrency default 1, and the deviation written down (A3) - DONE 2026-09-19
 
-- [ ] `queue.ts:347` default becomes 1. The setting stays live-applicable.
-- [ ] `SPEC.md` §3.1 (the "Ingestion queue" paragraph, line 69 today): correct the wording. Today it says default 2 and claims
+- [x] `queue.ts:347` default becomes 1. The setting stays live-applicable.
+- [x] `SPEC.md` §3.1 (the "Ingestion queue" paragraph, line 69 today): correct the wording. Today it says default 2 and claims
       claude-obsidian's per-file locking "additionally protects at vault level in case Claude
       Code is used manually in the vault at the same time". Both halves are wrong as stated:
       the default changes, and the lock's 60 s window is shorter than 9.6 % of real holds, so it
       does not serialise two ingests. Replace with: default 1, the upstream single-writer rule
       quoted, the measurement, and what would have to be true to raise it again.
-- [ ] `CLAUDE.md`: one sentence under the conventions naming the upstream constraint and the
+- [x] `CLAUDE.md`: one sentence under the conventions naming the upstream constraint and the
       fact that the service follows it.
-- [ ] The settings UI gains a one-line warning next to the concurrency field when it is set
+- [x] The settings UI gains a one-line warning next to the concurrency field when it is set
       above 1, naming the skill's rule rather than inventing a policy.
-- [ ] Tests: default is 1 without an explicit option; an explicit 2 still works; the warning
+- [x] Tests: default is 1 without an explicit option; an explicit 2 still works; the warning
       renders above 1 and not at 1.
 - **DoD:** a fresh service reports `concurrency: 1` in `/health`, SPEC.md and CLAUDE.md agree
   with the code, and `vault-audit` on a later run shows no new overlapping job pairs.
+
+**Result.** `/health` reports `concurrency: 1` (asserted in `api.test.ts`, which had pinned 2
+in three places). The default lives in one constant, `DEFAULT_CONCURRENCY`, and the queue's own
+fallback now reads it instead of carrying a second 2 of its own - that second copy is why the
+setting and the queue could have disagreed.
+
+SPEC.md §3.1 rewritten: it said default 2 AND claimed the per-file lock "additionally protects
+at vault level", and both halves were wrong. It now carries the skill's rule verbatim, the two
+measurements (13 of 31 jobs overlapped; 9.6 % of holds outlived the lock window), what the lock
+DOES protect (a page held right now against a writer asking for it in the same window - the
+manual-Obsidian case, not the two-ingests case), and what raising it again would require.
+CLAUDE.md gains the one-sentence version under the conventions.
+
+The settings warning is a pure exported function (`concurrencyWarning`) so its wording and its
+threshold are testable without rendering the editor. It quotes the vault's rule rather than
+inventing one of ours. Its test caught a real bug on the way in: a cleared number field arrives
+as `NaN`, and `NaN <= 1` is false, so the warning fired on an empty field.
+
+Still open, by construction: the "no new overlapping job pairs" half of the DoD needs ingests
+to have run under the new default. `vault-audit` reports overlapping pairs, so it is measurable
+at the next run.
 
 ### 1.5 Correct hard rule 1's writer list (A10)
 

@@ -71,6 +71,7 @@ import { localDate } from './clock.js'
 import type { ValidationFinding, Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
+import { DEFAULT_CONCURRENCY } from '../db/settings.js'
 
 export type FailureClass = 'rate_limit' | 'transient' | 'permanent'
 
@@ -344,7 +345,9 @@ export class IngestQueue {
     this.store = opts.store
     this.vaultRoot = opts.vaultRoot
     this.auth = opts.auth
-    this.concurrency = opts.concurrency ?? 2
+    // One writer at a time: the vault's ingest skill is explicit that it was built for
+    // single-writer use, and we measured 13 overlapping job pairs against it (A3).
+    this.concurrency = opts.concurrency ?? DEFAULT_CONCURRENCY
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     this.maxRetries = opts.maxRetries ?? 2
     this.rateLimitPauseMs = opts.rateLimitPauseMs ?? 60_000
