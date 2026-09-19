@@ -307,10 +307,25 @@ const BOOKKEEPING_HEADINGS: ReadonlyArray<readonly [RegExp, string]> = [
   [/^automated decisions?/i, 'Automated Decisions'],
 ]
 
+/**
+ * How long a section can be, and still be bookkeeping.
+ *
+ * Found in the dry run over the live vault, which is why the rule is here at all: a section
+ * headed "Relation to This Vault's ... Coverage" turned out to carry a paragraph DISTINGUISHING
+ * two sources, with wikilinks to both. That is a judgement about the material, in a section the
+ * task's list calls droppable.
+ *
+ * So the heading alone does not decide it. A section that is short and links to nothing is the
+ * boilerplate this pass exists to remove; one that is long or cites other pages is content, and
+ * it is left for a person - which is what "no prose rewrite" means in practice.
+ */
+const BOOKKEEPING_MAX_CHARS = 400
+
 export const runProtocolPass: RepairPass = (_rel, markdown) => {
   const heads = [...markdown.matchAll(/^(#{1,6})[ \t]+(.+?)[ \t]*$/gm)]
   if (heads.length === 0) return null
   const cuts: Array<{ start: number; end: number; name: string }> = []
+  const substantive: string[] = []
   for (let i = 0; i < heads.length; i++) {
     const h = heads[i]!
     const level = h[1]!.length
@@ -326,6 +341,12 @@ export const runProtocolPass: RepairPass = (_rel, markdown) => {
         break
       }
     }
+    const section = markdown.slice(h.index! + h[0].length, end).trim()
+    // Long, or citing other pages: content, not bookkeeping. Left alone and counted.
+    if (section.length > BOOKKEEPING_MAX_CHARS || /\[\[/.test(section)) {
+      substantive.push(hit[1])
+      continue
+    }
     cuts.push({ start: h.index!, end, name: hit[1] })
   }
   if (cuts.length === 0) return null
@@ -335,7 +356,9 @@ export const runProtocolPass: RepairPass = (_rel, markdown) => {
   }
   return {
     after: after.replace(/\n{3,}/g, '\n\n'),
-    why: `removed ${cuts.length} bookkeeping section(s): ${cuts.map((c) => c.name).join(', ')}`,
+    why:
+      `removed ${cuts.length} bookkeeping section(s): ${cuts.map((c) => c.name).join(', ')}` +
+      (substantive.length > 0 ? `; left ${substantive.length} that carries content` : ''),
   }
 }
 

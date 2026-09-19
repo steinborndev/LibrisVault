@@ -289,3 +289,35 @@ describe('diffOf handles a removed line', () => {
     expect(diff.split('\n').length).toBeLessThan(10)
   })
 })
+
+/**
+ * Found in the dry run over the live vault, and the reason the heading alone cannot decide it:
+ * a section headed "Relation to This Vault's ... Coverage" carried a paragraph distinguishing
+ * two sources, with wikilinks to both. That is a judgement about the material, under a heading
+ * the task's list calls droppable. 99 of 116 such sections turned out to be like that.
+ */
+describe('the run-protocol pass refuses to drop content', () => {
+  const withSection = (body: string): ReturnType<typeof runProtocolPass> =>
+    runProtocolPass('wiki/concepts/A.md', `---\ntype: concept\n---\n\n# A\n\n## Status of This Page\n\n${body}\n`, vault)
+
+  it('drops a short section that cites nothing', () => {
+    expect(withSection('Written by an ingest run; no human review yet.')?.after).not.toContain('Status of This Page')
+  })
+
+  it('leaves one that cites other pages', () => {
+    expect(withSection('This overlaps [[Another Page]] and should be read with it.')).toBeNull()
+  })
+
+  it('leaves a long one, whatever its heading says', () => {
+    expect(withSection('A '.repeat(250))).toBeNull()
+  })
+
+  it('says what it left, so the number is visible rather than silent', () => {
+    const out = runProtocolPass(
+      'wiki/concepts/A.md',
+      `---\ntype: concept\n---\n\n# A\n\n## Vault context\n\nShort and plain.\n\n## Automated Decisions\n\nSee [[Another Page]] for why.\n`,
+      vault,
+    )
+    expect(out?.why).toContain('left 1 that carries content')
+  })
+})
