@@ -718,3 +718,55 @@ title the file name cannot carry is this vault's largest dead-link class.
 run wrote. `revertCommit` therefore reverts the commit's own paths and leaves the hubs alone,
 which is also what reverting means here: the index is regenerated from the pages that remain, and
 the log is a record of something that really did happen.
+
+
+### 12.13 Page freshness: `updated:` and `content_updated:` (added 2026-09-19)
+
+A page carries two date fields where it used to carry one.
+
+`updated:` keeps exactly its old meaning: the day anything about the FILE changed. The vault's
+own skills read it and repurposing it would change their behaviour, which is not ours to change
+(hard rule 5).
+
+`content_updated:` is new and means the day a human or a run changed what the page SAYS.
+
+**Why.** Every mass pass bumped `updated:`: a tag normalisation, a link repair, a counter
+refresh, a frontmatter backfill. Measured on the working vault before this change: **1231 of
+1247 pages (99 %) claimed an update within thirty days**, which is another way of saying the
+field answered nothing. "What changed recently" cannot be asked of a vault where everything
+changed recently.
+
+**The rule for a writer, and it is a judgement the writer makes rather than a diff.** A user's
+page edit, a run writing a page, a question struck through: content changed. A link joined back
+onto one line, a tag dropped, an em-dash replaced, a heading moved, a counter refreshed: the
+file changed and the page still says the same thing. `stampDates({ content })` takes that
+judgement as its argument; `bodyChanged` is available where a writer wants a diff to decide.
+
+**Reading it.** `freshnessDate` prefers `content_updated:` and falls back to **`created:`**,
+deliberately not to `updated:`. On the pages that predate the field `updated:` is the date of
+the last mass pass, and sorting by it is what made every page look equally fresh. No page
+carries the new field yet, which is correct: the one-off repair of §12.14 was mechanical, so it
+stamped none of the 819 pages it touched, and the field starts filling at the next real write.
+
+### 12.14 What `.raw/` puts into vault git (added 2026-09-19)
+
+The vault repo had grown to **1.4 GB carrying 16 MB of knowledge**. Two classes were
+responsible and both are now excluded, the same mechanism and the same category as the
+retrieval-index artifacts in §12.6: repo-local `.git/info/exclude`, never a change to a tracked
+file of the cloned repo (hard rule 5).
+
+**Derived payloads.** `ocr.pdf` is written beside the original when a textless PDF has to be
+OCR'd. It is rebuildable from the file lying next to it and it was **627 MB in 16 blobs**, three
+of them over 150 MB. Derived and rebuildable is exactly the category the exclude list exists
+for.
+
+**Oversized originals.** A payload over `RAW_PAYLOAD_MAX_BYTES` (default 25 MB) stays on disk
+and out of git. It is not deleted and not hidden: the job's manifest names it under `localOnly`
+with its size, so provenance still points at a real file on this machine and a reader can tell
+"not versioned" from "not there".
+
+**What this does not do.** It does not shrink the existing 1.4 GB. Rewriting the vault's history
+was considered and rejected: a rewrite invalidates every commit hash the service has recorded
+against a job, and the wiki content is 232 MB of that history and would have to survive
+untouched. The size is prevented from growing, and the existing history stays exactly as
+written.

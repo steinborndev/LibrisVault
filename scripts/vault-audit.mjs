@@ -354,7 +354,12 @@ function resolveLink(vaultRoot, index, target) {
 
 /** Append-only records and reports legitimately name pages that are gone (validator policy). */
 const skipLinkCheck = (rel) =>
-  /^wiki\/meta\/lint-report-.*\.md$/.test(rel) || rel === 'wiki/log.md' || rel === 'wiki/hot.md'
+  /^wiki\/meta\/lint-report-.*\.md$/.test(rel) ||
+  rel === 'wiki/log.md' ||
+  rel === 'wiki/hot.md' ||
+  // The log's monthly archives (task 8.8) are the log, moved. Without this the archiving run
+  // looks like it created dead links, when all it did was move where the old ones are written.
+  /^wiki\/folds\/log-\d{4}-\d{2}\.md$/.test(rel)
 
 /* -------------------------------------------------------------------------------- the report */
 
