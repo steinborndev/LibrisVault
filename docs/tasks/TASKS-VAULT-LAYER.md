@@ -888,43 +888,65 @@ in a file name on this filesystem, which is exactly why the two can drift).
 cap.** That is phase 8.2's work item, and the 72 is a bigger number than B3's five worst file
 names suggested.
 
-### 4.2 A minimal page schema (B4)
+### 4.2 A minimal page schema (B4) - DONE 2026-09-19
 
-- [ ] Agree the smallest useful required heading set per type and put it in the prompt: it has
+- [x] Agree the smallest useful required heading set per type and put it in the prompt: it has
       to be small enough that prose quality survives (2243 heading variants exist because runs
       were free, and the free prose is good) and fixed enough that a later run knows where to
       add. Proposal to confirm during implementation: concepts and entities require
       `## Connections`; sources require `## Why This Source Matters` and `## Connections`.
       These are already the best-shared headings (41 %, 41 %, 36 %), so this codifies what runs
       already reach for rather than inventing a template.
-- [ ] `validator.ts` gains a `page-schema` rule over the required set, advisory like the rest.
-- [ ] The prompt says explicitly that other sections are free, so the rule is a floor and not a
+- [x] `validator.ts` gains a `page-schema` rule over the required set, advisory like the rest.
+- [x] The prompt says explicitly that other sections are free, so the rule is a floor and not a
       template.
-- [ ] Tests: the rule over pages with, without and with a near-miss spelling of each heading.
+- [x] Tests: the rule over pages with, without and with a near-miss spelling of each heading.
 - **DoD:** the rule fires on the 59 % of concept pages that lack `## Connections` today, and
   the count is recorded here as phase 8.5's work item.
 
-### 4.3 Run-protocol sections leave the article (B5)
+**Result, measured over the live vault - the concept figure is exactly the predicted one:**
 
-- [ ] The prompt states where each kind of run-protocol content belongs now that the service
+| type | missing the floor | of | share |
+|---|---|---|---|
+| concept | 356 | 604 | **59 %** |
+| entity | 143 | 225 | 64 % |
+| source | 302 | 338 | 89 % |
+
+801 pages in total, which is phase 8.5's work item. The proposal in the task text was confirmed
+as written: `## Connections` for concepts and entities, plus `## Why This Source Matters` for
+sources. The prompt states in the same breath that every other section is free, because 2243
+heading variants exist precisely because runs were free and the free prose is the good part.
+
+### 4.3 Run-protocol sections leave the article (B5) - DONE 2026-09-19
+
+- [x] The prompt states where each kind of run-protocol content belongs now that the service
       owns the log entry (2.2): automated decisions, editorial notes, relation-to-this-vault,
       vault context, status-of-this-page and entity-notability notes go into the **final
       answer**, which the service renders into the log. They do not go on the page.
-- [ ] `## Assessment` and `## Open Questions` stay on the page: assessment is source criticism
+- [x] `## Assessment` and `## Open Questions` stay on the page: assessment is source criticism
       and belongs to the source, and the Fellows consume open questions
       (`docs/agents/SPEC.md` 10.13, `POST /questions/archive`). Say so in the prompt, so the
       rule is not read as "no meta sections at all".
-- [ ] `## Provenance` is redundant with the `sources:`/`url:` frontmatter; the prompt says to
+- [x] `## Provenance` is redundant with the `sources:`/`url:` frontmatter; the prompt says to
       use the frontmatter and drop the section.
-- [ ] The prompt also says not to describe the service's own mechanisms on a page: three pages
+- [x] The prompt also says not to describe the service's own mechanisms on a page: three pages
       currently note that the untrusted-content wrapper "was present as expected".
-- [ ] `validator.ts` gains a `run-protocol` rule naming the headings that should not be on a
+- [x] `validator.ts` gains a `run-protocol` rule naming the headings that should not be on a
       content page.
-- [ ] Tests: the rule fires on each of the seven relocated headings and stays silent on
+- [x] Tests: the rule fires on each of the seven relocated headings and stays silent on
       Assessment and Open Questions.
 - **DoD:** a scratch ingest produces pages with none of the seven headings and a log entry that
   carries the same content, and the validator rule reports the 352 existing pages as phase 8.5
   work.
+
+**Result: 231 findings on 215 pages.** That reconciles with B5's 352 exactly: 352 counted all
+nine headings, and Assessment (55) and Open Questions (86) are deliberately NOT in the rule -
+141 pages, leaving 211, against 215 measured (a page can carry two).
+
+The prompt now says where each kind goes (the final answer, which the service renders into the
+log entry), says that provenance is already in the frontmatter, and adds the sentence about not
+describing the service's own mechanisms on a page - three pages currently explain the
+untrusted-content wrapper to a reader who came for the subject.
 
 ### 4.4 Make the type-mirroring ban as concrete as the domain ban (B6)
 

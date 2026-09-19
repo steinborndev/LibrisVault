@@ -36,7 +36,12 @@ function write(rel: string, content: string): void {
 }
 
 /** A page with complete frontmatter; `over` overrides/adds fields, `null` drops one. */
-function page(rel: string, over: Record<string, string | null> = {}, body = 'Body prose.\n'): void {
+/**
+ * A page as the rules now define a complete one: the heading floor for its type is part of
+ * that since 2026-09-19 (B4), so the default body carries it. A test about a MISSING floor
+ * passes its own body.
+ */
+function page(rel: string, over: Record<string, string | null> = {}, body = 'Body prose.\n\n## Connections\n\nRelated work sits here.\n'): void {
   const fields: Record<string, string | null> = {
     type: 'concept',
     status: 'developing',
@@ -71,7 +76,7 @@ describe('source url shape', () => {
     page('wiki/sources/A.md', { type: 'source', url: '"local file: .raw/j1/x.pdf (example.org/media/123)"' })
     const findings = validatePages(vaultRoot, ['wiki/sources/A.md'])
     expect(rules(findings)).toContain('source-url')
-    expect(findings[0]!.message).toContain('bare address')
+    expect(findings.find((f) => f.rule === 'source-url')?.message).toContain('bare address')
   })
 
   it('flags a placeholder word', () => {
@@ -213,11 +218,14 @@ describe('dead links', () => {
       ].join('\n'),
     )
     const findings = validatePages(vaultRoot, ['wiki/concepts/Alpha.md'])
-    expect(rules(findings)).toEqual(['dead-link', 'dead-link'])
-    expect(findings[0]!.message).toContain('[[Nowhere To Be Found]]')
+    // The body is written for the link rules and carries no heading floor, so filter to the
+    // rule under test rather than asserting on the whole finding list.
+    const dead = findings.filter((f) => f.rule === 'dead-link')
+    expect(dead).toHaveLength(2)
+    expect(dead[0]!.message).toContain('[[Nowhere To Be Found]]')
     // [[wiki-cli]] is a REAL dead link (the file is SKILL.md — filename-stem resolution fails
     // in Obsidian too); the lint report flagged it, and so do we.
-    expect(findings[1]!.message).toContain('[[wiki-cli]]')
+    expect(dead[1]!.message).toContain('[[wiki-cli]]')
   })
 
   it('resolves a link written as a page frontmatter title or alias, not just its filename', () => {
@@ -474,5 +482,85 @@ describe('the title-name rule', () => {
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, '---\ntype: concept\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Untitled\n')
     expect(validatePages(vaultRoot, ['wiki/concepts/Untitled.md']).filter((f) => f.rule === 'title-name')).toEqual([])
+  })
+})
+
+/**
+ * The heading floor (B4, 4.2) and the run-protocol sections (B5, 4.3).
+ *
+ * Measured over the live vault when the rules landed: 356 of 604 concept pages (59 %), 143 of
+ * 225 entities (64 %) and 302 of 338 sources (89 %) lack their floor; 215 pages carry a
+ * run-protocol section. Both rules are advisory, like every other rule here.
+ */
+describe('the page schema floor', () => {
+  const page = (rel: string, type: string, body: string): string => {
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: ${type}\ntitle: "${path.basename(rel, '.md')}"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - ${type}\n---\n\n# ${path.basename(rel, '.md')}\n\n${body}`,
+    )
+    return rel
+  }
+  const schema = (rel: string): string[] =>
+    validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'page-schema').map((f) => f.message)
+
+  it('asks a concept and an entity for Connections', () => {
+    expect(schema(page('wiki/concepts/A.md', 'concept', '## Definition\n\nText.\n'))[0]).toContain('## Connections')
+    expect(schema(page('wiki/entities/B.md', 'entity', '## Work\n\nText.\n'))[0]).toContain('## Connections')
+  })
+
+  it('asks a source for both of its headings, naming what is missing', () => {
+    const one = schema(page('wiki/sources/C.md', 'source', '## Connections\n\nText.\n'))
+    expect(one[0]).toContain('## Why This Source Matters')
+    expect(one[0]).not.toContain('## Connections')
+  })
+
+  it('is silent when the floor is met, whatever else the page carries', () => {
+    // A floor, not a template: the free prose is the good part, and 2243 heading variants
+    // exist because runs were free to write them.
+    expect(schema(page('wiki/concepts/D.md', 'concept', '## Anything At All\n\nText.\n\n## Connections\n\n- [[X]]\n'))).toEqual([])
+  })
+
+  it('matches the heading case-insensitively, not by exact spelling', () => {
+    expect(schema(page('wiki/concepts/E.md', 'concept', '## connections\n\n- [[X]]\n'))).toEqual([])
+  })
+
+  it('says nothing about a type with no floor', () => {
+    expect(schema(page('wiki/questions/F.md', 'question', '## Whatever\n'))).toEqual([])
+  })
+})
+
+describe('the run-protocol rule', () => {
+  const withHeading = (heading: string): string[] => {
+    const rel = 'wiki/concepts/Protocol.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "Protocol"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Protocol\n\n## Connections\n\n- [[X]]\n\n## ${heading}\n\nText.\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'run-protocol').map((f) => f.message)
+  }
+
+  it('fires on each of the seven headings that belong in the log', () => {
+    for (const heading of [
+      'Editorial Note',
+      'Provenance',
+      'Status of This Page',
+      "Relation to this vault's existing coverage",
+      'Vault context',
+      'Entity Notability Note',
+      'Automated Decisions',
+    ]) {
+      expect(withHeading(heading), heading).toHaveLength(1)
+    }
+  })
+
+  it('stays silent on Assessment and Open Questions', () => {
+    // Assessment is source criticism and belongs to the source; the standing agents plan from
+    // the open questions. A rule read as "no meta sections at all" would take both away.
+    expect(withHeading('Assessment')).toEqual([])
+    expect(withHeading('Open Questions')).toEqual([])
   })
 })

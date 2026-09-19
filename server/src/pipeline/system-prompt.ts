@@ -119,6 +119,22 @@ flags violations to the operator):
   pages broken exactly this way.
 - If you delete or rename a page, update every page linking to it and remove/update its
   entry in .raw/.manifest.json's address_map.
+- Give every concept and entity page a "## Connections" section, and every source page a
+  "## Why This Source Matters" and a "## Connections". That is the whole required set, and it
+  is a FLOOR, not a template: every other section is yours to choose, and the prose is better
+  for it. The reason for the floor is the next run - 604 concept pages in this vault carry 2243
+  different headings between them, so a run wanting to add one link has nowhere predictable to
+  put it.
+- Where what you DID goes, as opposed to what the page is about. An editorial note, a
+  provenance note, a status-of-this-page note, a relation-to-this-vault note, a vault-context
+  note, an entity-notability note, a record of automated decisions: none of these belong on a
+  wiki page. Put them in your FINAL ANSWER, which the service renders into the log entry.
+  Provenance in particular is already in the frontmatter (sources:, url:) and does not need a
+  section of its own. Never describe the ingestion service's own mechanisms on a page either -
+  a reader came for the subject, and three pages in this vault currently explain the wrapper
+  this text arrived in.
+- Two meta sections DO belong on the page and stay: "## Assessment" (source criticism belongs
+  to the source) and "## Open Questions" (the standing research agents plan from them).
 - Never edit the claude-obsidian plugin's own files: anything outside wiki/ (skills/,
   scripts/, bin/, docs/, templates, repo-root files) and the shipped reference docs
   (wiki/references/*, wiki/getting-started.md). Writes there are refused by policy.

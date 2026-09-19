@@ -47,6 +47,10 @@ export type ValidationRule =
   | 'near-duplicate'
   /** A `title:` its own file name cannot carry, or one too long to be a name at all (B3). */
   | 'title-name'
+  /** A page missing the one heading its type is supposed to have (B4). */
+  | 'page-schema'
+  /** A section about what a RUN did, sitting inside the article it wrote (B5). */
+  | 'run-protocol'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule
@@ -72,6 +76,42 @@ const ADDRESS_RE = /^[cl]-\d{6}$/
 
 /** Characters a file name cannot portably carry, so a title holding one drifts from its name. */
 const UNSAFE_TITLE_CHARS = /[/\\:?*"<>|]/
+
+/**
+ * The smallest useful required heading per page type (B4).
+ *
+ * 604 concept pages carry 2243 DISTINCT `##` headings between them, so a later run has nowhere
+ * predictable to add to. The floor is deliberately tiny and codifies what runs already reach
+ * for rather than inventing a template: `## Connections` is the best-shared heading on concepts
+ * (41 %) and entities (36 %), and `## Why This Source Matters` on sources (41 %). Everything
+ * else stays free, which is the point - the free prose is good.
+ */
+const REQUIRED_HEADINGS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['concept', ['Connections']],
+  ['entity', ['Connections']],
+  ['source', ['Why This Source Matters', 'Connections']],
+])
+
+/**
+ * Headings that describe what a RUN did, sitting inside the article it wrote (B5).
+ *
+ * 352 of 1210 content pages carry at least one, 302 kB in total. They belong in the log entry
+ * the service writes from the run's final answer (SPEC.md §12.12), not in an encyclopedia
+ * article - three pages currently explain this service's own untrusted-content wrapper to a
+ * reader who came for the subject.
+ *
+ * `## Assessment` and `## Open Questions` are deliberately NOT here: assessment is source
+ * criticism and belongs to the source, and the standing agents plan from the open questions.
+ */
+const RUN_PROTOCOL_HEADINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^editorial note/i, 'Editorial Note'],
+  [/^provenance/i, 'Provenance'],
+  [/^status of this page/i, 'Status of This Page'],
+  [/^relation(?:ship)? to (?:this )?vault/i, 'Relation to this vault'],
+  [/^vault context/i, 'Vault context'],
+  [/^entity notability/i, 'Entity Notability Note'],
+  [/^automated decisions?/i, 'Automated Decisions'],
+]
 
 /**
  * Lint reports QUOTE findings as wikilinks — dead links deliberately, orphans linked by the
@@ -334,6 +374,34 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
           message: `title is ${title.length} characters; keep it under ${TITLE_MAX_CHARS} so the file name stays inside every filesystem's limit`,
         })
       }
+    }
+
+    /*
+     * The heading floor for this page's type (B4), and the run-protocol sections that belong
+     * in the log rather than in the article (B5). Both are advisory, like every rule here.
+     */
+    const pageType = (fm.fields.get('type') ?? '').toLowerCase()
+    const headings = [...markdown.matchAll(/^##[ \t]+(.+?)[ \t]*$/gm)].map((m) => m[1]!.trim())
+    const required = REQUIRED_HEADINGS.get(pageType)
+    if (required !== undefined) {
+      const present = new Set(headings.map((h) => h.toLowerCase()))
+      const missing = required.filter((r) => !present.has(r.toLowerCase()))
+      if (missing.length > 0) {
+        findings.push({
+          rule: 'page-schema',
+          path: rel,
+          message: `a ${pageType} page needs ${missing.map((m) => `## ${m}`).join(' and ')} - it is where the next run adds to this page`,
+        })
+      }
+    }
+    for (const heading of headings) {
+      const hit = RUN_PROTOCOL_HEADINGS.find(([re]) => re.test(heading))
+      if (hit === undefined) continue
+      findings.push({
+        rule: 'run-protocol',
+        path: rel,
+        message: `"## ${heading}" is about what a RUN did, not about the subject - it belongs in the log entry`,
+      })
     }
 
     const created = fm.fields.get('created') ?? ''
