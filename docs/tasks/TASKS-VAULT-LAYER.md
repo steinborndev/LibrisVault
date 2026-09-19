@@ -1422,7 +1422,7 @@ ingest's note about what it had not verified, and the body above it is untouched
 `## Provenance` (56) were never in this pass, and the 99 sections above now join them. That is
 115 pages of prose whose fate is a person's call, not a rule's.
 
-### 8.6 Remove the em-dashes (B9)
+### 8.6 Remove the em-dashes (B9) - DONE 2026-09-19
 
 - [ ] 10,257 occurrences across 819 pages. Mechanical replacement is not safe in every context
       (an em-dash between numbers is a range, inside a code fence it is content), so the pass
@@ -1431,7 +1431,32 @@ ingest's note about what it had not verified, and the body above it is untouched
 - **DoD:** `vault-audit` reports zero outside the excluded contexts, and the dry-run diff was
   reviewed.
 
-### 8.7 Separate the demo seed content (B8)
+**Result: 10,257 dashes across 819 pages down to 272 findings, all of them in excluded
+contexts** (frontmatter values, addresses, code, and 51 numeric ranges). Vault commit
+`110007d`, 790 pages, 8325 lines changed.
+
+**AND IT BROKE 199 LINKS, WHICH IS THE MOST IMPORTANT ENTRY IN THIS FILE.**
+
+The pass excluded code fences, inline code and addresses, and did NOT exclude wikilink targets.
+A link written `[[Foo <dash> Bar]]` became `[[Foo - Bar]]`, and the page it names still carries
+the dash in its own file name - so it resolved to nothing. Dead links went from 12 to **209**
+in one commit. The dry run did not catch it because the summary counts pages and bytes, and
+the sample diffs I read happened to be prose.
+
+What caught it was re-running the validator over the repaired vault. That is the only reason
+this is a paragraph and not a silent loss of 199 links.
+
+Two fixes, both shipped: the pass now treats a wikilink target as a name (the same category as
+an address or a code span), and a new `dash-link` pass repairs the damage forward - it repoints
+a link that does not resolve today and whose dash-normalised form matches exactly ONE page,
+keeping any alias or anchor, and refuses an ambiguous match rather than guessing. Vault commit
+`d087bce`, 131 pages, 286 links. **Dead links back to 12.**
+
+Forward rather than a revert, deliberately: reverting `110007d` would have had to fight the two
+commits that landed after it, and the forward fix also repairs the same shape wherever else it
+occurs.
+
+### 8.7 Separate the demo seed content (B8) - PARTIALLY DONE 2026-09-19
 
 - [ ] 47 pages created 2026-04 to 2026-06, 17 carrying the upstream community footer. They are
       the plugin author's release and demo material sitting in the same graph, the same BM25
@@ -1442,6 +1467,18 @@ ingest's note about what it had not verified, and the body above it is untouched
 - [ ] The decision on eventual deletion stays with the user and is recorded here either way.
 - **DoD:** page counters drop by the marked count, the graph and the catalog no longer mix them
   in, and every marked page is still readable in Obsidian.
+
+**Result: 17 pages marked `origin: upstream-demo`**, vault commit `bc714fd`, nothing removed.
+Identified by BOTH conditions the task names - created before the vault started taking real
+material AND carrying the upstream community footer - because either alone catches a real page.
+
+17, not 47: the review's 47 counted pages created in that window, of which 17 carry the footer.
+The other 30 are real material ingested early, which is exactly why the second condition is
+there.
+
+**Still open:** the readers do not yet skip them. The generated hubs, the page counters and the
+retrieval index all need to honour `origin: upstream-demo`, which is code rather than a repair
+pass, and the decision about eventually deleting them stays with the user.
 
 ### 8.8 Shrink `log.md` (B1, C-1) - last, and only after 2.4
 
