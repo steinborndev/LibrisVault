@@ -54,27 +54,44 @@ const read = (root: string, rel: string): string | null => {
 const exists = (root: string, rel: string): boolean => fs.existsSync(path.join(root, rel))
 
 /**
- * `.raw/<job-id>` in a log entry is the marker `queue.ts` keys on, and the skill's own template
- * is what produces it. Both are asserted: the template because it is what a FUTURE run follows,
- * the live file because a template can be right while the runs never reached it.
+ * Contract 1, in two halves while the transition lasts (2.4).
  *
- * Phase 2.4 moves this marker to `.vault-meta/runs/<job-id>.done` and this check gains the new
- * shape beside the old one; the old one stays while the fallback in `queue.ts` does.
+ * THE MARKER (current). A run's last action is to touch `.vault-meta/runs/<job-id>.done`, and
+ * crash recovery reads that one file. What the vault has to hold up its end of: the state
+ * directory has to exist and be writable, and the marker directory has to be excluded from the
+ * vault's git history - a marker that got committed would be vault content, and the next
+ * `git clean` or a stale commit could answer the question wrongly.
+ *
+ * THE LOG ENTRY (legacy). Kept while `queue.ts` still falls back to it for jobs that were
+ * already `ingesting` when this version started. Both are asserted; the legacy half goes when
+ * the fallback does.
  */
 function checkCompletionMarker(root: string): ContractCheck {
   const log = read(root, 'wiki/log.md')
   const skill = read(root, 'skills/wiki-ingest/SKILL.md')
-  const entryNamesSource = log !== null && /^\s*-\s*Source:\s*`?\.raw\//m.test(log)
-  const anyRawReference = log !== null && /\.raw\/[^\s`)]+/.test(log)
-  const templateAppendsLog = skill !== null && /wiki\/log\.md/.test(skill)
-  const templateNamesSource = skill !== null && /-\s*Source:\s*`\.raw\//.test(skill)
+  const stateDir = path.join(root, '.vault-meta')
+  let stateWritable = false
+  try {
+    fs.accessSync(stateDir, fs.constants.W_OK)
+    stateWritable = true
+  } catch {
+    /* reported below, not thrown - a read-only vault is a legitimate deployment */
+  }
+  const excludes = read(root, '.git/info/exclude') ?? ''
 
   const evidence = [
-    { ok: log !== null, what: 'wiki/log.md is readable' },
-    { ok: entryNamesSource, what: 'a log entry carries a `- Source: `.raw/...`` line' },
-    { ok: anyRawReference, what: 'the file mentions a .raw path at all (the substring the queue searches)' },
-    { ok: templateAppendsLog, what: 'the ingest skill still appends to wiki/log.md' },
-    { ok: templateNamesSource, what: "the skill's log template still names the .raw source" },
+    { ok: fs.existsSync(stateDir), what: '.vault-meta/ exists (where a run leaves its completion marker)' },
+    { ok: stateWritable, what: '.vault-meta/ is writable by this process' },
+    {
+      ok: !fs.existsSync(path.join(root, '.git')) || /^\.vault-meta\/runs\/?$/m.test(excludes),
+      what: '.vault-meta/runs/ is excluded from the vault\'s git history',
+    },
+    { ok: log !== null, what: 'wiki/log.md is readable (the legacy completion check reads it)' },
+    {
+      ok: log !== null && /\.raw\/[^\s`)]+/.test(log),
+      what: 'the log still mentions a .raw path (the substring the legacy fallback searches)',
+    },
+    { ok: skill !== null, what: 'skills/wiki-ingest/SKILL.md is readable' },
   ]
   const ok = evidence.every((e) => e.ok)
   return {
@@ -82,7 +99,7 @@ function checkCompletionMarker(root: string): ContractCheck {
     ok,
     detail: ok
       ? 'crash recovery can still tell a finished ingest from an interrupted one'
-      : 'the log entry no longer carries the .raw path that decides a crashed job’s status',
+      : 'the marker a finished run leaves behind cannot be written or cannot be read back',
     evidence,
   }
 }

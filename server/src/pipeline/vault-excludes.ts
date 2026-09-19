@@ -2,7 +2,7 @@
  * Keeps derived artifacts and agent scratch out of the vault's git history.
  *
  * The vault is a git repo whose history is the user's record of what their knowledge base
- * actually is. Three kinds of file must never enter it:
+ * actually is. Four kinds of file must never enter it:
  *
  *  - REBUILDABLE INDEX DATA (`.vault-meta/chunks`, `bm25`, `embed-cache.json`) - hundreds of
  *    megabytes that regenerate from the wiki, and that `dirtyPaths` bracketing would
@@ -12,6 +12,10 @@
  *    scanner and dump its findings somewhere. That happened: a lint run committed a 254-line
  *    Python script and a 472 KB JSON dump into the vault permanently. The scratch was
  *    legitimate; keeping it forever was not.
+ *
+ *  - SERVICE RUN STATE (`.vault-meta/runs/`, `.vault-meta/locks/`) - the per-run completion
+ *    markers and the vault's own per-file locks. Both are derived and self-reaping: state
+ *    ABOUT the vault, never content OF it.
  *
  *  - DEFERRED PAYLOADS (`.raw/deferred/`) - the waiting room for sources the pipeline
  *    recognises but deliberately does not process, which are large by the very criteria
@@ -53,6 +57,14 @@ export const SCRATCH_EXCLUDE_ENTRIES = [
 ] as const
 
 /**
+ * Service run state under `.vault-meta/`: the per-run completion markers (`run-marker.ts`) and
+ * the vault's own per-file locks. Both are derived and self-reaping - state ABOUT the vault,
+ * never content OF it - and both would otherwise be swept into a commit by the bookkeeping
+ * pathspec, which stages `.vault-meta` wholesale.
+ */
+export const RUN_STATE_EXCLUDE_ENTRIES = ['.vault-meta/runs/', '.vault-meta/locks/'] as const
+
+/**
  * The deferred waiting room (`.raw/deferred/`, SPEC.md §4.2).
  *
  * `.raw/` is otherwise TRACKED on purpose - a commit captures the original source next to the
@@ -69,6 +81,7 @@ export const DEFERRED_EXCLUDE_ENTRIES = ['.raw/deferred/'] as const
 const ALL_ENTRIES = [
   ...RETRIEVE_EXCLUDE_ENTRIES,
   ...SCRATCH_EXCLUDE_ENTRIES,
+  ...RUN_STATE_EXCLUDE_ENTRIES,
   ...DEFERRED_EXCLUDE_ENTRIES,
 ] as const
 

@@ -56,6 +56,7 @@ import {
 } from './git.js'
 import { RunRegistry } from './run-registry.js'
 import { withWikiLocks } from './wiki-lock.js'
+import { hasRunMarker, runMarkerPath } from './run-marker.js'
 import {
   SERVICE_OWNED_HUBS,
   writeHubs,
@@ -74,6 +75,7 @@ import {
   UNTRUSTED_CONTENT_RULES,
   renderOaNotice,
   renderProvenance,
+  renderCompletionMarker,
   renderReadingList,
 } from './system-prompt.js'
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
@@ -450,9 +452,9 @@ export class IngestQueue {
    * the store's blanket {@link JobStore.recoverInterrupted}, this looks at the VAULT to tell the
    * two cases apart:
    *
-   *   - An `ingesting` run whose final log entry is already in `wiki/log.md` had FINISHED writing;
-   *     only its commit and status update were lost to the crash → commit its dirty pages and flip
-   *     to `done`.
+   *   - An `ingesting` run that left its completion marker (`.vault-meta/runs/<job-id>.done`,
+   *     touched as its last action) had FINISHED writing; only its commit and status update were
+   *     lost to the crash → commit its dirty pages and flip to `done`.
    *   - An `ingesting` run with NO completion marker was genuinely mid-write → still commit the
    *     pages it had already written (see below), then mark `failed` (retryable). A `preprocessing`
    *     job never reached the agent and wrote nothing → `failed`, no commit.
@@ -482,7 +484,7 @@ export class IngestQueue {
     const committedByBatch = new Map<string, string[]>()
 
     for (const job of stuck) {
-      const completed = job.status === 'ingesting' && this.ingestLoggedCompletion(job)
+      const completed = job.status === 'ingesting' && this.ingestCompletionMarker(job)
 
       // Commit any wiki pages an interrupted INGESTING run already wrote — whether or not it
       // reached its log-marker. The marker decides the job's STATUS (done vs failed-retryable),
@@ -520,7 +522,7 @@ export class IngestQueue {
           log:
             pages.length > 0
               ? `recovered after restart: mid-flight with no completion marker — committed ${pages.length} page(s) it had already written so the retry cannot orphan them (retry to finish)`
-              : 'recovered after restart: mid-flight with no completion marker in wiki/log.md',
+              : 'recovered after restart: mid-flight with no completion marker',
         })
         recoveredToFailed++
       }
@@ -581,9 +583,21 @@ export class IngestQueue {
     return []
   }
 
-  /** True when `wiki/log.md` carries this job's final ingest entry — the skill writes it (naming
-   * the job's `.raw` dir) only as its last action, so its presence means the run finished. */
-  private ingestLoggedCompletion(job: JobRow): boolean {
+  /**
+   * Whether this run reached its end (A6 contract 1).
+   *
+   * The marker is a file the run touches as its last action (`run-marker.ts`). Before that it
+   * was this job's `.raw` directory appearing in `wiki/log.md`, which the vault skill wrote
+   * last - a skill's prose template as the basis of crash recovery, and a 777 kB read per
+   * stuck job.
+   *
+   * The log check stays as a FALLBACK for jobs that were already `ingesting` when this version
+   * started: their run was told nothing about a marker and can only ever have left a log entry.
+   * It can be deleted once no `ingesting` job predates the deployment - in practice, once the
+   * first restart after this change has reconciled whatever was in flight.
+   */
+  private ingestCompletionMarker(job: JobRow): boolean {
+    if (hasRunMarker(this.vaultRoot, job.id)) return true
     try {
       const log = fs.readFileSync(path.join(this.vaultRoot, 'wiki', 'log.md'), 'utf8')
       return log.includes(`.raw/${job.id}`) || (job.raw_path !== null && log.includes(job.raw_path))
@@ -831,9 +845,11 @@ export class IngestQueue {
    * A `done` run that wrote no CONTENT page gets `outcome = 'no-changes'` (SPEC.md §12.9): the
    * agent finished cleanly and found nothing to add - typically a source it recognised as
    * already ingested by means the dedupe stages do not cover. The vault's meta pages do not
-   * count (`wiki-meta.ts`): such a run still appends its own entry to `wiki/log.md`, and until
-   * 2026-09-18 that one line made it pass as an ingest with "1 page". Said in the log too, so
-   * the row and its record agree.
+   * count (`wiki-meta.ts`): a run used to append its own entry to `wiki/log.md`, and until
+   * 2026-09-18 that one line made it pass as an ingest with "1 page". The service writes that
+   * entry now and only for a run that wrote a page (SPEC.md §12.12), so the case cannot arise
+   * from the log any more - the rule stays because a meta page can still be the only thing a
+   * run touched. Said in the log too, so the row and its record agree.
    */
   private markNoChanges(jobId: string, committed: readonly string[]): void {
     if (contentPages(committed).length > 0) return
@@ -1208,6 +1224,9 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        // How this run says it reached its end (2.4): one file, touched last. Crash recovery
+        // reads it instead of searching wiki/log.md, which the service now writes itself.
+        renderCompletionMarker(runMarkerPath(job.id) ?? ''),
         // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
         this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
         renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
@@ -1604,6 +1623,8 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        // A batch is one run with one lead job, so it leaves one marker - the lead's (2.4).
+        renderCompletionMarker(runMarkerPath(lead) ?? ''),
         // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
         this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
         // Each member keeps its OWN origin: a batch is several documents, and one shared

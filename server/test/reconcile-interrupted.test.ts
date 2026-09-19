@@ -131,6 +131,51 @@ describe('reconcileInterrupted', () => {
     expect(store.getOrThrow(job.id).status).toBe('failed')
   })
 
+  /*
+   * The completion marker (2.4). The log-entry check above is the LEGACY path and stays only
+   * for jobs that were already `ingesting` when this version started: the service writes the
+   * log entry itself now (SPEC.md §12.12), so a crashed run leaves no entry at all, and the
+   * marker is the only thing that can say it got to the end.
+   */
+  it('recovers a run that left its completion marker, with no log entry anywhere', async () => {
+    const job = seedIngesting({ sha256: 'marker' })
+    const page = 'wiki/concepts/Marked.md'
+    write(page, '# marked\n')
+    // No log entry: the service writes those, and this run crashed before the service could.
+    write(`.vault-meta/runs/${job.id}.done`, '')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    const recovered = store.getOrThrow(job.id)
+    expect(recovered.status).toBe('done')
+    expect(JSON.parse(recovered.created_pages ?? '[]')).toContain(page)
+  })
+
+  it('fails a run that left neither a marker nor a log entry', async () => {
+    const job = seedIngesting({ sha256: 'neither' })
+    write('wiki/concepts/Halfway.md', '# halfway\n')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    expect(store.getOrThrow(job.id).status).toBe('failed')
+  })
+
+  it('does not take another job\'s marker for this one\'s', async () => {
+    const job = seedIngesting({ sha256: 'mine' })
+    write('wiki/concepts/Mine.md', '# mine\n')
+    write('.vault-meta/runs/some-other-job.done', '')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    expect(store.getOrThrow(job.id).status).toBe('failed')
+  })
+
   it('recovers a batch: the first member commits the shared pages, siblings inherit them', async () => {
     const a = seedIngesting({ sha256: 'ba', originalName: 'A.pdf', batchId: 'batch1' })
     const b = seedIngesting({ sha256: 'bb', originalName: 'B.pdf', batchId: 'batch1' })

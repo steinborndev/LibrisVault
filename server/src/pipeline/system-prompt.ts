@@ -54,6 +54,35 @@ All wiki content is written in English, regardless of the source language.
  * This is the prevention side; the deterministic post-run validator (validator.ts) is the
  * backstop that catches what still slips through, so the two lists must stay in sync.
  */
+/**
+ * The run's last action: touch its own completion marker.
+ *
+ * This is how the service tells a crashed run from a finished one (A6 contract 1). It used to
+ * read `wiki/log.md` and look for the job's `.raw` directory, because the vault skill wrote
+ * that entry last - which made a skill's prose template load-bearing for crash recovery, and
+ * stopped working entirely once the SERVICE started writing the log entry itself (SPEC.md
+ * §12.12).
+ *
+ * One sentence, at the end, naming an exact path: anything vaguer is a request a run can
+ * satisfy in a way we cannot read.
+ */
+export function renderCompletionMarker(markerPath: string): string {
+  return `
+<completion_marker>
+As the very LAST thing you do in this run, after every page is written and every other step is
+finished, create an empty file at exactly this path in the vault:
+
+  ${markerPath}
+
+Use Bash: mkdir -p "$(dirname ${markerPath})" && touch ${markerPath}
+
+This file is how the service knows the run reached its end rather than being interrupted. It is
+derived state, excluded from the vault's git history, and it is removed automatically a day
+later. Do not create it earlier, and do not create it if you are stopping before you are done.
+</completion_marker>
+`
+}
+
 export const PAGE_HYGIENE_CHECKLIST = `
 <page_hygiene>
 When you create or edit wiki pages, always finish with these checks (a post-run validator

@@ -625,23 +625,47 @@ abort path to get wrong. A failed apply is checked against its own reverse to te
 `already-reverted` from a genuine `conflict`. Four regression tests in
 `revert-ingest.test.ts`.
 
-### 2.4 Move the completion marker off `log.md` (A6 contract 1, prerequisite for 8.8)
+### 2.4 Move the completion marker off `log.md` (A6 contract 1, prerequisite for 8.8) - DONE 2026-09-19
 
-- [ ] The agent's last action becomes touching `.vault-meta/runs/<job-id>.done` (derived,
+- [x] The agent's last action becomes touching `.vault-meta/runs/<job-id>.done` (derived,
       self-reaping, excluded from vault git the same way `locks/` is). The prompt asks for it
       as the run's final step, in one sentence.
-- [ ] `ingestLoggedCompletion` becomes `ingestCompletionMarker`: read one small file instead of
+- [x] `ingestLoggedCompletion` becomes `ingestCompletionMarker`: read one small file instead of
       777 kB. **Keep the `log.md` substring check as a fallback** for jobs that started before
       this change, with a comment saying when it can be deleted (once no `ingesting` job
       predates the deployment).
-- [ ] The reaper: markers older than a day are removed at startup, next to the excludes.
-- [ ] `vaultprobe` (0.2) asserts the new marker as contract 1, and keeps the old assertion
+- [x] The reaper: markers older than a day are removed at startup, next to the excludes.
+- [x] `vaultprobe` (0.2) asserts the new marker as contract 1, and keeps the old assertion
       while the fallback exists.
-- [ ] Tests: marker present means finished; marker absent with the legacy log entry present
+- [x] Tests: marker present means finished; marker absent with the legacy log entry present
       still means finished; neither means not finished; the reaper removes only old markers.
 - **DoD:** `grep -n "log.md" server/src/pipeline/queue.ts` shows no remaining read of the file
   for status purposes, the probe passes on both paths, and `reconcile-interrupted.test.ts`
   still passes unchanged in behaviour.
+
+**Result. 8.8 is unblocked.** `.vault-meta/runs/<job-id>.done`, touched by the run as its last
+action (`renderCompletionMarker`, one sentence naming an exact path), read by
+`ingestCompletionMarker`. Excluded from vault git next to `.vault-meta/locks/`, reaped at
+startup at a day old, and the job id is shape-checked before it becomes a path.
+
+**This was more urgent than the task file knew.** 2.3 made the SERVICE write the log entry, so
+a crashed run leaves no entry at all - the old check would have classified every interrupted
+job as unfinished from that commit onwards. The two tasks had to land together and did.
+
+`grep -n "log.md" server/src/pipeline/queue.ts` leaves exactly one read for status purposes:
+line 602, the legacy fallback this task's own bullet asks to keep, with the comment saying when
+it goes (once no `ingesting` job predates the deployment). The other hits are comments and the
+hub write.
+
+`vaultprobe` contract 1 now asserts both halves: the state directory exists and is writable,
+`.vault-meta/runs/` is excluded from vault history, and the legacy log shape still parses. It
+reported the exclude MISSING on the live vault until `ensureVaultExcludes` was run against it -
+which is what the service does at startup and writes only `.git/info/exclude`, never vault
+content. All four contracts green afterwards.
+
+`reconcile-interrupted.test.ts` keeps its five original cases unchanged and gains three: a run
+that left a marker and no log entry recovers to `done`; a run with neither fails; and another
+job's marker is not taken for this one's.
 
 ### 2.5 Tell the agent to leave the hubs alone
 

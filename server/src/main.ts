@@ -69,6 +69,7 @@ import { refreshTransportPin } from './pipeline/transport.js'
 import { buildServer } from './api/server.js'
 import { ensureVaultExcludes } from './pipeline/vault-excludes.js'
 import { ensureAutoCommitDisabled } from './pipeline/vault-guards.js'
+import { reapRunMarkers } from './pipeline/run-marker.js'
 import { VaultReconciler } from './pipeline/reconcile.js'
 import { startWatcher, type Watcher } from './pipeline/watcher.js'
 import { startVaultWatcher, type VaultWatcher } from './pipeline/vault-watcher.js'
@@ -126,6 +127,9 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // under the service that wrote them (hard rule 1). Asserted here because until now the flag
   // was written by the dev-instance script and by nothing else, so a fresh clone was unguarded.
   const autoCommitGuard = ensureAutoCommitDisabled(config.vaultRoot)
+  // Yesterday's run markers (SPEC.md §12.12): nothing reads one after its job is terminal, and
+  // a directory that only grows is a slow leak. Same reaping the vault's lock script does.
+  const reapedMarkers = reapRunMarkers(config.vaultRoot)
 
   const db = openDb(defaultDbPath())
   // The live-update bus is shared: the store publishes job/log events, the queue publishes
@@ -608,7 +612,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
 
   // Log what the service actually runs with (overrides applied), not the bare baseline.
   app.log.info(
-    { ...describeConfig(effectiveConfig), transportPin: pin, vaultExcludes: excludes, vaultAutoCommitGuard: autoCommitGuard },
+    { ...describeConfig(effectiveConfig), transportPin: pin, vaultExcludes: excludes, vaultAutoCommitGuard: autoCommitGuard, reapedRunMarkers: reapedMarkers },
     'vault-service started',
   )
   if (excludes === 'unwritable') {
