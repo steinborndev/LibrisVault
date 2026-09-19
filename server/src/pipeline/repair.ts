@@ -129,28 +129,63 @@ export function applyRepair(vaultRoot: string, plan: RepairPlan): { written: str
   return { written, stale }
 }
 
-/** A readable unified-ish diff of one edit, trimmed to the lines that actually differ. */
+/**
+ * A readable diff of one edit.
+ *
+ * A real longest-common-subsequence walk rather than a line-for-line comparison. The naive
+ * version is fine while lines only change in place and becomes actively misleading the moment
+ * one is REMOVED - every line after it reads as changed, and a dry run whose diff cannot be
+ * trusted is worse than no dry run. These passes remove lines (a tag, a whole section), so it
+ * has to be the real thing.
+ */
 export function diffOf(edit: PageEdit, context = 1): string {
-  const before = edit.before.split('\n')
-  const after = edit.after.split('\n')
-  const out: string[] = []
+  const a = edit.before.split('\n')
+  const b = edit.after.split('\n')
+
+  // LCS lengths. Page-sized inputs, so the straightforward table is the right amount of code.
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i]![j] = a[i] === b[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!)
+    }
+  }
+
+  const rows: Array<{ mark: ' ' | '-' | '+'; text: string }> = []
   let i = 0
   let j = 0
-  while (i < before.length || j < after.length) {
-    if (before[i] === after[j]) {
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      rows.push({ mark: ' ', text: a[i]! })
       i++
       j++
-      continue
+    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
+      rows.push({ mark: '-', text: a[i]! })
+      i++
+    } else {
+      rows.push({ mark: '+', text: b[j]! })
+      j++
     }
-    // A changed line, with a line of context either side. Deliberately naive: these passes
-    // change lines in place, so a line-for-line walk is the whole of what is needed.
-    const from = Math.max(0, i - context)
-    for (let k = from; k < i; k++) out.push(`  ${before[k]}`)
-    if (before[i] !== undefined) out.push(`- ${before[i]}`)
-    if (after[j] !== undefined) out.push(`+ ${after[j]}`)
-    i++
-    j++
   }
+  while (i < a.length) rows.push({ mark: '-', text: a[i++]! })
+  while (j < b.length) rows.push({ mark: '+', text: b[j++]! })
+
+  // Only the changed lines and `context` lines around them; everything else is elided.
+  const keep = new Set<number>()
+  rows.forEach((row, k) => {
+    if (row.mark === ' ') return
+    for (let n = Math.max(0, k - context); n <= Math.min(rows.length - 1, k + context); n++) keep.add(n)
+  })
+  const out: string[] = []
+  let elided = false
+  rows.forEach((row, k) => {
+    if (!keep.has(k)) {
+      if (!elided) out.push('  ...')
+      elided = true
+      return
+    }
+    elided = false
+    out.push(`${row.mark} ${row.text}`)
+  })
   return out.join('\n')
 }
 

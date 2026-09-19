@@ -261,3 +261,31 @@ describe('diffOf', () => {
     expect(diff).toContain('  line one')
   })
 })
+
+/**
+ * A diff whose display cannot be trusted is worse than no dry run, and the naive line-for-line
+ * version becomes misleading the moment a line is REMOVED - which these passes do constantly.
+ */
+describe('diffOf handles a removed line', () => {
+  it('shows one removal rather than rewriting every line after it', () => {
+    const edit = {
+      rel: 'wiki/concepts/A.md',
+      before: 'tags:\n  - concept\n  - optics\nstatus: seed\nrelated:\n',
+      after: 'tags:\n  - optics\nstatus: seed\nrelated:\n',
+      why: 'removed 1 mirroring tag',
+    }
+    const diff = diffOf(edit)
+    expect(diff.split('\n').filter((l) => l.startsWith('- '))).toEqual(['-   - concept'])
+    expect(diff.split('\n').filter((l) => l.startsWith('+ '))).toEqual([])
+    // The lines after the removal are context, not changes.
+    expect(diff).toContain('    - optics')
+  })
+
+  it('elides the unchanged middle of a long page', () => {
+    const before = ['# A', ...Array.from({ length: 40 }, (_, i) => `line ${i}`), 'last — one'].join('\n')
+    const edit = { rel: 'x', before, after: before.replace('—', '-'), why: 'one dash' }
+    const diff = diffOf(edit)
+    expect(diff).toContain('  ...')
+    expect(diff.split('\n').length).toBeLessThan(10)
+  })
+})
