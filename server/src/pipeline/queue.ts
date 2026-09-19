@@ -575,15 +575,42 @@ export class IngestQueue {
       this.store.log(job.id, 'info', 'reconcile: auto-commit disabled - pages left on disk, not committed')
       return []
     }
-    const dirtyWiki = [...(await dirtyPaths(this.vaultRoot))].filter((p) => p.startsWith('wiki/'))
+    const dirty = [...(await dirtyPaths(this.vaultRoot))]
+    const dirtyWiki = dirty.filter((p) => p.startsWith('wiki/'))
     if (dirtyWiki.length === 0) {
       this.store.log(job.id, 'info', 'reconcile: run had completed and its pages were already committed')
       return []
     }
-    // Include the job's .raw dir only when it is actually on disk — `git add -- <missing path>`
-    // throws "pathspec did not match", which would abort the whole recovery commit.
+    /*
+     * The bookkeeping rides along, and a crash test is what found that it did not.
+     *
+     * `.vault-meta/address-counter.txt` is the vault's address allocator, and a run bumps it as
+     * it reserves addresses. The normal commit path carries it because `buildPathspec` appends
+     * `BOOKKEEPING_PATHS`; this path built its own pathspec from the dirty `wiki/` files and
+     * the job's payload, so after a recovery the counter stood at the reserved value on disk
+     * and at the old one in git. Two consequences, both quiet: reverting the recovery commit
+     * would not give the addresses back, and a `git reset --hard` would hand the next run five
+     * addresses that are already on pages - which is how a vault with 0 duplicate addresses
+     * stops having 0.
+     *
+     * Each path is included only when it is actually on disk: `git add -- <missing path>`
+     * throws "pathspec did not match", which would abort the whole recovery commit.
+     */
     const rawDir = path.posix.join('.raw', job.id)
-    const paths = fs.existsSync(path.join(this.vaultRoot, rawDir)) ? [...dirtyWiki, rawDir] : dirtyWiki
+    const paths = [
+      ...dirtyWiki,
+      ...(fs.existsSync(path.join(this.vaultRoot, rawDir)) ? [rawDir] : []),
+      /*
+       * The bookkeeping this run dirtied, named file by file rather than by its directory.
+       *
+       * `.vault-meta` also holds EXCLUDED state - run markers, locks - so on a vault where only
+       * those changed, `git commit -- .vault-meta` matches nothing git knows about and fails the
+       * whole recovery. "Exists on disk" is not "git has heard of it", which is what the first
+       * attempt at this got wrong. `dirtyPaths` reports what git itself sees, so an excluded
+       * file never reaches here.
+       */
+      ...dirty.filter((p) => BOOKKEEPING_PATHS.some((b) => p === b || p.startsWith(`${b}/`))),
+    ]
     const subject = completed
       ? `ingest: ${label} (recovered after restart)`
       : `ingest: ${label} (recovered after restart - incomplete run, retry pending)`

@@ -117,6 +117,33 @@ describe('reconcileInterrupted', () => {
     expect(git('log', '--diff-filter=A', '--name-only', '--pretty=format:', '-1').split('\n')).toContain(page)
   })
 
+  it('carries the bookkeeping too, so the address counter cannot roll back', async () => {
+    /*
+     * Found by a real crash test on 2026-09-20, not by this suite - and the reason it slipped
+     * through is visible right above: the other cases assert a clean tree, but none of them
+     * dirties a bookkeeping file, so nothing ever checked that one was staged.
+     *
+     * A run bumps `.vault-meta/address-counter.txt` as it reserves addresses. The normal commit
+     * path carries it via `BOOKKEEPING_PATHS`; recovery built its own pathspec and did not. The
+     * counter then stood at the reserved value on disk and the old one in git, so reverting the
+     * recovery would not give the addresses back, and a `git reset --hard` would hand the next
+     * run five addresses that are already on pages.
+     */
+    const job = seedIngesting({ sha256: 'f' })
+    write('wiki/concepts/Addressed.md', '# addressed\n')
+    write('.vault-meta/address-counter.txt', '1205\n')
+    write(`.vault-meta/runs/${job.id}.done`, '')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    expect(store.getOrThrow(job.id).status).toBe('done')
+    expect(git('status', '--porcelain').trim()).toBe('')
+    const staged = git('show', '--name-only', '--pretty=format:', 'HEAD').split('\n')
+    expect(staged).toContain('.vault-meta/address-counter.txt')
+  })
+
   it('fails a mid-write ingest with nothing written yet, without an empty recovery commit', async () => {
     const job = seedIngesting({ sha256: 'b2' })
     // No dirty pages at all (crash before the first Write) → nothing to commit, just fail.
