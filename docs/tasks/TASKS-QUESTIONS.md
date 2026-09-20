@@ -236,25 +236,39 @@ still measures it.
 The cheapest change with a real effect: a run that can read the page the question stands on can
 resolve "in this pass" by itself, whatever the wording.
 
-### 1.1 `from` through the URL, the API and the prompt
+### 1.1 `from` through the URL, the API and the prompt - DONE 2026-09-20
 
-- [ ] `researchRoute(text, page?)` in `QuestionBoard.tsx` appends `&from=<page>`; the board
+- [x] `researchRoute(text, page?)` in `QuestionBoard.tsx` appends `&from=<page>`; the board
       passes `e.page`. The gap backlog in `Vault.tsx` passes nothing (a gap has no source page)
       and keeps working unchanged.
-- [ ] `App.tsx` reads `from` next to `prefill` and hands both to `Chat`; `Chat` keeps it in a ref
-      beside `topicRef`, clears it whenever the user edits the draft to something that is no
-      longer the prefill, and sends it with the run. Rationale: a `from` that survives an edit
-      into an unrelated topic points the run at a page that has nothing to do with it.
-- [ ] `POST /api/v1/maintenance/research` accepts an optional `from`: a vault-relative path,
-      validated exactly as `questions.ts:setArchived` validates one (no `..`, starts with
-      `wiki/`, ends with `.md`) and required to exist on disk. An invalid or missing path is
+- [x] The KEYBOARD path too, which the original list missed: `LibraryScreen.tsx` hands the
+      selected row to Research on Enter, and it only had the text. `onRows` now reports rows
+      (`QuestionRow`, question plus page) rather than bare strings, so Enter does exactly what
+      the row's own button does. Without this the two paths would have disagreed silently.
+- [x] `App.tsx` reads `from` next to `prefill` and hands both to `Chat`; `Chat` keeps it in
+      `fromRef` beside `topicRef` and sends it with the run. The clearing rule came out
+      STRUCTURAL rather than conditional: one `setTopic(text, from?)` is the only way the box
+      gets a research topic, so a keystroke, the backlog's "Research" and the clear after a send
+      each drop the origin by construction, and editing back to the original text does not
+      resurrect it. The single `setDraft` left outside is the ask branch's error path, which
+      only fires when the box is empty, and an empty box has no origin to go stale.
+- [x] `POST /api/v1/maintenance/research` accepts an optional `from`. The route checks the TYPE
+      only; containment and existence moved into `startResearch`, so every caller of it gets one
+      answer rather than only the ones that come through HTTP. An invalid or missing path is
       ignored rather than rejected, because it is an optimisation and not the request.
-- [ ] `startResearch` takes it and `researchPrompt` renders one block from it, before the overlap
+- [x] The guard itself is now shared: `pipeline/vault-paths.ts` (`isWikiPagePath`,
+      `resolveWikiPage`), and `questions.ts:setArchived` reads it too. This is the factoring
+      task 2.2 asked for on phase 1's landing, done here. It is slightly stricter than the
+      inline version it replaces: a backslash and a NUL are rejected as well.
+- [x] `startResearch` takes it and `researchPrompt` renders one block from it, before the overlap
       block: the page path, one sentence saying the question was left open on that page, and an
       instruction to read it first because it says what is already known and what the wording
-      refers to.
-- [ ] The block is rendered by its own exported function (`renderQuestionOrigin`) so
-      `prompt-style.test.ts` picks it up automatically.
+      refers to. The block also says what the page is NOT - a source to summarise, or necessarily
+      the page to extend - so it cannot be read as overriding the overlap rules below it.
+- [x] The block is rendered by its own exported function (`renderQuestionOrigin`) so
+      `prompt-style.test.ts` picks it up automatically. It lives in `related-pages.ts` beside
+      `renderOverlapBlock`: the two answer the same kind of question for a research prompt
+      (which pages of this vault bear on this run) and should not drift apart in tone.
 - **Tests:**
   - `server/test/prompt-style.test.ts`: the new block is added to `promptText()` and inherits the
     no-dash assertion.
@@ -263,11 +277,30 @@ resolve "in this pass" by itself, whatever the wording.
     today's in the absent case. That last assertion is the one that proves this change is additive.
   - `server/test/api.test.ts`: `from` with `..`, with an absolute path, with a non-`wiki/` path
     and with a path that does not exist all start the run anyway, without the block.
-  - `web` unit test over the composer's ref handling: editing the draft away from the prefill
-    drops `from`; editing it back does not resurrect it (simplest correct rule).
+  - `web/test/researchRoute.test.ts`: both halves survive encoding (a page name holds spaces and
+    ampersands, a question holds question marks and quotes), and no `from` is emitted without a
+    page. **Not** the planned test over the composer's ref handling: the web suite has no DOM
+    and calls components directly, and `Chat` cannot be rendered that way. The rule is
+    structural instead (one `setTopic`), and the acceptance pass checks it by hand.
 - **DoD:** starting a run from a board row sends the page; starting one from the gap backlog or
   by typing sends nothing; the prompt for a run without `from` is unchanged character for
   character.
+
+**Result.** 13 new tests: `server/test/research-origin.test.ts` (7), the route case in
+`api.test.ts`, and `web/test/researchRoute.test.ts` (3), plus the new block in the house-style
+assertion and the guard's own cases. Full suite 168 files / 2398 tests, typecheck and lint, all
+exit 0.
+
+The byte-identity assertion is the load-bearing one and it is exercised over every way a path
+can fail: outside the wiki, escaping it, absolute, absent, wrong type, empty. In each case the
+prompt equals the no-origin baseline character for character, so this change cannot have moved
+anything for a run that does not use it. A second test pins the ORDER - origin before the
+overlap rules, synthesis mandate still last - because that ordering is an argument about what a
+run reads first, not a formatting detail.
+
+One thing phase 2 inherits: the origin page now reaches the run, but the TOPIC is still the raw
+bullet, and it is still what the synthesis title is cut from. Phase 1 fixes what the run can
+understand, not what it is called.
 
 ---
 
@@ -516,6 +549,10 @@ must be exercised both ways (invariant 4, D4).
       both. Does the reformulation say what you would have typed?
 - [ ] **Edit wins.** Click "Start research", type into the composer immediately, confirm the
       arriving answer does not overwrite you.
+- [ ] **The origin never outlives its text** (phase 1, not unit-testable without a DOM). From a
+      board row, type over the question completely and send: the run's prompt must carry NO
+      `<question_origin>` block. Then from a board row, send unchanged: it must carry one. Then
+      from a board row, click a gap in the backlog instead and send: no block.
 - [ ] **The run itself.** Send one. Confirm in the run's prompt (job log) that the origin block
       names the page the question stood on, and that the pinned synthesis title is the short one
       and not a chopped sentence. Confirm the page the run files carries that title.

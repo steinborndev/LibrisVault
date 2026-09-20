@@ -319,11 +319,12 @@ export const api = {
   researchProfiles: (): Promise<ResearchProfilesResponse> =>
     fetch(`${BASE}/maintenance/research/profiles`).then(json<ResearchProfilesResponse>),
 
-  research: (topic: string, profileKey?: string): Promise<MaintenanceRun> =>
+  /** `from` is the vault page a question was left open on, when the topic came from one. */
+  research: (topic: string, profileKey?: string, from?: string): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/research`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(profileKey ? { topic, profileKey } : { topic }),
+      body: JSON.stringify({ topic, ...(profileKey ? { profileKey } : {}), ...(from ? { from } : {}) }),
     }).then(json<MaintenanceRun>),
 
   domainBackfill: (): Promise<MaintenanceRun> =>

@@ -278,9 +278,16 @@ export function registerMaintenanceRoute(
 
   app.post('/api/v1/maintenance/research', async (req, reply) => {
     if (credentialMissing(reply)) return reply
-    const body = (req.body ?? {}) as { topic?: unknown; profileKey?: unknown }
+    const body = (req.body ?? {}) as { topic?: unknown; profileKey?: unknown; from?: unknown }
     const topic = typeof body.topic === 'string' ? body.topic.trim() : ''
     if (topic === '') return reply.code(400).send({ error: 'provide a non-empty "topic"' })
+    /*
+     * The page this topic was left open on (docs/tasks/TASKS-QUESTIONS.md, phase 1). Only the
+     * TYPE is checked here; containment and existence are `startResearch`'s, so every caller of
+     * it gets one answer. A path that fails there is dropped, not refused: naming the origin
+     * page is an optimisation on the prompt and never the request itself.
+     */
+    const from = typeof body.from === 'string' && body.from !== '' ? body.from : undefined
     // A lens is optional (omit → default "broad"), but a PROVIDED one must be on the closed list:
     // free-text lenses are exactly the free-for-all the closed set exists to prevent.
     let profileKey: string | undefined
@@ -290,7 +297,7 @@ export function registerMaintenanceRoute(
       }
       profileKey = body.profileKey
     }
-    return reply.code(202).send(maintenance.startResearch(topic, profileKey))
+    return reply.code(202).send(maintenance.startResearch(topic, profileKey, undefined, from))
   })
 
   /**

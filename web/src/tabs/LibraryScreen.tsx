@@ -32,7 +32,7 @@ import { CommandCentre, type CcView, type Pane, type RosterEntry } from '../comp
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { QuestionBoard, researchRoute } from '../components/library/QuestionBoard.tsx'
-import type { QuestionTab } from '../lib/questions.ts'
+import type { QuestionRow, QuestionTab } from '../lib/questions.ts'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
 import type { BoardId } from '../components/library/RoomSvg.tsx'
 import type { ReadingReach, ReadingTab } from '../lib/readingList.ts'
@@ -216,7 +216,7 @@ export function LibraryScreen({
   const [questionDomain, setQuestionDomain] = useState<string | null>(null)
   const [questionStops, setQuestionStops] = useState<readonly string[]>([])
   const [questionRow, setQuestionRow] = useState(0)
-  const [questionRows, setQuestionRows] = useState<readonly string[]>([])
+  const [questionRows, setQuestionRows] = useState<readonly QuestionRow[]>([])
   const questionGo = (d: string | null): void => {
     setQuestionDomain(d)
     setQuestionRow(0)
@@ -578,8 +578,8 @@ export function LibraryScreen({
       if (e.key === 'Enter') {
         // The same thing the row's button does: the question goes to the Research tab as its topic.
         e.preventDefault()
-        const text = questionRows[questionRow]
-        if (text !== undefined && questionTab === 'current') navigate(researchRoute(text))
+        const row = questionRows[questionRow]
+        if (row !== undefined && questionTab === 'current') navigate(researchRoute(row.text, row.page))
         return
       }
       if (e.key === 'Escape') {

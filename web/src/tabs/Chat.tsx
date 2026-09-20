@@ -125,7 +125,7 @@ const LENS_ICON: Record<string, IconName> = {
 }
 export const lensIcon = (key: string | null | undefined): IconName => LENS_ICON[key ?? 'broad'] ?? 'lens-broad'
 
-export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): React.ReactElement {
+export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPrefill?: string; researchFrom?: string }): React.ReactElement {
   const qc = useQueryClient()
   // A read-only demo shows this screen for what it holds (the saved conversations and the
   // finished runs) and disables what it would start; the guard would refuse that anyway.
@@ -257,8 +257,15 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   // click time.
   const topicRef = useRef('')
   const profileKeyRef = useRef('broad')
+  /**
+   * The vault page the topic in the box came from, when it came from one (a question on the
+   * pinboard). The run reads that page first, which is what resolves a question written to be
+   * read in place. Only {@link setTopic} ever sets it, so it cannot outlive the text it belongs
+   * to: typing over the question, or filling the box from anywhere else, clears it.
+   */
+  const fromRef = useRef<string | undefined>(undefined)
   const [lastTopic, setLastTopic] = useState('')
-  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current))
+  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current, fromRef.current))
   const liveRunning = research.running || liveEntry !== undefined
   /*
    * The run's own log, read once here and handed to both the activity box and the list. The
@@ -305,17 +312,32 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     ta.style.height = `${Math.min(160, ta.scrollHeight + border)}px`
   }, [draft])
 
-  // A gap's "Research" landed us here with a topic: arm Research mode, drop it into the
-  // composer for review (not auto-sent - the user confirms), then strip the query param so
-  // this fires exactly once.
+  /**
+   * The composer's text and, when it has one, the vault page behind it. Every path that gives
+   * the box a research topic goes through here - a prefill from the board or a gap, a keystroke,
+   * the backlog's "Research", and the clear after a send - because a stale `from` would point a
+   * run at a page that has nothing to do with what is now in the box.
+   *
+   * The one `setDraft` left outside is the ask branch's error path, which hands a failed
+   * question back only when the box is EMPTY. A box that is empty has no origin either (the
+   * clear above took it), so there is nothing there to go stale.
+   */
+  const setTopic = (text: string, from?: string): void => {
+    setDraft(text)
+    fromRef.current = from
+  }
+
+  // A gap's "Research", or a question from the pinboard, landed us here with a topic: arm
+  // Research mode, drop it into the composer for review (not auto-sent - the user confirms),
+  // then strip the query params so this fires exactly once.
   useEffect(() => {
     if (researchPrefill === '') return
-    setDraft(researchPrefill)
+    setTopic(researchPrefill, researchFrom === '' ? undefined : researchFrom)
     setMode('research')
     setView({ kind: 'start' })
     composerRef.current?.focus()
     navigate('/research', { replace: true })
-  }, [researchPrefill])
+  }, [researchPrefill, researchFrom])
 
   const send = (): void => {
     if (demoMode) return
@@ -325,7 +347,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
       if (ask.isPending) return
       requestIdRef.current = activeId === null ? crypto.randomUUID() : ''
       setView({ kind: 'thread', id: activeId })
-      setDraft('')
+      setTopic('')
       ask.mutate(text)
       return
     }
@@ -333,7 +355,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     topicRef.current = text
     profileKeyRef.current = profileKey
     setLastTopic(text)
-    setDraft('')
+    setTopic('')
     setView({ kind: 'start' })
     // Per result: closing one outcome must never hide the next one.
     setResultDismissed(false)
@@ -407,7 +429,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
 
   const startAbout = (topic: string): void => {
     setMode('research')
-    setDraft(topic)
+    setTopic(topic)
     composerRef.current?.focus()
   }
 
@@ -589,7 +611,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               ref={composerRef}
               disabled={demoMode}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setTopic(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()

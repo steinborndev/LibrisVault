@@ -19,14 +19,19 @@ import { Icon } from '../Icon.tsx'
 import { domainColor } from '../GraphCanvas.tsx'
 import { signText } from '../../lib/library/room.ts'
 import { navigate } from '../../lib/router.ts'
-import { questionDomains, questionView, type QuestionTab } from '../../lib/questions.ts'
+import { questionDomains, questionView, type QuestionRow, type QuestionTab } from '../../lib/questions.ts'
 import type { QuestionItem } from '../../api/types.ts'
 import { PageLink } from '../PageLink.tsx'
 import { Markdown, type WikilinkRenderer } from '../Markdown.tsx'
 import { wikilinkResolver } from '../../lib/wikilink.tsx'
 
-/** Where "Start research" goes: the Research tab with the question as the topic. */
-export const researchRoute = (text: string): string => `/research?prefill=${encodeURIComponent(text)}`
+/**
+ * Where "Start research" goes: the Research tab with the question as the topic, and the page it
+ * stands on beside it. The run reads that page first, which is what resolves a question written
+ * to be read in place ("in this pass", "either source") once it travels alone.
+ */
+export const researchRoute = (text: string, page?: string): string =>
+  `/research?prefill=${encodeURIComponent(text)}${page !== undefined && page !== '' ? `&from=${encodeURIComponent(page)}` : ''}`
 
 export function QuestionBoard({
   vaultName,
@@ -45,8 +50,8 @@ export function QuestionBoard({
   row?: number
   /** The ring, reported up: the headline draws it and the arrows walk it. */
   onDomains?: (domains: readonly string[]) => void
-  /** The rows on show, by question text, so Enter can hand the selected one to Research. */
-  onRows?: (texts: readonly string[]) => void
+  /** The rows on show, so Enter can hand the selected one to Research exactly as its button does. */
+  onRows?: (rows: readonly QuestionRow[]) => void
   onPick?: (row: number) => void
 }): React.ReactElement {
   const qc = useQueryClient()
@@ -68,15 +73,23 @@ export function QuestionBoard({
   const view = questionView(entries, tab, domain)
   const domains = questionDomains(questionView(entries, tab, null).shown)
 
-  const report = useRef<{ onDomains?: (d: readonly string[]) => void; onRows?: (t: readonly string[]) => void }>({})
+  const report = useRef<{ onDomains?: (d: readonly string[]) => void; onRows?: (r: readonly QuestionRow[]) => void }>({})
   report.current = { ...(onDomains ? { onDomains } : {}), ...(onRows ? { onRows } : {}) }
   const ringKey = domains.join('\n')
-  const rowsKey = view.shown.map((e) => e.text).join('\n')
+  /*
+   * A row is an object now (question plus page), so it cannot be its own effect dependency the
+   * way the joined text was: a fresh array every render would report on every render. The key
+   * stays the string, and the rows themselves are read off a ref when it changes.
+   */
+  const rows: QuestionRow[] = view.shown.map((e) => ({ text: e.text, page: e.page }))
+  const rowsKey = rows.map((r) => `${r.page}\t${r.text}`).join('\n')
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
   useEffect(() => {
     report.current.onDomains?.(ringKey === '' ? [] : ringKey.split('\n'))
   }, [ringKey])
   useEffect(() => {
-    report.current.onRows?.(rowsKey === '' ? [] : rowsKey.split('\n'))
+    report.current.onRows?.(rowsRef.current)
   }, [rowsKey])
 
   const selected = useRef<HTMLLIElement>(null)
@@ -133,7 +146,7 @@ export function QuestionBoard({
                         className="btn sm"
                         disabled={e.researching !== null}
                         title={e.researching !== null ? 'A research run on this question is in flight' : 'Open the Research tab with this question as the topic; pick a lens there and start the run'}
-                        onClick={() => navigate(researchRoute(e.text))}
+                        onClick={() => navigate(researchRoute(e.text, e.page))}
                       >
                         <Icon name="flask" />
                         {e.researching !== null ? 'Researching…' : 'Start research'}

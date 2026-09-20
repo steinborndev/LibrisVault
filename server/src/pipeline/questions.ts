@@ -20,6 +20,7 @@ import { stampDates } from './page-dates.js'
 import { parseNotebook } from './notebook.js'
 import type { ProposalRecord } from '../db/proposals.js'
 import { isDepartmentDomain } from './library.js'
+import { isWikiPagePath } from './vault-paths.js'
 
 export interface QuestionEntry {
   /** The page and the question's key: what the board addresses a row by. */
@@ -226,7 +227,7 @@ export class QuestionsService {
    * question is not on the page or already stands that way.
    */
   async setArchived(page: string, text: string, archived: boolean): Promise<{ changed: boolean; vetoed: string[] }> {
-    if (page.includes('..') || !page.startsWith('wiki/') || !page.endsWith('.md')) return { changed: false, vetoed: [] }
+    if (!isWikiPagePath(page)) return { changed: false, vetoed: [] }
     const file = path.join(this.o.vaultRoot, page)
     let markdown: string
     try {

@@ -382,7 +382,10 @@ export function App(): React.ReactElement {
                 {/* Shown on a read-only demo too (2026-09-18): the saved conversations and the
                     finished runs are the screen's substance; what it would start is disabled
                     inside, and refused by the guard anyway. System keeps its notice below. */}
-                <Chat researchPrefill={screen === 'research' ? (query.get('prefill') ?? '') : ''} />
+                <Chat
+                  researchPrefill={screen === 'research' ? (query.get('prefill') ?? '') : ''}
+                  researchFrom={screen === 'research' ? (query.get('from') ?? '') : ''}
+                />
               </ErrorBoundary>
             </div>
           </section>

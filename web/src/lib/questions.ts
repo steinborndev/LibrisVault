@@ -6,6 +6,17 @@ import type { QuestionItem } from '../api/types.ts'
 
 export type QuestionTab = 'current' | 'archived'
 
+/**
+ * One row of the board as the screen around it sees it: the question, and the page it stands
+ * on. The page rides along because handing a question to a research run carries its origin
+ * page with it (docs/tasks/TASKS-QUESTIONS.md, phase 1), and the keyboard path has to be able
+ * to do exactly what the row's own button does.
+ */
+export interface QuestionRow {
+  readonly text: string
+  readonly page: string
+}
+
 export interface QuestionView {
   readonly shown: QuestionItem[]
   /** How many stand in the domain you are looking at, on this tab. */
