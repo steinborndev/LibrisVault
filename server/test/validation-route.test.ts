@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
@@ -12,6 +13,7 @@ import { buildServer, type AppContext } from '../src/api/server.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
 import { Mutex } from '../src/util/mutex.js'
 import { ValidationStore } from '../src/db/validation.js'
+import { createValidator } from '../src/pipeline/validator.js'
 import type { Config } from '../src/config.js'
 
 /**
@@ -70,7 +72,9 @@ const build = async (validation: ValidationStore | undefined = undefined): Promi
     }),
     logger: false,
   }
-  return buildServer(validation === undefined ? ctx : { ...ctx, validation })
+  // The validator the writing routes check their own work with (see the rejoin tests below).
+  const full: AppContext = { ...ctx, validate: createValidator(vaultRoot), commitMutex: new Mutex() }
+  return buildServer(validation === undefined ? full : { ...full, validation })
 }
 
 beforeEach(() => {
@@ -136,5 +140,65 @@ describe('GET /api/v1/validation', () => {
       .inject({ method: 'GET', url: '/api/v1/validation?limit=1' })
       .then((r) => r.json<{ findings: unknown[] }>())
     expect(limited.findings).toHaveLength(1)
+  })
+})
+
+/**
+ * `POST /api/v1/maintenance/rejoin-links` - the one writing path with no model in it, and,
+ * until 2026-09-21, the one that reported nothing about what it had done. Every other run
+ * records into the standing list afterwards; this one wrote to the vault and left the list
+ * exactly as stale as it found it.
+ */
+describe('POST /api/v1/maintenance/rejoin-links', () => {
+  const page = (rel: string, body: string): void => {
+    fs.mkdirSync(path.dirname(path.join(vaultRoot, rel)), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, rel), body)
+  }
+
+  /** A vault with one wrapped link in it, in a real repo: the repair commits. */
+  const seedVault = (): void => {
+    page('wiki/concepts/Carbon Cycle.md', '---\ntype: concept\ntitle: "Carbon Cycle"\n---\n# Carbon Cycle\n\nWhole.\n')
+    page(
+      'wiki/concepts/Proxy Calibration.md',
+      '---\ntype: concept\ntitle: "Proxy Calibration"\n---\n# Proxy Calibration\n\nUnder [[Carbon\nCycle]].\n',
+    )
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-C', vaultRoot, ...args], { stdio: 'pipe' })
+    }
+    git('init', '-q')
+    git('config', 'user.email', 't@t')
+    git('config', 'user.name', 't')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'seed')
+  }
+
+  it('records what it finds after writing, so a repair shows on the list', async () => {
+    const validation = new ValidationStore(db)
+    seedVault()
+    app = await build(validation)
+
+    // Before: the standing list knows nothing, and the page carries a wrapped link.
+    expect(validation.list({ limit: 10 })).toHaveLength(0)
+    const res = await app.inject({ method: 'POST', url: '/api/v1/maintenance/rejoin-links' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ fixed: 1 })
+
+    // After: the page was checked. The wrapped link is joined so nothing records it, and the
+    // OTHER defects that page carries are on the list - which is what proves a check ran at
+    // all. Without the check the list stays empty and the repair is invisible.
+    const rules = validation.list({ limit: 50 }).map((f) => f.rule)
+    expect(rules).not.toContain('wrapped-link')
+    expect(rules).toContain('page-schema')
+    expect(rules).toContain('frontmatter')
+    expect(fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Proxy Calibration.md'), 'utf8')).toContain('[[Carbon Cycle]]')
+  })
+
+  it('a dry run records nothing, because it changed nothing', async () => {
+    const validation = new ValidationStore(db)
+    seedVault()
+    app = await build(validation)
+    const res = await app.inject({ method: 'POST', url: '/api/v1/maintenance/rejoin-links?dry=1' })
+    expect(res.json()).toMatchObject({ fixed: 1, commit: null })
+    expect(validation.list({ limit: 10 })).toHaveLength(0)
   })
 })

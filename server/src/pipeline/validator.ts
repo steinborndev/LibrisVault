@@ -690,7 +690,19 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
      * without a model; this is what tells anyone they are there.
      */
     const joined = new Set<string>()
-    if (!skipLinkCheck(rel, pluginDocs)) {
+    /*
+     * Checked on the pages the DEAD-link check skips, too. Those pages are skipped because they
+     * QUOTE link targets that do not exist - a report listing its own findings, the log keeping
+     * its history - and reporting those as defects is noise. A wrapped link is the opposite
+     * case: the target exists (`linkResolves` below says so) and the page meant to link it, so
+     * a line break there is a real defect on a real page. On 2026-09-21 the deterministic
+     * repairer found three of them inside a lint report, written by the fix run that had just
+     * edited it, and the one thing that could have reported them was switched off.
+     *
+     * Plugin docs stay out: they belong to the cloned vault repo, which this service does not
+     * edit (hard rule 5), so a finding there names a repair nobody may make.
+     */
+    if (!pluginDocs.has(rel)) {
       const wrapped = findWrappedLinks(markdown)
       if (wrapped.length > 0) {
         fileIndex ??= buildFileIndex(vaultRoot)

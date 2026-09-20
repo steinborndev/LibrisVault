@@ -546,6 +546,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     maintenance,
     settings,
     validation,
+    validate,
     // User page edits/deletes commit behind the same mutex as ingest + maintenance, and
     // honour the live gitAutoCommit setting exactly like the queue does.
     commitMutex,

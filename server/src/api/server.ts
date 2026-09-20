@@ -31,6 +31,7 @@ import { registerEventsRoute } from './routes/events.js'
 import { registerStatsRoute } from './routes/stats.js'
 import { registerValidationRoute } from './routes/validation.js'
 import type { ValidationStore } from '../db/validation.js'
+import type { Validator } from '../pipeline/validator.js'
 import { registerQueryRoute } from './routes/query.js'
 import { registerMaintenanceRoute } from './routes/maintenance.js'
 import { registerSettingsRoute } from './routes/settings.js'
@@ -71,6 +72,11 @@ export interface AppContext {
   readonly runQuery?: QueryRunner
   /** The standing validation list (A9): findings counted rather than repeated per run. */
   readonly validation?: ValidationStore
+  /**
+   * The same validator the queue and the maintenance runner use. A route that WRITES to the
+   * vault checks its own work with it; a route that only reads has no use for it.
+   */
+  readonly validate?: Validator
   /** Maintenance runner (lint / autoresearch / hot-cache). */
   readonly maintenance: MaintenanceRunner
   /**

@@ -87,6 +87,25 @@ describe('repairing a vault', () => {
     expect(text).toContain('[[Nothing At\nAll]]')
   })
 
+  /*
+   * A lint report is skipped by the DEAD-link check, because it quotes targets that do not
+   * exist as its own findings. A wrapped link there is a different thing: the target exists,
+   * the page meant to link it, and the repairer already fixes it. On 2026-09-21 it fixed three
+   * inside a report that the fix run had just written, and nothing had reported them.
+   */
+  it('reports a wrapped link on a page whose dead links are deliberately not checked', () => {
+    fs.mkdirSync(path.join(vaultRoot, 'wiki/meta'), { recursive: true })
+    fs.writeFileSync(
+      path.join(vaultRoot, 'wiki/meta/lint-report-2026-09-21.md'),
+      '---\ntype: meta\ntitle: "Lint Report 2026-09-21"\n---\n# Lint Report: 2026-09-21\n\n' +
+        'Rewrote the mention on [[Carbon\nCycle]]. Still missing: [[A Page That Does Not Exist]].\n',
+    )
+    const f = createValidator(vaultRoot)(['wiki/meta/lint-report-2026-09-21.md'])
+    expect(f.filter((x) => x.rule === 'wrapped-link')).toHaveLength(1)
+    // The quoted missing target stays unreported: that is what the skip is for.
+    expect(f.filter((x) => x.rule === 'dead-link')).toHaveLength(0)
+  })
+
   it('the validator names the repairable ones apart from the dead ones, and stops naming them after', async () => {
     const before = createValidator(vaultRoot)(['wiki/concepts/Proxy Calibration.md'])
     expect(before.filter((f) => f.rule === 'wrapped-link')).toHaveLength(1)

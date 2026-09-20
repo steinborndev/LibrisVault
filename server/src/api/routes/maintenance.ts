@@ -11,6 +11,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { AppContext } from '../server.js'
 import type { GraphBuilder } from '../../pipeline/graph.js'
+import { VAULT_WIDE_RULES } from '../../pipeline/validator.js'
 import type { DismissalStore } from '../../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../../db/maintenance-state.js'
 import type { AgentRunStore } from '../../db/agent-runs.js'
@@ -110,6 +111,17 @@ export function registerMaintenanceRoute(
       autoCommit: () => ctx.settings?.effective(ctx.config).gitAutoCommit ?? true,
       ...(dry ? { dryRun: true } : {}),
     })
+    /*
+     * A write to the vault gets the same check every other run gets (2026-09-21). This is the
+     * one writing path that runs without a model, and it was also the one that reported
+     * nothing afterwards: if it broke a page, no finding would say so, and the standing list
+     * stayed as stale as it was before the run.
+     */
+    if (!dry && out.pages.length > 0 && ctx.validate !== undefined && ctx.validation !== undefined) {
+      const findings = ctx.validate(out.pages)
+      ctx.validation.record(findings, null)
+      ctx.validation.resolveMissing(out.pages, findings, { fullyChecked: VAULT_WIDE_RULES })
+    }
     return reply.send(out)
   })
 
