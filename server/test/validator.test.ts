@@ -518,9 +518,26 @@ describe('address_map consistency (2c)', () => {
    * task predicted, from an implementation that had not seen how they were counted.
    */
   it('flags a page whose address the map does not know', () => {
+    /*
+     * Narrowed on 2026-09-20: the page must be one an INGEST claims, via `pages_created`.
+     * The check used to ask this of every addressed page, which made every page a research
+     * run writes a defect - there is no document behind those, so the map is right to be
+     * silent. What N1 was about is unchanged and is what this asserts: a page that came from
+     * a document and went missing from the map is still a finding.
+     */
     page('wiki/concepts/Known.md', { address: 'c-000010' })
     page('wiki/concepts/Unknown.md', { address: 'c-000011' })
-    write('.raw/.manifest.json', JSON.stringify({ version: 1, address_map: { 'wiki/concepts/Known.md': 'c-000010' } }))
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        version: 1,
+        address_map: { 'wiki/concepts/Known.md': 'c-000010' },
+        sources: {
+          '.raw/01A/input.pdf': { pages_created: ['wiki/concepts/Known.md'] },
+          '.raw/01B/input.pdf': { pages_created: ['wiki/concepts/Unknown.md'] },
+        },
+      }),
+    )
     const findings = validateAddressMap(vaultRoot)
     expect(findings).toHaveLength(1)
     expect(findings[0]?.path).toBe('wiki/concepts/Unknown.md')
@@ -611,6 +628,58 @@ describe('stale counters', () => {
     write('wiki/overview.md', '---\ntype: meta\n---\nWiki pages: 5\n')
     write('wiki/index.md', '---\ntype: meta\n---\nno counters here\n')
     expect(validateCounters(vaultRoot)).toEqual([])
+  })
+})
+
+/**
+ * Which addressed pages the map is expected to know (2026-09-20).
+ *
+ * The check asked it of every page carrying an address, which made a research page a defect:
+ * a run that reads the web files what it learned and there is no `.raw/` document to point at,
+ * so the map is right to be silent. The vault-layer repair left this at zero on 2026-09-19 and
+ * eight research runs the next day put it at 68 - every one a page written from the web, none
+ * claimed by any ingest. Repairing those would have been work undone by the next night.
+ */
+describe('the address map and pages with no document behind them', () => {
+  const addressed = (rel: string, address: string): void => {
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, `---\ntype: concept\nstatus: developing\ncreated: 2026-09-01\nupdated: 2026-09-01\naddress: ${address}\ntags:\n  - x\n---\n\nBody.\n`)
+  }
+  const manifest = (m: Record<string, unknown>): void => write('.raw/.manifest.json', JSON.stringify(m))
+  const addressFindings = (): ValidationFinding[] => validateAddressMap(vaultRoot).filter((f) => f.message.includes('no entry for it'))
+
+  it('says nothing about a page no ingest claims', () => {
+    addressed('wiki/concepts/From The Web.md', 'c-000100')
+    manifest({ address_map: {}, sources: {} })
+    expect(addressFindings()).toEqual([])
+  })
+
+  it('still reports a page an ingest says it created', () => {
+    addressed('wiki/sources/From A Document.md', 'c-000101')
+    manifest({
+      address_map: {},
+      sources: { '.raw/01JOB/input.pdf': { pages_created: ['wiki/sources/From A Document.md'] } },
+    })
+    const found = addressFindings()
+    expect(found).toHaveLength(1)
+    expect(found[0]!.path).toBe('wiki/sources/From A Document.md')
+  })
+
+  it('tells the two apart in one vault', () => {
+    addressed('wiki/concepts/From The Web.md', 'c-000100')
+    addressed('wiki/sources/From A Document.md', 'c-000101')
+    manifest({
+      address_map: {},
+      sources: { '.raw/01JOB/input.pdf': { pages_created: ['wiki/sources/From A Document.md'] } },
+    })
+    expect(addressFindings().map((f) => f.path)).toEqual(['wiki/sources/From A Document.md'])
+  })
+
+  it('leaves the other direction alone: a map entry whose page is gone', () => {
+    manifest({ address_map: { 'wiki/concepts/Deleted.md': 'c-000012' }, sources: {} })
+    const stale = validateAddressMap(vaultRoot).filter((f) => f.message.includes('no longer exists'))
+    expect(stale).toHaveLength(1)
   })
 })
 
