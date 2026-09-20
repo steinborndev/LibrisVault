@@ -14,6 +14,9 @@ import { renderOverlapBlock, renderQuestionOrigin } from '../src/pipeline/relate
 import { renderIngestOverlap } from '../src/pipeline/ingest-overlap.js'
 import { domainSystemPrompt } from '../src/pipeline/domains.js'
 import { renderLogEntry } from '../src/pipeline/hubs.js'
+import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
+import { EventBus } from '../src/pipeline/events.js'
+import { Mutex } from '../src/util/mutex.js'
 
 /**
  * The house style, applied to the text this service writes for an agent (B9, 4.5).
@@ -58,6 +61,39 @@ const promptText = (): Array<[string, string]> => {
   }
   return blocks
 }
+
+/**
+ * The lint prompt and the report it owns (2026-09-20).
+ *
+ * The report path carries a date, so a second lint on one day meets the first one's file. The
+ * prompt said "do not modify any EXISTING wiki page", the run found today's report already
+ * there, read that as covering it, and stopped - eleven minutes and 2.36 USD for nothing.
+ */
+describe('the lint prompt', () => {
+  it('says today\'s report is the run\'s to replace', async () => {
+    let seen = ''
+    const runner = new MaintenanceRunner({
+      vaultRoot: '/tmp/does-not-need-to-exist',
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex: new Mutex(),
+      // The prompt is built before the model is reached, which is what this reads.
+      runAgent: async (opts) => {
+        seen = opts.prompt
+        throw new Error('stopped before the model')
+      },
+      commit: async () => ({ committed: false, committedPages: [] }),
+    })
+    const run = runner.startLint()
+    for (let i = 0; i < 200 && runner.getRun(run.id)?.status === 'running'; i++) {
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    expect(seen).toMatch(/report for TODAY already exists/i)
+    expect(seen).toMatch(/yours to\s+replace/i)
+    // And the rule it is an exception to is still stated.
+    expect(seen).toMatch(/do not modify any EXISTING wiki page/)
+  })
+})
 
 describe('the text this service puts in front of an agent', () => {
   it('carries no em-dash and no en-dash', () => {

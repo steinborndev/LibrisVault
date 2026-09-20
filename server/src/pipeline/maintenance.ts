@@ -663,7 +663,16 @@ export class MaintenanceRunner {
         `- keep scratch out of the wiki. ${LINT_SCAN_PATH} is the one intermediate path; it ` +
         'is kept out of vault git history. Do not leave other scratch files behind.\n\n' +
         'Report only - do NOT auto-fix, and do not modify any EXISTING wiki page. Writing ' +
-        'the new report file is expected and is not a modification.\n' +
+        'the report file is expected and is not a modification.\n' +
+        /*
+         * The report path carries a date, so a second lint on one day meets the first one's
+         * file. Without this a run read "do not modify an existing page", found today's report
+         * already there, and stopped - eleven minutes and 2.36 USD for nothing (2026-09-20).
+         * Today's report belongs to today's run: the later scan is the better one.
+         */
+        'If a report for TODAY already exists, it is an earlier run of today and yours to ' +
+        'replace: write your own findings over it. That file is the exception to the rule ' +
+        'above, and only that file - it is the deliverable, not an existing page.\n' +
         // Belt-and-braces with the hard kill (F1): the DragonScale Mechanism 3 "semantic tiling"
         // path runs embeddings via a long bash call. The runner will now group-kill a stuck run,
         // but the report only needs the structural checks, so still skip the heavy embedding pass.
@@ -1641,9 +1650,32 @@ export class MaintenanceRunner {
         // both of those reading a report that may be months old - which is why this settles as
         // a FAILURE rather than a success with nothing behind it. Measured against the run's
         // own start, so yesterday's report can never stand in for today's run.
+        /*
+         * A report file newer than the run's start is necessary and, on its own, not enough.
+         * Its mtime says when the file was last WRITTEN, which a run can do without producing
+         * anything: on 2026-09-20 a second lint of the day found today's report already there,
+         * overwrote it, noticed, restored the committed bytes over its own work, and settled as
+         * `done` after eleven minutes and 2.36 USD - the restore had refreshed the mtime, and
+         * the check read that as a fresh deliverable. So the run must also have COMMITTED: a
+         * lint that changed nothing on disk contributed no report, whatever the mtime says.
+         */
         const fresh = this.readLatestLintReport(startedMs)
-        if (fresh) {
+        if (fresh && commitHash !== null) {
           return { ...base, lint: fresh.report, reportPath: fresh.path }
+        }
+        if (fresh) {
+          log('error', 'lint wrote a report file but committed nothing - the report on disk is an older run\'s')
+          return withDelta({
+            ok: false,
+            kind,
+            pages,
+            commit: commitHash,
+            usage: res.usage,
+            error:
+              'the lint run left the vault unchanged, so the report in wiki/meta/ is the one that was ' +
+              'already there. Nothing new to base fixes on; re-run the lint.',
+            ...(res.result !== undefined ? { answer: res.result } : {}),
+          })
         }
         // No file, but the agent may still have summarised inline - usable, and honest about
         // where it came from, so the UI can say "no report written" while showing findings.

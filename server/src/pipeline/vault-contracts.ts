@@ -142,11 +142,47 @@ function checkLintReport(root: string): ContractCheck {
     evidence.push({ ok: true, what: 'no lint report in wiki/meta yet - template checked instead' })
   } else {
     const parsed = parseLintReport(report.text, (label) => ({ label, path: null }))
+    /*
+     * Counted from the FILE, with a deliberately dumber pattern than the parser's, because a
+     * probe that reuses the parser's own rules only ever asks whether it agrees with itself.
+     *
+     * "> 0" was what this asked until 2026-09-20, and it passed a report whose totals the
+     * parser was reading two of eleven from: the vault's view showed 4 dead links where the
+     * report said 101, 3 frontmatter gaps where it said 29, and no dash violations where it
+     * said 155. Nothing was renamed - the skill had simply started qualifying its numbers
+     * ("101 (78 distinct targets)") and writing prose where it used to write one bullet per
+     * defect. A report that parses to a tenth of itself looks exactly like a healthy vault,
+     * which is the failure this contract exists to catch.
+     */
+    const summaryBlock = /^##\s+Summary\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/m.exec(report.text)
+    const statedTotals = (summaryBlock?.[1]?.match(/^[ \t]*[-*][ \t]+[^\n:]+:[ \t]*\d/gm) ?? []).length
+    const parsedTotals = Object.keys(parsed.summary).length
+    /* A section that opens by stating its own count, e.g. "101 unresolved wikilink targets". */
+    const statedSections = [...report.text.matchAll(/^##\s+(.+?)\s*$\n+\s*(\d+)\s+\S/gm)].map((m) => ({
+      title: m[1]!.trim(),
+      stated: Number(m[2]),
+    }))
+    const misread = statedSections.filter((sec) => {
+      const got = parsed.sections.find((s) => s.title === sec.title)
+      return got !== undefined && got.count !== sec.stated
+    })
     evidence.push(
       { ok: parsed.date !== null, what: `${report.rel}: the report heading still carries its date` },
-      { ok: Object.keys(parsed.summary).length > 0, what: `${report.rel}: the summary counts parse into numbers` },
       { ok: parsed.sections.length > 0, what: `${report.rel}: at least one per-check section parses` },
       { ok: parsed.totalFindings > 0, what: `${report.rel}: the sections carry findings rather than parsing empty` },
+      {
+        ok: statedTotals === 0 || parsedTotals >= statedTotals,
+        what: `${report.rel}: every summary total the report states is read back (${parsedTotals} of ${statedTotals})`,
+      },
+      {
+        ok: misread.length === 0,
+        what:
+          misread.length === 0
+            ? `${report.rel}: each section's count matches the number it states (${statedSections.length} checked)`
+            : `${report.rel}: ${misread.length} section(s) read back a different count than they state - ${misread
+                .map((m) => `${m.title} states ${m.stated}`)
+                .join(', ')}`,
+      },
     )
   }
   const ok = evidence.every((e) => e.ok)

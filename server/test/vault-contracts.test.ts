@@ -64,6 +64,75 @@ describe('checkVaultContracts', () => {
     onlyFailing('lint-report')
   })
 
+  /*
+   * The drift that actually happened (2026-09-20), and which the old check passed.
+   *
+   * Nothing was renamed. The skill started qualifying its totals - "101 (78 distinct targets)"
+   * instead of "101" - and writing prose that groups defects into patterns instead of one
+   * bullet per defect. The parser read two summary lines of eleven and counted bullets, so the
+   * vault's own view showed 4 dead links where the report said 101 and no dash violations
+   * where it said 155. Every assertion here was "greater than zero", and a report that parses
+   * to a tenth of itself passes all of them while looking like a healthy vault.
+   */
+  it('names lint-report when a total the report states is not read back', () => {
+    const report = path.join(vault, 'wiki/meta/lint-report-2026-01-02.md')
+    fs.writeFileSync(
+      report,
+      [
+        '# Lint Report: 2026-01-02',
+        '',
+        '## Summary',
+        '- Pages scanned: 94',
+        // A section states one number while the summary states another: whichever the parser
+        // reads, it is not reading the report back faithfully, and that is the finding.
+        '- Dead links: 7',
+        '',
+        '## Orphan Pages',
+        '- [[Nothing links here]]',
+        '',
+        '## Dead Links',
+        '101 unresolved wikilink targets, in four patterns:',
+        '',
+        '- one pattern',
+        '- another',
+        '',
+        '## Frontmatter Gaps',
+        '- [[A page]] is missing `status`',
+        '',
+      ].join('\n'),
+    )
+    onlyFailing('lint-report')
+  })
+
+  it('passes when every stated number is read back, however the report words it', () => {
+    const report = path.join(vault, 'wiki/meta/lint-report-2026-01-02.md')
+    fs.writeFileSync(
+      report,
+      [
+        '# Lint Report: 2026-01-02',
+        '',
+        '## Summary',
+        '- Pages scanned: 94',
+        '- Dead links: 101 (78 distinct targets)',
+        '- Frontmatter gaps: 29 (3 of them YAML parse errors)',
+        '',
+        '## Orphan Pages',
+        '- [[Nothing links here]]',
+        '',
+        '## Dead Links',
+        '101 unresolved wikilink targets, in four patterns:',
+        '',
+        '- one pattern',
+        '- another',
+        '',
+        '## Frontmatter Gaps',
+        '29 pages are missing a required field.',
+        '',
+      ].join('\n'),
+    )
+    expect(verdicts()['lint-report']).toBe(true)
+  })
+
   it('names autoresearch-flow when the path the prompt hardcodes moves', () => {
     fs.rmSync(path.join(vault, 'skills/autoresearch/references/program.md'))
     onlyFailing('autoresearch-flow')

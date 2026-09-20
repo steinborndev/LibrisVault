@@ -72,6 +72,56 @@ afterEach(() => {
   fs.rmSync(vaultRoot, { recursive: true, force: true })
 })
 
+/**
+ * A lint that contributed nothing must say so (2026-09-20).
+ *
+ * The check for a fresh report reads the file's mtime, and a run can refresh that without
+ * producing anything: a second lint of the day found today's report already committed,
+ * overwrote it, noticed, and restored the committed bytes over its own work. The restore
+ * refreshed the mtime, the run settled as done, and eleven minutes and 2.36 USD bought a
+ * report that was already there. A lint that changes nothing on disk wrote no report.
+ */
+describe('a lint that changed nothing', () => {
+  const report = 'wiki/meta/lint-report-2026-09-20.md'
+
+  const lintRunner = (committed: boolean): MaintenanceRunner =>
+    new MaintenanceRunner({
+      vaultRoot,
+      auth: { envVar: 'CLAUDE_CODE_OAUTH_TOKEN', credential: 'x' },
+      events: new EventBus(),
+      commitMutex: new Mutex(),
+      runAgent: async () => {
+        // The agent touches the report file, as a restore would.
+        fs.writeFileSync(path.join(vaultRoot, report), '# Lint Report: 2026-09-20\n\n## Summary\n- Pages scanned: 3\n\n## Dead Links\n- [[Gone]]\n')
+        return ok()
+      },
+      commit: async () =>
+        committed ? { committed: true, hash: 'abc1234', committedPages: [report] } : { committed: false, committedPages: [] },
+    })
+
+  beforeEach(() => {
+    fs.mkdirSync(path.join(vaultRoot, 'wiki/meta'), { recursive: true })
+  })
+
+  it('fails when the vault is unchanged, however fresh the file looks', async () => {
+    const runner = lintRunner(false)
+    const run = runner.startLint()
+    await settle(runner, run.id)
+    const res = runner.getRun(run.id)?.result
+    expect(res?.ok).toBe(false)
+    expect(String(res?.error)).toContain('left the vault unchanged')
+  })
+
+  it('succeeds when it committed its report', async () => {
+    const runner = lintRunner(true)
+    const run = runner.startLint()
+    await settle(runner, run.id)
+    const res = runner.getRun(run.id)?.result
+    expect(res?.ok).toBe(true)
+    expect(res?.lint?.summary['Pages scanned']).toBe(3)
+  })
+})
+
 describe('a maintenance run and the standing list', () => {
   const defect: ValidationFinding = { rule: 'em-dash', path: PAGE, message: '3 em-dashes in prose' }
 
