@@ -686,14 +686,30 @@ section should go, only that a bullet in it should be readable away from the pag
       fetched but not read)". The rule repaired the question and left the parenthesis alone,
       because the parenthesis is where it invited a sentence about the run.
 
-      **Caveat, and it is mine.** The sharpened bracket wording was committed at 14:02; the
-      instance these runs went through started at 13:48 and loads the prompt once. So all six
-      runs saw the UNSHARPENED block, and the fix for the one defect they exposed is the one
-      thing this batch does not test. Re-measuring it needs a restarted instance and a run or
-      two.
-
       The whole-vault shares barely move (29 of 355 asking becomes 33 of 359) and will not until
       many runs have written under the rule. The incremental number is the one to read.
+
+      **Then the sharpened wording was tested, and it did not work.** The first six runs predated
+      it (committed 14:02, instance started 13:48, and the prompt is loaded once), so the
+      instance was restarted and two more runs went through it. Result: 10 questions, **10 of 10
+      asking**, and **9 of 10 carrying "in this pass"** - worse than the 46 % before it, on a
+      small sample, but certainly not better. Two phrasings of the rule, no movement.
+
+      **Why, and it is not the wording.** The vault says "in this pass" **380 times**. A run
+      reads the vault; the phrase is the documented house style of the place it is writing for.
+      One line of prompt is arguing against 380 worked examples, and losing.
+
+      **Totals over all eight runs: 45 questions, 45 of 45 ask something, 25 of 45 carry the
+      phrase.**
+
+      **What follows, and why the design still holds.** The deixis half is repaired where it
+      does damage rather than where it is written: phase 2's reformulation removed it from
+      **30 of 30** questions on their way into a run. On the page itself the phrase is nearly
+      harmless, because the page is the context it refers to. So the recommendation is to stop
+      sharpening this half of the rule - two attempts, no movement, and the cause is the
+      standing corpus rather than the sentence - and to let the validator keep counting it. The
+      share will fall as the corpus dilutes, and the number to watch is the one measured per
+      batch of runs, not the whole-vault total.
 - **DoD:** the question-mark share and the deixis share have moved in the right direction on
   questions written after phase 3 shipped. If they have not, phase 3's block is in the wrong
   place or is being overridden, and that is a finding to write down here rather than a phase to
@@ -808,8 +824,8 @@ origin page the question came from, which is the origin block of phase 1 doing i
 ### Not done, and why
 
 - [ ] **A partial archive failure**, which needs a failure to engineer.
-- [ ] **The sharpened bracket wording**, which the six measured runs predate by fourteen
-      minutes. See task 5.2.
+- [x] **The sharpened bracket wording** was measured over two further runs and made no
+      difference. See task 5.2.
 
 **Before anything:** a fresh vault backup, and know which service is up. The dev instance and the
 live service share `~/vault` and hold separate commit mutexes, so an agent run started from one

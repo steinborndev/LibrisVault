@@ -108,6 +108,16 @@ later. Do not create it earlier, and do not create it if you are stopping before
  * sources in full, and put "in this pass" inside the one bracket it used. The two rules pull
  * against each other there: the bracket invites a sentence about the run, and the run is the
  * one thing the next reader cannot see.
+ *
+ * **That sentence was then measured and it does not work, and the honest note belongs here.**
+ * Over eight runs, 45 of 45 questions ask something (against 8 % before), and 25 of 45 still
+ * say "in this pass" - the two runs that saw this sharpened wording did it 9 times in 10. The
+ * wording is not the problem: the vault contains the phrase **380 times**, so a run reading the
+ * vault is copying the documented house style of the place it writes for, and one line of
+ * prompt is arguing against 380 worked examples. Do not sharpen it a third time on the
+ * assumption that a better sentence will win. What DOES remove it is the reformulation step in
+ * front of a run (0 of 30 in its own eval), which is where it actually causes harm; on the page
+ * it refers to, it is nearly harmless.
  */
 export const OPEN_QUESTION_FORM = `
 <open_questions>
