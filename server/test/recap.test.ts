@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { UNSAFE_TITLE_CHARS } from '../src/pipeline/validator.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -42,6 +43,7 @@ import {
   renderQuietLine,
   renderRecapMessages,
   renderRecapPage,
+  recapPath,
   summaryInput,
   type RecapModel, withModelDefaults} from '../src/pipeline/recap.js'
 
@@ -182,12 +184,24 @@ describe('recap model from fixtures', () => {
     expect(fixture({ runs: [] }).quiet).toBe(false)
   })
 
+  /*
+   * The title has to name a file that can exist, because the page is filed under it and an
+   * agent that links a recap writes `[[<title>]]`. It said "Recap: <date>" for weeks while the
+   * file was "Recap <date>.md", so every such link resolved to nothing.
+   */
+  it('titles the page exactly as the file it is filed as', () => {
+    const page = renderRecapPage(fixture())
+    const title = /^title: "(.*)"$/m.exec(page)?.[1] ?? ''
+    expect(UNSAFE_TITLE_CHARS.test(title)).toBe(false)
+    expect(`${title}.md`).toBe(recapPath(fixture().cycleDate).split('/').pop())
+  })
+
   it('renders the page and the Telegram messages with the codes', () => {
     const m = { ...fixture(), fellows: fixture().fellows.map((f, i) => (i === 0 ? { ...f, found: ['One.', 'Two.', 'Three.'] } : f)) }
     const page = renderRecapPage(m)
-    expect(page.startsWith('---\ntype: meta\ntitle: "Recap: 2026-09-07"')).toBe(true)
+    expect(page.startsWith('---\ntype: meta\ntitle: "Recap 2026-09-07"')).toBe(true)
     expect(page).toContain('tags:\n  - meta\n  - recap')
-    expect(page).toContain('# Recap: 2026-09-07')
+    expect(page).toContain('# Recap 2026-09-07')
     expect(page).toContain('**Night** 01:00 to 06:00 (timer shift, 1 run(s), 0 plan(s), 2.50 USD)')
     expect(page).toContain('## 1. Ada (astronomy, sonnet-5, waiting)')
     expect(page).toContain('**Ran**: research-step "Faint hosts" · 3 page(s), 2.10 USD, commit abc123')
@@ -494,7 +508,7 @@ describe('recap service end to end', () => {
     expect(m.summaryCostUsd).toBe(0.3)
     // The page is in the vault and committed by the service.
     const page = fs.readFileSync(path.join(h.vaultRoot, row.path!), 'utf8')
-    expect(page).toContain('# Recap: 2026-09-08')
+    expect(page).toContain('# Recap 2026-09-08')
     expect(page).toContain('**Found**:\n- Found one thing.')
     expect(h.git('log', '--format=%s', '-1')).toContain('recap: 2026-09-08')
     expect(h.telegramSent).toHaveLength(1)

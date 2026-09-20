@@ -616,7 +616,9 @@ export function renderRecapPage(model: RecapModel): string {
   const fm = [
     '---',
     'type: meta',
-    `title: "Recap: ${model.cycleDate}"`,
+    // No colon: the page is filed as `Recap <date>.md` and the title has to match a file name
+    // that can exist, or a wikilink written from it resolves to nothing.
+    `title: "Recap ${model.cycleDate}"`,
     `created: ${model.cycleDate}`,
     `updated: ${localDate(new Date(model.generatedAt))}`,
     'tags:',
@@ -625,7 +627,7 @@ export function renderRecapPage(model: RecapModel): string {
     `cycle: ${model.cycleDate}`,
     '---',
   ].join('\n')
-  const lines: string[] = [fm, '', `# Recap: ${model.cycleDate}`, '', renderHeader(model, 'page'), '']
+  const lines: string[] = [fm, '', `# Recap ${model.cycleDate}`, '', renderHeader(model, 'page'), '']
   for (const f of model.fellows) lines.push(renderFellow(model, f, 'page'), '')
   lines.push(`Answer in the dashboard (Home, Recap), or on Telegram with the codes: ${ANSWER_HINT} This page is rendered by the service; edits here are not read back.`)
   return lines.join('\n') + '\n'

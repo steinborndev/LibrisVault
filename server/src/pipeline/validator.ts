@@ -88,7 +88,9 @@ const CONTENT_BUCKETS = new Set(['concepts', 'entities', 'sources', 'questions',
 const ADDRESS_RE = /^[cl]-\d{6}$/
 
 /** Characters a file name cannot portably carry, so a title holding one drifts from its name. */
-const UNSAFE_TITLE_CHARS = /[/\\:?*"<>|]/
+/** Characters a `title:` may not carry, because the file name beside it cannot. Exported so
+ * the writers that compose a title can be held to the same rule that judges it. */
+export const UNSAFE_TITLE_CHARS = /[/\\:?*"<>|]/
 
 /**
  * The smallest useful required heading per page type (B4).
@@ -458,9 +460,16 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
         findings.push({
           rule: 'title-name',
           path: rel,
+          /*
+           * Name the repair in one direction only. "Use a hyphen in both" invited a fix run to
+           * rename the FILE, which breaks every existing link to the page and, under
+           * `wiki/meta/`, breaks the writer that computes the path (a notebook is filed as
+           * `<slug>.md`, a recap as `Recap <date>.md`). Changing the title is always safe.
+           */
           message:
             `title "${title}" carries a character the file name cannot (it is filed as "${fileName}"), ` +
-            `so every wikilink written from the title resolves to nothing - use a hyphen in both`,
+            `so every wikilink written from the title resolves to nothing - change the TITLE to match ` +
+            `the file name, and do not rename the file`,
         })
       }
       if (title.length > TITLE_MAX_CHARS) {
