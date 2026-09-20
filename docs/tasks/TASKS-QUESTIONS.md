@@ -714,17 +714,48 @@ committed for real, to a vault nobody depends on.
 - [x] **Clustering on real board data**: 270 entries become **256 rows**, 13 grouped rows over 27
       entries, largest group 3. The lead of each group is its longest wording.
 
+### Done, in a browser - and the two bugs it found
+
+Chromium was fetched through the Playwright downloader (no sudo, a cache directory, nothing
+installed system-wide) and driven over CDP. **Both bugs below were invisible to 2450 passing
+tests and would have shipped.** Neither is reachable without a rendered page: one is an effect
+lifecycle, the other an ordering between a ref and a state update.
+
+**Bug 1: the effect cancelled its own request.** The prefill effect calls `navigate` to strip
+the query params, which changes that same effect's dependencies - so the cleanup function that
+invalidated the in-flight suggestion was run by the effect's own navigation, a moment after
+firing it. Every suggestion was fetched, paid for and thrown away, and the composer kept the raw
+question. React's development double-mount made it worse: **two requests per question, both
+discarded.** The guard is now a ref keyed on the QUESTION, so a re-run for the same question
+finds it in flight and does not ask again, and an answer is dropped only when a newer question
+supersedes it.
+
+**Bug 2: sending cleared the origin before reading it.** `setTopic('')` empties the box and with
+it the composer's `from` and `title` refs; `useMaintenanceRun` reads its starter after that. So
+the Start button sent `{topic, profileKey}` and nothing else - **the whole point of phases 1 and
+2, dropped at the last step.** Caught by reading the actual POST body of a real click. Fixed by
+capturing both into send-scoped refs first, exactly as `topicRef` has always captured the text.
+
+Both shapes are now pinned in `web/test/composerOrigin.test.ts` as rules over the same state,
+since the component still cannot be rendered in this suite.
+
+- [x] **The raw question arrives first**, with the composer saying "Preparing the topic from the
+      question…" beside the box, not blocking it.
+- [x] **The suggestion replaces it** and the hint goes back to what the mode does.
+- [x] **Exactly one request** goes out per question (it was two).
+- [x] **Nothing is auto-sent**: after the suggestion lands, the only POST made is the
+      reformulation itself.
+- [x] **The edit wins**: typing over the box immediately, then waiting past the answer, leaves
+      the typed text in place.
+- [x] **The origin never outlives its text**, checked by intercepting the run request and
+      reading what the Start button would send: unchanged from a board row carries `from` and
+      `title`; typed over completely carries neither; from a gap (no origin in the URL) carries
+      neither.
+- [x] **The board**: the lede says 256 and 256 rows are drawn, 13 of them saying "also on" with
+      the other page as a link.
+
 ### Not done, and why
 
-- [ ] **Everything that needs a rendered page.** No browser is installed on this machine (no
-      Chrome, no Chromium, no Playwright download), so the composer's own behaviour is unchecked:
-      the raw text arriving first and being replaced, "Preparing the topic" while it is in
-      flight, the edit winning over a late answer, nothing being auto-sent, and the clustered
-      row's "also on ..." line. These are exactly the properties that have no unit test, which is
-      why they are on this list. The dev servers are up and waiting.
-- [ ] **A real research run.** It costs 2 to 5 USD and writes pages into the clone. The prompt it
-      would receive has been read (above); what is untested is the run filing its synthesis under
-      the pinned name.
 - [ ] **A partial archive failure**, which needs a failure to engineer.
 
 **Before anything:** a fresh vault backup, and know which service is up. The dev instance and the

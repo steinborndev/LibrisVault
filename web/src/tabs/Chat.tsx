@@ -276,8 +276,19 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
   draftRef.current = draft
   /** A reformulation is in flight. Shown, never blocking: the box works throughout. */
   const [preparing, setPreparing] = useState(false)
+  /** The question a reformulation is being fetched for, or null. See the effect below. */
+  const inFlightRef = useRef<string | null>(null)
   const [lastTopic, setLastTopic] = useState('')
-  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current, fromRef.current, titleRef.current))
+  /*
+   * What the STARTED run carries, as opposed to what the box currently holds. The composer's
+   * own `fromRef`/`titleRef` are cleared by `setTopic('')` when the box is emptied on send, and
+   * `useMaintenanceRun` reads its starter after that - so a run went out with neither its
+   * origin page nor its page name, which is what the acceptance pass caught (2026-09-20).
+   * `topicRef` has always existed for exactly this reason; these two are its pair.
+   */
+  const sentFromRef = useRef<string | undefined>(undefined)
+  const sentTitleRef = useRef<string | undefined>(undefined)
+  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current, sentFromRef.current, sentTitleRef.current))
   const liveRunning = research.running || liveEntry !== undefined
   /*
    * The run's own log, read once here and handed to both the activity box and the list. The
@@ -360,21 +371,32 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
      * overwrite something the user typed while it was in flight, or show an error when it does
      * not work out. A run started on the raw question is the behaviour it improves on, not a
      * failure state.
+     *
+     * The guard is a ref holding the question currently being asked about, NOT a flag scoped to
+     * this effect run. That distinction cost a whole acceptance pass to find (2026-09-20) and is
+     * the only reason this works: `navigate` above strips the query params, which changes this
+     * effect's own dependencies, so a cleanup that invalidated the request would be run by the
+     * effect's own navigation a moment after firing it. Every suggestion was fetched, paid for
+     * and thrown away, and the composer kept the raw question - while React's development
+     * double-mount quietly fetched each one twice. A ref survives both: a second mount for the
+     * same question finds it in flight and does not ask again, and an answer is dropped only
+     * when a NEWER question has superseded it.
      */
-    let live = true
+    if (inFlightRef.current === asked) return
+    inFlightRef.current = asked
     setPreparing(true)
     void api
       .suggestTopic(asked, page)
       .then((s) => {
-        if (!live) return
+        if (inFlightRef.current !== asked) return
         if (s.topic !== null && acceptsSuggestion(draftRef.current, asked)) setTopic(s.topic, page, s.title)
       })
       .finally(() => {
-        if (live) setPreparing(false)
+        if (inFlightRef.current !== asked) return
+        // Cleared on settle, so clicking the same row again asks again.
+        inFlightRef.current = null
+        setPreparing(false)
       })
-    return () => {
-      live = false
-    }
   }, [researchPrefill, researchFrom])
 
   const send = (): void => {
@@ -392,6 +414,9 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
     if (research.running) return
     topicRef.current = text
     profileKeyRef.current = profileKey
+    // Captured before the box is emptied: `setTopic('')` drops the composer's own refs.
+    sentFromRef.current = fromRef.current
+    sentTitleRef.current = titleRef.current
     setLastTopic(text)
     setTopic('')
     setView({ kind: 'start' })
