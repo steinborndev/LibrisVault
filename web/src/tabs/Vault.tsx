@@ -2533,7 +2533,7 @@ const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
   // Not "brighter": since 2026-09-16 the ramp runs the other way in the light theme, where
   // the most-linked page is the darkest one. "Stronger" holds in both.
   { key: 'authority', label: 'Authority', desc: 'stronger colour = more pages link here' },
-  { key: 'recency', label: 'Recency', desc: 'green = edited recently' },
+  { key: 'recency', label: 'Recency', desc: 'green = written or rewritten in the last 3 weeks' },
   { key: 'type', label: 'Page type', desc: 'a colour per wiki bucket' },
   { key: 'orphans', label: 'Orphans', desc: 'red = nothing links here' },
   { key: 'stubs', label: 'Stubs', desc: 'amber = thin page, under 1 KB' },
@@ -2654,7 +2654,7 @@ function LensLegend({
     body = (
       <>
         <span className="ll-title">Recency</span>
-        <span className="ll-row"><i className="ll-grad ll-recency" /> older → edited recently</span>
+        <span className="ll-row"><i className="ll-grad ll-recency" /> older → changed recently</span>
       </>
     )
   if (body === null) return null

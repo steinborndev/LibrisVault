@@ -188,7 +188,15 @@ export { domainColor, domainHue, STUB_BYTES, TYPE_VARS }
 
 /** The available color lenses. `domain`/`type` are categorical; the rest re-encode a metric. */
 export type Lens = 'domain' | 'type' | 'authority' | 'orphans' | 'stubs' | 'recency'
-/** Full green in the "recency" lens for pages edited within this window; older fades to neutral. */
+/**
+ * Full green in the "recency" lens for pages changed within this window; older fades to neutral.
+ *
+ * 21 days, kept deliberately when the lens moved off the file mtime (2026-09-20): against real
+ * content dates it puts about a third of this vault in green with a readable gradient behind
+ * it, and the question it then answers - what has been added or rewritten in the last three
+ * weeks - is the useful one. Against mtimes it answered nothing at all, because a mass pass
+ * touches every file and 1326 of 1332 were inside the window.
+ */
 const RECENCY_WINDOW_MS = 21 * 24 * 3600_000
 
 /** Parses `#rgb` / `#rrggbb` / `rgb(...)` to [r,g,b]; null for anything else (e.g. hsl()). */
@@ -608,8 +616,15 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         case 'stubs':
           return n.size !== undefined && n.size < STUB_BYTES ? cssVar('--warn', '#e0a43b') : dimBase
         case 'recency': {
-          if (n.mtimeMs === undefined) return dimBase
-          const t = Math.max(0, 1 - (nowMs - n.mtimeMs) / RECENCY_WINDOW_MS)
+          /*
+           * `freshMs` is what the page SAYS about itself (`content_updated:`, else `created:`),
+           * and the mtime is only the fallback for a page that states neither. The other way
+           * round is what made this lens useless: a repair pass rewrites every file, so every
+           * mtime lands in the window and the whole graph goes green.
+           */
+          const changed = n.freshMs ?? n.mtimeMs
+          if (changed === undefined) return dimBase
+          const t = Math.max(0, 1 - (nowMs - changed) / RECENCY_WINDOW_MS)
           return mixColor(dimBase, cssVar('--ok', '#3fb984'), t)
         }
       }

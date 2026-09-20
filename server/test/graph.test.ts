@@ -47,6 +47,57 @@ describe('GraphBuilder', () => {
     expect(g.nodes[byTitle.get('Alpha')!]!.out).toBe(2)
   })
 
+  /*
+   * The date the recency lens colours by (B7, and the reason the lens was useless until
+   * 2026-09-20). It is what the PAGE says about itself, never the file mtime: a repair pass
+   * rewrites every file, so on this vault 1326 of 1332 mtimes landed inside the lens's 21-day
+   * window and the whole graph went green.
+   */
+  describe('the freshness date', () => {
+    const ms = (d: string): number => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10))
+
+    it('prefers content_updated: over created:', () => {
+      page('wiki/concepts/Both.md', '---\ncreated: 2026-04-01\nupdated: 2026-09-20\ncontent_updated: 2026-07-15\n---\n\nbody')
+      const n = new GraphBuilder(vaultRoot).build().nodes[0]!
+      expect(n.freshMs).toBe(ms('2026-07-15'))
+    })
+
+    it('falls back to created:, never to updated:', () => {
+      // `updated:` is the date of the last mass pass on most of this vault, which is exactly
+      // the signal that had to be replaced. Using it here would reintroduce the defect.
+      page('wiki/concepts/Old.md', '---\ncreated: 2026-04-01\nupdated: 2026-09-20\n---\n\nbody')
+      const n = new GraphBuilder(vaultRoot).build().nodes[0]!
+      expect(n.freshMs).toBe(ms('2026-04-01'))
+      expect(n.freshMs).not.toBe(ms('2026-09-20'))
+    })
+
+    it('is absent when the page states neither date, so the lens can fall back to the mtime', () => {
+      page('wiki/concepts/Bare.md', 'no frontmatter at all')
+      const n = new GraphBuilder(vaultRoot).build().nodes[0]!
+      expect(n.freshMs).toBeUndefined()
+      expect(n.mtimeMs).toBeGreaterThan(0)
+    })
+
+    it('reads a date with a time as the same day, whatever the timezone', () => {
+      page('wiki/concepts/Timed.md', '---\ncreated: 2026-04-01T23:30:00+02:00\n---\n\nbody')
+      const n = new GraphBuilder(vaultRoot).build().nodes[0]!
+      expect(n.freshMs).toBe(ms('2026-04-01'))
+    })
+
+    it('ignores a date it cannot read rather than guessing', () => {
+      page('wiki/concepts/Junk.md', '---\ncreated: sometime last spring\n---\n\nbody')
+      expect(new GraphBuilder(vaultRoot).build().nodes[0]!.freshMs).toBeUndefined()
+    })
+
+    it('re-reads it when the page changes', () => {
+      page('wiki/concepts/Moves.md', '---\ncreated: 2026-04-01\n---\n\nbody')
+      const b = new GraphBuilder(vaultRoot)
+      expect(b.build().nodes[0]!.freshMs).toBe(ms('2026-04-01'))
+      page('wiki/concepts/Moves.md', '---\ncreated: 2026-04-01\ncontent_updated: 2026-09-19\n---\n\nbody, rewritten')
+      expect(b.build().nodes[0]!.freshMs).toBe(ms('2026-09-19'))
+    })
+  })
+
   it('carries frontmatter tags + domain on nodes and re-reads them on change', () => {
     page(
       'wiki/concepts/Fund.md',
@@ -74,7 +125,7 @@ describe('GraphBuilder', () => {
   })
 
   it('parseFrontmatterMeta handles absence and malformed frontmatter', () => {
-    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null, origin: null }
+    const empty = { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null, origin: null, fresh: null }
     expect(parseFrontmatterMeta('no frontmatter')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ntags:\n---\nbody')).toEqual(empty)
     expect(parseFrontmatterMeta('---\ndomain:\n---\nbody')).toEqual(empty)

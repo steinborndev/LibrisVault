@@ -234,8 +234,17 @@ export interface GraphNode {
   kind?: 'knowledge' | 'structural' | 'artifact'
   out: number
   in: number
-  /** File mtime (epoch ms) - the "recency" color lens. Absent on hand-built fixtures. */
+  /** File mtime (epoch ms). Absent on hand-built fixtures. */
   mtimeMs?: number
+  /**
+   * When the page last SAID something new, as epoch ms: `content_updated:` where it has one,
+   * otherwise `created:`. What the "recency" lens colours by.
+   *
+   * Not the mtime, which a mass pass flattens: on the day the vault repair landed, 1326 of
+   * 1332 files had been touched inside the lens's 21-day window and every node was full
+   * green. Absent for a page stating neither date, where the lens falls back to the mtime.
+   */
+  freshMs?: number
   /**
    * The web address the page states for itself (`url:`, or a bare link in `sources:`). A
    * page a research run wrote has no ingested document behind it, so this is the only record
