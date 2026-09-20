@@ -38,6 +38,7 @@ import type {
   Session,
 } from '../api/types.ts'
 import { Markdown } from '../components/Markdown.tsx'
+import { acceptsSuggestion } from '../lib/questions.ts'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { CitationChip } from '../components/CitationChip.tsx'
 import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
@@ -264,8 +265,19 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
    * to: typing over the question, or filling the box from anywhere else, clears it.
    */
   const fromRef = useRef<string | undefined>(undefined)
+  /**
+   * The name the synthesis page should take, when a reformulation offered one. Without it the
+   * service cuts a page name out of the topic sentence, which is how a page ends up called
+   * after half a paragraph. Same lifetime as {@link fromRef}: only `setTopic` sets it.
+   */
+  const titleRef = useRef<string | undefined>(undefined)
+  /** The draft as it stands right now, for the suggestion's own "did the user type?" check. */
+  const draftRef = useRef('')
+  draftRef.current = draft
+  /** A reformulation is in flight. Shown, never blocking: the box works throughout. */
+  const [preparing, setPreparing] = useState(false)
   const [lastTopic, setLastTopic] = useState('')
-  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current, fromRef.current))
+  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current, fromRef.current, titleRef.current))
   const liveRunning = research.running || liveEntry !== undefined
   /*
    * The run's own log, read once here and handed to both the activity box and the list. The
@@ -322,9 +334,10 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
    * question back only when the box is EMPTY. A box that is empty has no origin either (the
    * clear above took it), so there is nothing there to go stale.
    */
-  const setTopic = (text: string, from?: string): void => {
+  const setTopic = (text: string, from?: string, title?: string): void => {
     setDraft(text)
     fromRef.current = from
+    titleRef.current = title
   }
 
   // A gap's "Research", or a question from the pinboard, landed us here with a topic: arm
@@ -332,11 +345,36 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
   // then strip the query params so this fires exactly once.
   useEffect(() => {
     if (researchPrefill === '') return
-    setTopic(researchPrefill, researchFrom === '' ? undefined : researchFrom)
+    const asked = researchPrefill
+    const page = researchFrom === '' ? undefined : researchFrom
+    setTopic(asked, page)
     setMode('research')
     setView({ kind: 'start' })
     composerRef.current?.focus()
     navigate('/research', { replace: true })
+
+    /*
+     * A question written on a page is written to be read there, so it rarely reads as a topic
+     * on its own. Ask for one, and put it in the box when it comes back - as a draft the user
+     * still sends themselves (decision D3). Three things it must not do: block the box, ever
+     * overwrite something the user typed while it was in flight, or show an error when it does
+     * not work out. A run started on the raw question is the behaviour it improves on, not a
+     * failure state.
+     */
+    let live = true
+    setPreparing(true)
+    void api
+      .suggestTopic(asked, page)
+      .then((s) => {
+        if (!live) return
+        if (s.topic !== null && acceptsSuggestion(draftRef.current, asked)) setTopic(s.topic, page, s.title)
+      })
+      .finally(() => {
+        if (live) setPreparing(false)
+      })
+    return () => {
+      live = false
+    }
   }, [researchPrefill, researchFrom])
 
   const send = (): void => {
@@ -597,7 +635,11 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
               </button>
             </div>
             <span className="rhead-mid">
-              {mode === 'research' ? 'Reads the web, writes pages, one commit.' : 'Reads the vault only, cites every page, writes nothing.'}
+              {preparing && mode === 'research'
+                ? 'Preparing the topic from the question…'
+                : mode === 'research'
+                  ? 'Reads the web, writes pages, one commit.'
+                  : 'Reads the vault only, cites every page, writes nothing.'}
             </span>
             {/* What the armed mode is ALLOWED to do. The two modes differ in exactly these
                 two capabilities, and a run that can reach the web and write pages should not

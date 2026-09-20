@@ -48,3 +48,16 @@ export function questionView(entries: readonly QuestionItem[], tab: QuestionTab 
     researching: shown.filter((e) => e.researching !== null).length,
   }
 }
+
+/**
+ * Whether a reformulation that has just come back may replace what is in the composer
+ * (docs/tasks/TASKS-QUESTIONS.md, phase 2, decision D3).
+ *
+ * The suggestion is asked for the moment a question lands in the box, and it takes a few
+ * seconds to arrive. In that window the user may already be typing, and their edit wins: the
+ * answer is only accepted when the box still holds exactly the text it was asked about. It is
+ * a suggestion, so losing it costs nothing; overwriting somebody mid-sentence would.
+ */
+export function acceptsSuggestion(current: string, askedAbout: string): boolean {
+  return current.trim() === askedAbout.trim()
+}

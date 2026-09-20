@@ -168,7 +168,7 @@ export const TITLE_MAX_CHARS = 120
  * meant anyway. Control characters and a leading dot or hyphen go, the same set the vault's
  * own `safe_name()` strips, so a title can neither escape its folder nor read as a flag.
  */
-export function titleSafe(topic: string): string {
+export function titleSafe(topic: string, max: number = TITLE_MAX_CHARS): string {
   const cleaned = [...topic.replace(/[/\\]+/g, '-').replace(/\s*[:?*"<>|]+\s*/g, ' - ')]
     // Control characters, the other half of what the vault's own `safe_name()` strips. A
     // character class would say this more directly, but the lint rule that forbids control
@@ -180,8 +180,13 @@ export function titleSafe(topic: string): string {
     .replace(/^[.-]+/, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/(?:\s-\s){2,}/g, ' - ')
+    // A separator the replacement above LEFT at the end. A topic ending in a question mark -
+    // which is what a reformulated question is, and what a typed one often is - became
+    // "Research - ... -", a name with a dangling hyphen. `shortenTitle` already strips exactly
+    // this set when it cuts; a title short enough not to be cut deserves the same.
+    .replace(/[\s,;:-]+$/, '')
     .trim()
-  return cleaned === '' ? 'untitled' : shortenTitle(cleaned)
+  return cleaned === '' ? 'untitled' : shortenTitle(cleaned, max)
 }
 
 /**
@@ -203,8 +208,17 @@ export function shortenTitle(title: string, max: number = TITLE_MAX_CHARS): stri
  * The title the run is told to file its synthesis under. The one place a topic becomes a
  * name, so it is the one place the name has to be safe to be a filename.
  */
-export function researchTargetTitle(profile: ResearchProfile, topic: string): string {
-  return `${RESEARCH_PREFIX}${titleSafe(topic)}${profile.titleSuffix}`
+export function researchTargetTitle(profile: ResearchProfile, topic: string, title?: string): string {
+  const given = title?.trim() ?? ''
+  if (given === '') return `${RESEARCH_PREFIX}${titleSafe(topic)}${profile.titleSuffix}`
+  /*
+   * A title asked for as a title (phase 2) is held to what a page NAME can be: the prefix and
+   * this lens's suffix come out of the budget, so the whole name fits TITLE_MAX_CHARS. The
+   * topic-derived form above keeps its own behaviour - it has always spent the full budget on
+   * the topic alone, and changing that would rename pages this vault already holds.
+   */
+  const budget = TITLE_MAX_CHARS - RESEARCH_PREFIX.length - profile.titleSuffix.length
+  return `${RESEARCH_PREFIX}${titleSafe(given, budget)}${profile.titleSuffix}`
 }
 
 /**
@@ -245,8 +259,8 @@ export function isSynthesisPath(relPath: string): boolean {
  * one legitimate alternative - folding into an existing synthesis - as an alternative TARGET
  * rather than as permission to skip the deliverable.
  */
-export function renderSynthesisMandate(profile: ResearchProfile, topic: string): string {
-  const title = researchTargetTitle(profile, topic)
+export function renderSynthesisMandate(profile: ResearchProfile, topic: string, pageTitle?: string): string {
+  const title = researchTargetTitle(profile, topic, pageTitle)
   return (
     `\n\n<synthesis_page>\n` +
     `This run is NOT finished until exactly one synthesis page under wiki/questions/ carries ` +

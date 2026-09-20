@@ -310,22 +310,22 @@ The planner's reformulation, given to the manual path. New module, same shape as
 `pipeline/dedupe-judge.ts` - a pure prompt builder, a zod schema, a JSON schema, and one thin
 `runAgent` call - so everything except the call itself is unit-testable.
 
-### 2.1 `server/src/pipeline/question-topic.ts`: prompt, schema, parser
+### 2.1 `server/src/pipeline/question-topic.ts`: prompt, schema, parser - DONE 2026-09-20
 
-- [ ] `renderTopicPrompt({ text, page?, pageExcerpt? })`: states that the input is a note a
+- [x] `renderTopicPrompt({ text, page?, pageExcerpt? })`: states that the input is a note a
       research run left on a vault page, and asks for a research topic that stands on its own.
       The rules it states, each one traceable to a number in section 0: one sentence; no
       "this pass", "this step", "either source" or any other reference to the run that wrote it;
       every name spelled out rather than referred to; phrased as what is to be found out; and a
       separate short title suitable for a page name.
-- [ ] `topicSchema()` and a zod `answerSchema` with exactly two fields: `topic` (<= 500, the
+- [x] `topicSchema()` and a zod `answerSchema` with exactly two fields: `topic` (<= 500, the
       planner's `FIELD_CAPS.topic`, imported rather than re-stated) and `title` (<= 100, leaving
       room under `TITLE_MAX_CHARS` for the `Research - ` prefix and the lens suffix, likewise
       imported and computed rather than hardcoded).
-- [ ] `reformulate(input, opts)`: one `runAgent` call with `profile: 'query'`, structured output,
+- [x] `reformulate(input, opts)`: one `runAgent` call with `profile: 'query'`, structured output,
       a short timeout. On a failed run, a schema violation, or a timeout it returns `null` - the
       caller falls back to the raw text (D3). It never throws into a request handler.
-- [ ] The excerpt: when `page` is given, the service reads the page and passes a bounded slice
+- [x] The excerpt: when `page` is given, the service reads the page and passes a bounded slice
       (the frontmatter title plus the first N characters, plus the `## Open questions` section)
       rather than letting the run open the file. Reason: this run has the `query` profile and no
       reason to hold a read tool loop for one sentence, and a bounded excerpt keeps the cost
@@ -335,71 +335,125 @@ The planner's reformulation, given to the manual path. New module, same shape as
   and a non-JSON answer each return `null`; a failed run returns `null`; the excerpt is bounded
   and includes the page's own title. `runAgent` is mocked throughout.
 
-### 2.2 The endpoint
+### 2.2 The endpoint - DONE 2026-09-20
 
-- [ ] `POST /api/v1/maintenance/research/topic`, guarded by `credentialMissing` like its
+- [x] `POST /api/v1/maintenance/research/topic`, guarded by `credentialMissing` like its
       neighbour, body `{ text, from? }`, answering `{ topic, title }` or `{ topic: null }` when
       the reformulation did not succeed.
-- [ ] Registered unconditionally, NOT behind `AGENTS_ENABLED` (D4).
-- [ ] `from` validated by the same helper phase 1 introduces. Factor that validation into one
+- [x] Registered unconditionally, NOT behind `AGENTS_ENABLED` (D4).
+- [x] `from` validated by the same helper phase 1 introduces. Factor that validation into one
       exported function when phase 1 lands, so the two endpoints cannot drift.
 - **Tests:** `server/test/api.test.ts` for the happy path, the null path, the missing-credential
   path and path validation; `server/test/agents-flag-off.test.ts` gains an assertion that this
   route answers with the flag OFF (the inverse of every other assertion in that file, and the
   point of D4).
 
-### 2.3 The composer takes the suggestion
+### 2.3 The composer takes the suggestion - DONE 2026-09-20
 
-- [ ] Clicking "Start research" on a board row navigates as today, and the Research screen then
+- [x] Clicking "Start research" on a board row navigates as today, and the Research screen then
       asks for the reformulation before the user sends. While it is in flight the composer shows
       the raw text with a visible, non-blocking state ("preparing the topic"); when it returns,
       the draft is replaced and the user can edit it or send it.
-- [ ] If the user has already typed into the composer when the answer arrives, the answer is
+- [x] If the user has already typed into the composer when the answer arrives, the answer is
       discarded. Their edit wins.
-- [ ] A null answer leaves the raw text in place, with no error toast: the action still works,
+- [x] A null answer leaves the raw text in place, with no error toast: the action still works,
       it just did not improve.
-- [ ] The title rides along in a ref and is sent with the run (2.4). An edited draft drops it,
+- [x] The title rides along in a ref and is sent with the run (2.4). An edited draft drops it,
       the same rule as `from` in 1.2.
-- **Tests:** component tests over the three orderings - answer before edit, edit before answer,
-  no answer at all - plus one asserting nothing is auto-sent (D3).
+- **Tests:** `web/test/questionSuggestion.test.ts` over `acceptsSuggestion`, the rule all three
+  orderings reduce to. NOT component tests: the web suite has no DOM (the same wall phase 1 hit),
+  so the decision was pulled OUT of the component into a pure function instead, which is the
+  part worth pinning anyway. That nothing is auto-sent is structural - `send()` is only ever
+  called from the composer's own button and Enter key - and is walked by hand in phase 6.
 
-### 2.4 The title, decoupled but still pinned
+### 2.4 The title, decoupled but still pinned - DONE 2026-09-20
 
-- [ ] `POST /api/v1/maintenance/research` accepts an optional `title`, capped and passed through
+- [x] `POST /api/v1/maintenance/research` accepts an optional `title`, capped and passed through
       `titleSafe` exactly as a topic-derived title is today.
-- [ ] `researchTargetTitle(profile, topic, title?)` uses it when given and falls back to the
+- [x] `researchTargetTitle(profile, topic, title?)` uses it when given and falls back to the
       shortened topic when not, so every existing caller is unchanged.
-- [ ] The post-run synthesis check and `isSynthesisPath` keep agreeing: the check compares
-      against the same computed title the prompt pinned. Assert that in a test rather than by
-      reading the code - this is the pair D5 exists to protect.
+- [x] The post-run synthesis check and `isSynthesisPath` keep agreeing. **The premise here was
+      wrong and the test is better for it:** the post-run check does not compare titles at all,
+      it asks whether ANY committed page is a synthesis, and `isSynthesisPath` answers that from
+      the `Research - ` prefix. So the pair D5 protects is prefix-shaped, and the test asserts
+      the real invariant - for every lens and every shape of title (safe, unsafe, over-long,
+      degenerate, absent), the name the prompt pins is one `isSynthesisPath` recognises, and the
+      mandate pins exactly that name rather than computing a second one.
 - **Tests:** `server/test/research-profiles.test.ts` (or wherever `researchTargetTitle` is
   covered today): with and without an explicit title; an unsafe title is made safe; a title over
   the cap is shortened on a word boundary; the prompt's pinned title and the post-run check's
   expected title are equal in all four cases.
 
-### 2.5 `npm run questiontopic-eval`: measuring it before trusting it
+### 2.5 `npm run questiontopic-eval`: measuring it before trusting it - DONE 2026-09-20
 
 Same reasoning as `dedupe-eval` - a reformulation nobody measured is a second guess in front of
 the first one.
 
-- [ ] A CLI that reads the real board (via `QuestionsService.list()` against a vault path),
+- [x] A CLI that reads the real board (via `QuestionsService.list()` against a vault path),
       samples N questions, reformulates each, and prints input against output with the checks
       from section 0 applied to the output: question-mark share, deixis share, length, share over
       the title cap.
-- [ ] `--dry` prints the prompts and makes no calls, so the prompt can be reviewed without
+- [x] `--dry` prints the prompts and makes no calls, so the prompt can be reviewed without
       spending anything.
-- [ ] Output is local only. It quotes vault content, so it is never committed and never pasted
+- [x] Output is local only. It quotes vault content, so it is never committed and never pasted
       into a commit message or PR body (hard rule 7).
 - **DoD:** on a 30-question sample of the live board, **at least 90 % of outputs end in a
   question mark, none carries pass-relative deixis, none exceeds the title cap after
   `titleSafe`, and none is longer than one sentence.** Anything below that is a prompt problem to
   fix in 2.1 before phase 2 is called done, not a threshold to lower.
 
-### 2.6 Cost
+### 2.6 Cost - DONE 2026-09-20
 
-- [ ] Measure the real per-call cost over the 2.5 sample and record it here.
+- [x] Measure the real per-call cost over the 2.5 sample and record it here.
 - **DoD:** a reformulation costs a small fraction of the run it precedes, and the number is
   written into this file. If it does not, the excerpt in 2.1 is too large.
+
+**Result.** Measured over the 30-question sample: **0.146 USD per call**, 4.38 USD for the whole
+sample, against roughly 2 to 5 USD for the research run one reformulation precedes. That is 3 to
+7 %, which is the small fraction the DoD asks for, so this ships as it stands.
+
+The interesting half is WHERE it goes: **56,933 tokens in, 809 out, per call.** The excerpt is
+about a thousand of those and the prompt a few hundred; the rest is the vault context the SDK
+loads because the run's working directory IS the vault (CLAUDE.md, the skill descriptions, the
+tool surface). So the excerpt is not the knob, and shrinking it would buy almost nothing.
+
+The knob, if this ever needs one, is the working directory: a `query` run that writes nothing
+and reads its material from the prompt does not need to start inside the vault at all. That
+touches the runner's permission wiring, which is hard rule 4 territory and needs `permprobe`
+re-run, so it is written down here rather than done on the way past.
+
+**Result for phase 2 as a whole.** 30 new tests across `question-topic.test.ts` (17),
+`research-profiles.test.ts` (4 on the decoupled title), `api.test.ts` (4 on the endpoint),
+`agents-flag-off.test.ts` (1, the inverse assertion D4 exists for) and
+`web/test/questionSuggestion.test.ts` (4). Full suite 170 files / 2428 tests, typecheck and
+lint, all exit 0.
+
+**The measured run, in full.** 30 questions sampled from the live board, seed 11:
+
+| | First run | After the prompt fix |
+|---|---|---|
+| asks a question | 20/30 (67 %) | **30/30 (100 %)**, target 90 % |
+| carries pass-relative deixis | 0 | **0**, target 0 |
+| page name over the cap | 0 | **0**, target 0 |
+| more than one sentence | 1 | **0**, target 0 |
+
+Two things the first run taught, both of them about this file rather than about the model:
+
+- **Two of my own rules fought each other.** The prompt asked for the reason a question stayed
+  open "in brackets at the END of the sentence", and the measurement asked for a sentence ending
+  in a question mark. Seven of the ten failures were proper questions with a bracket after the
+  question mark. The prompt now puts the bracket BEFORE it, and says outright that "Determine
+  whether ..." and "Find the ..." are not questions - which was the other three.
+- **The one multi-sentence failure was a measurement bug.** A name's middle initial reads as a
+  sentence end to a naive splitter. `sentenceCount` no longer splits after a single capital, and
+  the case is a unit test with an invented name.
+
+The second run's numbers are the ones above; the multi-sentence column is that same run
+re-scored with the corrected heuristic rather than a third paid run, since the correction
+changed the counting and not the output.
+
+What phase 3 inherits: this fixes questions on their way OUT of the vault, one at a time, for a
+metered call each. It does nothing for the 355 already standing, and nothing for the next 355.
 
 ---
 
@@ -558,6 +612,9 @@ must be exercised both ways (invariant 4, D4).
       and not a chopped sentence. Confirm the page the run files carries that title.
 - [ ] **Fallback.** Stop the service's credential or otherwise force a null reformulation, and
       confirm the raw text stays and the run still starts.
+- [ ] **Nothing is auto-sent** (phase 2, structural, not unit-testable here). From a board row,
+      wait for the reformulation to land in the box and confirm no run has started: the box holds
+      a draft and the Start button is still yours to press.
 - [ ] **Clusters.** On the board, confirm the triple-written items now show as one row with
       "also on 2 other pages", and that archiving one strikes all three (check `git log` in the
       vault: three commits, one per page, each naming its page).

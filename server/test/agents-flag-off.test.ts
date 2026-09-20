@@ -180,6 +180,20 @@ describe('with the Fellows extension unwired', () => {
    * strings would assert a contract that does not exist, and `'off'` is truthy, so it would
    * light up every Fellow surface it meant to hide.
    */
+  /*
+   * The one route in this area that must ANSWER with the flag off (decision D4,
+   * docs/tasks/TASKS-QUESTIONS.md). The pinboard that sends most reformulations is gated, but
+   * the Graph screen's gap backlog is base product and reaches the composer the same way. A
+   * route the base product calls has to exist when the flag is off, or it is one 404 per click
+   * - which is exactly the rot hard rule 8 names, and the reason this assertion is the inverse
+   * of every other one in this file.
+   */
+  it('answers the reformulation route with the flag off, because the base product calls it', async () => {
+    app = await build()
+    const res = await app.inject({ method: 'POST', url: '/api/v1/maintenance/research/topic', payload: { text: '' } })
+    expect(res.statusCode).not.toBe(404)
+  })
+
   it('reports fellows as a falsy boolean in health, never as a string', async () => {
     app = await build()
     const body = (await app.inject({ method: 'GET', url: '/api/v1/health' })).json() as { fellows?: unknown }

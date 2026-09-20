@@ -52,6 +52,61 @@ describe('research profiles (Achse A)', () => {
     expect(new Set(titles).size).toBe(titles.length)
   })
 
+  /*
+   * The title, decoupled from the topic but still pinned before the run
+   * (docs/tasks/TASKS-QUESTIONS.md, phase 2, decision D5). A reformulated question gives the
+   * service a NAME as well as a sentence, so the synthesis page stops being called after a
+   * paragraph cut mid-clause - and the name still has to be computed here, before the prompt,
+   * or `isSynthesisPath` and the post-run warning lose the thing they agree on.
+   */
+  describe('a title of its own', () => {
+    const sota = getResearchProfile('sota')
+    const broad = getResearchProfile('broad')
+
+    it('uses the given title and falls back to the topic without one', () => {
+      const topic = 'What is the installed cost per megawatt of rack-mounted tidal arrays?'
+      expect(researchTargetTitle(broad, topic, 'Tidal Array Installed Cost')).toBe('Research - Tidal Array Installed Cost')
+      expect(researchTargetTitle(sota, topic, 'Tidal Array Installed Cost')).toBe('Research - Tidal Array Installed Cost - State of the Art')
+      // Absent, empty and whitespace all mean "no title given": the old behaviour, unchanged.
+      for (const none of [undefined, '', '   ']) {
+        expect(researchTargetTitle(broad, 'tidal turbines', none)).toBe('Research - tidal turbines')
+      }
+    })
+
+    it('makes an unsafe title safe, the same way a topic-derived one is made safe', () => {
+      expect(researchTargetTitle(broad, 'ignored', 'Cost/MW: the question?')).toBe('Research - Cost-MW - the question')
+      expect(researchTargetTitle(broad, 'ignored', '../escape')).toBe('Research - escape')
+    })
+
+    it('fits the whole NAME into the cap, prefix and lens suffix included', () => {
+      const long = 'Tidal array installed cost per megawatt across every rack-mounted deployment in the North Sea and the Pentland Firth'
+      for (const p of RESEARCH_PROFILES) {
+        const title = researchTargetTitle(p, 'ignored', long)
+        expect(title.length).toBeLessThanOrEqual(TITLE_MAX_CHARS)
+        // Cut on a word boundary, not mid-word, and with no dangling separator.
+        expect(title.endsWith(p.titleSuffix)).toBe(true)
+        const middle = title.slice(RESEARCH_PREFIX.length, title.length - p.titleSuffix.length)
+        expect(long.startsWith(middle)).toBe(true)
+        expect(middle).not.toMatch(/[\s,;:-]$/)
+      }
+    })
+
+    it('stays recognisable to the post-run check, which is the pair D5 protects', () => {
+      // The prompt pins a title; the run files a page under it; the post-run warning fires
+      // when no page it committed is a synthesis. If these two ever stop agreeing, a run that
+      // did its job reports that it did not - so every shape goes through both.
+      const titles = ['Tidal Array Installed Cost', 'Cost/MW: the question?', 'A'.repeat(200), '...', undefined]
+      for (const p of RESEARCH_PROFILES) {
+        for (const title of titles) {
+          const pinned = researchTargetTitle(p, 'a topic with a / and a : in it', title)
+          expect(isSynthesisPath(`wiki/questions/${pinned}.md`), `${p.key} / ${String(title)}`).toBe(true)
+          // And the mandate pins exactly that name, rather than computing a second one.
+          expect(renderSynthesisMandate(p, 'a topic with a / and a : in it', title)).toContain(`"${pinned}"`)
+        }
+      }
+    })
+  })
+
   it('renders NO lens block for the default lens, so a plain run keeps the base framing', () => {
     expect(renderProfileBlock(getResearchProfile('broad'))).toBe('')
   })

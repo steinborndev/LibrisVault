@@ -1421,6 +1421,103 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     }
   })
 
+  /*
+   * Reformulating an open question before it becomes a topic (phase 2). The answer is a
+   * suggestion: when it does not work out the route says so with `topic: null` and the caller
+   * keeps the raw text, because this improves an action that has to work without it (D3).
+   */
+  it('reformulates a question into a topic and a page name', async () => {
+    const page = 'wiki/concepts/Reformulate Page.md'
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Reformulate Page.md'), '# Reformulate Page\n\nTidal rotors, in brief.\n')
+    let prompt = ''
+    maintAgent = async (opts) => {
+      prompt = opts.prompt
+      return {
+        ...okResult('{}'),
+        structuredOutput: { topic: 'What is the installed cost per megawatt of rack-mounted tidal arrays?', title: 'Tidal Array Installed Cost' },
+      } as AgentRunResult
+    }
+    const res = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'No source in this pass gives an installed-cost figure.', from: page }),
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      topic: 'What is the installed cost per megawatt of rack-mounted tidal arrays?',
+      title: 'Tidal Array Installed Cost',
+    })
+    // The page travelled as a bounded excerpt, not as a read tool and a free hand.
+    expect(prompt).toContain('Tidal rotors, in brief')
+    expect(prompt).toContain('No source in this pass')
+  })
+
+  it('answers topic: null rather than an error when the reformulation does not work out', async () => {
+    for (const bad of [{ nonsense: true }, undefined]) {
+      maintAgent = async () => ({ ...okResult('{}'), structuredOutput: bad }) as AgentRunResult
+      const res = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'a note' }),
+      })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ topic: null })
+    }
+    // A failed run is the same answer, not a 500.
+    maintAgent = async () => ({ ...okResult(''), ok: false, error: 'exploded' }) as AgentRunResult
+    const failed = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'a note' }),
+    })
+    expect(failed.status).toBe(200)
+    expect(await failed.json()).toEqual({ topic: null })
+  })
+
+  it('requires a note, and ignores an origin path it must not read', async () => {
+    const empty = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: '   ' }),
+    })
+    expect(empty.status).toBe(400)
+
+    let prompt = ''
+    maintAgent = async (opts) => {
+      prompt = opts.prompt
+      return { ...okResult('{}'), structuredOutput: { topic: 'What is the cost?', title: 'Cost' } } as AgentRunResult
+    }
+    for (const bad of ['../../etc/passwd', '/etc/passwd', 'skills/x.md', 'wiki/concepts/Absent.md']) {
+      const res = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'a note', from: bad }),
+      })
+      expect(res.status).toBe(200)
+      expect(prompt, `from ${bad}`).not.toContain('It stands on this page')
+    }
+  })
+
+  it('takes the reformulated title as the synthesis page name', async () => {
+    let prompt = ''
+    maintAgent = async (opts) => {
+      prompt = opts.prompt
+      return okResult('research done')
+    }
+    const res = await fetch(`${baseUrl}/api/v1/maintenance/research`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ topic: 'What is the installed cost per megawatt of rack-mounted tidal arrays?', title: 'Tidal Array Installed Cost' }),
+    })
+    expect(res.status).toBe(202)
+    const run = await pollRun(((await res.json()) as StartedRun).id)
+    expect(run.status).toBe('done')
+    // The page is named after the subject, not after a sentence cut mid-clause.
+    expect(prompt).toContain('"Research - Tidal Array Installed Cost"')
+    expect(prompt).not.toContain('Research - What is the installed cost')
+  })
+
   it('returns 404 for an unknown run id', async () => {
     const res = await fetch(`${baseUrl}/api/v1/maintenance/runs/does-not-exist`)
     expect(res.status).toBe(404)

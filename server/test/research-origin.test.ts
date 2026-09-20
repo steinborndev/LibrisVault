@@ -112,7 +112,7 @@ describe('the research prompt', () => {
 
   it('carries the origin block when the topic came from a page', async () => {
     const runner = makeRunner()
-    const run = runner.startResearch('blade fatigue under sediment loading', 'broad', undefined, PAGE)
+    const run = runner.startResearch('blade fatigue under sediment loading', 'broad', undefined, { from: PAGE })
     await settled(runner, run.id)
     expect(prompts[0]).toContain('<question_origin>')
     expect(prompts[0]).toContain(PAGE)
@@ -129,7 +129,7 @@ describe('the research prompt', () => {
     // Every way a path can fail: outside the wiki, escaping it, absolute, and simply absent.
     for (const bad of ['skills/x.md', 'wiki/../../etc/passwd', '/etc/passwd', 'wiki/concepts/Absent.md', '']) {
       const r2 = makeRunner()
-      const run = r2.startResearch(topic, 'broad', undefined, bad)
+      const run = r2.startResearch(topic, 'broad', undefined, { from: bad })
       await settled(r2, run.id)
       expect(prompts[0], `path ${JSON.stringify(bad)} must leave the prompt untouched`).toBe(baseline)
     }
@@ -139,7 +139,7 @@ describe('the research prompt', () => {
     // The overlap block only renders when the vault has a page whose title shares the topic's
     // tokens, which the fixture page does.
     const runner = makeRunner()
-    const run = runner.startResearch('tidal turbine blades', 'broad', undefined, PAGE)
+    const run = runner.startResearch('tidal turbine blades', 'broad', undefined, { from: PAGE })
     await settled(runner, run.id)
     const prompt = prompts[0]!
     const origin = prompt.indexOf('<question_origin>')
