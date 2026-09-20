@@ -22,7 +22,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseWikilinks } from './citations.js'
+import { parseWikilinks, styleDashes } from './citations.js'
 import { findWrappedLinks } from './link-repair.js'
 import { pluginDocPages } from './upstream-guard.js'
 import { TITLE_MAX_CHARS } from './research-profiles.js'
@@ -568,16 +568,25 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
 
     /*
      * Em-dashes and en-dashes (B9). The house style has banned them from the start and no
-     * prompt had ever said so, which is how 819 pages came to carry 10,257 of them. Code
-     * fences and inline code are excluded: inside them the character is content.
+     * prompt had ever said so, which is how 819 pages came to carry 10,257 of them.
+     *
+     * Counted over PROSE, through the definition the repair pass uses (`proseOf`), which is
+     * what makes this rule actionable: it excluded only code before, so it reported dashes in
+     * wikilink targets and urls - exactly what the repair leaves alone, since a page's file
+     * name carries the dash and rewriting the link breaks it. On this vault that was 544 of
+     * 830 remaining dashes and 147 pages whose every dash is untouchable. A rule that names a
+     * defect nobody may fix is noise on the standing list, and it drowns the ones that matter.
+     *
+     * `styleDashes` also excludes a dash between digits, which is a range the pass leaves on
+     * purpose - a hyphen there would change what the page says. That one was found by the test
+     * below asserting the two agree, not by reading either of them.
      */
-    const prose = markdown.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
-    const dashes = (prose.match(/[\u2014\u2013]/g) ?? []).length
+    const dashes = styleDashes(markdown)
     if (dashes > 0) {
       findings.push({
         rule: 'em-dash',
         path: rel,
-        message: `${dashes} em-dash or en-dash${dashes === 1 ? '' : 'es'} outside code - the house style uses a hyphen, a comma or a restructured sentence`,
+        message: `${dashes} em-dash or en-dash${dashes === 1 ? '' : 'es'} in prose - the house style uses a hyphen, a comma or a restructured sentence`,
       })
     }
 

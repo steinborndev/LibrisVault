@@ -19,6 +19,7 @@ import {
   type ValidationFinding,
 } from '../src/pipeline/validator.js'
 import { GraphBuilder } from '../src/pipeline/graph.js'
+import { emDashPass } from '../src/pipeline/repair.js'
 
 let vaultRoot: string
 
@@ -356,6 +357,66 @@ describe('single-source entities (graph-backed)', () => {
  *
  * Every question below is invented (hard rule 7).
  */
+/**
+ * Where a dash is content rather than style (2026-09-20).
+ *
+ * The rule counted dashes outside CODE, while the repair pass that removes them protects code,
+ * wikilink targets and urls - it learned on the live vault that rewriting a dash inside
+ * `[[...]]` breaks every link naming that page, since the page's file name still carries it.
+ * So the rule reported what the repair is forbidden to touch: 544 of 830 remaining dashes on
+ * this vault, and 147 pages whose every dash is untouchable, including four of the five hub
+ * pages. A defect nobody may fix is noise, and it buries the ones that matter.
+ *
+ * The last test here is the one that matters: the two now agree by construction.
+ */
+describe('em-dashes, and where a dash is not style', () => {
+  const withBody = (rel: string, body: string): void => page(rel, {}, body)
+  const dashes = (rel: string): ValidationFinding[] => validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'em-dash')
+
+  it('reports a dash in prose', () => {
+    withBody('wiki/concepts/Prose.md', 'A sentence \u2014 with an aside \u2014 in it.\n\n## Connections\n\nx\n')
+    const found = dashes('wiki/concepts/Prose.md')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.message).toContain('2 em-dash or en-dashes in prose')
+  })
+
+  it('says nothing about a dash inside a wikilink target', () => {
+    // The page it names carries the dash in its own file name; the link is a name, not prose.
+    withBody('wiki/concepts/Links.md', 'See [[Sample Preparation \u2014 PPT, LLE, SPE]] and [[Another \u2013 Thing]].\n\n## Connections\n\nx\n')
+    expect(dashes('wiki/concepts/Links.md')).toEqual([])
+  })
+
+  it('says nothing about a dash in code, a fence, a url or the frontmatter', () => {
+    page('wiki/concepts/Safe.md', { title: 'A \u2014 title' }, 'Inline `a \u2014 b`, a url https://x.invalid/a\u2014b\n\n```\nfenced \u2014 code\n```\n\n## Connections\n\nx\n')
+    expect(dashes('wiki/concepts/Safe.md')).toEqual([])
+  })
+
+  it('still finds the prose dash on a page that also has protected ones', () => {
+    withBody('wiki/concepts/Mixed.md', 'Prose \u2014 here. See [[A \u2014 B]] and `c \u2014 d`.\n\n## Connections\n\nx\n')
+    expect(dashes('wiki/concepts/Mixed.md')[0]!.message).toContain('1 em-dash')
+  })
+
+  it('agrees with the repair pass: what the repair leaves, the rule does not report', () => {
+    const cases = [
+      'Only [[A \u2014 B]] links here.',
+      'Only `a \u2014 b` code here.',
+      'Only https://x.invalid/a\u2014b here.',
+      'A range 1914\u20131918 and nothing else.',
+    ]
+    for (const body of cases) {
+      withBody('wiki/concepts/Agree.md', `${body}\n\n## Connections\n\nx\n`)
+      const md = fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Agree.md'), 'utf8')
+      const repaired = emDashPass('wiki/concepts/Agree.md', md, vaultRoot)
+      const reported = dashes('wiki/concepts/Agree.md').length
+      // Either the repair can fix it and the rule reports it, or neither happens.
+      expect(`${body.slice(0, 28)}: repair=${repaired === null ? 'none' : 'fixes'} rule=${reported}`).toBe(
+        `${body.slice(0, 28)}: repair=${repaired === null ? 'none' : 'fixes'} rule=${repaired === null ? 0 : reported}`,
+      )
+      if (repaired === null) expect(reported).toBe(0)
+    }
+  })
+})
+
 describe('open question form', () => {
   const withQuestions = (rel: string, bullets: readonly string[]): void =>
     page(rel, {}, `Body prose.\n\n## Connections\n\nRelated work sits here.\n\n## Open questions\n\n${bullets.map((b) => `- ${b}`).join('\n')}\n`)

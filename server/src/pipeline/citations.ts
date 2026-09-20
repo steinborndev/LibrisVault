@@ -88,6 +88,56 @@ function stripCode(text: string): string {
  *    which is how three concept pages that exist ended up ranked as the most wanted missing
  *    ones.
  */
+/**
+ * Where a character is CONTENT rather than style: code fences, inline code, wikilink targets,
+ * bare URLs, and the frontmatter block.
+ *
+ * One definition, because two readers of a page had two and they disagreed (2026-09-20). The
+ * repair pass that strips em-dashes protects all five - it learned the hard way, on the vault,
+ * that rewriting a dash inside `[[...]]` breaks every link naming that page, 199 of them in one
+ * run, because the page's own file name still carries the dash. The validator's style rule
+ * protected only code, so it reported what the repair deliberately left: on this vault, 544 of
+ * 830 remaining dashes sit in a protected context, and 147 pages carry nothing but those. Every
+ * one of them is a defect nobody is allowed to fix.
+ *
+ * Splits into alternating chunks: even indices are prose, odd ones are the protected spans.
+ */
+export function splitProtected(markdown: string): string[] {
+  const fm = /^---\r?\n[\s\S]*?\r?\n---/.exec(markdown)
+  const body = fm === null ? markdown : markdown.slice(fm[0].length)
+  return body.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|!?\[\[[^\]]*\]\]|https?:\/\/\S+)/)
+}
+
+/** The prose of a page: everything {@link splitProtected} does not protect, concatenated. */
+export function proseOf(markdown: string): string {
+  return splitProtected(markdown)
+    .filter((_, i) => i % 2 === 0)
+    .join('')
+}
+
+/**
+ * A dash BETWEEN DIGITS is a range ("1914-1918") and a hyphen would change what it says. The
+ * repair pass leaves these in place and counts them as not-done; the style rule must not report
+ * them either, or it names a defect whose only mechanical fix is wrong.
+ */
+export const isNumericRange = (text: string, at: number): boolean =>
+  /\d/.test(text[at - 1] ?? '') && /\d/.test(text[at + 1] ?? '')
+
+/**
+ * Dashes in a page that are STYLE: outside every protected span, and not a numeric range.
+ * The one count the reporting rule and the repairing pass agree on.
+ */
+export function styleDashes(markdown: string): number {
+  let n = 0
+  for (const chunk of splitProtected(markdown).filter((_, i) => i % 2 === 0)) {
+    for (let i = 0; i < chunk.length; i++) {
+      const c = chunk[i]!
+      if ((c === '\u2014' || c === '\u2013') && !isNumericRange(chunk, i)) n++
+    }
+  }
+  return n
+}
+
 export function parseWikilinkRefs(text: string): WikilinkRef[] {
   const byKey = new Map<string, { target: string; embed: boolean }>()
   const src = stripCode(text)

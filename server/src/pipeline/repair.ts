@@ -24,6 +24,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { stampDates } from './page-dates.js'
+import { isNumericRange, splitProtected } from './citations.js'
 import { CONTENT_BUCKETS, UPSTREAM_DEMO, collectPages, orderDomains, pageLink, sortPages, type HubPage } from './hubs.js'
 import { readDomainRegistry, UNASSIGNED } from './domains.js'
 
@@ -207,14 +208,17 @@ export const emDashPass: RepairPass = (_rel, markdown) => {
 
   let replaced = 0
   let kept = 0
-  const out = body
-    /*
-     * A WIKILINK TARGET IS A NAME, not prose (found the hard way on 2026-09-19: the first run
-     * of this pass rewrote dashes inside `[[...]]` and 199 links stopped resolving, because
-     * the pages they name still carry the dash in their own file names). Same reasoning as the
-     * addresses and the code below it: inside these, the character is an identifier.
-     */
-    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|!?\[\[[^\]]*\]\]|https?:\/\/\S+)/)
+  /*
+   * A WIKILINK TARGET IS A NAME, not prose (found the hard way on 2026-09-19: the first run of
+   * this pass rewrote dashes inside `[[...]]` and 199 links stopped resolving, because the
+   * pages they name still carry the dash in their own file names). Same reasoning as the
+   * addresses and the code below it: inside these, the character is an identifier.
+   *
+   * The list of what that covers lives in `citations.ts` since 2026-09-20 and is shared with
+   * the validator's style rule, which had its own shorter one and therefore reported every
+   * dash this pass deliberately leaves.
+   */
+  const out = splitProtected(head + body)
     .map((chunk, i) => {
       // Odd chunks are the delimiters themselves: code and addresses, left alone.
       if (i % 2 === 1) return chunk
@@ -222,11 +226,9 @@ export const emDashPass: RepairPass = (_rel, markdown) => {
       // where a literal dash is correct, and a future de-dashing pass over the sources
       // would silently break it.
       return chunk.replace(/[\u2014\u2013]/g, (dash, at: number) => {
-        // A dash BETWEEN DIGITS is a range ("1914-1918"), and a hyphen would change what it
-        // says. Left in place and counted, so the pass reports what it did not do.
-        const prev = chunk[at - 1] ?? ''
-        const next = chunk[at + 1] ?? ''
-        if (/\d/.test(prev) && /\d/.test(next)) {
+        // A range, left in place and counted so the pass reports what it did not do. The
+        // predicate is shared with the rule that reports dashes (`citations.ts`).
+        if (isNumericRange(chunk, at)) {
           kept++
           return dash
         }
