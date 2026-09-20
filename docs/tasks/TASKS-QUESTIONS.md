@@ -677,8 +677,55 @@ section should go, only that a bullet in it should be readable away from the pag
 
 ## Phase 6: local acceptance
 
-Nothing is merged before this. The user drives it; the tasks above are done when this pass has
-run and its notes are written into this file.
+Nothing is merged before this. The tasks above are done when this pass has run and its notes are
+written into this file.
+
+### The harness, and why it is a clone (2026-09-20)
+
+Everything below ran against a **`git clone --local` of the live vault** plus a copy of the
+service database, with two instances built from the working tree: **8430 with `AGENTS_ENABLED=1`**
+and **8431 without**, both with `TELEGRAM_BOT_TOKEN` cleared so the live bot keeps its polling
+slot, and both on their own database and watch folder. Vite dev servers on **5199** (to 8430) and
+**5200** (to 8431).
+
+The systemd instance (`curious.service`, port 8421, built `dist/`) was left alone: it runs on the
+real `~/vault`, and two services sharing one vault hold separate commit mutexes, which is the one
+arrangement that can actually damage it. The clone means the archive and restore steps below
+committed for real, to a vault nobody depends on.
+
+### Done, on the API surface
+
+- [x] **Flag off, the route the base product calls (D4).** `POST /maintenance/research/topic`
+      answers **400** on 8431 (registered, guarding an empty note) and **400** on 8430: the same
+      route, present either way. `GET /questions`, `/agents` and `/reading` are **404** on 8431.
+      That is the inverse pair D4 exists for, confirmed from both sides.
+- [x] **The reformulation, end to end, on a real question.** A limitation-shaped bullet from the
+      live board, one that carries a wikilink and a "formally equivalent to" clause, came back in
+      **6.5 s** (cap 60 s) as a question that ends in a question mark, spells the abbreviation
+      out, drops the wikilink, and carries no deixis. Title 47 characters against a budget of 89.
+- [x] **The prompt a run would receive**, built through the real `startResearch` with the real
+      origin and title, stopped before the model: the `<question_origin>` block names the page,
+      sits before the overlap rules, and the pinned page name is
+      `Research - <the short title>` instead of the topic sentence cut at 120 characters.
+- [x] **Archiving a row strikes every wording.** The three-page group the user's screenshot
+      showed: three 200s, **three commits, one per page, each naming its page**, and the board
+      moved 270/0 to 267/3. One line changed per page.
+- [x] **Restore puts them back**: 270/0 again, three more commits.
+- [x] **Clustering on real board data**: 270 entries become **256 rows**, 13 grouped rows over 27
+      entries, largest group 3. The lead of each group is its longest wording.
+
+### Not done, and why
+
+- [ ] **Everything that needs a rendered page.** No browser is installed on this machine (no
+      Chrome, no Chromium, no Playwright download), so the composer's own behaviour is unchecked:
+      the raw text arriving first and being replaced, "Preparing the topic" while it is in
+      flight, the edit winning over a late answer, nothing being auto-sent, and the clustered
+      row's "also on ..." line. These are exactly the properties that have no unit test, which is
+      why they are on this list. The dev servers are up and waiting.
+- [ ] **A real research run.** It costs 2 to 5 USD and writes pages into the clone. The prompt it
+      would receive has been read (above); what is untested is the run filing its synthesis under
+      the pinned name.
+- [ ] **A partial archive failure**, which needs a failure to engineer.
 
 **Before anything:** a fresh vault backup, and know which service is up. The dev instance and the
 live service share `~/vault` and hold separate commit mutexes, so an agent run started from one
@@ -708,8 +755,11 @@ must be exercised both ways (invariant 4, D4).
       a draft and the Start button is still yours to press.
 - [ ] **Clusters.** On the board, confirm the triple-written items now show as one row naming
       the other pages, and that archiving one strikes all three (check `git log` in the vault:
-      three commits, one per page, each naming its page). Expect **308 rows where there were
-      355**, and the easel in the room to say the same number as the board.
+      three commits, one per page, each naming its page). Expect the easel in the room to say the
+      same number as the board. **The numbers to expect are the BOARD's, not the audit's**: the
+      audit walks every file and counts 355 on 86 pages, the board shows graph knowledge pages
+      plus living Fellows' notebooks and returns **270 on 81 pages, which cluster to 256 rows**
+      (13 grouped rows over 27 entries). Measured 2026-09-20 against a clone of the live vault.
 - [ ] **A partial archive failure reads correctly.** Hard to force by hand; if it happens, the
       toast should say how many pages were done before which one failed, and the board should
       already show the real state rather than an optimistic one.
