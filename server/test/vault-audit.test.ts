@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -147,6 +148,25 @@ describe('the readers the counts rest on', () => {
 
 describe('auditVault over the fixture', () => {
   const report = auditVault(FIXTURE, { now: '2026-01-10' })
+
+  /*
+   * The fixture has to survive a fresh clone, and once it did not.
+   *
+   * `.raw/job-a/` and `.raw/job-b/` each held an `input.pdf`, and the repo ignores `*.pdf`
+   * outright - a deliberate guard, since this repo is public and the vault is not. So the two
+   * directories were never committed, and git stores no empty directory: they existed on the
+   * machine that wrote them and nowhere else. Locally the suite was green and CI failed with
+   * `expected [] to deeply equal [ 'job-b' ]`, which says nothing about the cause.
+   *
+   * This check runs first and names it. A fixture that a checkout cannot reproduce is not a
+   * fixture, and the assertion that catches it should say so rather than leaving the reader to
+   * infer it from a missing array element.
+   */
+  it('is reproducible from a checkout', () => {
+    for (const rel of ['.raw/job-a/input.txt', '.raw/job-b/input.txt']) {
+      expect(fs.existsSync(path.join(FIXTURE, rel)), `${rel} missing - is it caught by a .gitignore rule?`).toBe(true)
+    }
+  })
 
   it('counts pages by bucket and separates content from navigation', () => {
     expect(report.pages.total).toBe(9)

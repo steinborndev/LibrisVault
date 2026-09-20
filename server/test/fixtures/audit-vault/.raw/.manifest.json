@@ -3,7 +3,7 @@
   "created": "2026-01-01",
   "description": "fixture manifest",
   "sources": {
-    ".raw/job-a/input.pdf": {
+    ".raw/job-a/input.txt": {
       "hash": "0000000000000000000000000000000000000000000000000000000000000000",
       "ingested_at": "2026-01-01",
       "pages_created": [
