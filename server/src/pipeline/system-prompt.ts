@@ -48,13 +48,6 @@ All wiki content is written in English, regardless of the source language.
 `.trim()
 
 /**
- * Page-hygiene checklist appended to every vault-WRITING run (ingest, batch ingest, and the
- * maintenance write kinds). Derived from the recurring finding classes of the 2026-07-19
- * lint report — each item is a step the ingest skill has demonstrably skipped at least once.
- * This is the prevention side; the deterministic post-run validator (validator.ts) is the
- * backstop that catches what still slips through, so the two lists must stay in sync.
- */
-/**
  * The run's last action: touch its own completion marker.
  *
  * This is how the service tells a crashed run from a finished one (A6 contract 1). It used to
@@ -83,6 +76,69 @@ later. Do not create it earlier, and do not create it if you are stopping before
 `
 }
 
+/**
+ * How an open question is written (docs/tasks/TASKS-QUESTIONS.md, phase 3).
+ *
+ * Every vault-writing run may leave bullets under `## Open questions`, and the vault's own
+ * template asks for a gap note by construction: "[Question that research didn't fully answer]",
+ * "[Gap that needs more sources]". Measured over the 355 standing on this vault: 29 ask
+ * something, 153 open by reporting what could not be established, and 152 point back at the run
+ * that wrote them. Those bullets are the raw material of the pinboard, of a Fellow's planning
+ * run, and of the manual "Start research" path, and in all three a bullet that only makes sense
+ * beside its own page has to be repaired before it can be used.
+ *
+ * This is the prevention side. It reaches the vault through `systemPromptExtra` only (hard
+ * rule 5: the skill's own template is the vault's and is not edited), and it is NOT behind
+ * `AGENTS_ENABLED` - an ingest writes this section too, and the flag off must change nothing
+ * about the base product, in either direction.
+ *
+ * Two details that look like taste and are not:
+ *
+ * The bracket goes BEFORE the question mark. The first version of the reformulation prompt put
+ * it after, and seven of ten otherwise perfect questions then did not end as questions at all.
+ * A rule that quietly stops the sentence from being a question defeats the rule above it.
+ *
+ * There is no character limit here, and that is measured rather than lenient. The 30
+ * reformulated questions of phase 2 came out LONGER than the notes they replaced (median 351
+ * against 247) because spelling a name out and keeping the reason costs characters. Length is
+ * not the defect; a sentence that cannot be read on its own is.
+ */
+export const OPEN_QUESTION_FORM = `
+<open_questions>
+When you leave bullets under an "Open questions" heading, each one is read later by somebody who
+cannot see the page it stands on: a person picking it off a board, or a research run given it as
+its whole brief. Write every one so it survives that.
+
+- ASK something, and end the sentence with a question mark. A note that reports what you could
+  not establish says what is missing; it does not say what to go and find.
+- Never point back at this run or this document. None of these mean anything to the next
+  reader, so name what you are referring to instead:
+  "in this pass", "in this step", "either source", "the figures above", "both companies".
+- Spell names out in full the first time. The question travels alone, so a short form that the
+  page explains further up will not be explained where it lands.
+- One question per bullet, one sentence. Two questions are two bullets.
+- Keep what you learned about why it stayed open. Put it in brackets just BEFORE the question
+  mark, so the sentence still ends as a question: a paywall, only trade coverage, no independent
+  data, a fetch that failed. That steers the next run without becoming the question.
+- Do not repeat a question the section already carries, and do not copy the same question onto
+  several pages. Leave it on the page whose subject it is.
+
+So instead of:
+  - No source in this pass gave an installed-cost figure for the rack-mounted variant, which
+    would need a dedicated engineering pass.
+write:
+  - What is the installed cost per megawatt of rack-mounted tidal turbine arrays (not given by
+    the trade coverage read so far; likely needs manufacturer or engineering sources)?
+</open_questions>
+`.trim()
+
+/**
+ * Page-hygiene checklist appended to every vault-WRITING run (ingest, batch ingest, and the
+ * maintenance write kinds). Derived from the recurring finding classes of the 2026-07-19
+ * lint report — each item is a step the ingest skill has demonstrably skipped at least once.
+ * This is the prevention side; the deterministic post-run validator (validator.ts) is the
+ * backstop that catches what still slips through, so the two lists must stay in sync.
+ */
 export const PAGE_HYGIENE_CHECKLIST = `
 <page_hygiene>
 When you create or edit wiki pages, always finish with these checks (a post-run validator

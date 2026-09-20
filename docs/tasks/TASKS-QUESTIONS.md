@@ -462,33 +462,63 @@ metered call each. It does nothing for the 355 already standing, and nothing for
 Prevention. It cannot repair the standing 355 (D2), and it is what stops the next 355 looking
 the same.
 
-### 3.1 `OPEN_QUESTION_FORM` in `system-prompt.ts`
+### 3.1 `OPEN_QUESTION_FORM` in `system-prompt.ts` - DONE 2026-09-20
 
-- [ ] A short block in the shape of `PAGE_HYGIENE_CHECKLIST`: every item a defect measured in
-      section 0, stated as the behaviour wanted. At minimum: a question stands on its own,
-      understandable without the page under it; no "in this pass", "in this step", "either
-      source" or any other reference to the run that wrote it; names spelled out; one sentence
-      under a stated length; it asks something rather than reporting what was missing - and the
-      reason it stayed open goes in brackets at the END, where it keeps its value without
-      becoming the question.
-- [ ] It carries an example of the transformation, invented, in the file and in the prompt:
+- [x] A short block in the shape of `PAGE_HYGIENE_CHECKLIST`: every item a defect measured in
+      section 0, stated as the behaviour wanted. A question stands on its own, understandable
+      without the page under it; no "in this pass", "in this step", "either source" or any other
+      reference to the run that wrote it; names spelled out; one question per bullet, one
+      sentence; it asks something rather than reporting what was missing; and it is not copied
+      onto three pages.
+- [x] **Two corrections to this task, both earned in phase 2.** The reason a question stayed
+      open goes in brackets just BEFORE the question mark, not at the end: the opposite rule cost
+      7 of 10 otherwise perfect questions their question mark. And there is **no character
+      limit**, because the measurement says length is not the defect - phase 2's reformulated
+      questions came out LONGER than the notes they replaced (median 351 against 247), since
+      spelling a name out and keeping the reason costs characters. Task 5.1 inherits both.
+- [x] It carries an example of the transformation, invented, in the file and in the prompt:
       a note of the shape "no source in this pass gave independent figures for X's Y, which would
       need a dedicated technical pass" becomes "What independent figures exist for X's Y?
       (not found in trade coverage; needs technical sources)".
-- [ ] It goes into the blocks **every vault-writing run carries**, not into `renderFellowBlock`
+- [x] It goes into the blocks **every vault-writing run carries**, not into `renderFellowBlock`
       alone. The `## Open questions` section is written by ingest and by manual research runs
       too, and those exist with `AGENTS_ENABLED` off. This is not a Fellow feature, so it is not
       behind the flag (invariant 4).
-- [ ] It is appended after the vault's own skill template is loaded, which is where the service's
+- [x] It is appended after the vault's own skill template is loaded, which is where the service's
       other corrections already sit and why they hold ("a run follows the instruction in front of
       it", `maintenance.ts`).
 - **Tests:** `prompt-style.test.ts` gains the block (no dashes, by the existing assertion); a test
   asserts it is present in an ingest prompt, in a manual research prompt and in a Fellow run
   prompt, and that it does not depend on `AGENTS_ENABLED`.
-- **DoD:** all three prompt kinds carry it; the block itself obeys the rule it states (it contains
-  no em-dash and no deixis); `npm run vaultprobe` still green.
+- **DoD:** all three prompt kinds carry it; the block itself obeys the rule it states (no
+  em-dash, and its worked example passes `classifyQuestion` / `hasPassDeixis`); `npm run
+  vaultprobe` still green. Note the block necessarily QUOTES the deixis it forbids, so
+  "contains no deixis" is not the test - "does not drift from the shared list" is.
 
-### 3.2 The duplicate-writing problem, stated but not fixed here
+**Result.** 7 tests in `server/test/open-question-form.test.ts`, plus the block in the
+house-style assertion. Full suite 171 files / 2435 tests, typecheck, lint and `vaultprobe` all
+green.
+
+Three of the seven are the wiring, because the rule reaching only some runs would be worse than
+useless: an ingest run, a batch ingest and a research run each get the block, built with no
+Fellow anywhere in the picture, and each still carries the blocks it always had rather than
+having one swapped out. The other four read the block's content back and check it against the
+functions the audit and the validator use: its "before" example classifies as a limitation
+carrying deixis, its "after" example asks a question and carries none. A rule whose own example
+fails the check is worse than no rule.
+
+Two things the tests found rather than confirmed:
+
+- The quoted phrases were **broken across lines** by the block's own wrapping, so "either
+  source" was not a contiguous string. Harmless to a model reading prose, but it meant the
+  block could drift from `PASS_DEIXIS` without any test noticing. The phrases now sit on one
+  line and the test matches them by phrase.
+- A near-miss in the wiring: the first patch inserted the block **twice** in the maintenance
+  list, because a replacement keyed on an eight-space indent also matched inside a ten-space
+  one. Caught by reading the diff, not by a test - no test would have failed on a prompt that
+  says the same thing twice.
+
+### 3.2 The duplicate-writing problem, stated but not fixed here - DONE 2026-09-20
 
 The 32 clusters come from one run writing the same item to its notebook, its synthesis page and
 the concept page. The obvious rule ("write it once, on the page whose subject it is") collides
@@ -496,10 +526,14 @@ with the planner, which reads candidates from the notebook and from synthesis pa
 (`computeCandidates`, sources 1) - a question written only to a concept page would become
 invisible to the Fellow that wrote it.
 
-- [ ] Do NOT add a placement rule in this phase. Write the collision down here, measure the
+- [x] Do NOT add a placement rule in this phase. Write the collision down here, measure the
       cluster count again after phase 3 has been live for a while (0.1 gives the number), and
       decide then, with the planner's candidate sources on the table. Phase 4 handles the
       symptom in the meantime.
+- [x] The block does say the softer half of it - "do not copy the same question onto several
+      pages, leave it on the page whose subject it is" - which asks for the right thing without
+      naming a placement the planner then cannot read. If the cluster count does not move, the
+      structural fix is the one that has to be decided.
 
 ---
 

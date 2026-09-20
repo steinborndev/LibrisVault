@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  OPEN_QUESTION_FORM,
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
@@ -31,6 +32,7 @@ const promptText = (): Array<[string, string]> => {
   const profile = getResearchProfile(undefined)
   const blocks: Array<[string, string]> = [
     ['PAGE_HYGIENE_CHECKLIST', PAGE_HYGIENE_CHECKLIST],
+    ['OPEN_QUESTION_FORM', OPEN_QUESTION_FORM],
     ['TAG_HYGIENE_RULES', TAG_HYGIENE_RULES],
     ['UNTRUSTED_CONTENT_RULES', UNTRUSTED_CONTENT_RULES],
     ['ENTITY_NOTABILITY_RULES', ENTITY_NOTABILITY_RULES],

@@ -77,6 +77,7 @@ import { msUntilReset } from './budget.js'
 import { readDomainRegistry, domainSystemPrompt } from './domains.js'
 import {
   ENTITY_NOTABILITY_RULES,
+  OPEN_QUESTION_FORM,
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
@@ -1284,6 +1285,7 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        OPEN_QUESTION_FORM,
         // How this run says it reached its end (2.4): one file, touched last. Crash recovery
         // reads it instead of searching wiki/log.md, which the service now writes itself.
         renderCompletionMarker(runMarkerPath(job.id) ?? ''),
@@ -1855,6 +1857,7 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        OPEN_QUESTION_FORM,
         // A batch is one run with one lead job, so it leaves one marker - the lead's (2.4).
         renderCompletionMarker(runMarkerPath(lead) ?? ''),
         // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).

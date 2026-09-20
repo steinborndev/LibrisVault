@@ -22,6 +22,7 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { runAgent, EMPTY_USAGE, type AgentAuth, type AgentRunResult, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import {
   ENTITY_NOTABILITY_RULES,
+  OPEN_QUESTION_FORM,
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
@@ -1436,6 +1437,7 @@ export class MaintenanceRunner {
           UNTRUSTED_CONTENT_RULES,
           ENTITY_NOTABILITY_RULES,
           TAG_HYGIENE_RULES,
+          OPEN_QUESTION_FORM,
           // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
           this.reading === undefined ? '' : renderReadingList(actor, localDate(this.now())),
         ]
