@@ -88,7 +88,7 @@ import {
 } from './system-prompt.js'
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
-import type { ValidationFinding, Validator } from './validator.js'
+import { VAULT_WIDE_RULES, type ValidationFinding, type Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
 import { DEFAULT_CONCURRENCY } from '../db/settings.js'
@@ -1751,7 +1751,7 @@ export class IngestQueue {
       const { created, repeated } = this.validationStore.record(findings, jobId)
       // What this run looked at and no longer finds is repaired: taking it off the list is how
       // a fix becomes visible at all.
-      const resolved = this.validationStore.resolveMissing(touched, findings)
+      const resolved = this.validationStore.resolveMissing(touched, findings, { fullyChecked: VAULT_WIDE_RULES })
       for (const f of created) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
       const parts: string[] = []
       if (created.length > 0) parts.push(`${created.length} new`)

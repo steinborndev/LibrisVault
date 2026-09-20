@@ -153,6 +153,21 @@ describe('a maintenance run and the standing list', () => {
     expect(standing[0]!.count).toBe(2)
   })
 
+  it('clears a whole-vault rule even on a page it never touched', async () => {
+    /*
+     * The address map, the hub counters and the hot cache are read whole on every call, so a
+     * run covers all of their findings whatever pages it wrote. Without this they can be
+     * raised and never lowered: the pages they name are not pages a run touches.
+     */
+    const elsewhere: ValidationFinding = { rule: 'address-map', path: 'wiki/concepts/Far Away.md', message: 'no entry for it' }
+    validation.record([elsewhere], null)
+    expect(validation.list()).toHaveLength(1)
+
+    const runner = makeRunner(() => [])
+    await settle(runner, runner.startHotCache().id)
+    expect(validation.list()).toEqual([])
+  })
+
   it('leaves a defect on a page this run never touched', async () => {
     const elsewhere: ValidationFinding = { rule: 'em-dash', path: 'wiki/concepts/Other.md', message: 'x' }
     validation.record([elsewhere], null)

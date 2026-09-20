@@ -14,6 +14,7 @@ import {
   validateCounters,
   validateHotCache,
   createValidator,
+  VAULT_WIDE_RULES,
   HOT_CACHE_WORD_LIMIT,
   HOT_CACHE_RELATED_LIMIT,
   type ValidationFinding,
@@ -680,6 +681,42 @@ describe('the address map and pages with no document behind them', () => {
     manifest({ address_map: { 'wiki/concepts/Deleted.md': 'c-000012' }, sources: {} })
     const stale = validateAddressMap(vaultRoot).filter((f) => f.message.includes('no longer exists'))
     expect(stale).toHaveLength(1)
+  })
+})
+
+/**
+ * Which rules answer about the whole vault (2026-09-20).
+ *
+ * Three of the four checks `createValidator` composes ignore the paths they are given and read
+ * one file whole - the manifest, the hub counters, the hot cache - so one call is complete
+ * coverage for them. That is what lets their findings be CLEARED when they stop being reported.
+ * Without it they can be raised and never lowered: narrowing the address-map rule took the
+ * vault from 72 findings to 4 and left 68 standing that nothing would ever clear, because the
+ * pages they name are not pages a run touches.
+ *
+ * The first test is the drift guard. A fourth whole-vault check added later and not declared
+ * would reintroduce exactly that, silently.
+ */
+describe('VAULT_WIDE_RULES', () => {
+  it('names every rule that reports without being given a path', () => {
+    // A defect of each kind, then the validator called with NO paths at all: whatever still
+    // answers did not need a path to do it.
+    page('wiki/concepts/A.md', { address: 'c-000010' })
+    write('.raw/.manifest.json', JSON.stringify({ version: 1, address_map: { 'wiki/concepts/Gone.md': 'c-000011' } }))
+    write('wiki/index.md', '---\ntype: meta\n---\nTotal pages: 999 | Sources ingested: 4\n')
+    write('wiki/hot.md', `---\ntype: meta\n---\n${'word '.repeat(HOT_CACHE_WORD_LIMIT + 50)}`)
+
+    const answered = new Set(createValidator(vaultRoot)([]).map((f) => f.rule))
+    expect(answered.size).toBeGreaterThan(0)
+    for (const rule of answered) {
+      expect([rule, VAULT_WIDE_RULES.has(rule)]).toEqual([rule, true])
+    }
+  })
+
+  it('does not name a rule that needs a page to answer', () => {
+    for (const perPage of ['frontmatter', 'dead-link', 'em-dash', 'orphan', 'title-name']) {
+      expect([perPage, VAULT_WIDE_RULES.has(perPage as never)]).toEqual([perPage, false])
+    }
   })
 })
 

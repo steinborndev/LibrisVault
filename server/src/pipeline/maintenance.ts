@@ -79,7 +79,7 @@ export interface ResearchOrigin {
 }
 import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate, type ResearchProfile } from './research-profiles.js'
 import { renderFellowBlock, renderStepCaps, type FellowRunContext } from './fellow-prompts.js'
-import { HOT_CACHE_WORD_BUDGET, type Validator } from './validator.js'
+import { HOT_CACHE_WORD_BUDGET, VAULT_WIDE_RULES, type Validator } from './validator.js'
 import type { EventBus } from './events.js'
 import { buildRetrieveIndex, hasRetrieveScripts, RetrieveScriptsMissingError, type RetrieveIndexBuilder } from './retrieve-index.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
@@ -1618,7 +1618,7 @@ export class MaintenanceRunner {
             const { created, repeated } = this.validation.record(findings, runId === '' ? null : runId)
             // What this run looked at and no longer finds is repaired; taking it off the list
             // is how a fix becomes visible at all.
-            const resolved = this.validation.resolveMissing(touched, findings)
+            const resolved = this.validation.resolveMissing(touched, findings, { fullyChecked: VAULT_WIDE_RULES })
             for (const f of created) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
             const parts: string[] = []
             if (created.length > 0) parts.push(`${created.length} new`)

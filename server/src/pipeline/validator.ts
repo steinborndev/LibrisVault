@@ -1030,6 +1030,22 @@ export function validateHotCache(vaultRoot: string): ValidationFinding[] {
 }
 
 /** The standard composition the service wires in: per-page, address_map, counter and hot-cache checks. */
+/**
+ * The rules that answer about the WHOLE vault, whatever paths the validator is given.
+ *
+ * `validatePages` reads the pages it is handed; the three below read one file each - the
+ * manifest, the hub counters, the hot cache - and report everything wrong in it every time.
+ * That makes one call complete coverage for these rules, which is what lets a finding of theirs
+ * be cleared when it stops being reported (`ValidationStore.resolveMissing`). Without that they
+ * can be raised and never lowered: narrowing the address-map rule on 2026-09-20 took the vault
+ * from 72 findings to 4 and left 68 standing that nothing would ever clear, because the pages
+ * they name are not pages a run touches.
+ *
+ * Kept honest by a test rather than by care: `validator.test.ts` calls the validator with NO
+ * paths and asserts that every rule that still produces a finding is named here.
+ */
+export const VAULT_WIDE_RULES: ReadonlySet<ValidationRule> = new Set(['address-map', 'stale-counter', 'hot-cache-size'])
+
 export function createValidator(vaultRoot: string, graph?: { build(): VaultGraph }): Validator {
   return (paths) => [
     ...validatePages(vaultRoot, paths, graph?.build()),
