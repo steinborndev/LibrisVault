@@ -10,6 +10,7 @@
  */
 
 import fs from 'node:fs'
+import { followRenames, parseStagedRenames, MANIFEST_PATH } from './manifest-renames.js'
 import os from 'node:os'
 import path from 'node:path'
 import { runTool } from './preprocess/tools.js'
@@ -551,6 +552,15 @@ export async function commitVault(
     // Legacy no-pathspec callers keep the coarse `add -A` behaviour.
     await git(vaultRoot, ['add', '-A'])
   }
+
+  /*
+   * A page this commit RENAMES is still named by `.raw/.manifest.json`, which carries its
+   * DragonScale address and the job that produced it. The run that renames it cannot fix that
+   * (it treats `.raw/` as service-owned, correctly), so the service follows the rename here,
+   * into this same commit - one run, one commit. See `manifest-renames.ts`.
+   */
+  const renames = parseStagedRenames(await git(vaultRoot, ['diff', '--cached', '--find-renames', '--name-status', '-z']))
+  if (followRenames(vaultRoot, renames)) await git(vaultRoot, ['add', '--', MANIFEST_PATH])
 
   // Gate on what is actually STAGED, not the whole working tree: with the fallback gone, a
   // pathspec that matched nothing leaves the tree dirty (orphans) but the index empty, and a
