@@ -1589,16 +1589,44 @@ export class MaintenanceRunner {
         log('info', 'research-expand stayed inside its page set')
       }
 
-      // Post-run validation, only when the run actually touched pages (a read-only kind like
-      // domain-review has nothing to check). Advisory: findings never fail the run.
+      /*
+       * Post-run validation, only when the run actually touched pages (a read-only kind like
+       * domain-review has nothing to check). Advisory: findings never fail the run.
+       *
+       * It RECORDS into the standing list, the same as the ingest path, and that half was
+       * missing until 2026-09-20. Only `queue.ts` kept the list, so a lint, a lint-fix, a
+       * repair or a research run could neither add a defect to it nor take one off: the list
+       * only moved when an ingest happened to touch the same page. Measured the day it was
+       * found: 20 of the 44 standing findings had already been repaired on disk, two of them
+       * by a lint-fix run an hour earlier that had no way to say so. A list that reports
+       * repaired defects is the same failure A9 set out to end, running the other way.
+       */
       const touched = [...new Set([...written, ...pages])]
       if (this.validate !== undefined && touched.length > 0) {
         try {
           const findings = this.validate(touched)
-          if (findings.length === 0) log('info', 'post-run validation: no findings')
-          for (const f of findings) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
-          if (findings.length > 0) {
-            log('warn', `post-run validation: ${findings.length} finding(s) - advisory only, nothing was modified`)
+          if (this.validation !== undefined) {
+            const { created, repeated } = this.validation.record(findings, runId === '' ? null : runId)
+            // What this run looked at and no longer finds is repaired; taking it off the list
+            // is how a fix becomes visible at all.
+            const resolved = this.validation.resolveMissing(touched, findings)
+            for (const f of created) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+            const parts: string[] = []
+            if (created.length > 0) parts.push(`${created.length} new`)
+            if (repeated > 0) parts.push(`${repeated} standing`)
+            if (resolved > 0) parts.push(`${resolved} fixed since the last run`)
+            log(
+              created.length > 0 ? 'warn' : 'info',
+              parts.length === 0
+                ? 'post-run validation: no findings'
+                : `post-run validation: ${parts.join(', ')} (the standing list is on the System screen)`,
+            )
+          } else {
+            if (findings.length === 0) log('info', 'post-run validation: no findings')
+            for (const f of findings) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+            if (findings.length > 0) {
+              log('warn', `post-run validation: ${findings.length} finding(s) - advisory only, nothing was modified`)
+            }
           }
           if (findings.some((f) => f.rule === 'hot-cache-size')) this.refreshOversizedHotCache(kind, log)
         } catch (err) {
