@@ -664,12 +664,36 @@ section should go, only that a bullet in it should be readable away from the pag
 
 ### 5.2 The number that closes the loop
 
-- [ ] **OPEN, with one data point from the acceptance pass.** The single run written under
-      phase 3's rule produced 4 questions, 4 of 4 asking (baseline 8 %) and 1 of 4 carrying
-      deixis (baseline 43 %), and the validator flagged 1 of the 8 pages it touched. That is
-      encouraging and it is one run. After a batch of them: re-run `npm run questionaudit`,
-      record the new shares next to the section 0 baseline, and re-run the validator count
-      (86 of 86 on the standing board) to see whether any page has come clean.
+- [x] **Measured over six runs (2026-09-20).** One run plus a batch of five, sequential, on ML
+      topics the vault does not hold, against the clone. 46 minutes for the five, 20.17 USD for
+      all six, one commit each, 44 pages written or extended, **35 open questions** written.
+
+      | | Standing board | These six runs |
+      |---|---|---|
+      | ask a question | 29 of 355 (**8 %**) | **35 of 35 (100 %)** |
+      | carry pass-relative deixis | 152 of 355 (**43 %**) | 16 of 35 (**46 %**) |
+      | length, median | 247 | 339 |
+
+      **The first line is the result and it is unambiguous**: every question a run wrote under
+      the rule asks something, where four in five did not before. The validator says the same
+      from the other side - of the eight new pages carrying a questions list, all eight are
+      flagged and **not one is flagged for "does not ask anything"**. That half of the rule is
+      simply done.
+
+      **The second line did not move, and the breakdown says exactly why.** All 16 hits are the
+      single phrase "in this pass", and every one of them sits inside the bracket the rule
+      itself asks for: "(not extractable from the abstract in this pass - the full PDF was
+      fetched but not read)". The rule repaired the question and left the parenthesis alone,
+      because the parenthesis is where it invited a sentence about the run.
+
+      **Caveat, and it is mine.** The sharpened bracket wording was committed at 14:02; the
+      instance these runs went through started at 13:48 and loads the prompt once. So all six
+      runs saw the UNSHARPENED block, and the fix for the one defect they exposed is the one
+      thing this batch does not test. Re-measuring it needs a restarted instance and a run or
+      two.
+
+      The whole-vault shares barely move (29 of 355 asking becomes 33 of 359) and will not until
+      many runs have written under the rule. The incremental number is the one to read.
 - **DoD:** the question-mark share and the deixis share have moved in the right direction on
   questions written after phase 3 shipped. If they have not, phase 3's block is in the wrong
   place or is being overridden, and that is a finding to write down here rather than a phase to
@@ -784,7 +808,8 @@ origin page the question came from, which is the origin block of phase 1 doing i
 ### Not done, and why
 
 - [ ] **A partial archive failure**, which needs a failure to engineer.
-- [ ] **Task 5.2 properly**, which needs a batch of runs rather than one.
+- [ ] **The sharpened bracket wording**, which the six measured runs predate by fourteen
+      minutes. See task 5.2.
 
 **Before anything:** a fresh vault backup, and know which service is up. The dev instance and the
 live service share `~/vault` and hold separate commit mutexes, so an agent run started from one
