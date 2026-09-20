@@ -664,10 +664,12 @@ section should go, only that a bullet in it should be readable away from the pag
 
 ### 5.2 The number that closes the loop
 
-- [ ] **OPEN, and it cannot be closed today.** It needs real runs written under phase 3's rule,
-      and no such run has happened yet. After a batch of them: re-run `npm run questionaudit`,
-      record the new shares next to the section 0 baseline, and re-run the validator count above
-      (86 of 86) to see whether any page has come clean.
+- [ ] **OPEN, with one data point from the acceptance pass.** The single run written under
+      phase 3's rule produced 4 questions, 4 of 4 asking (baseline 8 %) and 1 of 4 carrying
+      deixis (baseline 43 %), and the validator flagged 1 of the 8 pages it touched. That is
+      encouraging and it is one run. After a batch of them: re-run `npm run questionaudit`,
+      record the new shares next to the section 0 baseline, and re-run the validator count
+      (86 of 86 on the standing board) to see whether any page has come clean.
 - **DoD:** the question-mark share and the deixis share have moved in the right direction on
   questions written after phase 3 shipped. If they have not, phase 3's block is in the wrong
   place or is being overridden, and that is a finding to write down here rather than a phase to
@@ -754,9 +756,35 @@ since the component still cannot be rendered in this suite.
 - [x] **The board**: the lede says 256 and 256 rows are drawn, 13 of them saying "also on" with
       the other page as a link.
 
+### The real research run, and the first evidence that phase 3 works
+
+One run, started from the composer by clicking Start, on a topic the vault does not hold
+(test-time compute against parameter scaling). **4.7 minutes, one commit, 5 new pages**: a
+concept page, four source pages for the papers it read, and the synthesis. It also extended the
+origin page the question came from, which is the origin block of phase 1 doing its work.
+
+- [x] **The page name is the pinned one.** The synthesis was filed as
+      `Research - Test-Time Compute vs Parameter Count Scaling for Reasoning Benchmarks.md`, 78
+      characters, exactly what the prompt pinned. Without phase 2 it would have been the topic
+      sentence cut at 120 characters, mid-clause, after "rather than vendor-published b".
+- [x] **Phase 3, measured on the only run that has ever written under it.** Four open questions,
+      and **all four end in a question mark** against a baseline of 8 %. All four name their
+      sources in full rather than referring to them. One of the four carries "in this pass",
+      and it carries it *inside the bracket* that the rule itself asks for - the bracket invites
+      a sentence about the run, and the run is the one thing the next reader cannot see. The
+      block now says the no-deixis rule holds inside the brackets too, with the example.
+- [x] **Task 5.2, first data point.** The validator over the 8 pages the run touched flags
+      exactly **one**, and says "of 4 open question(s) on this page, 1 refer(s) to the run that
+      wrote it". The "does not ask" half does not fire at all. Against the standing board, where
+      86 of 86 pages are flagged, that is the rule starting to discriminate - which is what it
+      was built for. The whole-vault shares barely move (29 of 355 asking becomes 33 of 359),
+      and they will not until many runs have written under the rule; the incremental number is
+      the one to read.
+
 ### Not done, and why
 
 - [ ] **A partial archive failure**, which needs a failure to engineer.
+- [ ] **Task 5.2 properly**, which needs a batch of runs rather than one.
 
 **Before anything:** a fresh vault backup, and know which service is up. The dev instance and the
 live service share `~/vault` and hold separate commit mutexes, so an agent run started from one

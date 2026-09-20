@@ -102,6 +102,12 @@ later. Do not create it earlier, and do not create it if you are stopping before
  * reformulated questions of phase 2 came out LONGER than the notes they replaced (median 351
  * against 247) because spelling a name out and keeping the reason costs characters. Length is
  * not the defect; a sentence that cannot be read on its own is.
+ *
+ * The brackets carry the no-deixis rule explicitly because the first real run under this block
+ * (2026-09-20) wrote four questions, all four ending in a question mark and naming their
+ * sources in full, and put "in this pass" inside the one bracket it used. The two rules pull
+ * against each other there: the bracket invites a sentence about the run, and the run is the
+ * one thing the next reader cannot see.
  */
 export const OPEN_QUESTION_FORM = `
 <open_questions>
@@ -119,7 +125,9 @@ its whole brief. Write every one so it survives that.
 - One question per bullet, one sentence. Two questions are two bullets.
 - Keep what you learned about why it stayed open. Put it in brackets just BEFORE the question
   mark, so the sentence still ends as a question: a paywall, only trade coverage, no independent
-  data, a fetch that failed. That steers the next run without becoming the question.
+  data, a fetch that failed. That steers the next run without becoming the question. The rule
+  above holds inside the brackets too: write "not in the abstract; the full PDF was not read",
+  never "not extractable in this pass".
 - Do not repeat a question the section already carries, and do not copy the same question onto
   several pages. Leave it on the page whose subject it is.
 
