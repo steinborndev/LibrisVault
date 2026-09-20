@@ -81,6 +81,53 @@ describe('what a section counts', () => {
     expect(parse(md).sections[0]!.count).toBe(2)
   })
 
+  it('finds the summary line of a section whose every word is a common one', () => {
+    // "Missing" and "pages" were both stop words, which left this title with nothing to match
+    // on and the count falling through to however many bullets the section happened to have.
+    const md = [
+      '# Lint Report: 2026-09-20',
+      '',
+      '## Summary',
+      '- Missing pages (manual grouping): 6 concept gaps + 2 contradictions',
+      '',
+      '## Missing Pages',
+      '- [[One]]',
+      '- [[Two]]',
+      '',
+    ].join('\n')
+    expect(parse(md).sections[0]!.count).toBe(6)
+  })
+
+  it('matches a summary key that overlaps the section title only in part', () => {
+    // Neither side contains the other: "validation" is absent left, "errors" right.
+    const md = [
+      '# Lint Report: 2026-09-20',
+      '',
+      '## Summary',
+      '- Address counter errors: 12',
+      '',
+      '## Address Counter Validation',
+      '- one example',
+      '',
+    ].join('\n')
+    expect(parse(md).sections[0]!.count).toBe(12)
+  })
+
+  it('reads an opening number only where the section opens', () => {
+    // A bare number deep in a section belongs to a sub-list, not to the section.
+    const md = [
+      '# Lint Report: 2026-09-20',
+      '',
+      '## Stale Claims',
+      'Grouped by cause below.',
+      '',
+      '- one example',
+      '40 pages were checked in total.',
+      '',
+    ].join('\n')
+    expect(parse(md).sections[0]!.count).toBe(1)
+  })
+
   it('does not count a lint-fix log as open defects', () => {
     const md = [
       '# Lint Report: 2026-09-20',
@@ -97,5 +144,34 @@ describe('what a section counts', () => {
     // The section is still there to read; it just is not a defect count.
     expect(r.sections.map((s) => s.title)).toContain('Auto-fix run')
     expect(r.totalFindings).toBe(4)
+  })
+})
+
+describe('a count with no section to show it', () => {
+  const md = (...summary: readonly string[]): string =>
+    ['# Lint Report: 2026-09-20', '', '## Summary', ...summary, '', '## Dead Links', '4 unresolved targets.', ''].join('\n')
+
+  it('counts a defect category the report states and then never writes up', () => {
+    const r = parse(md('- Dead links: 4', '- Domain-field gaps: 9'))
+    expect(r.extras).toEqual({ 'Domain-field gaps': 9 })
+    expect(r.totalFindings).toBe(13)
+  })
+
+  it('leaves out what describes the run rather than the vault', () => {
+    const r = parse(md('- Dead links: 4', '- Pages scanned: 1337', '- Auto-fixed: 2'))
+    expect(r.extras).toEqual({})
+    expect(r.totalFindings).toBe(4)
+  })
+
+  it('leaves out the report\'s own sum of its sections', () => {
+    // "Issues found" counts defects by any wording test, and adding it to the sections that
+    // make it up counts the whole report twice.
+    const r = parse(md('- Dead links: 4', '- Issues found: 4'))
+    expect(r.extras).toEqual({})
+    expect(r.totalFindings).toBe(4)
+  })
+
+  it('says nothing about a category that found nothing', () => {
+    expect(parse(md('- Dead links: 4', '- Stale index entries: 0')).extras).toEqual({})
   })
 })

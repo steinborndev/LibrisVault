@@ -41,7 +41,14 @@ export interface LintReport {
   /** Summary counts, e.g. { "Pages scanned": 94, "Issues found": 3 }. */
   readonly summary: Record<string, number>
   readonly sections: LintSection[]
-  /** Total findings across all non-summary sections. */
+  /**
+   * Defect counts the summary states that no section covers - the skill names a check in its
+   * summary and then folds it into a neighbouring section, or writes no section for it at all.
+   * Kept apart from `sections` because there are no findings to show, and counted in
+   * `totalFindings` because the defects are real.
+   */
+  readonly extras: Record<string, number>
+  /** Total findings across all non-summary sections, plus the extras above. */
   readonly totalFindings: number
 }
 
@@ -61,6 +68,8 @@ export function parseLintReport(markdown: string, resolve: (label: string) => Ci
   const openingCounts = new Map<string, number>()
   let current: { title: string; findings: LintFinding[] } | null = null
   let inSummary = false
+  /** True until the first non-blank line of the section we are in has been read. */
+  let atSectionStart = false
 
   const flush = (): void => {
     if (current) sections.push(current)
@@ -78,12 +87,19 @@ export function parseLintReport(markdown: string, resolve: (label: string) => Ci
       } else {
         inSummary = false
         current = { title, findings: [] }
+        atSectionStart = true
       }
       continue
     }
 
-    // "101 unresolved `[[wikilink]]` targets …" - the section stating its own total.
-    if (current !== null && !openingCounts.has(current.title)) {
+    /*
+     * "101 unresolved `[[wikilink]]` targets …" - the section stating its own total, and only
+     * on the line it opens with. A bare number deeper down belongs to a sub-list rather than to
+     * the section: on the 2026-09-20 report a backfill tally 40 lines in became the address
+     * section's count, and read 15 where the report said 12.
+     */
+    if (current !== null && atSectionStart && line.trim() !== '') {
+      atSectionStart = false
       const opening = /^(\d+)\s+\S/.exec(line.trim())
       if (opening) openingCounts.set(current.title, Number(opening[1]))
     }
@@ -119,14 +135,54 @@ export function parseLintReport(markdown: string, resolve: (label: string) => Ci
    * wins; the section's opening number ("101 unresolved …") is the same statement made locally;
    * the bullets are the last resort and are right only while the skill writes one per defect.
    */
-  const counted = sections.map((sec) => ({ ...sec, count: countFor(sec, summary, openingCounts.get(sec.title)) }))
+  const claimed = new Set<string>()
+  const counted = sections.map((sec) => {
+    const hit = matchSummary(sec.title, summary)
+    if (hit) claimed.add(hit.key)
+    return { ...sec, count: hit?.value ?? openingCounts.get(sec.title) ?? sec.findings.length }
+  })
+
+  /*
+   * A summary count no section covers. "Domain-field gaps: 9" was stated and then written up
+   * inside the frontmatter section, so nothing reported those nine. A key is an extra only when
+   * it names defects (a scan total is not a defect) and when it matches no section at all -
+   * not merely when some other key outranked it for one, which would double-count.
+   */
+  const extras: Record<string, number> = {}
+  for (const [key, value] of Object.entries(summary)) {
+    if (value === 0 || claimed.has(key) || !DEFECT_KEY.test(key) || AGGREGATE_KEY.test(key)) continue
+    const words = titleWords(key)
+    if (counted.some((sec) => subjectOverlap(words, titleWords(sec.title)) !== null)) continue
+    extras[key] = value
+  }
+
   /*
    * A lint-fix appends "## Auto-fix run" to the report it worked from, listing what it
    * repaired. Those are closed, not open: counting them would report a repair as a defect.
    */
-  const totalFindings = counted.filter((s) => !/^auto-fix\b/i.test(s.title)).reduce((n, s) => n + s.count, 0)
-  return { date, summary, sections: counted, totalFindings }
+  const open = counted.filter((s) => !/^auto-fix\b/i.test(s.title)).reduce((n, s) => n + s.count, 0)
+  const totalFindings = Object.values(extras).reduce((n, v) => n + v, open)
+  return { date, summary, sections: counted, extras, totalFindings }
 }
+
+/**
+ * Whether a summary key counts DEFECTS rather than work done. "Pages scanned: 1337" and
+ * "Auto-fixed: 0" describe the run, "Domain-field gaps: 9" describes the vault, and only the
+ * second kind may be added to a total. Prefix matching, so every plural comes along.
+ *
+ * Deliberately a positive list: a defect word we have not seen yet is left out of the total,
+ * which under-counts. Guessing the other way around would report 1337 scanned pages as defects.
+ */
+const DEFECT_KEY =
+  /\b(gap|error|issue|violation|missing|stale|dead|orphan|empty|duplicate|broken|mismatch|collision|conflict|unresolved|contradiction|drift)/i
+
+/**
+ * ... and which of those keys is the report's own SUM of the others. "Issues found: 200" counts
+ * defects by any wording test, and adding it to the sections that make it up double-counts the
+ * whole report - measured against the two reports this vault still holds from before the skill
+ * wrote per-category totals.
+ */
+const AGGREGATE_KEY = /\btotal\b|\boverall\b|\bissues?\s+found\b|\bfindings?\b/i
 
 /**
  * The significant words of a title, for matching a summary key to a section: lower-cased,
@@ -135,9 +191,14 @@ export function parseLintReport(markdown: string, resolve: (label: string) => Ci
  * A SET rather than a string, because the two are written by hand and drift in order as well
  * as in wording: "Em/en-dash house-style violations" heads a section called "House Style:
  * Em/En-Dash Violations", and a substring test cannot see that those are the same thing.
+ *
+ * The stop list holds grammar only. It once held "missing", "page" and "pages" as well, which
+ * left the section titled "Missing Pages" with no significant words at all and no way to find
+ * its own summary line - `subjectOverlap` already refuses a single shared word, which is the
+ * work those three were doing.
  */
 const titleWords = (title: string): Set<string> => {
-  const stop = new Set(['the', 'a', 'an', 'of', 'in', 'for', 'and', 'or', 'with', 'required', 'missing', 'page', 'pages'])
+  const stop = new Set(['the', 'a', 'an', 'of', 'in', 'for', 'and', 'or', 'with', 'required'])
   return new Set(
     title
       .toLowerCase()
@@ -150,29 +211,37 @@ const titleWords = (title: string): Set<string> => {
 }
 
 /**
- * The count for one section: the summary line that names it, else the number it opens with,
- * else how many bullets it has.
+ * How many significant words two titles share, or null when they are not the same subject.
  *
- * The summary match is on significant words rather than the whole string, because the two are
- * written by hand and never agree exactly: "Dead links: 101" heads a section called "Dead
- * Links", and "Em/en-dash house-style violations: 155 pages" one called "House Style: Em/En-Dash
- * Violations".
+ * Two thirds of the shorter title has to be shared, and more than one word. The sides are
+ * written by hand and rarely agree word for word - "DragonScale address errors" heads a section
+ * called "DragonScale Address Validation" - so demanding that one side contain the other
+ * entirely left that section reading a stray number instead of its own total. A single shared
+ * word ("gaps", "pages") stays a coincidence rather than the same subject.
  */
-function countFor(section: { title: string; findings: LintFinding[] }, summary: Record<string, number>, opening: number | undefined): number {
-  const wanted = titleWords(section.title)
-  if (wanted.size > 0) {
-    let best: { shared: number; value: number } | undefined
-    for (const [key, value] of Object.entries(summary)) {
-      const words = titleWords(key)
-      if (words.size === 0) continue
-      let shared = 0
-      for (const w of words) if (wanted.has(w)) shared++
-      // Every significant word of one side present in the other, and more than one of them:
-      // a single shared word ("gaps", "pages") is a coincidence, not the same subject.
-      const covers = shared === words.size || shared === wanted.size
-      if (covers && shared > 1 && (best === undefined || shared > best.shared)) best = { shared, value }
+const subjectOverlap = (a: Set<string>, b: Set<string>): number | null => {
+  if (a.size === 0 || b.size === 0) return null
+  let shared = 0
+  for (const w of b) if (a.has(w)) shared++
+  if (shared < 2 || shared * 3 < Math.min(a.size, b.size) * 2) return null
+  return shared
+}
+
+/**
+ * The summary line that names a section, if one does: the strongest overlap, and among equals
+ * the shorter key, so a line that says the same thing plus an aside does not outrank the plain
+ * one.
+ */
+function matchSummary(title: string, summary: Record<string, number>): { key: string; value: number } | undefined {
+  const wanted = titleWords(title)
+  let best: { key: string; value: number; shared: number; size: number } | undefined
+  for (const [key, value] of Object.entries(summary)) {
+    const words = titleWords(key)
+    const shared = subjectOverlap(wanted, words)
+    if (shared === null) continue
+    if (best === undefined || shared > best.shared || (shared === best.shared && words.size < best.size)) {
+      best = { key, value, shared, size: words.size }
     }
-    if (best !== undefined) return best.value
   }
-  return opening ?? section.findings.length
+  return best === undefined ? undefined : { key: best.key, value: best.value }
 }

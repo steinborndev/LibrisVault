@@ -400,12 +400,19 @@ export interface LintFinding {
 export interface LintSection {
   title: string
   findings: LintFinding[]
+  /**
+   * How many defects this section is ABOUT. Not the same as `findings.length`: the skill writes
+   * prose that groups defects into patterns, so a section with six bullets can be about 34.
+   */
+  count: number
 }
 
 export interface LintReport {
   date: string | null
   summary: Record<string, number>
   sections: LintSection[]
+  /** Defect counts the summary states that no section writes up. Part of `totalFindings`. */
+  extras: Record<string, number>
   totalFindings: number
 }
 
