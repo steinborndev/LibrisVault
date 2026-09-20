@@ -63,6 +63,38 @@ function isIndexLockContention(err: unknown): boolean {
   return message.includes('index.lock') && message.includes('File exists')
 }
 
+/**
+ * Of the paths given, the ones the vault deliberately ignores.
+ *
+ * `git add` refuses an ignored path and stages NOTHING else in the same call, so one such path
+ * in a run's pathspec loses the whole commit. That is not hypothetical: a lint run wrote itself
+ * a scanner into `.vault-meta/`, which `.git/info/exclude` holds out of history on purpose
+ * (derived artifacts, task 6.2), and the run failed after five minutes with its report written
+ * and nothing committed (2026-09-20).
+ *
+ * An ignored path is not an error - it is the vault saying this file is not history. It is
+ * dropped from the pathspec and the rest is staged.
+ */
+async function ignoredPaths(vaultRoot: string, paths: readonly string[]): Promise<Set<string>> {
+  if (paths.length === 0) return new Set()
+  try {
+    const out = await git(vaultRoot, ['check-ignore', '--', ...paths])
+    return new Set(
+      out
+        .split('\n')
+        .map((p) => p.trim())
+        .filter((p) => p !== ''),
+    )
+  } catch {
+    /*
+     * `check-ignore` exits 1 when nothing matched, which lands here as a throw and is the
+     * common case, not a failure. A real failure lands here too and yields the same answer:
+     * nothing filtered, and the `add` below behaves exactly as it did before this existed.
+     */
+    return new Set()
+  }
+}
+
 async function git(vaultRoot: string, args: readonly string[]): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -509,7 +541,12 @@ export async function commitVault(
     // never any run's own commit. The old fallback existed "so the tree never silently
     // accumulates changes"; that trade — mis-attributing another run's work vs. leaving it for
     // reconciliation — is the wrong one, so it is gone.
-    if (targeted.length > 0) await git(vaultRoot, ['add', '--', ...targeted])
+    if (targeted.length > 0) {
+      // An ignored path would make `git add` refuse the whole call; see `ignoredPaths`.
+      const ignored = await ignoredPaths(vaultRoot, targeted)
+      const stageable = targeted.filter((p) => !ignored.has(p))
+      if (stageable.length > 0) await git(vaultRoot, ['add', '--', ...stageable])
+    }
   } else {
     // Legacy no-pathspec callers keep the coarse `add -A` behaviour.
     await git(vaultRoot, ['add', '-A'])

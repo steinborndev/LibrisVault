@@ -309,3 +309,49 @@ describe('paths git would quote', () => {
     expect(res.committedPages).toEqual([NON_ASCII])
   })
 })
+
+/**
+ * A path the vault ignores must not lose the commit (2026-09-20).
+ *
+ * `git add` refuses an ignored path and stages nothing else in the same call. A lint run wrote
+ * itself a scanner under `.vault-meta/`, which `.git/info/exclude` holds out of history on
+ * purpose, and the whole run failed after five minutes with its report written and nothing
+ * committed. An ignored path is the vault saying this file is not history - it is dropped from
+ * the pathspec, and the rest of the run's work is committed.
+ *
+ * Runs against a real repo: this is entirely about what git does with a pathspec.
+ */
+describe('staging a path the vault ignores', () => {
+  beforeEach(() => {
+    fs.mkdirSync(path.join(repo, '.git/info'), { recursive: true })
+    fs.writeFileSync(path.join(repo, '.git/info/exclude'), '.vault-meta/*.py\n')
+  })
+
+  it('commits the rest of the run rather than failing on it', async () => {
+    write('wiki/concepts/Written.md', '# Written')
+    write('.vault-meta/_scanner.py', 'print("a helper the agent wrote")')
+    const res = await commitVault(repo, 'maintenance: lint', {
+      pathspec: ['wiki/concepts/Written.md', '.vault-meta/_scanner.py'],
+    })
+    expect(res.committed).toBe(true)
+    expect(res.committedPages).toContain('wiki/concepts/Written.md')
+    // The ignored file stays on disk and out of history, which is what ignoring it means.
+    expect(fs.existsSync(path.join(repo, '.vault-meta/_scanner.py'))).toBe(true)
+    const tracked = execFileSync('git', ['-C', repo, 'ls-files'], { encoding: 'utf8' })
+    expect(tracked).not.toContain('_scanner.py')
+  })
+
+  it('commits nothing when the ignored path was the only one', async () => {
+    write('.vault-meta/_scanner.py', 'x')
+    const res = await commitVault(repo, 'maintenance: lint', { pathspec: ['.vault-meta/_scanner.py'] })
+    // Nothing stageable, so nothing committed - and no throw, which is the point.
+    expect(res.committed).toBe(false)
+  })
+
+  it('still commits normally when nothing is ignored', async () => {
+    write('wiki/concepts/Plain.md', '# Plain')
+    const res = await commitVault(repo, 'ingest: a document', { pathspec: ['wiki/concepts/Plain.md'] })
+    expect(res.committed).toBe(true)
+    expect(res.committedPages).toEqual(['wiki/concepts/Plain.md'])
+  })
+})
