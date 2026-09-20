@@ -23,6 +23,7 @@
     "dedupe-eval": "tsx src/cli/dedupe-eval.ts",
     "preprocprobe": "tsx src/cli/preprocprobe.ts",
     "vaultprobe": "tsx src/cli/vaultprobe.ts",
+    "questionaudit": "tsx src/cli/questionaudit.ts",
     "vaultrepair": "tsx src/cli/vaultrepair.ts",
     "quoteprobe": "tsx src/cli/quoteprobe.ts",
     "usageprobe": "tsx src/cli/usageprobe.ts",
