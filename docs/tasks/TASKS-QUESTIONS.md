@@ -541,44 +541,76 @@ invisible to the Fellow that wrote it.
 
 The board shows 355 rows for roughly 294 distinct questions. Independent of phases 1 to 3.
 
-### 4.1 Clustering, as a pure function
+### 4.1 Clustering, as a pure function - DONE 2026-09-20
 
-- [ ] `clusterQuestions(entries)` in `web/src/lib/questions.ts`, beside `questionView`: groups by
+- [x] `clusterQuestions(entries)` in `web/src/lib/questions.ts`, beside `questionView`: groups by
       token overlap over the same measure phase 0 uses, returns one representative per group plus
       the members. Representative = the longest text of the group (it carries the most context),
       tie broken by page path so the choice is stable across renders.
-- [ ] The threshold is a named exported constant with the measured basis in its doc comment
+- [x] The threshold is a named exported constant with the measured basis in its doc comment
       (0.7 gives 32 clusters over 67 questions with no false merge found by hand on this vault).
-- [ ] Clustering happens on the client. The server route stays as it is; the archive action
+- [x] Clustering happens on the client. The server route stays as it is; the archive action
       already takes a page and a text, and the client knows every member of the group.
 - **Tests** (`web/src/lib/questions.test.ts` or the existing questions test): three wordings of
   one item on three pages cluster to one row; two genuinely different questions on one page do
   not merge; a narrower follow-up on the same subject does not merge (the expensive error, the
   same one `dedupe-judge.ts` is written around); the representative choice is stable.
 
-### 4.2 The row says where it stands
+### 4.2 The row says where it stands - DONE 2026-09-20
 
-- [ ] A clustered row shows "also on N other page(s)" with the pages reachable (title attribute
+- [x] A clustered row shows "also on N other page(s)" with the pages reachable (title attribute
       at minimum, `PageLink`s preferred).
-- [ ] The view counts (`total`, `planned`, `researching`) are counted over clusters, so the lede
+- [x] The view counts (`total`, `planned`, `researching`) are counted over clusters, so the lede
       and the board agree.
-- [ ] `planned` and `researching` on a cluster are true when they are true for ANY member: a
+- [x] `planned` and `researching` on a cluster are true when they are true for ANY member: a
       Fellow planning one wording has claimed the question.
 - **Tests:** the counts over a clustered fixture; a cluster where one member is planned shows as
   planned.
 
-### 4.3 Archiving a cluster archives its members
+### 4.3 Archiving a cluster archives its members - DONE 2026-09-20
 
-- [ ] The archive button on a clustered row issues one `POST /questions/archive` per member,
+- [x] The archive button on a clustered row issues one `POST /questions/archive` per member,
       sequentially (each one is a vault commit behind the shared mutex; parallel requests would
       queue on that mutex anyway and make failures harder to report).
-- [ ] Partial failure is reported and the list is invalidated, so the board shows what actually
+- [x] Partial failure is reported and the list is invalidated, so the board shows what actually
       happened rather than an optimistic state.
-- [ ] Restoring from the archived tab does the same in reverse.
+- [x] Restoring from the archived tab does the same in reverse.
 - **Tests:** a three-member cluster issues three calls; a failure on the second reports and does
   not silently claim success.
 - **DoD:** on the live board, the row count drops by the measured cluster surplus (355 to roughly
   294) and no two rows show the same question.
+
+**Result.** **355 rows become 308**, which is the audit's own figure for how many distinct
+questions the vault holds. 26 new tests (15 in `web/test/questionClusters.test.ts`, the view test
+rewritten around clusters, plus the archive cases). Full suite 172 files / 2450 tests, typecheck
+and lint, all exit 0.
+
+**The mirror was verified against the real thing, not argued for.** The measure lives twice by
+necessity - `scopeScore` over `tokenize` on the server, reimplemented in `web/src/lib/questions.ts`
+because a browser bundle cannot import the audit CLI - and two implementations of one measure
+drift unless something pins them. So both were run over the same 355 questions of the live vault
+and compared group by group: **43 clusters, 90 questions covered, identical grouping.** The
+throwaway script is not committed (it reads the live vault); what is committed is that both
+suites run the SAME cases, which is what catches a drift from here on.
+
+Four decisions this phase had to make that the task did not name:
+
+- **Clustering happens per TAB.** A cluster never mixes an archived wording with an open one.
+  Archiving one wording and leaving another is a state a user can produce, and a row that is
+  half struck through has nothing useful to say.
+- **The lead is the longest wording**, tie broken by page path. These wordings differ by how
+  much context they carry, and the one that says the most is the one worth reading and worth
+  handing to a run. The path tie-break keeps a row from reshuffling under the pointer between
+  two polls.
+- **A cluster stands in every domain one of its members stands in**, rather than only its
+  lead's. Otherwise grouping would quietly hide a question from a shelf it belongs to.
+- **The room's own count is clustered too.** The easel says how many questions there are and
+  opens the board that lists them; the two disagreeing by 47 would be a bug report waiting to
+  happen.
+
+Clustering is quadratic, so it runs once per tab inside a `useMemo` and the domain cut is a
+filter over the result. That also stops the same questions being regrouped differently depending
+on which shelf you are standing at.
 
 ---
 
@@ -649,9 +681,13 @@ must be exercised both ways (invariant 4, D4).
 - [ ] **Nothing is auto-sent** (phase 2, structural, not unit-testable here). From a board row,
       wait for the reformulation to land in the box and confirm no run has started: the box holds
       a draft and the Start button is still yours to press.
-- [ ] **Clusters.** On the board, confirm the triple-written items now show as one row with
-      "also on 2 other pages", and that archiving one strikes all three (check `git log` in the
-      vault: three commits, one per page, each naming its page).
+- [ ] **Clusters.** On the board, confirm the triple-written items now show as one row naming
+      the other pages, and that archiving one strikes all three (check `git log` in the vault:
+      three commits, one per page, each naming its page). Expect **308 rows where there were
+      355**, and the easel in the room to say the same number as the board.
+- [ ] **A partial archive failure reads correctly.** Hard to force by hand; if it happens, the
+      toast should say how many pages were done before which one failed, and the board should
+      already show the real state rather than an optimistic one.
 - [ ] **Restore.** Restore one from the archived tab and confirm the strikes come off.
 - [ ] **The counts.** `npm run questionaudit -- ~/vault` before and after the acceptance pass;
       the archived count should be non-zero for the first time.
