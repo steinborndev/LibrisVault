@@ -618,31 +618,56 @@ on which shelf you are standing at.
 
 The deterministic backstop for phase 3, and the instrument that says whether phase 3 worked.
 
-### 5.1 The `open-question-form` rule
+### 5.1 The `open-question-form` rule - DONE 2026-09-20
 
-- [ ] A new `ValidationRule` in `pipeline/validator.ts`. Note the existing comment at line 133:
+- [x] A new `ValidationRule` in `pipeline/validator.ts`. Note the existing comment at line 133:
       `## Open Questions` is deliberately not checked *for existence*, because the agents plan
       from it. A **form** check does not conflict with that, and the comment gets one sentence
       saying so.
-- [ ] It fires on a bullet that is over a stated length, that carries pass-relative deixis, or
-      that opens with a limitation clause ("no source", "neither", "this pass did not"). One
-      finding per bullet, naming which of the three.
-- [ ] Advisory like every other finding, and read-only like the whole module (hard rule 1).
-- [ ] The thresholds and the deixis list come from `pipeline/question-form.ts`, which phase 0
+- [x] It fires on a page whose open questions carry the defects phases 0 to 3 named. **Two
+      departures from this task, both forced by what was measured since it was written:**
+      - **No length check.** Phase 2's reformulated questions came out LONGER than the notes
+        they replaced (median 351 against 247), because spelling a name out and keeping the
+        reason costs characters. Length is not the defect; a sentence that cannot be read on
+        its own is. So the rule checks two things: does the bullet ask anything, and does it
+        point back at the run that wrote it.
+      - **One finding per PAGE, not per bullet.** The 355 bullets already standing will not be
+        rewritten (D2), so a per-bullet rule would report several hundred findings nobody is
+        allowed to act on, and would bury every other class in the report. A count per page
+        says the one thing worth knowing - is this section usable - and it moves when phase 3
+        works.
+- [x] Advisory like every other finding, and read-only like the whole module (hard rule 1).
+- [x] The thresholds and the deixis list come from `pipeline/question-form.ts`, which phase 0
       created for exactly this: the audit, the prompt rule and this rule read one vocabulary, so
       the three cannot drift apart. The module is import-free on purpose - the validator must not
       drag a planning module in behind it.
 - **Tests** (`server/test/validator.test.ts`): one page with one bullet of each defect class and
   one clean bullet; assert exactly three findings and their rules; assert a struck-through bullet
   and an `(answered)` bullet produce none (they are closed, and re-litigating them is noise).
-- **DoD:** run against the current vault it reports on the order of the numbers in section 0
-  (roughly 300 of 355 flagged); against a page whose bullets follow phase 3's rule it reports
-  none.
+- **DoD:** run against the current vault it reports on the order of the numbers in section 0;
+  against a page whose bullets follow phase 3's rule it reports none.
+
+**Result.** Against the live vault: **86 of 86 pages carrying open questions are flagged, none
+is clean**, covering all 355 bullets. That is the expected shape rather than a surprise - 29 of
+355 ask anything, spread thinly over the pages - and it is the baseline 5.2 measures against.
+
+Worth saying plainly: until phase 3 has run for a while, this rule fires on every page with the
+section, so it tells an operator nothing they can act on today. That is what it is for. It is
+advisory like every other finding, it writes nothing, and the six tests pin the two halves
+separately, both halves together in ONE finding, and silence for a section whose questions stand
+on their own or whose bullets are already closed (struck through, "(answered ...)", or the
+placeholder).
+
+The comment at the top of `validator.ts` that says `## Open Questions` is deliberately not
+checked now carries a sentence saying why this does not contradict it: the rule never says the
+section should go, only that a bullet in it should be readable away from the page.
 
 ### 5.2 The number that closes the loop
 
-- [ ] After phase 3 has been live across a batch of real runs, re-run `npm run questionaudit` and
-      record the new shares in this file next to the section 0 baseline.
+- [ ] **OPEN, and it cannot be closed today.** It needs real runs written under phase 3's rule,
+      and no such run has happened yet. After a batch of them: re-run `npm run questionaudit`,
+      record the new shares next to the section 0 baseline, and re-run the validator count above
+      (86 of 86) to see whether any page has come clean.
 - **DoD:** the question-mark share and the deixis share have moved in the right direction on
   questions written after phase 3 shipped. If they have not, phase 3's block is in the wrong
   place or is being overridden, and that is a finding to write down here rather than a phase to

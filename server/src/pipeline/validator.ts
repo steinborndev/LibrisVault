@@ -28,6 +28,8 @@ import { pluginDocPages } from './upstream-guard.js'
 import { TITLE_MAX_CHARS } from './research-profiles.js'
 import { STATUS_VOCABULARY } from './page-dates.js'
 import { parseFrontmatterMeta, type VaultGraph } from './graph.js'
+import { parseQuestionBullets } from './questions.js'
+import { asksAQuestion, hasPassDeixis } from './question-form.js'
 
 export type ValidationRule =
   | 'frontmatter'
@@ -60,6 +62,8 @@ export type ValidationRule =
   | 'em-dash'
   /** A `status:` outside the vocabulary the vault actually uses (B7). */
   | 'status-vocabulary'
+  /** Open questions on a page that cannot be read away from it (TASKS-QUESTIONS phase 5). */
+  | 'open-question-form'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule
@@ -132,6 +136,8 @@ const mirrorsField = (field: string | undefined, tag: string): boolean => {
  *
  * `## Assessment` and `## Open Questions` are deliberately NOT here: assessment is source
  * criticism and belongs to the source, and the standing agents plan from the open questions.
+ * The `open-question-form` rule below does not contradict that: it never says the section
+ * should go, only that a bullet in it should be readable away from the page it stands on.
  */
 const RUN_PROTOCOL_HEADINGS: ReadonlyArray<readonly [RegExp, string]> = [
   [/^editorial note/i, 'Editorial Note'],
@@ -492,6 +498,39 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
         path: rel,
         message: `"## ${heading}" is about what a RUN did, not about the subject - it belongs in the log entry`,
       })
+    }
+
+    /*
+     * Open questions that cannot be read away from the page they stand on
+     * (docs/tasks/TASKS-QUESTIONS.md, phase 5). The deterministic backstop for the prompt rule
+     * of phase 3, and the instrument that says whether that rule is working.
+     *
+     * ONE finding per page rather than one per bullet, which is a deliberate departure from the
+     * plan. The 355 bullets already standing are not going to be rewritten (decision D2), so a
+     * per-bullet rule would report several hundred findings that nobody is allowed to act on,
+     * and would bury every other class in the report. A count per page says the one thing worth
+     * knowing - is this page's section usable - and moves when phase 3 works.
+     *
+     * NOT a length check, which the plan asked for and the measurement refused: phase 2's
+     * reformulated questions came out LONGER than the notes they replaced (median 351 against
+     * 247), because spelling a name out and keeping the reason costs characters. Length is not
+     * the defect. A struck-through or answered bullet is skipped, both being closed already.
+     */
+    const bullets = parseQuestionBullets(markdown).filter((b) => !b.archived)
+    if (bullets.length > 0) {
+      const notAsked = bullets.filter((b) => !asksAQuestion(b.text)).length
+      const deictic = bullets.filter((b) => hasPassDeixis(b.text)).length
+      if (notAsked > 0 || deictic > 0) {
+        const parts = [
+          notAsked > 0 ? `${notAsked} do(es) not ask anything` : '',
+          deictic > 0 ? `${deictic} refer(s) to the run that wrote it ("in this pass", "either source")` : '',
+        ].filter(Boolean)
+        findings.push({
+          rule: 'open-question-form',
+          path: rel,
+          message: `of ${bullets.length} open question(s) on this page, ${parts.join(' and ')} - each one is read later without this page in front of it`,
+        })
+      }
     }
 
     /*
