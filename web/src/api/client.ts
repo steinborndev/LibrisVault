@@ -319,12 +319,30 @@ export const api = {
   researchProfiles: (): Promise<ResearchProfilesResponse> =>
     fetch(`${BASE}/maintenance/research/profiles`).then(json<ResearchProfilesResponse>),
 
-  research: (topic: string, profileKey?: string): Promise<MaintenanceRun> =>
+  /**
+   * `from` is the vault page a question was left open on and `title` the name the synthesis
+   * page should take, both present only when the topic came from a reformulated question.
+   */
+  research: (topic: string, profileKey?: string, from?: string, title?: string): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/research`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(profileKey ? { topic, profileKey } : { topic }),
+      body: JSON.stringify({ topic, ...(profileKey ? { profileKey } : {}), ...(from ? { from } : {}), ...(title ? { title } : {}) }),
     }).then(json<MaintenanceRun>),
+
+  /**
+   * One open question, turned into a topic a research run can act on. A suggestion: `topic` is
+   * null when it did not work out, and the caller keeps what it had.
+   */
+  suggestTopic: (text: string, from?: string): Promise<{ topic: string | null; title?: string }> =>
+    fetch(`${BASE}/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, ...(from ? { from } : {}) }),
+    })
+      .then(json<{ topic: string | null; title?: string }>)
+      // A suggestion that cannot be fetched is simply no suggestion: never an error the user sees.
+      .catch(() => ({ topic: null })),
 
   domainBackfill: (): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/domain-backfill`, { method: 'POST' }).then(json<MaintenanceRun>),

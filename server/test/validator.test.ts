@@ -345,6 +345,82 @@ describe('single-source entities (graph-backed)', () => {
   })
 })
 
+/**
+ * Open questions that cannot be read away from the page they stand on
+ * (docs/tasks/TASKS-QUESTIONS.md, phase 5).
+ *
+ * The backstop for the prompt rule of phase 3, and the instrument that says whether that rule
+ * is working. One finding per PAGE rather than per bullet, because the bullets already standing
+ * are not going to be rewritten (decision D2) and a per-bullet rule would report several hundred
+ * findings nobody may act on.
+ *
+ * Every question below is invented (hard rule 7).
+ */
+describe('open question form', () => {
+  const withQuestions = (rel: string, bullets: readonly string[]): void =>
+    page(rel, {}, `Body prose.\n\n## Connections\n\nRelated work sits here.\n\n## Open questions\n\n${bullets.map((b) => `- ${b}`).join('\n')}\n`)
+
+  const formFindings = (rel: string): ValidationFinding[] =>
+    validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'open-question-form')
+
+  it('says nothing about a section whose questions stand on their own', () => {
+    withQuestions('wiki/concepts/Good.md', [
+      'What is the installed cost per megawatt of rack-mounted tidal arrays (only trade coverage found so far)?',
+      'How long does a pitch bearing last in continuous submerged service?',
+    ])
+    expect(formFindings('wiki/concepts/Good.md')).toEqual([])
+  })
+
+  it('counts the ones that ask nothing', () => {
+    withQuestions('wiki/concepts/Silent.md', [
+      'No independent cost figure was found for the rack-mounted variant.',
+      'What is the installed cost per megawatt of rack-mounted tidal arrays?',
+    ])
+    const found = formFindings('wiki/concepts/Silent.md')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.message).toContain('of 2 open question(s)')
+    expect(found[0]!.message).toContain('1 do(es) not ask anything')
+    expect(found[0]!.message).not.toContain('refer(s) to the run')
+  })
+
+  it('counts the ones that point back at the run that wrote them', () => {
+    withQuestions('wiki/concepts/Deictic.md', ['Which coating survives the dust load, given the figures above?'])
+    const found = formFindings('wiki/concepts/Deictic.md')
+    expect(found).toHaveLength(1)
+    // It asks something, so only the deixis half fires.
+    expect(found[0]!.message).toContain('refer(s) to the run that wrote it')
+    expect(found[0]!.message).not.toContain('do(es) not ask anything')
+  })
+
+  it('reports both halves in one finding, never one per bullet', () => {
+    withQuestions('wiki/concepts/Both.md', [
+      'No source in this pass gave an installed-cost figure.',
+      'Neither source reported cycle life for the sealed variant.',
+      'What is the installed cost per megawatt of rack-mounted tidal arrays?',
+    ])
+    const found = formFindings('wiki/concepts/Both.md')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.message).toContain('2 do(es) not ask anything')
+    expect(found[0]!.message).toContain('2 refer(s) to the run')
+  })
+
+  it('leaves closed questions alone', () => {
+    // Struck through and "(answered ...)" are the two conventions a run uses to close one
+    // without deleting the line; re-litigating them would be noise.
+    withQuestions('wiki/concepts/Closed.md', [
+      '~~No source in this pass gave an installed-cost figure.~~',
+      'Whether a cavitation threshold exists below 3 m/s flow (answered 2026-09-03: it does not).',
+      '(none yet)',
+    ])
+    expect(formFindings('wiki/concepts/Closed.md')).toEqual([])
+  })
+
+  it('says nothing about a page with no such section', () => {
+    page('wiki/concepts/Plain.md')
+    expect(formFindings('wiki/concepts/Plain.md')).toEqual([])
+  })
+})
+
 describe('address_map consistency (2c)', () => {
   it('flags entries whose page was deleted, and map/frontmatter divergence', () => {
     page('wiki/concepts/Matching.md', { address: 'c-000010' })

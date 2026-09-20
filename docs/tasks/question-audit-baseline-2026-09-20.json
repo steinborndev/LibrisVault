@@ -1,0 +1,58 @@
+{
+  "takenAt": "2026-09-20",
+  "pagesScanned": 1269,
+  "pagesWithQuestions": 86,
+  "bullets": {
+    "total": 355,
+    "open": 355,
+    "archived": 0
+  },
+  "form": {
+    "question": 29,
+    "limitation": 153,
+    "statement": 173
+  },
+  "deixis": {
+    "total": 152,
+    "byPhrase": {
+      "this pass": 112,
+      "this step": 4,
+      "this run": 12,
+      "this session": 3,
+      "in this vault": 12,
+      "either source": 4,
+      "both sources": 0,
+      "neither source": 1,
+      "the N sources": 0,
+      "sourced here": 2,
+      "not sourced": 1,
+      "this synthesis": 1,
+      "above": 19,
+      "the sources here": 0
+    }
+  },
+  "length": {
+    "min": 77,
+    "p50": 247,
+    "p90": 394,
+    "max": 863,
+    "titleCap": 120,
+    "overTitleCap": 339,
+    "topicCap": 500,
+    "overTopicCap": 9
+  },
+  "clusters": {
+    "threshold": 0.7,
+    "count": 43,
+    "questionsCovered": 90,
+    "crossPage": 42,
+    "distinctAfterClustering": 308
+  },
+  "byBucket": {
+    "concepts": 81,
+    "entities": 2,
+    "meta": 90,
+    "questions": 149,
+    "sources": 33
+  }
+}

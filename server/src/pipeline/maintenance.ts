@@ -22,6 +22,7 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { runAgent, EMPTY_USAGE, type AgentAuth, type AgentRunResult, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import {
   ENTITY_NOTABILITY_RULES,
+  OPEN_QUESTION_FORM,
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
@@ -60,7 +61,22 @@ import { restoreCommitPaths, headHash, commitFileStatus } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
 import type { DomainCandidate } from './domain-candidates.js'
 import { indexWikiPages } from './citations.js'
-import { findRelatedPages, renderOverlapBlock } from './related-pages.js'
+import { findRelatedPages, renderOverlapBlock, renderQuestionOrigin } from './related-pages.js'
+import { resolveWikiPage } from './vault-paths.js'
+import { reformulate, type TopicSuggestion } from './question-topic.js'
+
+/**
+ * Where a manually started research run came from (docs/tasks/TASKS-QUESTIONS.md, phases 1
+ * and 2): the vault page a question was left open on, and the page name the reformulation
+ * settled on. Both are optional and both are dropped when they cannot be used - naming the
+ * origin and naming the page are improvements on an action that works without them.
+ */
+export interface ResearchOrigin {
+  /** Vault-relative page the question stands on; validated here, not at the route. */
+  readonly from?: string
+  /** The synthesis page's name, when something better than the topic sentence is known. */
+  readonly title?: string
+}
 import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate, type ResearchProfile } from './research-profiles.js'
 import { renderFellowBlock, renderStepCaps, type FellowRunContext } from './fellow-prompts.js'
 import { HOT_CACHE_WORD_BUDGET, type Validator } from './validator.js'
@@ -777,9 +793,18 @@ export class MaintenanceRunner {
    * synthesis mandate LAST - it is the one instruction that must survive the overlap block's
    * "prefer what already exists", and it is the run's definition of done.
    */
-  private researchPrompt(topic: string, profile: ResearchProfile, extra: string): string {
+  private researchPrompt(topic: string, profile: ResearchProfile, extra: string, origin?: ResearchOrigin): string {
     const overlap = renderOverlapBlock(findRelatedPages(this.vaultRoot, topic))
     const lens = renderProfileBlock(profile)
+    /*
+     * The page a question was left open on, when the topic came from one (phase 1). Validated
+     * HERE rather than at the route, so every caller gets the same answer: a path that escapes
+     * the wiki or names no file yields no block, and the prompt is then unchanged character for
+     * character. It is an optimisation, never the request, so a bad path is dropped and not
+     * refused.
+     */
+    const from = origin?.from
+    const originBlock = renderQuestionOrigin(from !== undefined && resolveWikiPage(this.vaultRoot, from) !== null ? from : undefined)
     return (
       'Use the autoresearch skill to research this topic and file the findings into the wiki: ' +
       `${topic}\n\n` +
@@ -802,9 +827,10 @@ export class MaintenanceRunner {
       'Finally report how many pages you created and the key findings. ' +
       'Stay focused on the stated topic rather than broadening the scope.' +
       lens +
+      originBlock +
       overlap +
       extra +
-      renderSynthesisMandate(profile, topic)
+      renderSynthesisMandate(profile, topic, origin?.title)
     )
   }
 
@@ -821,9 +847,31 @@ export class MaintenanceRunner {
    * model, effort and budget cap, carries the Fellow block in its prompt, and is attributed
    * to the Fellow in the run log.
    */
-  startResearch(topic: string, profileKey?: string, fellow?: FellowRunContext): MaintenanceRun {
+  /**
+   * One reformulation of an open question into a topic a run can act on (phase 2).
+   *
+   * It lives here because this is where a run's credential, vault root and injected runner
+   * already are, so a test that mocks the runner mocks this too. It is NOT a tracked run: it
+   * writes nothing, takes no mutex and leaves no row - it is a question asked before the run
+   * the user is about to start, and `reformulate` answers null rather than throwing when it
+   * does not work out.
+   */
+  async suggestTopic(text: string, from?: string, timeoutMs?: number): Promise<TopicSuggestion | null> {
+    if (this.auth === null) return null
+    return reformulate(
+      { text, ...(from !== undefined ? { page: from } : {}) },
+      {
+        vaultRoot: this.vaultRoot,
+        auth: this.auth,
+        run: this.runAgentFn,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
+    )
+  }
+
+  startResearch(topic: string, profileKey?: string, fellow?: FellowRunContext, origin?: ResearchOrigin): MaintenanceRun {
     const profile = getResearchProfile(profileKey)
-    const prompt = this.researchPrompt(topic, profile, fellow ? renderFellowBlock(fellow) : '')
+    const prompt = this.researchPrompt(topic, profile, fellow ? renderFellowBlock(fellow) : '', origin)
     // The topic and lens ride on the run record so every OTHER screen can name what is
     // running - the dashboard used to know this only inside the composer that started it.
     return this.start('research', prompt, 'research', { label: topic, profileKey: profile.key, ...fellowRunOptions(fellow) })
@@ -1389,6 +1437,7 @@ export class MaintenanceRunner {
           UNTRUSTED_CONTENT_RULES,
           ENTITY_NOTABILITY_RULES,
           TAG_HYGIENE_RULES,
+          OPEN_QUESTION_FORM,
           // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
           this.reading === undefined ? '' : renderReadingList(actor, localDate(this.now())),
         ]

@@ -32,7 +32,7 @@ import { CommandCentre, type CcView, type Pane, type RosterEntry } from '../comp
 import { ShelfPanel } from '../components/library/ShelfPanel.tsx'
 import { ReadingList } from '../components/library/ReadingList.tsx'
 import { QuestionBoard, researchRoute } from '../components/library/QuestionBoard.tsx'
-import type { QuestionTab } from '../lib/questions.ts'
+import { questionClusters, type QuestionRow, type QuestionTab } from '../lib/questions.ts'
 import { NewDepartment } from '../components/library/NewDepartment.tsx'
 import type { BoardId } from '../components/library/RoomSvg.tsx'
 import type { ReadingReach, ReadingTab } from '../lib/readingList.ts'
@@ -216,14 +216,19 @@ export function LibraryScreen({
   const [questionDomain, setQuestionDomain] = useState<string | null>(null)
   const [questionStops, setQuestionStops] = useState<readonly string[]>([])
   const [questionRow, setQuestionRow] = useState(0)
-  const [questionRows, setQuestionRows] = useState<readonly string[]>([])
+  const [questionRows, setQuestionRows] = useState<readonly QuestionRow[]>([])
   const questionGo = (d: string | null): void => {
     setQuestionDomain(d)
     setQuestionRow(0)
   }
   /* The easel pins as many cards as there are open questions; polled slowly, the board itself polls faster. */
   const questionsQ = useQuery({ queryKey: ['questions'], queryFn: api.questions, refetchInterval: active ? 60_000 : false, retry: false })
-  const openQuestions = questionsQ.data?.entries.filter((e) => !e.archived).length
+  /* Counted over clusters, like the board itself: the easel and the window it opens must not
+     disagree about how many questions there are (docs/tasks/TASKS-QUESTIONS.md, phase 4). */
+  const openQuestions = useMemo(
+    () => (questionsQ.data === undefined ? undefined : questionClusters(questionsQ.data.entries, 'current').length),
+    [questionsQ.data],
+  )
   /**
    * Which side of the paywall the board shows. Up here with the ring because its toggle is a
    * control of the board and stands in the headline with the others, not inside the list.
@@ -578,8 +583,8 @@ export function LibraryScreen({
       if (e.key === 'Enter') {
         // The same thing the row's button does: the question goes to the Research tab as its topic.
         e.preventDefault()
-        const text = questionRows[questionRow]
-        if (text !== undefined && questionTab === 'current') navigate(researchRoute(text))
+        const row = questionRows[questionRow]
+        if (row !== undefined && questionTab === 'current') navigate(researchRoute(row.text, row.page))
         return
       }
       if (e.key === 'Escape') {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  OPEN_QUESTION_FORM,
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
@@ -9,7 +10,7 @@ import {
   renderOaNotice,
 } from '../src/pipeline/system-prompt.js'
 import { renderProfileBlock, renderSynthesisMandate, getResearchProfile, RESEARCH_PROFILES } from '../src/pipeline/research-profiles.js'
-import { renderOverlapBlock } from '../src/pipeline/related-pages.js'
+import { renderOverlapBlock, renderQuestionOrigin } from '../src/pipeline/related-pages.js'
 import { renderIngestOverlap } from '../src/pipeline/ingest-overlap.js'
 import { domainSystemPrompt } from '../src/pipeline/domains.js'
 import { renderLogEntry } from '../src/pipeline/hubs.js'
@@ -31,6 +32,7 @@ const promptText = (): Array<[string, string]> => {
   const profile = getResearchProfile(undefined)
   const blocks: Array<[string, string]> = [
     ['PAGE_HYGIENE_CHECKLIST', PAGE_HYGIENE_CHECKLIST],
+    ['OPEN_QUESTION_FORM', OPEN_QUESTION_FORM],
     ['TAG_HYGIENE_RULES', TAG_HYGIENE_RULES],
     ['UNTRUSTED_CONTENT_RULES', UNTRUSTED_CONTENT_RULES],
     ['ENTITY_NOTABILITY_RULES', ENTITY_NOTABILITY_RULES],
@@ -39,6 +41,7 @@ const promptText = (): Array<[string, string]> => {
     ['renderOaNotice', renderOaNotice([])],
     ['renderSynthesisMandate', renderSynthesisMandate(profile, 'tidal turbines')],
     ['renderOverlapBlock', renderOverlapBlock({ pages: ['wiki/concepts/A.md'], syntheses: ['wiki/questions/B.md'] })],
+    ['renderQuestionOrigin', renderQuestionOrigin('wiki/concepts/A.md')],
     ['renderIngestOverlap', renderIngestOverlap({ pages: ['wiki/concepts/A.md'], syntheses: [] }, ['wiki/concepts/B.md'])],
     [
       'domainSystemPrompt',

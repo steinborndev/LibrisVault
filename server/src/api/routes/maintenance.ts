@@ -31,6 +31,13 @@ import {
   DEFAULT_PROFILE_KEY,
 } from '../../pipeline/research-profiles.js'
 
+/**
+ * How long the composer waits for a suggestion. Shorter than `reformulate`'s own default: a
+ * person is watching the box, and a raw question they can edit beats a better one that arrives
+ * after they have given up on it.
+ */
+const TOPIC_ENDPOINT_TIMEOUT_MS = 60_000
+
 export function registerMaintenanceRoute(
   app: FastifyInstance,
   ctx: AppContext,
@@ -276,11 +283,48 @@ export function registerMaintenanceRoute(
     return reply.send({ profiles: researchProfileList(), default: DEFAULT_PROFILE_KEY })
   })
 
+  /*
+   * Reformulating one open question into a topic a run can act on
+   * (docs/tasks/TASKS-QUESTIONS.md, phase 2).
+   *
+   * Deliberately NOT behind `AGENTS_ENABLED` (decision D4). The pinboard that sends most of
+   * these IS behind it, but the Graph screen's gap backlog is base product and reaches the
+   * composer through the same path; a route the base product calls has to answer with the flag
+   * off, or it is one 404 per click - the exact rot hard rule 8 names.
+   *
+   * Synchronous, unlike every run-starting POST above it: the answer is one sentence, the user
+   * is waiting on it in the composer, and there is nothing to stream. It is bounded by its own
+   * timeout and answers `{ topic: null }` rather than an error when it does not work out, so a
+   * failure costs the caller its suggestion and nothing else.
+   */
+  app.post('/api/v1/maintenance/research/topic', async (req, reply) => {
+    if (credentialMissing(reply)) return reply
+    const body = (req.body ?? {}) as { text?: unknown; from?: unknown }
+    const text = typeof body.text === 'string' ? body.text.trim() : ''
+    if (text === '') return reply.code(400).send({ error: 'provide a non-empty "text"' })
+    const from = typeof body.from === 'string' && body.from !== '' ? body.from : undefined
+    const suggestion = await maintenance.suggestTopic(text, from, TOPIC_ENDPOINT_TIMEOUT_MS)
+    return reply.send(suggestion ?? { topic: null })
+  })
+
   app.post('/api/v1/maintenance/research', async (req, reply) => {
     if (credentialMissing(reply)) return reply
-    const body = (req.body ?? {}) as { topic?: unknown; profileKey?: unknown }
+    const body = (req.body ?? {}) as { topic?: unknown; profileKey?: unknown; from?: unknown; title?: unknown }
     const topic = typeof body.topic === 'string' ? body.topic.trim() : ''
     if (topic === '') return reply.code(400).send({ error: 'provide a non-empty "topic"' })
+    /*
+     * The page this topic was left open on (docs/tasks/TASKS-QUESTIONS.md, phase 1). Only the
+     * TYPE is checked here; containment and existence are `startResearch`'s, so every caller of
+     * it gets one answer. A path that fails there is dropped, not refused: naming the origin
+     * page is an optimisation on the prompt and never the request itself.
+     */
+    const from = typeof body.from === 'string' && body.from !== '' ? body.from : undefined
+    /*
+     * The synthesis page's name, when the composer had a reformulation to offer (phase 2).
+     * Same rule as `from`: type-checked here, made safe and capped by `researchTargetTitle`,
+     * and simply absent when it is not usable.
+     */
+    const title = typeof body.title === 'string' && body.title.trim() !== '' ? body.title : undefined
     // A lens is optional (omit → default "broad"), but a PROVIDED one must be on the closed list:
     // free-text lenses are exactly the free-for-all the closed set exists to prevent.
     let profileKey: string | undefined
@@ -290,7 +334,7 @@ export function registerMaintenanceRoute(
       }
       profileKey = body.profileKey
     }
-    return reply.code(202).send(maintenance.startResearch(topic, profileKey))
+    return reply.code(202).send(maintenance.startResearch(topic, profileKey, undefined, { ...(from !== undefined ? { from } : {}), ...(title !== undefined ? { title } : {}) }))
   })
 
   /**
