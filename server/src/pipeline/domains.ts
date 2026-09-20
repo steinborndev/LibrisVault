@@ -157,7 +157,7 @@ export function domainSystemPrompt(registry: DomainRegistry | null): string {
   const list = registry.domains
     .map((d) => {
       const tags = d.tags.length > 0 ? `\n  typical tags: ${d.tags.join(', ')}` : ''
-      return `- ${d.key} — ${d.description}${tags}`
+      return `- ${d.key} - ${d.description}${tags}`
     })
     .join('\n')
   return `
@@ -166,16 +166,16 @@ Every wiki page you create or substantially rewrite must carry a \`domain:\` fie
 YAML frontmatter, holding EXACTLY ONE key from this closed list:
 
 ${list}
-- ${UNASSIGNED} — nothing above fits this page.
+- ${UNASSIGNED} - nothing above fits this page.
 
 Rules:
 - Never invent a domain key that is not on this list. If no listed domain fits, use
-  \`${UNASSIGNED}\`. That is a correct, expected outcome, not a failure — new domains are
+  \`${UNASSIGNED}\`. That is a correct, expected outcome, not a failure - new domains are
   added by a human editing ${DOMAIN_REGISTRY_PATH}, never by an ingest run.
 - The tag hints are guidance, not a lookup table. Classify by what the page is ABOUT.
 - Ignore entity-shaped tags (person, organization, product, researcher) when classifying:
   they describe what a page IS, not what it is about.
-- The field goes on EVERY page type — sources and entities too, not just concepts. Filtering
+- The field goes on EVERY page type - sources and entities too, not just concepts. Filtering
   the graph by domain is the point, and it only works if every page carries one.
 - Set \`domain:\` on pages you create. Do not retrofit unrelated existing pages in an ingest
   run; a separate backfill handles those.

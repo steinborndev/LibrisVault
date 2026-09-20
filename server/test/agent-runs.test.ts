@@ -305,7 +305,7 @@ describe('MaintenanceRunner run history', () => {
     await waitSettled(runner, run.id)
 
     expect(prompt).toContain('<synthesis_page>')
-    expect(prompt).toContain('"Research: tidal turbines"')
+    expect(prompt).toContain('"Research - tidal turbines"')
     // It has to survive the overlap block's "prefer what already exists", so it comes last.
     expect(prompt.indexOf('<synthesis_page>')).toBeGreaterThan(prompt.indexOf('Stay focused on the stated topic'))
   })

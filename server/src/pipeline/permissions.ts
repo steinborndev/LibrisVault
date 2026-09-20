@@ -89,6 +89,58 @@ const BASH_DENY: ReadonlyArray<{ readonly pattern: RegExp; readonly why: string 
     pattern: /(?:^|[\s;&|(])(?:mkfs|dd\s+if=|shutdown|reboot|systemctl|kill(?:all)?)(?:\s|$)/,
     why: 'system-level commands are not permitted',
   },
+  /*
+   * DESTRUCTIVE AND HISTORY-REWRITING GIT, and bulk deletion inside the wiki.
+   *
+   * Why these two are here at all, when the sandbox is what protects the vault: the sandbox
+   * allows writes under VAULT_ROOT, and `.git` lives under VAULT_ROOT. So history destruction
+   * is the one class it structurally cannot contain, and it is the one class that is not
+   * recoverable - hard rule 1's guarantee is that every vault mutation stays "versioned and
+   * revertable", and a `git reset --hard` or a `filter-branch` takes the versions away.
+   * `jobs.commit_hash` then points at nothing, and with it the revert button and the job rows.
+   *
+   * This is NOT the `scripts/*.sh` whitelist hard rule 4 forbids, and it is not an attempt to
+   * decide what an arbitrary shell string writes - that is still not tractable and still the
+   * sandbox's job. It is a denylist of named shapes that have no legitimate use in any run this
+   * service starts: no run of ours rewrites history, discards the working tree, or deletes
+   * pages (a page delete is the user's, through DELETE /api/v1/pages, in service code).
+   *
+   * Measured 2026-09-19: all nine of these shapes were permitted by the four entries above.
+   * `git push --force` is included although both vault remotes are pushed-disabled, because a
+   * guard that depends on a remote staying misconfigured is not a guard.
+   */
+  {
+    pattern:
+      /(?:^|[\s;&|(])git\s[^;&|\n]*?(?:reset\s+--(?:hard|merge)|clean(?:\s|$)|checkout\s+(?:--\s|-f\b|--force\b)|restore\b|filter-branch\b|filter-repo\b|reflog\s+expire\b|--prune\b|update-ref\s+-d\b|branch\s+-[dD]\b|push\s[^;&|\n]*(?:--force\b|-f\b)|commit\s[^;&|\n]*--amend\b|rebase\b)/,
+    why: 'git that destroys or rewrites history is not permitted: every vault mutation has to stay versioned and revertable (CLAUDE.md hard rule 1), and this is the one class the sandbox cannot contain because .git lives inside the write-allowed root',
+  },
+  {
+    /*
+     * The `rm` entry above guards paths OUTSIDE the vault; this one guards the wiki itself.
+     * `find` needs no path qualifier: bulk deletion by find has no legitimate use in a run,
+     * while the one legitimate recursive removal a skill documents (the retrieval index under
+     * `.vault-meta/`) names its own paths and stays allowed.
+     */
+    pattern:
+      /(?:^|[\s;&|(])(?:find\s[^;&|\n]*(?:-delete\b|-exec\s+(?:rm|truncate|shred)\b)|(?:truncate|shred)\s|rm\s+(?:-[A-Za-z]*\s+)*[^\s;&|]*wiki\/)/,
+    why: 'bulk deletion or truncation of vault pages is not permitted: pages are removed by the user through the dashboard, never by a run',
+  },
+  {
+    /*
+     * The same destruction spelled as an interpreter one-liner, which the two entries above
+     * read as an ordinary `python3` call. Deliberately narrow: it matches NAMED destructive
+     * calls inside an inline `-c`/`-e` script, nothing else. A script FILE doing the same
+     * thing passes, and that is the sandbox's job rather than this list's - the point here is
+     * that the obvious spelling should not be the easy way around the entries above.
+     *
+     * The scan after `-c` deliberately crosses `;`: the script is ONE quoted argument and its
+     * statements are separated by semicolons, so stopping at the first one reads
+     * `python3 -c "import shutil; shutil.rmtree(...)"` as harmless. It stops at a newline.
+     */
+    pattern:
+      /(?:^|[\s;&|(])(?:python3?|perl|ruby|node)\s[^;&|\n]*-[ce]\s[^\n]*(?:rmtree|os\.remove|os\.unlink|\bunlink\b|fs\.rmSync|fs\.unlinkSync|rimraf|shutil\.move)/,
+    why: 'deleting vault files through an inline interpreter script is not permitted, for the same reason as the shell forms above',
+  },
 ]
 
 /**

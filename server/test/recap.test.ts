@@ -247,14 +247,54 @@ describe('recap model from fixtures', () => {
     })
     expect(m.plan).toMatchObject({ available: true, calibrated: true, shares: { unit: 'points', weekUsed: 3.2 } })
     expect(m.fellows[0]!.runs[0]!.planPct).toEqual({ five_hour: 2.5, seven_day: 0.4 })
+    /*
+     * The ledger goes to the CHANNELS, not to the page (A7, 7.2): spend, plan windows and the
+     * research share change by the hour, and the page they were printed on is a versioned file
+     * in a knowledge base. One of those numbers reached a committed page as
+     * `57.99999999999999%`.
+     */
+    const message = renderRecapMessages(m).join('\n')
+    expect(message).toContain('Plan now: 5-hour 12%, week 31% (sonnet 4%).')
+    expect(message).toContain('Research share: 3.2 of 10 points this week, 1 of 15 points in this 5-hour window, about 17 standard step(s) left this week.')
+
     const page = renderRecapPage(m)
-    expect(page).toContain('**Plan now**: 5-hour 12%, week 31% (sonnet 4%).')
-    expect(page).toContain('**Research share**: 3.2 of 10 points this week, 1 of 15 points in this 5-hour window, about 17 standard step(s) left this week.')
+    expect(page).not.toContain('Plan now')
+    expect(page).not.toContain('Research share')
+    expect(page).not.toContain('Consumption')
+    expect(page).toContain('**Spend, plan windows and the research share**: in the dashboard under Home, Recap.')
+    // What a run DID stays on the page: that is the record, and it does not change by the hour.
     expect(page).toContain('3 page(s), 2.10 USD, 0.4 points of the week and 2.5 of the 5-hour window, commit abc123')
-    const usd = buildRecapModel({ cycleDate: '2026-09-07', now: at(7, 7, 0), since: 's', window: WINDOW, fellows: [], runsOf: () => [], pendingOf: () => [], shift: null, usage: () => ({ costUsd: 0, runs: 0 }), valueOf: () => ({ pageOpens: 0, recapLinks: 0 }), readPage: () => undefined, commitStatus: () => undefined, plan: { ...plan, available: false, reason: 'the SDK reports no plan rate limits for this credential', liveReason: null, sinceSample: { runs: 0, fiveHour: null, sevenDay: null }, override: { enabled: false, active: false, pct: 90, expiresAt: null }, weekOverride: { enabled: false, active: false, pct: 90, expiresAt: null }, windows: [], shares: { unit: 'usd', week: 100, fiveHour: 12, weekUsed: 12.4, fiveHourUsed: 2.1, stepsLeftWeek: 43 } } })
-    const text = renderRecapPage(usd)
+    // The same run and window as above, with a plan the SDK could not read: the share is then
+    // stated in USD-equivalent, and it still belongs in the channels rather than on the page.
+    const usdPlan = {
+      ...plan,
+      available: false,
+      reason: 'the SDK reports no plan rate limits for this credential',
+      liveReason: null,
+      sinceSample: { runs: 0, fiveHour: null, sevenDay: null },
+      override: { enabled: false, active: false, pct: 90, expiresAt: null },
+      weekOverride: { enabled: false, active: false, pct: 90, expiresAt: null },
+      windows: [],
+      shares: { unit: 'usd' as const, week: 100, fiveHour: 12, weekUsed: 12.4, fiveHourUsed: 2.1, stepsLeftWeek: 43 },
+    }
+    const usd = buildRecapModel({
+      cycleDate: '2026-09-07',
+      now: at(7, 7, 0),
+      since: '2026-09-06T07:00:00.000Z',
+      window: WINDOW,
+      fellows: [agentRecord()],
+      runsOf: () => [runRecord({ planPctDelta: { five_hour: 2.5, seven_day: 0.4 } })],
+      pendingOf: () => [],
+      shift: null,
+      usage: () => ({ costUsd: 2.1, runs: 1 }),
+      valueOf: () => ({ pageOpens: 0, recapLinks: 0 }),
+      readPage: () => undefined,
+      commitStatus: () => undefined,
+      plan: usdPlan,
+    })
+    const text = renderRecapMessages(usd).join('\n')
     expect(text).not.toContain('Plan now')
-    expect(text).toContain('**Research share**: 12.4 of 100 USD this week, 2.1 of 12 USD in this 5-hour window, about 43 standard step(s) left this week (USD-equivalent: the SDK reports no plan rate limits for this credential).')
+    expect(text).toContain('Research share: 12.4 of 100 USD this week, 2.1 of 12 USD in this 5-hour window, about 43 standard step(s) left this week (USD-equivalent: the SDK reports no plan rate limits for this credential).')
   })
 
   it('parses the summary answer and builds its input from runs with text', () => {

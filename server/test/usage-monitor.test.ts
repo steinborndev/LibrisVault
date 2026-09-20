@@ -418,3 +418,31 @@ describe('usage routes', () => {
     expect((samples.json() as { samples: unknown[] }).samples).toHaveLength(2)
   })
 })
+
+/**
+ * The float artifact, fixed at its source (A7, 7.2).
+ *
+ * Only the `u <= 1` branch used to round, so a reading that already arrived as a percentage
+ * was stored exactly as the SDK sent it. That is how `7.000000000000001` got into the database
+ * and `57.99999999999999%` onto a committed recap page - a number no reader needs to that
+ * precision, in a file that keeps it forever.
+ */
+describe('parseRateLimitEvent rounds both branches', () => {
+  it('rounds a fraction, as it always did', () => {
+    expect(parseRateLimitEvent({ rateLimitType: 'five_hour', utilization: 0.579999999999999 })?.utilization).toBe(58)
+  })
+
+  it('rounds a percentage too, which is where the artifact came from', () => {
+    expect(parseRateLimitEvent({ rateLimitType: 'seven_day', utilization: 7.000000000000001 })?.utilization).toBe(7)
+    expect(parseRateLimitEvent({ rateLimitType: 'seven_day', utilization: 57.99999999999999 })?.utilization).toBe(58)
+  })
+
+  it('keeps two decimals, which is finer than any reader of this needs', () => {
+    expect(parseRateLimitEvent({ rateLimitType: 'five_hour', utilization: 12.345 })?.utilization).toBe(12.35)
+    expect(parseRateLimitEvent({ rateLimitType: 'five_hour', utilization: 0.12345 })?.utilization).toBe(12.35)
+  })
+
+  it('still reads exactly 1 as a full window rather than as one percent', () => {
+    expect(parseRateLimitEvent({ rateLimitType: 'five_hour', utilization: 1 })?.utilization).toBe(100)
+  })
+})

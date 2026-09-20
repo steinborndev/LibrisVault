@@ -16,6 +16,7 @@ import type { VaultGraph } from './graph.js'
 import type { Mutex } from '../util/mutex.js'
 import { withWikiLock } from './wiki-lock.js'
 import { commitPaths, type CommitResult } from './git.js'
+import { stampDates } from './page-dates.js'
 import { parseNotebook } from './notebook.js'
 import type { ProposalRecord } from '../db/proposals.js'
 import { isDepartmentDomain } from './library.js'
@@ -236,7 +237,9 @@ export class QuestionsService {
     const next = strikeQuestion(markdown, text, archived)
     if (next === null) return { changed: false, vetoed: [] }
     const write = async (): Promise<void> => {
-      fs.writeFileSync(file, next, 'utf8')
+      // A content change (B7): the page now says this question is closed, which is exactly the
+      // kind of thing a freshness view should surface.
+      fs.writeFileSync(file, stampDates(next, { content: true }), 'utf8')
       if (this.o.commitMutex !== undefined && (this.o.autoCommit?.() ?? true)) {
         const commit = this.o.commit ?? commitPaths
         await commit(this.o.vaultRoot, `questions: ${archived ? 'archived' : 'restored'} one on ${path.basename(page, '.md')}`, [page])

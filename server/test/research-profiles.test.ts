@@ -10,6 +10,8 @@ import {
   researchTargetTitle,
   researchProfileList,
   titleSafe,
+  RESEARCH_PREFIX,
+  TITLE_MAX_CHARS,
 } from '../src/pipeline/research-profiles.js'
 
 describe('research profiles (Achse A)', () => {
@@ -42,9 +44,9 @@ describe('research profiles (Achse A)', () => {
     const broad = getResearchProfile('broad')
     const sota = getResearchProfile('sota')
     const patents = getResearchProfile('patents')
-    expect(researchTargetTitle(broad, 'tidal turbines')).toBe('Research: tidal turbines')
-    expect(researchTargetTitle(sota, 'tidal turbines')).toBe('Research: tidal turbines — State of the Art')
-    expect(researchTargetTitle(patents, 'tidal turbines')).toBe('Research: tidal turbines — Patent Landscape')
+    expect(researchTargetTitle(broad, 'tidal turbines')).toBe('Research - tidal turbines')
+    expect(researchTargetTitle(sota, 'tidal turbines')).toBe('Research - tidal turbines - State of the Art')
+    expect(researchTargetTitle(patents, 'tidal turbines')).toBe('Research - tidal turbines - Patent Landscape')
     // No two lenses share a synthesis title for the same topic.
     const titles = RESEARCH_PROFILES.map((p) => researchTargetTitle(p, 'x'))
     expect(new Set(titles).size).toBe(titles.length)
@@ -88,7 +90,7 @@ describe('research profiles (Achse A)', () => {
 
     it('pins the exact title and forbids choosing another', () => {
       const mandate = renderSynthesisMandate(getResearchProfile('broad'), 'tidal turbines')
-      expect(mandate).toContain('"Research: tidal turbines"')
+      expect(mandate).toContain('"Research - tidal turbines"')
       expect(mandate).toMatch(/EXACTLY this title, do not choose another/)
     })
 
@@ -109,7 +111,7 @@ describe('research profiles (Achse A)', () => {
     it('turns a path separator into a hyphen rather than a directory', () => {
       expect(titleSafe('durability/dosing-advantage versus X')).toBe('durability-dosing-advantage versus X')
       expect(titleSafe('a\\b')).toBe('a-b')
-      expect(researchTargetTitle(getResearchProfile('broad'), 'A/B')).toBe('Research: A-B')
+      expect(researchTargetTitle(getResearchProfile('broad'), 'A/B')).toBe('Research - A-B')
     })
 
     it('leaves an ordinary topic exactly as it was typed', () => {
@@ -131,7 +133,7 @@ describe('research profiles (Achse A)', () => {
   describe('isSynthesisPath', () => {
     it('accepts a research synthesis, whatever the lens suffix', () => {
       expect(isSynthesisPath('wiki/questions/Research: tidal turbines.md')).toBe(true)
-      expect(isSynthesisPath('wiki/questions/Research: kelp farming — State of the Art.md')).toBe(true)
+      expect(isSynthesisPath('wiki/questions/Research: kelp farming - State of the Art.md')).toBe(true)
     })
 
     it('rejects a page a folder below the bucket - the shape a slashed title makes', () => {
@@ -158,5 +160,50 @@ describe('research profiles (Achse A)', () => {
       expect(info).not.toHaveProperty('emphasis')
       expect(info).not.toHaveProperty('guard')
     }
+  })
+})
+
+/**
+ * The title template that mints the dead links (B3, 4.1). `Research: [Topic]` put a colon in
+ * every synthesis title, and the topic is whatever the user asked - which in this vault's
+ * worst cases is a whole question, producing file names of 213 to 221 characters.
+ */
+describe('a synthesis title is a name', () => {
+  const profile = getResearchProfile(undefined)
+
+  it('carries no colon any more', () => {
+    expect(researchTargetTitle(profile, 'Sodium-ion cathodes')).not.toContain(':')
+    expect(RESEARCH_PREFIX).not.toContain(':')
+  })
+
+  it('turns a colon in the topic into a separator rather than keeping it', () => {
+    expect(researchTargetTitle(profile, 'ADCs: what 2026 added')).toBe('Research - ADCs - what 2026 added')
+  })
+
+  it('handles the other characters a file name cannot carry', () => {
+    for (const bad of ['?', '*', '"', '<', '>', '|']) {
+      expect(researchTargetTitle(profile, `A${bad}B`)).not.toContain(bad)
+    }
+  })
+
+  it('cuts a whole question down to a name, on a word boundary', () => {
+    const question =
+      'As of September 2026, is any of the three named approaches measurably closer to the milestone in question than the others are, and what would settle it'
+    const title = researchTargetTitle(profile, question)
+    expect(title.length).toBeLessThanOrEqual(TITLE_MAX_CHARS + RESEARCH_PREFIX.length)
+    expect(title.endsWith(' ')).toBe(false)
+    // A cut in the middle of a word would also make two runs on one topic collide differently.
+    expect(question.startsWith(title.slice(RESEARCH_PREFIX.length))).toBe(true)
+  })
+
+  it('is deterministic: the same topic gives the same name twice', () => {
+    const topic = 'A topic that is quite a lot longer than the cap allows, going on and on past it'
+    expect(researchTargetTitle(profile, topic)).toBe(researchTargetTitle(profile, topic))
+  })
+
+  it('still recognises the 31 pages filed under the old spelling', () => {
+    // A run that stops recognising them files a second page beside one it should have extended.
+    expect(isSynthesisPath('wiki/questions/Research: Something old.md')).toBe(true)
+    expect(isSynthesisPath('wiki/questions/Research - Something new.md')).toBe(true)
   })
 })

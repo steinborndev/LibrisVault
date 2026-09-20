@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
+import { isKnowledgeNode, isSystemNode } from '../lib/knowledge.ts'
 import { navigate, pageRoute, catalogPageRoute } from '../lib/router.ts'
 import { CatalogArticle } from '../components/CatalogArticle.tsx'
 import { FootKeys } from '../components/FootKeys.tsx'
@@ -63,10 +64,10 @@ const SUBSETS: Array<{ key: Subset; label: string; desc: string }> = [
 
 
 function isOrphan(n: GraphNode): boolean {
-  return n.in === 0 && n.out === 0 && (n.kind ?? 'knowledge') === 'knowledge'
+  return n.in === 0 && n.out === 0 && isKnowledgeNode(n)
 }
 function isStub(n: GraphNode): boolean {
-  return (n.size ?? Infinity) < STUB_BYTES && (n.kind ?? 'knowledge') === 'knowledge'
+  return (n.size ?? Infinity) < STUB_BYTES && isKnowledgeNode(n)
 }
 
 export function Catalog({
@@ -223,7 +224,7 @@ export function Catalog({
   // System pages (index hubs, reports) are scaffolding - hidden unless asked for, same
   // default the graph uses.
   const knowledge = useMemo(
-    () => (nodes ?? []).filter((n) => (subset === 'system' ? (n.kind ?? 'knowledge') !== 'knowledge' : (n.kind ?? 'knowledge') === 'knowledge')),
+    () => (nodes ?? []).filter((n) => (subset === 'system' ? isSystemNode(n) : isKnowledgeNode(n))),
     [nodes, subset],
   )
 

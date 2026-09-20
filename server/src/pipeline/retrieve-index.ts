@@ -19,6 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { EventBus } from './events.js'
 import { ensureVaultExcludes, RETRIEVE_EXCLUDE_ENTRIES } from './vault-excludes.js'
+import { UPSTREAM_DEMO } from './hubs.js'
 
 export { RETRIEVE_EXCLUDE_ENTRIES }
 
@@ -243,6 +244,46 @@ const MIN_CHUNK_FETCH = 20
 const ROOT_PAGE_SLOTS = 1
 const isRootPage = (pagePath: string): boolean => /^wiki\/[^/]+\.md$/.test(pagePath)
 
+/** Enough of a page to see its frontmatter, which is all this needs. */
+const FRONTMATTER_PROBE_BYTES = 1024
+
+/**
+ * Whether a retrieved page is the plugin's own demo material (task 8.7).
+ *
+ * Filtered on the READ side rather than out of the index, deliberately. The chunk and BM25
+ * indexes are built by the vault's OWN scripts as child processes; teaching them to skip a page
+ * means editing them, which hard rule 5 forbids. Filtering what we hand to an agent is our side
+ * of the boundary and needs nobody's permission.
+ *
+ * Reads the candidate's own frontmatter rather than a cached set: a query over-fetches perhaps
+ * twenty pages, so this is twenty 1 kB reads, and a cache here would need invalidating on every
+ * vault write to stay correct. An unreadable page is not demo material - failing open keeps a
+ * retrieval failure from silently shrinking an answer.
+ */
+function isDemoPage(vaultRoot: string, pagePath: string): boolean {
+  let fd: number | undefined
+  try {
+    fd = fs.openSync(path.join(vaultRoot, pagePath), 'r')
+    const buffer = Buffer.alloc(FRONTMATTER_PROBE_BYTES)
+    const read = fs.readSync(fd, buffer, 0, FRONTMATTER_PROBE_BYTES, 0)
+    const head = buffer.subarray(0, read).toString('utf8')
+    const end = head.indexOf('\n---', 4)
+    return new RegExp(`^origin:[ \\t]*["']?${UPSTREAM_DEMO}["']?[ \\t]*$`, 'm').test(
+      end === -1 ? head : head.slice(0, end),
+    )
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd)
+      } catch {
+        /* the read already gave its answer */
+      }
+    }
+  }
+}
+
 /** One retrieved page, best first. Chunk hits are collapsed to their page. */
 export interface RetrievedCandidate {
   /** Vault-relative wiki path (`wiki/concepts/Foo.md`) — what the agent is told to read. */
@@ -329,6 +370,8 @@ export const retrieveCandidates: CandidateRetriever = async ({
       // keeping each page at its best rank.
       const pagePath = typeof c.page_path === 'string' ? c.page_path : ''
       if (pagePath === '' || seen.has(pagePath)) continue
+      // The plugin's demo material is readable in the vault and is not an answer about it.
+      if (isDemoPage(vaultRoot, pagePath)) continue
       if (isRootPage(pagePath)) {
         if (rootSlots >= ROOT_PAGE_SLOTS) continue
         rootSlots++
@@ -353,32 +396,67 @@ export interface RetrieveIndexSchedulerOptions {
   readonly start: () => void
   /** Checked at FIRE time (not scheduling time), so provisioning mid-window needs no restart. */
   readonly isProvisioned: () => boolean
-  /** Quiet window after the last finished ingest before one rebuild runs. Default 5 min. */
+  /** Quiet window after the last vault change before one rebuild runs. Default 5 min. */
   readonly debounceMs?: number
+  /**
+   * The latest a rebuild may run after the first unserved signal, whatever keeps arriving.
+   * Default 30 min. Without it a continuous stream postpones the rebuild forever (N4).
+   */
+  readonly maxWaitMs?: number
 }
 
 /**
- * Keeps the index fresh (SPEC.md §12.6 "Frische"): every job that reaches `done` resets a
- * debounce timer; when the window elapses, ONE rebuild is started — a burst of watch-folder
- * jobs must not cause N rebuilds. Inert while the index is unprovisioned.
+ * Keeps the index fresh (SPEC.md §12.6 "Frische").
+ *
+ * WHAT IT USED TO KEY ON, AND WHY THAT WAS WRONG (N4). It subscribed to `kind: 'job'` events
+ * with status `done`, i.e. to INGESTS ONLY. Everything else that writes a page - research runs,
+ * the night shift, Fellow runs, lint-fix, `PUT`/`DELETE /pages`, the question archive, recap,
+ * notebook and reading-list writes - left the index stale until the next ingest happened to
+ * come along, and on a vault whose ingests had stopped that is forever.
+ *
+ * It now also listens to `kind: 'vault'`, the debounced signal the vault watcher publishes for
+ * ANY change under `wiki/`. That catches every writer by construction, the ones that write
+ * through Bash included, rather than by remembering to add a signal to each of them.
+ *
+ * THE SECOND DEFECT, in the same function: a pure debounce with no maximum wait. A continuous
+ * stream of signals - a batch drop, a night shift writing page after page - postponed the
+ * rebuild indefinitely. There is now a cap: the rebuild runs at the latest `maxWaitMs` after
+ * the FIRST unserved signal, whatever arrives in between.
  */
 export function startRetrieveIndexScheduler(opts: RetrieveIndexSchedulerOptions): RetrieveIndexScheduler {
   const debounceMs = opts.debounceMs ?? 5 * 60_000
+  const maxWaitMs = opts.maxWaitMs ?? 30 * 60_000
   let timer: NodeJS.Timeout | null = null
-  const unsubscribe = opts.events.subscribe((event) => {
-    if (event.kind !== 'job' || event.job.status !== 'done') return
+  let capTimer: NodeJS.Timeout | null = null
+
+  const fire = (): void => {
     if (timer !== null) clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = null
-      if (!opts.isProvisioned()) return
-      // A throw here would be an uncaught exception inside a timer — never let it escape.
-      try {
-        opts.start()
-      } catch {
-        /* the run records its own failure; scripts vanishing mid-flight lands here */
-      }
-    }, debounceMs)
+    if (capTimer !== null) clearTimeout(capTimer)
+    timer = null
+    capTimer = null
+    if (!opts.isProvisioned()) return
+    // A throw here would be an uncaught exception inside a timer - never let it escape.
+    try {
+      opts.start()
+    } catch {
+      /* the run records its own failure; scripts vanishing mid-flight lands here */
+    }
+  }
+
+  const bump = (): void => {
+    if (timer !== null) clearTimeout(timer)
+    timer = setTimeout(fire, debounceMs)
     timer.unref?.()
+    // Started on the FIRST unserved signal and never reset, which is what makes it a cap.
+    if (capTimer === null) {
+      capTimer = setTimeout(fire, maxWaitMs)
+      capTimer.unref?.()
+    }
+  }
+
+  const unsubscribe = opts.events.subscribe((event) => {
+    if (event.kind === 'vault') bump()
+    else if (event.kind === 'job' && event.job.status === 'done') bump()
   })
   return {
     close: () => {
@@ -386,6 +464,10 @@ export function startRetrieveIndexScheduler(opts: RetrieveIndexSchedulerOptions)
       if (timer !== null) {
         clearTimeout(timer)
         timer = null
+      }
+      if (capTimer !== null) {
+        clearTimeout(capTimer)
+        capTimer = null
       }
     },
   }

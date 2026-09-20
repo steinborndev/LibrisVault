@@ -6550,6 +6550,27 @@ tr:focus-within .rowacts {
 .kv .k.warnish {
   color: var(--warn);
 }
+/* A settings field whose current value leaves what the vault was built for (concurrency). */
+.setting-warn {
+  margin: 6px 0 0;
+  max-width: 46ch;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--warn);
+}
+
+/* The rule filter above the standing defect list: the existing chips, wrapped. */
+.defect-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+/* A value that is a problem rather than a fact: the vault guard the System panel reports. */
+.kv .v.bad {
+  color: var(--err);
+}
 .kv .v {
   font-family: var(--mono);
   font-size: 11.5px;

@@ -1,0 +1,542 @@
+{
+  "meta": {
+    "measuredAt": "2026-09-19T22:00:04.717Z",
+    "now": "2026-09-19",
+    "head": "bc09e5fea4e9a879d87aefdbfb548808d4eaa423"
+  },
+  "pages": {
+    "total": 1238,
+    "content": 1195,
+    "byBucket": {
+      "concepts": 602,
+      "sources": 337,
+      "entities": 217,
+      "questions": 36,
+      "comparisons": 2,
+      "references": 1
+    },
+    "byType": {
+      "concept": 602,
+      "source": 337,
+      "entity": 217,
+      "meta": 32,
+      "synthesis": 31,
+      "fold": 5,
+      "question": 5,
+      "comparison": 2,
+      "decision": 1,
+      "reference": 1,
+      "(other)": 5
+    },
+    "sourcesByType": {
+      "comparison": {
+        "total": 2,
+        "none": 1,
+        "one": 0,
+        "many": 1,
+        "singleSourceShare": 0
+      },
+      "concept": {
+        "total": 602,
+        "none": 91,
+        "one": 442,
+        "many": 69,
+        "singleSourceShare": 73.4
+      },
+      "entity": {
+        "total": 217,
+        "none": 73,
+        "one": 100,
+        "many": 44,
+        "singleSourceShare": 46.1
+      },
+      "question": {
+        "total": 5,
+        "none": 4,
+        "one": 0,
+        "many": 1,
+        "singleSourceShare": 0
+      },
+      "synthesis": {
+        "total": 31,
+        "none": 4,
+        "one": 4,
+        "many": 23,
+        "singleSourceShare": 12.9
+      },
+      "reference": {
+        "total": 1,
+        "none": 1,
+        "one": 0,
+        "many": 0,
+        "singleSourceShare": 0
+      },
+      "source": {
+        "total": 337,
+        "none": 210,
+        "one": 116,
+        "many": 11,
+        "singleSourceShare": 34.4
+      }
+    },
+    "createdByMonth": {
+      "2026-08": 437,
+      "2026-07": 405,
+      "2026-09": 340,
+      "2026-04": 13
+    },
+    "sourcesByMonth": {
+      "2026-04": {
+        "pages": 13,
+        "none": 12,
+        "one": 1,
+        "many": 0,
+        "singleSourceShare": 7.7
+      },
+      "2026-07": {
+        "pages": 405,
+        "none": 127,
+        "one": 220,
+        "many": 58,
+        "singleSourceShare": 54.3
+      },
+      "2026-08": {
+        "pages": 437,
+        "none": 138,
+        "one": 238,
+        "many": 61,
+        "singleSourceShare": 54.5
+      },
+      "2026-09": {
+        "pages": 340,
+        "none": 107,
+        "one": 203,
+        "many": 30,
+        "singleSourceShare": 59.7
+      }
+    },
+    "updatedByMonth": {
+      "2026-09": 1231,
+      "2026-08": 7
+    },
+    "status": {
+      "developing": 786,
+      "seed": 244,
+      "mature": 149,
+      "evergreen": 25,
+      "(other)": 34
+    },
+    "freshness": {
+      "now": "2026-09-19",
+      "within30Days": 1238,
+      "share": 100
+    }
+  },
+  "hubs": [
+    {
+      "path": "wiki/concepts/_index.md",
+      "bytes": 143047,
+      "lines": 696,
+      "longestLine": 559,
+      "sections": 21,
+      "datedSections": 0,
+      "relatedEntries": 9,
+      "relatedDuplicates": 3
+    },
+    {
+      "path": "wiki/sources/_index.md",
+      "bytes": 111419,
+      "lines": 421,
+      "longestLine": 810,
+      "sections": 20,
+      "datedSections": 0,
+      "relatedEntries": 3,
+      "relatedDuplicates": 0
+    },
+    {
+      "path": "wiki/index.md",
+      "bytes": 92522,
+      "lines": 1524,
+      "longestLine": 563,
+      "sections": 22,
+      "datedSections": 0,
+      "relatedEntries": 3,
+      "relatedDuplicates": 0
+    },
+    {
+      "path": "wiki/log.md",
+      "bytes": 83546,
+      "lines": 227,
+      "longestLine": 2108,
+      "sections": 26,
+      "datedSections": 1,
+      "relatedEntries": 4,
+      "relatedDuplicates": 0
+    },
+    {
+      "path": "wiki/entities/_index.md",
+      "bytes": 31892,
+      "lines": 300,
+      "longestLine": 427,
+      "sections": 20,
+      "datedSections": 0,
+      "relatedEntries": 3,
+      "relatedDuplicates": 0
+    },
+    {
+      "path": "wiki/hot.md",
+      "bytes": 4388,
+      "lines": 35,
+      "longestLine": 595,
+      "sections": 3,
+      "datedSections": 0,
+      "relatedEntries": 4,
+      "relatedDuplicates": 0
+    },
+    {
+      "path": "wiki/overview.md",
+      "bytes": 1662,
+      "lines": 63,
+      "longestLine": 206,
+      "sections": 4,
+      "datedSections": 0,
+      "relatedEntries": 5,
+      "relatedDuplicates": 0
+    }
+  ],
+  "links": {
+    "total": 23649,
+    "wrapped": 0,
+    "dead": {
+      "occurrences": 82,
+      "distinctTargets": 39,
+      "occurrencesOutsideRecords": 25,
+      "byCause": {
+        "other": 64,
+        "colon": 9,
+        "trailing-backslash": 5,
+        "slash": 4
+      },
+      "byCauseOutsideRecords": {
+        "other": 18,
+        "colon": 7
+      },
+      "asTheServiceResolves": 80,
+      "worstPages": [
+        {
+          "count": 23
+        },
+        {
+          "count": 11
+        },
+        {
+          "count": 9
+        },
+        {
+          "count": 8
+        },
+        {
+          "count": 4
+        }
+      ]
+    }
+  },
+  "headings": {
+    "comparison": {
+      "pages": 2,
+      "distinctHeadings": 5,
+      "bestSharedShare": 100
+    },
+    "concept": {
+      "pages": 602,
+      "distinctHeadings": 2212,
+      "bestSharedShare": 41
+    },
+    "entity": {
+      "pages": 217,
+      "distinctHeadings": 169,
+      "bestSharedShare": 37.3
+    },
+    "question": {
+      "pages": 5,
+      "distinctHeadings": 13,
+      "bestSharedShare": 60
+    },
+    "synthesis": {
+      "pages": 31,
+      "distinctHeadings": 20,
+      "bestSharedShare": 96.8
+    },
+    "reference": {
+      "pages": 1,
+      "distinctHeadings": 3,
+      "bestSharedShare": 100
+    },
+    "source": {
+      "pages": 337,
+      "distinctHeadings": 608,
+      "bestSharedShare": 48.4
+    }
+  },
+  "runProtocol": {
+    "pagesCarrying": 337,
+    "bytes": 317919,
+    "byHeading": {
+      "openQuestions": 88,
+      "editorialNote": 59,
+      "assessment": 56,
+      "provenance": 56,
+      "relationToVault": 38,
+      "statusOfThisPage": 31,
+      "vaultContext": 18,
+      "entityNotability": 8,
+      "automatedDecisions": 7
+    },
+    "bytesByHeading": {
+      "openQuestions": 82832,
+      "relationToVault": 54216,
+      "assessment": 52422,
+      "editorialNote": 43501,
+      "provenance": 31392,
+      "statusOfThisPage": 18812,
+      "automatedDecisions": 16151,
+      "vaultContext": 13290,
+      "entityNotability": 5303
+    }
+  },
+  "tags": {
+    "assignments": 2789,
+    "distinct": 364,
+    "singleUse": 49,
+    "singleUseShare": 13.5,
+    "top": [
+      {
+        "pages": 124
+      },
+      {
+        "pages": 121
+      },
+      {
+        "pages": 103
+      },
+      {
+        "pages": 86
+      },
+      {
+        "pages": 83
+      },
+      {
+        "pages": 80
+      },
+      {
+        "pages": 66
+      },
+      {
+        "pages": 55
+      },
+      {
+        "pages": 54
+      },
+      {
+        "pages": 43
+      }
+    ],
+    "mirroringByMonth": {
+      "2026-04": {
+        "pages": 13,
+        "type": 0,
+        "domain": 0
+      },
+      "2026-07": {
+        "pages": 405,
+        "type": 0,
+        "domain": 0
+      },
+      "2026-08": {
+        "pages": 437,
+        "type": 0,
+        "domain": 0
+      },
+      "2026-09": {
+        "pages": 340,
+        "type": 0,
+        "domain": 0
+      }
+    }
+  },
+  "style": {
+    "emDash": {
+      "occurrences": 745,
+      "pages": 261
+    },
+    "enDash": {
+      "occurrences": 51
+    },
+    "aliasCollisions": 4,
+    "contradictions": {
+      "sections": 30,
+      "withContent": 24,
+      "callouts": 13
+    }
+  },
+  "reachability": {
+    "contentPages": 1195,
+    "notInIndex": 0,
+    "notInAnyHub": 0
+  },
+  "addresses": {
+    "pagesWithAddress": 1173,
+    "mapEntries": 1174,
+    "missingFromMap": 0,
+    "staleMapEntries": 1,
+    "divergent": 0,
+    "duplicates": 0,
+    "orphanRawDirs": 4,
+    "danglingPagesCreated": 0,
+    "maxAddress": 1188,
+    "rawDirs": 210,
+    "counter": 1189,
+    "counterDrift": 0
+  },
+  "history": {
+    "contentPagesExisting": 1195,
+    "contentPathsInHistory": 1195,
+    "oneKnowledgeCommit": 713,
+    "multiKnowledgeCommit": 152,
+    "noKnowledgeCommit": 330,
+    "multiShare": 12.7,
+    "oneShare": 59.7,
+    "byBucket": {
+      "comparisons": {
+        "pages": 2,
+        "multi": 1,
+        "multiShare": 50
+      },
+      "concepts": {
+        "pages": 602,
+        "multi": 100,
+        "multiShare": 16.6
+      },
+      "entities": {
+        "pages": 217,
+        "multi": 36,
+        "multiShare": 16.6
+      },
+      "questions": {
+        "pages": 36,
+        "multi": 0,
+        "multiShare": 0
+      },
+      "references": {
+        "pages": 1,
+        "multi": 0,
+        "multiShare": 0
+      },
+      "sources": {
+        "pages": 337,
+        "multi": 15,
+        "multiShare": 4.5
+      }
+    },
+    "byCreationMonth": {
+      "2026-04": {
+        "pages": 13,
+        "multi": 0,
+        "multiShare": 0
+      },
+      "2026-07": {
+        "pages": 405,
+        "multi": 85,
+        "multiShare": 21
+      },
+      "2026-08": {
+        "pages": 437,
+        "multi": 57,
+        "multiShare": 13
+      },
+      "2026-09": {
+        "pages": 340,
+        "multi": 10,
+        "multiShare": 2.9
+      }
+    }
+  },
+  "git": {
+    "totalBlobBytes": 1779190169,
+    "byClass": {
+      "rawOriginal": {
+        "bytes": 822935139,
+        "blobs": 553
+      },
+      "rawOcrDerived": {
+        "bytes": 657987340,
+        "blobs": 16
+      },
+      "wiki": {
+        "bytes": 266613120,
+        "blobs": 9205
+      },
+      "other": {
+        "bytes": 29811430,
+        "blobs": 703
+      },
+      "rawTextDerived": {
+        "bytes": 1843140,
+        "blobs": 300
+      }
+    },
+    "hubs": {
+      "wiki/log.md": {
+        "bytes": 95853740,
+        "versions": 262
+      },
+      "wiki/index.md": {
+        "bytes": 57597847,
+        "versions": 248
+      },
+      "*/_index.md": {
+        "bytes": 26727282,
+        "versions": 499
+      },
+      "wiki/hot.md": {
+        "bytes": 25297518,
+        "versions": 272
+      },
+      "wiki/overview.md": {
+        "bytes": 3385788,
+        "versions": 98
+      }
+    },
+    "hubShareOfWiki": 78.3,
+    "blobsOver50MB": [
+      {
+        "bytes": 203926407,
+        "class": "rawOcrDerived"
+      },
+      {
+        "bytes": 187472357,
+        "class": "rawOcrDerived"
+      },
+      {
+        "bytes": 163663289,
+        "class": "rawOcrDerived"
+      },
+      {
+        "bytes": 95670756,
+        "class": "rawOriginal"
+      },
+      {
+        "bytes": 93482328,
+        "class": "rawOriginal"
+      },
+      {
+        "bytes": 84306981,
+        "class": "rawOriginal"
+      },
+      {
+        "bytes": 72834830,
+        "class": "rawOriginal"
+      }
+    ]
+  }
+}

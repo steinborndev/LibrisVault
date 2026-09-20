@@ -312,8 +312,6 @@ export const roleOfRun = (kind: string): Role | null => {
     case 'research-step':
     case 'research-expand':
       return 'researcher'
-    case 'save':
-      return 'reader'
     case 'lint':
     case 'domain-review':
       return 'inspector'
@@ -340,7 +338,6 @@ const RUN_CAPTION: Record<string, string> = {
   research: 'researching',
   'research-step': 'a short step',
   'research-expand': 'deepening pages',
-  save: 'filing a chat',
   lint: 'checking shelves',
   'domain-review': 'reviewing wings',
   'lint-fix': 'fixing findings',

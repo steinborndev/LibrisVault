@@ -13,6 +13,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { runTool } from './preprocess/tools.js'
+import { freshnessDate } from './page-dates.js'
 
 /**
  * Wiki subfolders the dashboard knows how to LABEL (SPEC.md §6.1).
@@ -115,6 +116,14 @@ export function pageCounts(vaultRoot: string): PageCounts {
  * three pages every single ingest touches - the most-changed pages in the vault were the ones
  * "recently changed" structurally could not report.
  */
+/**
+ * The most recently WRITTEN pages, in the sense of what they say (B7, 7.3).
+ *
+ * Sorted by `content_updated:` where a page has it, falling back to `created:` and only then
+ * to the file's mtime. Both the mtime and `updated:` answer "when was this file last touched",
+ * and every mass pass touches everything: 1231 of 1247 pages claim an update within thirty
+ * days, which makes a list sorted by it a list in no order at all.
+ */
 export function recentPages(vaultRoot: string, limit = 12): RecentPage[] {
   const found: RecentPage[] = []
   const wiki = path.join(vaultRoot, 'wiki')
@@ -123,10 +132,16 @@ export function recentPages(vaultRoot: string, limit = 12): RecentPage[] {
     // files a page there. They are pages for the counter and noise for this list, which is
     // why the rule sits here rather than in the walk (SPEC.md §6.1).
     if (path.basename(abs).startsWith('_')) return
+    let said: string | null = null
+    try {
+      said = freshnessDate(fs.readFileSync(abs, 'utf8'))
+    } catch {
+      /* unreadable: the mtime is then the only answer there is */
+    }
     found.push({
       path: toPosix(path.relative(vaultRoot, abs)),
       dir: bucketOf(toPosix(path.relative(wiki, abs))),
-      modified: stat.mtime.toISOString(),
+      modified: said === null ? stat.mtime.toISOString() : new Date(`${said}T12:00:00Z`).toISOString(),
     })
   })
   return found.sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, limit)

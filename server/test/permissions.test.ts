@@ -114,6 +114,65 @@ describe('bash policy — best effort by design, NOT a hard boundary', () => {
     expect(bashRefusalReason(cmd)).toMatch(/privilege escalation/)
   })
 
+  /*
+   * The class the sandbox structurally cannot contain (N5, measured 2026-09-19): the sandbox
+   * allows writes under VAULT_ROOT and `.git` lives there, so history destruction is both
+   * permitted by the boundary and the one thing that cannot be undone. All nine of these were
+   * allowed before this entry existed.
+   */
+  it.each([
+    ['reset --hard', 'git reset --hard HEAD~5'],
+    ['clean -fdx', 'git clean -fdx'],
+    ['checkout over a pathspec', 'git checkout -- wiki/'],
+    ['filter-branch', 'git filter-branch --tree-filter "rm -rf wiki" HEAD'],
+    ['filter-repo', 'git filter-repo --path wiki --invert-paths'],
+    ['reflog expire', 'git reflog expire --expire=now --all'],
+    ['gc --prune=now', 'git gc --prune=now'],
+    ['update-ref -d', 'git update-ref -d refs/heads/vault-main'],
+    ['branch -D', 'git branch -D vault-main'],
+    ['push --force', 'git push --force origin vault-main'],
+    ['commit --amend', 'git commit --amend -m "rewritten"'],
+    ['restore', 'git restore wiki/index.md'],
+    ['a -C form', 'git -C /home/benjamin/vault reset --hard'],
+  ])('denies history destruction via %s', (_label, cmd) => {
+    expect(bashRefusalReason(cmd)).toMatch(/versioned and revertable/)
+  })
+
+  it.each([
+    ['rm -rf over a bucket', 'rm -rf wiki/concepts'],
+    ['truncate', 'truncate -s 0 wiki/index.md'],
+    ['shred', 'shred -u wiki/log.md'],
+    ['find -delete', 'find wiki -name "*.md" -delete'],
+    ['find -exec rm', 'find . -name "*.md" -exec rm {} \\;'],
+  ])('denies bulk deletion inside the wiki via %s', (_label, cmd) => {
+    expect(bashRefusalReason(cmd)).toMatch(/bulk deletion or truncation/)
+  })
+
+  it('denies the same destruction spelled as an interpreter one-liner', () => {
+    // The scan after `-c` has to cross the `;` inside the quoted script, or this reads as an
+    // ordinary python3 call - which is exactly how it was measured passing.
+    expect(bashRefusalReason(`python3 -c "import shutil; shutil.rmtree('wiki')"`)).toMatch(/inline interpreter/)
+  })
+
+  /*
+   * The other half of the same guard, and the one that would break a real run: the git an
+   * ingest actually uses. A denylist that catches these is a whitelist by accident, which is
+   * what hard rule 4 forbids.
+   */
+  it.each([
+    ['add', 'git add wiki/concepts/A.md'],
+    ['add with a pathspec', 'git add -- wiki/ .raw/'],
+    ['commit', 'git commit -m "ingest: a source"'],
+    ['status', 'git status --short'],
+    ['log', 'git log --oneline -5'],
+    ['ls-files', 'git ls-files wiki/'],
+    ['diff', 'git diff --stat'],
+    ['diff --cached over a pathspec', 'git diff --cached --quiet -- wiki/'],
+    ['the retrieval index rebuild a skill documents', 'rm -rf .vault-meta/chunks/ .vault-meta/bm25/'],
+  ])('leaves the legitimate %s alone', (_label, cmd) => {
+    expect(bashRefusalReason(cmd)).toBeUndefined()
+  })
+
   it.each([
     ['rm -rf /', 'rm -rf /'],
     ['rm in $HOME', 'rm -rf $HOME/Documents'],

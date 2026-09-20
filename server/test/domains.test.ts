@@ -137,9 +137,9 @@ describe('domainSystemPrompt', () => {
 
   it('lists every key plus the unassigned escape hatch and forbids inventing keys', () => {
     const prompt = domainSystemPrompt(parseDomainRegistry(REGISTRY))
-    expect(prompt).toContain('- biomedicine — Biology, medicine and drug delivery.')
+    expect(prompt).toContain('- biomedicine - Biology, medicine and drug delivery.')
     expect(prompt).toContain('typical tags: mrna-delivery, biomedical, drug-delivery')
-    expect(prompt).toContain(`- ${UNASSIGNED} —`)
+    expect(prompt).toContain(`- ${UNASSIGNED} -`)
     expect(prompt).toContain('Never invent a domain key')
     expect(prompt).toContain(DOMAIN_REGISTRY_PATH)
   })

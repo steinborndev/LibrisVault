@@ -176,7 +176,8 @@ describe('GET /api/v1/health', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as HealthResp
     expect(body.status).toBe('ok')
-    expect(body.queue.concurrency).toBe(2)
+    // One writer at a time (A3, 2026-09-19): the default the vault's ingest skill asks for.
+    expect(body.queue.concurrency).toBe(1)
     expect(body.jobs).toBeDefined()
     // Public route: must not leak filesystem layout.
     expect(body).not.toHaveProperty('vaultRoot')
@@ -725,7 +726,7 @@ describe('GET /api/v1/stats', () => {
     }
     expect(body.vaultName).toBe('vault')
     expect(typeof body.pages.total).toBe('number')
-    expect(body.queue.concurrency).toBe(2)
+    expect(body.queue.concurrency).toBe(1)
     expect(body.watcher.active).toBe(true)
     expect(body.kpis7d).toBeDefined()
   })
@@ -784,7 +785,7 @@ describe('POST /api/v1/query + sessions', () => {
     // A real wiki page so the [[Compound Interest]] citation resolves to a path.
     fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
     fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Compound Interest.md'), '# Compound Interest')
-    queryImpl = async () => okResult('Interest compounds — see [[Compound Interest]] and [[Nonexistent Page]].')
+    queryImpl = async () => okResult('Interest compounds - see [[Compound Interest]] and [[Nonexistent Page]].')
 
     const res = await fetch(`${baseUrl}/api/v1/query`, {
       method: 'POST',
@@ -936,68 +937,25 @@ describe('GET /api/v1/pages (citation preview)', () => {
   })
 })
 
-describe('POST /api/v1/sessions/:id/save', () => {
-  const poll = async (id: string): Promise<{ status: string; result?: { ok: boolean; pages: string[] } }> => {
-    for (let i = 0; i < 100; i++) {
-      const r = await fetch(`${baseUrl}/api/v1/maintenance/runs/${id}`)
-      const body = (await r.json()) as { status: string; result?: { ok: boolean; pages: string[] } }
-      if (body.status !== 'running') return body
-      await new Promise((res) => setTimeout(res, 5))
-    }
-    throw new Error('save run did not settle')
-  }
-
-  it('404s for an unknown session', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/sessions/nope/save`, { method: 'POST' })
-    expect(res.status).toBe(404)
-  })
-
-  it('400s when the session never completed a query (nothing to resume)', async () => {
+describe('there is no route that saves a conversation into the vault', () => {
+  /*
+   * Removed 2026-09-19 (SPEC.md §6.3). `POST /api/v1/sessions/:id/save` used to resume the
+   * chat's SDK session under a write profile and run the vault's `/save` flow. The decision is
+   * that a chat answer is never vault content: it is assembled FROM pages the vault already
+   * holds, so filing it writes a third copy of what two pages already say.
+   *
+   * This test is the guard on that, not a leftover. A route removed without one comes back the
+   * next time someone reads §6.3's older wording.
+   */
+  it('404s, and the chat stays read-only all the way down', async () => {
     const created = await fetch(`${baseUrl}/api/v1/sessions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ title: 'empty' }),
+      body: JSON.stringify({ title: 'a conversation' }),
     })
     const { session } = (await created.json()) as { session: { id: string } }
     const res = await fetch(`${baseUrl}/api/v1/sessions/${session.id}/save`, { method: 'POST' })
-    expect(res.status).toBe(400)
-    expect(((await res.json()) as { error: string }).error).toMatch(/nothing to save/)
-  })
-
-  it('resumes the chat SDK session under a WRITE profile and commits', async () => {
-    // Ask something first so the session records an sdk_session_id to resume.
-    await fetch(`${baseUrl}/api/v1/query`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ question: 'what is in the vault?' }),
-    })
-    const list = (await (await fetch(`${baseUrl}/api/v1/sessions`)).json()) as {
-      sessions: Array<{ id: string }>
-    }
-    const sessionId = list.sessions[0]!.id
-
-    let seen: { profile: string | undefined; resumeSessionId: string | undefined } = {
-      profile: undefined,
-      resumeSessionId: undefined,
-    }
-    maintAgent = async (opts) => {
-      seen = { profile: opts.profile, resumeSessionId: opts.resumeSessionId }
-      return okResult('saved')
-    }
-
-    const res = await fetch(`${baseUrl}/api/v1/sessions/${sessionId}/save`, { method: 'POST' })
-    expect(res.status).toBe(202)
-    const started = (await res.json()) as { id: string; kind: string; channel: string }
-    expect(started.kind).toBe('save')
-    expect(started.channel).toBe('maintenance:save')
-
-    const run = await poll(started.id)
-    expect(run.status).toBe('done')
-    expect(run.result?.ok).toBe(true)
-    // The chat is read-only by design, so the save must run write-enabled and carry the
-    // conversation forward — otherwise it has nothing to write, or no permission to write it.
-    expect(seen.profile).toBe('ingest')
-    expect(seen.resumeSessionId).toBe('sdk-session-1')
+    expect(res.status).toBe(404)
   })
 })
 
@@ -1033,7 +991,7 @@ describe('GET/PUT /api/v1/settings', () => {
   })
 
   it('applies a concurrency change live to the running queue', async () => {
-    expect(queue.stats().concurrency).toBe(2)
+    expect(queue.stats().concurrency).toBe(1)
     const res = await put({ concurrency: 4 })
     expect(res.status).toBe(200)
     const body = (await res.json()) as SettingsResp
@@ -1404,7 +1362,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     expect(run.status).toBe('done')
     // The service pins the synthesis title deterministically; the agent does not choose it.
     expect(prompt).toContain('research_lens')
-    expect(prompt).toContain('Research: tidal turbines — Patent Landscape')
+    expect(prompt).toContain('Research - tidal turbines - Patent Landscape')
     expect(prompt).toMatch(/does NOT\s+override the page-hygiene/)
   })
 

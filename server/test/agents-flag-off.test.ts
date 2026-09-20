@@ -81,6 +81,10 @@ const UNGATED: ReadonlyArray<readonly [string, string]> = [
   ['GET', '/api/v1/jobs'],
   ['GET', '/api/v1/health'],
   ['GET', '/api/v1/graph'],
+  // The standing validation list (A9, 2026-09-19): the validator runs for every ingest
+  // whether or not the research agents exist, so a screen asking a Fellow-only route for it
+  // would 404 on every mount with the flag off - which is the class hard rule 8 is about.
+  ['GET', '/api/v1/validation'],
 ]
 
 describe('with the Fellows extension unwired', () => {

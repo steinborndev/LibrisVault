@@ -148,7 +148,15 @@ describe('QuestionsService', () => {
     expect(await svc.setArchived(page, 'Why does the interface resistance climb after ten cycles?', true)).toEqual({ changed: false, vetoed: [] })
     // Restoring takes the strike off and vetoes nothing.
     expect(await svc.setArchived(page, 'Why does the interface resistance climb after ten cycles?', false)).toEqual({ changed: true, vetoed: [] })
-    expect(fs.readFileSync(path.join(vaultRoot, page), 'utf8')).toBe(PAGE)
+    /*
+     * The bullet is back exactly as it was, and the page carries the two date fields the write
+     * stamped (B7, 7.3). Archiving a question IS a content change - the page now says the
+     * question is closed - so `content_updated:` is set, unlike a mechanical repair.
+     */
+    const after = fs.readFileSync(path.join(vaultRoot, page), 'utf8')
+    expect(after).toContain('- Why does the interface resistance climb after ten cycles?')
+    expect(after).toContain('content_updated:')
+    expect(after.replace(/^updated:.*\n/m, '').replace(/^content_updated:.*\n/m, '')).toBe(PAGE)
     // Nothing outside wiki/ and nothing with a traversal in it.
     expect(await svc.setArchived('../etc/passwd', 'x', true)).toEqual({ changed: false, vetoed: [] })
     expect(await svc.setArchived('wiki/../.git/config', 'x', true)).toEqual({ changed: false, vetoed: [] })

@@ -292,3 +292,39 @@ describe('defaultDbPath', () => {
     expect(p).not.toContain('/vault/')
   })
 })
+
+/**
+ * Migration 33: the stored float artifact (A7, 7.2).
+ *
+ * `parseRateLimitEvent` rounded only the branch where the SDK sent a fraction, so a reading
+ * that arrived as a percentage was stored raw. Twelve of 748 samples in the working database
+ * hold `7.000000000000001`, and one committed recap page printed `57.99999999999999%`. The
+ * parser is fixed; this is the half that cleans up what is already stored.
+ */
+describe('migration 33', () => {
+  const ROUND = 'UPDATE usage_samples SET utilization = ROUND(utilization, 2) WHERE utilization IS NOT NULL AND utilization != ROUND(utilization, 2);'
+
+  it('rounds a stored artifact and leaves a clean value alone', () => {
+    const db = openDb(MEMORY_DB)
+    const insert = db.prepare(
+      "INSERT INTO usage_samples (ts, window, utilization, phase, source) VALUES (?, ?, ?, 'after', 'sdk')",
+    )
+    insert.run('2026-09-01T00:00:00Z', 'five_hour', 7.000000000000001)
+    insert.run('2026-09-02T00:00:00Z', 'seven_day', 31.5)
+    db.exec(ROUND)
+    const rows = db.prepare('SELECT utilization FROM usage_samples ORDER BY ts').all() as Array<{ utilization: number }>
+    expect(rows.map((r) => r.utilization)).toEqual([7, 31.5])
+  })
+
+  it('is idempotent, which a restart makes it do anyway', () => {
+    const db = openDb(MEMORY_DB)
+    db.prepare("INSERT INTO usage_samples (ts, window, utilization, phase, source) VALUES (?, ?, ?, 'after', 'sdk')").run(
+      '2026-09-01T00:00:00Z',
+      'five_hour',
+      57.99999999999999,
+    )
+    db.exec(ROUND)
+    db.exec(ROUND)
+    expect(db.prepare('SELECT utilization FROM usage_samples').get()).toEqual({ utilization: 58 })
+  })
+})

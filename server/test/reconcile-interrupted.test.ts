@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { JobStore } from '../src/db/jobs.js'
 import { IngestQueue } from '../src/pipeline/queue.js'
+import { ensureVaultExcludes } from '../src/pipeline/vault-excludes.js'
 import { dirtyPaths } from '../src/pipeline/git.js'
 import type { ToolAvailability } from '../src/pipeline/preprocess/index.js'
 import type { JobRow } from '../src/db/jobs.js'
@@ -37,6 +38,9 @@ beforeEach(() => {
   write('wiki/log.md', '# Log\n')
   git('add', '-A')
   git('commit', '-q', '-m', 'base')
+  // What the service does at startup: the run markers are derived state and stay out of vault
+  // history, which is also why a recovered run leaves the tree clean.
+  ensureVaultExcludes(repo)
   db = openDb(MEMORY_DB)
   store = new JobStore(db)
 })
@@ -66,7 +70,13 @@ describe('reconcileInterrupted', () => {
     // the job's .raw dir) but before the commit — so the pages sit dirty in the working tree.
     const page = 'wiki/concepts/Recovered.md'
     write(page, '# recovered\n')
-    write('wiki/log.md', `# Log\n\n## [2026-07-21] ingest\n- Sources: \`.raw/${job.id}/normalized.txt\`\n`)
+    /*
+     * The completion MARKER, not a log entry (2.4, and the fallback was removed on
+     * 2026-09-19 once no job was left in `ingesting`). The service writes the log itself now,
+     * so a crashed run leaves no entry at all - and a truncated log would otherwise have
+     * answered "not finished" for every old job (8.8).
+     */
+    write(`.vault-meta/runs/${job.id}.done`, '')
 
     const q = makeQueue()
     q.start()
@@ -101,10 +111,37 @@ describe('reconcileInterrupted', () => {
     expect(recovered.error).toMatch(/interrupted by a service restart/)
     // The page is now VERSIONED (revertable), not orphaned, and the tree is clean so the retry
     // starts fresh. The commit subject marks it as an incomplete, retry-pending recovery.
-    expect(git('log', '--oneline', '-1')).toMatch(/ingest: a\.pdf \(recovered after restart — incomplete run, retry pending\)/)
+    expect(git('log', '--oneline', '-1')).toMatch(/ingest: a\.pdf \(recovered after restart - incomplete run, retry pending\)/)
     expect((await dirtyPaths(repo)).has(page)).toBe(false)
     expect(git('status', '--porcelain').trim()).toBe('')
     expect(git('log', '--diff-filter=A', '--name-only', '--pretty=format:', '-1').split('\n')).toContain(page)
+  })
+
+  it('carries the bookkeeping too, so the address counter cannot roll back', async () => {
+    /*
+     * Found by a real crash test on 2026-09-20, not by this suite - and the reason it slipped
+     * through is visible right above: the other cases assert a clean tree, but none of them
+     * dirties a bookkeeping file, so nothing ever checked that one was staged.
+     *
+     * A run bumps `.vault-meta/address-counter.txt` as it reserves addresses. The normal commit
+     * path carries it via `BOOKKEEPING_PATHS`; recovery built its own pathspec and did not. The
+     * counter then stood at the reserved value on disk and the old one in git, so reverting the
+     * recovery would not give the addresses back, and a `git reset --hard` would hand the next
+     * run five addresses that are already on pages.
+     */
+    const job = seedIngesting({ sha256: 'f' })
+    write('wiki/concepts/Addressed.md', '# addressed\n')
+    write('.vault-meta/address-counter.txt', '1205\n')
+    write(`.vault-meta/runs/${job.id}.done`, '')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    expect(store.getOrThrow(job.id).status).toBe('done')
+    expect(git('status', '--porcelain').trim()).toBe('')
+    const staged = git('show', '--name-only', '--pretty=format:', 'HEAD').split('\n')
+    expect(staged).toContain('.vault-meta/address-counter.txt')
   })
 
   it('fails a mid-write ingest with nothing written yet, without an empty recovery commit', async () => {
@@ -131,11 +168,57 @@ describe('reconcileInterrupted', () => {
     expect(store.getOrThrow(job.id).status).toBe('failed')
   })
 
+  /*
+   * The completion marker (2.4). The log-entry check above is the LEGACY path and stays only
+   * for jobs that were already `ingesting` when this version started: the service writes the
+   * log entry itself now (SPEC.md §12.12), so a crashed run leaves no entry at all, and the
+   * marker is the only thing that can say it got to the end.
+   */
+  it('recovers a run that left its completion marker, with no log entry anywhere', async () => {
+    const job = seedIngesting({ sha256: 'marker' })
+    const page = 'wiki/concepts/Marked.md'
+    write(page, '# marked\n')
+    // No log entry: the service writes those, and this run crashed before the service could.
+    write(`.vault-meta/runs/${job.id}.done`, '')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    const recovered = store.getOrThrow(job.id)
+    expect(recovered.status).toBe('done')
+    expect(JSON.parse(recovered.created_pages ?? '[]')).toContain(page)
+  })
+
+  it('fails a run that left neither a marker nor a log entry', async () => {
+    const job = seedIngesting({ sha256: 'neither' })
+    write('wiki/concepts/Halfway.md', '# halfway\n')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    expect(store.getOrThrow(job.id).status).toBe('failed')
+  })
+
+  it('does not take another job\'s marker for this one\'s', async () => {
+    const job = seedIngesting({ sha256: 'mine' })
+    write('wiki/concepts/Mine.md', '# mine\n')
+    write('.vault-meta/runs/some-other-job.done', '')
+
+    const q = makeQueue()
+    q.start()
+    await q.ready
+
+    expect(store.getOrThrow(job.id).status).toBe('failed')
+  })
+
   it('recovers a batch: the first member commits the shared pages, siblings inherit them', async () => {
     const a = seedIngesting({ sha256: 'ba', originalName: 'A.pdf', batchId: 'batch1' })
     const b = seedIngesting({ sha256: 'bb', originalName: 'B.pdf', batchId: 'batch1' })
     write('wiki/concepts/Shared.md', '# shared\n')
-    write('wiki/log.md', `# Log\n- Sources: \`.raw/${a.id}/n.txt\`, \`.raw/${b.id}/n.txt\`\n`)
+    write(`.vault-meta/runs/${a.id}.done`, '')
+    write(`.vault-meta/runs/${b.id}.done`, '')
 
     const q = makeQueue()
     q.start()

@@ -793,6 +793,59 @@ UPDATE agents SET desk = (
 ) WHERE state != 'retired';
 `
 
+
+/*
+ * Standing validation findings (A9, 2026-09-19).
+ *
+ * The validator reported 406 warnings into job logs and nothing ever acted on one: the same
+ * dead link was reported 109 times, the same counter drift 58 times, every one labelled
+ * "advisory only". A finding that repeats 109 times is not a finding, it is a log line.
+ *
+ * So a finding gets an identity - rule, path and a NORMALISED message, hashed - and one row
+ * that counts how often it has been seen and when it was first and last seen. Repeats update
+ * a row instead of writing another line, which is what makes a standing defect list possible
+ * and what lets a fix show up as a row that stops being seen.
+ *
+ * `jobs.validation` stays as it is (the quote summary) and gains nothing: a job's own view of
+ * its run is not the same question as "what is standing in this vault".
+ */
+const V32 = `
+CREATE TABLE validation_findings (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL DEFAULT 'local',
+  rule        TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  message     TEXT NOT NULL,
+  count       INTEGER NOT NULL DEFAULT 1,
+  first_seen  TEXT NOT NULL,
+  last_seen   TEXT NOT NULL,
+  /** The job or run that last reported it, for "where did this come from". */
+  last_job_id TEXT,
+  /** Set when the finding stops being reported, so a fix is visible rather than silent. */
+  resolved_at TEXT
+);
+CREATE INDEX idx_validation_rule ON validation_findings(rule);
+CREATE INDEX idx_validation_last ON validation_findings(last_seen);
+`
+
+
+/*
+ * The float artifact in the stored plan samples (A7, 2026-09-19).
+ *
+ * `parseRateLimitEvent` rounded only the branch where the SDK sent a FRACTION, and passed a
+ * reading that already arrived as a percentage through untouched. The raw float then reached
+ * the database and a recap page: 12 of 748 samples hold `7.000000000000001`, and a committed
+ * page printed `57.99999999999999%`.
+ *
+ * The parser is fixed, which stops new ones. This normalises what is already stored, to the
+ * same two decimals, so the dashboard's history does not keep showing a number that no longer
+ * arises - and so nothing has to wonder later whether the fix worked.
+ */
+const V33 = `
+UPDATE usage_samples SET utilization = ROUND(utilization, 2)
+WHERE utilization IS NOT NULL AND utilization != ROUND(utilization, 2);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -825,4 +878,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 29, up: V29 },
   { version: 30, up: V30 },
   { version: 31, up: V31 },
+  { version: 32, up: V32 },
+  { version: 33, up: V33 },
 ]

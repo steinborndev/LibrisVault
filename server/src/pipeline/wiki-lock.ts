@@ -24,8 +24,28 @@
  * worse answer than the behaviour those vaults already had.
  *
  * The script's contract (its own header): exit 0 acquired, 75 held by a live writer, 2 usage,
- * 3 lock dir, 4 path escape. It reaps a lock older than `STALE_AFTER_SEC` (60) itself, so a
- * crashed holder cannot wedge us for longer than that.
+ * 3 lock dir, 4 path escape. It reaps a lock older than `STALE_AFTER_SEC` itself, so a crashed
+ * holder cannot wedge us for longer than that.
+ *
+ * THE WINDOW (A2, measured 2026-09-19 over 136 paired acquire/release spans on the live vault):
+ * median 23 s, p75 34 s, p90 59 s, max 108 s. The script's default threshold is 60 s, so
+ * **9.6 % of real holds outlive it** - and a lock that outlives its own threshold is not a
+ * lock: the next acquirer reaps it and both writers proceed. The long holds were all on the
+ * hub files, which is why phase 2 removes the need for most of them; until then the window is
+ * widened to 600 s, ten times the longest hold ever measured.
+ *
+ * BOTH SIDES OF IT. The threshold is applied by the ACQUIRER, so passing it on our own
+ * `acquire` only decides what WE reap. The other direction - an agent run reaping a lock this
+ * service holds - is closed by exporting `STALE_AFTER_SEC` into the run's environment
+ * (`buildAgentEnv`), which is the global the script itself documents. No vault file is
+ * modified to do it (hard rule 5).
+ *
+ * BATCHES. `withWikiLocks` acquires serially and holds the first lock for the whole batch, so a
+ * repair over hundreds of pages would outlive the window on its earliest locks. Of the two
+ * options - cap the batch, or refresh - this file REFRESHES: a phase 8 repair pass legitimately
+ * touches hundreds of pages, and a cap would only move the problem into every caller. The
+ * refresh re-acquires each held lock with a zero threshold every half window, which reaps and
+ * re-creates a lock we already hold, leaving its age at zero again.
  */
 
 import { execFile } from 'node:child_process'
@@ -37,6 +57,35 @@ const run = promisify(execFile)
 
 /** Where the script lives inside a claude-obsidian vault. */
 const SCRIPT = 'scripts/wiki-lock.sh'
+
+/**
+ * The staleness window we hand the script, in seconds. See the header for the measurement:
+ * ten times the longest hold ever seen, against a default of 60 that 9.6 % of holds outlived.
+ *
+ * Environment, not settings: it is a safety margin whose right value follows from how long this
+ * vault's runs take, not a preference anyone should be invited to tune in a UI.
+ */
+export const WIKI_LOCK_STALE_SEC = ((): number => {
+  const raw = process.env['WIKI_LOCK_STALE_SEC']
+  const n = raw === undefined ? NaN : Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 600
+})()
+
+/**
+ * One page, one lock. The script hashes the RAW path string with no normalisation of its own,
+ * so `wiki/x.md` and `./wiki/x.md` are two different locks on one page - which is not a lock at
+ * all. Every caller on both sides happens to pass the canonical spelling today, so this has
+ * never bitten; it is one function on our side, and unfixable on the agent's.
+ */
+export function normaliseLockPath(rel: string, vaultRoot?: string): string {
+  let out = rel.trim().replace(/\\/g, '/')
+  if (vaultRoot !== undefined) {
+    const root = vaultRoot.replace(/\\/g, '/').replace(/\/+$/, '')
+    if (out === root) out = ''
+    else if (out.startsWith(`${root}/`)) out = out.slice(root.length + 1)
+  }
+  return out.replace(/\/{2,}/g, '/').replace(/^(?:\.\/)+/, '').replace(/^\/+/, '')
+}
 
 /** Another writer holds the page and did not let go within the retry budget. */
 export class WikiLockBusy extends Error {
@@ -55,7 +104,19 @@ export interface WikiLockOptions {
   readonly retryMs?: number
   /** Injected in tests; the real one shells out to the vault's script. */
   readonly exec?: (args: readonly string[], vaultRoot: string) => Promise<number>
+  /** The staleness window handed to the script; defaults to {@link WIKI_LOCK_STALE_SEC}. */
+  readonly staleAfterSec?: number
+  /** Batch only: how often held locks are refreshed. Defaults to half the window. */
+  readonly refreshMs?: number
 }
+
+/** `acquire` with the window this service runs with, and one spelling of the page. */
+const acquireArgs = (rel: string, staleSec: number): string[] => [
+  'acquire',
+  '--stale-after-sec',
+  String(staleSec),
+  rel,
+]
 
 /** True when this vault carries the script at all (v1.7+ claude-obsidian). */
 export function hasWikiLock(vaultRoot: string): boolean {
@@ -108,18 +169,20 @@ export async function withWikiLock<T>(
   const exec = opts.exec ?? shell
   if (!hasWikiLock(vaultRoot)) return await fn()
 
+  const page = normaliseLockPath(rel, vaultRoot)
+  const staleSec = opts.staleAfterSec ?? WIKI_LOCK_STALE_SEC
   const attempts = Math.max(1, opts.attempts ?? 2)
   const retryMs = opts.retryMs ?? 250
   let code = 75
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await sleep(retryMs)
-    code = await exec(['acquire', rel], vaultRoot)
+    code = await exec(acquireArgs(page, staleSec), vaultRoot)
     if (code === 0) break
     // 75 is contention and worth another try. Anything else is the script saying the request
     // itself is wrong (a bad path, no lock directory), and retrying would not change it.
     if (code !== 75) break
   }
-  if (code === 75) throw new WikiLockBusy(rel)
+  if (code === 75) throw new WikiLockBusy(page)
   /*
    * Any other non-zero code means the lock was NOT taken and the reason is not contention.
    * Writing anyway is the pre-2026-09-16 behaviour and no worse than it, so the write goes
@@ -130,7 +193,7 @@ export async function withWikiLock<T>(
   try {
     return await fn()
   } finally {
-    await exec(['release', rel], vaultRoot)
+    await exec(['release', page], vaultRoot)
   }
 }
 
@@ -154,18 +217,53 @@ export async function withWikiLocks<T>(
   const exec = opts.exec ?? shell
   if (!hasWikiLock(vaultRoot)) return await fn(rels, [])
 
+  const staleSec = opts.staleAfterSec ?? WIKI_LOCK_STALE_SEC
   const held: string[] = []
   const busy: string[] = []
+  // The caller's own spelling is what goes back to it in `held`/`busy`; the normalised one is
+  // what the script sees. A caller comparing the returned list against the list it passed must
+  // still get its own strings back.
+  const lockPath = new Map<string, string>()
   for (const rel of rels) {
     // One attempt per page here, not two: a batch walks many pages and a caller should not
     // wait `rels.length * retryMs` for a repair that can simply leave the busy ones alone.
-    const code = await exec(['acquire', rel], vaultRoot)
-    if (code === 0) held.push(rel)
-    else busy.push(rel)
+    const page = normaliseLockPath(rel, vaultRoot)
+    const code = await exec(acquireArgs(page, staleSec), vaultRoot)
+    if (code === 0) {
+      held.push(rel)
+      lockPath.set(rel, page)
+    } else busy.push(rel)
   }
+
+  /*
+   * Keep the held locks young (see BATCHES in the header). `--stale-after-sec 0` reaps whatever
+   * is there and takes it, which for a lock this process already holds is exactly a refresh:
+   * same path, new timestamp. A refresh that does NOT come back 0 means the lock is somebody
+   * else's now, so the page is dropped from the set rather than released out from under them
+   * at the end - releasing is unconditional in the script, and that is the one way this
+   * function could take a lock away from a writer that legitimately holds it.
+   */
+  let refreshing = false
+  const refresh = async (): Promise<void> => {
+    if (refreshing) return
+    refreshing = true
+    try {
+      for (const [rel, page] of [...lockPath]) {
+        const code = await exec(['acquire', '--stale-after-sec', '0', page], vaultRoot)
+        if (code !== 0) lockPath.delete(rel)
+      }
+    } finally {
+      refreshing = false
+    }
+  }
+  const refreshMs = opts.refreshMs ?? Math.max(1_000, Math.floor((staleSec * 1000) / 2))
+  const timer = setInterval(() => void refresh(), refreshMs)
+  timer.unref?.()
+
   try {
     return await fn(held, busy)
   } finally {
-    for (const rel of held) await exec(['release', rel], vaultRoot)
+    clearInterval(timer)
+    for (const page of lockPath.values()) await exec(['release', page], vaultRoot)
   }
 }

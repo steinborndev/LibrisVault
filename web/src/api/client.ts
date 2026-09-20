@@ -8,6 +8,7 @@ import type {
   Job,
   JobDetail,
   Stats,
+  ValidationList,
   Health,
   JobStatus,
   Session,
@@ -129,6 +130,15 @@ export const api = {
   health: (): Promise<Health> => fetch(`${BASE}/health`).then(json<Health>),
 
   stats: (): Promise<Stats> => fetch(`${BASE}/stats`).then(json<Stats>),
+
+  /** The standing validation list (A9). Base product: it answers with the flag off too. */
+  validation: (params?: { rule?: string; limit?: number }): Promise<ValidationList> => {
+    const q = new URLSearchParams()
+    if (params?.rule) q.set('rule', params.rule)
+    if (params?.limit) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return fetch(`${BASE}/validation${qs ? `?${qs}` : ''}`).then(json<ValidationList>)
+  },
 
   jobs: (params?: { status?: JobStatus; limit?: number }): Promise<{ jobs: Job[] }> => {
     const q = new URLSearchParams()
@@ -254,10 +264,6 @@ export const api = {
   /** User delete of one page; the response's staleLinks feeds the lint-guidance banner. */
   deletePage: (path: string): Promise<PageDeleteResult> =>
     fetch(`${BASE}/pages?path=${encodeURIComponent(path)}`, { method: 'DELETE' }).then(json<PageDeleteResult>),
-
-  /** "Session in Vault sichern" - starts an async write-enabled run; poll it like a maintenance run. */
-  saveSession: (id: string): Promise<MaintenanceRun> =>
-    fetch(`${BASE}/sessions/${id}/save`, { method: 'POST' }).then(json<MaintenanceRun>),
 
   // ---- Maintenance (async: POST starts a run, GET polls its result) ----
 

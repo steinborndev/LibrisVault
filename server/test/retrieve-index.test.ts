@@ -4,7 +4,7 @@
  * real python never runs here), the post-ingest debounce scheduler, and the maintenance
  * runner's `retrieve-index` kind (no agent, no credential, serialized builds).
  */
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -311,6 +311,90 @@ describe('startRetrieveIndexScheduler', () => {
     scheduler.close()
   })
 
+  /*
+   * N4, both halves. The scheduler used to key on finished INGESTS alone, so a research run, a
+   * night shift, a page edit, a question archived, a recap or a notebook write left the index
+   * stale until the next ingest happened along - on a vault whose ingests have stopped, that
+   * is forever. And a pure debounce with no cap let a continuous stream postpone the rebuild
+   * indefinitely.
+   */
+  it('rebuilds for any vault change, not just for a finished ingest', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({ events, start, isProvisioned: () => true, debounceMs: 1000 })
+    // The signal the vault watcher publishes for ANY change under wiki/ - which is how this
+    // catches every writer by construction, the ones writing through Bash included.
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    expect(start).toHaveBeenCalledTimes(1)
+    scheduler.close()
+  })
+
+  it('rebuilds at the cap however long the stream of changes goes on', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({
+      events,
+      start,
+      isProvisioned: () => true,
+      debounceMs: 1000,
+      maxWaitMs: 5000,
+    })
+    // A night shift writing page after page: a signal every 800 ms for half an hour.
+    for (let i = 0; i < 10; i++) {
+      events.publish({ kind: 'vault' })
+      vi.advanceTimersByTime(800)
+    }
+    // The quiet window never elapsed, and the rebuild ran anyway at the cap.
+    expect(start).toHaveBeenCalledTimes(1)
+    scheduler.close()
+  })
+
+  it('starts the cap at the first unserved signal, not at the last', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({
+      events,
+      start,
+      isProvisioned: () => true,
+      debounceMs: 10_000,
+      maxWaitMs: 5000,
+    })
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(4000)
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    // 5000 ms after the FIRST signal, although the second reset the quiet window.
+    expect(start).toHaveBeenCalledTimes(1)
+    scheduler.close()
+  })
+
+  it('starts a fresh cap for the next burst rather than firing twice for one', () => {
+    vi.useFakeTimers()
+    const events = new EventBus()
+    const start = vi.fn()
+    const scheduler = startRetrieveIndexScheduler({
+      events,
+      start,
+      isProvisioned: () => true,
+      debounceMs: 1000,
+      maxWaitMs: 5000,
+    })
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    expect(start).toHaveBeenCalledTimes(1)
+    // The cap from the first burst must not still be armed, or this fires early.
+    vi.advanceTimersByTime(10_000)
+    expect(start).toHaveBeenCalledTimes(1)
+    events.publish({ kind: 'vault' })
+    vi.advanceTimersByTime(1000)
+    expect(start).toHaveBeenCalledTimes(2)
+    scheduler.close()
+  })
+
   it('close() cancels a pending rebuild, and a throwing start never escapes the timer', () => {
     vi.useFakeTimers()
     const events = new EventBus()
@@ -595,5 +679,73 @@ describe('MaintenanceRunner retrieve-index kind', () => {
     expect(maxInFlight).toBe(1)
     expect(m.getRun(a.id)?.status).toBe('done')
     expect(m.getRun(b.id)?.status).toBe('done')
+  })
+})
+
+/**
+ * The plugin's demo material never becomes an answer (task 8.7).
+ *
+ * Filtered on the READ side rather than out of the index: the chunk and BM25 indexes are built
+ * by the vault's OWN scripts, and teaching them to skip a page means editing them, which hard
+ * rule 5 forbids. What we hand an agent is our side of that boundary.
+ */
+describe('retrieveCandidates and upstream demo pages', () => {
+  let root = ''
+  const page = (rel: string, front: string): void => {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, `---\n${front}\n---\n\n# ${path.basename(rel, '.md')}\n`)
+  }
+  /** A retrieve.py that returns exactly these page paths, best first. */
+  const returning =
+    (paths: string[]): ProcessRunner =>
+    async () => ({
+      stdout: JSON.stringify({ strategy: 'bm25-only', candidates: paths.map((p) => ({ page_path: p })) }),
+      stderr: '',
+    })
+
+  beforeEach(() => {
+    root = makeVault()
+    provision(root)
+    page('wiki/concepts/Real.md', 'type: concept')
+    page('wiki/concepts/Shipped.md', 'type: concept\norigin: upstream-demo')
+    page('wiki/concepts/Quoted.md', 'type: concept\norigin: "upstream-demo"')
+  })
+
+  it('drops a demo page from the candidates', async () => {
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Shipped.md', 'wiki/concepts/Real.md']),
+    })
+    expect(out.candidates.map((c) => c.pagePath)).toEqual(['wiki/concepts/Real.md'])
+  })
+
+  it('reads the value quoted as well, because the marker pass writes it either way', async () => {
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Quoted.md', 'wiki/concepts/Real.md']),
+    })
+    expect(out.candidates.map((c) => c.pagePath)).toEqual(['wiki/concepts/Real.md'])
+  })
+
+  it('ranks the survivors from 1, so the agent is not told about a gap', async () => {
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Shipped.md', 'wiki/concepts/Real.md']),
+    })
+    expect(out.candidates[0]?.rank).toBe(1)
+  })
+
+  it('fails open: a page it cannot read is not demo material', async () => {
+    // A retrieval failure silently shrinking an answer is worse than one demo page slipping in.
+    const out = await retrieveCandidates({
+      vaultRoot: root,
+      question: 'anything',
+      run: returning(['wiki/concepts/Gone.md']),
+    })
+    expect(out.candidates.map((c) => c.pagePath)).toEqual(['wiki/concepts/Gone.md'])
   })
 })

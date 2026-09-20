@@ -33,6 +33,12 @@ export interface SourceRef {
   type: string
   /** Where a web ingest came from. Null for everything dropped in as a file. */
   url: string | null
+  /**
+   * True when the payload is on disk but deliberately NOT in git history: over the size cap
+   * (D4, `raw-payload.ts`). The document still opens - the link is the same one - but a revert
+   * of this ingest cannot restore it, and the dashboard says so rather than implying it can.
+   */
+  localOnly?: boolean
 }
 
 export interface SourceIndex {
@@ -46,6 +52,8 @@ interface JobManifest {
   type?: string
   url?: string
   original?: string
+  /** Payloads kept out of git by the size cap (D4); written by `raw-payload.ts`. */
+  localOnly?: Array<{ path?: string }>
 }
 
 /** The ingest skill's delta tracker at `.raw/.manifest.json`. */
@@ -222,7 +230,11 @@ function resolveRef(
   }
 
   // Nothing to open in either direction is not a source, it is an empty row.
-  const ref = file === null && url === null ? null : { dir, file, type, url }
+  const localOnly =
+    Array.isArray(job?.localOnly) &&
+    job.localOnly.some((o) => typeof o?.path === 'string' && file !== null && o.path.endsWith(`/${file}`))
+  const ref =
+    file === null && url === null ? null : { dir, file, type, url, ...(localOnly ? { localOnly: true } : {}) }
   cache.set(cacheKey, ref)
   return ref
 }

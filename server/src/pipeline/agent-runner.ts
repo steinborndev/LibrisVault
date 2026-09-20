@@ -29,6 +29,7 @@ import {
 } from './permissions.js'
 import { createUpstreamGuard } from './upstream-guard.js'
 import { CREDENTIAL_ENV_VARS, type CredentialEnvVar } from '../config.js'
+import { WIKI_LOCK_STALE_SEC } from './wiki-lock.js'
 
 /**
  * Default per-job timeout (SPEC.md §3.1: "Timeout pro Job (Default 30 min)"). A batch of
@@ -243,6 +244,14 @@ export function buildAgentEnv(
   const env: NodeJS.ProcessEnv = { ...baseEnv }
   for (const name of CREDENTIAL_ENV_VARS) delete env[name]
   env[auth.envVar] = auth.credential
+  /*
+   * The vault's lock window, for the run's own `wiki-lock.sh acquire` calls (A2). The script
+   * applies the threshold in the ACQUIRER, so our side passing `--stale-after-sec` only decides
+   * what WE reap; this is the other direction - a run reaping a lock somebody else still holds
+   * after 60 s, which 9.6 % of measured holds outlived. `STALE_AFTER_SEC` is the global the
+   * script documents, so no vault file is modified to set it (hard rule 5).
+   */
+  env['STALE_AFTER_SEC'] = String(WIKI_LOCK_STALE_SEC)
   return env
 }
 
