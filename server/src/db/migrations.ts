@@ -881,6 +881,37 @@ ALTER TABLE validation_findings ADD COLUMN accepted_reason TEXT;
 CREATE INDEX idx_validation_accepted ON validation_findings(accepted_at);
 `
 
+/*
+ * What a fix run has already tried on this defect (2026-09-21, TASKS-DEFECT-PATHS 4.8).
+ *
+ * A run that finishes without fixing anything is invisible today and costs tokens on every
+ * click. The counter rises when a fix run COVERS a finding, whatever the outcome; the re-check
+ * that clears the finding is what marks success. From the third attempt the row says two runs
+ * have failed on it and offers accept or hand work instead of another button.
+ *
+ * TWO THINGS THE COUNTER HAS TO GET RIGHT, or it accuses a run that worked:
+ *
+ *   - `quote` cannot be cleared by the standing re-check at all (a quotation is compared
+ *     against the artifact the job read, which only an ingest holds), so a quote fix run runs
+ *     its own check and resolves its own finding. Without that, a SUCCESSFUL quote repair would
+ *     raise the counter every time and at three the row would call three successes two failures;
+ *   - a PARTIAL repair is not a failure. `findingIdentity` normalises numbers out of the
+ *     message, so a page that goes from three bad bullets to one keeps the same id and only
+ *     bumps its count. The row distinguishes "still standing, fewer occurrences" from
+ *     "unchanged" before it accuses anything.
+ */
+const V36 = `
+ALTER TABLE validation_findings ADD COLUMN fix_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE validation_findings ADD COLUMN last_fix_at TEXT;
+ALTER TABLE validation_findings ADD COLUMN occurrences_at_last_fix INTEGER;
+`
+
+/*
+ * The third column is what makes the second rule above checkable rather than asserted: without
+ * the count as it stood when the run started, "fewer occurrences than last time" has nothing to
+ * compare against, and every partial repair reads as a run that changed nothing.
+ */
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -917,4 +948,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 33, up: V33 },
   { version: 34, up: V34 },
   { version: 35, up: V35 },
+  { version: 36, up: V36 },
 ]

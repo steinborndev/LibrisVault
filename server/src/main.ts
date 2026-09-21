@@ -477,8 +477,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           runs: () => maintenance.listRuns(),
           commitMutex,
           autoCommit: () => settings.effective(config).gitAutoCommit,
-          veto: async (id) => {
-            await fellows.decide(id, { status: 'vetoed', via: 'dashboard', note: 'the question was archived on the pinboard' })
+          veto: async (id, note) => {
+            await fellows.decide(id, { status: 'vetoed', via: 'dashboard', note })
           },
         })
       : undefined
