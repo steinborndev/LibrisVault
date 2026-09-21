@@ -1,5 +1,5 @@
 /**
- * GET /api/v1/validation - the standing defect list (A9, SPEC.md §12.12).
+ * GET /api/v1/validation - the standing defect list (A9, SPEC.md §12.16).
  *
  * The validator's findings used to live only in job logs, one line per occurrence, each
  * labelled "advisory only". 406 of them accumulated there, one dead link reported 109 times.
