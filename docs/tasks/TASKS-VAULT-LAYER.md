@@ -2006,6 +2006,92 @@ the ones near zero, and they are near zero.
 
 ---
 
+## After the phases: what the live vault turned up (2026-09-19 to 09-21)
+
+Nineteen commits above the phase work, none of them planned here. They are recorded because the
+phases were, and because every one was found the same way: by running the finished machinery
+against the real vault and reading what it said about itself. Grouped by what they touch.
+
+### The standing list learned who may clear what (§12.16)
+
+Phase 5 built the list. Three commits taught it when a row may come off, each from a measured
+fault:
+
+- `41a8a09` **only the ingest path kept the list.** A lint, lint-fix, repair or research run
+  validated what it wrote and logged it, but added nothing and took nothing off, so the list
+  moved only when an ingest happened to touch the same page. **20 of 44 standing findings were
+  already repaired on disk**, two of them by a lint-fix an hour earlier.
+- `7833c33` **a whole-vault rule cannot be cleared per page.** `address-map`, the hub counters
+  and the hot cache read their file whole on every call. Both directions measured: teaching
+  maintenance runs to keep the list took address-map **7 to 75** in one run; narrowing the rule
+  an hour later took the vault from **72 real findings to 4** while the list stayed at 75, 68 of
+  them describing a defect the rule no longer believed.
+- `9c18ba3` **a check may only clear what it could look for.** `resolveMissing` now takes the
+  rules the caller actually checked, required rather than optional. Two rules are unraisable
+  from a path list (a quote needs the artifact the job read, a near-duplicate the pre-run
+  commit). Separately: a page no run touches is never re-read, so **11 of 66** findings named a
+  defect repaired hours earlier, and every rule is now on exactly one of the mechanical and
+  judgement lists - `open-question-form` was on neither from the day it shipped, 15 findings'
+  worth, with five others.
+
+### Three validator rules were reporting what nobody could repair
+
+- `1384c8b` the em-dash rule excluded code and counted everything else, while the repair pass
+  protects code, wikilink targets, urls, frontmatter and a dash between digits. **The rule
+  reported what the repair is forbidden to touch**, and the wikilink case is the expensive one:
+  rewriting a dash inside a link breaks every link naming that page. One run did that to **199
+  links**.
+- `4c8a7f0` the address-map rule asked of every addressed page whether the manifest knows it. A
+  research run's page has no document behind it, so the map is right to be silent. Zero on
+  2026-09-19, **68 the next day** after eight research runs.
+- `282bc90` the title-name rule named one repair, change the title. Measured against the live
+  vault: **right for 32 pages of 71, wrong for 39.** On 9 the file name carried the character
+  too, so which side carries it decides which side is repaired.
+
+### The lint report is a text the vault owns, and we were misreading it
+
+- `b9b6b4f` the view showed 20 findings where the report said **358**. Five faults; the totals
+  were anchored to the end of the line, so **nine of eleven** were lost.
+- `408d529` three more, including a section whose title is made of common words that were all on
+  the stop list, so it matched no summary line and fell through to its bullet count. The stop
+  list holds grammar only now.
+
+### The manifest follows the run (hard rule 1, tenth writer)
+
+- `86bfc58` a maintenance run shortened an over-long title, which shortened the file name, and
+  left `.raw/.manifest.json` naming a file that no longer existed.
+- `d3a3b66` the ingest skill writes an address_map entry; no other skill mentions addressing, so
+  a research run recorded nothing. **73 of 1274 addressed pages were missing from the map.**
+- `206bd53` every test of the update staged everything, while a real run passes a pathspec of its
+  own pages and the manifest is not among them. The module could have passed the test suite and
+  recorded nothing in production.
+
+### Names every system can open
+
+`RESEARCH_PREFIX` lost its colon in phase 4; these are the pages already written, and the service
+writers that were still minting bad ones.
+
+- `9d7a643` the notebook and recap writers put a colon in the `title:` of pages filed under a
+  computed name, so every wikilink an agent wrote from such a title resolved to nothing.
+- `9b8c3c6` **39 pages carried a character their file name cannot hold** where this vault is read
+  from; 34 were research pages filed with a colon. Windows over a share cannot open them at all.
+- `19d20f1` `--strip` for the ten the unambiguous pass deliberately left to a person.
+- `f301b61` the cheap half: **47 pages** whose file name was already fixed and whose title still
+  carried the character. No rename, no link touched, only the `title:` line.
+
+### Four singles, each found by watching something run
+
+- `89ada44` the graph's recency lens read the file mtime, and a mass pass rewrites every file:
+  **1,326 of 1,332** fell inside the 21-day window and every node came out green.
+- `167c5b5` a lint run put its own name on a reading-list entry a research run had added nine
+  days earlier, and pulled the page into a commit it had nothing to do with.
+- `8a5e512` a run wrote itself a scanner under `.vault-meta/`, which the exclude file holds out
+  of history on purpose. `git add` refused the ignored path **and stages nothing else in the same
+  call**, so the run failed after five minutes with its report written, its log entry written,
+  and nothing committed.
+- `0054afe` the deterministic link repair wrote to the vault and reported nothing afterwards: the
+  one writing path with no check, now checked on the pages it writes.
+
 ## Appendix: order dependencies, in one place
 
 ```

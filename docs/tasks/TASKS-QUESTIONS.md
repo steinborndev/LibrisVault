@@ -798,15 +798,22 @@ since the component still cannot be rendered in this suite.
 
 ### The real research run, and the first evidence that phase 3 works
 
-One run, started from the composer by clicking Start, on a topic the vault does not hold
-(test-time compute against parameter scaling). **4.7 minutes, one commit, 5 new pages**: a
-concept page, four source pages for the papers it read, and the synthesis. It also extended the
-origin page the question came from, which is the origin block of phase 1 doing its work.
+One run, started from the composer by clicking Start, on a topic the vault did not hold. **4.7
+minutes, one commit, 5 new pages**: a concept page, four source pages for the papers it read, and
+the synthesis. It also extended the origin page the question came from, which is the origin block
+of phase 1 doing its work.
 
-- [x] **The page name is the pinned one.** The synthesis was filed as
-      `Research - Test-Time Compute vs Parameter Count Scaling for Reasoning Benchmarks.md`, 78
-      characters, exactly what the prompt pinned. Without phase 2 it would have been the topic
-      sentence cut at 120 characters, mid-clause, after "rather than vendor-published b".
+- [x] **The page name is the pinned one.** The synthesis was filed under the name phase 2 pins:
+      **78 characters**, the whole of it, exactly what the prompt asked for. Without phase 2 the
+      name would have been the topic SENTENCE instead, cut at the 120-character cap partway
+      through a word.
+      **The name itself is deliberately not written down here, and neither is the subject**
+      (decided 2026-09-21). Both are a page of the working vault, and this file is public once
+      the merge lands (hard rule 7). Nothing of the finding is lost with them: what it rests on
+      is the length, and that the filed name agreed with the pinned one rather than with the
+      sentence the run started from. Redacting the name in place was the other candidate, the
+      way TASKS-A7 6.4 redacted a quoted planning run - it was not needed here, because this is
+      a statement about a name and not a quotation of one.
 - [x] **Phase 3, measured on the only run that has ever written under it.** Four open questions,
       and **all four end in a question mark** against a baseline of 8 %. All four name their
       sources in full rather than referring to them. One of the four carries "in this pass",
