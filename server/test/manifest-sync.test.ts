@@ -214,4 +214,27 @@ describe('a commit that renames one page and adds another', () => {
     expect(files).toContain(MANIFEST_PATH)
     expect(execFileSync('git', ['-C', root, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim()).toBe('2')
   })
+
+  /*
+   * How a maintenance run actually commits: a pathspec of its OWN paths, never `add -A`. The
+   * manifest is not among them, so the update only lands because it is staged explicitly after
+   * being written. Without this the module could pass every test above and still record
+   * nothing in production.
+   */
+  it('stages the manifest even when the run commits a pathspec of its own pages', async () => {
+    git('init', '-q')
+    git('config', 'user.email', 't@t')
+    git('config', 'user.name', 't')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'base')
+
+    page(FRESH, 'address: c-001292\n')
+    const res = await commitVault(root, 'maintenance: research-step', { pathspec: [FRESH] })
+
+    expect(res.committed).toBe(true)
+    expect(readManifest().address_map[FRESH]).toBe('c-001292')
+    const files = execFileSync('git', ['-C', root, 'show', '--name-only', '--pretty=format:', 'HEAD'], { encoding: 'utf8' })
+    expect(files).toContain(MANIFEST_PATH)
+    expect(execFileSync('git', ['-C', root, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim()).toBe('2')
+  })
 })
