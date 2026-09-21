@@ -863,6 +863,24 @@ const V34 = `
 ALTER TABLE validation_findings ADD COLUMN evidence TEXT;
 `
 
+/*
+ * Accepting a defect, with a reason (2026-09-21, TASKS-DEFECT-PATHS 2.1).
+ *
+ * SEPARATE FROM `resolved_at`, because the two say different things. Resolved means the defect
+ * is GONE - a run read the page again and no longer found it. Accepted means it may STAY: this
+ * tag really does name one page and that is fine, these two pages really are different. A row
+ * can be accepted and later resolved (somebody fixed it anyway); the accept is what keeps it
+ * off the list in the meantime.
+ *
+ * The reason is required by the route and stored verbatim. A snooze would only postpone the
+ * reading, and an accept without a reason is indistinguishable from neglect six months on.
+ */
+const V35 = `
+ALTER TABLE validation_findings ADD COLUMN accepted_at TEXT;
+ALTER TABLE validation_findings ADD COLUMN accepted_reason TEXT;
+CREATE INDEX idx_validation_accepted ON validation_findings(accepted_at);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -898,4 +916,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 32, up: V32 },
   { version: 33, up: V33 },
   { version: 34, up: V34 },
+  { version: 35, up: V35 },
 ]

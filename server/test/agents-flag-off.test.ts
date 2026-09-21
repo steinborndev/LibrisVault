@@ -199,6 +199,11 @@ describe('with the Fellows extension unwired', () => {
     // And the list itself carries the guidance the screen renders, with the flag off too.
     const list = await app.inject({ method: 'GET', url: '/api/v1/validation' })
     expect(Object.keys((list.json() as { guidance: Record<string, unknown> }).guidance)).toContain('open-question-form')
+    // Accepting a defect is base product too: it is the only way the list is ever emptied of
+    // the rules that need a judgement, and six of the nine standing ones are those.
+    const accept = await app.inject({ method: 'POST', url: `/api/v1/validation/${id}/accept`, payload: { reason: 'deliberate' } })
+    expect(accept.statusCode).toBe(200)
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/validation/${id}/accept` })).statusCode).toBe(200)
   })
 
   /*

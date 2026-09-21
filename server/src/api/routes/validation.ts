@@ -46,6 +46,9 @@ export type FindingSubject =
  */
 const RAW_DIR = /^\.raw\/([^/]+)\/?$/
 
+/** How long an accept's reason may be. Trimmed and stored verbatim inside that. */
+const ACCEPT_REASON_MAX = 500
+
 export function resolveSubject(finding: { path: string }, jobExists: (id: string) => boolean): FindingSubject {
   const raw = RAW_DIR.exec(finding.path)
   if (raw !== null) {
@@ -77,8 +80,8 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
   })
 
   app.get('/api/v1/validation', async (request) => {
-    if (ctx.validation === undefined) return { findings: [], byRule: [], total: 0, guidance: DEFECT_GUIDANCE }
-    const query = request.query as { rule?: string; limit?: string; offset?: string }
+    if (ctx.validation === undefined) return { findings: [], byRule: [], total: 0, accepted: 0, guidance: DEFECT_GUIDANCE }
+    const query = request.query as { rule?: string; limit?: string; offset?: string; accepted?: string }
     const limit = Math.min(Math.max(Number(query.limit ?? 50) || 50, 1), 200)
     const offset = Math.max(Number(query.offset ?? 0) || 0, 0)
     const byRule = ctx.validation.countsByRule()
@@ -86,17 +89,58 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
       findings: ctx.validation
         .list({
           ...(query.rule === undefined || query.rule === '' ? {} : { rule: query.rule }),
+          ...(query.accepted === '1' ? { accepted: true } : {}),
           limit,
           offset,
         })
         .map(withSubject),
       byRule,
       total: byRule.reduce((sum, r) => sum + r.findings, 0),
+      // The third block, always carried: it is collapsed in the UI and its count is what says
+      // whether to render it at all. `?accepted=1` asks for the accepted rows instead of the
+      // standing ones, which is how that block fills without a second endpoint.
+      accepted: ctx.validation.acceptedCount(),
       // What can be done about each rule and by whom. Served rather than mirrored in the web
       // bundle: the records are exhaustive over the rule union at compile time on the server,
       // and a second copy in TypeScript on the client would drift the first time a rule lands.
       guidance: DEFECT_GUIDANCE,
     }
+  })
+
+  /**
+   * Accepting a defect: it may stay, and here is why (TASKS-DEFECT-PATHS 2.4).
+   *
+   * THE REASON IS REQUIRED. A snooze only postpones the reading, and an accept without a
+   * reason is indistinguishable from neglect six months on - which is the state the 406
+   * job-log lines were in. Trimmed, capped, and stored verbatim: it is the user's sentence,
+   * not the service's.
+   *
+   * Base product, registered unconditionally (hard rule 8). The demo instance refuses every
+   * non-GET before this handler runs (`api/server.ts`), so the UI reads `health.demoMode` and
+   * disables the surface rather than offering a button that 403s.
+   */
+  app.post('/api/v1/validation/:id/accept', async (request, reply) => {
+    if (ctx.validation === undefined) return reply.code(404).send({ error: 'no validation store' })
+    const { id } = request.params as { id: string }
+    const body = (request.body ?? {}) as { reason?: unknown }
+    const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, ACCEPT_REASON_MAX) : ''
+    if (reason === '') {
+      return reply.code(400).send({ error: 'an accept needs a reason: what makes this defect allowed to stand' })
+    }
+    const result = ctx.validation.accept(id, reason)
+    if (result === 'missing') return reply.code(404).send({ error: 'no such finding' })
+    if (result === 'already') return reply.code(409).send({ error: 'this finding is already accepted' })
+    return reply.send({ finding: withSubject(result) })
+  })
+
+  /** Taking an accept back. The finding returns to whichever block it belonged to. */
+  app.delete('/api/v1/validation/:id/accept', async (request, reply) => {
+    if (ctx.validation === undefined) return reply.code(404).send({ error: 'no validation store' })
+    const { id } = request.params as { id: string }
+    const result = ctx.validation.unaccept(id)
+    if (result === 'missing') return reply.code(404).send({ error: 'no such finding' })
+    if (result === 'already') return reply.code(409).send({ error: 'this finding is not accepted' })
+    return reply.send({ finding: withSubject(result) })
   })
 
   /**
