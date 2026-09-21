@@ -35,11 +35,33 @@ import { execFileSync } from 'node:child_process'
 import { commitVault } from '../pipeline/git.js'
 
 const UNSAFE = /[/\\:?*"<>|]/
+const UNSAFE_G = /[/\\:?*"<>|]/g
 const PREFIX = 'Research: '
 const REPLACEMENT = 'Research - '
 
+/**
+ * The name a page should be filed under.
+ *
+ * The `Research: ` prefix becomes `Research - `, which is what the service writes today, so the
+ * old pages end up looking like the new ones. Every other forbidden character is DROPPED rather
+ * than substituted (`--strip`), because there is no substitution that reads well in all of
+ * them: a question mark ending an article's own title, an asterisk inside an astronomical
+ * designation, a quoted phrase. Dropping leaves the words; the run space collapse keeps the
+ * result from carrying the gap where the character was.
+ */
+export function safeName(oldName: string, strip: boolean): string | null {
+  let name = oldName.startsWith(PREFIX) ? REPLACEMENT + oldName.slice(PREFIX.length) : oldName
+  if (UNSAFE.test(name)) {
+    if (!strip) return null
+    name = name.replace(UNSAFE_G, '').replace(/ {2,}/g, ' ').replace(/ +([,.;)])/g, '$1').trim()
+  }
+  return name === '' || name === oldName ? null : name
+}
+
 const args = process.argv.slice(2)
 const apply = args.includes('--apply')
+/** Also drop the characters that have no good substitute, rather than leaving those pages. */
+const strip = args.includes('--strip')
 const cwd = process.env['INIT_CWD'] ?? process.cwd()
 const vault = path.resolve(cwd, args.find((a) => !a.startsWith('--')) ?? path.join(process.env['HOME'] ?? '', 'vault'))
 
@@ -120,24 +142,25 @@ async function main(): Promise<number> {
   for (const rel of wikiPages(vault)) {
     const oldName = path.basename(rel, '.md')
     if (!UNSAFE.test(oldName)) continue
-    if (!oldName.startsWith(PREFIX)) {
+    const newName = safeName(oldName, strip)
+    if (newName === null) {
       skipped.push(rel)
       continue
     }
-    const newName = REPLACEMENT + oldName.slice(PREFIX.length)
-    if (UNSAFE.test(newName)) {
-      // A second forbidden character further along: not this script's call either.
+    const to = `${path.dirname(rel)}/${newName}.md`
+    if (fs.existsSync(path.join(vault, to))) {
+      // The cleaned name is already taken by another page; merging two pages is not a rename.
       skipped.push(rel)
       continue
     }
-    renames.push({ from: rel, to: `${path.dirname(rel)}/${newName}.md`, oldName, newName })
+    renames.push({ from: rel, to, oldName, newName })
   }
 
   const byOldName = new Map(renames.map((r) => [r.oldName, r.newName]))
   console.log(`${renames.length} page(s) to rename, ${skipped.length} left for a person`)
   for (const r of renames) console.log(`  ${r.oldName.slice(0, 92)}\n  -> ${r.newName.slice(0, 92)}`)
   if (skipped.length > 0) {
-    console.log('\nleft alone - renaming these changes what the page is CALLED, not just how it is filed:')
+    console.log(`\nleft alone${strip ? '' : ' - pass --strip to drop the characters that have no good substitute'}:`)
     for (const rel of skipped) console.log(`  ${rel.slice(0, 100)}`)
   }
   if (renames.length === 0) return 0

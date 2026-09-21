@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { rewriteLinks, retitle } from '../src/cli/rename-unsafe-names.js'
+import { rewriteLinks, retitle, safeName } from '../src/cli/rename-unsafe-names.js'
 
 const map = new Map([
   ['Research: One Thing', 'Research - One Thing'],
@@ -74,5 +74,31 @@ describe("rewriting the page's own naming lines", () => {
 
   it('handles a page with no frontmatter at all', () => {
     expect(retitle('# Research: One Thing\n\nBody.\n')).toContain('# Research - One Thing')
+  })
+})
+
+describe('the name a page should be filed under', () => {
+  it('turns the research prefix into the one the service writes today', () => {
+    expect(safeName('Research: One Thing', false)).toBe('Research - One Thing')
+  })
+
+  it('leaves a second forbidden character to a decision, until --strip says otherwise', () => {
+    expect(safeName('Research: Is it so?', false)).toBeNull()
+    expect(safeName('Research: Is it so?', true)).toBe('Research - Is it so')
+  })
+
+  it('drops the character and closes the gap it leaves', () => {
+    // "Zeichen weg": no substitution reads well across an article title ending in a question,
+    // an asterisk inside a designation, and a quoted phrase - so the words stay and the
+    // character goes.
+    expect(safeName('A Question? And Then Some', true)).toBe('A Question And Then Some')
+    expect(safeName('Collapsed Companion (ABC-4*)', true)).toBe('Collapsed Companion (ABC-4)')
+    expect(safeName('Impacting the Sector? (Research, 2024)', true)).toBe('Impacting the Sector (Research, 2024)')
+    expect(safeName('He said "this" loudly', true)).toBe('He said this loudly')
+  })
+
+  it('says no when there would be nothing left, or nothing to change', () => {
+    expect(safeName('???', true)).toBeNull()
+    expect(safeName('A Clean Name', true)).toBeNull()
   })
 })
