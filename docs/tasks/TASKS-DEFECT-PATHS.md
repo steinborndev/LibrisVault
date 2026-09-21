@@ -108,12 +108,23 @@ why "What's due" says *Everything healthy* above 57 standing defects.
 
 Reproducing this table is task 0.1, and every later definition of done compares against it.
 
-- [ ] **0.1** A script under `scripts/` (or a documented `curl | python3` one-liner in this
-      file) that prints the table above from the live API: rule, findings, occurrences, bucket
-      distribution. Aggregates only, never a page title: this file is public.
-- [ ] **0.2** The last column too: the same script, or a second documented command, that dry-runs
-      each exposed pass and prints the page count, so "what a pass would reach" is re-measurable
-      rather than a number frozen on the day it was taken.
+- [x] **0.1** `scripts/defect-measure.mjs`, read-only, aggregates only.
+      `node scripts/defect-measure.mjs` prints rule, findings, occurrences, the repair path and
+      the bucket distribution from the live API (`--api <base>` to point it elsewhere, `--json`
+      to diff two runs). **Re-measured 2026-09-21 against 8421: identical to the table above,
+      row for row** - 57 findings, 157 occurrences, the same nine rules, the same seven
+      buckets, 17 seen more than once.
+      **The repair-path column reads `unknown` against a service running the OLD code**, and
+      that is the honest answer rather than a second copy of the classification: the script
+      takes it from `guidance` in the API response (`pipeline/defect-paths.ts`, exhaustive over
+      the rule union at compile time), so a table built from a copy kept in the script would
+      drift the first time a rule lands. Against a service running this branch the column
+      fills.
+- [x] **0.2** The same script, `--passes <vault>`, which runs the repair CLI in its default
+      dry-run form and parses its counts. **Re-measured 2026-09-21 against `~/vault`, all six
+      identical to the block above**: `em-dash` 2, `tag-mirror` 0, `tag-singleton` 26,
+      `run-protocol` 1, `title-link` 0, `address-map` 0 to add / 0 stale / 0 retired with 4 job
+      directories reported.
 
 ---
 
@@ -193,7 +204,7 @@ No schema change except the evidence column, no new writer, no agent run. After 
 list answers three questions it cannot answer today: where is it, what does it say, and who is
 supposed to do something about it.
 
-- [ ] **1.1 Every row links to its subject.** A `wiki/**` path links to the page (the existing
+- [x] **1.1 Every row links to its subject.** A `wiki/**` path links to the page (the existing
       `PageLink` / Catalog article view, plus `obsidianUri` from `web/src/lib/obsidian.ts`).
       A `.raw/<job-id>/` path links to the job **by the directory name**, which IS the job id
       (`queue.ts:601`), never by `last_job_id`.
@@ -207,7 +218,7 @@ supposed to do something about it.
       has a job row. So: link when the id resolves, show `last_job_id` as provenance ("last
       reported by") and never as a link target, and say "the job history no longer holds this
       run" rather than rendering a dead link.
-- [ ] **1.2 A row expands and shows the evidence.** Per rule, what the reader needs to judge it:
+- [x] **1.2 A row expands and shows the evidence.** Per rule, what the reader needs to judge it:
       - `quote`: the quotation in FULL as the page has it (the message carries only its first 80
         characters, `quotes.ts:53`), and the longest run of its own words that does stand in the
         source. Today only the LENGTH of that run is computed (`longestRun`, `quotes.ts:160`),
@@ -225,7 +236,7 @@ supposed to do something about it.
       - everything else: the relevant lines of the page
       The excerpt comes from the server so the browser never reads the vault directly. Cap it
       (600 characters per excerpt) and mark where it was cut.
-- [ ] **1.3 Migration 34: `evidence TEXT NULL` on `validation_findings`.** Filled by
+- [x] **1.3 Migration 34: `evidence TEXT NULL` on `validation_findings`.** Filled by
       `checkQuotes` (which has the source text in memory) and by the validator for rules whose
       evidence is not recoverable from the page alone.
       **`record()` updates it as `evidence = COALESCE(excluded.evidence, evidence)`**, NOT the
@@ -242,7 +253,7 @@ supposed to do something about it.
       **Check the migration number when you get here.** 34 was free on 2026-09-21
       (`db/migrations.ts` ends at 33); if something else landed first, take the next one. A
       shipped migration is never edited.
-- [ ] **1.4 Three blocks instead of one list.** "Fixable" (a deterministic pass or a bound run
+- [x] **1.4 Three blocks instead of one list.** "Fixable" (a deterministic pass or a bound run
       exists for this rule), "your decision" (everything else), "accepted" (phase 2, empty until
       then). The rule chips stay as a filter underneath.
       **This is a THIRD classification and must not be built by widening the existing split.**
@@ -258,7 +269,7 @@ supposed to do something about it.
       exactly as `RULE_KEYS` (`validator.ts:1092`) already is. The mechanical/judgement split is
       untouched, its exhaustive test stays, and a new test asserts the two classifications
       disagree only where they are meant to.
-- [ ] **1.5 Every rule says what is to be done and by whom.** A table in the server (one line
+- [x] **1.5 Every rule says what is to be done and by whom.** A table in the server (one line
       per rule, exported next to the rule union in `validator.ts` so a new rule cannot be added
       without one) that the UI renders under the expanded row: what the repair is, who performs
       it (button, agent run, you), and what it costs. A second `Record<ValidationRule, …>` beside
@@ -273,11 +284,11 @@ supposed to do something about it.
       `repair.ts` (and with it `hubs.ts` and `domains.ts`) into all four for a lookup table is a
       cost with nothing behind it. The compile-time exhaustiveness is unaffected by where the
       record lives.
-- [ ] **1.6 The list loads past 50.** `offset` in the API client, "show more" in the UI. The
+- [x] **1.6 The list loads past 50.** `offset` in the API client, "show more" in the UI. The
       route already supports it and caps at 200 (`api/routes/validation.ts:22-23`), and the badge
       already shows the true total because `total` is summed from the unfiltered `byRule`
       (`api/routes/validation.ts:26-28`): both stay as they are.
-- [ ] **1.7 "What's due" learns about defects.** A new `MaintAreaId`: fixable findings make it
+- [x] **1.7 "What's due" learns about defects.** A new `MaintAreaId`: fixable findings make it
       `due` (a click, no tokens), findings needing a decision make it `recommended`, accepted
       ones count nowhere, and no findings at all is an explicit `healthy` item.
       `deriveMaintenanceStatus` stays a pure function; the hook feeds it the counts from the
@@ -296,7 +307,16 @@ supposed to do something about it.
       ignores an unknown area, so the guided run does not offer defect repairs; that is
       deliberate, and it is written down here so the next reader does not take it for an
       oversight.
-- [ ] **1.8 Flag-off check (hard rule 8).** The whole phase is base product. Nothing added here
+      **DECIDED 2026-09-21: the card moved into Maintenance's card set** as `card-defects`, the
+      recommended option. `showCard` drives it like every other tool and the jump costs no new
+      machinery. **The trade, written down because it is a visible change and not only a
+      refactor:** the list used to render unconditionally at the foot of System -> Checks and now
+      renders only when a status item is clicked or "All tools" is open. What makes that not a
+      loss is the item itself - the head now NAMES the defects with a count and a severity, which
+      it never did, so the list went from always visible and never mentioned to one click away
+      and always mentioned. `StandingDefects` no longer returns null at zero: it renders the
+      explicit "nothing standing", the same way the healthy item reads.
+- [x] **1.8 Flag-off check (hard rule 8).** The whole phase is base product. Nothing added here
       may query a Fellow-only route; extend the `UNGATED` control group in
       `server/test/agents-flag-off.test.ts:79-88` for any route added.
 
@@ -306,6 +326,47 @@ evidence block for every rule whose evidence is derivable from the page, and for
 rows after the backfill of 1.3; the 51st row is reachable; "What's due" names a defects item,
 with `AGENTS_ENABLED` both on and off, and no longer says *Everything healthy* while defects
 stand.
+
+**DoD MET on the branch; the counted half is verified end-to-end in phase 5 against the
+throwaway copy, because it is the live list that has 57 rows.** What holds here:
+
+  - **22 of 22 rules carry a path and a guidance line**, enforced at compile time by
+    `Record<ValidationRule, …>` and asserted at runtime against `ALL_RULES`
+    (`server/test/defect-paths.test.ts`). Nine of them are the rules standing today; the other
+    thirteen were classified in the same pass rather than left to be discovered.
+  - **Every row resolves or says why it cannot**: `resolveSubject` returns `page`, `job` (with
+    whether the history still holds it) or `none` with a reason, over the three shapes a stored
+    path can have. No fourth shape exists - a stored path is `wiki/**.md`, `.raw/<job-id>/`, or
+    something whole-vault.
+  - **The 51st row is reachable**: `offset` in the client, "Show more" in the UI, tested against
+    a 57-row store.
+  - **"What's due" names the defects**, `due` when a repair is waiting, `recommended` when only
+    decisions are left, an explicit `healthy` at zero, and omitted while loading. The area is
+    base product and its query carries no `enabled` guard, because the route answers with the
+    flag off (hard rule 8 runs the other way here).
+
+**What became clear while building, that the task file did not say:**
+
+  - **The guidance had to be SERVED, not mirrored.** 1.4 and 1.5 put the two records in the
+    server, and the UI needs both. Copying them into the web bundle would have been a second
+    classification with no compile-time tie to the rule union - exactly the drift 1.4 exists to
+    prevent, one layer out. So `GET /api/v1/validation` carries `guidance` in its response, and
+    `useMaintenanceStatus` splits the counts by the SAME record the card renders from, which is
+    why the head and the blocks cannot disagree about what is fixable.
+  - **There is no deep-linkable job route in this app, and 1.1 needs one.** A job is opened from
+    Home's own event list, which is windowed by day and by `limit`, so an old `.raw/` job is not
+    in it. Added: `?job=<id>` on Home, which fetches that ONE job by id (`GET /jobs/:id`, which
+    already existed), folds it into the activity list and opens its record on the day it belongs
+    to. Small, and the alternative was a link that works only for jobs inside the window.
+  - **`longestRun` had to grow a sibling, not change.** 1.2 asks for the matching SPAN beside the
+    length. `longestRun` is exported and tested, so `longestMatch` now computes both and
+    `longestRun` delegates: no test changed, and the caller that needed the span got it.
+  - **The backfill must NOT go through `record()`.** 1.3 says to re-run `checkQuotes` per standing
+    finding, and the obvious way to store the result is `record()`. That would bump `count`, move
+    `last_seen` and rewrite `last_job_id` on nine rows, and resurrect any that had been resolved -
+    a backfill reporting itself as nine fresh sightings. So the store grew `setEvidence(id, …)`,
+    which fills only a NULL and moves nothing else, and the CLI matches its re-check back to the
+    row by `findingIdentity` rather than by position.
 
 **Tests:** the rule-to-path and rule-to-guidance tables are exhaustive over the rule union (a
 compile error, not a runtime one, when a rule is added); the two classifications are asserted
