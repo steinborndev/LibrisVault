@@ -18,7 +18,7 @@ ingests) not already captured there.
 
 "Startups & funding" lens: company-level rounds, backers and traction rather than the
 underlying microbiology. Created the required synthesis page
-[[Research: Who is funding precision fermentation, and against what substrate - Startup Landscape]],
+[[Research - Who is funding precision fermentation, and against what substrate - Startup Landscape]],
 two new concepts ([[Precision Fermentation]], [[Fermentation Feedstock Economics]]), seven new
 entities meeting the notability bar as subjects of dedicated, fact-rich sources
 ([[Standing Ovation]], [[Verley]], [[Fermeate]], [[Perfect Day]], [[The Every Company]],
@@ -58,7 +58,7 @@ Automated decisions:
 ## 2026-09-15 - Research: When retrieval beats a longer context window
 
 State-of-the-art lens, weighted to 2024-2026 sources. Created the required synthesis page
-[[Research: When retrieval beats a longer context window - State of the Art]], one new
+[[Research - When retrieval beats a longer context window - State of the Art]], one new
 concept ([[Self-Route]]), five new source pages (LaRA, the Self-Route/RAG-vs-LC study,
 OP-RAG, the "Long Context vs RAG" re-evaluation, Anthropic's Contextual Retrieval technical
 note), and extended [[Retrieval-Augmented Generation]], [[Context Window]] and

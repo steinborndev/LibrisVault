@@ -12,7 +12,7 @@ related:
   - "[[Dual-Payload Antibody-Drug Conjugate]]"
   - "[[Bispecific Antibody-Drug Conjugate]]"
   - "[[Multidrug Branched Linker]]"
-  - "[[Research: ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms — Patent Landscape]]"
+  - "[[Research - ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms - Patent Landscape]]"
 ---
 # Hot Cache
 
@@ -20,7 +20,7 @@ Last updated: 2026-09-15, after a patents-lens research pass on ADC (antibody-dr
 
 ## What's current
 
-- The task's three "platforms" (new payload, new linker, bispecific-dual-payload) turned out to be three separate patent-claim axes, not one converging trend - see [[Research: ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms — Patent Landscape]]. Every 2025 filing read directly claims an advance on exactly one axis.
+- The task's three "platforms" (new payload, new linker, bispecific-dual-payload) turned out to be three separate patent-claim axes, not one converging trend - see [[Research - ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms - Patent Landscape]]. Every 2025 filing read directly claims an advance on exactly one axis.
 - [[Dual-Payload Antibody-Drug Conjugate]]: two 2025 WO filings (Sutro Biopharma WO2025080711A1, topoisomerase-I + DDR-inhibitor synthetic-lethality pairing; Shanghai Huao WO2025031307A1, branched multidrug linker) claim different architectures for the same outcome. Both pending, not granted.
 - [[Multidrug Branched Linker]]: the actual 2025 novelty concentrates in hydrophilic-substitution linker chemistry to prevent aggregation, not in the payload molecules (already-known drug classes). Corroborated as a broader pattern (CSPC Megalith, Otsuka) by a vendor report, but those filings' claim text was not independently verified - vendor-report-only.
 - [[Bispecific Antibody-Drug Conjugate]]: dual-target and dual-payload claims are advancing on separate legal tracks. The one approved bispecific ADC (izalontamab brengitecan / BL-B01D1, see [[SystImmune]]) is dual-target, single-payload. No verified patent combining both axes was found - the closest evidence is a Tavotek-funded preclinical paper, not a patent.

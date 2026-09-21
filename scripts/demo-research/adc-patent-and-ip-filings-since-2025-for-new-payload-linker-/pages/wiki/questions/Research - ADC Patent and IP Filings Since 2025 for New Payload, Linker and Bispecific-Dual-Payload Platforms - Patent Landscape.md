@@ -1,6 +1,6 @@
 ---
 type: question
-title: "Research: ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms — Patent Landscape"
+title: "Research - ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms - Patent Landscape"
 domain: oncology
 created: 2026-09-15
 updated: 2026-09-15
@@ -27,7 +27,7 @@ sources:
   - "[[Quaternary Ammonium Salt-Linked STING Agonist ADC (research article)]]"
 ---
 
-# Research: ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms — Patent Landscape
+# Research - ADC Patent and IP Filings Since 2025 for New Payload, Linker and Bispecific-Dual-Payload Platforms - Patent Landscape
 
 ## Question
 

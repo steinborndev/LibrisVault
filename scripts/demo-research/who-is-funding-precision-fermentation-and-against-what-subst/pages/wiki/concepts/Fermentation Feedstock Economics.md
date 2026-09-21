@@ -76,4 +76,4 @@ broth.
 ## See also
 
 - [[Precision Fermentation]]
-- [[Research: Who is funding precision fermentation, and against what substrate - Startup Landscape]]
+- [[Research - Who is funding precision fermentation, and against what substrate - Startup Landscape]]

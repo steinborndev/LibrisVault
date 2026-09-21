@@ -28,7 +28,7 @@ where no listed domain fits the subject.
 
 ## Recent changes
 
-- New: [[Research: Who is funding precision fermentation, and against what substrate - Startup Landscape]] (required synthesis page for this pass).
+- New: [[Research - Who is funding precision fermentation, and against what substrate - Startup Landscape]] (required synthesis page for this pass).
 - New concepts: [[Precision Fermentation]], [[Fermentation Feedstock Economics]].
 - New entities (domain: unassigned): [[Standing Ovation]], [[Verley]], [[Fermeate]], [[Perfect Day]], [[The Every Company]], [[Solar Foods]], [[Arkeon]].
 - New sources: ten 2025-2026 trade-press articles and one investor insight piece - see the synthesis page's "Pages this rests on" list for the full set.

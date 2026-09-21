@@ -17,7 +17,7 @@ ingests) not already captured there.
 ## 2026-09-15 - Research: When retrieval beats a longer context window
 
 State-of-the-art lens, weighted to 2024-2026 sources. Created the required synthesis page
-[[Research: When retrieval beats a longer context window - State of the Art]], one new
+[[Research - When retrieval beats a longer context window - State of the Art]], one new
 concept ([[Self-Route]]), five new source pages (LaRA, the Self-Route/RAG-vs-LC study,
 OP-RAG, the "Long Context vs RAG" re-evaluation, Anthropic's Contextual Retrieval technical
 note), and extended [[Retrieval-Augmented Generation]], [[Context Window]] and

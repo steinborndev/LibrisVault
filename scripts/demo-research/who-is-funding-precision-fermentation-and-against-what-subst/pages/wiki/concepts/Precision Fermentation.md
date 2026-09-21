@@ -69,4 +69,4 @@ rather than against novelty of the target molecule.
 ## See also
 
 - [[Fermentation Feedstock Economics]]
-- [[Research: Who is funding precision fermentation, and against what substrate - Startup Landscape]]
+- [[Research - Who is funding precision fermentation, and against what substrate - Startup Landscape]]

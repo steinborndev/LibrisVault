@@ -35,7 +35,7 @@ tail is one-afternoon detours.
 
 ## Recent changes
 
-- New: [[Research: When retrieval beats a longer context window - State of the Art]]
+- New: [[Research - When retrieval beats a longer context window - State of the Art]]
   (required synthesis page for this pass).
 - New concept: [[Self-Route]] - the "let the model decide per query" routing pattern.
 - New sources: [[LaRA (benchmark paper)]], [[RAG vs Long-Context LLMs (comprehensive study)]],
