@@ -721,7 +721,7 @@ built.**
      rule goes back to being a decision rather than a button, and the counts are recorded here
      either way.
 
-- [ ] **4.1 A new maintenance kind `defect-fix`**, started through the existing runner so it
+- [x] **4.1 A new maintenance kind `defect-fix`**, started through the existing runner so it
       appears in the run registry, the history and the activity feed like every other run. Needs
       a credential (503 without, `api/routes/maintenance.ts:53-59`, like the other agent
       actions). A run kind is registered in seven places and NONE of them is a compile error, so
@@ -731,12 +731,12 @@ built.**
       `web/src/lib/library/scene.ts:312-327` and `:337-349`. A missing entry is a silent
       fallback, not an error, which is why this is a task and not a detail. The route is base
       product and goes into the `UNGATED` list of `server/test/agents-flag-off.test.ts:79`.
-- [ ] **4.2 The request names finding ids, never paths or prompts.** The server resolves them
+- [x] **4.2 The request names finding ids, never paths or prompts.** The server resolves them
       through the store, rejects the whole request if any id is unknown, already accepted or of
       a rule that has no run (the same all-or-nothing validation `tag-fix` uses,
       `api/routes/maintenance.ts:230-255`: the user selected specific repairs, silently dropping
       one repairs less than they asked). Cap 10, one rule per request.
-- [ ] **4.3 The prompt, per rule**, built from the finding's own message and evidence:
+- [x] **4.3 The prompt, per rule**, built from the finding's own message and evidence:
       - `open-question-form`: rewrite the bullets of this page so each asks one thing, ends in a
         question mark, names its subjects in full, and carries no reference to the run or the
         document. `reformulate()` (`profile: 'query'`, read-only, never throws,
@@ -746,7 +746,7 @@ built.**
         or rewrite the sentence around it into a paraphrase. Never invent a quotation.
       - `page-schema`: add the missing section and fill it from what the page and the graph
         already hold. An empty heading is not a repair.
-- [ ] **4.4 The scope guard: exactly the pages of the findings.** No other page, no new page, no
+- [x] **4.4 The scope guard: exactly the pages of the findings.** No other page, no new page, no
       rename, no delete, no prose rewrite beyond what the rule names. Enforced, not asked for in
       prompt wording, and `canUseTool` is not the enforcement point (hard rule 4).
       **The guard already exists in the shape this needs, and the sandbox is not the half that
@@ -764,7 +764,7 @@ built.**
       (`isSubsequence`, `expand.ts:183`), which requires every existing body line to survive. A
       defect fix replaces lines by definition - that is what rewriting a question or correcting a
       quotation is - so the expand check would revert exactly the run it was reused for.
-- [ ] **4.5 The notebook condition (decision 14), in two parts.**
+- [x] **4.5 The notebook condition (decision 14), in two parts.**
       **Part one, the Fellow:** a finding on `wiki/meta/agents/` is fixable only while that
       Fellow has no run in flight. The button is disabled with the reason named, and the server
       re-checks at start (the UI's view can be seconds old). `inFlight` is private and in memory
@@ -780,7 +780,7 @@ built.**
       today's 57 are notebook findings. What is gone is `ctx.fellows`, and with it any way to
       ask part one. So with the flag off a notebook finding renders as a decision with the reason
       named, never as a button, and no request goes to a Fellow-only route (hard rule 8).
-- [ ] **4.6 A reformulated question is a new question (decision 13).**
+- [x] **4.6 A reformulated question is a new question (decision 13).**
       **Snapshot `parseQuestionBullets` of the page BEFORE the run.** The proposal is matched by
       `questionKey` over the OLD text (`questions.ts:253-255`) and nothing in the finding carries
       it: the `open-question-form` message counts bullets and names none (`validator.ts:568`).
@@ -799,7 +799,7 @@ built.**
       dialog before the run starts, because it can discard a planned night's work. Record it in
       SPEC.md §12.15 as a second way a question's identity ends, alongside the amendment the
       phase preamble asks for.
-- [ ] **4.7 Diff after, revert beside it.** The run commits; the UI shows the commit's diff and
+- [x] **4.7 Diff after, revert beside it.** The run commits; the UI shows the commit's diff and
       a revert that reuses `revertCommit` (commit mutex, refuses on a dirty tree, aborts cleanly
       on conflict, `git.ts:399-435`) as `POST /api/v1/jobs/:id/revert` does
       (`api/routes/jobs.ts:189`). The route itself is not reusable, only the function: it marks
@@ -812,7 +812,7 @@ built.**
         them, reverting the commit puts the defect back on disk and the list does not know until
         another run reads the page. So the revert also re-records: `validate(pages)` and
         `record(findings, null)` over the reverted pages, in the same request.
-- [ ] **4.8 Migration 36: `fix_attempts INTEGER NOT NULL DEFAULT 0`, `last_fix_at TEXT NULL`.**
+- [x] **4.8 Migration 36: `fix_attempts INTEGER NOT NULL DEFAULT 0`, `last_fix_at TEXT NULL`.**
       Incremented when a fix run covers this finding, whatever the outcome; the re-check that
       clears the finding is what marks success. From the third attempt the row says two runs
       have failed on it and offers accept or hand work instead of another button.
@@ -830,12 +830,101 @@ built.**
       bad bullets to one keeps the same id and only bumps its count. The row distinguishes "still
       standing, fewer occurrences" from "unchanged" before it accuses a run of failing.
       Check the migration number when you get here, as in 1.3.
-- [ ] **4.9 Re-check after the run**, the same three-call sequence as 3.5, plus the `quote`
+- [x] **4.9 Re-check after the run**, the same three-call sequence as 3.5, plus the `quote`
       special case of 4.8.
 
 **DoD:** one run per supported rule against the live vault, with before and after counts and the
 commit hash recorded here; one deliberate revert; one run against a notebook while its Fellow is
 idle, and a refused attempt while it is not.
+
+**DoD MET, with the same substitution phase 3 made and one part that could not be met as
+written.** The runs went against the throwaway COPY, never `~/vault` (the user's own limit).
+Three real runs, one revert, on 2026-09-21:
+
+| Rule | Findings | Pages written | Commit | Cost | List before -> after | Cleared? |
+|---|---|---|---|---|---|---|
+| `open-question-form` | 10 | 10 + `wiki/log.md` | `b1a3c125` | 1.13 USD | 15 -> 10 | 9 of 10 |
+| `quote` | 3 | 3 | `423997ae` | 1.05 USD | 9 -> 9 | 0 of 3, correctly |
+| `page-schema` | 5 | 5 + `wiki/log.md` | `c6cd2823` | 1.20 USD | 5 -> 0 | 5 of 5 |
+| revert of `c6cd2823` | - | 6 restored | `95f77188` | - | 39 -> 44 | 5 back on the list |
+
+Plan usage: each run moved the five-hour window by 1 point and the seven-day window by 0. The
+seven-day window stood at 78 % before the first and after the last. Total 3.38 USD of list-price
+estimate for the three runs, plus one `permprobe` (two further runs, which hard rule 4 requires
+after any change to the permission wiring - it reported `canary outside vault: blocked`).
+
+**The scope guard held on every run.** All three commits contain exactly the pages of their
+findings, plus `wiki/log.md` on two of them - which is the service's OWN hub write inside the
+run's commit (SPEC.md §12.12) and is exempt from the check by construction, the same exemption
+the expand rules carry. No run created, renamed or deleted a page, and the commit check never
+fired.
+
+**The notebook condition: the "refused while the Fellow is working" half could not be met against
+the copy, and the reason is a measurement rather than a gap.** Of the six Fellows in the snapshot
+five are RETIRED, and retirement is final in that module (`pause()` and `resume()` both return a
+retired agent untouched) - so a retired Fellow has no next notebook write and its page is an
+ordinary one. The sixth is `waiting` with no run in flight, and starting a Fellow run to create
+one would have been a fourth and fifth agent run outside the agreed budget. Both halves are held
+by `server/test/defect-fix.test.ts` against the real `defectFixBlock`, and the route re-checks
+rather than trusting the browser. What the E2E DID show: the three notebook findings that were
+blocked BEFORE this was measured, and are correctly fixable after it (see the finding below).
+
+**THE THRESHOLD, agreed before the run and measured after it.** Over the 10 pages of the
+`open-question-form` run, counted with the service's own classifiers:
+
+```
+                        before      after
+bullets                     61         68
+ask something               17         66
+deictic bullets             24          7
+pages with a deictic bullet 10 of 10    5 of 10
+```
+
+**The bar was: every bullet asks something, and at most 2 of 10 pages still deictic. It is
+FAILED on both halves** - 66 of 68 ask something, and 5 of 10 pages still carry a deictic bullet.
+So, as agreed in advance, **`open-question-form` goes back to being a decision rather than a
+button.** The prompt stays in the repo and the route refuses the rule, so the screen and the
+endpoint agree.
+
+**And the one number that makes this worth revisiting rather than closing: 6 of the 7 remaining
+deictic bullets carry ONE phrase, `in this vault`.** Only one bullet, on one page, carries true
+run-deixis (`this run`). `PASS_DEIXIS` (`question-form.ts`) counts `in this vault` beside `in
+this pass`, and the two are not the same kind of reference: "in this pass" means nothing away
+from the page, and "in this vault" is a scope a question asked OF this vault legitimately
+carries. Counted without it the run leaves **1 of 10** pages deictic, inside the bar. That is a
+question about the classifier in SPEC.md §12.15, not about this run, and it is recorded here
+rather than decided: changing the classifier to pass a threshold it failed is exactly the move
+a bar agreed in advance exists to prevent.
+
+**THREE FINDINGS THE RUNS PRODUCED, none of which this file had:**
+
+  1. **A `quote` finding is one per PAGE, not one per quotation.** `findingIdentity` normalises
+     quoted strings and numbers out of the message, and a quote finding's message is
+     `quote not found in the source: "<text>" (longest match <n> of <n> words)` - so every
+     failing quotation on one page hashes to the SAME id. Verified directly: two different bad
+     quotations on one page produce one identity. This is why the quote run cleared nothing and
+     why that is CORRECT: of its three pages, two still carried a second failing quotation and
+     the third was a checker false positive the run correctly left alone (a PDF extraction had
+     glued a reference marker onto a word). It also means the screen's "9 quote findings" is 9
+     PAGES with at least one bad quotation, and the occurrence count is how often that has been
+     reported.
+  2. **Task 4.8's partial-repair reasoning does not hold for `open-question-form`.** It says a
+     finding that goes from three bad bullets to one "keeps the same id and only bumps its
+     count", because numbers are normalised out. Measured: of the 10 findings the run covered, 9
+     resolved and 4 NEW ids appeared on the same pages with `fix_attempts: 0`. The message is
+     built from two optional clauses (`N do(es) not ask anything`, `N refer(s) to the run`), and
+     a page that loses one clause produces a structurally different message and therefore a
+     different identity. The consequence runs the SAFE way - the counter under-counts rather
+     than accusing a run that worked - and `occurrences_at_last_fix` only does its job for the
+     rules whose message has one clause, which is `quote` and `page-schema`.
+  3. **A retired Fellow's notebook was blocked and should not have been.** Three of the four
+     notebook findings stand on retired Fellows' pages, and the first version of the guard
+     filtered retired Fellows out of `ownerOf` - so three quarters of the class lost its path to
+     protect against a write that can never happen. Fixed, with a test.
+
+**And one wording fix the first real run produced:** the commit subject read
+`repair: a bound run over 10 pages carrying a open-question-form defect`. The rule name carries
+no article. It is now `…, rule <name>`.
 
 **Plus a threshold for `open-question-form`, because 15 of 57 findings ride on it and no
 evidence exists yet that a bound run helps.** SPEC.md §12.15 measured the in-page prompt rule at
@@ -865,30 +954,97 @@ its advice at three.
 
 Nothing ships before this.
 
-- [ ] **5.1** `npm test`, `npm run typecheck`, `npm run lint`, all three green and exit 0. A
+- [x] **5.1** `npm test`, `npm run typecheck`, `npm run lint`, all three green and exit 0. A
       green suite is not a green repo.
-- [ ] **5.2** The measurement of section 0 repeated, both columns (0.1 and 0.2): the table,
+      **Done, and the warning earned its place twice**: the suite was green with the typecheck
+      red on two separate occasions during this work, both times over test-file types that
+      `vitest` does not check and `tsc --noEmit` does. Final: 118 server files / 2008 tests,
+      65 web files / 676 tests, typecheck and lint exit 0.
+- [x] **5.2** The measurement of section 0 repeated, both columns (0.1 and 0.2): the table,
       before and after, in this file.
-- [ ] **5.3** `node scripts/vault-audit.mjs ~/vault --json` before and after the first real
+
+      **AFTER, taken 2026-09-21 against the throwaway copy through the same script** (the live
+      vault was never written, so its own table is unchanged - see the note under 5.3):
+
+      | Rule | Findings | Occurrences | Path | Was |
+      |---|---|---|---|---|
+      | `open-question-form` | 10 | 16 | decision | 15 |
+      | `quote` | 8 | 9 | run | 9 |
+      | `tag-singleton` | 6 | 22 | pass | 14 |
+      | `near-duplicate` | 6 | 6 | decision | 6 |
+      | `page-schema` | 5 | 10 | run | 5 |
+      | `address-map` | 4 | 108 | decision | 4 |
+      | `run-protocol` | 2 | 4 | pass | 2 |
+      | `em-dash` | 1 | 19 | pass | 1 |
+      | `title-name` | 1 | 1 | decision | 1 |
+      | **Total** | **43** | **195** | | **57** |
+
+      **57 to 43, over one afternoon, without a single decision being taken for the user.** The
+      page-schema five are back because its commit was deliberately reverted to test the revert;
+      without that the figure is 38. `em-dash` is back for the same reason (its commit was
+      reverted for the stale-path test). What actually went and stayed gone: 8 tag-singleton, 1
+      quote, and 5 of the 15 open-question findings.
+
+      **Every rule now carries a path**, which is the thing section 0 could not say: 2 rules
+      reach a deterministic pass, 2 a bound run, 5 a decision with the reason written down.
+- [x] **5.3** `node scripts/vault-audit.mjs ~/vault --json` before and after the first real
       apply, diffed. `--redact` for anything committed here.
-- [ ] **5.4** `scripts/vault-name-scan.mjs --diff main` over everything this branch adds, and
+      **NOT APPLICABLE AS WRITTEN, and the reason is the user's own limit on this work:
+      `~/vault` is never written by it.** No apply, no run and no commit touched the live vault,
+      so an audit of it before and after would be the same file twice. The measurement that
+      answers the question this task exists to answer - did the vault change in a way nobody
+      intended - is the per-commit check that ran instead: every apply and every run produced
+      exactly ONE commit containing exactly the pages it named, `git fsck` exits 0 on the copy
+      afterwards, and the scope check on the runs never fired. All of it is recorded per phase
+      above.
+- [x] **5.4** `scripts/vault-name-scan.mjs --diff main` over everything this branch adds, and
       `--file` over the PR body. Read the added UI strings and test fixtures by eye: this work
       puts vault text on screen, and content is where every leak of the 2026-09-15 audit was.
-- [ ] **5.5** A walk through the screen with `AGENTS_ENABLED` off: no Fellow surface, no request
+- [x] **5.5** A walk through the screen with `AGENTS_ENABLED` off: no Fellow surface, no request
       to a Fellow-only route, no 404 on mount. The notebook findings are visible and render as
       decisions (4.5), and `server/test/agents-flag-off.test.ts` carries every route this branch
       added in its `UNGATED` control group.
-- [ ] **5.6 The documentation this branch owes**, none of which any task above produces as a side
+      **Walked 2026-09-21 against the copy with `AGENTS_ENABLED=0`:** `health.fellows` is the
+      BOOLEAN `false`; all eight Fellow-only routes answer 404 (`/agents`, `/agents/shift`,
+      `/recaps`, `/library/scene`, `/wings`, `/usage/plan`, `/reading-list`, `/questions`); the
+      list answers 200 and carries its guidance; `repair/manifest/plan` answers 200 and
+      `repair/plan` answers 400 for a missing field, which is an ANSWER rather than a gate. The
+      3 notebook findings are visible and classified `decision`, and no row anywhere offers a
+      run for a rule that has none. The suite's control group covers the new routes, with the
+      two that legitimately 404 or 400 asserted separately rather than folded into a flat 200.
+- [x] **5.6 The documentation this branch owes**, none of which any task above produces as a side
       effect: `docs/API.md` gains a line per new route beside the `GET /validation` entry it
       already has; `CHANGELOG.md` gains the merge entry; `SPEC.md` §12.16 gains the repair path
       and §12.15 the amendment of the phase-4 preamble; `CLAUDE.md`'s writer table gains the two
       rows of 3.8.
-- [ ] **5.7** A walk with `DEMO_MODE` on: every new write surface is disabled rather than
+      **All four done.** `docs/API.md` has the eight new routes; `CHANGELOG.md` has the merge
+      entry including a "known limits, measured rather than assumed" section that names the
+      three things this work does NOT deliver; `SPEC.md` §12.16 carries the third
+      classification, the plan-diff-confirm flow, the price of filtering a vault-wide pass and
+      the accept, and §12.15 carries the amendment; `CLAUDE.md`'s writer table has both rows
+      with a paragraph saying why the manifest half is not covered by the `manifest-sync.ts`
+      row above it.
+- [x] **5.7** A walk with `DEMO_MODE` on: every new write surface is disabled rather than
       offering a button that 403s (`api/server.ts:169-177` refuses every non-GET, the read-only
       `repair/plan` included).
+      **Walked 2026-09-21 against the copy with `DEMO_MODE=1`:** `health.demoMode` is true and
+      all EIGHT new non-GET surfaces answer `403 demo_read_only` before any handler runs -
+      `repair/plan`, `repair/apply`, `repair/run`, `repair/revert`, `repair/manifest/plan`,
+      `repair/manifest/apply`, and both verbs of `/:id/accept`. Reads still answer 200. The UI
+      reads `health.demoMode` and DISABLES each surface rather than hiding it, which is the
+      deliberate half: a surface that vanishes reads as a feature that does not exist, and the
+      demo is meant to show what the product does.
 - [ ] **5.8** The user works the list down once, by hand, and says whether the path is actually
       a path. Findings from that pass are written here before anything is called done. This one
       is deliberately not objective; it is the question the whole file exists to answer.
+      **OPEN. This is the user's own pass and nothing here can stand in for it.** Everything it
+      needs is in place: the branch is `feat/defect-paths`, all three commands are green and
+      exit 0, both probes have run, and the throwaway instance the acceptance ran against is
+      described at the top of the E2E notes above. The one thing to know before working the list
+      by hand: two rules with a real repair path reach nothing on TODAY's findings -
+      `run-protocol`'s pass does not reach either of its two pages, and the address map's repair
+      reaches none of its four - so the first impression of "fixable" will be smaller than the
+      block heading suggests. Both say so in the row.
 
 ---
 
