@@ -256,6 +256,33 @@ describe('the evidence one row shows', () => {
     expect(ev.blocks[0]!.text).toHaveLength(EVIDENCE_CHARS + 1)
   })
 
+  /**
+   * The vault names its files after their titles, so a page path normally CONTAINS SPACES.
+   * Measured against the live list: a pattern that stopped at the first space found nothing on
+   * all six near-duplicate rows, which then rendered as "names no second page".
+   */
+  it('finds the other page of a near-duplicate even when its name has spaces in it', () => {
+    const ev = evidenceFor(
+      {
+        rule: 'near-duplicate',
+        path: 'wiki/concepts/One Page.md',
+        message:
+          'reads as the same subject as wiki/concepts/Another Page Name.md (similarity 0.913, above the vault\u2019s own error threshold) - one of them should extend the other',
+        evidence: null,
+      },
+      () => undefined,
+    )
+    expect(ev.blocks[0]!.text).toBe('wiki/concepts/Another Page Name.md')
+  })
+
+  it('prefers a wikilink where the message writes one', () => {
+    const ev = evidenceFor(
+      { rule: 'near-duplicate', path: 'wiki/a.md', message: 'reads like [[Another Page]] does', evidence: null },
+      () => undefined,
+    )
+    expect(ev.blocks[0]!.text).toBe('Another Page')
+  })
+
   it('says a .raw directory has no page text rather than rendering empty', () => {
     const ev = evidenceFor({ rule: 'address-map', path: '.raw/job-1/', message: 'named in no source entry' }, vaultReader(vault))
     expect(ev.source).toBe('none')

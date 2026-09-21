@@ -92,11 +92,19 @@ function quoteEvidence(stored: string): DefectEvidence {
   return blocks.length === 0 ? { blocks: [], source: 'none', note: 'the check recorded nothing readable' } : { blocks, source: 'stored' }
 }
 
-/** The second page a near-duplicate finding names, straight out of the message. */
+/**
+ * The second page a near-duplicate finding names, straight out of the message.
+ *
+ * SPACES ARE PART OF A PAGE PATH. The vault names its files after their titles, so
+ * `wiki/concepts/Some Long Title.md` is the normal shape and a pattern that stops at the first
+ * space finds nothing - measured against the live list, where all six near-duplicate rows
+ * looked as if they named no page at all. So the match runs from `wiki/` to the first `.md`,
+ * non-greedy, which is exactly one path whatever the message says around it.
+ */
 function namedPage(message: string): string | undefined {
   const link = /\[\[([^\]|]+)/.exec(message)
   if (link !== null) return link[1]!.trim()
-  const rel = /\b(wiki\/[^\s,;)]+\.md)\b/.exec(message)
+  const rel = /(wiki\/[^\n]+?\.md)/.exec(message)
   return rel === null ? undefined : rel[1]
 }
 
