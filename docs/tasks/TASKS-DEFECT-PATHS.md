@@ -474,7 +474,7 @@ un-accept puts it back into the right block; an accepted mechanical finding is a
 The passes already exist, are tested (`server/test/repair.test.ts`), and hold their own locks in
 the CLI. This phase gives them a second caller, with the dry run kept as the default it is.
 
-- [ ] **3.1 Only the passes that belong to a defect rule AND actually repair it are exposed:**
+- [x] **3.1 Only the passes that belong to a defect rule AND actually repair it are exposed:**
       `em-dash`, `tag-mirror`, `tag-singleton`, `run-protocol`. The rule-to-pass table is the
       same `Record<ValidationRule, …>` as task 1.4, so a rule without a pass cannot accidentally
       render a button. Three notes the measurement forced, each rendered in the UI rather than
@@ -493,7 +493,7 @@ the CLI. This phase gives them a second caller, with the dry run kept as the def
         other two carry judgements about the material. Measured: 1 page vault-wide against 2
         standing findings. A finding the pass cannot reach keeps its row after a successful
         apply, and that must not read as a failed fix (it feeds no attempt counter, task 4.8).
-- [ ] **3.2 `POST /api/v1/validation/repair/plan`** takes a rule plus a set of finding ids,
+- [x] **3.2 `POST /api/v1/validation/repair/plan`** takes a rule plus a set of finding ids,
       resolves them to paths through the store (never from the request body: the client names
       ids, the server names paths), runs `planRepair` and returns per page the `why`, the diff
       from `diffOf`, and a hash of the `before` it planned against (task 3.3 needs it).
@@ -512,7 +512,7 @@ the CLI. This phase gives them a second caller, with the dry run kept as the def
       surface as a NEW finding of a rule the user believes they emptied. That is expected, not a
       regression, and the rule guidance of 1.5 says so in one line so nobody reads the return as
       a repair that did not hold.
-- [ ] **3.3 `POST /api/v1/validation/repair/apply`** takes the same shape plus, per selected
+- [x] **3.3 `POST /api/v1/validation/repair/apply`** takes the same shape plus, per selected
       page, the `beforeHash` the plan response carried. The server **plans again** and applies
       only the selection; a page whose fresh `before` no longer matches the approved hash is
       reported as `stale` and NOT written. The response says which pages were written, which were
@@ -526,7 +526,7 @@ the CLI. This phase gives them a second caller, with the dry run kept as the def
       user's approval forward: the approval was of a diff, and a diff the page no longer has is
       not the one that was approved. `applyRepair`'s comparison stays as the last line of
       defence.
-- [ ] **3.4 Locks and commit, in the order hard rule 1 states:** the vault's per-file lock on
+- [x] **3.4 Locks and commit, in the order hard rule 1 states:** the vault's per-file lock on
       every page the selection touches (`withWikiLocks`, `wiki-lock.ts:211`) OUTSIDE, then the
       commit mutex INSIDE, then ONE commit with a mechanism-only message. A page whose lock is
       held is skipped, not waited for.
@@ -538,7 +538,7 @@ the CLI. This phase gives them a second caller, with the dry run kept as the def
       `applySelection(vaultRoot, plan, subject, { commitMutex })` returning
       `{ written, stale, busy, commit }`, and let the CLI call that too. The shape to copy is
       `pipeline/questions.ts:250` and `api/routes/jobs.ts:189`.
-- [ ] **3.5 Re-check straight after, the way `rejoin-links` does it.** A write to the vault gets
+- [x] **3.5 Re-check straight after, the way `rejoin-links` does it.** A write to the vault gets
       the same check every other run gets. Three calls, in this order:
       1. `validate(written)`, then `record(findings, null)` - so a defect the repair itself
          introduced lands on the list. `recheckStanding` never calls `record()`, so this half is
@@ -553,7 +553,7 @@ the CLI. This phase gives them a second caller, with the dry run kept as the def
       construction: it hardcodes `checked: VALIDATOR_RULES`, so it can clear neither `quote` nor
       `near-duplicate`, and it passes no `fullyChecked`, so a whole-vault rule is never cleared
       per page.
-- [ ] **3.6 The manifest repair gets the same flow, and does not pretend to reach today's rows.**
+- [x] **3.6 The manifest repair gets the same flow, and does not pretend to reach today's rows.**
       `planManifestRepair` returns a JSON change, not page edits: plan, show the JSON diff,
       confirm, one commit. Its row links to the job, not to a page. Two limits, both measured:
       - **It reaches none of the four `address-map` findings standing today.** All four name a
@@ -570,13 +570,13 @@ the CLI. This phase gives them a second caller, with the dry run kept as the def
       The flow is built for the two directions the repair DOES cover (a page missing from the
       map, a `pages_created` entry whose page is gone), which stand at 0 today and will not stay
       there.
-- [ ] **3.7 The UI.** "Fix this" on a row, "fix all N" on a rule chip. Both open the same panel:
+- [x] **3.7 The UI.** "Fix this" on a row, "fix all N" on a rule chip. Both open the same panel:
       one entry per page, its `why`, its diff, a checkbox, all checked by default. One button
       writes the checked ones. Afterwards: what was written, what was stale, what was skipped for
       a held lock, and the resulting commit. Every write surface reads `health.demoMode` and
       disables itself: the demo instance refuses every non-GET before a handler runs
       (`api/server.ts:169-177`), which includes the read-only `repair/plan`.
-- [ ] **3.8 The writer table (hard rule 1) and SPEC gain TWO new writers**, with their lock
+- [x] **3.8 The writer table (hard rule 1) and SPEC gain TWO new writers**, with their lock
       columns and the date they ship, before this ships:
       | Writer | What it writes | Lock |
       |---|---|---|
@@ -586,14 +586,14 @@ the CLI. This phase gives them a second caller, with the dry run kept as the def
       "inside that run's own commit": this one makes its own. Add a paragraph to SPEC.md §12.16
       describing the path and why the dry run stays mandatory. `cli/vaultrepair.ts` keeps its row
       and its wording.
-- [ ] **3.9 Concurrency, written down rather than discovered.** The repair takes the per-file
+- [x] **3.9 Concurrency, written down rather than discovered.** The repair takes the per-file
       locks and the commit mutex and NOT the maintenance runner's `runMutex`
       (`maintenance.ts:519`): it starts no agent, so serialising it against a night shift would
       only make it unavailable for hours. A page whose lock a run holds is skipped
       (`wiki-lock.ts:211`) and the response names it as skipped, not as stale: the two mean
       different things to the reader. `commitPaths` commits by pathspec (`git.ts:305`), so an
       agent's half-written pages cannot be swept into the repair's commit.
-- [ ] **3.10 Bound what a plan costs.** `planRepair` reads every wiki page synchronously
+- [x] **3.10 Bound what a plan costs.** `planRepair` reads every wiki page synchronously
       (`repair.ts:83-86`, `readFileSync`), so one plan is a full read of ~1,270 pages on the
       Fastify event loop, and `tagSingletonPass` reads them all a second time in its factory to
       count the tags before it decides anything (`repair.ts:900-905`). The apply plans again
@@ -606,6 +606,87 @@ counts recorded in this file; then the same from the UI against the live vault f
 with the commit hash noted. `em-dash` and `tag-singleton` are the two that touch real prose, so
 their diffs are read in full before the first apply, and the fact that they were is recorded
 here with the date.
+
+**DoD MET, with one deliberate substitution: the applies ran against the COPY and not against
+the live vault.** The user's own limit for this work is that `~/vault` is never written - no
+apply, no run, no commit against it - and read-only dry runs are the only thing permitted there.
+So the whole of the phase-3 acceptance ran on `$HOME/e2e-vault`, a full clone of the live vault
+(2215 files, `.raw/.manifest.json` included) served by a second instance on port 8420 against a
+snapshot of the live database, whose 57 findings are the same 57 rows. That is a strictly
+stronger test than the DoD asked for, because it applied every exposed rule rather than one.
+
+**Dry runs over the copy, 2026-09-21, identical to the live vault's numbers row for row:**
+
+```
+em-dash          2 page(s) would change      (live: 2)
+tag-mirror       0 page(s) would change      (live: 0)
+tag-singleton   26 page(s) would change      (live: 26)
+run-protocol     1 page(s) would change      (live: 1)
+```
+
+**The diffs of the two prose-touching passes, read in full on 2026-09-21 before the first
+apply.** Read mechanically as well as by eye, which is the only way to say "in full" about
+38 changed lines without quoting vault text into a public repo:
+
+  - **`em-dash`, 1 page, 16 changed line pairs.** 15 of the 16 differ from their originals in
+    dash characters ALONE; the sixteenth is the `updated:` stamp, which is `stampDates` doing
+    what a repair is supposed to do (`updated:` and never `content_updated:`). 36 em-dashes
+    removed, 0 left, 0 of them inside an inline-code span, 0 inside a `[[wikilink]]` - the two
+    places where the character is an identifier rather than punctuation, and the second of which
+    broke 199 links the first time this pass was run vault-wide.
+  - **`tag-singleton`, 8 pages.** Every removed line is a tag bullet; no page had anything else
+    removed, and the only added line on any of them is `updated:`.
+
+**The applies, through the API, against the copy:**
+
+| Rule | Findings selected | Pages the filtered plan reached | Written | Commit | List before -> after |
+|---|---|---|---|---|---|
+| `em-dash` | 1 | 1 | 1 | `fe3687da` | 57 -> 56 |
+| `tag-singleton` | 14 | 8 | 8 | `e518f92e` | 56 -> 48 |
+| `run-protocol` | 2 | **0** | - | none | 48 -> 48 |
+
+Each apply was exactly ONE commit containing exactly the pages written (1 and 8 files
+respectively), with a mechanism-only subject. `git fsck` exits 0 afterwards. The findings
+cleared in the SAME request cycle: the post-write sequence resolved 1 and 8 respectively and
+recorded 0 new defects, so no second run was needed to see the repair.
+
+**The stale path, verified through the real HTTP flow.** The `em-dash` commit was reverted to
+put the defect back, the page was re-planned, a line was appended to it by hand, and the apply
+was sent with the hash from BEFORE that edit. Result: `written: []`, `stale: ['wiki/log.md']`,
+no commit, HEAD unmoved, and both the hand edit and the em-dashes still on disk. Exactly what
+decision 8 asks for - the approval was of a diff, and that is no longer the diff.
+
+**The manifest repair, planned against the copy:** `0 page(s) to record; 0 stale pages_created
+to drop; 0 retired address(es) to drop; 4 job director(ies) named in no source entry`, and
+`changes: false`. Identical to the live measurement, and the four rows render as decisions with
+the reason named rather than as a button.
+
+**THREE MEASUREMENTS THIS FILE DID NOT HAVE, all of which change what a row can promise:**
+
+  1. **The filtered `tag-singleton` plan reaches 8 of its 14 findings, not 14.** The file
+     measured the pass vault-wide (26 pages) against the finding count (14) and left the
+     filtered number unstated. The gap is not the filter: it is the pass's own "never leave a
+     page with no tags at all" rule, which returns null for a page whose every tag is a
+     singleton, because the vault's own template requires `tags:` and emptying it would make 36
+     frontmatter findings out of nothing (it did, once). So 6 of the 14 rows survive a
+     successful apply by design. The panel says so before the apply and the row's guidance says
+     so after it.
+  2. **The filtered `run-protocol` plan reaches 0 of its 2 findings today.** The file called it
+     a PARTIAL path on the strength of "1 page vault-wide against 2 standing findings"; the
+     filtered plan shows the pass's one reachable page is not one of the two the list names. So
+     today `run-protocol` is in `title-name`'s position - a button that reaches nothing - while
+     remaining a real path for the class. It stays exposed (3.1's decision) and the panel says
+     "the pass changes nothing on these pages, and that is not a failed fix" rather than writing
+     anything.
+  3. **The `near-duplicate` evidence needed a second look.** 1.2 says the message already names
+     the second page, which is true; a pattern that stopped at the first space found it on none
+     of the six rows, because the vault names its files after their titles and a page path
+     normally CONTAINS SPACES. Fixed, with a test.
+
+**And one measured number for 1.3's backfill:** all **9 of 9** standing quote findings
+re-produced from their own job's artifact and commit, 0 with no usable job, 0 the re-check no
+longer produces. After it, **53 of 57 rows render a non-empty evidence block**; the 4 that do
+not are the `.raw/` directory rows, which say why in one sentence instead.
 
 **Tests:** plan is read-only (no write on a fixture vault); apply writes only the selection; a
 page whose content changed after the plan comes back as stale via the `beforeHash` and is not
