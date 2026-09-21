@@ -21,6 +21,7 @@ const healthy = (over: Partial<MaintStatusInput> = {}): MaintStatusInput => ({
   hotCacheUpdatedAt: '2026-07-23T12:00:00.000Z',
   index: { scriptsPresent: true, provisioned: true },
   unversioned: { untracked: 0, modified: 0 },
+  defects: { fixable: 0, decision: 0 },
   now: NOW,
   ...over,
 })
@@ -33,9 +34,9 @@ describe('deriveMaintenanceStatus', () => {
     const s = deriveMaintenanceStatus(healthy())
     expect(s.due).toBe(0)
     expect(s.recommended).toBe(0)
-    expect(s.healthy).toBe(7)
+    expect(s.healthy).toBe(8)
     expect(s.items.map((i) => i.id).sort()).toEqual(
-      ['backfill', 'domains', 'hot-cache', 'index', 'lint', 'tags', 'unversioned'].sort(),
+      ['backfill', 'defects', 'domains', 'hot-cache', 'index', 'lint', 'tags', 'unversioned'].sort(),
     )
   })
 
@@ -199,6 +200,49 @@ describe('deriveMaintenanceStatus', () => {
     // Within "due", backfill (the chain's head) comes before the domain decisions.
     const dueIds = s.items.filter((i) => i.severity === 'due').map((i) => i.id)
     expect(dueIds).toEqual(['backfill', 'domains'])
+  })
+})
+
+/**
+ * The standing defect list as an area (SPEC §12.16, TASKS-DEFECT-PATHS 1.7).
+ *
+ * The area that was missing entirely: the model knew seven areas and none of them was this
+ * one, which is why "What's due" said *Everything healthy* above 57 standing defects.
+ */
+describe('the standing defects area', () => {
+  it('is due when a repair is waiting: a click costs nothing to be nagged about', () => {
+    const item = byId(deriveMaintenanceStatus(healthy({ defects: { fixable: 17, decision: 29 } })), 'defects')
+    expect(item?.severity).toBe('due')
+    expect(item?.title).toContain('17 defects')
+    expect(item?.why).toContain('29 others')
+    expect(item?.anchor).toBe('card-defects')
+  })
+
+  it('is only recommended when everything left needs a decision', () => {
+    const item = byId(deriveMaintenanceStatus(healthy({ defects: { fixable: 0, decision: 11 } })), 'defects')
+    // A severity that can only be cleared by a judgement becomes wallpaper if it is red for
+    // weeks, which is the failure the 406 job-log lines already demonstrated once.
+    expect(item?.severity).toBe('recommended')
+    expect(item?.title).toContain('11 defects')
+  })
+
+  it('is an explicit healthy item at zero, not a missing one', () => {
+    const item = byId(deriveMaintenanceStatus(healthy({ defects: { fixable: 0, decision: 0 } })), 'defects')
+    expect(item?.severity).toBe('healthy')
+  })
+
+  it('is omitted while the list is still loading, rather than claimed healthy', () => {
+    expect(byId(deriveMaintenanceStatus(healthy({ defects: null })), 'defects')).toBeUndefined()
+  })
+
+  it('never says everything is healthy while defects stand', () => {
+    const s = deriveMaintenanceStatus(healthy({ defects: { fixable: 3, decision: 0 } }))
+    expect(s.due).toBeGreaterThan(0)
+  })
+
+  it('stays out of the guided run, which cannot pick which rows to write', () => {
+    const plan = buildRunPlan(deriveMaintenanceStatus(healthy({ defects: { fixable: 40, decision: 0 } })))
+    expect(plan.map((p) => p.id)).not.toContain('defects')
   })
 })
 

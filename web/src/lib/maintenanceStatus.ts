@@ -15,7 +15,7 @@
 export type MaintSeverity = 'due' | 'recommended' | 'healthy'
 
 /** Stable area ids; `anchor` is the DOM id of the expert card the item jumps to. */
-export type MaintAreaId = 'backfill' | 'domains' | 'tags' | 'lint' | 'hot-cache' | 'index' | 'unversioned'
+export type MaintAreaId = 'backfill' | 'domains' | 'tags' | 'lint' | 'hot-cache' | 'index' | 'unversioned' | 'defects'
 
 export interface MaintStatusItem {
   readonly id: MaintAreaId
@@ -54,6 +54,16 @@ export interface MaintStatusInput {
    * See `unversionedWikiPages` server-side for why these accumulate silently.
    */
   readonly unversioned: { untracked: number; modified: number } | null
+  /**
+   * The standing defect list, split by what can be done about each row (SPEC §12.16,
+   * TASKS-DEFECT-PATHS 1.7). Null while loading - the item is then omitted rather than
+   * rendered as healthy, which is the same rule the index and unversioned areas follow.
+   *
+   * `fixable` is a click and no tokens, or an agent run on exactly one page; `decision` costs
+   * somebody reading. Accepted findings count in NEITHER: an accept is what keeps a defect off
+   * the list, so counting it here would put it straight back on.
+   */
+  readonly defects: { fixable: number; decision: number } | null
   readonly now: Date
 }
 
@@ -317,6 +327,51 @@ export function deriveMaintenanceStatus(input: MaintStatusInput): MaintStatus {
     }
   }
 
+  /*
+   * The standing defects (SPEC §12.16). The area that was missing entirely: `deriveMaintenanceStatus`
+   * knew seven areas and none of them was this one, which is why "What's due" said *Everything
+   * healthy* above 57 standing defects.
+   *
+   * FIXABLE IS `due`, A DECISION IS `recommended` (decision 12). What costs a click should be
+   * nagged about; what costs somebody sitting down with two pages open should not be red for
+   * weeks - a severity that can only be cleared by a judgement becomes wallpaper, which is the
+   * failure the 406 job-log lines already demonstrated once.
+   */
+  if (input.defects !== null) {
+    const { fixable, decision } = input.defects
+    if (fixable > 0) {
+      items.push({
+        id: 'defects',
+        severity: 'due',
+        title: `${plural(fixable, 'defect')} with a repair waiting`,
+        why:
+          `${plural(fixable, 'standing finding')} the validator reports where a repair exists - a deterministic ` +
+          `pass, or an agent run bound to the one page.` +
+          (decision > 0 ? ` ${plural(decision, 'other')} needs a decision.` : ''),
+        cost: 'a click, or one bounded run',
+        anchor: 'card-defects',
+      })
+    } else if (decision > 0) {
+      items.push({
+        id: 'defects',
+        severity: 'recommended',
+        title: `${plural(decision, 'defect')} waiting on a decision`,
+        why: 'Nothing mechanical can repair these: what the page should say is the judgement.',
+        cost: 'your reading, one row at a time',
+        anchor: 'card-defects',
+      })
+    } else {
+      items.push({
+        id: 'defects',
+        severity: 'healthy',
+        title: 'No standing defects',
+        why: 'Every defect the validator looks for is clear on the pages it has read.',
+        cost: 'nothing to do',
+        anchor: 'card-defects',
+      })
+    }
+  }
+
   if (input.index !== null && input.index.scriptsPresent) {
     items.push(
       input.index.provisioned
@@ -369,6 +424,13 @@ export interface RunPlanStep {
  * The retrieval index never appears: it refreshes itself after ingests.
  */
 export function buildRunPlan(status: MaintStatus): RunPlanStep[] {
+  /*
+   * The defects area deliberately never appears here. This is an explicit if-chain that
+   * ignores an unknown area, and a defect repair is per finding rather than per area: which
+   * rows to write is the user's selection, and a guided run that picked for them would write
+   * pages nobody looked at. It is written down here so the next reader does not take the
+   * absence for an oversight.
+   */
   const sev = (id: MaintAreaId): MaintSeverity | undefined => status.items.find((i) => i.id === id)?.severity
   const steps: RunPlanStep[] = []
   if (sev('backfill') === 'due') {

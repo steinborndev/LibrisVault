@@ -372,7 +372,14 @@ export function App(): React.ReactElement {
           <section className="screen flush" hidden={screen !== 'home'} aria-label="Home">
             <div className="lane wide">
               <ErrorBoundary label="Home">
-                <Home statusFilter={screen === 'home' ? (query.get('filter') ?? '') : ''} active={screen === 'home'} />
+                <Home
+                  statusFilter={screen === 'home' ? (query.get('filter') ?? '') : ''}
+                  /* `?job=` opens one record straight away: the standing defect list links a
+                     `.raw/<job-id>/` finding here, and that job is usually far outside the
+                     stream's own window (TASKS-DEFECT-PATHS 1.1). */
+                  openJob={screen === 'home' ? (query.get('job') ?? '') : ''}
+                  active={screen === 'home'}
+                />
               </ErrorBoundary>
             </div>
           </section>

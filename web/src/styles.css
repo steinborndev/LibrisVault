@@ -6567,6 +6567,140 @@ tr:focus-within .rowacts {
   margin-bottom: 10px;
 }
 
+/* ── The standing defect list, once a row had somewhere to go ──────────────────────────
+   Three blocks rather than one list (TASKS-DEFECT-PATHS decision 9): the first question a
+   reader has is "what can I get rid of without thinking about it", and rule chips never
+   answered it. A row is a button that opens its own body. */
+.defect-group {
+  margin-bottom: 14px;
+}
+.defect-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.defect-row {
+  border-top: 1px solid var(--border);
+}
+.defect-row:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.defect-line {
+  display: grid;
+  grid-template-columns: 9rem 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 2px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.defect-line:hover {
+  background: var(--bg-elev-2);
+}
+.defect-rule {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.defect-msg {
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.defect-row.open .defect-msg {
+  white-space: normal;
+}
+.defect-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.defect-body {
+  padding: 4px 2px 12px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.defect-where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.defect-label {
+  display: inline-block;
+  min-width: 3.5rem;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.defect-nolink {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.defect-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.defect-block {
+  min-width: 0;
+}
+.defect-block-label {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+/* Vault text, shown as the page has it: wrapped, never scrolled sideways, and never styled
+   as if the service had written it. */
+.defect-block-text {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-elev-2);
+  border-left: 2px solid var(--border-strong);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.defect-guidance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.defect-cost {
+  color: var(--text-dim);
+}
+.defect-limit {
+  color: var(--warn);
+}
+.defect-note,
+.defect-provenance {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* A value that is a problem rather than a fact: the vault guard the System panel reports. */
 .kv .v.bad {
   color: var(--err);

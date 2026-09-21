@@ -9,6 +9,7 @@ import type {
   JobDetail,
   Stats,
   ValidationList,
+  FindingEvidence,
   Health,
   JobStatus,
   Session,
@@ -131,14 +132,24 @@ export const api = {
 
   stats: (): Promise<Stats> => fetch(`${BASE}/stats`).then(json<Stats>),
 
-  /** The standing validation list (A9). Base product: it answers with the flag off too. */
-  validation: (params?: { rule?: string; limit?: number }): Promise<ValidationList> => {
+  /**
+   * The standing validation list (A9). Base product: it answers with the flag off too.
+   *
+   * `offset` because the route caps at 200 and the UI asked for 50 with no way past it: 7 of
+   * 57 findings were unreachable from the screen entirely (TASKS-DEFECT-PATHS 1.6).
+   */
+  validation: (params?: { rule?: string; limit?: number; offset?: number }): Promise<ValidationList> => {
     const q = new URLSearchParams()
     if (params?.rule) q.set('rule', params.rule)
     if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.offset) q.set('offset', String(params.offset))
     const qs = q.toString()
     return fetch(`${BASE}/validation${qs ? `?${qs}` : ''}`).then(json<ValidationList>)
   },
+
+  /** What one finding is based on: the stored column, or a fresh read of its page. */
+  findingEvidence: (id: string): Promise<FindingEvidence> =>
+    fetch(`${BASE}/validation/${encodeURIComponent(id)}/evidence`).then(json<FindingEvidence>),
 
   jobs: (params?: { status?: JobStatus; limit?: number }): Promise<{ jobs: Job[] }> => {
     const q = new URLSearchParams()

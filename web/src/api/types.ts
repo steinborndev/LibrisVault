@@ -165,6 +165,18 @@ export interface Stats {
   generatedAt: string
 }
 
+/**
+ * Where a finding's subject is, resolved by the SERVER (TASKS-DEFECT-PATHS 1.1).
+ *
+ * A `.raw/<job-id>/` path names its job by the DIRECTORY NAME. `lastJobId` is whoever last
+ * reported the finding - a maintenance run's id as often as a job's - and is provenance, never
+ * a link target.
+ */
+export type FindingSubject =
+  | { kind: 'page'; path: string }
+  | { kind: 'job'; jobId: string; exists: boolean }
+  | { kind: 'none'; why: string }
+
 /** One standing validation defect (A9): counted rather than repeated on every run. */
 export interface StandingFinding {
   id: string
@@ -177,12 +189,52 @@ export interface StandingFinding {
   lastSeen: string
   lastJobId: string | null
   resolvedAt: string | null
+  /** What the producer saw, where the page itself no longer holds it (migration 34). */
+  evidence?: string | null
+  subject?: FindingSubject
+  /** Whether the run that last REPORTED this is still in the job history. Provenance only. */
+  lastJobExists?: boolean
+  hasEvidence?: boolean
+}
+
+/** How a defect of one rule gets repaired: a deterministic pass, a bound run, or a person. */
+export type RepairPath = 'pass' | 'run' | 'decision'
+
+/** What the expanded row says under a finding of this rule. Served, not mirrored here. */
+export interface DefectGuidance {
+  path: RepairPath
+  what: string
+  who: string
+  cost: string
+  limit?: string
+}
+
+/** One block of evidence: what it is, and the excerpt itself. */
+export interface EvidenceBlock {
+  label: string
+  text: string
+  truncated?: boolean
+}
+
+export interface FindingEvidence {
+  id: string
+  rule: string
+  path: string
+  blocks: EvidenceBlock[]
+  source: 'stored' | 'page' | 'none'
+  note?: string
 }
 
 export interface ValidationList {
   findings: StandingFinding[]
   byRule: Array<{ rule: string; findings: number; occurrences: number }>
   total: number
+  /**
+   * What can be done about each rule and by whom, keyed by rule. Served by the API rather than
+   * kept here: the records are exhaustive over the rule union at compile time on the SERVER,
+   * and a second copy in this file would drift the first time a rule lands.
+   */
+  guidance?: Record<string, DefectGuidance>
 }
 
 export interface Health {
