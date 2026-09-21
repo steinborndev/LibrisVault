@@ -308,7 +308,12 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
               <Tip text="What the validator keeps finding. One row per defect rather than one line per run: the same dead link used to be reported 109 times into 109 job logs. A row disappears when a run checks the page and no longer finds it. Open a row for the evidence it is based on and what can be done about it." />
             </h3>
           </div>
-          <StandingDefects vaultName={vaultName} />
+          {/*
+            Every write surface reads `health.demoMode` and disables itself rather than
+            offering a button that 403s: the demo instance refuses every non-GET before a
+            handler runs (SPEC.md §12.8).
+          */}
+          <StandingDefects vaultName={vaultName} readOnly={health.data?.demoMode === true} />
         </div>
         )}
 

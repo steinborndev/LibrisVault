@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { blockOf, splitBlocks, subjectLink, provenanceOf } from '../src/lib/defectList.ts'
+import { blockOf, canAccept, splitBlocks, subjectLink, provenanceOf } from '../src/lib/defectList.ts'
 import type { DefectGuidance, StandingFinding } from '../src/api/types.ts'
 
 /**
@@ -87,7 +87,25 @@ describe('what a row links to', () => {
   })
 
   it('still resolves a page from an older response that carries no subject', () => {
-    expect(subjectLink(finding({ subject: undefined })).kind).toBe('page')
+    // A browser tab open across a service restart holds rows from before the route resolved
+    // subjects at all; those must still link rather than render as "no target".
+    const old = finding()
+    delete (old as { subject?: unknown }).subject
+    expect(subjectLink(old).kind).toBe('page')
+  })
+})
+
+describe('whether a row may be accepted', () => {
+  it('is offered on a standing finding', () => {
+    expect(canAccept(finding(), false)).toBe(true)
+  })
+
+  it('is never offered on a read-only instance: the demo refuses every non-GET anyway', () => {
+    expect(canAccept(finding(), true)).toBe(false)
+  })
+
+  it('is not offered twice: an accepted row has its own way back', () => {
+    expect(canAccept(finding({ acceptedAt: '2026-09-21T00:00:00.000Z' }), false)).toBe(false)
   })
 })
 

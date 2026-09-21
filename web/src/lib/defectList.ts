@@ -59,6 +59,17 @@ export function subjectLink(finding: StandingFinding): SubjectLink {
   return { kind: 'none', why: subject.why }
 }
 
+/**
+ * Whether a row may be accepted at all.
+ *
+ * An accept is permanent and needs a reason, so it is never offered where the answer could not
+ * be acted on: a read-only demo instance refuses every non-GET before a handler runs, and a
+ * row that is already accepted has its own way back rather than a second accept.
+ */
+export function canAccept(finding: StandingFinding, readOnly: boolean): boolean {
+  return !readOnly && (finding.acceptedAt ?? null) === null
+}
+
 /** The findings grouped into blocks, each keeping the list's own order. */
 export function splitBlocks(
   findings: readonly StandingFinding[],

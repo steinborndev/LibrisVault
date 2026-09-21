@@ -10,6 +10,7 @@ import type {
   Stats,
   ValidationList,
   FindingEvidence,
+  StandingFinding,
   Health,
   JobStatus,
   Session,
@@ -138,14 +139,30 @@ export const api = {
    * `offset` because the route caps at 200 and the UI asked for 50 with no way past it: 7 of
    * 57 findings were unreachable from the screen entirely (TASKS-DEFECT-PATHS 1.6).
    */
-  validation: (params?: { rule?: string; limit?: number; offset?: number }): Promise<ValidationList> => {
+  validation: (params?: { rule?: string; limit?: number; offset?: number; accepted?: boolean }): Promise<ValidationList> => {
     const q = new URLSearchParams()
     if (params?.rule) q.set('rule', params.rule)
     if (params?.limit) q.set('limit', String(params.limit))
     if (params?.offset) q.set('offset', String(params.offset))
+    if (params?.accepted) q.set('accepted', '1')
     const qs = q.toString()
     return fetch(`${BASE}/validation${qs ? `?${qs}` : ''}`).then(json<ValidationList>)
   },
+
+  /**
+   * Accepting a defect: it may stay, and here is why. The reason is required - a snooze only
+   * postpones the reading, and an accept without a reason is indistinguishable from neglect.
+   */
+  acceptFinding: (id: string, reason: string): Promise<{ finding: StandingFinding }> =>
+    fetch(`${BASE}/validation/${encodeURIComponent(id)}/accept`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    }).then(json<{ finding: StandingFinding }>),
+
+  /** Takes an accept back; the finding returns to whichever block it belonged to. */
+  unacceptFinding: (id: string): Promise<{ finding: StandingFinding }> =>
+    fetch(`${BASE}/validation/${encodeURIComponent(id)}/accept`, { method: 'DELETE' }).then(json<{ finding: StandingFinding }>),
 
   /** What one finding is based on: the stored column, or a fresh read of its page. */
   findingEvidence: (id: string): Promise<FindingEvidence> =>

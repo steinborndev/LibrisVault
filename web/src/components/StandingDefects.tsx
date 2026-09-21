@@ -20,10 +20,10 @@
  */
 
 import React, { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { DefectGuidance, StandingFinding } from '../api/types.ts'
-import { splitBlocks, subjectLink, provenanceOf, type DefectBlockId } from '../lib/defectList.ts'
+import { canAccept, splitBlocks, subjectLink, provenanceOf, type DefectBlockId } from '../lib/defectList.ts'
 import { PageLink } from './PageLink.tsx'
 import { Tip } from './Tip.tsx'
 import { queryState } from './QueryState.tsx'
@@ -31,6 +31,9 @@ import { navigate } from '../lib/router.ts'
 
 /** One page of rows. The route caps at 200; "show more" walks it in steps of this. */
 const PAGE = 50
+
+/** How long a reason may be. The route trims and caps at the same number. */
+const REASON_MAX = 500
 
 /**
  * The three blocks, in the order a reader works them (decision 9).
@@ -84,15 +87,87 @@ function Evidence({ id }: { id: string }): React.ReactElement {
   )
 }
 
+/**
+ * The accept, with its reason (decision 3).
+ *
+ * PERMANENT AND REASONED. A snooze would only postpone the reading; an accept without a reason
+ * is indistinguishable from neglect six months on, which is the state the 406 job-log lines
+ * were already in. The button stays disabled until something has been typed, so the 400 the
+ * route answers is never reached from here.
+ */
+function AcceptForm({ id, disabled, readOnly }: { id: string; disabled: boolean; readOnly: boolean }): React.ReactElement {
+  const qc = useQueryClient()
+  const [reason, setReason] = useState('')
+  const accept = useMutation({
+    mutationFn: () => api.acceptFinding(id, reason),
+    onSuccess: () => {
+      setReason('')
+      void qc.invalidateQueries({ queryKey: ['validation'] })
+    },
+  })
+  return (
+    <div className="defect-accept">
+      <input
+        className="input"
+        value={reason}
+        maxLength={REASON_MAX}
+        placeholder="Why may this defect stay?"
+        disabled={disabled || accept.isPending}
+        onChange={(e) => setReason(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && reason.trim() !== '') accept.mutate()
+        }}
+      />
+      <button
+        className="btn"
+        disabled={disabled || accept.isPending || reason.trim() === ''}
+        onClick={() => accept.mutate()}
+        title={disabled ? 'This instance is read-only' : 'Accept this defect permanently, with the reason above'}
+      >
+        {accept.isPending ? 'Accepting…' : 'Accept'}
+      </button>
+      {readOnly && <span className="dim">This instance is read-only.</span>}
+      {accept.isError && <span className="defect-error">{(accept.error as Error).message}</span>}
+    </div>
+  )
+}
+
+/** One accepted row: its reason, when it was accepted, and the way back. */
+function AcceptedRow({ finding, disabled }: { finding: StandingFinding; disabled: boolean }): React.ReactElement {
+  const qc = useQueryClient()
+  const unaccept = useMutation({
+    mutationFn: () => api.unacceptFinding(finding.id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['validation'] }),
+  })
+  return (
+    <div className="defect-row">
+      <div className="defect-line static">
+        <span className="defect-rule">{finding.rule}</span>
+        <span className="defect-msg" title={finding.message}>
+          {finding.acceptedReason ?? finding.message}
+        </span>
+        <button className="linkish" disabled={disabled || unaccept.isPending} onClick={() => unaccept.mutate()}>
+          {unaccept.isPending ? 'Undoing…' : 'Un-accept'}
+        </button>
+      </div>
+      <div className="defect-provenance">
+        {finding.path} &middot; accepted {finding.acceptedAt?.slice(0, 10) ?? ''}
+      </div>
+    </div>
+  )
+}
+
 /** One row: the closed line, and everything the open one adds. */
 function DefectRow({
   finding,
   guidance,
   vaultName,
+  readOnly,
 }: {
   finding: StandingFinding
   guidance: DefectGuidance | undefined
   vaultName: string
+  readOnly: boolean
 }): React.ReactElement {
   const [open, setOpen] = useState(false)
   return (
@@ -128,6 +203,12 @@ function DefectRow({
               )}
             </div>
           )}
+          {/*
+            DISABLED rather than hidden on a read-only instance (SPEC.md §12.8): a surface that
+            vanishes reads as a feature that does not exist, and the demo is meant to show what
+            the product does. The route would refuse it anyway, before any handler runs.
+          */}
+          {finding.acceptedAt == null && <AcceptForm id={finding.id} disabled={!canAccept(finding, readOnly)} readOnly={readOnly} />}
           <div className="defect-provenance">
             {/*
               Provenance, never a link: `lastJobId` holds whichever run last REPORTED this, which
@@ -142,12 +223,24 @@ function DefectRow({
   )
 }
 
-export function StandingDefects({ vaultName }: { vaultName: string }): React.ReactElement | null {
+export function StandingDefects({ vaultName, readOnly = false }: { vaultName: string; readOnly?: boolean }): React.ReactElement | null {
   const [rule, setRule] = useState<string | null>(null)
   const [limit, setLimit] = useState(PAGE)
+  /** The third block is collapsed by default: it is a record, not a working list. */
+  const [showAccepted, setShowAccepted] = useState(false)
   const list = useQuery({
     queryKey: ['validation', rule, limit],
     queryFn: () => api.validation({ ...(rule === null ? {} : { rule }), limit }),
+    staleTime: 30_000,
+  })
+  /*
+   * The accepted rows, asked for only once the block is open. They are off every other query
+   * by construction (`list()` excludes them), so this is the one place they come from.
+   */
+  const acceptedQ = useQuery({
+    queryKey: ['validation', 'accepted'],
+    queryFn: () => api.validation({ accepted: true, limit: 200 }),
+    enabled: showAccepted,
     staleTime: 30_000,
   })
   const data = list.data
@@ -192,7 +285,7 @@ export function StandingDefects({ vaultName }: { vaultName: string }): React.Rea
                   <Tip text={g.hint} />
                 </h4>
                 {g.rows.map((f) => (
-                  <DefectRow key={f.id} finding={f} guidance={guidance?.[f.rule]} vaultName={vaultName} />
+                  <DefectRow key={f.id} finding={f} guidance={guidance?.[f.rule]} vaultName={vaultName} readOnly={readOnly} />
                 ))}
               </section>
             ),
@@ -203,6 +296,25 @@ export function StandingDefects({ vaultName }: { vaultName: string }): React.Rea
             </button>
           )}
         </>
+      )}
+      {/*
+        The third block (decision 9), outside the `total === 0` branch on purpose: a vault whose
+        standing list is empty because every finding was accepted must still show what was
+        accepted, or the record disappears exactly when it matters most.
+      */}
+      {(data.accepted ?? 0) > 0 && (
+        <section className="defect-group">
+          <button className="defect-group-title linkish" onClick={() => setShowAccepted(!showAccepted)} aria-expanded={showAccepted}>
+            Accepted <span className="chip-n">{data.accepted}</span>
+            <span className="dim">{showAccepted ? ' - hide' : ' - show'}</span>
+          </button>
+          {showAccepted &&
+            (acceptedQ.data === undefined ? (
+              <span className="dim">Reading the accepted findings…</span>
+            ) : (
+              acceptedQ.data.findings.map((f) => <AcceptedRow key={f.id} finding={f} disabled={readOnly} />)
+            ))}
+        </section>
       )}
     </div>
   )

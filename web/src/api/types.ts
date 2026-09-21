@@ -195,6 +195,9 @@ export interface StandingFinding {
   /** Whether the run that last REPORTED this is still in the job history. Provenance only. */
   lastJobExists?: boolean
   hasEvidence?: boolean
+  /** When somebody decided this defect may stay, and why (migration 35). */
+  acceptedAt?: string | null
+  acceptedReason?: string | null
 }
 
 /** How a defect of one rule gets repaired: a deterministic pass, a bound run, or a person. */
@@ -229,6 +232,8 @@ export interface ValidationList {
   findings: StandingFinding[]
   byRule: Array<{ rule: string; findings: number; occurrences: number }>
   total: number
+  /** How many findings stand accepted: the third block's own count. */
+  accepted?: number
   /**
    * What can be done about each rule and by whom, keyed by rule. Served by the API rather than
    * kept here: the records are exhaustive over the rule union at compile time on the SERVER,

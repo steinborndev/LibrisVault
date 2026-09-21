@@ -6700,6 +6700,29 @@ tr:focus-within .rowacts {
   font-size: 11px;
   color: var(--text-dim);
 }
+/* The accept, with its reason. Permanent and reasoned: a snooze would only postpone the
+   reading, and an accept without a reason is indistinguishable from neglect. */
+.defect-accept {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.defect-accept .input {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.defect-error {
+  font-size: 11px;
+  color: var(--err);
+}
+/* An accepted row is a record rather than a working row: no expansion, no evidence. */
+.defect-line.static {
+  cursor: default;
+}
+.defect-line.static:hover {
+  background: none;
+}
 
 /* A value that is a problem rather than a fact: the vault guard the System panel reports. */
 .kv .v.bad {
