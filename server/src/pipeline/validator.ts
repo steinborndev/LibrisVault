@@ -1080,7 +1080,56 @@ export function validateHotCache(vaultRoot: string): ValidationFinding[] {
  * Kept honest by a test rather than by care: `validator.test.ts` calls the validator with NO
  * paths and asserts that every rule that still produces a finding is named here.
  */
+/**
+ * Every rule there is, as a VALUE rather than a type.
+ *
+ * Typed as a key of each one, so leaving a rule out of it is a compile error rather than a
+ * silent gap. That matters because two other lists are checked against this one: a rule has to
+ * be either mechanically repairable or a judgement call (`maintenance.ts`), and one that is in
+ * neither reaches no fix run and is on nobody's list. `open-question-form` was in that state
+ * from the day it shipped until 2026-09-21, 15 findings' worth.
+ */
+const RULE_KEYS: Record<ValidationRule, true> = {
+  frontmatter: true,
+  dates: true,
+  address: true,
+  'dead-link': true,
+  'wrapped-link': true,
+  orphan: true,
+  'address-map': true,
+  'stale-counter': true,
+  'single-source-entity': true,
+  'source-url': true,
+  'nested-page': true,
+  'hot-cache-size': true,
+  quote: true,
+  'near-duplicate': true,
+  'title-name': true,
+  'page-schema': true,
+  'run-protocol': true,
+  'tag-mirroring': true,
+  'tag-singleton': true,
+  'em-dash': true,
+  'status-vocabulary': true,
+  'open-question-form': true,
+}
+
+export const ALL_RULES = Object.keys(RULE_KEYS) as ValidationRule[]
+
 export const VAULT_WIDE_RULES: ReadonlySet<ValidationRule> = new Set(['address-map', 'stale-counter', 'hot-cache-size'])
+
+/**
+ * Every rule `createValidator` can raise - which is every rule EXCEPT the two that need a job.
+ *
+ * `quote` compares a page's new quotations against the artifact the job read (`quotes.ts`), and
+ * `near-duplicate` against the commit before the run (`queue.ts`). Neither is reachable from a
+ * path list, so this validator's silence about them says nothing, and
+ * `ValidationStore.resolveMissing` must not read it as a repair - it takes this set as the
+ * rules the caller actually checked.
+ */
+export const VALIDATOR_RULES: ReadonlySet<ValidationRule> = new Set(
+  ALL_RULES.filter((r) => r !== 'quote' && r !== 'near-duplicate'),
+)
 
 export function createValidator(vaultRoot: string, graph?: { build(): VaultGraph }): Validator {
   return (paths) => [

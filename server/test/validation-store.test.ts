@@ -105,6 +105,9 @@ describe('ValidationStore.record', () => {
   })
 })
 
+/** Everything the caller in these tests is pretending to have checked. */
+const ALL = new Set(['dead-link', 'em-dash', 'quote', 'near-duplicate', 'address-map'])
+
 describe('ValidationStore.resolveMissing', () => {
   it('takes a fixed finding off the standing list', () => {
     const dead = f('dead-link', 'wiki/concepts/A.md', '[[Missing]] does not resolve')
@@ -113,20 +116,20 @@ describe('ValidationStore.resolveMissing', () => {
     expect(store.list()).toHaveLength(2)
 
     // The run looked at the page again and only found the dash: the link was repaired.
-    expect(store.resolveMissing(['wiki/concepts/A.md'], [dash])).toBe(1)
+    expect(store.resolveMissing(['wiki/concepts/A.md'], [dash], { checked: ALL })).toBe(1)
     expect(store.list().map((r) => r.rule)).toEqual(['em-dash'])
   })
 
   it('touches only the pages it was given', () => {
     store.record([f('em-dash', 'wiki/a.md', 'x'), f('em-dash', 'wiki/b.md', 'x')], 'job-1')
-    expect(store.resolveMissing(['wiki/a.md'], [])).toBe(1)
+    expect(store.resolveMissing(['wiki/a.md'], [], { checked: ALL })).toBe(1)
     expect(store.list().map((r) => r.path)).toEqual(['wiki/b.md'])
   })
 
   it('brings a finding back, with its history, when the repair did not hold', () => {
     const dead = f('dead-link', 'wiki/concepts/A.md', '[[Missing]] does not resolve')
     store.record([dead], 'job-1')
-    store.resolveMissing(['wiki/concepts/A.md'], [])
+    store.resolveMissing(['wiki/concepts/A.md'], [], { checked: ALL })
     expect(store.list()).toEqual([])
 
     store.record([dead], 'job-2')
@@ -139,7 +142,40 @@ describe('ValidationStore.resolveMissing', () => {
 
   it('does nothing when it is given no pages', () => {
     store.record([f('em-dash', 'wiki/a.md', 'x')], 'job-1')
-    expect(store.resolveMissing([], [])).toBe(0)
+    expect(store.resolveMissing([], [], { checked: ALL })).toBe(0)
+    expect(store.list()).toHaveLength(1)
+  })
+})
+
+describe('a rule the caller never ran', () => {
+  /*
+   * `quote` and `near-duplicate` are not raised by `createValidator`: they need a job's
+   * artifact and the commit before the run. A maintenance run touching a page that carries one
+   * would have cleared it as repaired, without a single quote being compared.
+   */
+  it('is left standing, however quiet the run was about it', () => {
+    const quote = f('quote', 'wiki/concepts/A.md', 'quote not found in the source: "x"')
+    const dash = f('em-dash', 'wiki/concepts/A.md', '3 em-dashes outside code')
+    store.record([quote, dash], 'job-1')
+
+    // A run that checks pages only, finding nothing: the dash goes, the quote stays.
+    expect(store.resolveMissing(['wiki/concepts/A.md'], [], { checked: new Set(['em-dash']) })).toBe(1)
+    expect(store.list().map((r) => r.rule)).toEqual(['quote'])
+  })
+
+  it('is cleared once a run that CAN raise it says nothing', () => {
+    const quote = f('quote', 'wiki/concepts/A.md', 'quote not found in the source: "x"')
+    store.record([quote], 'job-1')
+    expect(store.resolveMissing(['wiki/concepts/A.md'], [], { checked: new Set(['quote']) })).toBe(1)
+    expect(store.list()).toEqual([])
+  })
+
+  it('does not let a whole-vault rule through the back door either', () => {
+    // `fullyChecked` widens the reach of a rule the caller checked; it cannot add one it did not.
+    const map = f('address-map', '.raw/01JOB', 'named in no source entry')
+    store.record([map], 'job-1')
+    const n = store.resolveMissing([], [], { checked: new Set(['em-dash']), fullyChecked: new Set(['address-map']) })
+    expect(n).toBe(0)
     expect(store.list()).toHaveLength(1)
   })
 })

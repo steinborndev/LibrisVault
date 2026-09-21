@@ -11,7 +11,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { AppContext } from '../server.js'
 import type { GraphBuilder } from '../../pipeline/graph.js'
-import { VAULT_WIDE_RULES } from '../../pipeline/validator.js'
+import { VALIDATOR_RULES, VAULT_WIDE_RULES } from '../../pipeline/validator.js'
 import type { DismissalStore } from '../../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../../db/maintenance-state.js'
 import type { AgentRunStore } from '../../db/agent-runs.js'
@@ -120,7 +120,7 @@ export function registerMaintenanceRoute(
     if (!dry && out.pages.length > 0 && ctx.validate !== undefined && ctx.validation !== undefined) {
       const findings = ctx.validate(out.pages)
       ctx.validation.record(findings, null)
-      ctx.validation.resolveMissing(out.pages, findings, { fullyChecked: VAULT_WIDE_RULES })
+      ctx.validation.resolveMissing(out.pages, findings, { checked: VALIDATOR_RULES, fullyChecked: VAULT_WIDE_RULES })
     }
     return reply.send(out)
   })

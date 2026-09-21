@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { ValidationStore } from '../src/db/validation.js'
 import { renderStandingDefects, MECHANICAL_RULES, JUDGEMENT_RULES } from '../src/pipeline/maintenance.js'
+import { ALL_RULES } from '../src/pipeline/validator.js'
 
 /**
  * Which standing defects a repair run is allowed to be told about (A9, 5.3).
@@ -85,5 +86,28 @@ describe('renderStandingDefects', () => {
     }
     const block = renderStandingDefects(validation)
     expect(block.indexOf('wiki/loud.md')).toBeLessThan(block.indexOf('wiki/quiet.md'))
+  })
+})
+
+/**
+ * Every rule has to be on one of the two lists (2026-09-21).
+ *
+ * A rule that is on neither reaches no fix run, because the prompt is built from
+ * MECHANICAL_RULES, and is on nobody's list either, because JUDGEMENT_RULES is what says "this
+ * one is for a person". `open-question-form` was in exactly that state from the day it shipped:
+ * 15 standing findings that nothing would ever act on, found by reading the System screen
+ * rather than by any check. This is the check.
+ */
+describe('the two lists together', () => {
+  it('cover every rule, once each', () => {
+    const unplaced = ALL_RULES.filter((r) => !MECHANICAL_RULES.has(r) && !JUDGEMENT_RULES.has(r))
+    expect(unplaced, 'rules on neither list - a fix run never sees them and nobody owns them').toEqual([])
+    const both = ALL_RULES.filter((r) => MECHANICAL_RULES.has(r) && JUDGEMENT_RULES.has(r))
+    expect(both, 'rules on both lists - a fix run would repair what was reserved for a person').toEqual([])
+  })
+
+  it('claim no rule that does not exist', () => {
+    const known = new Set<string>(ALL_RULES)
+    expect([...MECHANICAL_RULES, ...JUDGEMENT_RULES].filter((r) => !known.has(r))).toEqual([])
   })
 })

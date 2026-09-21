@@ -168,12 +168,27 @@ describe('a maintenance run and the standing list', () => {
     expect(validation.list()).toEqual([])
   })
 
-  it('leaves a defect on a page this run never touched', async () => {
+  /*
+   * This asked for the defect to be LEFT (until 2026-09-21), on the reasoning that a finding on
+   * a page the run did not touch is not its to clear. That is right about the run's own check
+   * and wrong as a whole: nothing else ever reads those pages again - a notebook or a dated
+   * recap is written once - so a repair made anywhere else stayed on the list forever. 11 of 66
+   * standing findings were in that state the morning this changed. The run now re-reads the
+   * pages the list still names, and clears only what a fresh read no longer reports.
+   */
+  it('clears a defect on an untouched page once a fresh read no longer finds it', async () => {
     const elsewhere: ValidationFinding = { rule: 'em-dash', path: 'wiki/concepts/Other.md', message: 'x' }
     validation.record([elsewhere], null)
     const runner = makeRunner(() => [])
     await settle(runner, runner.startHotCache().id)
-    // The run committed one page; a finding on another page is not its to clear.
+    expect(validation.list()).toEqual([])
+  })
+
+  it('leaves it standing while a fresh read still reports it', async () => {
+    const elsewhere: ValidationFinding = { rule: 'em-dash', path: 'wiki/concepts/Other.md', message: 'x' }
+    validation.record([elsewhere], null)
+    const runner = makeRunner(() => [elsewhere])
+    await settle(runner, runner.startHotCache().id)
     expect(validation.list().map((f) => f.path)).toEqual(['wiki/concepts/Other.md'])
   })
 })

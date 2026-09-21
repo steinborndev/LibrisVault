@@ -79,7 +79,8 @@ export interface ResearchOrigin {
 }
 import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate, type ResearchProfile } from './research-profiles.js'
 import { renderFellowBlock, renderStepCaps, type FellowRunContext } from './fellow-prompts.js'
-import { HOT_CACHE_WORD_BUDGET, VAULT_WIDE_RULES, type Validator } from './validator.js'
+import { HOT_CACHE_WORD_BUDGET, VALIDATOR_RULES, VAULT_WIDE_RULES, type Validator } from './validator.js'
+import { recheckStanding } from './standing-recheck.js'
 import type { EventBus } from './events.js'
 import { buildRetrieveIndex, hasRetrieveScripts, RetrieveScriptsMissingError, type RetrieveIndexBuilder } from './retrieve-index.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
@@ -463,6 +464,19 @@ export const JUDGEMENT_RULES: ReadonlySet<string> = new Set([
   'tag-singleton',
   'dead-link',
   'quote',
+  'address',
+  'source-url',
+  'nested-page',
+  'stale-counter',
+  'hot-cache-size',
+  'status-vocabulary',
+  /*
+   * Rewriting an open question means deciding what it was meant to ask, which is the one thing
+   * a fix run must not do. It belonged here from the day it shipped and was in neither list
+   * until 2026-09-21: not mechanical, so no fix run saw it, and not a judgement call either,
+   * so nobody had decided it was for a person. 15 findings sat in that gap.
+   */
+  'open-question-form',
 ])
 
 /** At most this many standing findings reach one prompt; the rest wait for the next run. */
@@ -1618,12 +1632,25 @@ export class MaintenanceRunner {
             const { created, repeated } = this.validation.record(findings, runId === '' ? null : runId)
             // What this run looked at and no longer finds is repaired; taking it off the list
             // is how a fix becomes visible at all.
-            const resolved = this.validation.resolveMissing(touched, findings, { fullyChecked: VAULT_WIDE_RULES })
+            const resolved = this.validation.resolveMissing(touched, findings, {
+              // What this run could have found. A quote or a near-duplicate needs a job's
+              // artifact, which a maintenance run does not have, so its silence about those two
+              // is not a repair - see `resolveMissing`.
+              checked: VALIDATOR_RULES,
+              fullyChecked: VAULT_WIDE_RULES,
+            })
             for (const f of created) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+            /*
+             * And the pages the list still names that this run did not touch. Nothing else ever
+             * reads them again - a notebook or a dated recap is written once - so a repair made
+             * elsewhere stays on the list forever without this.
+             */
+            const stale = recheckStanding(this.validation, this.validate, { exclude: touched })
             const parts: string[] = []
             if (created.length > 0) parts.push(`${created.length} new`)
             if (repeated > 0) parts.push(`${repeated} standing`)
             if (resolved > 0) parts.push(`${resolved} fixed since the last run`)
+            if (stale > 0) parts.push(`${stale} repaired elsewhere`)
             log(
               created.length > 0 ? 'warn' : 'info',
               parts.length === 0

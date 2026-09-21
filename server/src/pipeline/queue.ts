@@ -88,7 +88,8 @@ import {
 } from './system-prompt.js'
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
-import { VAULT_WIDE_RULES, type ValidationFinding, type Validator } from './validator.js'
+import { VALIDATOR_RULES, VAULT_WIDE_RULES, type ValidationFinding, type Validator } from './validator.js'
+import { recheckStanding } from './standing-recheck.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
 import { DEFAULT_CONCURRENCY } from '../db/settings.js'
@@ -1686,6 +1687,14 @@ export class IngestQueue {
      * commit the run just made - without a before there is no telling this run's quotes from
      * those of the runs before it.
      */
+    /*
+     * What this run is in a position to judge. `createValidator`'s rules always; the two below
+     * only when they actually ran, because each can be skipped - a quote check without a
+     * commit to compare against, a duplicate check without the vault's tiling machinery. A
+     * rule that did not run has to stay out of it, or `resolveMissing` reads its silence as a
+     * repair and clears findings nothing looked at.
+     */
+    const checked = new Set<string>(VALIDATOR_RULES)
     try {
       const hash = this.store.get(jobId)?.commit_hash ?? null
       const quotes = await checkQuotes({
@@ -1695,6 +1704,8 @@ export class IngestQueue {
         ...(hash === null ? {} : { before: gitPageBefore((rev, rel) => readAtRevision(this.vaultRoot, rev, rel), hash) }),
       })
       findings.push(...quotes.findings)
+      // `note` is how `checkQuotes` says it compared nothing; anything else is a real pass.
+      if (quotes.summary.note === undefined) checked.add('quote')
       this.store.setValidation(jobId, { quotes: quotes.summary })
       if (quotes.summary.checked > 0) {
         this.store.log(
@@ -1717,6 +1728,7 @@ export class IngestQueue {
       const tiling = await this.tiling(this.vaultRoot)
       if (tiling.skipped !== undefined) this.store.log(jobId, 'info', `duplicate check: ${tiling.skipped}`)
       else {
+        checked.add('near-duplicate')
         /*
          * The ERROR band only, on the job. Measured against the live vault with the thresholds
          * the vault ships: 215 pairs at or above 0.90, and 3218 between 0.80 and 0.90. The
@@ -1751,12 +1763,19 @@ export class IngestQueue {
       const { created, repeated } = this.validationStore.record(findings, jobId)
       // What this run looked at and no longer finds is repaired: taking it off the list is how
       // a fix becomes visible at all.
-      const resolved = this.validationStore.resolveMissing(touched, findings, { fullyChecked: VAULT_WIDE_RULES })
+      const resolved = this.validationStore.resolveMissing(touched, findings, { checked, fullyChecked: VAULT_WIDE_RULES })
       for (const f of created) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+      /*
+       * And the pages the list still names that this job did not touch. Its own pass above
+       * claims `quote` and `near-duplicate` for THIS job's pages, where it has the artifact to
+       * compare against; the recheck claims neither, so it cannot clear them elsewhere.
+       */
+      const stale = this.validate === undefined ? 0 : recheckStanding(this.validationStore, this.validate, { exclude: touched })
       const parts: string[] = []
       if (created.length > 0) parts.push(`${created.length} new`)
       if (repeated > 0) parts.push(`${repeated} standing`)
       if (resolved > 0) parts.push(`${resolved} fixed since the last run`)
+      if (stale > 0) parts.push(`${stale} repaired elsewhere`)
       this.store.log(
         jobId,
         created.length > 0 ? 'warn' : 'info',
