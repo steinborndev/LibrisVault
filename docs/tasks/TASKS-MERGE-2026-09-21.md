@@ -268,9 +268,11 @@ only, with no page titles in them.
       vocabulary of the four captured runs, which was checked file by file and is confined to
       `scripts/demo-research/` plus the one route that points into it. The single hit outside
       that set is the quote in `TASKS-QUESTIONS.md:807`, already its own decision below.
-- [ ] **Scan the PR body with `--file` before posting it.** It is the text written last, in a
-      hurry, and the `commit-msg` hook does not see it at all. A6 did this and found nothing;
-      that is the outcome to reproduce, not to assume.
+- [x] **Done, on the exact text that was posted.** Drafted in
+      `docs/tasks/PR-MERGE-2026-09-21-draft.md`, then the title and body were cut out of it into
+      the files `gh pr create` was actually given, and THOSE were scanned: nothing matched. The
+      draft is scanned too, but the draft is not what gets posted, and the gap between them is
+      exactly where a last-minute paraphrase would live.
 - [x] **Confirmed 2026-09-21, and the answer is clean.** Both directories exist (9 files and 2),
       **0 files tracked, 0 commits in the whole history across all branches**, both matched by
       `.git/info/exclude` lines 7 and 8. Nothing of either is or ever was in this repo.
@@ -361,14 +363,51 @@ also left the LIVE service 404ing its own JavaScript until it was restarted.
 
 ## 6. The pull request
 
-- [ ] **A merge, not a rebase, and not a squash.** The histories have not diverged, so this is
+- [x] **Done as a merge commit.** The histories have not diverged, so this is
       simpler than last time. A6's reasoning for the merge commit holds: the messages ARE the
       design record.
-- [ ] **State in the body that there are zero new runtime dependencies.** Measured: the three
+- [x] **Stated, and re-measured on the committed state.** Measured: the three
       manifests differ from upstream by npm scripts only. It was the strongest line in the last
       PR and it is true again.
-- [ ] **Describe the change by its mechanism, never by a vault subject** (hard rule 7). Draft it
+- [x] **Done, and the posted body was scanned in its exact final form** (hard rule 7). Draft it
       in a file, scan that file, then paste it.
-- [ ] **After the merge:** tag it on both remotes, and give this round the "as delivered" record
-      that `docs/agents/SPEC.md` section 15 got last time, wherever the question subsystem's spec
-      ends up living.
+- [x] **Done 2026-09-21.** Tagged on both remotes, and the record is section 7 below rather than
+      a spec section: the two behaviours this round added went into `SPEC.md` itself (12.15 and
+      12.16), so there is no separate subsystem document to carry an "as delivered" note.
+
+## 7. As delivered (2026-09-21)
+
+**Merged as [steinborndev/LibrisVault#16](https://github.com/steinborndev/LibrisVault/pull/16)**,
+merge commit `3068ac3`, 98 commits, 222 files, +23.5k / -0.6k. A merge commit rather than a
+squash, because the messages are the design record. Tagged `vault-layer-2026-09-21` on both
+remotes; the `vault-layer` branch was deleted after the merge, as the previous round's was.
+`upstream/main` carries everything now: 0 commits remain above it.
+
+| Gate | As merged |
+|---|---|
+| `npm test` | exit 0, 2,569 tests (server 1,913 / 114 files, web 656 / 64) |
+| `npm run typecheck` / `lint` / `build` | exit 0, both workspaces |
+| CI on the pull request | **green**, both runs of the four gates |
+| `permprobe` | PASS, both canaries blocked, by two different mechanisms |
+| `preprocprobe` | PASS, 14 checks, "the jail holds" |
+| `vaultprobe` | PASS, all four text contracts hold (first run: it is new here) |
+| Private-content audit | added lines 9 matches, commit messages 1, PR body 0, all accepted |
+
+**Delivered beyond the plan this file opened with**, all of it found by running the finished
+machinery rather than by reading it:
+
+- a frontend bug shipped by this merge's own prefix change, invisible to a green suite because
+  every test case fed the legacy spelling (section 5);
+- four tracked files that made a Windows clone fail, found by retracting a wrong leak finding;
+- a scanner blind spot that had been hiding a page name in plain sight, closed rather than
+  recorded (section 4);
+- six undocumented API routes and one misfiled behind the feature-flag divider (section 3);
+- a completeness grep in hard rule 1 that proved less than it claimed, in both directions.
+
+**Decided rather than fixed:** the passage naming a vault page in full was reformulated to state
+its finding instead of quoting it, and the note about the local-only exclude mechanism was left
+to write, with the constraint that it must name the mechanism and not the two paths.
+
+**What this round did NOT do.** No version bump and no release: the packages are private, nothing
+reads the version, and the install is a clone of `main`. A `CHANGELOG.md` was started instead,
+with an entry for the previous merge as well, so the record does not begin in the middle.
