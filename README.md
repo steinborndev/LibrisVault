@@ -617,7 +617,9 @@ endpoint list is in [docs/API.md](docs/API.md).
 
 A personal project (v0.1) built milestone by milestone with Claude Code. M0 to M5 built the base
 product; the research agents and the source-integrity work were built on top afterwards, as their
-own series (A0 to A7) with their own specifications. The engineering journals in `docs/tasks/` are
+own series (A0 to A7) with their own specifications. It is not versioned and there are no
+releases: work lands as one merge per body of work, each tagged by what it was and the day it
+landed, and [CHANGELOG.md](CHANGELOG.md) says what moved between them. The engineering journals in `docs/tasks/` are
 left in as they are - findings, dead ends, measurements and all - and record what is still open as
 plainly as what is done. Issues and PRs are welcome, with the caveat that `SPEC.md` and the hard
 rules in `CLAUDE.md` define what this is and is not.
