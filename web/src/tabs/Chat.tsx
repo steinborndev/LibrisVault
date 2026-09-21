@@ -58,7 +58,7 @@ import { chatStream } from '../lib/chatStream.ts'
 import { timeAgo, tokens } from '../lib/format.ts'
 import { Cost, ESTIMATE_LABEL, isEstimate } from '../components/Cost.tsx'
 import { RowDelete } from '../components/ActivityRows.tsx'
-import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry, RESEARCH_PREFIX } from '../lib/researchRuns.ts'
+import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry } from '../lib/researchRuns.ts'
 import { frontmatter } from '../lib/frontmatter.ts'
 
 type ComposerMode = 'research' | 'ask'
@@ -1446,7 +1446,7 @@ function RunDetailBody({
   // agent names the page itself. The heading shows the real one, without the prefix every
   // synthesis page carries: the lens mark beside it says what kind of page this is.
   const filedTitle = articlePath !== null ? (articlePath.split('/').pop() ?? '').replace(/\.md$/, '') : null
-  const heading = (filedTitle ?? entry.topic).replace(new RegExp(`^${RESEARCH_PREFIX}`), '')
+  const heading = (filedTitle ?? entry.topic).replace(/^Research(?: - |: )/, '')
   return (
     <DetailShell
       kind="web"

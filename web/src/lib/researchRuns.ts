@@ -56,7 +56,24 @@ export interface ResearchRunEntry {
   readonly pagePath: string | null
 }
 
-export const RESEARCH_PREFIX = 'Research: '
+/**
+ * The prefix a synthesis page title carries, MIRRORING `RESEARCH_PREFIX` in
+ * `server/src/pipeline/research-profiles.ts`. Colon-free since 2026-09-19 there; this copy was
+ * left behind until 2026-09-21, which meant the composer previewed a name the run would not
+ * use and every recognition path below missed a page filed after that date.
+ */
+export const RESEARCH_PREFIX = 'Research - '
+
+/**
+ * The spelling used before 2026-09-19. Recognition accepts both forever, for the same reason
+ * the server does: the pages that carry it do not rename themselves, and a reader that stops
+ * recognising them shows a run as having filed nothing.
+ */
+export const LEGACY_RESEARCH_PREFIX = 'Research: '
+
+/** Either spelling, longest first so the result never keeps half a prefix. */
+const researchPrefixOf = (s: string): string | null =>
+  [RESEARCH_PREFIX, LEGACY_RESEARCH_PREFIX].find((p) => s.startsWith(p)) ?? null
 /** Both research kinds file synthesis pages: a full run and a Fellow's bounded step. */
 export const isResearchKind = (kind: string): boolean => kind === 'research' || kind === 'research-step'
 
@@ -71,8 +88,9 @@ export function splitResearchTitle(
   title: string,
   profiles: readonly ResearchProfile[],
 ): { topic: string; profileKey: string | null } | null {
-  if (!title.startsWith(RESEARCH_PREFIX)) return null
-  const rest = title.slice(RESEARCH_PREFIX.length)
+  const prefix = researchPrefixOf(title)
+  if (prefix === null) return null
+  const rest = title.slice(prefix.length)
   const withSuffix = [...profiles]
     .filter((p) => p.titleSuffix !== '')
     .sort((a, b) => b.titleSuffix.length - a.titleSuffix.length)
@@ -309,11 +327,17 @@ export function synthesisPage(
   if (entry.pagePath !== null) return entry.pagePath
   const filed = entry.pages.find(isSynthesisPath)
   if (filed !== undefined) return filed
+  // Both spellings, because this looks a page up by the name it WOULD have: a run filed before
+  // 2026-09-19 carries the legacy prefix, and predicting only the current one would lose exactly
+  // the older runs this last resort exists for.
   const wanted = targetTitle(entry.topic, profiles.find((p) => p.key === entry.profileKey))
-  const node = nodes.find((n) => n.title === wanted || (n.names?.includes(wanted) ?? false))
+  const candidates = [wanted, wanted.replace(RESEARCH_PREFIX, LEGACY_RESEARCH_PREFIX)]
+  const node = nodes.find((n) =>
+    candidates.some((w) => n.title === w || (n.names?.includes(w) ?? false)),
+  )
   return node?.path ?? null
 }
 
-/** A `wiki/questions/Research: ….md` path - the shape a run's own synthesis page has. */
+/** A `wiki/questions/Research - ….md` path - the shape a run's own synthesis page has. */
 const isSynthesisPath = (path: string): boolean =>
-  path.startsWith('wiki/questions/') && (path.split('/').pop() ?? '').startsWith(RESEARCH_PREFIX)
+  path.startsWith('wiki/questions/') && researchPrefixOf(path.split('/').pop() ?? '') !== null

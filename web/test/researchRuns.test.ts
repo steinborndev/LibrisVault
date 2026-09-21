@@ -89,6 +89,13 @@ describe('splitResearchTitle', () => {
     })
   })
 
+  it('reads the current colon-free prefix, which is what a run files today', () => {
+    expect(splitResearchTitle('Research - Batteries - State of the Art', PROFILES)).toEqual({
+      topic: 'Batteries',
+      profileKey: 'sota',
+    })
+  })
+
   it('reads a plain title as the broad lens (no suffix)', () => {
     expect(splitResearchTitle('Research: Batteries', PROFILES)).toEqual({
       topic: 'Batteries',
@@ -171,9 +178,9 @@ describe('buildResearchRuns', () => {
 
 describe('targetTitle', () => {
   it('builds the deterministic page title the run will file as', () => {
-    expect(targetTitle('Batteries', PROFILES[1])).toBe('Research: Batteries - State of the Art')
-    expect(targetTitle('Batteries', PROFILES[0])).toBe('Research: Batteries')
-    expect(targetTitle('Batteries', undefined)).toBe('Research: Batteries')
+    expect(targetTitle('Batteries', PROFILES[1])).toBe('Research - Batteries - State of the Art')
+    expect(targetTitle('Batteries', PROFILES[0])).toBe('Research - Batteries')
+    expect(targetTitle('Batteries', undefined)).toBe('Research - Batteries')
   })
 })
 
