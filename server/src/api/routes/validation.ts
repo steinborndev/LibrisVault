@@ -157,10 +157,10 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
   const notebookContext = (c: AppContext): NotebookContext => ({
     fellowsWired: c.fellows !== undefined,
     ownerOf: (p: string) => {
-      const agent = c.fellows
-        ?.list()
-        .find((f) => f.agent.notebookPath === p && f.agent.state !== 'retired')
-      return agent === undefined ? undefined : { id: agent.agent.id, name: agent.agent.name }
+      const agent = c.fellows?.list().find((f) => f.agent.notebookPath === p)
+      return agent === undefined
+        ? undefined
+        : { id: agent.agent.id, name: agent.agent.name, retired: agent.agent.state === 'retired' }
     },
     ...(c.fellows === undefined ? {} : { hasRunInFlight: (agentId: string) => c.fellows!.hasRunInFlight(agentId) }),
   })

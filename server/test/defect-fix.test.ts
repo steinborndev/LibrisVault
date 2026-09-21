@@ -198,7 +198,7 @@ describe('the notebook condition', () => {
   it('lets a question repair through while the Fellow is idle', () => {
     const block = defectFixBlock(
       { rule: 'open-question-form', path: nb },
-      { fellowsWired: true, ownerOf: () => ({ id: 'a1', name: 'A Fellow' }), hasRunInFlight: () => false },
+      { fellowsWired: true, ownerOf: () => ({ id: 'a1', name: 'A Fellow', retired: false }), hasRunInFlight: () => false },
     )
     expect(block.fixable).toBe(true)
   })
@@ -206,7 +206,7 @@ describe('the notebook condition', () => {
   it('refuses while that Fellow has a run in flight', () => {
     const block = defectFixBlock(
       { rule: 'open-question-form', path: nb },
-      { fellowsWired: true, ownerOf: () => ({ id: 'a1', name: 'A Fellow' }), hasRunInFlight: () => true },
+      { fellowsWired: true, ownerOf: () => ({ id: 'a1', name: 'A Fellow', retired: false }), hasRunInFlight: () => true },
     )
     expect(block.fixable).toBe(false)
     expect(block.fixable === false && block.why).toContain('run in flight')
@@ -222,7 +222,7 @@ describe('the notebook condition', () => {
     for (const rule of ['page-schema', 'quote']) {
       const block = defectFixBlock(
         { rule, path: nb },
-        { fellowsWired: true, ownerOf: () => ({ id: 'a1', name: 'A Fellow' }), hasRunInFlight: () => false },
+        { fellowsWired: true, ownerOf: () => ({ id: 'a1', name: 'A Fellow', retired: false }), hasRunInFlight: () => false },
       )
       expect(block.fixable, rule).toBe(false)
       expect(block.fixable === false && block.why).toContain('regenerated')
@@ -233,6 +233,26 @@ describe('the notebook condition', () => {
     const block = defectFixBlock({ rule: 'open-question-form', path: nb }, { fellowsWired: false, ownerOf: () => undefined })
     expect(block.fixable).toBe(false)
     expect(block.fixable === false && block.why).toContain('not enabled here')
+  })
+
+  /**
+   * Retirement is final in the Fellow module - `pause()` and `resume()` both return a retired
+   * agent untouched - so a retired Fellow has no next notebook write and its page is static.
+   * Measured on the live vault: 3 of the 4 notebook findings stand on retired Fellows' pages,
+   * so blocking them would take the path away from three quarters of the class to guard against
+   * a write that can never happen.
+   */
+  it('allows a repair on a RETIRED Fellow\'s notebook: it writes nothing again', () => {
+    const block = defectFixBlock(
+      { rule: 'open-question-form', path: nb },
+      { fellowsWired: true, ownerOf: () => ({ id: 'a1', name: 'A Fellow', retired: true }), hasRunInFlight: () => true },
+    )
+    expect(block.fixable).toBe(true)
+  })
+
+  it('still blocks a notebook nothing owns: it may belong to a Fellow this process has not loaded', () => {
+    const block = defectFixBlock({ rule: 'open-question-form', path: nb }, { fellowsWired: true, ownerOf: () => undefined, hasRunInFlight: () => false })
+    expect(block.fixable).toBe(false)
   })
 
   it('never blocks a page outside the notebooks', () => {

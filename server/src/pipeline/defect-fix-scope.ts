@@ -33,8 +33,20 @@ const DURABLE_ON_NOTEBOOK: ReadonlySet<string> = new Set(['open-question-form'])
 export type FixBlock = { readonly fixable: true } | { readonly fixable: false; readonly why: string }
 
 export interface NotebookContext {
-  /** Which Fellow owns a notebook path; undefined when nothing owns it or the Fellows are off. */
-  readonly ownerOf: (path: string) => { id: string; name: string } | undefined
+  /**
+   * Which Fellow owns a notebook path, and whether it is RETIRED.
+   *
+   * Retirement is final in this module - `pause()` and `resume()` both return a retired agent
+   * untouched, saying so in as many words - so a retired Fellow has no next notebook write and
+   * its page is static. Blocking a repair there would be strictly safe and strictly wrong:
+   * measured on the live vault, 3 of the 4 notebook findings stand on retired Fellows' pages,
+   * so the guard would have taken the path away from three quarters of the class to protect
+   * against a write that can never happen.
+   *
+   * Undefined when nothing owns the path at all, which is a different thing and stays blocked:
+   * a notebook with no owner may belong to a Fellow this process has not loaded.
+   */
+  readonly ownerOf: (path: string) => { id: string; name: string; retired: boolean } | undefined
   /** Whether that Fellow has a run in flight. Absent = the Fellows are unwired. */
   readonly hasRunInFlight?: (agentId: string) => boolean
   /** True when the Fellows are wired at all. With the flag off this is false. */
@@ -78,6 +90,8 @@ export function defectFixBlock(
       why: 'This page sits under the Fellows’ notebooks and no active Fellow owns it, so nothing can say whether it is being written.',
     }
   }
+  // A retired Fellow writes nothing again, so its notebook is an ordinary page.
+  if (owner.retired) return { fixable: true }
   if (ctx.hasRunInFlight(owner.id)) {
     return { fixable: false, why: `${owner.name} has a run in flight; a repair to their notebook waits until it settles.` }
   }
