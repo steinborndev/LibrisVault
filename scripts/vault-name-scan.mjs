@@ -25,6 +25,10 @@
  *      you suspect; there is no way to enumerate them.
  *   3. It reads text. A PNG cannot be scanned and has to be looked at.
  *
+ * A fourth was found on 2026-09-21 and CLOSED rather than written down: percent-encoding used to
+ * defeat the match, so a title spelled `%20`-separated in a URL passed a full scan. Runs of `%XX`
+ * are decoded and scanned as well now. The three above stay open because they are structural.
+ *
  * Exit code is 0 when nothing matched, 1 when something did. Nothing is judged for you: a hit
  * is a line to look at, not a verdict. Product vocabulary that happens to also be a page title
  * ("hot cache", an entity named after an ordinary word) lands here every time.
@@ -92,6 +96,24 @@ const pattern = new RegExp(
   'g',
 )
 
+/*
+ * A percent-encoded title is the same title, and the term list is plain text, so `%20` between
+ * two words hides a whole page name from the pattern. Found 2026-09-21 in a deep-link route in
+ * `shoot-screens.mjs`, which a full scan walked straight past. Runs of `%XX` are decoded and the
+ * decoded copy is scanned as well; a malformed run is left as it stands rather than thrown over,
+ * because this is a scanner and half a haystack is worse than an ugly one.
+ */
+const percentDecoded = (text) =>
+  text.includes('%')
+    ? text.replace(/(?:%[0-9a-fA-F]{2})+/g, (run) => {
+        try {
+          return decodeURIComponent(run)
+        } catch {
+          return run
+        }
+      })
+    : text
+
 const git = (a) => execFileSync('git', a, { encoding: 'utf8', maxBuffer: 1 << 28 })
 let units
 const base = argOf('--diff')
@@ -119,7 +141,11 @@ if (single) {
 console.log(`${deny.size} terms from ${VAULT}, over ${units.length} unit(s)\n`)
 let hits = 0
 for (const unit of units) {
-  const found = [...new Set([...unit.text.toLowerCase().matchAll(pattern)].map((m) => deny.get(m[1])))]
+  const raw = unit.text.toLowerCase()
+  const decoded = percentDecoded(raw)
+  const matched = [...raw.matchAll(pattern)].map((m) => deny.get(m[1]))
+  if (decoded !== raw) matched.push(...[...decoded.matchAll(pattern)].map((m) => deny.get(m[1])))
+  const found = [...new Set(matched)]
   if (found.length === 0) continue
   hits += found.length
   console.log(`  ${unit.label}`)
