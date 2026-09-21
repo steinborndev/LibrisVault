@@ -187,6 +187,60 @@ export async function validateExpandCommit(reader: CommitReader, pageSet: readon
   return findings
 }
 
+/**
+ * The commit check for a `defect-fix` run (TASKS-DEFECT-PATHS 4.4).
+ *
+ * THREE OF `validateExpandCommit`'s FOUR RULES, and the fourth deliberately dropped.
+ *
+ * Kept: a modified page outside the set, a deleted page, and a cap on new pages - which for a
+ * defect fix is ZERO, because the repair is always to the page the finding stands on and a new
+ * page is never it.
+ *
+ * DROPPED: additivity (`isSubsequence`), which requires every existing body line to survive. A
+ * defect fix REPLACES lines by definition - that is what rewriting a question, correcting a
+ * quotation and filling a missing heading each are - so reusing the expand check here would
+ * revert exactly the run it was reused for, every time, on every page.
+ *
+ * This is the backstop, not the boundary. The `PreToolUse` hook refuses a write outside the set
+ * before it happens; this catches what the hook structurally cannot see, which is a page
+ * written through Bash, and the caller reverts on any finding.
+ */
+export async function validateDefectFixCommit(
+  reader: CommitReader,
+  pageSet: readonly string[],
+  maxNew = 0,
+): Promise<ExpandFinding[]> {
+  const findings: ExpandFinding[] = []
+  const allowed = new Set(pageSet)
+  const status = await reader.status()
+  let added = 0
+  for (const [p, s] of status) {
+    if (isExemptPath(p)) continue
+    if (s === 'A') {
+      added++
+      continue
+    }
+    if (s === 'D') {
+      findings.push({ path: p, rule: 'deleted-page', detail: 'the run deleted an existing page' })
+      continue
+    }
+    if (!allowed.has(p)) {
+      findings.push({ path: p, rule: 'outside-set', detail: 'modified a page the finding did not name' })
+    }
+  }
+  if (added > maxNew) {
+    findings.push({
+      path: '(new pages)',
+      rule: 'too-many-new',
+      detail:
+        maxNew === 0
+          ? `${added} new page(s); a defect fix repairs the page its finding stands on and creates none`
+          : `${added} new pages, at most ${maxNew} allowed`,
+    })
+  }
+  return findings
+}
+
 export function describeFindings(findings: readonly ExpandFinding[]): string {
   return findings.map((f) => `${f.path}: ${f.detail}`).join('; ')
 }

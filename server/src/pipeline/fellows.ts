@@ -807,6 +807,22 @@ export class FellowService {
    * rate-limit pause protect the user's own capacity, and overriding those would quietly
    * spend it.
    */
+  /**
+   * Whether this Fellow has a run in flight right now (TASKS-DEFECT-PATHS 4.5).
+   *
+   * The narrow question a defect fix on a notebook page has to ask, exposed rather than the
+   * map itself. Why this and not `pause()`: pausing blocks starting new runs and the night
+   * shift's filter, and stops NO run in flight - there is no abort path anywhere in this module
+   * - so it would not close the one window that matters. And `resume()` does not restore the
+   * previous state, so a crashed fix run could leave a Fellow paused indefinitely.
+   *
+   * In-memory and per process, which is honest: a run in flight belongs to this process, and
+   * the startup reconciliation is what keeps the answer true across a restart.
+   */
+  hasRunInFlight(agentId: string): boolean {
+    return this.inFlight.has(agentId)
+  }
+
   gateFor(agent: AgentRecord, kind: RunKind, opts: { readonly manual?: boolean } = {}): Refusal | null {
     if (agent.state === 'retired') return { status: 409, code: 'state', error: `${agent.name} is retired` }
     if (agent.state === 'paused') return { status: 409, code: 'state', error: `${agent.name} is paused; resume first` }
