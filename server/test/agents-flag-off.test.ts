@@ -204,6 +204,14 @@ describe('with the Fellows extension unwired', () => {
     const accept = await app.inject({ method: 'POST', url: `/api/v1/validation/${id}/accept`, payload: { reason: 'deliberate' } })
     expect(accept.statusCode).toBe(200)
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/validation/${id}/accept` })).statusCode).toBe(200)
+    // And the repair routes: registered, answering, and refusing for their own reasons rather
+    // than because the extension is unwired. A 400 for a missing field is an ANSWER; a 404
+    // here would be the 404-per-click hard rule 8 is about.
+    for (const url of ['/api/v1/validation/repair/plan', '/api/v1/validation/repair/apply']) {
+      const res = await app.inject({ method: 'POST', url, payload: {} })
+      expect(`${url} -> ${res.statusCode}`).toBe(`${url} -> 400`)
+    }
+    expect((await app.inject({ method: 'POST', url: '/api/v1/validation/repair/manifest/plan' })).statusCode).toBe(200)
   })
 
   /*

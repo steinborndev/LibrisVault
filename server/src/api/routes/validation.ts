@@ -27,6 +27,21 @@ import type { AppContext } from '../server.js'
 import { DEFECT_GUIDANCE } from '../../pipeline/defect-paths.js'
 import { evidenceFor, vaultReader } from '../../pipeline/defect-evidence.js'
 import type { StandingFinding } from '../../db/validation.js'
+import {
+  applyManifest,
+  applySelection,
+  buildPass,
+  passForRule,
+  planForPaths,
+  planManifest,
+  subjectFor,
+  PlanInFlightError,
+  SingleFlight,
+} from '../../pipeline/defect-repair.js'
+import { planRepair } from '../../pipeline/repair.js'
+import { VALIDATOR_RULES, VAULT_WIDE_RULES } from '../../pipeline/validator.js'
+import { recheckStanding } from '../../pipeline/standing-recheck.js'
+import { Mutex } from '../../util/mutex.js'
 
 /** Where a finding's subject is, as far as the server can resolve it. */
 export type FindingSubject =
@@ -59,7 +74,69 @@ export function resolveSubject(finding: { path: string }, jobExists: (id: string
   return { kind: 'none', why: 'this finding is about the vault as a whole rather than one page' }
 }
 
+/** At most this many findings in one repair, matching the caps the other actions carry. */
+const MAX_SELECTION = 40
+
+/**
+ * The finding ids a request names, resolved to their rule and their paths.
+ *
+ * ALL-OR-NOTHING, the same validation `tag-fix` uses: the user selected specific repairs, and
+ * silently dropping one repairs less than they asked for. One rule per request, because a pass
+ * belongs to a rule.
+ */
+function resolveIds(
+  store: { byId(id: string): StandingFinding | undefined },
+  body: { rule?: unknown; ids?: unknown },
+): { rule: string; paths: string[]; findings: StandingFinding[] } | { error: string; code: number } {
+  const rule = typeof body.rule === 'string' ? body.rule : ''
+  if (rule === '') return { error: 'provide "rule": the rule whose findings are being repaired', code: 400 }
+  const ids = Array.isArray(body.ids) ? body.ids.filter((i): i is string => typeof i === 'string') : []
+  if (ids.length === 0) return { error: 'provide "ids": the findings to repair', code: 400 }
+  if (ids.length > MAX_SELECTION) return { error: `at most ${MAX_SELECTION} findings in one repair`, code: 400 }
+  const findings: StandingFinding[] = []
+  for (const id of ids) {
+    const f = store.byId(id)
+    if (f === undefined) return { error: `no such finding: ${id}`, code: 404 }
+    if (f.rule !== rule) return { error: `finding ${id} is a ${f.rule}, not a ${rule}`, code: 400 }
+    if (f.acceptedAt !== null) return { error: `finding ${id} has been accepted; un-accept it first`, code: 409 }
+    findings.push(f)
+  }
+  return { rule, paths: [...new Set(findings.map((f) => f.path))], findings }
+}
+
 export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): void {
+  /** One plan at a time per rule: a plan is a synchronous read of every page it is given. */
+  const planning = new SingleFlight()
+  /**
+   * A private mutex for a context that wired none. Tests do that; `main.ts` always passes the
+   * shared one, which is what makes the repair serialise against agent commits.
+   */
+  const fallbackMutex = new Mutex()
+
+  /**
+   * The three calls every write to the vault gets, in this order (3.5):
+   *   1. validate + record  - so a defect the repair itself introduced lands on the list;
+   *   2. resolveMissing     - what this write covered and no longer finds;
+   *   3. recheckStanding    - the rest of the list, whose pages nothing else re-reads.
+   *
+   * `recheckStanding` hardcodes `checked: VALIDATOR_RULES` and passes no `fullyChecked`, so it
+   * can clear neither `quote` nor `near-duplicate` and never clears a whole-vault rule per
+   * page. Both of SPEC.md §12.16's conditions hold by construction.
+   */
+  const afterWrite = (written: readonly string[]): { recorded: number; resolved: number; recheckedAway: number } => {
+    if (written.length === 0 || ctx.validate === undefined || ctx.validation === undefined) {
+      return { recorded: 0, resolved: 0, recheckedAway: 0 }
+    }
+    const findings = ctx.validate(written)
+    const { created } = ctx.validation.record(findings, null)
+    const resolved = ctx.validation.resolveMissing([...written], findings, {
+      checked: VALIDATOR_RULES,
+      fullyChecked: VAULT_WIDE_RULES,
+    })
+    const recheckedAway = recheckStanding(ctx.validation, ctx.validate, { exclude: [...written] })
+    return { recorded: created.length, resolved, recheckedAway }
+  }
+
   const jobExists = (id: string): boolean => {
     try {
       return ctx.store.get(id) !== undefined
@@ -141,6 +218,96 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
     if (result === 'missing') return reply.code(404).send({ error: 'no such finding' })
     if (result === 'already') return reply.code(409).send({ error: 'this finding is not accepted' })
     return reply.send({ finding: withSubject(result) })
+  })
+
+  /**
+   * The deterministic repair, planned (TASKS-DEFECT-PATHS 3.2).
+   *
+   * READ-ONLY and needs no credential, like `rejoin-links`: the rule is mechanical, so this
+   * starts no agent and can invent nothing. The client names FINDING IDS; the server resolves
+   * them to paths through the store. A request naming paths would let a browser tab ask for a
+   * page the list never showed, which is the one thing this flow promises not to do.
+   */
+  app.post('/api/v1/validation/repair/plan', async (request, reply) => {
+    if (ctx.validation === undefined) return reply.code(404).send({ error: 'no validation store' })
+    const body = (request.body ?? {}) as { rule?: unknown; ids?: unknown }
+    const resolved = resolveIds(ctx.validation, body)
+    if ('error' in resolved) return reply.code(resolved.code).send({ error: resolved.error })
+    try {
+      const plan = planning.run(resolved.rule, () => planForPaths(ctx.config.vaultRoot, resolved.rule, resolved.paths))
+      return reply.send({ ...plan, findings: resolved.findings.length })
+    } catch (err) {
+      if (err instanceof PlanInFlightError) return reply.code(409).send({ error: err.message })
+      return reply.code(400).send({ error: (err as Error).message })
+    }
+  })
+
+  /**
+   * The same selection, applied (3.3, 3.4, 3.5).
+   *
+   * The server PLANS AGAIN and writes only what the approval still matches. That is why the
+   * plan response carries a `beforeHash` per page: re-planning sets `before` to the current
+   * content, so `applyRepair`'s own stale check would be unreachable outside a microsecond
+   * race. The hash carries the user's approval forward - the approval was of a diff, and a
+   * diff the page no longer has is not the one that was approved.
+   *
+   * Locks and commit in the order hard rule 1 states, inside `applySelection`. It takes the
+   * per-file locks and the commit mutex and NOT the maintenance runner's run mutex: it starts
+   * no agent, so serialising it against a night shift would only make it unavailable for
+   * hours.
+   */
+  app.post('/api/v1/validation/repair/apply', async (request, reply) => {
+    if (ctx.validation === undefined) return reply.code(404).send({ error: 'no validation store' })
+    const body = (request.body ?? {}) as { rule?: unknown; ids?: unknown; pages?: unknown }
+    const resolved = resolveIds(ctx.validation, body)
+    if ('error' in resolved) return reply.code(resolved.code).send({ error: resolved.error })
+    const approved = new Map<string, string>()
+    for (const entry of Array.isArray(body.pages) ? body.pages : []) {
+      const p = (entry ?? {}) as { rel?: unknown; beforeHash?: unknown }
+      if (typeof p.rel === 'string' && typeof p.beforeHash === 'string') approved.set(p.rel, p.beforeHash)
+    }
+    if (approved.size === 0) {
+      return reply.code(400).send({ error: 'provide "pages": the pages you approved, each with the beforeHash the plan gave' })
+    }
+    // A page in the approval that the findings do not name is refused outright rather than
+    // silently dropped: the selection is what bounds this write.
+    const allowed = new Set(resolved.paths)
+    const outside = [...approved.keys()].filter((rel) => !allowed.has(rel))
+    if (outside.length > 0) {
+      return reply.code(400).send({ error: `these pages are not named by the findings selected: ${outside.join(', ')}` })
+    }
+    const pass = passForRule(resolved.rule)
+    if (pass === undefined) return reply.code(400).send({ error: `no repair pass is exposed for ${resolved.rule}` })
+
+    try {
+      const outcome = await planning.runAsync(resolved.rule, async () => {
+        const fresh = planRepair(ctx.config.vaultRoot, pass, buildPass(ctx.config.vaultRoot, pass), undefined, [...approved.keys()])
+        return await applySelection(ctx.config.vaultRoot, fresh, subjectFor(pass), approved, {
+          commitMutex: ctx.commitMutex ?? fallbackMutex,
+        })
+      })
+      const recheck = afterWrite(outcome.written)
+      return reply.send({ ...outcome, ...recheck })
+    } catch (err) {
+      if (err instanceof PlanInFlightError) return reply.code(409).send({ error: err.message })
+      throw err
+    }
+  })
+
+  /** The address map's own plan (3.6): a JSON change, not page edits, and its own commit. */
+  app.post('/api/v1/validation/repair/manifest/plan', async (_request, reply) => {
+    return reply.send(planManifest(ctx.config.vaultRoot))
+  })
+
+  app.post('/api/v1/validation/repair/manifest/apply', async (request, reply) => {
+    const body = (request.body ?? {}) as { beforeHash?: unknown }
+    if (typeof body.beforeHash !== 'string' || body.beforeHash === '') {
+      return reply.code(400).send({ error: 'provide the beforeHash the plan gave' })
+    }
+    const outcome = await applyManifest(ctx.config.vaultRoot, body.beforeHash, {
+      commitMutex: ctx.commitMutex ?? fallbackMutex,
+    })
+    return reply.send(outcome)
   })
 
   /**
