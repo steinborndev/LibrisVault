@@ -379,11 +379,11 @@ three input shapes; the flag-off control group still passes.
 
 ## Phase 2: accept, with a reason
 
-- [ ] **2.1 Migration 35: `accepted_at TEXT NULL`, `accepted_reason TEXT NULL`.** Separate from
+- [x] **2.1 Migration 35: `accepted_at TEXT NULL`, `accepted_reason TEXT NULL`.** Separate from
       `resolved_at`: resolved means the defect is gone, accepted means it may stay. A row can be
       accepted and later resolved (someone fixed it anyway); the accept is what keeps it off the
       list in the meantime.
-- [ ] **2.2 `record()` must not resurrect an accepted finding.** Today the upsert sets
+- [x] **2.2 `record()` must not resurrect an accepted finding.** Today the upsert sets
       `resolved_at = NULL` on every repeat (`db/validation.ts:101`), which is right for
       resolution and wrong for acceptance: the next run would put every accepted defect straight
       back on the list. The accept survives repeats; only an explicit un-accept clears it.
@@ -393,7 +393,36 @@ three input shapes; the flag-off control group still passes.
       calls nothing but `resolveMissing` (`standing-recheck.ts:54`), there is no
       `DELETE FROM validation_findings` anywhere in `server/src`, and nothing resets the table at
       startup. So `record()` is the whole of it.
-- [ ] **2.3 `list()` and `countsByRule()` exclude accepted findings** by default and can return
+
+      **FINDING, 2026-09-21, while building: the mechanism this task names is the wrong one, and
+      building it as written introduces a bug. The GUARANTEE is right and is delivered; the
+      implementation differs, and here is exactly why.**
+
+      The task says the fix is to stop `record()` clearing `resolved_at` for an accepted row.
+      That only follows if acceptance is expressed THROUGH `resolved_at`. Task 2.1 puts it in
+      its own column, and task 2.3 makes `list()` and `countsByRule()` filter on
+      `accepted_at IS NULL` as well. With those two in place a repeat cannot put an accepted
+      finding back on the list however `resolved_at` moves, because the list never looks at an
+      accepted row at all. The upsert touches `accepted_at` nowhere, so the accept survives a
+      repeat by construction.
+
+      And making `record()` preserve `resolved_at` for an accepted row is actively wrong in one
+      reachable sequence, the one 2.1 names in its own text ("a row can be accepted and later
+      resolved"): accept a finding, let a run genuinely repair the page so `resolveMissing` sets
+      `resolved_at`, then let the defect come back so `record()` reports it again. The defect is
+      standing. With the clearing preserved the row keeps `resolved_at`, and the moment the
+      accept is taken back the finding stays hidden as "resolved" while it stands on disk - a
+      list reporting a repaired defect, which is the failure §12.16 exists to end, running the
+      other way. With the clearing left as it is, the un-accept puts it back where it belongs.
+
+      **Resolution taken, pending the user's word:** `record()` keeps `resolved_at = NULL` on
+      every repeat, unchanged. The guarantee 2.2 asks for - an accepted finding is never
+      resurrected by a report - is delivered by 2.3's filter and is tested exactly as 2.2 asks
+      ("accept then `record()` the same finding twice, it stays off the list and its count still
+      rises"), plus a second test over the accept-resolve-return sequence above. Nothing else in
+      the phase changes. **This is recorded rather than quietly built around; say if you want the
+      other reading and it is a two-line change.**
+- [x] **2.3 `list()` and `countsByRule()` exclude accepted findings** by default and can return
       them on request (`?accepted=1`), so the third block and the chip count come from the same
       store.
       **Two consequences of that default, both wanted and both written down here so neither
@@ -401,17 +430,37 @@ three input shapes; the flag-off control group still passes.
       because `renderStandingDefects` builds it from `list()` (`maintenance.ts:488`); and its
       page stops being re-read by the standing re-check unless something else on it still stands,
       because that pass takes its path set from `list()` too (`standing-recheck.ts:46`).
-- [ ] **2.4 `POST /api/v1/validation/:id/accept`** with a required, non-empty reason (trimmed,
+- [x] **2.4 `POST /api/v1/validation/:id/accept`** with a required, non-empty reason (trimmed,
       capped at 500 characters, stored verbatim), and `DELETE` on the same path to take it back.
       404 on an unknown id, 409 on an already-accepted one. Base product, registered
       unconditionally, added to the `UNGATED` list in
       `server/test/agents-flag-off.test.ts:79`.
-- [ ] **2.5 The third block.** Collapsed, headed "accepted (N)", each row with its reason and
+- [x] **2.5 The third block.** Collapsed, headed "accepted (N)", each row with its reason and
       date and a way back. Accepted findings count in no badge and in no "What's due" item.
 
 **DoD:** a finding can be accepted with a reason, survives the next validator run without
 returning, is visible with its reason in the collapsed block, and can be un-accepted. The badge
 and the chips agree with the blocks.
+
+**DoD MET**, all five parts tested in `server/test/defect-accept.test.ts` and
+`web/test/defectList.test.ts`: accept with a reason (400 on an empty or whitespace one, 404 on
+an unknown id, 409 on one already accepted, capped at 500 characters); survives two further
+`record()` calls with its count still rising to 3; visible with its reason through
+`?accepted=1`; un-accepted back into its block; and `countsByRule()` plus the total both
+exclude it, which is what makes the badge and the chips agree with the blocks by construction
+rather than by care.
+
+**What became clear while building, that the file did not say:**
+
+  - **Task 2.2's mechanism was the wrong one** - see the finding recorded in the task itself.
+    The guarantee is delivered; the implementation differs, and the difference is tested.
+  - **The accepted block must live OUTSIDE the `total === 0` branch.** A vault whose standing
+    list is empty *because* everything was accepted would otherwise lose the record exactly
+    when it matters most - the screen would read "nothing standing" with no way to see what was
+    decided.
+  - **The accepted rows need their own query.** They are excluded from every other one by
+    construction, which is the point of 2.3, so `?accepted=1` is fetched only when the block is
+    opened rather than riding along with the list.
 
 **Tests:** accept then `record()` the same finding twice, it stays off the list and its count
 still rises; accept then resolve, the row leaves both ways cleanly; an empty reason is a 400;
