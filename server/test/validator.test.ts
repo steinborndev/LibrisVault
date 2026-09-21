@@ -143,7 +143,7 @@ describe('pages a folder below their bucket', () => {
 
   it('leaves a page directly in its bucket alone', () => {
     page('wiki/questions/Research: A-b.md')
-    expect(validatePages(vaultRoot, ['wiki/questions/Research: A-b.md'])).toEqual([])
+    expect(rules(validatePages(vaultRoot, ['wiki/questions/Research: A-b.md']))).not.toContain('nested-page')
   })
 
   it('leaves wiki/meta alone, where the journals legitimately live in folders', () => {
@@ -767,11 +767,36 @@ describe('the title-name rule', () => {
     }
   })
 
-  it('stays silent when the title and the file name agree, whatever they contain', () => {
-    // A colon is legal in a file name on this filesystem. The defect is the DRIFT, not the
-    // character, and a rule that fired on the character would flag pages nothing is wrong with.
+  /*
+   * This used to expect SILENCE here, on the reasoning that a colon is legal in a file name on
+   * this filesystem and the defect is the drift rather than the character. The vault is read
+   * from Windows over `\\wsl$`, where such a name cannot be opened at all, and the vault's own
+   * lint counts these as "filename-forbidden". Measured 2026-09-21: 30 pages had both sides
+   * carrying the character and agreeing, and the rule said nothing about any of them.
+   */
+  it('reports the file name when IT carries the character, even if the title agrees', () => {
     const rel = page('wiki/concepts/Foo: Bar.md', 'Foo: Bar')
-    expect(validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')).toEqual([])
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('rename the file AND its title together')
+  })
+
+  it('asks for the rename, not the retitle, when both sides carry it and differ', () => {
+    // Setting the title to match the file name here keeps the character and makes the two
+    // agree - which silenced the rule instead of repairing the page. 9 pages were in this
+    // state on 2026-09-21, and the 30 above are where it ends.
+    const rel = page('wiki/concepts/Research: One.md', 'Research: Another')
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('rename the file AND its title together')
+    expect(findings[0]?.message).not.toContain('do not rename the file')
+  })
+
+  it('still asks only for the title when the file name is clean', () => {
+    const rel = page('wiki/concepts/Foo - Bar.md', 'Foo: Bar')
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('do not rename the file')
   })
 
   it('fires on a title too long to be a name', () => {

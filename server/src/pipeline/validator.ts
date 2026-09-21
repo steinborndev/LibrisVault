@@ -454,24 +454,52 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
      * whatever characters that happens to be.
      */
     const title = (fm.fields.get('title') ?? '').trim()
+    const fileName = rel.split('/').pop()!.replace(/\.md$/, '')
+    /*
+     * WHICH SIDE CARRIES THE CHARACTER DECIDES THE REPAIR (corrected 2026-09-21). This asked
+     * only about the title, and named one repair: change the title to match the file name.
+     * That is right when the file name is clean, and it was written to stop a fix run renaming
+     * a file whose path a writer computes. Measured against the live vault the next morning it
+     * was right for 32 pages of 71 and wrong for the rest:
+     *
+     *   - on 9, the FILE NAME carried the character too. Setting the title to match it keeps
+     *     the character, repairs nothing, and makes `title === fileName` true - which silenced
+     *     the rule rather than fixing the page;
+     *   - on 30, that had already happened, or the page was written that way: both sides
+     *     carried it, they agreed, and the rule said nothing at all.
+     *
+     * So the file name is asked first. A character a file name cannot carry is a problem for
+     * the file name wherever it appears: this vault is read from Windows over `\\wsl$`, where
+     * such a name is not openable at all. Renaming is the repair there, and it is safe now in
+     * a way it was not before: `manifest-sync.ts` follows a rename into the manifest, and a fix
+     * run rewrites the wikilinks, as one did on 2026-09-21.
+     */
+    if (UNSAFE_TITLE_CHARS.test(fileName)) {
+      findings.push({
+        rule: 'title-name',
+        path: rel,
+        message:
+          `the FILE NAME "${fileName}" carries a character a file name cannot hold on every system ` +
+          `this vault is read from - rename the file AND its title together, replacing the character ` +
+          `with a hyphen, and rewrite every wikilink that names the old one`,
+      })
+    } else if (title !== '' && title !== fileName && UNSAFE_TITLE_CHARS.test(title)) {
+      findings.push({
+        rule: 'title-name',
+        path: rel,
+        /*
+         * The file name is clean here, so the title is the only thing to change - and changing
+         * only the title is always safe, where renaming the file would break every link to the
+         * page and, under `wiki/meta/`, the writer that computes its path (a notebook is filed
+         * as `<slug>.md`, a recap as `Recap <date>.md`).
+         */
+        message:
+          `title "${title}" carries a character the file name cannot (it is filed as "${fileName}"), ` +
+          `so every wikilink written from the title resolves to nothing - change the TITLE to match ` +
+          `the file name, and do not rename the file`,
+      })
+    }
     if (title !== '') {
-      const fileName = rel.split('/').pop()!.replace(/\.md$/, '')
-      if (title !== fileName && UNSAFE_TITLE_CHARS.test(title)) {
-        findings.push({
-          rule: 'title-name',
-          path: rel,
-          /*
-           * Name the repair in one direction only. "Use a hyphen in both" invited a fix run to
-           * rename the FILE, which breaks every existing link to the page and, under
-           * `wiki/meta/`, breaks the writer that computes the path (a notebook is filed as
-           * `<slug>.md`, a recap as `Recap <date>.md`). Changing the title is always safe.
-           */
-          message:
-            `title "${title}" carries a character the file name cannot (it is filed as "${fileName}"), ` +
-            `so every wikilink written from the title resolves to nothing - change the TITLE to match ` +
-            `the file name, and do not rename the file`,
-        })
-      }
       if (title.length > TITLE_MAX_CHARS) {
         findings.push({
           rule: 'title-name',
