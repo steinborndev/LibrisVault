@@ -708,6 +708,19 @@ instead. Hard rule 1 permits it, because an agent run is exactly the writer allo
 but the spec says otherwise and the spec wins until it is changed (CLAUDE.md). Get the change
 agreed, then amend §12.15 in the same commit as §12.16.
 
+**AGREED 2026-09-21, by the user, both questions answered before anything in this phase was
+built.**
+
+  1. **§12.15 is amended.** "Not retroactive" was right about the mechanism and wrong about the
+     limit: pipeline code still rewrites no bullet, which is what hard rule 1 forbids, and an
+     agent run bound to one page is the writer hard rule 1 allows. The amendment is in §12.15
+     and carries decision 13 with it, as the second way a question's identity ends.
+  2. **The threshold stands at 2.** Over one run of 10 findings: every bullet asks something,
+     and at most **2 of the 10 pages** still carry a deictic bullet. Fixed BEFORE the run, which
+     is the whole point of agreeing it - a bar set afterwards cannot be failed. Below it, the
+     rule goes back to being a decision rather than a button, and the counts are recorded here
+     either way.
+
 - [ ] **4.1 A new maintenance kind `defect-fix`**, started through the existing runner so it
       appears in the run registry, the history and the activity feed like every other run. Needs
       a credential (503 without, `api/routes/maintenance.ts:53-59`, like the other agent

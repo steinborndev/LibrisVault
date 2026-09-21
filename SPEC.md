@@ -853,8 +853,23 @@ page with a sentence cut mid-clause**.
 deictic, emits one finding naming both. Advisory (§12.16). It never says the section should go,
 which is why `## Open questions` stays off the run-protocol heading list.
 
-**Not retroactive.** The 355 standing bullets are repaired one at a time by the reformulation and
-by the user's strike-through. Pipeline code does not rewrite vault content (hard rule 1).
+**Retroactive only through a bound agent run (amended 2026-09-21, user decision).** It read
+"not retroactive" until then, which was right about the mechanism and wrong about the limit:
+PIPELINE CODE still rewrites no bullet, and that is what hard rule 1 forbids. An AGENT RUN is
+the writer hard rule 1 allows, so the standing bullets of one page can be rewritten by a run
+bound to that page - one page per finding, at most ten pages of the same rule per run, no other
+page, no new page, no rename, no delete, enforced by a path whitelist at tool time and by a
+commit check with auto-revert behind it, not by prompt wording (§12.16, `defect-fix`). The
+reformulation and the user's strike-through remain the other two paths; what changed is that
+the list of 355 is no longer only worked one question at a time.
+
+**A reformulated question is a NEW question.** The text IS the identity (`questionKey`), so a
+proposal a Fellow planned against the old wording no longer names anything that exists. It is
+vetoed, the same way archiving a question vetoes it, and the board shows the new bullet as
+unplanned. The run therefore snapshots the page's bullets BEFORE it writes: nothing in the
+finding carries the old text, because the `open-question-form` message counts bullets and names
+none. This is the second way a question's identity ends, alongside the strike-through (§12.4).
+It can discard a planned night's work, so the confirmation says so before the run starts.
 
 ### 12.16 The standing defect list (added 2026-09-21)
 
