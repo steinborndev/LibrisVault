@@ -185,7 +185,9 @@ Both appear as ledgers of the same shape. A **lens** shapes a web run - four pro
 state of the art, recent patents, startups & funding) deciding how it searches and what it files -
 and the composer shows the plan before it starts: the page it will file under, the fetch budget,
 the step rail. Answers stream in as they are written and cite vault pages as chips that deep-link
-into Obsidian and expand inline. Conversations are named, resumable and savable into the vault.
+into Obsidian and expand inline. Conversations are named and resumable. **A chat answer never
+becomes vault content**: reading the vault and writing it are separate paths, and only a run
+writes.
 Underneath, the vault's own **knowledge gaps** sit as a backlog: pages other pages link to that
 nobody has written, each one a run you can start with a click.
 
@@ -211,11 +213,15 @@ Three boards hang on the short wall - the hot cache, last night's recap, the rea
 stations stand on the floor. The **book cart** is where the maintenance runs work and where the
 ingest queue's parcels wait; clicking it opens System. The **pinboard** carries every open question
 the vault's pages left behind, one pinned card each: open it and the questions stand by domain,
-walked with the keys. *Start research* hands one to the Research tab with the topic filled in;
-*archive* strikes it through on its own page, which is the convention the Fellows already honour,
-so a closed question leaves their planning too - and vetoes the run a Fellow had planned from it.
+walked with the keys. **The same question asked on several pages is one card**, not one per page,
+with the others listed as *also on* links: a vault writes a gap down wherever it meets it, and a
+board that showed each copy would be mostly repetition. *Start research* **reformulates** the
+bullet into a topic before handing it to the Research tab - a question written for its own page
+rarely stands alone, so the page it came from travels with it into the run as context. *Archive*
+strikes it through on its own page, which is the convention the Fellows already honour, so a
+closed question leaves their planning too - and vetoes the run a Fellow had planned from it.
 
-![The pinboard: every open question on every page, by domain, with Start research and Archive](docs/img/library-pinboard.png)
+![The pinboard: every open question in the vault, one card each, by domain, with Start research and Archive](docs/img/library-pinboard.png)
 
 A shelf is one domain, its colour is the domain's, and how full it is is how many pages that domain
 holds. The domains stand in wings off the main room, behind glazed double doors.
@@ -232,11 +238,13 @@ waiting for you, and the spawn form.
 
 On a canvas, with the force layout in a web worker so it stays smooth as the vault grows.
 **Colour lenses** recolour the same graph by `domain:` (the default), by page type, or by a metric
-(authority, recency, orphans, stubs). **Overlays** add community areas, brightened bridges and a
-spotlight that isolates one community on hover. Page-type chips and a domain list filter what is
-shown; **search narrows** rather than highlights. Structural scaffolding and maintenance artifacts
-are hidden by default; one toggle brings them back. Keys: double-click opens a page, `/` searches,
-`f` fits, `←` `→` step the domains, `Esc` steps back one layer.
+(authority, recency, orphans, stubs). Recency reads what a page **says** about itself rather than
+its file mtime, so a mass pass over the vault does not repaint every node as new. **Overlays** add
+community areas, brightened bridges and a spotlight that isolates one community on hover.
+Page-type chips and a domain list filter what is shown; **search narrows** rather than highlights.
+Structural scaffolding and maintenance artifacts are hidden by default; one toggle brings them
+back. Keys: double-click opens a page, `/` searches, `f` fits, `←` `→` step the domains, `Esc`
+steps back one layer.
 
 The **page view** behind it has rendered markdown, clickable `[[wikilinks]]`, a frontmatter panel
 and backlink/outgoing panels. Pages can be **edited and deleted here** - every mutation is one git
@@ -260,11 +268,11 @@ must never lose provenance. *Called Library until September 2026; the name moved
 ### System - the machine room
 
 Status and checks (lint as a structured report, a "fix safe findings" run that automates only the
-mechanical categories, the hot-cache refresh, the domain registry and its backfill, the governance
-loop); usage and cost (tokens, spend today and over 7 days, the daily budget as a meter, every priced
-run); vault stats (pages, links, orphans, stubs, gaps, growth over 30 days, the commit history, the
-retrieval index); service and config; and the integrations - the Anthropic credential, the Telegram
-bot, the Obsidian vault name.
+mechanical categories, the **standing defect list** described below, the hot-cache refresh, the
+domain registry and its backfill, the governance loop); usage and cost (tokens, spend today and
+over 7 days, the daily budget as a meter, every priced run); vault stats (pages, links, orphans,
+stubs, gaps, growth over 30 days, the commit history, the retrieval index); service and config;
+and the integrations - the Anthropic credential, the Telegram bot, the Obsidian vault name.
 
 ![System: vault stats - size, shape, growth and what is still unfiled](docs/img/system.png)
 
@@ -281,7 +289,11 @@ bot, the Obsidian vault name.
   editing the page, or by accepting a candidate the **governance loop** proposes for free from
   themes among the `unassigned` pages. The backfill files existing pages retroactively.
 - **Every write is checked** afterwards, deterministically and read-only: missing frontmatter, dead
-  links, orphans, stale counters, an overgrown hot cache. Findings are advisory, never a rewrite.
+  links, orphans, stale counters, an overgrown hot cache, and a dozen more rules. Findings are
+  advisory, never a rewrite. They stand as a **defect list** under System → Checks, one row per
+  defect with how often it has been seen and how long it has stood, rather than one advisory line
+  per run buried in a job log - a single dead link was once reported 109 times. A row disappears
+  when a run checks that page and no longer finds it.
 - **Hybrid retrieval.** The read-only query path can use the vault's opt-in `wiki-retrieve` skill
   (contextual chunk prefixes + BM25, after
   [Anthropic's contextual-retrieval method](https://www.anthropic.com/news/contextual-retrieval)).
