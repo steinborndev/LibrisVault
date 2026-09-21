@@ -28,6 +28,7 @@
     "questionaudit": "npm run questionaudit --workspace server --",
     "questiontopic-eval": "npm run questiontopic-eval --workspace server --",
     "vaultrepair": "npm run vaultrepair --workspace server --",
+    "backfill-quote-evidence": "npm run backfill-quote-evidence --workspace server --",
     "dev:server": "npm run dev --workspace server",
     "dev:web": "npm run dev --workspace web",
     "build:web": "npm run build --workspace web",

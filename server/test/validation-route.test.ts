@@ -94,7 +94,13 @@ describe('GET /api/v1/validation', () => {
     app = await build(new ValidationStore(db))
     const res = await app.inject({ method: 'GET', url: '/api/v1/validation' })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ findings: [], byRule: [], total: 0 })
+    const body = res.json() as { findings: unknown[]; byRule: unknown[]; total: number; guidance: Record<string, unknown> }
+    expect(body.findings).toEqual([])
+    expect(body.byRule).toEqual([])
+    expect(body.total).toBe(0)
+    // The rule tables ride along even on an empty list: the screen renders "nothing standing"
+    // from the same response it renders rows from.
+    expect(Object.keys(body.guidance).length).toBeGreaterThan(0)
   })
 
   it('answers 200 rather than 404 when the store is not wired at all', async () => {

@@ -846,6 +846,23 @@ UPDATE usage_samples SET utilization = ROUND(utilization, 2)
 WHERE utilization IS NOT NULL AND utilization != ROUND(utilization, 2);
 `
 
+/*
+ * What a finding is based on, written down when it is made (2026-09-21, TASKS-DEFECT-PATHS 1.3).
+ *
+ * A row on the standing list says what is wrong and never shows it. For most rules that is
+ * recoverable - re-read the page and the offending lines are there. For `quote` it is not:
+ * the check compares a quotation against the artifact the JOB read, normalised to a lowercase
+ * word stream, and neither the quotation in full nor how much of it does stand in the source
+ * survives into the message (it carries the first 80 characters and a length).
+ *
+ * So the producer writes it down while it still has the source in memory. NULL for every rule
+ * whose evidence the page itself still holds; `record()` never overwrites a value with NULL,
+ * because a later run that has no evidence must not erase what an earlier one had.
+ */
+const V34 = `
+ALTER TABLE validation_findings ADD COLUMN evidence TEXT;
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -880,4 +897,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 31, up: V31 },
   { version: 32, up: V32 },
   { version: 33, up: V33 },
+  { version: 34, up: V34 },
 ]
