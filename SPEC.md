@@ -66,7 +66,7 @@ Windows 11
 
 **Watcher:** `chokidar` observes the configured watch folder recursively. New or changed files are picked up only after a stability check (`awaitWriteFinish`, 2 s of unchanged size) to avoid half-copied files. After pickup the file is **moved** into the vault's `.raw/` (watch folder = inbox, gets emptied; prevents double processing after a restart).
 
-**Ingestion queue:** SQLite table `jobs` as the single source of truth for all processing. Jobs move through the states `queued → preprocessing → ingesting → done | failed | deferred`. A worker pool drains the queue; **default concurrency for agent runs: 2** (configurable). claude-obsidian's per-file locking (`scripts/wiki-lock.sh`) additionally protects at vault level in case Claude Code is used manually in the vault at the same time.
+**Ingestion queue:** SQLite table `jobs` as the single source of truth for all processing. Jobs move through the states `queued → preprocessing → ingesting → done | failed | deferred`. A worker pool drains the queue; **default concurrency for agent runs: 1** (configurable, corrected 2026-09-19). The vault's own ingest skill states the constraint it was built under: "Single-writer only ... Do not run parallel ingests from multiple Claude sessions or sub-agents that assign addresses. The `flock` in the helper prevents counter corruption but does not serialize page writes themselves." This paragraph previously said 2 and claimed claude-obsidian's per-file locking (`scripts/wiki-lock.sh`) protected the vault level as well; both halves were wrong. Measured 2026-09-19: at the old default, **13 of 31 finished jobs overlapped another job in time**, and the lock's staleness window (60 s by default, since widened to 600 s) was shorter than **9.6 % of real lock holds** - a lock that outlives its window is reaped and both writers proceed. What the lock does protect is a page one writer holds RIGHT NOW against another writer that asks for it in the same window, which is the manual-Obsidian-session case, not the two-ingests case. Raising the default back to 2 needs the service-owned hub layer shipped (it removes the long holds, which are all on the hub files) and a measured run of the new write path; the deviation gets written down either way.
 
 **Preprocessing worker:** Normalizes incoming material into a format suitable for ingestion (details in section 5), stores original + normalized form under `.raw/<job-id>/` and writes a `manifest.json` (source, type, hashes, timestamps).
 
@@ -181,7 +181,13 @@ The heart of the operation. On top the dropzone (files + URLs), below it three a
 
 ### 6.3 Tab "Query/Chat"
 
-Chat surface against the query runner. Answers contain the page citations delivered by the wiki-query skill; cited pages are rendered as clickable chips (Obsidian deep link + inline preview of the page content). Several chat sessions in parallel, sessions nameable; a "Save session to vault" button triggers the repo's `/save` flow.
+Chat surface against the query runner. Answers contain the page citations delivered by the wiki-query skill; cited pages are rendered as clickable chips (Obsidian deep link + inline preview of the page content). Several chat sessions in parallel, sessions nameable.
+
+**A chat answer never becomes vault content (decided 2026-09-19, and this replaces the sentence that used to end this paragraph).** Until then a "Save session to vault" button started a write-enabled agent run that resumed the chat's SDK session and ran the vault's own `/save` flow; the button, the route `POST /api/v1/sessions/:id/save` and the runner behind it are all removed, and a test asserts the route 404s so the older wording here cannot bring it back.
+
+The reason is what a chat answer IS. It is assembled from pages the vault already holds and it cites them; filing it writes a third statement of what two pages already say, under a title nobody will look for again. That is the island-making this vault was measured to suffer from: 73 % of its concept pages cite exactly one source, and 61 % were written by exactly one commit and never revisited (SPEC.md §12.12's measurements). A mechanism that adds pages nothing links to makes that worse, and the work that could have made it better - folding an answer back into the pages it cited - is a different mechanism with a different cost, deliberately not built.
+
+**The chat is read-only, all the way down**, and that is now a property rather than a default: the query runner has no write profile, and there is no route by which a conversation reaches the vault.
 
 **As built 2026-08-26:** Lives in **Research**, together with the autoresearch from 6.4 (see the correction there). Both modes share one console; sessions can be renamed and deleted.
 
@@ -231,7 +237,7 @@ POST   /api/v1/maintenance/…        the maintenance runs: lint, lint-fix, hot-
 GET    /api/v1/maintenance/state    cadence status per area (12.7 stage b)
 GET    /api/v1/maintenance/history  persistent run history (schema v12)
 DELETE /api/v1/maintenance/history/:id  remove one run from the history (added 2026-09-05)
-GET    /api/v1/sessions[/:id]       chat sessions; …/save triggers the `/save` flow (6.3)
+GET    /api/v1/sessions[/:id]       chat sessions (read-only: no route files one into the vault, 6.3)
 GET    /api/v1/settings/telegram    bot status + rejected senders (4.3); PUT/DELETE
                                     write or remove token and allowlist together
 POST   /api/v1/jobs/:id/revert      undo one ingest (revert of its commit)
@@ -375,6 +381,28 @@ These three requirements are architecturally connected and are therefore thought
 **v1 provisions (already in place):** auth middleware in front of all endpoints ("local-single-user" mode), `user_id` columns in `jobs` and `sessions` (default `'local'`), `users` table with a seed entry, versioned API.
 
 **Build-out stage:** activation of the auth mode (token/password per user, Argon2 hash in `users.token_hash`), login screen in the frontend, roles `admin` (settings, maintenance, all jobs) and `member` (own jobs, query, ingestion). Chat sessions are private per user; the vault itself stays **shared** in the first multi-user stage (one common second brain, which is the point of a shared vault). Should separate knowledge spaces become necessary later, the extension "several vaults per server" (vault registry table, `vault_id` on jobs/sessions) is the clean way; v1 therefore avoids hard-coded single-vault assumptions in the path logic (vault root as a configuration value, passed through everywhere instead of a global constant).
+
+**One assumption that IS hard-coded, and that this work inherits (measured 2026-09-19).** The
+vault root is a configuration value, but the BUCKET STRUCTURE under it is not. claude-obsidian
+has four methodology modes and `scripts/wiki-mode.py route` returns a materially different path
+for each: a concept is `wiki/concepts/X.md` under Generic, `wiki/notes/X.md` under LYT,
+`wiki/resources/concepts/X.md` under PARA, and `wiki/<timestamp>-X.md` under **Zettelkasten,
+which has no buckets at all**.
+
+The cost is not in the write path, which is where it looks like it should be. The service
+barely writes content paths; it **classifies** them, by prefix, in about twenty places:
+`startsWith('wiki/questions/')` is how `candidates.ts`, `recap.ts`, `related-pages.ts` and
+`research-profiles.ts` recognise a synthesis page, `startsWith('wiki/sources/')` is how
+`reading-list.ts` finds a source page, and `hubs.ts` decides what counts as a content page by
+its bucket before it reads `type:` from frontmatter. Under Zettelkasten every one of those
+prefixes matches nothing, silently: no error, just a service that finds no synthesis pages and
+an index that lists nothing.
+
+**So the constraint for a second vault is: it must be in Generic mode, or the classification has
+to move to frontmatter `type:` first.** Routing writes through `wiki-mode.py` would not help -
+it fixes the half that is not broken. The registry work should treat "classify by `type:`, never
+by path" as part of its own scope, and `hubs.ts` shows the shape: it already reads `type:` and
+only needs to stop gating on the bucket first.
 
 ### 12.2 Access across devices ("sync")
 
@@ -684,3 +712,187 @@ Six mechanisms that harden how the service acquires and reads sources, and how a
 **The one part of this that IS behind the flag** is the **reading-list sweep**: entries a Fellow could not read are re-checked for an open copy each night and marked, so the user can ingest the copy with one click. It lives inside the night shift and therefore exists only with `AGENTS_ENABLED`. It is source-integrity work running on the Fellows' schedule, and the seam is named here because it is the one place the two subsystems are not cleanly separable.
 
 **Delimitation.** Scholarly discovery - searching open indexes as a research tool rather than as a rescue for one blocked document - is deliberately out of scope and recorded as an extension axis. The fence bounds what an agent is told about a document; it is not a claim that a document cannot influence a run at all, which no boundary of this kind can promise.
+
+
+### 12.12 The hub layer is service-owned (added 2026-09-19)
+
+`wiki/index.md` and the `wiki/log.md` entry are written by the SERVICE after every run that
+wrote a page, deterministically, inside that run's own commit. `wiki/hot.md` deliberately stays
+with the agent: it is a semantic summary of what matters right now, no generator can produce it,
+and a lost update there costs a cache rather than knowledge.
+
+**Why.** The prompt used to tell every ingest to link its new pages from the index. Measured on
+the working vault before the change: the index had grown to 514 kB against the ~1000 tokens the
+vault's own skill budgets for reading it; **83 % of the wiki's entire git history** was six hub
+files being rewritten whole (roughly 570 kB of permanent history per ingest, for bookkeeping);
+the long per-file lock holds that made §3.1's race real were all on these files; and the
+hand-maintained header counters accounted for 77 of 406 validator findings.
+
+**What makes it hold.** Not the write guard - **regeneration**. The index is derived from page
+frontmatter, so an agent write to it is overwritten by the next run rather than having to be
+prevented. Two renders of an unchanged vault are byte-identical, which is what keeps an
+unchanged index out of a commit; nothing in the render reads the clock.
+
+**Mechanism.** The vault's own per-file lock on the hubs is taken OUTSIDE the commit mutex and
+the write and commit happen inside it (foreign-then-ours, CLAUDE.md hard rule 1). A run that
+wrote no content page writes no log entry and does not regenerate the index. A hub write that
+fails is loud and non-fatal: the run stays `done`, a warning lands on the job, and the next run
+regenerates the index anyway - the safety net a derived file gives that a maintained one never
+did. Links in the index are written from the FILE NAME with the title as display text, because a
+title the file name cannot carry is this vault's largest dead-link class.
+
+**Undo.** Because every commit now carries the hubs, every later commit touches them too, so
+`git revert` of a whole older commit would conflict on the hub files rather than on anything the
+run wrote. `revertCommit` therefore reverts the commit's own paths and leaves the hubs alone,
+which is also what reverting means here: the index is regenerated from the pages that remain, and
+the log is a record of something that really did happen.
+
+
+### 12.13 Page freshness: `updated:` and `content_updated:` (added 2026-09-19)
+
+A page carries two date fields where it used to carry one.
+
+`updated:` keeps exactly its old meaning: the day anything about the FILE changed. The vault's
+own skills read it and repurposing it would change their behaviour, which is not ours to change
+(hard rule 5).
+
+`content_updated:` is new and means the day a human or a run changed what the page SAYS.
+
+**Why.** Every mass pass bumped `updated:`: a tag normalisation, a link repair, a counter
+refresh, a frontmatter backfill. Measured on the working vault before this change: **1231 of
+1247 pages (99 %) claimed an update within thirty days**, which is another way of saying the
+field answered nothing. "What changed recently" cannot be asked of a vault where everything
+changed recently.
+
+**The rule for a writer, and it is a judgement the writer makes rather than a diff.** A user's
+page edit, a run writing a page, a question struck through: content changed. A link joined back
+onto one line, a tag dropped, an em-dash replaced, a heading moved, a counter refreshed: the
+file changed and the page still says the same thing. `stampDates({ content })` takes that
+judgement as its argument; `bodyChanged` is available where a writer wants a diff to decide.
+
+**Who writes it, and why not the agent.** The field is set by the SERVICE, in the post-run step
+that rides inside the run's own commit, on every content page the run wrote. That is deliberate:
+an ingest's pages are written by the AGENT from the vault's own frontmatter template, which has
+no such field, so for the first day the field existed the one path that produces most of the
+vault's pages was the one path not filling it - measured on the first real ingest after it
+shipped, four of five new pages had `updated:` and no `content_updated:`. A prompt rule would
+have held only as long as every run remembered it, and the whole point of the field is that a
+later reader can trust it.
+
+The hubs are excluded, and so is `hot.md` and the bucket `_index` MOCs: a run adding a line to
+an index has not said anything new about a subject. The pages' own per-file locks are taken
+alongside the hubs' and OUTSIDE the commit mutex, which is hard rule 1's order.
+
+**Reading it.** `freshnessDate` prefers `content_updated:` and falls back to **`created:`**,
+deliberately not to `updated:`. On the pages that predate the field `updated:` is the date of
+the last mass pass, and sorting by it is what made every page look equally fresh. The one-off repair of §12.14 was mechanical, so it stamped none of the 819 pages it touched;
+the field fills from the next real write onwards.
+
+### 12.14 What `.raw/` puts into vault git (added 2026-09-19)
+
+The vault repo had grown to **1.4 GB carrying 16 MB of knowledge**. Two classes were
+responsible and both are now excluded, the same mechanism and the same category as the
+retrieval-index artifacts in §12.6: repo-local `.git/info/exclude`, never a change to a tracked
+file of the cloned repo (hard rule 5).
+
+**Derived payloads.** `ocr.pdf` is written beside the original when a textless PDF has to be
+OCR'd. It is rebuildable from the file lying next to it and it was **627 MB in 16 blobs**, three
+of them over 150 MB. Derived and rebuildable is exactly the category the exclude list exists
+for.
+
+**Oversized originals.** A payload over `RAW_PAYLOAD_MAX_BYTES` (default 25 MB) stays on disk
+and out of git. It is not deleted and not hidden: the job's manifest names it under `localOnly`
+with its size, so provenance still points at a real file on this machine and a reader can tell
+"not versioned" from "not there".
+
+**What this does not do.** It does not shrink the existing 1.4 GB. Rewriting the vault's history
+was considered and rejected: a rewrite invalidates every commit hash the service has recorded
+against a job, and the wiki content is 232 MB of that history and would have to survive
+untouched. The size is prevented from growing, and the existing history stays exactly as
+written.
+
+### 12.15 The form of an open question (added 2026-09-21)
+
+A bullet under `## Open questions` is read away from its page: off the pinboard, or as a research
+run's whole brief. Measured 2026-09-20 over **355 bullets on 86 of 1,269 pages**: 29 ended in a
+question mark, 153 opened by reporting what a run could not establish, 173 were other declaratives,
+and 152 carried a back-reference ("in this pass", "either source", "above") that means nothing off
+the page.
+
+**Base product, not behind `AGENTS_ENABLED`** (hard rule 8): an ingest writes the section too. The
+flag-gated half is only the display.
+
+| Layer | Where | Gated |
+|---|---|---|
+| Prompt rule `OPEN_QUESTION_FORM` | `queue.ts:1289` (ingest), `:1879` (research), `maintenance.ts:1463` | no |
+| Classifiers (3 forms, 14 deixis phrases) | `pipeline/question-form.ts`, pure and import-free | no |
+| Reformulation | `POST /api/v1/maintenance/research/topic` | no |
+| Validator rule `open-question-form` | `validator.ts` | no |
+| Board, archive | `GET /questions`, `POST /questions/archive`, pinboard | **yes** |
+
+**Prompt rule**, carried by `systemPromptExtra` (hard rule 5, the template stays the vault's):
+end with a question mark; no reference to this run or document; names in full; one question per
+bullet; the reason it stayed open in brackets *before* the question mark.
+
+**It works for one half only, and the spec records that rather than the intent.** Over eight runs:
+asks something **45 of 45** (from 8 %); still deictic **25 of 45**, and 9 of 10 in the two runs
+that saw the sharpened wording. The vault contains that phrase **380 times**, so a run is copying
+the house style of the place it writes for. **Do not sharpen the wording a third time.**
+
+**Reformulation is what removes it** (0 of 30 in its own eval), and it sits where the defect does
+harm: as a brief, not on its own page. `reformulate()` takes the bullet plus a bounded excerpt of
+its origin page. Three contracts the callers depend on: it **never throws** (failure, schema
+violation or timeout returns null, caller keeps the raw text), it is **read-only**
+(`profile: 'query'`, no vault write path, no web), and the excerpt is bounded rather than a read
+tool. Caps are derived, not chosen: `TOPIC_MAX_CHARS = FIELD_CAPS.topic`, and the title budget is
+what `TITLE_MAX_CHARS` leaves after the `Research - ` prefix and the longest lens suffix. Without
+this step the raw bullet became the topic, the title and the page name: **95 % would have named a
+page with a sentence cut mid-clause**.
+
+**Validator**, per page, over unarchived bullets: counts those that ask nothing and those that are
+deictic, emits one finding naming both. Advisory (§12.16). It never says the section should go,
+which is why `## Open questions` stays off the run-protocol heading list.
+
+**Not retroactive.** The 355 standing bullets are repaired one at a time by the reformulation and
+by the user's strike-through. Pipeline code does not rewrite vault content (hard rule 1).
+
+### 12.16 The standing defect list (added 2026-09-21)
+
+The validator wrote **406 warnings into job logs** and nothing acted on one: dead-link 211,
+stale-counter 77, address-map 58, single-source-entity 11, dates 10, frontmatter 3, every row
+labelled "advisory only", and **one dead-link class accounting for 109** of them.
+
+**A finding has an identity**: `hash(rule, path, normalised message)`. `validation_findings`
+(migration 32) holds one row per defect with `count`, `first_seen`, `last_seen`, `last_job_id`,
+`resolved_at`; a repeat updates the row. `jobs.validation` is unchanged and keeps its quote
+summary: what one job saw is a different question from what stands in the vault.
+`GET /api/v1/validation` (`?rule=`, `?limit=` 1-200 default 50, `?offset=`) returns findings,
+per-rule counts and a total. Registered unconditionally: base product (hard rule 8). Findings stay
+**advisory** - repair is an agent run's job or the user's, never pipeline code's (hard rule 1).
+
+**Clearing is the hard half.** A finding clears when a run reads its page again and no longer
+reports it. Two of the three constraints on that are the arguments of one call,
+`ValidationStore.resolveMissing(paths, findings, { checked, fullyChecked })`:
+
+1. `fullyChecked: VAULT_WIDE_RULES` - **a whole-vault rule cannot be cleared per page.** Most
+   rules answer about the page they are handed; `address-map`, the hub counters and
+   `hot-cache-size` read their file whole on every call and re-report everything. The page such a
+   finding names is rarely one a run writes, so per-page clearing raises them and never lowers
+   them. Measured both ways: address-map went 7 to **75** in one run, and narrowing the rule an
+   hour later took the vault from 72 real findings to **4** while the list stayed at 75, 68 of
+   them describing a defect the rule no longer believed. The set is kept honest by a test that
+   calls the validator with no paths and asserts every rule still producing a finding is in it.
+2. `checked: VALIDATOR_RULES` - **a check may only clear what it could look for**, and the field
+   is **required, not optional**: a caller that omits it is the bug. Two rules are unraisable
+   from a path list, since a quote is compared against the artifact the job read and a
+   near-duplicate against the pre-run commit. A maintenance run touching a page with a quote
+   finding would otherwise clear it having compared no quote.
+3. `pipeline/standing-recheck.ts` - **a page no run touches is never re-read**, so a notebook or
+   dated recap keeps repaired findings indefinitely: **11 of 66** named a defect fixed hours
+   earlier. Each run re-reads the pages the list still names as a separate bounded pass, claiming
+   only what reading a page answers. Folding it into the run's own check would let an ingest
+   clear quote findings for pages its job fetched nothing for.
+
+**Every rule sits on exactly one list**, mechanical or judgement, enforced by an exhaustive type
+and a test. A rule on neither reaches no fix run: `open-question-form` (§12.15) was in that state
+from the day it shipped, 15 findings' worth, with five others.

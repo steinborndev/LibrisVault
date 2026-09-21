@@ -10,6 +10,8 @@
  */
 
 import fs from 'node:fs'
+import { syncManifest, parseStagedChanges, MANIFEST_PATH } from './manifest-sync.js'
+import os from 'node:os'
 import path from 'node:path'
 import { runTool } from './preprocess/tools.js'
 
@@ -60,6 +62,38 @@ const LOCK_BACKOFF_MS = 120
 function isIndexLockContention(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
   return message.includes('index.lock') && message.includes('File exists')
+}
+
+/**
+ * Of the paths given, the ones the vault deliberately ignores.
+ *
+ * `git add` refuses an ignored path and stages NOTHING else in the same call, so one such path
+ * in a run's pathspec loses the whole commit. That is not hypothetical: a lint run wrote itself
+ * a scanner into `.vault-meta/`, which `.git/info/exclude` holds out of history on purpose
+ * (derived artifacts, task 6.2), and the run failed after five minutes with its report written
+ * and nothing committed (2026-09-20).
+ *
+ * An ignored path is not an error - it is the vault saying this file is not history. It is
+ * dropped from the pathspec and the rest is staged.
+ */
+async function ignoredPaths(vaultRoot: string, paths: readonly string[]): Promise<Set<string>> {
+  if (paths.length === 0) return new Set()
+  try {
+    const out = await git(vaultRoot, ['check-ignore', '--', ...paths])
+    return new Set(
+      out
+        .split('\n')
+        .map((p) => p.trim())
+        .filter((p) => p !== ''),
+    )
+  } catch {
+    /*
+     * `check-ignore` exits 1 when nothing matched, which lands here as a throw and is the
+     * common case, not a failure. A real failure lands here too and yields the same answer:
+     * nothing filtered, and the `add` below behaves exactly as it did before this existed.
+     */
+    return new Set()
+  }
 }
 
 async function git(vaultRoot: string, args: readonly string[]): Promise<string> {
@@ -299,6 +333,69 @@ export interface RevertResult {
  *  3. On conflict (a later commit touched the same lines) we `git revert --abort` and report it,
  *     rather than leaving conflict markers in wiki pages for the next ingest to read as content.
  */
+/**
+ * Files a revert leaves exactly as they are.
+ *
+ * The hub layer (SPEC.md §12.12) is written by the service into EVERY run's commit, so every
+ * one of these files is touched by every later commit. `git revert` on the whole commit
+ * therefore conflicts on them for any ingest that is not the most recent one - which is the
+ * revert button, the undo mechanism of SPEC.md §9, failing on exactly the runs somebody would
+ * want to undo.
+ *
+ * Leaving them alone is also what reverting MEANS here:
+ *
+ *  - `index.md` is derived from the pages. Once the pages are gone the next run regenerates it,
+ *    and restoring an old copy would only put back entries for pages that no longer exist.
+ *  - `log.md` is an append-only record. The run really did happen, and the revert is a second
+ *    event rather than a reason to forget the first.
+ *  - `hot.md` and the `_index.md` hubs are caches and curated navigation that later runs have
+ *    rewritten; an old copy of either is not a better copy.
+ */
+const isHubPath = (p: string): boolean =>
+  p === 'wiki/index.md' || p === 'wiki/log.md' || p === 'wiki/overview.md' || p === 'wiki/hot.md' || p.endsWith('/_index.md')
+
+/**
+ * The address allocator, which a revert must never roll back.
+ *
+ * `.vault-meta/address-counter.txt` holds the NEXT address to issue, and it only ever moves
+ * forward. A recovery commit carries it (so the reservation is versioned with the pages that
+ * used it), and that is what made this reachable: reverting such a commit would wind the
+ * allocator back past addresses that pages in OTHER commits still hold, and the next ingest
+ * would issue one of them a second time.
+ *
+ * Measured on the live vault, 2026-09-20, before it could happen: a recovery commit moved the
+ * counter 1200 -> 1208 while an earlier commit's surviving page held `c-001200`. Reverting it
+ * would have put the counter back at 1200, and the next page would have been the second
+ * `c-001200` in a vault whose duplicate-address count is zero and worth keeping at zero.
+ *
+ * Same reasoning as `isHubPath` one category over: state that is derived or monotonic is not
+ * content, and undoing content must not drag it backwards. Leaving it high costs nothing - an
+ * address nobody used is just never issued.
+ */
+const isMonotonicPath = (p: string): boolean => p === '.vault-meta/address-counter.txt'
+
+/** git's empty tree, so a root commit (no parent) can still be diffed against "before". */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+/**
+ * Undoes exactly one vault commit (SPEC.md §9's undo mechanism, surfaced as the dashboard's
+ * "revert this ingest"). Callers MUST hold the shared commit mutex — this writes the vault.
+ *
+ * The whole value of this function is that it either fully succeeds or leaves the vault exactly
+ * as it found it. Three guards, in order:
+ *
+ *  1. The commit must exist and be an ancestor of HEAD.
+ *  2. The working tree must be CLEAN. A revert on a dirty tree either refuses or mixes an
+ *     in-flight agent's half-written pages into the revert; the commit mutex serializes
+ *     COMMITS but agents write files outside it, so this check is what actually protects us.
+ *  3. On conflict (a later commit touched the same lines) nothing is applied and we report it,
+ *     rather than leaving conflict markers in wiki pages for the next ingest to read as content.
+ *
+ * Mechanism: the commit's own reverse diff, applied to the commit's paths MINUS the hub files
+ * (see `isHubPath`), and neither is the address allocator (see `isMonotonicPath`). `git revert`
+ * cannot take a pathspec, which is why this is a reverse-diff apply rather than a revert - and
+ * `git apply` is all-or-nothing, so guard 3 holds without an abort path to get wrong.
+ */
 export async function revertCommit(vaultRoot: string, hash: string): Promise<RevertResult> {
   try {
     await git(vaultRoot, ['cat-file', '-e', `${hash}^{commit}`])
@@ -325,19 +422,64 @@ export async function revertCommit(vaultRoot: string, hash: string): Promise<Rev
     }
   }
 
-  const before = (await git(vaultRoot, ['rev-parse', 'HEAD'])).trim()
+  const touched = (await gitRead(vaultRoot, ['show', '--name-only', '--pretty=format:', '-z', hash]))
+    .split('\0')
+    .filter((p) => p !== '')
+  const paths = touched.filter((p) => !isHubPath(p) && !isMonotonicPath(p))
+  if (paths.length === 0) {
+    return {
+      reverted: false,
+      refusal: 'already-reverted',
+      message: `nothing to undo — ${hash.slice(0, 8)} carries only hub bookkeeping, which the next run regenerates`,
+    }
+  }
+
+  let parent = EMPTY_TREE
   try {
-    await git(vaultRoot, [...AUTHOR_ARGS, 'revert', '--no-edit', '--no-commit', hash])
+    parent = (await gitRead(vaultRoot, ['rev-parse', `${hash}^`])).trim()
+  } catch {
+    /* a root commit has no parent: "before" is the empty tree */
+  }
+
+  const patch = await gitRead(vaultRoot, ['diff', '--binary', hash, parent, '--', ...paths])
+  if (patch.trim() === '') {
+    return {
+      reverted: false,
+      refusal: 'already-reverted',
+      message: `nothing to undo — ${hash.slice(0, 8)} has already been reverted or superseded`,
+    }
+  }
+
+  // The patch goes through a file rather than a pipe: the git helper runs a tool and reads its
+  // output, and a temp file keeps that one-way shape. It lands outside the vault, always.
+  const patchFile = path.join(os.tmpdir(), `vault-revert-${hash.slice(0, 8)}-${process.pid}.patch`)
+  fs.writeFileSync(patchFile, patch)
+  try {
+    await git(vaultRoot, ['apply', '--index', '--binary', '--whitespace=nowarn', patchFile])
   } catch (err) {
-    // Leave nothing half-applied: restore the index and tree we started from.
+    // `git apply` applies nothing when it cannot apply everything, so there is no half state
+    // to clean up - but the index is reset anyway, for the case where git surprises us.
     try {
-      await git(vaultRoot, ['revert', '--abort'])
+      await git(vaultRoot, ['reset', '--hard', 'HEAD'])
     } catch {
-      try {
-        await git(vaultRoot, ['reset', '--hard', before])
-      } catch {
-        /* nothing further we can safely do; the message below tells the operator */
+      /* nothing further we can safely do; the message below tells the operator */
+    }
+    /*
+     * "Will not apply" has two causes and they need different answers. If the patch's own
+     * REVERSE applies, the tree already looks the way this revert would leave it: the commit
+     * was undone earlier, or superseded. Only the other case is a real conflict with later
+     * work, and telling them apart is the difference between "nothing to do" and "look at
+     * this by hand".
+     */
+    try {
+      await git(vaultRoot, ['apply', '--check', '--reverse', '--binary', patchFile])
+      return {
+        reverted: false,
+        refusal: 'already-reverted',
+        message: `nothing to undo — ${hash.slice(0, 8)} has already been reverted or superseded`,
       }
+    } catch {
+      /* not already applied: a genuine conflict, reported below */
     }
     return {
       reverted: false,
@@ -347,12 +489,14 @@ export async function revertCommit(vaultRoot: string, hash: string): Promise<Rev
         `Undo it by hand if you still want it: git -C <vault> revert ${hash.slice(0, 8)}. ` +
         `(${(err as Error).message.split('\n')[0]})`,
     }
+  } finally {
+    fs.rmSync(patchFile, { force: true })
   }
 
   const staged = await git(vaultRoot, ['diff', '--cached', '--name-only'])
   if (staged.trim() === '') {
     // Nothing to undo — the commit's changes are already gone (reverted earlier, or overwritten).
-    await git(vaultRoot, ['reset', '--hard', before])
+    await git(vaultRoot, ['reset', '--hard', 'HEAD'])
     return {
       reverted: false,
       refusal: 'already-reverted',
@@ -398,11 +542,26 @@ export async function commitVault(
     // never any run's own commit. The old fallback existed "so the tree never silently
     // accumulates changes"; that trade — mis-attributing another run's work vs. leaving it for
     // reconciliation — is the wrong one, so it is gone.
-    if (targeted.length > 0) await git(vaultRoot, ['add', '--', ...targeted])
+    if (targeted.length > 0) {
+      // An ignored path would make `git add` refuse the whole call; see `ignoredPaths`.
+      const ignored = await ignoredPaths(vaultRoot, targeted)
+      const stageable = targeted.filter((p) => !ignored.has(p))
+      if (stageable.length > 0) await git(vaultRoot, ['add', '--', ...stageable])
+    }
   } else {
     // Legacy no-pathspec callers keep the coarse `add -A` behaviour.
     await git(vaultRoot, ['add', '-A'])
   }
+
+  /*
+   * `.raw/.manifest.json` records which page holds which DragonScale address, and a run does
+   * not keep it: the ingest skill tells its runs to, and no other skill mentions addressing at
+   * all. So the service brings it into step here, with the rename this commit records and with
+   * the address each new page already carries, inside this same commit - one run, one commit.
+   * See `manifest-sync.ts`.
+   */
+  const changes = parseStagedChanges(await git(vaultRoot, ['diff', '--cached', '--find-renames', '--name-status', '-z']))
+  if (syncManifest(vaultRoot, changes)) await git(vaultRoot, ['add', '--', MANIFEST_PATH])
 
   // Gate on what is actually STAGED, not the whole working tree: with the fallback gone, a
   // pathspec that matched nothing leaves the tree dirty (orphans) but the index empty, and a

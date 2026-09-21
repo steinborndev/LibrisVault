@@ -26,8 +26,24 @@ import { z } from 'zod'
 import type { Db } from './index.js'
 import type { Config } from '../config.js'
 
-/** Queue worker default when nothing overrides it (SPEC.md §3.1 "Parallelität", default 2). */
-export const DEFAULT_CONCURRENCY = 2
+/**
+ * Queue worker default when nothing overrides it (SPEC.md §3.1).
+ *
+ * ONE, not two, since 2026-09-19. The vault's own ingest skill states the constraint it was
+ * built under: "Single-writer only ... Do not run parallel ingests from multiple Claude
+ * sessions or sub-agents that assign addresses. The flock in the helper prevents counter
+ * corruption but does not serialize page writes themselves."
+ *
+ * We ran two, and 13 of 31 finished jobs overlapped another job in time. Nothing has corrupted
+ * a page yet, but nothing was protecting one either: the per-file lock is a 60 s window (now
+ * 600, see wiki-lock.ts) that 9.6 % of measured holds outlived, and two runs that both create
+ * the "same" new concept page create it twice under two addresses.
+ *
+ * The setting stays live-applicable and still accepts up to 8, because a vault whose runs are
+ * short and whose pages never overlap is a different vault. Raising it is a decision with
+ * evidence behind it, which is why the UI says what the evidence would have to be.
+ */
+export const DEFAULT_CONCURRENCY = 1
 /** Whether the service commits after each ingest by default (SPEC.md §7 "Git-Auto-Commit"). */
 export const DEFAULT_GIT_AUTO_COMMIT = true
 /** The post-preprocessing DOI dedupe (SPEC.md §12.9) is on unless switched off. */

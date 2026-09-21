@@ -50,7 +50,7 @@ Even where long context wins on quality, it does not win on cost: [[RAG vs Long-
 
 The more consistent finding across sources is that RAG's reported weaknesses are often retrieval-engineering weaknesses, not architectural ones. [[OP-RAG (paper)]] shows RAG quality follows an inverted-U as chunk count grows and beats feeding the full document once tuned. [[Anthropic Contextual Retrieval (technical note)]] reports that the dominant real-world failure was chunks losing their surrounding context, not the context window being too small - fixing that cut retrieval failures 67% (5.7% to 1.9%) without touching the underlying model.
 
-See [[Research: When retrieval beats a longer context window - State of the Art]] for the full synthesis.
+See [[Research - When retrieval beats a longer context window - State of the Art]] for the full synthesis.
 
 ## See also
 

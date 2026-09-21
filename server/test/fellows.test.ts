@@ -16,6 +16,8 @@ import { MemoryAgentStore, SqliteAgentStore, slugify, type AgentRecord } from '.
 import { MemoryAgentRunStore, SqliteAgentRunStore, type AgentRunRecord } from '../src/db/agent-runs.js'
 import { MemoryProposalStore, SqliteProposalStore } from '../src/db/proposals.js'
 import { renderNotebook, parseNotebook, readBackNotebook, notebookPath, NotebookWriter } from '../src/pipeline/notebook.js'
+import { UNSAFE_TITLE_CHARS } from '../src/pipeline/validator.js'
+import { STATUS_VOCABULARY } from '../src/pipeline/page-dates.js'
 import { FellowService, localDate, DESK_COUNT } from '../src/pipeline/fellows.js'
 import { windowAt } from '../src/pipeline/clock.js'
 import { DEFAULT_NIGHT_WINDOW } from '../src/db/settings.js'
@@ -149,11 +151,26 @@ describe('notebook page', () => {
   it('renders frontmatter, title and the six sections', () => {
     const md = renderNotebook({ agent: agentRecord(), runs: [runRecord()], now: '2026-09-06T12:00:00.000Z' })
     expect(md.startsWith('---\ntype: meta\n')).toBe(true)
-    expect(md).toContain('title: "Fellow: Ada"')
+    expect(md).toContain('title: "Ada"')
     expect(md).toContain('updated: 2026-09-06')
     expect(md).toContain('agent_id: a1')
     for (const s of ['## Intent', '## Scope', '## Plan', '## Log', '## Open Questions', '## Notes']) expect(md).toContain(s)
     expect(md).toContain('2026-09-06 · research-step · Limb darkening · 1 page(s) · 2.10 USD')
+  })
+
+  /*
+   * The page this writer produces has to pass the rules the service itself applies to a vault
+   * page. It did not: `title: "Fellow: Ada"` beside a file called `ada.md` is the title-name
+   * defect, and `status: active` is outside the vault's vocabulary. Both were written on every
+   * notebook for weeks and surfaced only when a maintenance run happened to touch the pages.
+   */
+  it('writes a title a file name can carry, and a status the vault knows', () => {
+    const md = renderNotebook({ agent: agentRecord(), runs: [], now: '2026-09-06T12:00:00.000Z' })
+    const title = /^title: "(.*)"$/m.exec(md)?.[1] ?? ''
+    expect(title).not.toBe('')
+    expect(UNSAFE_TITLE_CHARS.test(title)).toBe(false)
+    const status = /^status: (.*)$/m.exec(md)?.[1] ?? ''
+    expect(STATUS_VOCABULARY.has(status)).toBe(true)
     expect(parseNotebook(md).sections.get('Intent')).toBe(agentRecord().intent)
   })
 

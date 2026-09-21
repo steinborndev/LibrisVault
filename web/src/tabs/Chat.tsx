@@ -34,14 +34,13 @@ import type {
   GraphNode,
   AuthMode,
   ChatMessage,
-  MaintenanceResult,
   ResearchProfile,
   Session,
 } from '../api/types.ts'
 import { Markdown } from '../components/Markdown.tsx'
+import { acceptsSuggestion } from '../lib/questions.ts'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { CitationChip } from '../components/CitationChip.tsx'
-import { JobLog } from '../components/JobLog.tsx'
 import { useMaintenanceRun } from '../hooks/useMaintenanceRun.ts'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { Icon, type IconName } from '../components/Icon.tsx'
@@ -59,7 +58,7 @@ import { chatStream } from '../lib/chatStream.ts'
 import { timeAgo, tokens } from '../lib/format.ts'
 import { Cost, ESTIMATE_LABEL, isEstimate } from '../components/Cost.tsx'
 import { RowDelete } from '../components/ActivityRows.tsx'
-import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry, RESEARCH_PREFIX } from '../lib/researchRuns.ts'
+import { buildResearchRuns, listedRuns, synthesisPage, targetTitle, type ResearchRunEntry } from '../lib/researchRuns.ts'
 import { frontmatter } from '../lib/frontmatter.ts'
 
 type ComposerMode = 'research' | 'ask'
@@ -127,7 +126,7 @@ const LENS_ICON: Record<string, IconName> = {
 }
 export const lensIcon = (key: string | null | undefined): IconName => LENS_ICON[key ?? 'broad'] ?? 'lens-broad'
 
-export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): React.ReactElement {
+export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPrefill?: string; researchFrom?: string }): React.ReactElement {
   const qc = useQueryClient()
   // A read-only demo shows this screen for what it holds (the saved conversations and the
   // finished runs) and disables what it would start; the guard would refuse that anyway.
@@ -259,8 +258,37 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
   // click time.
   const topicRef = useRef('')
   const profileKeyRef = useRef('broad')
+  /**
+   * The vault page the topic in the box came from, when it came from one (a question on the
+   * pinboard). The run reads that page first, which is what resolves a question written to be
+   * read in place. Only {@link setTopic} ever sets it, so it cannot outlive the text it belongs
+   * to: typing over the question, or filling the box from anywhere else, clears it.
+   */
+  const fromRef = useRef<string | undefined>(undefined)
+  /**
+   * The name the synthesis page should take, when a reformulation offered one. Without it the
+   * service cuts a page name out of the topic sentence, which is how a page ends up called
+   * after half a paragraph. Same lifetime as {@link fromRef}: only `setTopic` sets it.
+   */
+  const titleRef = useRef<string | undefined>(undefined)
+  /** The draft as it stands right now, for the suggestion's own "did the user type?" check. */
+  const draftRef = useRef('')
+  draftRef.current = draft
+  /** A reformulation is in flight. Shown, never blocking: the box works throughout. */
+  const [preparing, setPreparing] = useState(false)
+  /** The question a reformulation is being fetched for, or null. See the effect below. */
+  const inFlightRef = useRef<string | null>(null)
   const [lastTopic, setLastTopic] = useState('')
-  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current))
+  /*
+   * What the STARTED run carries, as opposed to what the box currently holds. The composer's
+   * own `fromRef`/`titleRef` are cleared by `setTopic('')` when the box is emptied on send, and
+   * `useMaintenanceRun` reads its starter after that - so a run went out with neither its
+   * origin page nor its page name, which is what the acceptance pass caught (2026-09-20).
+   * `topicRef` has always existed for exactly this reason; these two are its pair.
+   */
+  const sentFromRef = useRef<string | undefined>(undefined)
+  const sentTitleRef = useRef<string | undefined>(undefined)
+  const research = useMaintenanceRun(() => api.research(topicRef.current, profileKeyRef.current, sentFromRef.current, sentTitleRef.current))
   const liveRunning = research.running || liveEntry !== undefined
   /*
    * The run's own log, read once here and handed to both the activity box and the list. The
@@ -307,17 +335,69 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     ta.style.height = `${Math.min(160, ta.scrollHeight + border)}px`
   }, [draft])
 
-  // A gap's "Research" landed us here with a topic: arm Research mode, drop it into the
-  // composer for review (not auto-sent - the user confirms), then strip the query param so
-  // this fires exactly once.
+  /**
+   * The composer's text and, when it has one, the vault page behind it. Every path that gives
+   * the box a research topic goes through here - a prefill from the board or a gap, a keystroke,
+   * the backlog's "Research", and the clear after a send - because a stale `from` would point a
+   * run at a page that has nothing to do with what is now in the box.
+   *
+   * The one `setDraft` left outside is the ask branch's error path, which hands a failed
+   * question back only when the box is EMPTY. A box that is empty has no origin either (the
+   * clear above took it), so there is nothing there to go stale.
+   */
+  const setTopic = (text: string, from?: string, title?: string): void => {
+    setDraft(text)
+    fromRef.current = from
+    titleRef.current = title
+  }
+
+  // A gap's "Research", or a question from the pinboard, landed us here with a topic: arm
+  // Research mode, drop it into the composer for review (not auto-sent - the user confirms),
+  // then strip the query params so this fires exactly once.
   useEffect(() => {
     if (researchPrefill === '') return
-    setDraft(researchPrefill)
+    const asked = researchPrefill
+    const page = researchFrom === '' ? undefined : researchFrom
+    setTopic(asked, page)
     setMode('research')
     setView({ kind: 'start' })
     composerRef.current?.focus()
     navigate('/research', { replace: true })
-  }, [researchPrefill])
+
+    /*
+     * A question written on a page is written to be read there, so it rarely reads as a topic
+     * on its own. Ask for one, and put it in the box when it comes back - as a draft the user
+     * still sends themselves (decision D3). Three things it must not do: block the box, ever
+     * overwrite something the user typed while it was in flight, or show an error when it does
+     * not work out. A run started on the raw question is the behaviour it improves on, not a
+     * failure state.
+     *
+     * The guard is a ref holding the question currently being asked about, NOT a flag scoped to
+     * this effect run. That distinction cost a whole acceptance pass to find (2026-09-20) and is
+     * the only reason this works: `navigate` above strips the query params, which changes this
+     * effect's own dependencies, so a cleanup that invalidated the request would be run by the
+     * effect's own navigation a moment after firing it. Every suggestion was fetched, paid for
+     * and thrown away, and the composer kept the raw question - while React's development
+     * double-mount quietly fetched each one twice. A ref survives both: a second mount for the
+     * same question finds it in flight and does not ask again, and an answer is dropped only
+     * when a NEWER question has superseded it.
+     */
+    if (inFlightRef.current === asked) return
+    inFlightRef.current = asked
+    setPreparing(true)
+    void api
+      .suggestTopic(asked, page)
+      .then((s) => {
+        if (inFlightRef.current !== asked) return
+        if (s.topic !== null && acceptsSuggestion(draftRef.current, asked)) setTopic(s.topic, page, s.title)
+      })
+      .finally(() => {
+        if (inFlightRef.current !== asked) return
+        // Cleared on settle, so clicking the same row again asks again.
+        inFlightRef.current = null
+        setPreparing(false)
+      })
+  }, [researchPrefill, researchFrom])
 
   const send = (): void => {
     if (demoMode) return
@@ -327,15 +407,18 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
       if (ask.isPending) return
       requestIdRef.current = activeId === null ? crypto.randomUUID() : ''
       setView({ kind: 'thread', id: activeId })
-      setDraft('')
+      setTopic('')
       ask.mutate(text)
       return
     }
     if (research.running) return
     topicRef.current = text
     profileKeyRef.current = profileKey
+    // Captured before the box is emptied: `setTopic('')` drops the composer's own refs.
+    sentFromRef.current = fromRef.current
+    sentTitleRef.current = titleRef.current
     setLastTopic(text)
-    setDraft('')
+    setTopic('')
     setView({ kind: 'start' })
     // Per result: closing one outcome must never hide the next one.
     setResultDismissed(false)
@@ -382,11 +465,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // "Save to vault" (SPEC.md §6.3): a write-enabled agent run that resumes this chat's SDK
-  // session and triggers the vault's /save flow. Async like the maintenance runs.
-  const save = useMaintenanceRun(() => api.saveSession(activeId as string))
-  const canSave = activeId !== null && messages.some((m) => m.role === 'assistant')
-
   /**
    * Leaving a conversation ends it as the ACTIVE one. Without this the composer would keep
    * appending to a thread the reader has walked away from - and since the ledger's "+ New"
@@ -403,7 +481,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
     setMode('ask')
     setView({ kind: 'thread', id })
     ask.reset()
-    save.reset()
     composerRef.current?.focus()
   }
 
@@ -415,7 +492,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
 
   const startAbout = (topic: string): void => {
     setMode('research')
-    setDraft(topic)
+    setTopic(topic)
     composerRef.current?.focus()
   }
 
@@ -583,7 +660,11 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               </button>
             </div>
             <span className="rhead-mid">
-              {mode === 'research' ? 'Reads the web, writes pages, one commit.' : 'Reads the vault only, cites every page, writes nothing.'}
+              {preparing && mode === 'research'
+                ? 'Preparing the topic from the question…'
+                : mode === 'research'
+                  ? 'Reads the web, writes pages, one commit.'
+                  : 'Reads the vault only, cites every page, writes nothing.'}
             </span>
             {/* What the armed mode is ALLOWED to do. The two modes differ in exactly these
                 two capabilities, and a run that can reach the web and write pages should not
@@ -597,7 +678,7 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               ref={composerRef}
               disabled={demoMode}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setTopic(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
@@ -844,11 +925,6 @@ export function Chat({ researchPrefill = '' }: { researchPrefill?: string }): Re
               vaultName={vaultName}
               authMode={authMode}
               contentRef={threadRef}
-              canSave={canSave}
-              saving={save.running}
-              saveError={save.error}
-              saveResult={save.result}
-              onSave={save.start}
               onBack={leaveThread}
               onAskAgain={() => {
                 setMode('ask')
@@ -1208,7 +1284,8 @@ function DetailShell({
   contentRef?: React.RefObject<HTMLDivElement | null>
   children: React.ReactNode
   provenance: React.ReactNode
-  footAction: React.ReactNode
+  /** Optional: the chat thread's foot carries only its provenance line. */
+  footAction?: React.ReactNode
 }): React.ReactElement {
   /*
    * One box that scrolls (2026-09-08). It used to be a fixed head - bar, facts, chips - over a
@@ -1369,7 +1446,7 @@ function RunDetailBody({
   // agent names the page itself. The heading shows the real one, without the prefix every
   // synthesis page carries: the lens mark beside it says what kind of page this is.
   const filedTitle = articlePath !== null ? (articlePath.split('/').pop() ?? '').replace(/\.md$/, '') : null
-  const heading = (filedTitle ?? entry.topic).replace(new RegExp(`^${RESEARCH_PREFIX}`), '')
+  const heading = (filedTitle ?? entry.topic).replace(/^Research(?: - |: )/, '')
   return (
     <DetailShell
       kind="web"
@@ -1469,11 +1546,6 @@ function ThreadDetail({
   vaultName,
   authMode,
   contentRef,
-  canSave,
-  saving,
-  saveError,
-  saveResult,
-  onSave,
   onBack,
   onAskAgain,
 }: {
@@ -1487,11 +1559,6 @@ function ThreadDetail({
   vaultName: string
   authMode: AuthMode
   contentRef: React.RefObject<HTMLDivElement | null>
-  canSave: boolean
-  saving: boolean
-  saveError: string | null
-  saveResult: MaintenanceResult | undefined
-  onSave: () => void
   onBack: () => void
   onAskAgain: () => void
 }): React.ReactElement {
@@ -1550,13 +1617,6 @@ function ThreadDetail({
       }
       contentRef={contentRef}
       provenance="Read-only. Nothing was written and nothing was fetched from the web."
-      footAction={
-        canSave ? (
-          <button className="btn" disabled={saving} onClick={onSave}>
-            {saving ? 'Saving…' : 'Save conversation to vault'}
-          </button>
-        ) : null
-      }
     >
       <div className="thread">
         {messages.length === 0 && !pending && askError === null && (
@@ -1600,19 +1660,6 @@ function ThreadDetail({
         {askError !== null && (
           <div className="bubble system">
             <div className="bubble-body">Error: {askError}</div>
-          </div>
-        )}
-
-        {saving && <JobLog jobId="maintenance:save" seed={false} />}
-        {saveError !== null && <div className="toast err">{saveError}</div>}
-        {saveResult?.ok === true && (
-          <div className="toast ok">
-            Session saved
-            {saveResult.pages.length > 0 ? (
-              <PageLinks vaultName={vaultName} paths={saveResult.pages} />
-            ) : (
-              <> - no new pages.</>
-            )}
           </div>
         )}
       </div>

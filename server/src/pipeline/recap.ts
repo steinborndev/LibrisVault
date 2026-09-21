@@ -616,7 +616,9 @@ export function renderRecapPage(model: RecapModel): string {
   const fm = [
     '---',
     'type: meta',
-    `title: "Recap: ${model.cycleDate}"`,
+    // No colon: the page is filed as `Recap <date>.md` and the title has to match a file name
+    // that can exist, or a wikilink written from it resolves to nothing.
+    `title: "Recap ${model.cycleDate}"`,
     `created: ${model.cycleDate}`,
     `updated: ${localDate(new Date(model.generatedAt))}`,
     'tags:',
@@ -625,7 +627,7 @@ export function renderRecapPage(model: RecapModel): string {
     `cycle: ${model.cycleDate}`,
     '---',
   ].join('\n')
-  const lines: string[] = [fm, '', `# Recap: ${model.cycleDate}`, '', renderHeader(model, 'page'), '']
+  const lines: string[] = [fm, '', `# Recap ${model.cycleDate}`, '', renderHeader(model, 'page'), '']
   for (const f of model.fellows) lines.push(renderFellow(model, f, 'page'), '')
   lines.push(`Answer in the dashboard (Home, Recap), or on Telegram with the codes: ${ANSWER_HINT} This page is rendered by the service; edits here are not read back.`)
   return lines.join('\n') + '\n'
@@ -663,10 +665,26 @@ function renderHeader(model: RecapModel, mode: 'page' | 'text'): string {
       (model.totals.failed > 0 ? `, ${model.totals.failed} failed` : '') +
       `, ${model.totals.pages} page(s), ${usd(model.totals.costUsd)}.`,
   )
-  lines.push(
-    `${b('Consumption')} (everything, manual runs and ingests included): today ${usd(model.usage.today.costUsd)} in ${model.usage.today.runs} run(s), this week ${usd(model.usage.week.costUsd)} in ${model.usage.week.runs} run(s).`,
-  )
-  if (model.plan) {
+  /*
+   * THE LEDGER STOPS HERE FOR THE PAGE (A7, 7.2). Spend, plan-window percentages and the
+   * research share change by the hour; the page they were printed on is a versioned file in a
+   * knowledge base, so every recap committed a set of numbers that were wrong within the day
+   * and stayed in history forever. One of them made it in as `57.99999999999999%`.
+   *
+   * The dashboard's recap view reads the same model through the API and has every one of these
+   * numbers live. Telegram keeps them too - a message is not a record. The page gets a line
+   * saying where they are.
+   */
+  if (mode === 'page') {
+    lines.push(
+      `${b('Spend, plan windows and the research share')}: in the dashboard under Home, Recap. They change by the hour and do not belong in a versioned page.`,
+    )
+  } else {
+    lines.push(
+      `${b('Consumption')} (everything, manual runs and ingests included): today ${usd(model.usage.today.costUsd)} in ${model.usage.today.runs} run(s), this week ${usd(model.usage.week.costUsd)} in ${model.usage.week.runs} run(s).`,
+    )
+  }
+  if (model.plan && mode !== 'page') {
     const p = model.plan
     if (p.available && p.windows.length > 0) {
       const five = p.windows.find((w) => w.window === 'five_hour')

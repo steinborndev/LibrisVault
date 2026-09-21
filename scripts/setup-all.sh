@@ -72,6 +72,10 @@ else
     && git remote set-url --push origin PUSH_DISABLED_vault_is_private \
     && bash bin/setup-vault.sh )
 fi
+# Nothing to do here about the vault's own auto-commit hook: the SERVICE asserts
+# .vault-meta/auto-commit.disabled at every startup (server/src/pipeline/vault-guards.ts).
+# It used to be written by scripts/dev-instance.sh alone, which left a vault set up by this
+# script unguarded until someone happened to run the dev instance against it.
 
 step 5 "Domain registry seed (non-destructive)"
 "$REPO/scripts/install-domain-registry.sh" "$VAULT_ROOT"

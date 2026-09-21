@@ -9,7 +9,6 @@ export const RUN_TITLES: Record<string, string> = {
   research: 'Research run',
   'research-step': 'Research step',
   plan: 'Planning run',
-  save: 'Conversation saved to the vault',
   cleanup: 'Reference cleanup',
   repair: 'Graph repair',
   'retrieve-index': 'Retrieval index rebuilt',
@@ -30,7 +29,6 @@ export const RUN_RUNNING_TITLES: Record<string, string> = {
   research: 'Research run',
   'research-step': 'Research step',
   plan: 'Planning the next step',
-  save: 'Saving the conversation to the vault',
   cleanup: 'Cleaning up references',
   repair: 'Repairing the graph',
   'retrieve-index': 'Rebuilding the retrieval index',
@@ -39,13 +37,12 @@ export const RUN_RUNNING_TITLES: Record<string, string> = {
 /**
  * Which tab announces a run while it is in flight.
  *
- * Research shows its own runs and the conversation-save that belongs to them; every other
- * kind is machine-room work and belongs to System. The split has to be exhaustive, or a run
+ * Research shows its own runs; every other kind is machine-room work and belongs to System. The split has to be exhaustive, or a run
  * goes unannounced - which is what a domain backfill did until 2026-08-25: it appeared in
  * Home's activity table but no tab said anything, so starting one from System and switching
  * away left no trace that the vault was being written to.
  */
-export const RESEARCH_RUN_KINDS: ReadonlySet<string> = new Set(['research', 'research-step', 'plan', 'save'])
+export const RESEARCH_RUN_KINDS: ReadonlySet<string> = new Set(['research', 'research-step', 'plan'])
 
 /** True for the runs the System tab is responsible for announcing. */
 export function isMaintenanceRun(kind: string): boolean {

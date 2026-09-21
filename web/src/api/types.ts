@@ -165,6 +165,26 @@ export interface Stats {
   generatedAt: string
 }
 
+/** One standing validation defect (A9): counted rather than repeated on every run. */
+export interface StandingFinding {
+  id: string
+  rule: string
+  path: string
+  message: string
+  /** How often this vault has had this defect reported. */
+  count: number
+  firstSeen: string
+  lastSeen: string
+  lastJobId: string | null
+  resolvedAt: string | null
+}
+
+export interface ValidationList {
+  findings: StandingFinding[]
+  byRule: Array<{ rule: string; findings: number; occurrences: number }>
+  total: number
+}
+
 export interface Health {
   status: string
   /** False = setup mode: no Anthropic credential yet, agent-running features disabled. */
@@ -176,6 +196,13 @@ export interface Health {
    * read-only demo too, where their surfaces show a seeded database and no run ever starts.
    */
   fellows?: boolean
+  /**
+   * False means the vault's own plugin hook is committing this service's writes out from under
+   * it: a run's pages land in a "wiki: auto-commit" commit, the job row records none, and the
+   * revert button has nothing to revert. The service creates the flag at startup, so a false
+   * here means it could not (a read-only mount) or something removed it since.
+   */
+  autoCommitDisabled?: boolean
   queue: { inFlight: number; paused: boolean; pauseReason: PauseReason; concurrency: number }
   jobs: Record<string, number>
   /** Server-side caps the client pre-checks against (dropzone size warning). */
@@ -207,14 +234,30 @@ export interface GraphNode {
   kind?: 'knowledge' | 'structural' | 'artifact'
   out: number
   in: number
-  /** File mtime (epoch ms) - the "recency" color lens. Absent on hand-built fixtures. */
+  /** File mtime (epoch ms). Absent on hand-built fixtures. */
   mtimeMs?: number
+  /**
+   * When the page last SAID something new, as epoch ms: `content_updated:` where it has one,
+   * otherwise `created:`. What the "recency" lens colours by.
+   *
+   * Not the mtime, which a mass pass flattens: on the day the vault repair landed, 1326 of
+   * 1332 files had been touched inside the lens's 21-day window and every node was full
+   * green. Absent for a page stating neither date, where the lens falls back to the mtime.
+   */
+  freshMs?: number
   /**
    * The web address the page states for itself (`url:`, or a bare link in `sources:`). A
    * page a research run wrote has no ingested document behind it, so this is the only record
    * of where it came from. Absent on most pages and on hand-built fixtures.
    */
   url?: string | null
+  /**
+   * Frontmatter `origin:`, present only when the page states one. `upstream-demo` marks the
+   * material the claude-obsidian plugin shipped with: readable, reachable, and not this
+   * vault's knowledge. `isKnowledgeNode` is what every screen should ask rather than reading
+   * this directly.
+   */
+  origin?: string | null
   /** File size in bytes - the "stubs" lens threshold. */
   size?: number
 }
@@ -249,6 +292,11 @@ export interface SourceRef {
   type: string
   /** Where a web ingest came from; null for anything dropped in as a file. */
   url: string | null
+  /**
+   * The payload is on disk but not in git history: over the size cap (SPEC.md §12.12, D4).
+   * The document opens exactly as any other; a revert of that ingest cannot restore it.
+   */
+  localOnly?: boolean
 }
 
 export interface SourceIndex {
@@ -352,16 +400,22 @@ export interface LintFinding {
 export interface LintSection {
   title: string
   findings: LintFinding[]
+  /**
+   * How many defects this section is ABOUT. Not the same as `findings.length`: the skill writes
+   * prose that groups defects into patterns, so a section with six bullets can be about 34.
+   */
+  count: number
 }
 
 export interface LintReport {
   date: string | null
   summary: Record<string, number>
   sections: LintSection[]
+  /** Defect counts the summary states that no section writes up. Part of `totalFindings`. */
+  extras: Record<string, number>
   totalFindings: number
 }
 
-/** `save` is the chat's "Session in Vault sichern" - same async run machinery. */
 /**
  * One research lens ("Achse A") from `GET /maintenance/research/profiles`. A closed set the
  * composer offers; the selected `key` rides along on `POST /maintenance/research`. `titleSuffix`
@@ -389,7 +443,6 @@ export type MaintenanceKind =
   | 'lint-fix'
   | 'research'
   | 'hot-cache'
-  | 'save'
   | 'domain-backfill'
   | 'domain-review'
   | 'cleanup'

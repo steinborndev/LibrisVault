@@ -1331,7 +1331,9 @@ function LintView({ report, reportPath, vaultName }: { report: LintReport; repor
         report.sections.map((s) => (
           <div key={s.title} className="lint-section">
             <h4>
-              {s.title} <span className="count">{s.findings.length}</span>
+              {s.title} <span className="count">{s.count}</span>
+              {/* The skill groups defects into patterns, so the bullets below are examples of a larger count. */}
+              {s.findings.length > 0 && s.findings.length !== s.count && <span className="dim">{s.findings.length} shown</span>}
             </h4>
             <ul className="lint-findings">
               {s.findings.map((f, i) => (
@@ -1343,6 +1345,22 @@ function LintView({ report, reportPath, vaultName }: { report: LintReport; repor
             </ul>
           </div>
         ))
+      )}
+      {Object.keys(report.extras).length > 0 && (
+        <div className="lint-section">
+          <h4>
+            Counted without a section <span className="count">{Object.values(report.extras).reduce((n, v) => n + v, 0)}</span>
+          </h4>
+          <ul className="lint-findings">
+            {Object.entries(report.extras).map(([k, v]) => (
+              <li key={k}>
+                <span className="lint-text">
+                  {k}: {v} - stated in the summary, with no section writing them up.
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {reportPath && (
         <div className="job-meta" style={{ marginTop: 8 }}>

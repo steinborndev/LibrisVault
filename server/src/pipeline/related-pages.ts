@@ -133,3 +133,36 @@ export function renderOverlapBlock(related: RelatedPages): string {
   }
   return block
 }
+
+/**
+ * Where a topic came from, when it came from a question left open on a page of this vault
+ * (docs/tasks/TASKS-QUESTIONS.md, phase 1).
+ *
+ * The board hands a bullet to a research run as its topic, and a bullet is written to be read
+ * next to the page it stands on: 152 of the 355 on this vault refer to the run that wrote them
+ * ("in this pass", "either source"), which stops meaning anything the moment it travels alone.
+ * The planner never had this problem - it may read a candidate's source pages - and the manual
+ * path had no equivalent until this block. Naming the page costs one read and resolves the
+ * wording, whatever the wording is.
+ *
+ * It sits next to `renderOverlapBlock` because the two answer the same kind of question for a
+ * research prompt (which pages of this vault bear on this run) and must not drift apart in
+ * tone. It is rendered BEFORE the overlap block: this is where the topic comes from, that is
+ * what to do with what already exists.
+ *
+ * Empty string for no page, so a prompt without an origin is unchanged character for character.
+ */
+export function renderQuestionOrigin(page: string | undefined): string {
+  if (page === undefined || page === '') return ''
+  return (
+    '\n\n<question_origin>\n' +
+    `This topic is a question left open on a page this vault already holds: ${page}\n` +
+    'Read that page before you search. It says what the library already knows about the ' +
+    'subject, and it is what the question was written against: a question left by an earlier ' +
+    'run often refers to that run rather than naming things in full ("in this pass", "either ' +
+    'source", "the figures above"), and the page is where those references resolve.\n' +
+    'The page is context, not a source to summarise, and not necessarily the page this run ' +
+    'should extend - the overlap rules below decide that on their own terms.\n' +
+    '</question_origin>'
+  )
+}

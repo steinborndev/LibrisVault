@@ -16,9 +16,11 @@ import type { VaultGraph } from './graph.js'
 import type { Mutex } from '../util/mutex.js'
 import { withWikiLock } from './wiki-lock.js'
 import { commitPaths, type CommitResult } from './git.js'
+import { stampDates } from './page-dates.js'
 import { parseNotebook } from './notebook.js'
 import type { ProposalRecord } from '../db/proposals.js'
 import { isDepartmentDomain } from './library.js'
+import { isWikiPagePath } from './vault-paths.js'
 
 export interface QuestionEntry {
   /** The page and the question's key: what the board addresses a row by. */
@@ -225,7 +227,7 @@ export class QuestionsService {
    * question is not on the page or already stands that way.
    */
   async setArchived(page: string, text: string, archived: boolean): Promise<{ changed: boolean; vetoed: string[] }> {
-    if (page.includes('..') || !page.startsWith('wiki/') || !page.endsWith('.md')) return { changed: false, vetoed: [] }
+    if (!isWikiPagePath(page)) return { changed: false, vetoed: [] }
     const file = path.join(this.o.vaultRoot, page)
     let markdown: string
     try {
@@ -236,7 +238,9 @@ export class QuestionsService {
     const next = strikeQuestion(markdown, text, archived)
     if (next === null) return { changed: false, vetoed: [] }
     const write = async (): Promise<void> => {
-      fs.writeFileSync(file, next, 'utf8')
+      // A content change (B7): the page now says this question is closed, which is exactly the
+      // kind of thing a freshness view should surface.
+      fs.writeFileSync(file, stampDates(next, { content: true }), 'utf8')
       if (this.o.commitMutex !== undefined && (this.o.autoCommit?.() ?? true)) {
         const commit = this.o.commit ?? commitPaths
         await commit(this.o.vaultRoot, `questions: ${archived ? 'archived' : 'restored'} one on ${path.basename(page, '.md')}`, [page])

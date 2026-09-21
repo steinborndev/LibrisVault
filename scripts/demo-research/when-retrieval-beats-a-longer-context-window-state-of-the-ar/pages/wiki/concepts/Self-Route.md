@@ -40,4 +40,4 @@ The method inherits RAG's dependency on retrieval quality: a query wrongly judge
 
 - [[Retrieval-Augmented Generation]]
 - [[Context Window]]
-- [[Research: When retrieval beats a longer context window - State of the Art]]
+- [[Research - When retrieval beats a longer context window - State of the Art]]

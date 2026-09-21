@@ -125,3 +125,72 @@ describe('revertCommit', () => {
     expect(bogus.refusal).toBe('unknown-commit')
   })
 })
+
+/**
+ * The hub layer's effect on undo (SPEC.md §12.12, found by the M1 integration test on the day
+ * the hubs landed).
+ *
+ * Every run's commit now carries `wiki/index.md` and `wiki/log.md`, so every LATER commit
+ * carries them too. `git revert` on a whole older commit therefore conflicts on the hub files
+ * rather than on anything the run wrote - which would have broken the undo button for every
+ * ingest except the most recent one, silently, the first time somebody used it.
+ */
+describe('revertCommit and the service-written hubs', () => {
+  /** An ingest as the service now makes it: the page, plus the regenerated hubs. */
+  async function ingestWithHubs(page: string, body: string, entry: string): Promise<string> {
+    write(page, body)
+    write('wiki/index.md', `# Index\n\n- [[${path.basename(page, '.md')}]]\n`)
+    write('wiki/log.md', `# Operation Log\n\n## ${entry}\n`)
+    const res = await commitPaths(repo, `ingest: ${path.basename(page)}`, [page, 'wiki/index.md', 'wiki/log.md'])
+    expect(res.committed).toBe(true)
+    return res.hash as string
+  }
+
+  it('undoes an older ingest although every later commit rewrote the hubs', async () => {
+    const first = await ingestWithHubs('wiki/concepts/First.md', '# First\n', 'first')
+    await ingestWithHubs('wiki/concepts/Second.md', '# Second\n', 'second')
+    await ingestWithHubs('wiki/concepts/Third.md', '# Third\n', 'third')
+
+    const res = await revertCommit(repo, first)
+    expect(res.reverted).toBe(true)
+    expect(fs.existsSync(path.join(repo, 'wiki/concepts/First.md'))).toBe(false)
+    // The siblings and the tree are untouched, which is the guarantee that makes undo usable.
+    expect(fs.existsSync(path.join(repo, 'wiki/concepts/Second.md'))).toBe(true)
+    expect(fs.existsSync(path.join(repo, 'wiki/concepts/Third.md'))).toBe(true)
+    expect(treeState()).toBe('')
+  })
+
+  it('leaves the hubs exactly as the newest run left them', async () => {
+    const first = await ingestWithHubs('wiki/concepts/First.md', '# First\n', 'first')
+    await ingestWithHubs('wiki/concepts/Second.md', '# Second\n', 'second')
+    const indexBefore = fs.readFileSync(path.join(repo, 'wiki/index.md'), 'utf8')
+    const logBefore = fs.readFileSync(path.join(repo, 'wiki/log.md'), 'utf8')
+
+    expect((await revertCommit(repo, first)).reverted).toBe(true)
+
+    // The index is derived: restoring an old copy would list a page that no longer exists, and
+    // the next run regenerates it anyway. The log is a record: the run really did happen.
+    expect(fs.readFileSync(path.join(repo, 'wiki/index.md'), 'utf8')).toBe(indexBefore)
+    expect(fs.readFileSync(path.join(repo, 'wiki/log.md'), 'utf8')).toBe(logBefore)
+  })
+
+  it('refuses a commit that carries nothing but hub bookkeeping', async () => {
+    write('wiki/index.md', '# Index\n\nregenerated\n')
+    const res = await commitPaths(repo, 'ingest: nothing of its own', ['wiki/index.md'])
+    const only = await revertCommit(repo, res.hash as string)
+    expect(only).toMatchObject({ reverted: false, refusal: 'already-reverted' })
+    expect(only.message).toContain('hub bookkeeping')
+  })
+
+  it('still refuses when a later commit really did change the run\'s own page', async () => {
+    const first = await ingestWithHubs('wiki/concepts/First.md', '# First\n\nOriginal line.\n', 'first')
+    write('wiki/concepts/First.md', '# First\n\nA hand edit that changed the same line.\n')
+    await commitPaths(repo, 'edit: by hand', ['wiki/concepts/First.md'])
+
+    const res = await revertCommit(repo, first)
+    expect(res).toMatchObject({ reverted: false, refusal: 'conflict' })
+    // Nothing half-applied: the hand edit survives untouched.
+    expect(fs.readFileSync(path.join(repo, 'wiki/concepts/First.md'), 'utf8')).toContain('A hand edit')
+    expect(treeState()).toBe('')
+  })
+})

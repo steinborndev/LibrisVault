@@ -12,7 +12,7 @@ related:
   - "[[Adaptive Optics]]"
   - "[[Wavefront Sensing]]"
   - "[[Predictive Control (Adaptive Optics)]]"
-  - "[[Research: Recent patents on adaptive optics — Patent Landscape]]"
+  - "[[Research - Recent patents on adaptive optics - Patent Landscape]]"
 ---
 # Hot Cache
 
@@ -25,7 +25,7 @@ Currently 877 pages across 19 domain values (17 subject domains plus `meta` and 
 - [[Adaptive Optics]] now separates the sensing half of the loop from the control half: [[Wavefront Sensing]] (new concept) and [[Predictive Control (Adaptive Optics)]] (new concept).
 - The patents-lens landscape data (see [[Adaptive Optics Patent Landscape (industry report)]]) says "adaptive optics" as a patent classification is led by Texas Instruments and Magic Leap (AR/VR optics) and Raytheon, not by astronomy - astronomical AO looks like a downstream consumer of that IP, not its driver. This is a vendor blog's aggregate figures, not primary-source counts; hold it loosely.
 - Predictive control in AO splits into two non-competing patent mechanisms: predict-the-wavefront-then-control (Kalman/LQG, EOF) vs. learn-the-policy directly (reinforcement learning on a learned world model). The concrete example of the second is CN 121480603 A (Southwest Jiaotong University, filed 2025-10-31, **pending, not granted**) - see [[Adaptive Optics Dynamic Modeling and Control (patent)]].
-- [[Research: Recent patents on adaptive optics — Patent Landscape]] was updated in place rather than duplicated. Two of its three prior findings did not survive a direct check against real filings and were rewritten or dropped; treat anything from before 2026-09-15 attributed to that page with caution if you're recalling it from an older summary.
+- [[Research - Recent patents on adaptive optics - Patent Landscape]] was updated in place rather than duplicated. Two of its three prior findings did not survive a direct check against real filings and were rewritten or dropped; treat anything from before 2026-09-15 attributed to that page with caution if you're recalling it from an older summary.
 
 ## Active threads / open questions
 

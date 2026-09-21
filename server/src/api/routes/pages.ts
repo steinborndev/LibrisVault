@@ -30,6 +30,7 @@ import { WikiLockBusy, withWikiLock } from '../../pipeline/wiki-lock.js'
 import { Mutex } from '../../util/mutex.js'
 import type { GraphBuilder } from '../../pipeline/graph.js'
 import { validatePages, validateAddressMap, type ValidationFinding } from '../../pipeline/validator.js'
+import { stampDates, bodyChanged } from '../../pipeline/page-dates.js'
 
 /** How much of a page to send for a preview — enough to judge relevance, not a whole document. */
 const PREVIEW_LIMIT = 4_000
@@ -157,7 +158,20 @@ export function registerPagesRoute(app: FastifyInstance, ctx: AppContext, graph?
       if (typeof body.baseMtime === 'string' && body.baseMtime !== current) {
         return { conflict: current }
       }
-      fs.writeFileSync(page.real, markdown, 'utf8')
+      /*
+       * `content_updated:` when the BODY changed, `updated:` either way (B7, SPEC.md §12.12).
+       * A user who fixes a tag or a title in the frontmatter has not changed what the page
+       * says, and the freshness view should not claim they have - that indiscriminate bump is
+       * how 99 % of this vault's pages came to claim an update within thirty days.
+       */
+      let before = ''
+      try {
+        before = fs.readFileSync(page.real, 'utf8')
+      } catch {
+        /* a page that vanished between the stat and the read is a content change by default */
+      }
+      const stamped = stampDates(markdown, { content: bodyChanged(before, markdown) })
+      fs.writeFileSync(page.real, stamped, 'utf8')
       const commit = autoCommit()
         ? await commitPaths(config.vaultRoot, `edit: ${page.title}`, [page.rel])
         : undefined

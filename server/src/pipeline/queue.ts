@@ -49,28 +49,50 @@ import {
   discardUntrackedDir,
   newWikiPaths,
   readAtRevision,
+  unversionedWikiPages,
   BOOKKEEPING_PATHS,
   type CommitResult,
   type CommitOptions,
 } from './git.js'
 import { RunRegistry } from './run-registry.js'
+import { stampDates, CONTENT_UPDATED } from './page-dates.js'
+import { withWikiLocks } from './wiki-lock.js'
+import { hasRunMarker, runMarkerPath } from './run-marker.js'
+import { topicForJob, vaultOverlapFor } from './ingest-overlap.js'
+import { runTilingCheck, pairsTouching } from './tiling.js'
+import { keepPayloadLocal, type LocalOnlyPayload } from './raw-payload.js'
+import type { ValidationStore } from '../db/validation.js'
+import { retrieveCandidates } from './retrieve-index.js'
+import {
+  SERVICE_OWNED_HUBS,
+  bucketHubs,
+  writeHubs,
+  classifyLoggedPages,
+  readAddresses,
+  type HubPlan,
+  type LogEntryInput,
+} from './hubs.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { msUntilReset } from './budget.js'
 import { readDomainRegistry, domainSystemPrompt } from './domains.js'
 import {
   ENTITY_NOTABILITY_RULES,
+  OPEN_QUESTION_FORM,
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
   renderOaNotice,
   renderProvenance,
+  renderCompletionMarker,
   renderReadingList,
 } from './system-prompt.js'
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
-import type { ValidationFinding, Validator } from './validator.js'
+import { VALIDATOR_RULES, VAULT_WIDE_RULES, type ValidationFinding, type Validator } from './validator.js'
+import { recheckStanding } from './standing-recheck.js'
 import type { EventBus } from './events.js'
 import { Mutex } from '../util/mutex.js'
+import { DEFAULT_CONCURRENCY } from '../db/settings.js'
 
 export type FailureClass = 'rate_limit' | 'transient' | 'permanent'
 
@@ -159,6 +181,15 @@ export interface IngestQueueOptions {
    * job's outcome. Omitted (e.g. in the CLI) means no validation.
    */
   readonly validate?: Validator
+  /** Where findings are counted rather than repeated (A9); absent leaves the old log behaviour. */
+  readonly validationStore?: ValidationStore
+  /**
+   * The vault's own near-duplicate check (A5). Injected so tests never spawn python, and
+   * defaulted to the real one - which skips itself on any vault that cannot run it.
+   */
+  readonly tilingCheck?: (vaultRoot: string) => Promise<Awaited<ReturnType<typeof runTilingCheck>>>
+  /** The size cap for an ingested original (D4); injected so tests need no huge files. */
+  readonly keepPayloadLocal?: (vaultRoot: string, jobDirRel: string, manifestPath: string) => LocalOnlyPayload[]
   /**
    * The vault-backed dedupe memory (SPEC.md §12.9): content hashes from `.raw/` manifests and
    * DOIs from source pages. Defaults to one over `vaultRoot`; tests inject a stub.
@@ -204,6 +235,8 @@ interface CommitScope {
   readonly extra: readonly string[]
   /** The reading list's urls before the run, when a list is wired: what the run added is what is not in here. */
   readonly readingBefore: ReadonlySet<string> | undefined
+  /** The run's final answer, which becomes the log entry's narrative paragraph (SPEC.md §12.12). */
+  readonly summary?: string | undefined
 }
 
 /** How an ingest signs the reading list entries it adds (the Fellow's name on a Fellow's run). */
@@ -309,6 +342,10 @@ export class IngestQueue {
   private readonly commitMutex: Mutex
   private readonly runRegistry: RunRegistry
   private readonly validate: Validator | undefined
+  private readonly validationStore: ValidationStore | undefined
+  /** Injected in tests; the real one spawns the vault's own `tiling-check.py`. */
+  private readonly tiling: (vaultRoot: string) => Promise<Awaited<ReturnType<typeof runTilingCheck>>>
+  private readonly keepPayloadLocal: (vaultRoot: string, jobDirRel: string, manifestPath: string) => LocalOnlyPayload[]
   private readonly dedupe: DedupeIndex
   private readonly reading: ReadingListService | undefined
 
@@ -344,7 +381,9 @@ export class IngestQueue {
     this.store = opts.store
     this.vaultRoot = opts.vaultRoot
     this.auth = opts.auth
-    this.concurrency = opts.concurrency ?? 2
+    // One writer at a time: the vault's ingest skill is explicit that it was built for
+    // single-writer use, and we measured 13 overlapping job pairs against it (A3).
+    this.concurrency = opts.concurrency ?? DEFAULT_CONCURRENCY
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     this.maxRetries = opts.maxRetries ?? 2
     this.rateLimitPauseMs = opts.rateLimitPauseMs ?? 60_000
@@ -366,6 +405,9 @@ export class IngestQueue {
     this.commitMutex = opts.commitMutex ?? new Mutex()
     this.runRegistry = opts.runRegistry ?? new RunRegistry()
     this.validate = opts.validate
+    this.validationStore = opts.validationStore
+    this.tiling = opts.tilingCheck ?? ((root) => runTilingCheck(root))
+    this.keepPayloadLocal = opts.keepPayloadLocal ?? keepPayloadLocal
     this.dedupe = opts.dedupe ?? new DedupeIndex(opts.vaultRoot)
     this.reading = opts.reading
     this.discardStaging = opts.discardStaging ?? discardUntrackedDir
@@ -435,9 +477,9 @@ export class IngestQueue {
    * the store's blanket {@link JobStore.recoverInterrupted}, this looks at the VAULT to tell the
    * two cases apart:
    *
-   *   - An `ingesting` run whose final log entry is already in `wiki/log.md` had FINISHED writing;
-   *     only its commit and status update were lost to the crash → commit its dirty pages and flip
-   *     to `done`.
+   *   - An `ingesting` run that left its completion marker (`.vault-meta/runs/<job-id>.done`,
+   *     touched as its last action) had FINISHED writing; only its commit and status update were
+   *     lost to the crash → commit its dirty pages and flip to `done`.
    *   - An `ingesting` run with NO completion marker was genuinely mid-write → still commit the
    *     pages it had already written (see below), then mark `failed` (retryable). A `preprocessing`
    *     job never reached the agent and wrote nothing → `failed`, no commit.
@@ -467,7 +509,7 @@ export class IngestQueue {
     const committedByBatch = new Map<string, string[]>()
 
     for (const job of stuck) {
-      const completed = job.status === 'ingesting' && this.ingestLoggedCompletion(job)
+      const completed = job.status === 'ingesting' && this.ingestCompletionMarker(job)
 
       // Commit any wiki pages an interrupted INGESTING run already wrote — whether or not it
       // reached its log-marker. The marker decides the job's STATUS (done vs failed-retryable),
@@ -501,11 +543,11 @@ export class IngestQueue {
         })
       } else {
         this.store.transition(job.id, 'failed', {
-          patch: { error: 'interrupted by a service restart before it finished — retry to run it again' },
+          patch: { error: 'interrupted by a service restart before it finished - retry to run it again' },
           log:
             pages.length > 0
-              ? `recovered after restart: mid-flight with no completion marker — committed ${pages.length} page(s) it had already written so the retry cannot orphan them (retry to finish)`
-              : 'recovered after restart: mid-flight with no completion marker in wiki/log.md',
+              ? `recovered after restart: mid-flight with no completion marker - committed ${pages.length} page(s) it had already written so the retry cannot orphan them (retry to finish)`
+              : 'recovered after restart: mid-flight with no completion marker',
         })
         recoveredToFailed++
       }
@@ -532,21 +574,48 @@ export class IngestQueue {
    */
   private async commitReconciledPages(job: JobRow, label: string, completed: boolean): Promise<string[]> {
     if (!this.autoCommit()) {
-      this.store.log(job.id, 'info', 'reconcile: auto-commit disabled — pages left on disk, not committed')
+      this.store.log(job.id, 'info', 'reconcile: auto-commit disabled - pages left on disk, not committed')
       return []
     }
-    const dirtyWiki = [...(await dirtyPaths(this.vaultRoot))].filter((p) => p.startsWith('wiki/'))
+    const dirty = [...(await dirtyPaths(this.vaultRoot))]
+    const dirtyWiki = dirty.filter((p) => p.startsWith('wiki/'))
     if (dirtyWiki.length === 0) {
       this.store.log(job.id, 'info', 'reconcile: run had completed and its pages were already committed')
       return []
     }
-    // Include the job's .raw dir only when it is actually on disk — `git add -- <missing path>`
-    // throws "pathspec did not match", which would abort the whole recovery commit.
+    /*
+     * The bookkeeping rides along, and a crash test is what found that it did not.
+     *
+     * `.vault-meta/address-counter.txt` is the vault's address allocator, and a run bumps it as
+     * it reserves addresses. The normal commit path carries it because `buildPathspec` appends
+     * `BOOKKEEPING_PATHS`; this path built its own pathspec from the dirty `wiki/` files and
+     * the job's payload, so after a recovery the counter stood at the reserved value on disk
+     * and at the old one in git. Two consequences, both quiet: reverting the recovery commit
+     * would not give the addresses back, and a `git reset --hard` would hand the next run five
+     * addresses that are already on pages - which is how a vault with 0 duplicate addresses
+     * stops having 0.
+     *
+     * Each path is included only when it is actually on disk: `git add -- <missing path>`
+     * throws "pathspec did not match", which would abort the whole recovery commit.
+     */
     const rawDir = path.posix.join('.raw', job.id)
-    const paths = fs.existsSync(path.join(this.vaultRoot, rawDir)) ? [...dirtyWiki, rawDir] : dirtyWiki
+    const paths = [
+      ...dirtyWiki,
+      ...(fs.existsSync(path.join(this.vaultRoot, rawDir)) ? [rawDir] : []),
+      /*
+       * The bookkeeping this run dirtied, named file by file rather than by its directory.
+       *
+       * `.vault-meta` also holds EXCLUDED state - run markers, locks - so on a vault where only
+       * those changed, `git commit -- .vault-meta` matches nothing git knows about and fails the
+       * whole recovery. "Exists on disk" is not "git has heard of it", which is what the first
+       * attempt at this got wrong. `dirtyPaths` reports what git itself sees, so an excluded
+       * file never reaches here.
+       */
+      ...dirty.filter((p) => BOOKKEEPING_PATHS.some((b) => p === b || p.startsWith(`${b}/`))),
+    ]
     const subject = completed
       ? `ingest: ${label} (recovered after restart)`
-      : `ingest: ${label} (recovered after restart — incomplete run, retry pending)`
+      : `ingest: ${label} (recovered after restart - incomplete run, retry pending)`
     try {
       const result = await this.commitMutex.runExclusive(() => commitPaths(this.vaultRoot, subject, paths))
       if (result.committed) {
@@ -566,15 +635,21 @@ export class IngestQueue {
     return []
   }
 
-  /** True when `wiki/log.md` carries this job's final ingest entry — the skill writes it (naming
-   * the job's `.raw` dir) only as its last action, so its presence means the run finished. */
-  private ingestLoggedCompletion(job: JobRow): boolean {
-    try {
-      const log = fs.readFileSync(path.join(this.vaultRoot, 'wiki', 'log.md'), 'utf8')
-      return log.includes(`.raw/${job.id}`) || (job.raw_path !== null && log.includes(job.raw_path))
-    } catch {
-      return false
-    }
+  /**
+   * Whether this run reached its end (A6 contract 1).
+   *
+   * The marker is a file the run touches as its last action (`run-marker.ts`). Before that it
+   * was this job's `.raw` directory appearing in `wiki/log.md`, which the vault skill wrote
+   * last - a skill's prose template as the basis of crash recovery, and a 777 kB read per
+   * stuck job.
+   *
+   * THE LOG FALLBACK IS GONE (2026-09-19). It existed for jobs that were already `ingesting`
+   * when the marker shipped, and the condition its own comment named has been met and
+   * measured: no job is in that state. Keeping it would also have blocked shrinking the log,
+   * because a truncated log would have answered "not finished" for anything old.
+   */
+  private ingestCompletionMarker(job: JobRow): boolean {
+    return hasRunMarker(this.vaultRoot, job.id)
   }
 
   /** Reconstructs pending batch units from queued batch members not already tracked in memory. */
@@ -594,7 +669,7 @@ export class IngestQueue {
   retryJob(id: string): JobRow {
     const job = this.store.getOrThrow(id)
     if (job.status !== 'failed' && job.status !== 'deferred') {
-      throw new Error(`job ${id} is ${job.status}, not failed/deferred — nothing to retry`)
+      throw new Error(`job ${id} is ${job.status}, not failed/deferred - nothing to retry`)
     }
     const updated = this.store.transition(id, 'queued', { log: 'manual retry requested (SPEC.md §6.2)' })
     if (job.batch_id) this.reloadPendingBatches()
@@ -816,9 +891,11 @@ export class IngestQueue {
    * A `done` run that wrote no CONTENT page gets `outcome = 'no-changes'` (SPEC.md §12.9): the
    * agent finished cleanly and found nothing to add - typically a source it recognised as
    * already ingested by means the dedupe stages do not cover. The vault's meta pages do not
-   * count (`wiki-meta.ts`): such a run still appends its own entry to `wiki/log.md`, and until
-   * 2026-09-18 that one line made it pass as an ingest with "1 page". Said in the log too, so
-   * the row and its record agree.
+   * count (`wiki-meta.ts`): a run used to append its own entry to `wiki/log.md`, and until
+   * 2026-09-18 that one line made it pass as an ingest with "1 page". The service writes that
+   * entry now and only for a run that wrote a page (SPEC.md §12.12), so the case cannot arise
+   * from the log any more - the rule stays because a meta page can still be the only thing a
+   * run touched. Said in the log too, so the row and its record agree.
    */
   private markNoChanges(jobId: string, committed: readonly string[]): void {
     if (contentPages(committed).length > 0) return
@@ -927,7 +1004,7 @@ export class IngestQueue {
     this.stageFile(created.job.id, input.sourcePath, originalName)
     return this.store.transition(created.job.id, 'failed', {
       patch: {
-        error: `file is ${input.sizeBytes} bytes — over the ${input.limitBytes}-byte limit (maxUploadBytes); raise the limit in settings and retry`,
+        error: `file is ${input.sizeBytes} bytes - over the ${input.limitBytes}-byte limit (maxUploadBytes); raise the limit in settings and retry`,
       },
       log: `refused: ${input.sizeBytes} bytes exceeds the configured maxUploadBytes (${input.limitBytes})`,
       level: 'error',
@@ -1089,13 +1166,26 @@ export class IngestQueue {
       return
     }
 
+    /*
+     * The size cap (D4): an original past it stays on disk and out of git history. Decided
+     * HERE, after preprocessing and before the run, so the payload is never in a commit - the
+     * measured alternative is 786 MiB of scans in the history of a 16 MB knowledge base.
+     */
+    for (const kept of this.keepPayloadLocal(this.vaultRoot, path.posix.join('.raw', job.id), pre.manifestPath)) {
+      this.store.log(
+        job.id,
+        'info',
+        `payload not versioned: ${kept.rel} is ${Math.round(kept.bytes / (1024 * 1024))} MB, over the cap - it stays on disk, the pages and the manifest commit as usual`,
+      )
+    }
+
     this.store.setType(job.id, pre.type)
     this.logPreprocessWarnings(job.id, pre)
 
     if (pre.deferred) {
       this.deferJob(job, jobDir)
       this.store.transition(job.id, 'deferred', {
-        log: pre.manifest.notes.join('; ') || 'unsupported type — deferred',
+        log: pre.manifest.notes.join('; ') || 'unsupported type - deferred',
         level: 'warn',
       })
       return
@@ -1124,7 +1214,7 @@ export class IngestQueue {
   private async preprocessStep(job: JobRow, jobDir: string): Promise<PreprocessResult> {
     const manifestPath = path.join(jobDir, 'manifest.json')
     if (fs.existsSync(manifestPath)) {
-      this.store.log(job.id, 'info', 'preprocessing skipped — manifest from a prior attempt reused')
+      this.store.log(job.id, 'info', 'preprocessing skipped - manifest from a prior attempt reused')
       return resultFromManifest(this.vaultRoot, jobDir, manifestPath)
     }
     this.toolsCache ??= await this.detectToolsFn()
@@ -1172,6 +1262,9 @@ export class IngestQueue {
     const attempt = this.store.incrementAttempts(job.id)
     const prompt = `ingest ${pre.primaryArtifact}`
     this.store.log(job.id, 'info', `ingest attempt ${attempt}: ${prompt}`)
+    // What the vault already holds on this subject (A8). The one run type whose job is
+    // "create or update" was the one with no pointer to existing pages but a 514 kB index.
+    const overlap = await this.vaultOverlap(job, pre.manifest, pre.primaryArtifact)
 
     // Bracket + register as a writer so Bash-written pages can be swept into the commit, but
     // only when this turns out to be the sole writer (finding F4).
@@ -1193,8 +1286,13 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        OPEN_QUESTION_FORM,
+        // How this run says it reached its end (2.4): one file, touched last. Crash recovery
+        // reads it instead of searching wiki/log.md, which the service now writes itself.
+        renderCompletionMarker(runMarkerPath(job.id) ?? ''),
         // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
         this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        overlap,
         renderProvenance([{ artifact: pre.primaryArtifact, url: job.url }]),
         // Where the text came from when it did not come from the address (5.4).
         renderOaNotice(pre.manifest.oa === undefined ? [] : [{ artifact: pre.primaryArtifact, oa: pre.manifest.oa }]),
@@ -1224,6 +1322,9 @@ export class IngestQueue {
         dirtyBefore,
         extra: [path.posix.join('.raw', job.id)],
         readingBefore,
+        // The run's own account of what it did, which becomes the log entry's paragraph. No
+        // new agent contract: every run already produces this.
+        summary: res.result,
       })
       endRun()
       this.markNoChanges(job.id, committed)
@@ -1248,7 +1349,7 @@ export class IngestQueue {
 
     if (outcome === 'rate_limit') {
       this.store.decrementAttempts(job.id) // a usage-limit pause is not the job's fault
-      this.store.transition(job.id, 'queued', { log: 'requeued — will retry after the usage-limit pause' })
+      this.store.transition(job.id, 'queued', { log: 'requeued - will retry after the usage-limit pause' })
       this.pauseForRateLimit(job.id, res.error)
       return
     }
@@ -1262,8 +1363,8 @@ export class IngestQueue {
       job.id,
       'error',
       outcome === 'transient'
-        ? `gave up after ${attempt} attempt(s) — retries exhausted`
-        : 'permanent failure — not retried',
+        ? `gave up after ${attempt} attempt(s) - retries exhausted`
+        : 'permanent failure - not retried',
     )
   }
 
@@ -1281,7 +1382,7 @@ export class IngestQueue {
     if (unreported.length > 0) {
       log(`staging ${unreported.length} page(s) the tool stream did not report (F4)`)
     } else if (!sole) {
-      log('another run is writing — staging only tool-reported paths (F4 sweep skipped)')
+      log('another run is writing - staging only tool-reported paths (F4 sweep skipped)')
     }
     // The reading list entries this run added are signed by it, whatever the agent wrote on
     // their by line - only while it is the sole writer, for the same reason the sweep is.
@@ -1295,18 +1396,177 @@ export class IngestQueue {
 
   /** Returns the committed wiki pages, so the validation step can cover Bash-written pages
    * the tool stream never reported (empty when the commit was skipped or failed). */
+  /**
+   * The overlap block for one document (3.1): what the vault already holds on its subject.
+   *
+   * Both mechanisms, the same two the chat and the research paths get - title-token overlap
+   * plus chunk retrieval when the index is provisioned. Advisory throughout: a failure here
+   * leaves the prompt exactly as it was before this existed.
+   */
+  private async vaultOverlap(job: JobRow, manifest: Manifest, artifact: string): Promise<string> {
+    const topic = topicForJob(this.vaultRoot, manifest, artifact)
+    if (topic === '') return ''
+    const block = await vaultOverlapFor(this.vaultRoot, topic, async (t) => {
+      const { candidates } = await retrieveCandidates({ vaultRoot: this.vaultRoot, question: t })
+      return candidates.map((c) => c.pagePath)
+    })
+    this.store.log(
+      job.id,
+      'info',
+      block === ''
+        ? `vault overlap: nothing on "${topic}" yet - this is a new subject for the vault`
+        : `vault overlap on "${topic}": ${block.split('\n').filter((l) => l.startsWith('- ')).length} existing page(s) named in the prompt`,
+    )
+    return block
+  }
+
+  /**
+   * The content pages a run wrote, which are the ones whose `content_updated:` it earns
+   * (SPEC.md §12.13).
+   *
+   * Everything the run touched that is NOT a hub: the index, the log, the hot cache and the
+   * bucket `_index` MOCs are navigation, and a run adding a line to one of them has not said
+   * anything new about a subject. `wiki/meta/` is left out for the same reason - a notebook or
+   * a recap is the service writing about a run, and its own writer stamps it.
+   */
+  private contentPagesOf(written: Iterable<string>): string[] {
+    const hubs = new Set<string>([...SERVICE_OWNED_HUBS, 'wiki/hot.md'])
+    return [...new Set(written)]
+      .filter(
+        (rel) =>
+          rel.startsWith('wiki/') &&
+          rel.endsWith('.md') &&
+          !hubs.has(rel) &&
+          !rel.endsWith('/_index.md') &&
+          !rel.startsWith('wiki/meta/'),
+      )
+      .sort()
+  }
+
+  /**
+   * Stamps `content_updated:` on the pages this run wrote (SPEC.md §12.13, task 7.3).
+   *
+   * WHY THIS EXISTS AT ALL, when `stampDates` already does the work. The field is written by
+   * OUR writers, and an ingest's pages are written by the AGENT, from the vault's own
+   * frontmatter template - which has no such field. Measured on the first real ingest after
+   * 7.3 shipped: four of five new pages carried `updated:` and no `content_updated:`, so the
+   * one path that produces most of the vault's pages was the one path not filling the field.
+   *
+   * Doing it here rather than asking the agent to is deliberate: a prompt rule holds only as
+   * long as every run remembers it, and the whole point of the field is that a later reader can
+   * trust it. `bodyChanged` is not consulted - a run that wrote a page said something, which is
+   * exactly the judgement §12.13 asks the WRITER to make.
+   *
+   * Runs inside the commit mutex so the stamp rides in the run's own commit, and the pages'
+   * locks are taken by the caller OUTSIDE it, which is hard rule 1's order.
+   */
+  private stampContentDates(job: JobRow, pages: readonly string[], held: ReadonlySet<string>): void {
+    let stamped = 0
+    const skipped: string[] = []
+    for (const rel of pages) {
+      if (!held.has(rel)) {
+        skipped.push(rel)
+        continue
+      }
+      const abs = path.join(this.vaultRoot, rel)
+      try {
+        const before = fs.readFileSync(abs, 'utf8')
+        const after = stampDates(before, { content: true })
+        if (after === before) continue
+        fs.writeFileSync(abs, after)
+        stamped++
+      } catch (err) {
+        // Never fatal: the page is written and committed either way, and a missing date is a
+        // weaker signal, not a broken vault.
+        this.store.log(job.id, 'warn', `content date: ${rel} could not be stamped (${(err as Error).message})`)
+      }
+    }
+    if (stamped > 0) this.store.log(job.id, 'info', `content date: ${CONTENT_UPDATED} set on ${stamped} page(s)`)
+    if (skipped.length > 0) {
+      this.store.log(job.id, 'warn', `content date: another writer holds ${skipped.length} page(s) - left unstamped`)
+    }
+  }
+
+  /**
+   * The hub write for one run (D2): the log entry and the regenerated index, inside this run's
+   * own commit.
+   *
+   * Called INSIDE the commit mutex with the hubs' vault locks already held. What it writes is
+   * decided by what the commit carries: a run that wrote no content page writes no entry and
+   * does not regenerate the index, because there is nothing to say and nothing would change.
+   *
+   * A hub whose lock is held by somebody else is left alone rather than written anyway - the
+   * index is regenerated by the next run in any case, and that is the safety net a derived file
+   * gives us.
+   */
+  private async writeHubsFor(
+    job: JobRow,
+    label: string,
+    pathspec: readonly string[],
+    held: ReadonlySet<string>,
+    summary: string | undefined,
+  ): Promise<string[]> {
+    const git = await unversionedWikiPages(this.vaultRoot)
+    const addresses = readAddresses(this.vaultRoot, [...git.untracked, ...git.modified])
+    const { created, updated } = classifyLoggedPages(pathspec, git, addresses)
+    if (created.length === 0 && updated.length === 0) return []
+
+    const entry: LogEntryInput = {
+      date: new Date().toISOString().slice(0, 10),
+      kind: job.batch_id === null ? 'ingest' : 'batch ingest',
+      title: label,
+      source: job.raw_path ?? path.posix.join('.raw', job.id),
+      created,
+      updated,
+      summary: summary ?? null,
+    }
+    const plan: HubPlan = {
+      index: held.has('wiki/index.md'),
+      // Only the bucket hubs this run actually holds: one somebody else is writing is left alone.
+      buckets: bucketHubs(this.vaultRoot).filter((rel) => held.has(rel)),
+      entry: held.has('wiki/log.md') ? entry : null,
+    }
+    const { paths, warnings } = writeHubs(this.vaultRoot, plan)
+    // Loud, and not fatal: the pages are what matters, the job stays `done`, and the next run
+    // regenerates the index anyway.
+    for (const w of warnings) this.store.log(job.id, 'warn', w)
+    if (paths.length > 0) this.store.log(job.id, 'info', `hub layer: wrote ${paths.join(', ')}`)
+    return paths
+  }
+
   private async commitStep(job: JobRow, scope: CommitScope): Promise<string[]> {
     const label = job.original_name ?? job.url ?? job.id
     if (!this.autoCommit()) {
       // Pages are already written; only the commit is skipped, so nothing is lost — the
       // operator (or the next run with auto-commit on) picks them up.
-      this.store.log(job.id, 'info', 'auto-commit disabled in settings — pages are on disk, not committed')
+      this.store.log(job.id, 'info', 'auto-commit disabled in settings - pages are on disk, not committed')
       return []
     }
     try {
-      const result = await this.commitMutex.runExclusive(async () => {
-        const pathspec = await this.buildPathspec(scope, (m) => this.store.log(job.id, 'info', m))
-        return this.commit(this.vaultRoot, `ingest: ${label}`, { pathspec })
+      /*
+       * The hub layer (SPEC.md §12.12): the index and the log entry are written HERE, by the
+       * service, into this run's own commit - one run, one commit, hubs included.
+       *
+       * Order is hard rule 1's: the vault's own per-file lock on the hubs OUTSIDE our commit
+       * mutex, the write and the commit inside it. The plan is built from the pathspec that is
+       * about to be committed, so the entry names exactly the pages this commit carries.
+       */
+      // The run's own content pages are locked alongside the hubs, because their
+      // `content_updated:` is stamped in the same commit (SPEC.md §12.13). Both lists are
+      // acquired here, OUTSIDE the mutex, which is hard rule 1's order.
+      const contentPages = this.contentPagesOf(scope.written)
+      const toLock = [...SERVICE_OWNED_HUBS, ...bucketHubs(this.vaultRoot), ...contentPages]
+      const result = await withWikiLocks(this.vaultRoot, toLock, async (held, busy) => {
+        if (busy.length > 0) {
+          this.store.log(job.id, 'warn', `hub write: another writer holds ${busy.join(', ')} - leaving ${busy.length} hub(s) alone`)
+        }
+        return await this.commitMutex.runExclusive(async () => {
+          const heldSet = new Set(held)
+          this.stampContentDates(job, contentPages, heldSet)
+          const pathspec = await this.buildPathspec(scope, (m) => this.store.log(job.id, 'info', m))
+          const hubs = await this.writeHubsFor(job, label, pathspec, heldSet, scope.summary)
+          return this.commit(this.vaultRoot, `ingest: ${label}`, { pathspec: [...pathspec, ...hubs] })
+        })
       })
       if (result.committed) {
         // Anchor for "revert this ingest" (v9): persisted, not scraped back out of the log text.
@@ -1427,6 +1687,14 @@ export class IngestQueue {
      * commit the run just made - without a before there is no telling this run's quotes from
      * those of the runs before it.
      */
+    /*
+     * What this run is in a position to judge. `createValidator`'s rules always; the two below
+     * only when they actually ran, because each can be skipped - a quote check without a
+     * commit to compare against, a duplicate check without the vault's tiling machinery. A
+     * rule that did not run has to stay out of it, or `resolveMissing` reads its silence as a
+     * repair and clears findings nothing looked at.
+     */
+    const checked = new Set<string>(VALIDATOR_RULES)
     try {
       const hash = this.store.get(jobId)?.commit_hash ?? null
       const quotes = await checkQuotes({
@@ -1436,6 +1704,8 @@ export class IngestQueue {
         ...(hash === null ? {} : { before: gitPageBefore((rev, rel) => readAtRevision(this.vaultRoot, rev, rel), hash) }),
       })
       findings.push(...quotes.findings)
+      // `note` is how `checkQuotes` says it compared nothing; anything else is a real pass.
+      if (quotes.summary.note === undefined) checked.add('quote')
       this.store.setValidation(jobId, { quotes: quotes.summary })
       if (quotes.summary.checked > 0) {
         this.store.log(
@@ -1446,6 +1716,72 @@ export class IngestQueue {
       }
     } catch (err) {
       this.store.log(jobId, 'warn', `quote check crashed (ignored): ${(err as Error).message}`)
+    }
+    /*
+     * Near-duplicates, through the VAULT'S own tiling check (A5). It is the only duplicate
+     * detector in the system and it had never run; this is what finally asks it. Scoped to the
+     * pages this run touched, so an ingest hears about the duplicates it created rather than
+     * about every pair in the vault, and skipped silently on any of the reasons the script
+     * documents (no ollama, no model, older vault).
+     */
+    try {
+      const tiling = await this.tiling(this.vaultRoot)
+      if (tiling.skipped !== undefined) this.store.log(jobId, 'info', `duplicate check: ${tiling.skipped}`)
+      else {
+        checked.add('near-duplicate')
+        /*
+         * The ERROR band only, on the job. Measured against the live vault with the thresholds
+         * the vault ships: 215 pairs at or above 0.90, and 3218 between 0.80 and 0.90. The
+         * shipped bands say of themselves that they are uncalibrated, and a review band that
+         * size is a standing list (phase 5), never a per-run finding.
+         */
+        const mine = pairsTouching(tiling.pairs, touched)
+        const review = mine.filter((p) => p.band === 'review').length
+        if (review > 0) {
+          this.store.log(jobId, 'info', `duplicate check: ${review} further pair(s) in the review band, below the vault's error threshold`)
+        }
+        for (const pair of mine.filter((p) => p.band === 'error')) {
+          findings.push({
+            rule: 'near-duplicate',
+            path: pair.a,
+            message:
+              `reads as the same subject as ${pair.b} (similarity ${pair.similarity.toFixed(3)}, ` +
+              `above the vault's own error threshold) - one of them should extend the other`,
+          })
+        }
+      }
+    } catch (err) {
+      this.store.log(jobId, 'warn', `duplicate check crashed (ignored): ${(err as Error).message}`)
+    }
+    /*
+     * One line per NEW finding, one number for the repeats (A9, 5.2). The old behaviour wrote
+     * a line per occurrence: 406 warnings over the measured population, of which one dead link
+     * accounted for 109. A defect reported again on every run cannot be told apart from one
+     * that was just introduced, which is why nothing ever acted on any of them.
+     */
+    if (this.validationStore !== undefined) {
+      const { created, repeated } = this.validationStore.record(findings, jobId)
+      // What this run looked at and no longer finds is repaired: taking it off the list is how
+      // a fix becomes visible at all.
+      const resolved = this.validationStore.resolveMissing(touched, findings, { checked, fullyChecked: VAULT_WIDE_RULES })
+      for (const f of created) this.store.log(jobId, 'warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+      /*
+       * And the pages the list still names that this job did not touch. Its own pass above
+       * claims `quote` and `near-duplicate` for THIS job's pages, where it has the artifact to
+       * compare against; the recheck claims neither, so it cannot clear them elsewhere.
+       */
+      const stale = this.validate === undefined ? 0 : recheckStanding(this.validationStore, this.validate, { exclude: touched })
+      const parts: string[] = []
+      if (created.length > 0) parts.push(`${created.length} new`)
+      if (repeated > 0) parts.push(`${repeated} standing`)
+      if (resolved > 0) parts.push(`${resolved} fixed since the last run`)
+      if (stale > 0) parts.push(`${stale} repaired elsewhere`)
+      this.store.log(
+        jobId,
+        created.length > 0 ? 'warn' : 'info',
+        parts.length === 0 ? 'post-run validation: no findings' : `post-run validation: ${parts.join(', ')} (the standing list is on the System screen)`,
+      )
+      return
     }
     if (findings.length === 0) {
       this.store.log(jobId, 'info', 'post-run validation: no findings')
@@ -1465,7 +1801,7 @@ export class IngestQueue {
    * Deferred/failed members drop out but never sink the rest of the batch.
    */
   private async processBatch(unit: BatchUnit): Promise<void> {
-    const ready: Array<{ id: string; artifact: string; url: string | null; oa?: OaDisclosure }> = []
+    const ready: Array<{ id: string; artifact: string; url: string | null; oa?: OaDisclosure; manifest: Manifest }> = []
     const names: string[] = []
 
     for (const id of unit.memberIds) {
@@ -1481,7 +1817,7 @@ export class IngestQueue {
         if (pre.deferred) {
           this.deferJob(job, jobDir)
           this.store.transition(id, 'deferred', {
-            log: pre.manifest.notes.join('; ') || 'unsupported type — deferred',
+            log: pre.manifest.notes.join('; ') || 'unsupported type - deferred',
             level: 'warn',
           })
           continue
@@ -1491,7 +1827,7 @@ export class IngestQueue {
           await this.settleContentDuplicate(job, dup)
           continue
         }
-        ready.push({ id, artifact: pre.primaryArtifact, url: job.url, ...(pre.manifest.oa ? { oa: pre.manifest.oa } : {}) })
+        ready.push({ id, artifact: pre.primaryArtifact, url: job.url, manifest: pre.manifest, ...(pre.manifest.oa ? { oa: pre.manifest.oa } : {}) })
         names.push(job.original_name ?? job.url ?? id)
       } catch (err) {
         this.store.transition(id, 'failed', {
@@ -1511,6 +1847,16 @@ export class IngestQueue {
     const lead = ready[0]!.id
     const prompt = `ingest all of these:\n${ready.map((r) => `- ${r.artifact}`).join('\n')}`
     this.store.log(lead, 'info', `batch combined ingest of ${ready.length} artifact(s), attempt ${attempt}`)
+    /*
+     * One overlap block PER MEMBER, not one merged block (3.1). A batch is several documents
+     * on several subjects; merging their topics into one query returns the pages that overlap
+     * the mixture, which is nothing in particular.
+     */
+    const overlaps: string[] = []
+    for (const member of ready) {
+      const block = await this.vaultOverlap(this.store.getOrThrow(member.id), member.manifest, member.artifact)
+      if (block !== '') overlaps.push(`\n\nFor ${member.artifact}:${block}`)
+    }
 
     // Same F4 bracket as the single-job path.
     const dirtyBefore = await dirtyPaths(this.vaultRoot)
@@ -1530,8 +1876,12 @@ export class IngestQueue {
         UNTRUSTED_CONTENT_RULES,
         ENTITY_NOTABILITY_RULES,
         TAG_HYGIENE_RULES,
+        OPEN_QUESTION_FORM,
+        // A batch is one run with one lead job, so it leaves one marker - the lead's (2.4).
+        renderCompletionMarker(runMarkerPath(lead) ?? ''),
         // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
         this.reading === undefined ? '' : renderReadingList(INGEST_ACTOR, localDate(new Date())),
+        overlaps.join(''),
         // Each member keeps its OWN origin: a batch is several documents, and one shared
         // address would file the wrong one on all but one of them.
         renderProvenance(ready.map((r) => ({ artifact: r.artifact, url: r.url }))),
@@ -1603,7 +1953,7 @@ export class IngestQueue {
     }
     if (outcome === 'rate_limit') {
       for (const r of ready) this.store.decrementAttempts(r.id)
-      requeue('batch requeued — will retry after the usage-limit pause')
+      requeue('batch requeued - will retry after the usage-limit pause')
       this.pauseForRateLimit(lead, res.error)
       return
     }
@@ -1614,7 +1964,7 @@ export class IngestQueue {
     this.store.log(
       lead,
       'error',
-      outcome === 'transient' ? `batch gave up after ${attempt} attempt(s)` : 'batch permanent failure — not retried',
+      outcome === 'transient' ? `batch gave up after ${attempt} attempt(s)` : 'batch permanent failure - not retried',
     )
   }
 
@@ -1623,7 +1973,7 @@ export class IngestQueue {
   private async batchCommit(memberIds: string[], names: string[], scope: CommitScope): Promise<string[]> {
     const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1} more`
     if (!this.autoCommit()) {
-      this.store.log(memberIds[0]!, 'info', 'auto-commit disabled in settings — pages are on disk, not committed')
+      this.store.log(memberIds[0]!, 'info', 'auto-commit disabled in settings - pages are on disk, not committed')
       return []
     }
     try {
@@ -1666,14 +2016,14 @@ export class IngestQueue {
   private schedulePreprocessRetry(jobId: string): void {
     const attempt = this.store.incrementAttempts(jobId)
     if (attempt > this.maxRetries) {
-      this.store.log(jobId, 'error', `gave up after ${attempt} attempt(s) — preprocess retries exhausted`)
+      this.store.log(jobId, 'error', `gave up after ${attempt} attempt(s) - preprocess retries exhausted`)
       return
     }
     const delayMs = this.preprocessRetryDelayMs * attempt
     this.store.log(
       jobId,
       'info',
-      `transient preprocess failure — retry ${attempt}/${this.maxRetries} in ${Math.round(delayMs / 1000)}s`,
+      `transient preprocess failure - retry ${attempt}/${this.maxRetries} in ${Math.round(delayMs / 1000)}s`,
     )
     this.preprocessRetries.add(jobId)
     this.setTimeoutFn(() => {

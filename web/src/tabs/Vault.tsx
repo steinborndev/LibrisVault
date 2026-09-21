@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
+import { isKnowledgeNode } from '../lib/knowledge.ts'
 import { staleLinks, useStaleLinks } from '../lib/staleLinks.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
 import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
@@ -160,7 +161,7 @@ interface ClusterFocus {
 
 
 /** Missing `kind` (ghost nodes, old cached responses) counts as knowledge - never hide it. */
-const isKnowledge = (n: GraphNode): boolean => (n.kind ?? 'knowledge') === 'knowledge'
+const isKnowledge = isKnowledgeNode
 
 /**
  * Tags that mirror a page's `type:`/kind rather than its subject - they say WHAT a page is,
@@ -2532,7 +2533,7 @@ const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
   // Not "brighter": since 2026-09-16 the ramp runs the other way in the light theme, where
   // the most-linked page is the darkest one. "Stronger" holds in both.
   { key: 'authority', label: 'Authority', desc: 'stronger colour = more pages link here' },
-  { key: 'recency', label: 'Recency', desc: 'green = edited recently' },
+  { key: 'recency', label: 'Recency', desc: 'green = written or rewritten in the last 3 weeks' },
   { key: 'type', label: 'Page type', desc: 'a colour per wiki bucket' },
   { key: 'orphans', label: 'Orphans', desc: 'red = nothing links here' },
   { key: 'stubs', label: 'Stubs', desc: 'amber = thin page, under 1 KB' },
@@ -2653,7 +2654,7 @@ function LensLegend({
     body = (
       <>
         <span className="ll-title">Recency</span>
-        <span className="ll-row"><i className="ll-grad ll-recency" /> older → edited recently</span>
+        <span className="ll-row"><i className="ll-grad ll-recency" /> older → changed recently</span>
       </>
     )
   if (body === null) return null

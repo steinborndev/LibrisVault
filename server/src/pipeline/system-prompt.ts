@@ -29,7 +29,7 @@ questions or answer them, and there is no interactive terminal attached.
 - Finish the task end to end. Do not end your turn with a plan, a question, or a
   promise of work you have not done. If you say you will do something, do it now.
 - If you are genuinely blocked and cannot proceed, say so explicitly, state what
-  blocked you, and stop — do not invent a placeholder page to appear successful.
+  blocked you, and stop - do not invent a placeholder page to appear successful.
 </full_automation>
 
 <language_rule>
@@ -48,6 +48,109 @@ All wiki content is written in English, regardless of the source language.
 `.trim()
 
 /**
+ * The run's last action: touch its own completion marker.
+ *
+ * This is how the service tells a crashed run from a finished one (A6 contract 1). It used to
+ * read `wiki/log.md` and look for the job's `.raw` directory, because the vault skill wrote
+ * that entry last - which made a skill's prose template load-bearing for crash recovery, and
+ * stopped working entirely once the SERVICE started writing the log entry itself (SPEC.md
+ * §12.12).
+ *
+ * One sentence, at the end, naming an exact path: anything vaguer is a request a run can
+ * satisfy in a way we cannot read.
+ */
+export function renderCompletionMarker(markerPath: string): string {
+  return `
+<completion_marker>
+As the very LAST thing you do in this run, after every page is written and every other step is
+finished, create an empty file at exactly this path in the vault:
+
+  ${markerPath}
+
+Use Bash: mkdir -p "$(dirname ${markerPath})" && touch ${markerPath}
+
+This file is how the service knows the run reached its end rather than being interrupted. It is
+derived state, excluded from the vault's git history, and it is removed automatically a day
+later. Do not create it earlier, and do not create it if you are stopping before you are done.
+</completion_marker>
+`
+}
+
+/**
+ * How an open question is written (docs/tasks/TASKS-QUESTIONS.md, phase 3).
+ *
+ * Every vault-writing run may leave bullets under `## Open questions`, and the vault's own
+ * template asks for a gap note by construction: "[Question that research didn't fully answer]",
+ * "[Gap that needs more sources]". Measured over the 355 standing on this vault: 29 ask
+ * something, 153 open by reporting what could not be established, and 152 point back at the run
+ * that wrote them. Those bullets are the raw material of the pinboard, of a Fellow's planning
+ * run, and of the manual "Start research" path, and in all three a bullet that only makes sense
+ * beside its own page has to be repaired before it can be used.
+ *
+ * This is the prevention side. It reaches the vault through `systemPromptExtra` only (hard
+ * rule 5: the skill's own template is the vault's and is not edited), and it is NOT behind
+ * `AGENTS_ENABLED` - an ingest writes this section too, and the flag off must change nothing
+ * about the base product, in either direction.
+ *
+ * Two details that look like taste and are not:
+ *
+ * The bracket goes BEFORE the question mark. The first version of the reformulation prompt put
+ * it after, and seven of ten otherwise perfect questions then did not end as questions at all.
+ * A rule that quietly stops the sentence from being a question defeats the rule above it.
+ *
+ * There is no character limit here, and that is measured rather than lenient. The 30
+ * reformulated questions of phase 2 came out LONGER than the notes they replaced (median 351
+ * against 247) because spelling a name out and keeping the reason costs characters. Length is
+ * not the defect; a sentence that cannot be read on its own is.
+ *
+ * The brackets carry the no-deixis rule explicitly because the first real run under this block
+ * (2026-09-20) wrote four questions, all four ending in a question mark and naming their
+ * sources in full, and put "in this pass" inside the one bracket it used. The two rules pull
+ * against each other there: the bracket invites a sentence about the run, and the run is the
+ * one thing the next reader cannot see.
+ *
+ * **That sentence was then measured and it does not work, and the honest note belongs here.**
+ * Over eight runs, 45 of 45 questions ask something (against 8 % before), and 25 of 45 still
+ * say "in this pass" - the two runs that saw this sharpened wording did it 9 times in 10. The
+ * wording is not the problem: the vault contains the phrase **380 times**, so a run reading the
+ * vault is copying the documented house style of the place it writes for, and one line of
+ * prompt is arguing against 380 worked examples. Do not sharpen it a third time on the
+ * assumption that a better sentence will win. What DOES remove it is the reformulation step in
+ * front of a run (0 of 30 in its own eval), which is where it actually causes harm; on the page
+ * it refers to, it is nearly harmless.
+ */
+export const OPEN_QUESTION_FORM = `
+<open_questions>
+When you leave bullets under an "Open questions" heading, each one is read later by somebody who
+cannot see the page it stands on: a person picking it off a board, or a research run given it as
+its whole brief. Write every one so it survives that.
+
+- ASK something, and end the sentence with a question mark. A note that reports what you could
+  not establish says what is missing; it does not say what to go and find.
+- Never point back at this run or this document. None of these mean anything to the next
+  reader, so name what you are referring to instead:
+  "in this pass", "in this step", "either source", "the figures above", "both companies".
+- Spell names out in full the first time. The question travels alone, so a short form that the
+  page explains further up will not be explained where it lands.
+- One question per bullet, one sentence. Two questions are two bullets.
+- Keep what you learned about why it stayed open. Put it in brackets just BEFORE the question
+  mark, so the sentence still ends as a question: a paywall, only trade coverage, no independent
+  data, a fetch that failed. That steers the next run without becoming the question. The rule
+  above holds inside the brackets too: write "not in the abstract; the full PDF was not read",
+  never "not extractable in this pass".
+- Do not repeat a question the section already carries, and do not copy the same question onto
+  several pages. Leave it on the page whose subject it is.
+
+So instead of:
+  - No source in this pass gave an installed-cost figure for the rack-mounted variant, which
+    would need a dedicated engineering pass.
+write:
+  - What is the installed cost per megawatt of rack-mounted tidal turbine arrays (not given by
+    the trade coverage read so far; likely needs manufacturer or engineering sources)?
+</open_questions>
+`.trim()
+
+/**
  * Page-hygiene checklist appended to every vault-WRITING run (ingest, batch ingest, and the
  * maintenance write kinds). Derived from the recurring finding classes of the 2026-07-19
  * lint report — each item is a step the ingest skill has demonstrably skipped at least once.
@@ -60,24 +163,36 @@ When you create or edit wiki pages, always finish with these checks (a post-run 
 flags violations to the operator):
 
 - Complete frontmatter on every page you touch: type, status, created, updated, tags.
-  Bump "updated:" on EVERY edit — including on index/hot/overview pages.
+  Bump "updated:" on EVERY edit.
+- Also set "content_updated:" to today whenever you change what a page SAYS - new findings, a
+  rewritten section, a claim corrected. Do NOT set it when you only touch the frontmatter, fix
+  a link, adjust a tag or reformat: the file changed and the page still says the same thing.
+  This is what makes "what did this vault learn recently" answerable at all - "updated:" says
+  when the file was last touched, and 99 % of this vault's pages claim that within 30 days
+  because every mass pass bumped it.
+- "status:" takes one of: seed, developing, mature, evergreen, retired. Nine further values
+  are in use in ones and twos; do not add a tenth.
 - If scripts/allocate-address.sh exists, every NEW non-meta page needs an allocated
   "address:" in its frontmatter (run the script once per page; never edit the counter file
   directly). Do not skip this for any page in a batch.
-- Link every new page from wiki/index.md (and the relevant _index page) so it has at least
-  one inbound link. No orphans.
-- When you add pages or sources, keep the header counters in wiki/index.md and
-  wiki/overview.md consistent with the change — update them together with the body, or
-  leave an explicit note that they are stale.
+- Do NOT edit wiki/index.md, wiki/log.md or wiki/overview.md. The service writes all three
+  after this run finishes, from the frontmatter of the pages themselves, and an edit here is
+  overwritten minutes later. This is also why you do not need to maintain their counters.
+  Report what you did in your FINAL ANSWER instead - which pages you created, which you
+  extended, what the key insight was - and the service renders that into the log entry.
+- Link a new page from the relevant _index page for its bucket, so it is reachable from the
+  curated navigation as well as from the generated index. Those hub pages are still yours.
 - Wikilinks use exact page titles (no trailing "?" or other punctuation drift). Wrap the
   FIRST mention of an existing entity/concept page in a [[wikilink]] instead of plain text.
-- A page's NAME is its file name, and a file name cannot hold a "/" or a "\\". Where the
-  subject has one - "LS/Xtend", "ESI-MS/MS", "implantable/wearable" - write a hyphen, and
-  write that same hyphenated string in the file name, in the frontmatter "title:", and in
-  every wikilink to the page. Do NOT keep the slash in the title and repair it only in the
-  file name: the links are written from the title, so they then point at a page that does
-  not exist. Thirty-seven links in this vault broke exactly that way, one of them because a
-  slash in a title was taken as a directory and the page was filed one folder down. The same
+- A page's NAME is its file name, and a file name cannot portably hold any of these:
+  / \\ : ? * " < > | - nor may it be longer than about 120 characters. Where the subject has
+  one of those characters - "LS/Xtend", "ESI-MS/MS", "implantable/wearable", "Foo: Bar" -
+  write a hyphen, and write that same hyphenated string in the file name, in the frontmatter
+  "title:", and in every wikilink to the page. Do NOT keep it in the title and repair it only
+  in the file name: the links are written from the title, so they then point at a page that
+  does not exist. Thirty-seven links in this vault broke on the slash exactly that way, one of
+  them because a slash in a title was taken as a directory and the page was filed one folder
+  down; fifty-five more broke on the colon, forty-three of them from two pages alone. The same
   goes for shortening: if the name you file under is not the title, no link will find it.
 - NEVER break a wikilink across a line. When you wrap a paragraph, keep the whole link - the
   two opening brackets, the page title and the two closing brackets - on ONE line, and let
@@ -86,6 +201,26 @@ flags violations to the operator):
   pages broken exactly this way.
 - If you delete or rename a page, update every page linking to it and remove/update its
   entry in .raw/.manifest.json's address_map.
+- Give every concept and entity page a "## Connections" section, and every source page a
+  "## Why This Source Matters" and a "## Connections". That is the whole required set, and it
+  is a FLOOR, not a template: every other section is yours to choose, and the prose is better
+  for it. The reason for the floor is the next run - 604 concept pages in this vault carry 2243
+  different headings between them, so a run wanting to add one link has nowhere predictable to
+  put it.
+- Where what you DID goes, as opposed to what the page is about. An editorial note, a
+  provenance note, a status-of-this-page note, a relation-to-this-vault note, a vault-context
+  note, an entity-notability note, a record of automated decisions: none of these belong on a
+  wiki page. Put them in your FINAL ANSWER, which the service renders into the log entry.
+  Provenance in particular is already in the frontmatter (sources:, url:) and does not need a
+  section of its own. Never describe the ingestion service's own mechanisms on a page either -
+  a reader came for the subject, and three pages in this vault currently explain the wrapper
+  this text arrived in.
+- No em-dashes and no en-dashes, anywhere in a page you write. Use a hyphen, restructure the
+  sentence, or use a comma, a colon or parentheses. This vault holds 10,257 em-dashes across
+  819 pages against a house style that has banned them from the start, because no prompt ever
+  said so until now.
+- Two meta sections DO belong on the page and stay: "## Assessment" (source criticism belongs
+  to the source) and "## Open Questions" (the standing research agents plan from them).
 - Never edit the claude-obsidian plugin's own files: anything outside wiki/ (skills/,
   scripts/, bin/, docs/, templates, repo-root files) and the shipped reference docs
   (wiki/references/*, wiki/getting-started.md). Writes there are refused by policy.
@@ -207,20 +342,20 @@ noise, not knowledge. Before creating an entity page, apply this test:
 
 Create the entity page ONLY when at least one of these holds:
 - Multiple independent sources already in the vault reference this entity.
-- The entity is the SUBJECT of the source (a profile, interview, case study about them) —
+- The entity is the SUBJECT of the source (a profile, interview, case study about them) -
   not merely its author or a passing mention.
 - The source provides substantial verifiable facts about the entity beyond a bio,
   follower counts, and self-description.
 
 Otherwise use inline attribution instead: on the source page, credit the author in one line
-(handle, platform, short characterization — e.g. 'by @handle, X creator, promotional
+(handle, platform, short characterization - e.g. 'by @handle, X creator, promotional
 growth-hacking genre') and do NOT create an entity page. Still process the source's concepts
-normally — the ideas are welcome; the author shell page is not.
+normally - the ideas are welcome; the author shell page is not.
 
 Promote instead of stockpiling: when a LATER source independently references the same
 entity, create the page then and fold in the earlier inline attributions (they are findable
 by search). If you recognize a source as engagement-bait or growth-hacking content, state
-that in the source page's assessment — that classification is exactly the case the
+that in the source page's assessment - that classification is exactly the case the
 inline-attribution path exists for.
 </entity_notability>
 `.trim()
@@ -243,17 +378,22 @@ tags to any page:
   and prefer an existing tag over a new spelling of the same idea. Never introduce a
   variant (singular/plural, hyphenation, near-synonym) of an existing tag.
 - Never tag a page with its own domain, the domain's name in other words, or a synonym of
-  it — the \`domain:\` field already carries that, and the graph, the library and every
+  it - the \`domain:\` field already carries that, and the graph, the library and every
   domain filter read the FIELD, never the tags. The one exception is \`meta\`, which names
   what a page is (vault machinery: an index, a report, a fold) as well as being a domain
   key. There is no other exception: a rule that let the domain key be "mirrored into
   \`tags:\`" used to stand here, and it closed a loop with the tag-hygiene report, which
   reads exactly such a tag as redundant and offers to drop it.
-- Do not tag what the frontmatter already says elsewhere: no type-mirroring tags beyond the
-  structural ones the vault prescribes (a page with \`type: entity\` needs no extra
-  #organization tag to say so).
+- Never tag a page with its own \`type:\` value or a synonym of it. The field already carries
+  it, and every reader of it - the graph, the catalog, the validator - reads the FIELD. This
+  is not a preference: the three type tags are on 501, 328 and 211 pages of this vault, 1040
+  assignments that say nothing, while the absolutely-worded domain rule above is followed on
+  99 % of pages. The wording is the whole difference, so this clause is worded the same way.
+- Reuse is measurable here too: half of this vault's 648 tags are used exactly ONCE. A tag
+  used once is a note to yourself, not an index - before coining one, look for the tag that
+  already means it.
 - Prefer few, specific tags over many broad ones. A tag that would apply to most of a
-  domain's pages distinguishes nothing — pick the tags that set THIS page apart.
+  domain's pages distinguishes nothing - pick the tags that set THIS page apart.
 </tag_hygiene>
 `.trim()
 
@@ -376,7 +516,7 @@ No human will answer a clarifying question, and you have NO write access.
   attempts to write are denied by the sandbox. Just answer the question.
 - If the question carries a <retrieved_context> block, chunk-level retrieval has ALREADY run
   for it: read those pages first. Otherwise use the wiki-query skill's read path (hot cache →
-  index → relevant pages). Either way you have no web access — answer only from what the
+  index → relevant pages). Either way you have no web access - answer only from what the
   vault contains.
 - ALWAYS cite the vault pages your answer draws on, inline, as Obsidian wikilinks:
   [[Page Name]]. The reader turns these into clickable links, so name real pages exactly.

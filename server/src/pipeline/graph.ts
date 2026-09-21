@@ -15,6 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parseWikilinkRefs, type WikilinkRef } from './citations.js'
 import { pluginDocPages } from './upstream-guard.js'
+import { freshnessDate } from './page-dates.js'
 
 /**
  * How a page participates in the vault (SPEC §12.4): `knowledge` is what the vault exists
@@ -52,8 +53,19 @@ export interface GraphNode {
   /** Out-degree (links this page makes) and in-degree (backlinks) over RESOLVED edges. */
   readonly out: number
   readonly in: number
-  /** File mtime (epoch ms) — drives the "recency" color lens. Optional: only the builder sets it. */
+  /** File mtime (epoch ms). Optional: only the builder sets it. */
   readonly mtimeMs?: number
+  /**
+   * When the page last SAID something new, as epoch ms: `content_updated:` where a page has
+   * it, otherwise `created:` (`freshnessDate`, B7). This is what the "recency" lens colours by.
+   *
+   * NOT the mtime, and not `updated:`, both of which a mass pass flattens. Measured on this
+   * vault the day the repair landed: 1326 of 1332 files had been touched inside the lens's
+   * 21-day window, so every node was full green and the lens said nothing. The dates below
+   * spread over six months. Absent only for a page whose frontmatter states neither field,
+   * where the lens falls back to the mtime.
+   */
+  readonly freshMs?: number
   /** File size in bytes — a cheap proxy the "stubs" lens thresholds on. Builder-only. */
   readonly size?: number
   /**
@@ -63,6 +75,15 @@ export interface GraphNode {
    * falls back to it.
    */
   readonly url?: string | null
+  /**
+   * Frontmatter `origin:`, present only when the page states one (task 8.7).
+   *
+   * `upstream-demo` marks the material claude-obsidian shipped with. The dashboard treats it
+   * exactly as it treats a non-knowledge page: hidden behind the System toggle by default,
+   * shown when the toggle is on, never removed. Omitted for almost every page, and the graph
+   * payload goes to every screen.
+   */
+  readonly origin?: string | null
 }
 
 /**
@@ -113,6 +134,25 @@ interface CacheEntry {
   readonly aliases: readonly string[]
   /** The web address the page states for itself; see `parseFrontmatterAddress`. */
   readonly url: string | null
+  /** Frontmatter `origin:`, marking material this vault did not collect (task 8.7). */
+  readonly origin: string | null
+  /** `freshnessDate` as epoch ms, or null when the page states neither date. */
+  readonly freshMs: number | null
+}
+
+/**
+ * A frontmatter date (`YYYY-MM-DD`, possibly with a time) as epoch ms, or null.
+ *
+ * Parsed as UTC midnight rather than through `Date.parse` on the raw string: a bare date is
+ * UTC there but a date WITH a time is local, and the recency lens would then step by a
+ * timezone offset depending on how a page happened to write its date.
+ */
+const dateToMs = (date: string | null): number | null => {
+  if (date === null) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date.trim())
+  if (!m) return null
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return Number.isNaN(ms) ? null : ms
 }
 
 const toPosix = (p: string): string => p.split(path.sep).join(path.posix.sep)
@@ -176,9 +216,12 @@ export function parseFrontmatterMeta(markdown: string): {
   title: string | null
   aliases: string[]
   url: string | null
+  origin: string | null
+  /** `content_updated:` or, failing that, `created:` - see `freshnessDate` (B7). */
+  fresh: string | null
 } {
   const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
-  if (!fm) return { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null }
+  if (!fm) return { tags: [], domain: null, fmType: null, title: null, aliases: [], url: null, origin: null, fresh: null }
   const body = fm[1]!
 
   const domainMatch = body.match(/^domain:[ \t]*(.+)$/m)
@@ -190,6 +233,9 @@ export function parseFrontmatterMeta(markdown: string): {
   const titleMatch = body.match(/^title:[ \t]*(.+)$/m)
   const title = titleMatch ? unquote(titleMatch[1]!) || null : null
 
+  const originMatch = body.match(/^origin:[ \t]*(.+)$/m)
+  const origin = originMatch ? unquote(originMatch[1]!) || null : null
+
   return {
     tags: parseFmList(body, 'tags'),
     domain,
@@ -197,6 +243,10 @@ export function parseFrontmatterMeta(markdown: string): {
     title,
     aliases: parseFmList(body, 'aliases'),
     url: parseFrontmatterAddress(`\n${body}`),
+    origin,
+    // Through the same helper the Catalog's freshness column reads, so the two views cannot
+    // disagree about when a page last said something new.
+    fresh: freshnessDate(markdown),
   }
 }
 
@@ -305,6 +355,8 @@ export class GraphBuilder {
         title: null,
         aliases: [],
         url: null,
+        origin: null,
+        fresh: null,
       }
       try {
         const markdown = fs.readFileSync(f.abs, 'utf8')
@@ -323,6 +375,8 @@ export class GraphBuilder {
         fmTitle: meta.title,
         aliases: meta.aliases,
         url: meta.url,
+        origin: meta.origin,
+        freshMs: dateToMs(meta.fresh),
       })
     }
 
@@ -450,6 +504,9 @@ export class GraphBuilder {
         ...(names.length > 0 ? { names } : {}),
         // Omitted when there is none, which is most pages: the payload goes to every screen.
         ...(entry?.url != null ? { url: entry.url } : {}),
+        ...(entry?.origin != null ? { origin: entry.origin } : {}),
+        // Omitted when the page states neither date; the lens then falls back to the mtime.
+        ...(entry?.freshMs != null ? { freshMs: entry.freshMs } : {}),
       }
     })
 

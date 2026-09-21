@@ -14,11 +14,13 @@ import {
   validateCounters,
   validateHotCache,
   createValidator,
+  VAULT_WIDE_RULES,
   HOT_CACHE_WORD_LIMIT,
   HOT_CACHE_RELATED_LIMIT,
   type ValidationFinding,
 } from '../src/pipeline/validator.js'
 import { GraphBuilder } from '../src/pipeline/graph.js'
+import { emDashPass } from '../src/pipeline/repair.js'
 
 let vaultRoot: string
 
@@ -36,7 +38,12 @@ function write(rel: string, content: string): void {
 }
 
 /** A page with complete frontmatter; `over` overrides/adds fields, `null` drops one. */
-function page(rel: string, over: Record<string, string | null> = {}, body = 'Body prose.\n'): void {
+/**
+ * A page as the rules now define a complete one: the heading floor for its type is part of
+ * that since 2026-09-19 (B4), so the default body carries it. A test about a MISSING floor
+ * passes its own body.
+ */
+function page(rel: string, over: Record<string, string | null> = {}, body = 'Body prose.\n\n## Connections\n\nRelated work sits here.\n'): void {
   const fields: Record<string, string | null> = {
     type: 'concept',
     status: 'developing',
@@ -71,7 +78,7 @@ describe('source url shape', () => {
     page('wiki/sources/A.md', { type: 'source', url: '"local file: .raw/j1/x.pdf (example.org/media/123)"' })
     const findings = validatePages(vaultRoot, ['wiki/sources/A.md'])
     expect(rules(findings)).toContain('source-url')
-    expect(findings[0]!.message).toContain('bare address')
+    expect(findings.find((f) => f.rule === 'source-url')?.message).toContain('bare address')
   })
 
   it('flags a placeholder word', () => {
@@ -136,7 +143,7 @@ describe('pages a folder below their bucket', () => {
 
   it('leaves a page directly in its bucket alone', () => {
     page('wiki/questions/Research: A-b.md')
-    expect(validatePages(vaultRoot, ['wiki/questions/Research: A-b.md'])).toEqual([])
+    expect(rules(validatePages(vaultRoot, ['wiki/questions/Research: A-b.md']))).not.toContain('nested-page')
   })
 
   it('leaves wiki/meta alone, where the journals legitimately live in folders', () => {
@@ -213,11 +220,14 @@ describe('dead links', () => {
       ].join('\n'),
     )
     const findings = validatePages(vaultRoot, ['wiki/concepts/Alpha.md'])
-    expect(rules(findings)).toEqual(['dead-link', 'dead-link'])
-    expect(findings[0]!.message).toContain('[[Nowhere To Be Found]]')
+    // The body is written for the link rules and carries no heading floor, so filter to the
+    // rule under test rather than asserting on the whole finding list.
+    const dead = findings.filter((f) => f.rule === 'dead-link')
+    expect(dead).toHaveLength(2)
+    expect(dead[0]!.message).toContain('[[Nowhere To Be Found]]')
     // [[wiki-cli]] is a REAL dead link (the file is SKILL.md — filename-stem resolution fails
     // in Obsidian too); the lint report flagged it, and so do we.
-    expect(findings[1]!.message).toContain('[[wiki-cli]]')
+    expect(dead[1]!.message).toContain('[[wiki-cli]]')
   })
 
   it('resolves a link written as a page frontmatter title or alias, not just its filename', () => {
@@ -337,6 +347,142 @@ describe('single-source entities (graph-backed)', () => {
   })
 })
 
+/**
+ * Open questions that cannot be read away from the page they stand on
+ * (docs/tasks/TASKS-QUESTIONS.md, phase 5).
+ *
+ * The backstop for the prompt rule of phase 3, and the instrument that says whether that rule
+ * is working. One finding per PAGE rather than per bullet, because the bullets already standing
+ * are not going to be rewritten (decision D2) and a per-bullet rule would report several hundred
+ * findings nobody may act on.
+ *
+ * Every question below is invented (hard rule 7).
+ */
+/**
+ * Where a dash is content rather than style (2026-09-20).
+ *
+ * The rule counted dashes outside CODE, while the repair pass that removes them protects code,
+ * wikilink targets and urls - it learned on the live vault that rewriting a dash inside
+ * `[[...]]` breaks every link naming that page, since the page's file name still carries it.
+ * So the rule reported what the repair is forbidden to touch: 544 of 830 remaining dashes on
+ * this vault, and 147 pages whose every dash is untouchable, including four of the five hub
+ * pages. A defect nobody may fix is noise, and it buries the ones that matter.
+ *
+ * The last test here is the one that matters: the two now agree by construction.
+ */
+describe('em-dashes, and where a dash is not style', () => {
+  const withBody = (rel: string, body: string): void => page(rel, {}, body)
+  const dashes = (rel: string): ValidationFinding[] => validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'em-dash')
+
+  it('reports a dash in prose', () => {
+    withBody('wiki/concepts/Prose.md', 'A sentence \u2014 with an aside \u2014 in it.\n\n## Connections\n\nx\n')
+    const found = dashes('wiki/concepts/Prose.md')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.message).toContain('2 em-dash or en-dashes in prose')
+  })
+
+  it('says nothing about a dash inside a wikilink target', () => {
+    // The page it names carries the dash in its own file name; the link is a name, not prose.
+    withBody('wiki/concepts/Links.md', 'See [[Sample Preparation \u2014 PPT, LLE, SPE]] and [[Another \u2013 Thing]].\n\n## Connections\n\nx\n')
+    expect(dashes('wiki/concepts/Links.md')).toEqual([])
+  })
+
+  it('says nothing about a dash in code, a fence, a url or the frontmatter', () => {
+    page('wiki/concepts/Safe.md', { title: 'A \u2014 title' }, 'Inline `a \u2014 b`, a url https://x.invalid/a\u2014b\n\n```\nfenced \u2014 code\n```\n\n## Connections\n\nx\n')
+    expect(dashes('wiki/concepts/Safe.md')).toEqual([])
+  })
+
+  it('still finds the prose dash on a page that also has protected ones', () => {
+    withBody('wiki/concepts/Mixed.md', 'Prose \u2014 here. See [[A \u2014 B]] and `c \u2014 d`.\n\n## Connections\n\nx\n')
+    expect(dashes('wiki/concepts/Mixed.md')[0]!.message).toContain('1 em-dash')
+  })
+
+  it('agrees with the repair pass: what the repair leaves, the rule does not report', () => {
+    const cases = [
+      'Only [[A \u2014 B]] links here.',
+      'Only `a \u2014 b` code here.',
+      'Only https://x.invalid/a\u2014b here.',
+      'A range 1914\u20131918 and nothing else.',
+    ]
+    for (const body of cases) {
+      withBody('wiki/concepts/Agree.md', `${body}\n\n## Connections\n\nx\n`)
+      const md = fs.readFileSync(path.join(vaultRoot, 'wiki/concepts/Agree.md'), 'utf8')
+      const repaired = emDashPass('wiki/concepts/Agree.md', md, vaultRoot)
+      const reported = dashes('wiki/concepts/Agree.md').length
+      // Either the repair can fix it and the rule reports it, or neither happens.
+      expect(`${body.slice(0, 28)}: repair=${repaired === null ? 'none' : 'fixes'} rule=${reported}`).toBe(
+        `${body.slice(0, 28)}: repair=${repaired === null ? 'none' : 'fixes'} rule=${repaired === null ? 0 : reported}`,
+      )
+      if (repaired === null) expect(reported).toBe(0)
+    }
+  })
+})
+
+describe('open question form', () => {
+  const withQuestions = (rel: string, bullets: readonly string[]): void =>
+    page(rel, {}, `Body prose.\n\n## Connections\n\nRelated work sits here.\n\n## Open questions\n\n${bullets.map((b) => `- ${b}`).join('\n')}\n`)
+
+  const formFindings = (rel: string): ValidationFinding[] =>
+    validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'open-question-form')
+
+  it('says nothing about a section whose questions stand on their own', () => {
+    withQuestions('wiki/concepts/Good.md', [
+      'What is the installed cost per megawatt of rack-mounted tidal arrays (only trade coverage found so far)?',
+      'How long does a pitch bearing last in continuous submerged service?',
+    ])
+    expect(formFindings('wiki/concepts/Good.md')).toEqual([])
+  })
+
+  it('counts the ones that ask nothing', () => {
+    withQuestions('wiki/concepts/Silent.md', [
+      'No independent cost figure was found for the rack-mounted variant.',
+      'What is the installed cost per megawatt of rack-mounted tidal arrays?',
+    ])
+    const found = formFindings('wiki/concepts/Silent.md')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.message).toContain('of 2 open question(s)')
+    expect(found[0]!.message).toContain('1 do(es) not ask anything')
+    expect(found[0]!.message).not.toContain('refer(s) to the run')
+  })
+
+  it('counts the ones that point back at the run that wrote them', () => {
+    withQuestions('wiki/concepts/Deictic.md', ['Which coating survives the dust load, given the figures above?'])
+    const found = formFindings('wiki/concepts/Deictic.md')
+    expect(found).toHaveLength(1)
+    // It asks something, so only the deixis half fires.
+    expect(found[0]!.message).toContain('refer(s) to the run that wrote it')
+    expect(found[0]!.message).not.toContain('do(es) not ask anything')
+  })
+
+  it('reports both halves in one finding, never one per bullet', () => {
+    withQuestions('wiki/concepts/Both.md', [
+      'No source in this pass gave an installed-cost figure.',
+      'Neither source reported cycle life for the sealed variant.',
+      'What is the installed cost per megawatt of rack-mounted tidal arrays?',
+    ])
+    const found = formFindings('wiki/concepts/Both.md')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.message).toContain('2 do(es) not ask anything')
+    expect(found[0]!.message).toContain('2 refer(s) to the run')
+  })
+
+  it('leaves closed questions alone', () => {
+    // Struck through and "(answered ...)" are the two conventions a run uses to close one
+    // without deleting the line; re-litigating them would be noise.
+    withQuestions('wiki/concepts/Closed.md', [
+      '~~No source in this pass gave an installed-cost figure.~~',
+      'Whether a cavitation threshold exists below 3 m/s flow (answered 2026-09-03: it does not).',
+      '(none yet)',
+    ])
+    expect(formFindings('wiki/concepts/Closed.md')).toEqual([])
+  })
+
+  it('says nothing about a page with no such section', () => {
+    page('wiki/concepts/Plain.md')
+    expect(formFindings('wiki/concepts/Plain.md')).toEqual([])
+  })
+})
+
 describe('address_map consistency (2c)', () => {
   it('flags entries whose page was deleted, and map/frontmatter divergence', () => {
     page('wiki/concepts/Matching.md', { address: 'c-000010' })
@@ -361,6 +507,76 @@ describe('address_map consistency (2c)', () => {
   it('yields nothing without a manifest or without an address_map', () => {
     expect(validateAddressMap(vaultRoot)).toEqual([])
     write('.raw/.manifest.json', JSON.stringify({ version: 1, sources: {} }))
+    expect(validateAddressMap(vaultRoot)).toEqual([])
+  })
+
+  /*
+   * The direction nothing ever walked (N1, 5.4). The check above asks of each map entry
+   * whether its page still resolves; nothing asked of each PAGE whether the map knows it,
+   * which is how 274 of 1174 addressed pages went missing from the map without one finding.
+   *
+   * Measured against the live vault after this landed: 274, 20 and 7 - the three numbers the
+   * task predicted, from an implementation that had not seen how they were counted.
+   */
+  it('flags a page whose address the map does not know', () => {
+    /*
+     * Narrowed on 2026-09-20: the page must be one an INGEST claims, via `pages_created`.
+     * The check used to ask this of every addressed page, which made every page a research
+     * run writes a defect - there is no document behind those, so the map is right to be
+     * silent. What N1 was about is unchanged and is what this asserts: a page that came from
+     * a document and went missing from the map is still a finding.
+     */
+    page('wiki/concepts/Known.md', { address: 'c-000010' })
+    page('wiki/concepts/Unknown.md', { address: 'c-000011' })
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        version: 1,
+        address_map: { 'wiki/concepts/Known.md': 'c-000010' },
+        sources: {
+          '.raw/01A/input.pdf': { pages_created: ['wiki/concepts/Known.md'] },
+          '.raw/01B/input.pdf': { pages_created: ['wiki/concepts/Unknown.md'] },
+        },
+      }),
+    )
+    const findings = validateAddressMap(vaultRoot)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.path).toBe('wiki/concepts/Unknown.md')
+    expect(findings[0]?.message).toContain('no entry for it')
+  })
+
+  it('flags a job directory named in no source entry', () => {
+    fs.mkdirSync(path.join(vaultRoot, '.raw/01KNOWN'), { recursive: true })
+    fs.mkdirSync(path.join(vaultRoot, '.raw/01ORPHAN'), { recursive: true })
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({ version: 1, sources: { '.raw/01KNOWN/normalized.md': { pages_created: [] } } }),
+    )
+    const findings = validateAddressMap(vaultRoot)
+    expect(findings.map((f) => f.path)).toEqual(['.raw/01ORPHAN'])
+    expect(findings[0]?.message).toContain('named in no source entry')
+  })
+
+  it('flags a pages_created entry whose page is gone', () => {
+    page('wiki/concepts/Still Here.md', {})
+    fs.mkdirSync(path.join(vaultRoot, '.raw/01JOB'), { recursive: true })
+    write(
+      '.raw/.manifest.json',
+      JSON.stringify({
+        version: 1,
+        sources: {
+          '.raw/01JOB/normalized.md': { pages_created: ['wiki/concepts/Still Here.md', 'wiki/concepts/Gone.md'] },
+        },
+      }),
+    )
+    const findings = validateAddressMap(vaultRoot)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.path).toBe('wiki/concepts/Gone.md')
+    expect(findings[0]?.message).toContain('no longer exists')
+  })
+
+  it('refuses to follow a manifest entry out of the vault', () => {
+    write('.raw/.manifest.json', JSON.stringify({ version: 1, address_map: { '../../etc/passwd': 'c-000001' } }))
     expect(validateAddressMap(vaultRoot)).toEqual([])
   })
 })
@@ -416,6 +632,103 @@ describe('stale counters', () => {
   })
 })
 
+/**
+ * Which addressed pages the map is expected to know (2026-09-20).
+ *
+ * The check asked it of every page carrying an address, which made a research page a defect:
+ * a run that reads the web files what it learned and there is no `.raw/` document to point at,
+ * so the map is right to be silent. The vault-layer repair left this at zero on 2026-09-19 and
+ * eight research runs the next day put it at 68 - every one a page written from the web, none
+ * claimed by any ingest. Repairing those would have been work undone by the next night.
+ */
+describe('the address map and the pages it does not know', () => {
+  const addressed = (rel: string, address: string): void => {
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, `---\ntype: concept\nstatus: developing\ncreated: 2026-09-01\nupdated: 2026-09-01\naddress: ${address}\ntags:\n  - x\n---\n\nBody.\n`)
+  }
+  const manifest = (m: Record<string, unknown>): void => write('.raw/.manifest.json', JSON.stringify(m))
+  const addressFindings = (): ValidationFinding[] => validateAddressMap(vaultRoot).filter((f) => f.message.includes('no entry for it'))
+
+  /*
+   * This asked only about pages an INGEST claimed, for a while (2026-09-20 to 09-21). Research
+   * pages have no `.raw/` document behind them, the rule reported 68 of them at once, and
+   * narrowing it made the list usable again. It also silenced the cause: nothing told a
+   * research run to record an address, so the map fell behind by every page such a run wrote.
+   * `manifest-sync.ts` records them now, and the question is asked of every addressed page
+   * again - what the map does not know, nothing maintains.
+   */
+  it('reports a page the map does not know, whoever wrote it', () => {
+    addressed('wiki/concepts/From The Web.md', 'c-000100')
+    manifest({ address_map: {}, sources: {} })
+    expect(addressFindings().map((f) => f.path)).toEqual(['wiki/concepts/From The Web.md'])
+  })
+
+  it('reports one an ingest says it created just the same', () => {
+    addressed('wiki/sources/From A Document.md', 'c-000101')
+    manifest({
+      address_map: {},
+      sources: { '.raw/01JOB/input.pdf': { pages_created: ['wiki/sources/From A Document.md'] } },
+    })
+    expect(addressFindings().map((f) => f.path)).toEqual(['wiki/sources/From A Document.md'])
+  })
+
+  it('says nothing once the map knows the page', () => {
+    addressed('wiki/concepts/From The Web.md', 'c-000100')
+    manifest({ address_map: { 'wiki/concepts/From The Web.md': 'c-000100' }, sources: {} })
+    expect(addressFindings()).toEqual([])
+  })
+
+  it('says nothing about a page that carries no address at all', () => {
+    // A missing address is the vault lint's finding, not this one.
+    write('wiki/concepts/No Address.md', '---\ntype: concept\n---\n\nBody.\n')
+    manifest({ address_map: {}, sources: {} })
+    expect(addressFindings()).toEqual([])
+  })
+
+  it('leaves the other direction alone: a map entry whose page is gone', () => {
+    manifest({ address_map: { 'wiki/concepts/Deleted.md': 'c-000012' }, sources: {} })
+    const stale = validateAddressMap(vaultRoot).filter((f) => f.message.includes('no longer exists'))
+    expect(stale).toHaveLength(1)
+  })
+})
+
+/**
+ * Which rules answer about the whole vault (2026-09-20).
+ *
+ * Three of the four checks `createValidator` composes ignore the paths they are given and read
+ * one file whole - the manifest, the hub counters, the hot cache - so one call is complete
+ * coverage for them. That is what lets their findings be CLEARED when they stop being reported.
+ * Without it they can be raised and never lowered: narrowing the address-map rule took the
+ * vault from 72 findings to 4 and left 68 standing that nothing would ever clear, because the
+ * pages they name are not pages a run touches.
+ *
+ * The first test is the drift guard. A fourth whole-vault check added later and not declared
+ * would reintroduce exactly that, silently.
+ */
+describe('VAULT_WIDE_RULES', () => {
+  it('names every rule that reports without being given a path', () => {
+    // A defect of each kind, then the validator called with NO paths at all: whatever still
+    // answers did not need a path to do it.
+    page('wiki/concepts/A.md', { address: 'c-000010' })
+    write('.raw/.manifest.json', JSON.stringify({ version: 1, address_map: { 'wiki/concepts/Gone.md': 'c-000011' } }))
+    write('wiki/index.md', '---\ntype: meta\n---\nTotal pages: 999 | Sources ingested: 4\n')
+    write('wiki/hot.md', `---\ntype: meta\n---\n${'word '.repeat(HOT_CACHE_WORD_LIMIT + 50)}`)
+
+    const answered = new Set(createValidator(vaultRoot)([]).map((f) => f.rule))
+    expect(answered.size).toBeGreaterThan(0)
+    for (const rule of answered) {
+      expect([rule, VAULT_WIDE_RULES.has(rule)]).toEqual([rule, true])
+    }
+  })
+
+  it('does not name a rule that needs a page to answer', () => {
+    for (const perPage of ['frontmatter', 'dead-link', 'em-dash', 'orphan', 'title-name']) {
+      expect([perPage, VAULT_WIDE_RULES.has(perPage as never)]).toEqual([perPage, false])
+    }
+  })
+})
+
 describe('createValidator', () => {
   it('composes the per-page checks with the address_map check', () => {
     page('wiki/concepts/Alpha.md', { status: null })
@@ -426,5 +739,300 @@ describe('createValidator', () => {
     expect(rules(findings)).toContain('address-map')
     // Alpha is also an orphan — the graph came from the builder we passed in.
     expect(rules(findings)).toContain('orphan')
+  })
+})
+
+/**
+ * A title its own file name cannot carry (B3, 4.1): this vault's largest mechanical dead-link
+ * class. The title keeps the character, the file name loses it, and every link written from
+ * the title lands nowhere - 55 occurrences today, 43 of them from two pages alone.
+ */
+describe('the title-name rule', () => {
+  const page = (rel: string, title: string): string => {
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "${title}"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# ${title}\n`,
+    )
+    return rel
+  }
+
+  it('fires on each character a file name cannot portably carry', () => {
+    for (const bad of [':', '?', '*', '"', '<', '>', '|', '/', '\\']) {
+      const rel = page('wiki/concepts/Foo - Bar.md', `Foo${bad}Bar`)
+      const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+      expect(findings, bad).toHaveLength(1)
+      expect(findings[0]?.message).toContain('resolves to nothing')
+    }
+  })
+
+  /*
+   * This used to expect SILENCE here, on the reasoning that a colon is legal in a file name on
+   * this filesystem and the defect is the drift rather than the character. The vault is read
+   * from Windows over `\\wsl$`, where such a name cannot be opened at all, and the vault's own
+   * lint counts these as "filename-forbidden". Measured 2026-09-21: 30 pages had both sides
+   * carrying the character and agreeing, and the rule said nothing about any of them.
+   */
+  it('reports the file name when IT carries the character, even if the title agrees', () => {
+    const rel = page('wiki/concepts/Foo: Bar.md', 'Foo: Bar')
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('rename the file AND its title together')
+  })
+
+  it('asks for the rename, not the retitle, when both sides carry it and differ', () => {
+    // Setting the title to match the file name here keeps the character and makes the two
+    // agree - which silenced the rule instead of repairing the page. 9 pages were in this
+    // state on 2026-09-21, and the 30 above are where it ends.
+    const rel = page('wiki/concepts/Research: One.md', 'Research: Another')
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('rename the file AND its title together')
+    expect(findings[0]?.message).not.toContain('do not rename the file')
+  })
+
+  it('still asks only for the title when the file name is clean', () => {
+    const rel = page('wiki/concepts/Foo - Bar.md', 'Foo: Bar')
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('do not rename the file')
+  })
+
+  it('fires on a title too long to be a name', () => {
+    const long = `A ${'very '.repeat(40)}long title`
+    const rel = page(`wiki/concepts/${long}.md`, long)
+    const findings = validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'title-name')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.message).toContain('characters; keep it under 120')
+  })
+
+  it('says nothing about a page with no title at all', () => {
+    const abs = path.join(vaultRoot, 'wiki/concepts/Untitled.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\ntype: concept\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Untitled\n')
+    expect(validatePages(vaultRoot, ['wiki/concepts/Untitled.md']).filter((f) => f.rule === 'title-name')).toEqual([])
+  })
+})
+
+/**
+ * The heading floor (B4, 4.2) and the run-protocol sections (B5, 4.3).
+ *
+ * Measured over the live vault when the rules landed: 356 of 604 concept pages (59 %), 143 of
+ * 225 entities (64 %) and 302 of 338 sources (89 %) lack their floor; 215 pages carry a
+ * run-protocol section. Both rules are advisory, like every other rule here.
+ */
+describe('the page schema floor', () => {
+  const page = (rel: string, type: string, body: string): string => {
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: ${type}\ntitle: "${path.basename(rel, '.md')}"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - ${type}\n---\n\n# ${path.basename(rel, '.md')}\n\n${body}`,
+    )
+    return rel
+  }
+  const schema = (rel: string): string[] =>
+    validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'page-schema').map((f) => f.message)
+
+  it('asks a concept and an entity for Connections', () => {
+    expect(schema(page('wiki/concepts/A.md', 'concept', '## Definition\n\nText.\n'))[0]).toContain('## Connections')
+    expect(schema(page('wiki/entities/B.md', 'entity', '## Work\n\nText.\n'))[0]).toContain('## Connections')
+  })
+
+  it('asks a source for both of its headings, naming what is missing', () => {
+    const one = schema(page('wiki/sources/C.md', 'source', '## Connections\n\nText.\n'))
+    expect(one[0]).toContain('## Why This Source Matters')
+    expect(one[0]).not.toContain('## Connections')
+  })
+
+  it('is silent when the floor is met, whatever else the page carries', () => {
+    // A floor, not a template: the free prose is the good part, and 2243 heading variants
+    // exist because runs were free to write them.
+    expect(schema(page('wiki/concepts/D.md', 'concept', '## Anything At All\n\nText.\n\n## Connections\n\n- [[X]]\n'))).toEqual([])
+  })
+
+  it('matches the heading case-insensitively, not by exact spelling', () => {
+    expect(schema(page('wiki/concepts/E.md', 'concept', '## connections\n\n- [[X]]\n'))).toEqual([])
+  })
+
+  it('says nothing about a type with no floor', () => {
+    expect(schema(page('wiki/questions/F.md', 'question', '## Whatever\n'))).toEqual([])
+  })
+})
+
+describe('the run-protocol rule', () => {
+  const withHeading = (heading: string): string[] => {
+    const rel = 'wiki/concepts/Protocol.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "Protocol"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Protocol\n\n## Connections\n\n- [[X]]\n\n## ${heading}\n\nText.\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'run-protocol').map((f) => f.message)
+  }
+
+  it('fires on each of the seven headings that belong in the log', () => {
+    for (const heading of [
+      'Editorial Note',
+      'Provenance',
+      'Status of This Page',
+      "Relation to this vault's existing coverage",
+      'Vault context',
+      'Entity Notability Note',
+      'Automated Decisions',
+    ]) {
+      expect(withHeading(heading), heading).toHaveLength(1)
+    }
+  })
+
+  it('stays silent on Assessment and Open Questions', () => {
+    // Assessment is source criticism and belongs to the source; the standing agents plan from
+    // the open questions. A rule read as "no meta sections at all" would take both away.
+    expect(withHeading('Assessment')).toEqual([])
+    expect(withHeading('Open Questions')).toEqual([])
+  })
+})
+
+/**
+ * Tags that repeat what the frontmatter already says (B6, 4.4).
+ *
+ * The two clauses sat in one prompt block: the domain one absolute, the type one hedged with
+ * "beyond the structural ones the vault prescribes". Measured result of that difference in
+ * wording: type mirroring at 82 to 96 % by month, domain mirroring at 0 to 2 %. Over the whole
+ * vault the rule finds 1051 type mirrors and no domain mirror at all.
+ */
+describe('the tag rules', () => {
+  const tagged = (fields: Record<string, string>, tags: readonly string[]): ValidationFinding[] => {
+    const rel = 'wiki/concepts/Tagged.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    const head = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')
+    fs.writeFileSync(
+      abs,
+      `---\n${head}\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n${tags.map((t) => `  - ${t}`).join('\n')}\n---\n\n# Tagged\n\n## Connections\n\nText.\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'tag-mirroring' || f.rule === 'tag-singleton')
+  }
+
+  it('fires on a tag that repeats the page type, and on its plural', () => {
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['concept']).map((f) => f.rule)).toContain('tag-mirroring')
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['concepts']).map((f) => f.rule)).toContain('tag-mirroring')
+  })
+
+  it('fires on a tag that repeats the domain', () => {
+    const findings = tagged({ type: 'concept', domain: 'machine-learning' }, ['machine-learning'])
+    expect(findings[0]?.message).toContain('domain:')
+  })
+
+  it('keeps the documented meta exception', () => {
+    // `meta` names what a page IS - vault machinery, an index, a report - as well as being a
+    // domain key, which is why it is the one exception the prompt states.
+    expect(tagged({ type: 'meta', domain: 'meta' }, ['meta'])).toEqual([])
+  })
+
+  it('does not guess synonyms', () => {
+    // "Which words mean the same as this type" is a judgement, and a validator that makes it
+    // silently reports a number nobody can check.
+    expect(tagged({ type: 'entity', domain: 'physics' }, ['organization'])).not.toContainEqual(
+      expect.objectContaining({ rule: 'tag-mirroring' }),
+    )
+  })
+
+  /** A vault with a real tag vocabulary: below that floor the hint is silent by design. */
+  const seedVocabulary = (): void => {
+    for (let i = 0; i < 60; i++) {
+      const abs = path.join(vaultRoot, `wiki/concepts/Vocab ${i}.md`)
+      fs.mkdirSync(path.dirname(abs), { recursive: true })
+      fs.writeFileSync(
+        abs,
+        `---\ntype: concept\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - vocab-${i}\n  - shared-tag\n---\n\n# Vocab ${i}\n\n## Connections\n\nText.\n`,
+      )
+    }
+  }
+
+  it('hints at a tag no other page uses', () => {
+    seedVocabulary()
+    const findings = tagged({ type: 'concept', domain: 'physics' }, ['a-tag-nothing-else-has'])
+    expect(findings.map((f) => f.rule)).toEqual(['tag-singleton'])
+    expect(findings[0]?.message).toContain('no other page')
+  })
+
+  it('stays quiet about a tag the vault already uses elsewhere', () => {
+    seedVocabulary()
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['shared-tag'])).toEqual([])
+  })
+
+  it('says nothing at all on a vault with no tag vocabulary yet', () => {
+    // Every tag of a three-page vault is used once by construction; a hint on each of them is
+    // noise, not a finding.
+    expect(tagged({ type: 'concept', domain: 'physics' }, ['brand-new-tag'])).toEqual([])
+  })
+
+  it('reports a mirror as a mirror and not also as a singleton', () => {
+    seedVocabulary()
+    // One defect, one finding: a type tag is on 501 pages, so it is never a singleton anyway,
+    // but a domain tag used once is both and the mirror is the useful half.
+    const findings = tagged({ type: 'concept', domain: 'a-domain-used-once' }, ['a-domain-used-once'])
+    expect(findings.map((f) => f.rule)).toEqual(['tag-mirroring'])
+  })
+})
+
+/**
+ * Em-dashes on a page (B9, 4.5). 10,257 across 819 pages, against a house style that has
+ * banned them from the start - and no prompt had ever said so.
+ */
+describe('the em-dash rule', () => {
+  const body = (text: string): ValidationFinding[] => {
+    const rel = 'wiki/concepts/Dashes.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "Dashes"\nstatus: seed\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Dashes\n\n## Connections\n\n${text}\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'em-dash')
+  }
+
+  it('counts em-dashes and en-dashes in prose', () => {
+    expect(body('One — two – three.')[0]?.message).toContain('2 em-dash or en-dashes')
+  })
+
+  it('leaves code alone, where the character is content', () => {
+    expect(body('```\nconst x = "a — b"\n```\n\nAnd `a — b` inline.')).toEqual([])
+  })
+
+  it('says nothing about a page that follows the style', () => {
+    expect(body('One - two, three: four (five).')).toEqual([])
+  })
+})
+
+/** The `status:` vocabulary (B7, 7.3). Advisory: what it catches is drift, not disagreement. */
+describe('the status vocabulary', () => {
+  const withStatus = (status: string): string[] => {
+    const rel = 'wiki/concepts/Status.md'
+    const abs = path.join(vaultRoot, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(
+      abs,
+      `---\ntype: concept\ntitle: "Status"\nstatus: ${status}\ncreated: 2026-01-01\nupdated: 2026-01-01\ntags:\n  - concept\n---\n\n# Status\n\n## Connections\n\nText.\n`,
+    )
+    return validatePages(vaultRoot, [rel]).filter((f) => f.rule === 'status-vocabulary').map((f) => f.message)
+  }
+
+  it('accepts the five words the vault actually uses', () => {
+    for (const ok of ['seed', 'developing', 'mature', 'evergreen', 'retired']) {
+      expect(withStatus(ok), ok).toEqual([])
+    }
+  })
+
+  it('flags the tenth word, which is how nine of them got there', () => {
+    expect(withStatus('snapshot')[0]).toContain('outside the vocabulary')
+    expect(withStatus('current')).toHaveLength(1)
+  })
+
+  it('reads the value case-insensitively rather than flagging a capital', () => {
+    expect(withStatus('Developing')).toEqual([])
   })
 })

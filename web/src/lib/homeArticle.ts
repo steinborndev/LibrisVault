@@ -18,7 +18,8 @@
  * a title the agent may not have used.
  */
 
-const RESEARCH_PREFIX = 'Research: '
+/** Both spellings: see `RESEARCH_PREFIX` in `researchRuns.ts`, colon-free since 2026-09-19. */
+const RESEARCH_PREFIXES = ['Research - ', 'Research: ']
 
 const basename = (path: string): string => path.split('/').pop() ?? path
 
@@ -36,7 +37,7 @@ export function isHubPage(path: string): boolean {
 export function mainArticle(pages: readonly string[]): string | null {
   const content = pages.filter((p) => !isHubPage(p))
   const synthesis = content.find(
-    (p) => p.startsWith('wiki/questions/') && basename(p).startsWith(RESEARCH_PREFIX),
+    (p) => p.startsWith('wiki/questions/') && RESEARCH_PREFIXES.some((q) => basename(p).startsWith(q)),
   )
   if (synthesis !== undefined) return synthesis
   const source = content.find((p) => p.startsWith('wiki/sources/'))

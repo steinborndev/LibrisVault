@@ -22,6 +22,7 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { runAgent, EMPTY_USAGE, type AgentAuth, type AgentRunResult, DEFAULT_TIMEOUT_MS } from './agent-runner.js'
 import {
   ENTITY_NOTABILITY_RULES,
+  OPEN_QUESTION_FORM,
   PAGE_HYGIENE_CHECKLIST,
   TAG_HYGIENE_RULES,
   UNTRUSTED_CONTENT_RULES,
@@ -30,7 +31,26 @@ import {
 import { READING_LIST_PAGE, type ReadingListService } from './reading-list.js'
 import { localDate } from './clock.js'
 import { formatMessage } from './format-message.js'
-import { commitVault, dirtyPaths, newWikiPaths, BOOKKEEPING_PATHS, type CommitResult, type CommitOptions } from './git.js'
+import {
+  commitVault,
+  dirtyPaths,
+  newWikiPaths,
+  unversionedWikiPages,
+  BOOKKEEPING_PATHS,
+  type CommitResult,
+  type CommitOptions,
+} from './git.js'
+import { withWikiLocks } from './wiki-lock.js'
+import type { ValidationStore } from '../db/validation.js'
+import {
+  SERVICE_OWNED_HUBS,
+  bucketHubs,
+  writeHubs,
+  classifyLoggedPages,
+  readAddresses,
+  type HubPlan,
+  type LogEntryInput,
+} from './hubs.js'
 import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
@@ -41,10 +61,26 @@ import { restoreCommitPaths, headHash, commitFileStatus } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
 import type { DomainCandidate } from './domain-candidates.js'
 import { indexWikiPages } from './citations.js'
-import { findRelatedPages, renderOverlapBlock } from './related-pages.js'
+import { findRelatedPages, renderOverlapBlock, renderQuestionOrigin } from './related-pages.js'
+import { resolveWikiPage } from './vault-paths.js'
+import { reformulate, type TopicSuggestion } from './question-topic.js'
+
+/**
+ * Where a manually started research run came from (docs/tasks/TASKS-QUESTIONS.md, phases 1
+ * and 2): the vault page a question was left open on, and the page name the reformulation
+ * settled on. Both are optional and both are dropped when they cannot be used - naming the
+ * origin and naming the page are improvements on an action that works without them.
+ */
+export interface ResearchOrigin {
+  /** Vault-relative page the question stands on; validated here, not at the route. */
+  readonly from?: string
+  /** The synthesis page's name, when something better than the topic sentence is known. */
+  readonly title?: string
+}
 import { getResearchProfile, isSynthesisPath, renderProfileBlock, renderSynthesisMandate, type ResearchProfile } from './research-profiles.js'
 import { renderFellowBlock, renderStepCaps, type FellowRunContext } from './fellow-prompts.js'
-import { HOT_CACHE_WORD_BUDGET, type Validator } from './validator.js'
+import { HOT_CACHE_WORD_BUDGET, VALIDATOR_RULES, VAULT_WIDE_RULES, type Validator } from './validator.js'
+import { recheckStanding } from './standing-recheck.js'
 import type { EventBus } from './events.js'
 import { buildRetrieveIndex, hasRetrieveScripts, RetrieveScriptsMissingError, type RetrieveIndexBuilder } from './retrieve-index.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
@@ -66,7 +102,6 @@ export type MaintenanceKind =
   | 'plan'
   | 'recap'
   | 'hot-cache'
-  | 'save'
   | 'domain-backfill'
   | 'domain-review'
   | 'cleanup'
@@ -128,7 +163,7 @@ export function domainBackfillPrompt(domainKeys: readonly string[]): string {
   const keys = domainKeys.join(', ')
   const keep = DOMAIN_TAGS_THAT_STAY.map((t) => `\`${t}\``).join(', ')
   return (
-    `Read ${DOMAIN_REGISTRY_PATH} — it is the closed list of allowed domains. Then go through ` +
+    `Read ${DOMAIN_REGISTRY_PATH} - it is the closed list of allowed domains. Then go through ` +
     'EVERY markdown page under wiki/ (all subdirectories, all page types: concepts, entities, ' +
     'sources, references, comparisons, questions, folds, meta, and the pages directly in wiki/) ' +
     'and make sure each one carries a `domain:` field in its YAML frontmatter.\n\n' +
@@ -137,18 +172,18 @@ export function domainBackfillPrompt(domainKeys: readonly string[]): string {
     `- A page that already has a REAL domain from the list keeps it. A page whose current ` +
     'value is NOT on the list (the field predates the registry, e.g. `investment-funds` or ' +
     '`mrna-delivery`) must be re-filed to the correct listed domain.\n' +
-    `- A page carrying \`${UNASSIGNED}\` is NOT settled: re-classify it against the list above — ` +
+    `- A page carrying \`${UNASSIGNED}\` is NOT settled: re-classify it against the list above - ` +
     'a domain added after the last backfill may fit it now. It keeps ' +
     `\`${UNASSIGNED}\` only when still no listed domain fits.\n` +
     `- If no listed domain fits, set \`${UNASSIGNED}\`. Do not invent new keys, and do not add ` +
-    `any key to ${DOMAIN_REGISTRY_PATH} — the registry is edited by humans only.\n` +
+    `any key to ${DOMAIN_REGISTRY_PATH} - the registry is edited by humans only.\n` +
     '- Classify by what the page is ABOUT. Tag hints in the registry are guidance, not a ' +
     'lookup table; ignore entity-shaped tags (person, organization, product, researcher).\n' +
     '- The domain belongs in the `domain:` field and NOWHERE else. A tag that merely names a ' +
     'domain key repeats what the field already says, so while you are in a page\'s ' +
     'frontmatter, REMOVE any tag equal to a domain key: the page\'s own domain, the domain it ' +
     `used to carry if you re-file it, and \`${UNASSIGNED}\`. The only exception is ${keep}, ` +
-    'which is a real content tag as well as a domain key — leave it exactly as you find it, ' +
+    'which is a real content tag as well as a domain key - leave it exactly as you find it, ' +
     'on every page.\n' +
     '- Beyond `domain:` and those redundant tags, change nothing: leave every other tag, all ' +
     'other frontmatter fields, page bodies, titles, and wikilinks untouched. Do not create, ' +
@@ -235,6 +270,8 @@ export interface MaintenanceRunnerOptions {
    * one - whatever name the agent wrote. Without it the entries stand as written.
    */
   readonly reading?: ReadingListService
+  /** The standing defect list (A9): its mechanical half is routed into the lint-fix prompt. */
+  readonly validation?: ValidationStore
 }
 
 export interface MaintenanceResult {
@@ -395,6 +432,72 @@ interface RunOptions {
 /** What a run may be started as. `query` is read-only and is used by the `plan` kind only. */
 type StartProfile = 'ingest' | 'research' | 'query'
 
+/**
+ * The mechanically fixable half of the standing defect list, for the lint-fix prompt (A9, 5.3).
+ *
+ * The split is the point. A dead link from a title the file name cannot carry, a wrapped link,
+ * a page missing from the address map, a tag that repeats its own type: each has exactly one
+ * correct repair and no judgement in it. A near-duplicate pair, a single-source entity, a
+ * contradiction, a stale claim: each needs somebody to decide, and a run that "fixes" one of
+ * those is the silent-rewrite risk report-only lint exists to prevent.
+ *
+ * So the first set goes into the prompt with its repair named, and the second stays on the
+ * standing list where a person can see it.
+ */
+export const MECHANICAL_RULES: ReadonlySet<string> = new Set([
+  'wrapped-link',
+  'title-name',
+  'address-map',
+  'tag-mirroring',
+  'em-dash',
+  'frontmatter',
+  'dates',
+])
+
+/** Rules that name a defect but never its repair: they stay on the list, for a person. */
+export const JUDGEMENT_RULES: ReadonlySet<string> = new Set([
+  'near-duplicate',
+  'single-source-entity',
+  'orphan',
+  'page-schema',
+  'run-protocol',
+  'tag-singleton',
+  'dead-link',
+  'quote',
+  'address',
+  'source-url',
+  'nested-page',
+  'stale-counter',
+  'hot-cache-size',
+  'status-vocabulary',
+  /*
+   * Rewriting an open question means deciding what it was meant to ask, which is the one thing
+   * a fix run must not do. It belonged here from the day it shipped and was in neither list
+   * until 2026-09-21: not mechanical, so no fix run saw it, and not a judgement call either,
+   * so nobody had decided it was for a person. 15 findings sat in that gap.
+   */
+  'open-question-form',
+])
+
+/** At most this many standing findings reach one prompt; the rest wait for the next run. */
+const STANDING_IN_PROMPT = 40
+
+export function renderStandingDefects(validation: ValidationStore | undefined): string {
+  if (validation === undefined) return ''
+  const mechanical = validation
+    .list({ limit: 200 })
+    .filter((f) => MECHANICAL_RULES.has(f.rule))
+    .slice(0, STANDING_IN_PROMPT)
+  if (mechanical.length === 0) return ''
+  const lines = mechanical.map((f) => `- [${f.rule}] ${f.path}: ${f.message}`).join('\n')
+  return (
+    'The service also keeps a standing list of mechanical defects it finds after every run. ' +
+    'Fix these too, in the same commit, with the same limits as above - each of them has one ' +
+    'correct repair and no judgement in it:\n' +
+    `${lines}\n\n`
+  )
+}
+
 export class MaintenanceRunner {
   private readonly vaultRoot: string
   private readonly auth: AgentAuth | null
@@ -411,6 +514,7 @@ export class MaintenanceRunner {
   private readonly now: () => Date
   private readonly usage: UsageMonitor | undefined
   private readonly reading: ReadingListService | undefined
+  private readonly validation: ValidationStore | undefined
   /** One maintenance run at a time — they all write the vault. */
   private readonly runMutex = new Mutex()
   /**
@@ -446,6 +550,7 @@ export class MaintenanceRunner {
     this.now = opts.now ?? ((): Date => new Date())
     this.usage = opts.usage
     this.reading = opts.reading
+    this.validation = opts.validation
   }
 
   /** The sampling hooks for one run, when a usage monitor is wired (section 8.3); each sample is a run log line. */
@@ -477,6 +582,50 @@ export class MaintenanceRunner {
    * just before the run (the previous run's last sample, an endpoint tick), else against
    * the run's own first sample; undefined without an "after" or any "before".
    */
+  /**
+   * The hub write for one maintenance, research or Fellow run (D2), inside its own commit.
+   *
+   * Same rule as the ingest queue's: a run that wrote no content page writes no log entry and
+   * does not regenerate the index, and a hub whose lock somebody else holds is left alone -
+   * the next run regenerates it, which is the safety net a derived file gives us.
+   *
+   * `kind` is what the entry is headed with, because a reader of `log.md` wants to know which
+   * kind of run wrote a page: an ingest, a research step or a repair pass are three different
+   * provenances for the same sentence.
+   */
+  private async writeHubsFor(
+    kind: MaintenanceKind,
+    opts: RunOptions,
+    pathspec: readonly string[],
+    held: ReadonlySet<string>,
+    summary: string | undefined,
+    log: (level: 'info' | 'warn' | 'error', message: string) => void,
+  ): Promise<string[]> {
+    const git = await unversionedWikiPages(this.vaultRoot)
+    const addresses = readAddresses(this.vaultRoot, [...git.untracked, ...git.modified])
+    const { created, updated } = classifyLoggedPages(pathspec, git, addresses)
+    if (created.length === 0 && updated.length === 0) return []
+
+    const entry: LogEntryInput = {
+      date: new Date().toISOString().slice(0, 10),
+      kind,
+      title: opts.label ?? kind,
+      created,
+      updated,
+      summary: summary ?? null,
+    }
+    const plan: HubPlan = {
+      index: held.has('wiki/index.md'),
+      // Only the bucket hubs this run actually holds: one somebody else is writing is left alone.
+      buckets: bucketHubs(this.vaultRoot).filter((rel) => held.has(rel)),
+      entry: held.has('wiki/log.md') ? entry : null,
+    }
+    const { paths, warnings } = writeHubs(this.vaultRoot, plan)
+    for (const w of warnings) log('warn', w)
+    if (paths.length > 0) log('info', `hub layer: wrote ${paths.join(', ')}`)
+    return paths
+  }
+
   private planDelta(res: AgentRunResult, startedMs: number): Record<string, number> | undefined {
     if (!this.usage || !res.planUsage?.after) return undefined
     const after = parseSdkUsage(res.planUsage.after)
@@ -528,7 +677,16 @@ export class MaintenanceRunner {
         `- keep scratch out of the wiki. ${LINT_SCAN_PATH} is the one intermediate path; it ` +
         'is kept out of vault git history. Do not leave other scratch files behind.\n\n' +
         'Report only - do NOT auto-fix, and do not modify any EXISTING wiki page. Writing ' +
-        'the new report file is expected and is not a modification.\n' +
+        'the report file is expected and is not a modification.\n' +
+        /*
+         * The report path carries a date, so a second lint on one day meets the first one's
+         * file. Without this a run read "do not modify an existing page", found today's report
+         * already there, and stopped - eleven minutes and 2.36 USD for nothing (2026-09-20).
+         * Today's report belongs to today's run: the later scan is the better one.
+         */
+        'If a report for TODAY already exists, it is an earlier run of today and yours to ' +
+        'replace: write your own findings over it. That file is the exception to the rule ' +
+        'above, and only that file - it is the deliverable, not an existing page.\n' +
         // Belt-and-braces with the hard kill (F1): the DragonScale Mechanism 3 "semantic tiling"
         // path runs embeddings via a long bash call. The runner will now group-kill a stuck run,
         // but the report only needs the structural checks, so still skip the heavy embedding pass.
@@ -588,22 +746,26 @@ export class MaintenanceRunner {
   startLintFix(): MaintenanceRun {
     const report = this.readLatestLintReport()
     if (!report) {
-      throw new LintReportMissingError('no lint report in the vault — run a lint first, then fix its findings')
+      throw new LintReportMissingError('no lint report in the vault - run a lint first, then fix its findings')
     }
     return this.start(
       'lint-fix',
       `Read the lint report at ${report.path} and fix ONLY the safe, mechanical findings it lists.\n\n` +
+        renderStandingDefects(this.validation) +
         'You may do exactly these things:\n' +
         '- Frontmatter gaps: add missing required frontmatter fields (type, status, created, ' +
-        'updated, tags) with sensible values — type from the page directory, dates from today, ' +
+        'updated, tags) with sensible values - type from the page directory, dates from today, ' +
         'status: developing. Never overwrite a field that already has a value.\n' +
         '- Missing pages: create stub pages for concepts/entities the report says are mentioned ' +
-        'in multiple pages but have no page — proper frontmatter, a one-paragraph description ' +
+        'in multiple pages but have no page - proper frontmatter, a one-paragraph description ' +
         'from how the existing pages use the term, and wikilinks back to those pages.\n' +
         '- Missing cross-references: where the report lists unlinked mentions, wrap the EXISTING ' +
         'mention text in a [[wikilink]]. Do not add new sentences.\n' +
-        '- Stale index entries: update wiki/index.md entries that point at renamed or deleted pages.\n\n' +
-        'Explicitly OUT of scope — do NOT do any of these, they need human judgment:\n' +
+        // wiki/index.md is generated by the service after every run (SPEC.md §12.12), so a
+        // stale entry in it repairs itself. The bucket hubs are still hand-written.
+        '- Stale hub entries: update the relevant _index.md entries that point at renamed or deleted pages. ' +
+        'Leave wiki/index.md alone - the service regenerates it from the pages themselves.\n\n' +
+        'Explicitly OUT of scope - do NOT do any of these, they need human judgment:\n' +
         '- Do not delete, rename, or merge any page (orphans stay; duplicates stay).\n' +
         '- Do not resolve stale claims or contradictions; do not rewrite prose.\n' +
         '- Do not remove dead links; only fix a dead link when the target is one of the stub ' +
@@ -654,16 +816,28 @@ export class MaintenanceRunner {
    * synthesis mandate LAST - it is the one instruction that must survive the overlap block's
    * "prefer what already exists", and it is the run's definition of done.
    */
-  private researchPrompt(topic: string, profile: ResearchProfile, extra: string): string {
+  private researchPrompt(topic: string, profile: ResearchProfile, extra: string, origin?: ResearchOrigin): string {
     const overlap = renderOverlapBlock(findRelatedPages(this.vaultRoot, topic))
     const lens = renderProfileBlock(profile)
+    /*
+     * The page a question was left open on, when the topic came from one (phase 1). Validated
+     * HERE rather than at the route, so every caller gets the same answer: a path that escapes
+     * the wiki or names no file yields no block, and the prompt is then unchanged character for
+     * character. It is an optimisation, never the request, so a bad path is dropped and not
+     * refused.
+     */
+    const from = origin?.from
+    const originBlock = renderQuestionOrigin(from !== undefined && resolveWikiPage(this.vaultRoot, from) !== null ? from : undefined)
     return (
       'Use the autoresearch skill to research this topic and file the findings into the wiki: ' +
       `${topic}\n\n` +
       'Before starting, read skills/autoresearch/references/program.md to load the research ' +
       'constraints and objectives. Then run the research loop: search the web, fetch sources, ' +
       'synthesize, and file structured pages into the wiki. ' +
-      'Afterwards update wiki/index.md and wiki/log.md. ' +
+      // The index and the log entry are the service's after every run (SPEC.md §12.12); asking
+      // for them here would only produce work the next render overwrites.
+      'Do not edit wiki/index.md or wiki/log.md: the service writes both after this run, from ' +
+      'the pages themselves and from your final answer. ' +
       // The autoresearch skill's filing step says "update wiki/hot.md with the research
       // summary" - no limit, no rewrite. Followed literally it grows the cache a little on
       // every run (measured: 401 to 826 words over eight runs), and the cache is read at the
@@ -676,9 +850,10 @@ export class MaintenanceRunner {
       'Finally report how many pages you created and the key findings. ' +
       'Stay focused on the stated topic rather than broadening the scope.' +
       lens +
+      originBlock +
       overlap +
       extra +
-      renderSynthesisMandate(profile, topic)
+      renderSynthesisMandate(profile, topic, origin?.title)
     )
   }
 
@@ -695,9 +870,31 @@ export class MaintenanceRunner {
    * model, effort and budget cap, carries the Fellow block in its prompt, and is attributed
    * to the Fellow in the run log.
    */
-  startResearch(topic: string, profileKey?: string, fellow?: FellowRunContext): MaintenanceRun {
+  /**
+   * One reformulation of an open question into a topic a run can act on (phase 2).
+   *
+   * It lives here because this is where a run's credential, vault root and injected runner
+   * already are, so a test that mocks the runner mocks this too. It is NOT a tracked run: it
+   * writes nothing, takes no mutex and leaves no row - it is a question asked before the run
+   * the user is about to start, and `reformulate` answers null rather than throwing when it
+   * does not work out.
+   */
+  async suggestTopic(text: string, from?: string, timeoutMs?: number): Promise<TopicSuggestion | null> {
+    if (this.auth === null) return null
+    return reformulate(
+      { text, ...(from !== undefined ? { page: from } : {}) },
+      {
+        vaultRoot: this.vaultRoot,
+        auth: this.auth,
+        run: this.runAgentFn,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
+    )
+  }
+
+  startResearch(topic: string, profileKey?: string, fellow?: FellowRunContext, origin?: ResearchOrigin): MaintenanceRun {
     const profile = getResearchProfile(profileKey)
-    const prompt = this.researchPrompt(topic, profile, fellow ? renderFellowBlock(fellow) : '')
+    const prompt = this.researchPrompt(topic, profile, fellow ? renderFellowBlock(fellow) : '', origin)
     // The topic and lens ride on the run record so every OTHER screen can name what is
     // running - the dashboard used to know this only inside the composer that started it.
     return this.start('research', prompt, 'research', { label: topic, profileKey: profile.key, ...fellowRunOptions(fellow) })
@@ -881,9 +1078,9 @@ export class MaintenanceRunner {
    * reference doc can only ever add links TO it from knowledge pages, never edit it.
    */
   startGraphRepair(tasks: readonly RepairTask[]): MaintenanceRun {
-    if (tasks.length === 0) throw new Error('graph repair started with no tasks (route validates — wiring bug)')
+    if (tasks.length === 0) throw new Error('graph repair started with no tasks (route validates - wiring bug)')
     const lines = tasks.map((t, i) => {
-      const reason = t.reason ? ` — context: ${t.reason}` : ''
+      const reason = t.reason ? ` - context: ${t.reason}` : ''
       return t.kind === 'connect'
         ? `${i + 1}. CONNECT ${t.path}${reason}`
         : `${i + 1}. REVIEW LINK ${t.from} -> ${t.to}${reason}`
@@ -895,10 +1092,10 @@ export class MaintenanceRunner {
         'For a CONNECT task (an isolated page no knowledge page links to or from):\n' +
         '- Read the page, then find the existing wiki pages most closely related to its topic ' +
         '(search titles, tags and content).\n' +
-        '- Where a related page genuinely mentions — or naturally should mention — the topic, ' +
+        '- Where a related page genuinely mentions - or naturally should mention - the topic, ' +
         'wrap the existing mention in a [[wikilink]] or add ONE short, natural sentence linking ' +
         'to the page. Also add the page to the relevant _index page. 2-4 inbound links are enough.\n' +
-        '- If nothing in the vault genuinely relates, add NO links and say so in your report — ' +
+        '- If nothing in the vault genuinely relates, add NO links and say so in your report - ' +
         'forced links are worse than an isolated page.\n\n' +
         'For a REVIEW LINK task (an existing link flagged as possibly incidental):\n' +
         '- Read the source page and judge whether its [[wikilink]] to the target genuinely ' +
@@ -912,7 +1109,7 @@ export class MaintenanceRunner {
         'CONNECT task, and the relevant index/_index pages.\n' +
         '- Do not create, delete, rename or merge any page. Do not rewrite prose beyond the ' +
         'specific link or mention a task is about.\n\n' +
-        'Finish by reporting, per task, exactly what you changed — or why you changed nothing.',
+        'Finish by reporting, per task, exactly what you changed - or why you changed nothing.',
       'ingest',
       { commitMessage: `maintenance: graph repair (${tasks.length} task${tasks.length === 1 ? '' : 's'})` },
     )
@@ -926,7 +1123,7 @@ export class MaintenanceRunner {
    * revertable commit.
    */
   startTagFix(actions: readonly TagFixAction[]): MaintenanceRun {
-    if (actions.length === 0) throw new Error('tag fix started with no actions (route validates — wiring bug)')
+    if (actions.length === 0) throw new Error('tag fix started with no actions (route validates - wiring bug)')
     const lines = actions.map((a, i) =>
       a.kind === 'drop' ? `${i + 1}. DROP #${a.tag}` : `${i + 1}. MERGE #${a.from} INTO #${a.to}`,
     )
@@ -939,8 +1136,8 @@ export class MaintenanceRunner {
         'bumping `updated:` on every page you change.\n' +
         '- DROP <tag>: remove exactly that tag from the `tags:` list of every page carrying it.\n' +
         '- MERGE <from> INTO <to>: on every page carrying <from>, replace it with <to>; when ' +
-        '<to> is already present, just remove <from> — never leave a duplicate tag.\n' +
-        '- Find affected pages exhaustively (Grep the frontmatter for each tag, exact match) — ' +
+        '<to> is already present, just remove <from> - never leave a duplicate tag.\n' +
+        '- Find affected pages exhaustively (Grep the frontmatter for each tag, exact match) - ' +
         'a page missed is a report finding that comes straight back.\n' +
         '- Match tags EXACTLY: never touch a tag that merely contains or resembles a listed ' +
         'one, and leave every other tag in place.\n' +
@@ -970,7 +1167,7 @@ export class MaintenanceRunner {
     const registry = readDomainRegistry(this.vaultRoot)
     if (!registry) {
       throw new DomainRegistryMissingError(
-        `no domain registry at ${DOMAIN_REGISTRY_PATH} — install it (scripts/install-domain-registry.sh) before running a backfill`,
+        `no domain registry at ${DOMAIN_REGISTRY_PATH} - install it (scripts/install-domain-registry.sh) before running a backfill`,
       )
     }
     return this.start('domain-backfill', domainBackfillPrompt(registry.domains.map((d) => d.key)), 'ingest', {
@@ -978,19 +1175,6 @@ export class MaintenanceRunner {
     })
   }
 
-  /**
-   * Saves a chat session into the vault (SPEC.md §6.3 "Session in Vault sichern"): resumes the
-   * chat's SDK session so the agent has the conversation, then triggers the vault repo's own
-   * `/save` flow. Runs under `ingest` — write access, no web — because the chat itself is
-   * read-only by design and cannot write the page it is being asked to produce.
-   */
-  startSave(sdkSessionId: string, title?: string): MaintenanceRun {
-    const label = title?.trim() ? ` (${title.trim()})` : ''
-    return this.start('save', '/save', 'ingest', {
-      resumeSessionId: sdkSessionId,
-      commitMessage: `chat: save session${label}`,
-    })
-  }
 
   /**
    * Judges the candidate themes the deterministic finder surfaced (SPEC.md §12.4 Stufe 3).
@@ -1020,10 +1204,10 @@ export class MaintenanceRunner {
         `The domains that ALREADY exist:\n${existing || '(none)'}\n\n` +
         `Candidates:\n\n${blocks}\n\n` +
         'For each candidate decide ONE of:\n' +
-        '- `new-domain` — these pages form a real subject area worth its own domain. Propose a ' +
-        'key at the same altitude as the existing ones (broad — a domain is a shelf, not a book).\n' +
-        '- `existing` — they belong in a domain that already exists; name it.\n' +
-        '- `not-a-domain` — they merely share a label and are not one coherent subject.\n\n' +
+        '- `new-domain` - these pages form a real subject area worth its own domain. Propose a ' +
+        'key at the same altitude as the existing ones (broad - a domain is a shelf, not a book).\n' +
+        '- `existing` - they belong in a domain that already exists; name it.\n' +
+        '- `not-a-domain` - they merely share a label and are not one coherent subject.\n\n' +
         'Read a few of the pages before deciding; the tag alone is not enough evidence. ' +
         'Judge by what the pages are ABOUT.\n\n' +
         'Do NOT edit any file. Do not modify the registry, do not change page frontmatter, do ' +
@@ -1044,7 +1228,7 @@ export class MaintenanceRunner {
   startRetrieveIndex(): MaintenanceRun {
     if (!hasRetrieveScripts(this.vaultRoot)) {
       throw new RetrieveScriptsMissingError(
-        'vault has no wiki-retrieve scripts (scripts/retrieve.py, contextual-prefix.py, bm25-index.py) — the claude-obsidian clone needs v1.7+',
+        'vault has no wiki-retrieve scripts (scripts/retrieve.py, contextual-prefix.py, bm25-index.py) - the claude-obsidian clone needs v1.7+',
       )
     }
     const id = randomUUID()
@@ -1276,6 +1460,7 @@ export class MaintenanceRunner {
           UNTRUSTED_CONTENT_RULES,
           ENTITY_NOTABILITY_RULES,
           TAG_HYGIENE_RULES,
+          OPEN_QUESTION_FORM,
           // Only when a list is wired, which is only behind the flag (main.ts, TASKS-A6 D1).
           this.reading === undefined ? '' : renderReadingList(actor, localDate(this.now())),
         ]
@@ -1337,7 +1522,15 @@ export class MaintenanceRunner {
       // sweep both happen INSIDE the commit mutex, so no other run can start writing between
       // asking the question and acting on the answer.
       let soleWriter = false
-      const commit = await this.commitMutex.runExclusive(async () => {
+      /*
+       * The hub layer (SPEC.md §12.12): a research, Fellow or maintenance run gets its log
+       * entry and its regenerated index from the service too, inside its own commit. The
+       * vault's per-file lock on the hubs is taken OUTSIDE our commit mutex and released after
+       * it - foreign-then-ours, the order hard rule 1 states.
+       */
+      const commit = await withWikiLocks(this.vaultRoot, [...SERVICE_OWNED_HUBS, ...bucketHubs(this.vaultRoot)], async (heldHubs, busyHubs) => {
+      if (busyHubs.length > 0) log('warn', `hub write: another writer holds ${busyHubs.join(', ')} - leaving ${busyHubs.length} hub(s) alone`)
+      return await this.commitMutex.runExclusive(async () => {
         const swept = this.runRegistry.isSoleWriter()
           ? newWikiPaths(dirtyBefore, await dirtyPaths(this.vaultRoot))
           : []
@@ -1345,7 +1538,7 @@ export class MaintenanceRunner {
           // These are pages the Write/Edit stream never reported — created or renamed via Bash.
           log('info', `staging ${swept.length} page(s) the tool stream did not report (F4)`)
         } else if (!this.runRegistry.isSoleWriter()) {
-          log('info', 'another run is writing — staging only tool-reported paths (F4 sweep skipped)')
+          log('info', 'another run is writing - staging only tool-reported paths (F4 sweep skipped)')
         }
         // The reading list entries this run added are signed by it, whatever the agent wrote
         // on their by line - only while it is the sole writer, for the same reason the sweep is.
@@ -1358,7 +1551,11 @@ export class MaintenanceRunner {
         // Read inside the mutex and before `endRun`, which is what "sole writer" means: with
         // the run deregistered the count is zero and the question no longer has an answer.
         soleWriter = this.runRegistry.isSoleWriter()
-        return this.commit(this.vaultRoot, opts.commitMessage ?? `maintenance: ${kind}`, { pathspec })
+        const hubs = await this.writeHubsFor(kind, opts, pathspec, new Set(heldHubs), res.result, log)
+        return this.commit(this.vaultRoot, opts.commitMessage ?? `maintenance: ${kind}`, {
+          pathspec: [...pathspec, ...hubs],
+        })
+      })
       })
       endRun()
       /*
@@ -1415,16 +1612,57 @@ export class MaintenanceRunner {
         log('info', 'research-expand stayed inside its page set')
       }
 
-      // Post-run validation, only when the run actually touched pages (a read-only kind like
-      // domain-review has nothing to check). Advisory: findings never fail the run.
+      /*
+       * Post-run validation, only when the run actually touched pages (a read-only kind like
+       * domain-review has nothing to check). Advisory: findings never fail the run.
+       *
+       * It RECORDS into the standing list, the same as the ingest path, and that half was
+       * missing until 2026-09-20. Only `queue.ts` kept the list, so a lint, a lint-fix, a
+       * repair or a research run could neither add a defect to it nor take one off: the list
+       * only moved when an ingest happened to touch the same page. Measured the day it was
+       * found: 20 of the 44 standing findings had already been repaired on disk, two of them
+       * by a lint-fix run an hour earlier that had no way to say so. A list that reports
+       * repaired defects is the same failure A9 set out to end, running the other way.
+       */
       const touched = [...new Set([...written, ...pages])]
       if (this.validate !== undefined && touched.length > 0) {
         try {
           const findings = this.validate(touched)
-          if (findings.length === 0) log('info', 'post-run validation: no findings')
-          for (const f of findings) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
-          if (findings.length > 0) {
-            log('warn', `post-run validation: ${findings.length} finding(s) — advisory only, nothing was modified`)
+          if (this.validation !== undefined) {
+            const { created, repeated } = this.validation.record(findings, runId === '' ? null : runId)
+            // What this run looked at and no longer finds is repaired; taking it off the list
+            // is how a fix becomes visible at all.
+            const resolved = this.validation.resolveMissing(touched, findings, {
+              // What this run could have found. A quote or a near-duplicate needs a job's
+              // artifact, which a maintenance run does not have, so its silence about those two
+              // is not a repair - see `resolveMissing`.
+              checked: VALIDATOR_RULES,
+              fullyChecked: VAULT_WIDE_RULES,
+            })
+            for (const f of created) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+            /*
+             * And the pages the list still names that this run did not touch. Nothing else ever
+             * reads them again - a notebook or a dated recap is written once - so a repair made
+             * elsewhere stays on the list forever without this.
+             */
+            const stale = recheckStanding(this.validation, this.validate, { exclude: touched })
+            const parts: string[] = []
+            if (created.length > 0) parts.push(`${created.length} new`)
+            if (repeated > 0) parts.push(`${repeated} standing`)
+            if (resolved > 0) parts.push(`${resolved} fixed since the last run`)
+            if (stale > 0) parts.push(`${stale} repaired elsewhere`)
+            log(
+              created.length > 0 ? 'warn' : 'info',
+              parts.length === 0
+                ? 'post-run validation: no findings'
+                : `post-run validation: ${parts.join(', ')} (the standing list is on the System screen)`,
+            )
+          } else {
+            if (findings.length === 0) log('info', 'post-run validation: no findings')
+            for (const f of findings) log('warn', `validation [${f.rule}] ${f.path}: ${f.message}`)
+            if (findings.length > 0) {
+              log('warn', `post-run validation: ${findings.length} finding(s) - advisory only, nothing was modified`)
+            }
           }
           if (findings.some((f) => f.rule === 'hot-cache-size')) this.refreshOversizedHotCache(kind, log)
         } catch (err) {
@@ -1439,9 +1677,32 @@ export class MaintenanceRunner {
         // both of those reading a report that may be months old - which is why this settles as
         // a FAILURE rather than a success with nothing behind it. Measured against the run's
         // own start, so yesterday's report can never stand in for today's run.
+        /*
+         * A report file newer than the run's start is necessary and, on its own, not enough.
+         * Its mtime says when the file was last WRITTEN, which a run can do without producing
+         * anything: on 2026-09-20 a second lint of the day found today's report already there,
+         * overwrote it, noticed, restored the committed bytes over its own work, and settled as
+         * `done` after eleven minutes and 2.36 USD - the restore had refreshed the mtime, and
+         * the check read that as a fresh deliverable. So the run must also have COMMITTED: a
+         * lint that changed nothing on disk contributed no report, whatever the mtime says.
+         */
         const fresh = this.readLatestLintReport(startedMs)
-        if (fresh) {
+        if (fresh && commitHash !== null) {
           return { ...base, lint: fresh.report, reportPath: fresh.path }
+        }
+        if (fresh) {
+          log('error', 'lint wrote a report file but committed nothing - the report on disk is an older run\'s')
+          return withDelta({
+            ok: false,
+            kind,
+            pages,
+            commit: commitHash,
+            usage: res.usage,
+            error:
+              'the lint run left the vault unchanged, so the report in wiki/meta/ is the one that was ' +
+              'already there. Nothing new to base fixes on; re-run the lint.',
+            ...(res.result !== undefined ? { answer: res.result } : {}),
+          })
         }
         // No file, but the agent may still have summarised inline - usable, and honest about
         // where it came from, so the UI can say "no report written" while showing findings.

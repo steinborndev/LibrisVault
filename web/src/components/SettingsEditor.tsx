@@ -16,6 +16,24 @@ import { CredentialSetup } from './CredentialSetup.tsx'
 import { TelegramSetup } from './TelegramSetup.tsx'
 import type { EffectiveSettings, SettingsPatch, SettingsResponse } from '../api/types.ts'
 
+/**
+ * What to say when the concurrency field leaves single-writer territory, or null at 1.
+ *
+ * It quotes the VAULT'S own rule rather than inventing a policy of ours, and names the
+ * measurement, because the reader is being asked to decide rather than just to feel warned.
+ * Exported so the wording and the threshold can be tested without rendering the whole editor.
+ */
+export function concurrencyWarning(value: number): string | null {
+  // A cleared number field arrives as 0, and a non-numeric one as NaN; neither is a reason to
+  // warn, and `NaN <= 1` is false, so the finite check has to come first.
+  if (!Number.isFinite(value) || value <= 1) return null
+  return (
+    'The vault\'s ingest skill is single-writer by design: "Do not run parallel ingests from ' +
+    'multiple Claude sessions or sub-agents that assign addresses." Measured at 2: 13 of 31 ' +
+    'finished jobs overlapped another one, and the per-file lock does not serialise them.'
+  )
+}
+
 const MB = 1024 * 1024
 
 /** Labels for the read-only status block. Anything unmapped is hidden. */
@@ -152,13 +170,25 @@ export function SettingsEditor({ section = 'all', focus = '' }: { section?: Sett
           'concurrency',
           'Concurrency',
           'Simultaneous ingest runs (1-8). Takes effect immediately.',
-          <input
-            type="number"
-            min={1}
-            max={8}
-            value={draft.concurrency}
-            onChange={(e) => setDraft({ ...draft, concurrency: Number(e.target.value) })}
-          />,
+          <>
+            <input
+              type="number"
+              min={1}
+              max={8}
+              value={draft.concurrency}
+              onChange={(e) => setDraft({ ...draft, concurrency: Number(e.target.value) })}
+            />
+            {/*
+              * Above 1 this leaves what the vault was built for. The warning quotes the vault's
+              * own rule rather than inventing a policy of ours, and names what the measurement
+              * was, so the reader can decide rather than just feel warned.
+              */}
+            {concurrencyWarning(draft.concurrency) !== null && (
+              <p className="setting-warn" role="status">
+                {concurrencyWarning(draft.concurrency)}
+              </p>
+            )}
+          </>,
         )}
 
         {row(

@@ -63,7 +63,15 @@ const pages = JSON.parse(row.pages ?? '[]')
  * check the service makes), and freezing one would put a hole in the demo that only shows up
  * in a screenshot.
  */
-const synthesis = pages.find((p) => p.startsWith('wiki/questions/Research: '))
+/*
+ * Both spellings, forever. The service files `Research - ` since 2026-09-19 (B3, a colon in a
+ * title is the machine that minted this vault's worst dead links), and the runs captured before
+ * that carry `Research: `. Recognising only one of them silently fails a capture: the run filed
+ * a synthesis, this script could not see it, and the message said the run was a failure.
+ */
+const PREFIXES = ['wiki/questions/Research - ', 'wiki/questions/Research: ']
+const prefix = PREFIXES.find((q) => pages.some((p) => p.startsWith(q)))
+const synthesis = prefix === undefined ? undefined : pages.find((p) => p.startsWith(prefix))
 if (!synthesis) {
   console.error(`run ${runId} filed no synthesis page; its ${pages.length} page(s) are not a result`)
   process.exit(1)
@@ -72,7 +80,7 @@ if (!synthesis) {
 const slug =
   argOf('--slug', null) ??
   synthesis
-    .slice('wiki/questions/Research: '.length, -'.md'.length)
+    .slice(prefix.length, -'.md'.length)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')

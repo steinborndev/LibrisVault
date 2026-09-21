@@ -45,7 +45,7 @@ A bigger context window is not a free substitute for retrieval. Self-attention's
 
 Window size also has a per-model ceiling on how much of it actually helps, and that ceiling is not fixed by the advertised context length. [[Long Context vs RAG (evaluation and revisits)]] reports GPT-4o's answer quality still improving with retrieval-augmented context out to 128K tokens, while Qwen2.5 and GLM-4-Plus degrade in the same setup beyond 32K - the same nominal context length behaves differently depending on how the model was trained to use it, not just how large the window is.
 
-See [[Research: When retrieval beats a longer context window - State of the Art]] for the full synthesis.
+See [[Research - When retrieval beats a longer context window - State of the Art]] for the full synthesis.
 
 ## See also
 

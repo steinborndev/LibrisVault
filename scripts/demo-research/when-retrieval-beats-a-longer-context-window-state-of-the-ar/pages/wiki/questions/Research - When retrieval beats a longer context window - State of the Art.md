@@ -1,6 +1,6 @@
 ---
 type: question
-title: "Research: When retrieval beats a longer context window - State of the Art"
+title: "Research - When retrieval beats a longer context window - State of the Art"
 domain: machine-learning
 created: 2026-09-15
 updated: 2026-09-15
@@ -22,7 +22,7 @@ sources:
   - "[[Long Context vs RAG (evaluation and revisits)]]"
   - "[[Anthropic Contextual Retrieval (technical note)]]"
 ---
-# Research: When retrieval beats a longer context window - State of the Art
+# Research - When retrieval beats a longer context window - State of the Art
 
 ## Question
 

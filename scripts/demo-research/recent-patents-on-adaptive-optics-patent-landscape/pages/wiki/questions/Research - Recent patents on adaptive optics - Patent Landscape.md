@@ -1,6 +1,6 @@
 ---
 type: question
-title: "Research: Recent patents on adaptive optics — Patent Landscape"
+title: "Research - Recent patents on adaptive optics - Patent Landscape"
 domain: astronomy
 created: 2026-08-27
 updated: 2026-09-15
@@ -21,7 +21,7 @@ sources:
   - "[[Adaptive Optics Patent Landscape (industry report)]]"
 ---
 
-# Research: Recent patents on adaptive optics — Patent Landscape
+# Research - Recent patents on adaptive optics - Patent Landscape
 
 ## Question
 

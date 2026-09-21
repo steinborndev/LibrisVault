@@ -76,6 +76,9 @@ export function System({ section = '', setting = '' }: { section?: string; setti
 
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings })
+  // Base product, no Fellow dependency, so it needs no flag guard (hard rule 8). Shares the
+  // key and staleTime the usage pane below already uses, so the screen makes one request.
+  const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
   const maint = useMaintenanceStatus()
   const due = maint.data?.status.due ?? 0
   const recommended = maint.data?.status.recommended ?? 0
@@ -173,6 +176,22 @@ export function System({ section = '', setting = '' }: { section?: string; setti
               <span className="k">Concurrency</span>
               <span className="v">{stats.data?.queue.concurrency ?? '…'}</span>
             </div>
+            {/* Who commits the vault. The plugin's own hook commits after every Write unless
+                the service's flag is there, and then a run's pages belong to no run (hard
+                rule 1). Shown here rather than in a check, because it is a standing property
+                of the vault rather than something that comes due. */}
+            <div className="kv">
+              <span className="k">Commits</span>
+              {health.data === undefined ? (
+                <span className="v">…</span>
+              ) : health.data.autoCommitDisabled === false ? (
+                <span className="v bad" title="The vault plugin commits on its own, so a run's pages are committed out from under the service that wrote them. Expected only on a read-only instance.">
+                  vault commits too
+                </span>
+              ) : (
+                <span className="v">service only</span>
+              )}
+            </div>
           </div>
         </div>
       </aside>
@@ -192,6 +211,7 @@ export function System({ section = '', setting = '' }: { section?: string; setti
           {active === 'checks' && (
             <div className="sys-pane">
               <Maintenance showRunHistory={false} />
+              <StandingDefects />
             </div>
           )}
           {active === 'usage' && <UsageSection />}
@@ -294,6 +314,68 @@ function PlanPanel({ plan }: { plan: PlanStatus }): React.ReactElement {
  * Usage & cost. Every figure here comes from data the service already stored - the point of
  * the section is that it was never added up anywhere.
  */
+/**
+ * The standing defect list (A9).
+ *
+ * The validator's findings used to go into job logs, one line per occurrence, each labelled
+ * "advisory only, nothing was modified" - 406 of them, one dead link reported 109 times.
+ * Nobody read them, and nothing could have: a defect reported again on every run cannot be
+ * told apart from one that was just introduced.
+ *
+ * Here they are one row each, loudest first, with how long each has been standing. Base
+ * product: the route answers with `AGENTS_ENABLED` off too, so this needs no flag guard.
+ */
+function StandingDefects(): React.ReactElement | null {
+  const [rule, setRule] = useState<string | null>(null)
+  const list = useQuery({
+    queryKey: ['validation', rule],
+    queryFn: () => api.validation({ ...(rule === null ? {} : { rule }), limit: 50 }),
+    staleTime: 30_000,
+  })
+  const data = list.data
+  if (data === undefined || data.total === 0) return null
+
+  return (
+    <section className="subcard">
+      <div className="sc-head">
+        <h3 className="sc-title">
+          Standing defects
+          <Tip text="What the validator keeps finding. One row per defect rather than one line per run: the same dead link used to be reported 109 times into 109 job logs. A row disappears when a run checks the page and no longer finds it." />
+        </h3>
+        <span className="spacer" />
+        <span className="badge">{data.total}</span>
+      </div>
+      <div className="sc-body">
+        <div className="defect-rules">
+          <button className={`chip${rule === null ? ' active' : ''}`} onClick={() => setRule(null)}>
+            all
+          </button>
+          {data.byRule.map((r) => (
+            <button key={r.rule} className={`chip${rule === r.rule ? ' active' : ''}`} onClick={() => setRule(r.rule)}>
+              {r.rule} <span className="chip-n">{r.findings}</span>
+            </button>
+          ))}
+        </div>
+        <div className="kvlist">
+          {data.findings.map((f) => (
+            <div className="kv" key={f.id}>
+              <span className="k" title={f.path}>
+                {f.path.split('/').pop()}
+              </span>
+              <span className="v" title={f.message}>
+                {f.message.length > 90 ? `${f.message.slice(0, 90)}…` : f.message}
+              </span>
+              <span className="n" title={`first seen ${f.firstSeen.slice(0, 10)}`}>
+                {f.count}×
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function UsageSection(): React.ReactElement {
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   // The same window Home lists, so the two screens agree and the query is shared.

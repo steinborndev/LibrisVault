@@ -22,10 +22,14 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseWikilinks } from './citations.js'
+import { parseWikilinks, styleDashes } from './citations.js'
 import { findWrappedLinks } from './link-repair.js'
 import { pluginDocPages } from './upstream-guard.js'
+import { TITLE_MAX_CHARS } from './research-profiles.js'
+import { STATUS_VOCABULARY } from './page-dates.js'
 import { parseFrontmatterMeta, type VaultGraph } from './graph.js'
+import { parseQuestionBullets } from './questions.js'
+import { asksAQuestion, hasPassDeixis } from './question-form.js'
 
 export type ValidationRule =
   | 'frontmatter'
@@ -42,6 +46,24 @@ export type ValidationRule =
   | 'hot-cache-size'
   /** A quotation that is not in the text the job read (docs/sources/SPEC.md section 7). */
   | 'quote'
+  /** Two pages the vault's own tiling check reads as saying the same thing (A5, `tiling.ts`). */
+  | 'near-duplicate'
+  /** A `title:` its own file name cannot carry, or one too long to be a name at all (B3). */
+  | 'title-name'
+  /** A page missing the one heading its type is supposed to have (B4). */
+  | 'page-schema'
+  /** A section about what a RUN did, sitting inside the article it wrote (B5). */
+  | 'run-protocol'
+  /** A tag that repeats the page's own `type:` or `domain:` (B6). */
+  | 'tag-mirroring'
+  /** A tag no other page in the vault uses - an index of one is a note to yourself (B6). */
+  | 'tag-singleton'
+  /** An em-dash or en-dash on a page, against a house style that has always banned them (B9). */
+  | 'em-dash'
+  /** A `status:` outside the vocabulary the vault actually uses (B7). */
+  | 'status-vocabulary'
+  /** Open questions on a page that cannot be read away from it (TASKS-QUESTIONS phase 5). */
+  | 'open-question-form'
 
 export interface ValidationFinding {
   readonly rule: ValidationRule
@@ -65,15 +87,79 @@ const CONTENT_BUCKETS = new Set(['concepts', 'entities', 'sources', 'questions',
 
 const ADDRESS_RE = /^[cl]-\d{6}$/
 
+/** Characters a file name cannot portably carry, so a title holding one drifts from its name. */
+/** Characters a `title:` may not carry, because the file name beside it cannot. Exported so
+ * the writers that compose a title can be held to the same rule that judges it. */
+export const UNSAFE_TITLE_CHARS = /[/\\:?*"<>|]/
+
 /**
- * Lint reports QUOTE findings as wikilinks — dead links deliberately, orphans linked by the
+ * The smallest useful required heading per page type (B4).
+ *
+ * 604 concept pages carry 2243 DISTINCT `##` headings between them, so a later run has nowhere
+ * predictable to add to. The floor is deliberately tiny and codifies what runs already reach
+ * for rather than inventing a template: `## Connections` is the best-shared heading on concepts
+ * (41 %) and entities (36 %), and `## Why This Source Matters` on sources (41 %). Everything
+ * else stays free, which is the point - the free prose is good.
+ */
+const REQUIRED_HEADINGS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['concept', ['Connections']],
+  ['entity', ['Connections']],
+  ['source', ['Why This Source Matters', 'Connections']],
+])
+
+/**
+ * Whether a tag repeats the page's own `type:` or `domain:` (B6).
+ *
+ * Measured: type mirroring runs at 82 to 96 % by creation month, domain mirroring at 0 to 2 %.
+ * The two rules sat in the same prompt block; the domain one is absolute and the type one said
+ * "beyond the structural ones the vault prescribes", which reads as permission. The wording is
+ * the whole difference, and this rule is the mechanical half of closing it.
+ *
+ * An exact match or a singular/plural variant, and deliberately NOT a synonym search: "which
+ * words mean the same as this type" is a judgement, and a validator that makes it silently
+ * reports a number nobody can check.
+ */
+const mirrorsField = (field: string | undefined, tag: string): boolean => {
+  if (field === undefined || field === '') return false
+  const norm = (v: string): string => {
+    const lower = v.toLowerCase().trim().replace(/[\s_]+/g, '-')
+    return lower.length > 3 && lower.endsWith('s') ? lower.slice(0, -1) : lower
+  }
+  return norm(field) === norm(tag)
+}
+
+/**
+ * Headings that describe what a RUN did, sitting inside the article it wrote (B5).
+ *
+ * 352 of 1210 content pages carry at least one, 302 kB in total. They belong in the log entry
+ * the service writes from the run's final answer (SPEC.md §12.12), not in an encyclopedia
+ * article - three pages currently explain this service's own untrusted-content wrapper to a
+ * reader who came for the subject.
+ *
+ * `## Assessment` and `## Open Questions` are deliberately NOT here: assessment is source
+ * criticism and belongs to the source, and the standing agents plan from the open questions.
+ * The `open-question-form` rule below does not contradict that: it never says the section
+ * should go, only that a bullet in it should be readable away from the page it stands on.
+ */
+const RUN_PROTOCOL_HEADINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^editorial note/i, 'Editorial Note'],
+  [/^provenance/i, 'Provenance'],
+  [/^status of this page/i, 'Status of This Page'],
+  [/^relation(?:ship)? to (?:this )?vault/i, 'Relation to this vault'],
+  [/^vault context/i, 'Vault context'],
+  [/^entity notability/i, 'Entity Notability Note'],
+  [/^automated decisions?/i, 'Automated Decisions'],
+]
+
+/**
+ * Lint reports QUOTE findings as wikilinks - dead links deliberately, orphans linked by the
  * act of reporting them. Validating a report page against the link checks (or counting its
  * links as inbound edges) would therefore invert the report's own findings.
  */
 const isLintReport = (rel: string): boolean => /^wiki\/meta\/lint-report-.*\.md$/.test(rel)
 
 /**
- * Pages exempt from the dead-link check: lint reports (above), plus log.md and hot.md —
+ * Pages exempt from the dead-link check: lint reports (above), plus log.md and hot.md -
  * append-only records that legitimately keep referring to deleted pages (the same policy the
  * reference-cleanup run enforces). Every ingest appends to log.md, so flagging its historical
  * links would repeat the identical findings after every single run.
@@ -84,7 +170,14 @@ const isLintReport = (rel: string): boolean => /^wiki\/meta\/lint-report-.*\.md$
  * forbidden. The graph's gap list drops them for the same reason (graph.ts, GraphGap).
  */
 const skipLinkCheck = (rel: string, pluginDocs: ReadonlySet<string>): boolean =>
-  isLintReport(rel) || rel === 'wiki/log.md' || rel === 'wiki/hot.md' || pluginDocs.has(rel)
+  isLintReport(rel) ||
+  rel === 'wiki/log.md' ||
+  rel === 'wiki/hot.md' ||
+  // The log's own archive pages (task 8.8): the same append-only record, moved out of the live
+  // file by month. They quote what the log quoted, dead targets included, and flagging them
+  // reports the log's history as 15 new defects.
+  /^wiki\/folds\/log-\d{4}-\d{2}\.md$/.test(rel) ||
+  pluginDocs.has(rel)
 
 const unquote = (s: string): string => s.trim().replace(/^["']|["']$/g, '')
 
@@ -106,6 +199,57 @@ function parseFrontmatter(markdown: string): Frontmatter {
     if (!fields.has(m[1]!)) fields.set(m[1]!, unquote(m[2]!))
   }
   return { present: true, fields, hasTags: /^tags:/m.test(body) }
+}
+
+/** Below this many distinct tags, a vault has no tag vocabulary to reuse from yet. */
+const TAG_CENSUS_FLOOR = 50
+
+/**
+ * How many pages carry each tag, over the whole vault.
+ *
+ * Built lazily and once per call, the same way the file index is: half of this vault's 648
+ * tags are used exactly once, and "is this tag an index or a note to yourself" cannot be
+ * answered from one page.
+ */
+function buildTagCensus(vaultRoot: string): Map<string, number> {
+  const census = new Map<string, number>()
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const abs = path.join(dir, e.name)
+      if (e.isDirectory()) walk(abs)
+      else if (e.isFile() && e.name.endsWith('.md')) {
+        try {
+          for (const tag of new Set(parseTagList(fs.readFileSync(abs, 'utf8')).map((t) => t.toLowerCase()))) {
+            census.set(tag, (census.get(tag) ?? 0) + 1)
+          }
+        } catch {
+          /* an unreadable page carries no tags for this purpose */
+        }
+      }
+    }
+  }
+  walk(path.join(vaultRoot, 'wiki'))
+  return census
+}
+
+/** Frontmatter `tags:` as written (block or inline), for the mirroring rule. */
+function parseTagList(markdown: string): string[] {
+  const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!fm) return []
+  const body = fm[1]!
+  const block = body.match(/^tags:[ \t]*\r?\n((?:[ \t]+-[ \t]*.*\r?\n?)+)/m)
+  if (block) {
+    return [...block[1]!.matchAll(/^[ \t]+-[ \t]*(.+)$/gm)].map((m) => unquote(m[1]!)).filter((t) => t !== '')
+  }
+  const inline = body.match(/^tags:[ \t]*\[([^\]]*)\]/m)
+  if (!inline) return []
+  return inline[1]!.split(',').map((t) => unquote(t)).filter((t) => t !== '')
 }
 
 interface DragonScaleState {
@@ -248,6 +392,8 @@ function scanAddresses(vaultRoot: string): Map<string, string[]> {
  */
 export function validatePages(vaultRoot: string, paths: readonly string[], graph?: VaultGraph): ValidationFinding[] {
   const findings: ValidationFinding[] = []
+  /** Built once per call, and only when a page actually has a tag worth asking about. */
+  let tagCensus: Map<string, number> | undefined
   const pages = [...new Set(paths)].filter((p) => p.startsWith('wiki/') && p.endsWith('.md'))
   if (pages.length === 0) return findings
 
@@ -298,6 +444,203 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       }
     }
 
+    /*
+     * A title its own file name cannot carry (B3). This is the vault's largest mechanical
+     * dead-link class: the title keeps the character, the file name loses it, and every link
+     * written from the title lands nowhere. 55 occurrences today, 43 of them from two pages.
+     *
+     * Checked against the file name AS IT IS, not against a guess: a page called `Foo - Bar`
+     * whose title says `Foo: Bar` is the defect, and one where both say the same thing is not,
+     * whatever characters that happens to be.
+     */
+    const title = (fm.fields.get('title') ?? '').trim()
+    const fileName = rel.split('/').pop()!.replace(/\.md$/, '')
+    /*
+     * WHICH SIDE CARRIES THE CHARACTER DECIDES THE REPAIR (corrected 2026-09-21). This asked
+     * only about the title, and named one repair: change the title to match the file name.
+     * That is right when the file name is clean, and it was written to stop a fix run renaming
+     * a file whose path a writer computes. Measured against the live vault the next morning it
+     * was right for 32 pages of 71 and wrong for the rest:
+     *
+     *   - on 9, the FILE NAME carried the character too. Setting the title to match it keeps
+     *     the character, repairs nothing, and makes `title === fileName` true - which silenced
+     *     the rule rather than fixing the page;
+     *   - on 30, that had already happened, or the page was written that way: both sides
+     *     carried it, they agreed, and the rule said nothing at all.
+     *
+     * So the file name is asked first. A character a file name cannot carry is a problem for
+     * the file name wherever it appears: this vault is read from Windows over `\\wsl$`, where
+     * such a name is not openable at all. Renaming is the repair there, and it is safe now in
+     * a way it was not before: `manifest-sync.ts` follows a rename into the manifest, and a fix
+     * run rewrites the wikilinks, as one did on 2026-09-21.
+     */
+    if (UNSAFE_TITLE_CHARS.test(fileName)) {
+      findings.push({
+        rule: 'title-name',
+        path: rel,
+        message:
+          `the FILE NAME "${fileName}" carries a character a file name cannot hold on every system ` +
+          `this vault is read from - rename the file AND its title together, replacing the character ` +
+          `with a hyphen, and rewrite every wikilink that names the old one`,
+      })
+    } else if (title !== '' && title !== fileName && UNSAFE_TITLE_CHARS.test(title)) {
+      findings.push({
+        rule: 'title-name',
+        path: rel,
+        /*
+         * The file name is clean here, so the title is the only thing to change - and changing
+         * only the title is always safe, where renaming the file would break every link to the
+         * page and, under `wiki/meta/`, the writer that computes its path (a notebook is filed
+         * as `<slug>.md`, a recap as `Recap <date>.md`).
+         */
+        message:
+          `title "${title}" carries a character the file name cannot (it is filed as "${fileName}"), ` +
+          `so every wikilink written from the title resolves to nothing - change the TITLE to match ` +
+          `the file name, and do not rename the file`,
+      })
+    }
+    if (title !== '') {
+      if (title.length > TITLE_MAX_CHARS) {
+        findings.push({
+          rule: 'title-name',
+          path: rel,
+          message: `title is ${title.length} characters; keep it under ${TITLE_MAX_CHARS} so the file name stays inside every filesystem's limit`,
+        })
+      }
+    }
+
+    /*
+     * The heading floor for this page's type (B4), and the run-protocol sections that belong
+     * in the log rather than in the article (B5). Both are advisory, like every rule here.
+     */
+    const pageType = (fm.fields.get('type') ?? '').toLowerCase()
+    const headings = [...markdown.matchAll(/^##[ \t]+(.+?)[ \t]*$/gm)].map((m) => m[1]!.trim())
+    const required = REQUIRED_HEADINGS.get(pageType)
+    if (required !== undefined) {
+      const present = new Set(headings.map((h) => h.toLowerCase()))
+      const missing = required.filter((r) => !present.has(r.toLowerCase()))
+      if (missing.length > 0) {
+        findings.push({
+          rule: 'page-schema',
+          path: rel,
+          message: `a ${pageType} page needs ${missing.map((m) => `## ${m}`).join(' and ')} - it is where the next run adds to this page`,
+        })
+      }
+    }
+    for (const heading of headings) {
+      const hit = RUN_PROTOCOL_HEADINGS.find(([re]) => re.test(heading))
+      if (hit === undefined) continue
+      findings.push({
+        rule: 'run-protocol',
+        path: rel,
+        message: `"## ${heading}" is about what a RUN did, not about the subject - it belongs in the log entry`,
+      })
+    }
+
+    /*
+     * Open questions that cannot be read away from the page they stand on
+     * (docs/tasks/TASKS-QUESTIONS.md, phase 5). The deterministic backstop for the prompt rule
+     * of phase 3, and the instrument that says whether that rule is working.
+     *
+     * ONE finding per page rather than one per bullet, which is a deliberate departure from the
+     * plan. The 355 bullets already standing are not going to be rewritten (decision D2), so a
+     * per-bullet rule would report several hundred findings that nobody is allowed to act on,
+     * and would bury every other class in the report. A count per page says the one thing worth
+     * knowing - is this page's section usable - and moves when phase 3 works.
+     *
+     * NOT a length check, which the plan asked for and the measurement refused: phase 2's
+     * reformulated questions came out LONGER than the notes they replaced (median 351 against
+     * 247), because spelling a name out and keeping the reason costs characters. Length is not
+     * the defect. A struck-through or answered bullet is skipped, both being closed already.
+     */
+    const bullets = parseQuestionBullets(markdown).filter((b) => !b.archived)
+    if (bullets.length > 0) {
+      const notAsked = bullets.filter((b) => !asksAQuestion(b.text)).length
+      const deictic = bullets.filter((b) => hasPassDeixis(b.text)).length
+      if (notAsked > 0 || deictic > 0) {
+        const parts = [
+          notAsked > 0 ? `${notAsked} do(es) not ask anything` : '',
+          deictic > 0 ? `${deictic} refer(s) to the run that wrote it ("in this pass", "either source")` : '',
+        ].filter(Boolean)
+        findings.push({
+          rule: 'open-question-form',
+          path: rel,
+          message: `of ${bullets.length} open question(s) on this page, ${parts.join(' and ')} - each one is read later without this page in front of it`,
+        })
+      }
+    }
+
+    /*
+     * Tags that repeat the frontmatter (B6). `meta` is the documented exception: it names what
+     * a page IS - vault machinery, an index, a report - as well as being a domain key.
+     */
+    const domain = fm.fields.get('domain')
+    for (const tag of parseTagList(markdown)) {
+      if (tag.toLowerCase() === 'meta') continue
+      const mirrorsType = mirrorsField(pageType, tag)
+      const mirrorsDomain = mirrorsField(domain, tag)
+      if (mirrorsType || mirrorsDomain) {
+        findings.push({
+          rule: 'tag-mirroring',
+          path: rel,
+          message: `tag "${tag}" repeats this page's own ${mirrorsType ? 'type:' : 'domain:'} - the field already carries it, and every reader of it reads the field`,
+        })
+        continue
+      }
+      tagCensus ??= buildTagCensus(vaultRoot)
+      /*
+       * "Reuse before coining" is only advice when there is something to reuse. On a young
+       * vault every tag is used once by construction, and a hint that fires on every tag of
+       * every page is noise rather than a finding.
+       */
+      if (tagCensus.size < TAG_CENSUS_FLOOR) continue
+      if ((tagCensus.get(tag.toLowerCase()) ?? 0) <= 1) {
+        findings.push({
+          rule: 'tag-singleton',
+          path: rel,
+          message: `tag "${tag}" is on no other page - if an existing tag means the same thing, use that one instead`,
+        })
+      }
+    }
+
+    /*
+     * Em-dashes and en-dashes (B9). The house style has banned them from the start and no
+     * prompt had ever said so, which is how 819 pages came to carry 10,257 of them.
+     *
+     * Counted over PROSE, through the definition the repair pass uses (`proseOf`), which is
+     * what makes this rule actionable: it excluded only code before, so it reported dashes in
+     * wikilink targets and urls - exactly what the repair leaves alone, since a page's file
+     * name carries the dash and rewriting the link breaks it. On this vault that was 544 of
+     * 830 remaining dashes and 147 pages whose every dash is untouchable. A rule that names a
+     * defect nobody may fix is noise on the standing list, and it drowns the ones that matter.
+     *
+     * `styleDashes` also excludes a dash between digits, which is a range the pass leaves on
+     * purpose - a hyphen there would change what the page says. That one was found by the test
+     * below asserting the two agree, not by reading either of them.
+     */
+    const dashes = styleDashes(markdown)
+    if (dashes > 0) {
+      findings.push({
+        rule: 'em-dash',
+        path: rel,
+        message: `${dashes} em-dash or en-dash${dashes === 1 ? '' : 'es'} in prose - the house style uses a hyphen, a comma or a restructured sentence`,
+      })
+    }
+
+    /*
+     * The `status:` vocabulary (B7). Measured: 786 developing, 244 seed, 150 mature, then nine
+     * further values in ones and twos. Advisory, like everything here - a vault may want a word
+     * we did not think of, and what this catches is five words drifting into meaning one thing.
+     */
+    const status = (fm.fields.get('status') ?? '').toLowerCase().trim()
+    if (status !== '' && !STATUS_VOCABULARY.has(status)) {
+      findings.push({
+        rule: 'status-vocabulary',
+        path: rel,
+        message: `status "${status}" is outside the vocabulary this vault uses (${[...STATUS_VOCABULARY].join(', ')})`,
+      })
+    }
+
     const created = fm.fields.get('created') ?? ''
     const updated = fm.fields.get('updated') ?? ''
     const createdMs = Date.parse(created)
@@ -306,7 +649,7 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       findings.push({
         rule: 'dates',
         path: rel,
-        message: `created (${created}) is after updated (${updated}) — bump updated: when editing`,
+        message: `created (${created}) is after updated (${updated}) - bump updated: when editing`,
       })
     }
 
@@ -339,21 +682,21 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
           findings.push({
             rule: 'address',
             path: rel,
-            message: `post-rollout page (created ${createdDay}) has no address: — allocate one via scripts/allocate-address.sh`,
+            message: `post-rollout page (created ${createdDay}) has no address: - allocate one via scripts/allocate-address.sh`,
           })
         }
       } else if (!ADDRESS_RE.test(address)) {
         findings.push({
           rule: 'address',
           path: rel,
-          message: `malformed address "${address}" — expected c-NNNNNN or l-NNNNNN`,
+          message: `malformed address "${address}" - expected c-NNNNNN or l-NNNNNN`,
         })
       } else {
         if (address.startsWith('c-') && ds.counter !== null && Number(address.slice(2)) >= ds.counter) {
           findings.push({
             rule: 'address',
             path: rel,
-            message: `address ${address} is at/above the allocation counter (${ds.counter}) — counter drift`,
+            message: `address ${address} is at/above the allocation counter (${ds.counter}) - counter drift`,
           })
         }
         addresses ??= scanAddresses(vaultRoot)
@@ -375,7 +718,19 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
      * without a model; this is what tells anyone they are there.
      */
     const joined = new Set<string>()
-    if (!skipLinkCheck(rel, pluginDocs)) {
+    /*
+     * Checked on the pages the DEAD-link check skips, too. Those pages are skipped because they
+     * QUOTE link targets that do not exist - a report listing its own findings, the log keeping
+     * its history - and reporting those as defects is noise. A wrapped link is the opposite
+     * case: the target exists (`linkResolves` below says so) and the page meant to link it, so
+     * a line break there is a real defect on a real page. On 2026-09-21 the deterministic
+     * repairer found three of them inside a lint report, written by the fix run that had just
+     * edited it, and the one thing that could have reported them was switched off.
+     *
+     * Plugin docs stay out: they belong to the cloned vault repo, which this service does not
+     * edit (hard rule 5), so a finding there names a repair nobody may make.
+     */
+    if (!pluginDocs.has(rel)) {
       const wrapped = findWrappedLinks(markdown)
       if (wrapped.length > 0) {
         fileIndex ??= buildFileIndex(vaultRoot)
@@ -407,14 +762,14 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
       const parts = rel.split('/')
       const bucket = parts.length > 2 ? parts[1]! : 'root'
       if (CONTENT_BUCKETS.has(bucket) && !parts[parts.length - 1]!.startsWith('_')) {
-        // In-degree minus lint-report sources (see isLintReport) — computed once per call.
+        // In-degree minus lint-report sources (see isLintReport) - computed once per call.
         inbound ??= countInboundExcludingReports(graph)
         const idx = graph.nodes.findIndex((n) => n.path === rel)
         if (idx >= 0 && inbound[idx] === 0) {
           findings.push({
             rule: 'orphan',
             path: rel,
-            message: 'no other page links here — add a link from the index or a related page',
+            message: 'no other page links here - add a link from the index or a related page',
           })
         }
 
@@ -430,7 +785,7 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
               rule: 'single-source-entity',
               path: rel,
               message:
-                `seed entity is referenced by ${n === 0 ? 'no' : 'only one'} source page — ` +
+                `seed entity is referenced by ${n === 0 ? 'no' : 'only one'} source page - ` +
                 'prefer an inline attribution on the source page unless the entity is independently ' +
                 'notable (entity notability rules); bump status past seed to keep it deliberately',
             })
@@ -474,26 +829,25 @@ function countInboundExcludingReports(graph: VaultGraph): number[] {
  * manifest (or without address_map) yield no findings.
  */
 export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
-  let map: Record<string, unknown>
+  let manifest: { address_map?: Record<string, unknown>; sources?: Record<string, unknown> }
   try {
-    const parsed = JSON.parse(fs.readFileSync(path.join(vaultRoot, '.raw', '.manifest.json'), 'utf8')) as {
-      address_map?: Record<string, unknown>
-    }
-    map = parsed.address_map ?? {}
+    manifest = JSON.parse(fs.readFileSync(path.join(vaultRoot, '.raw', '.manifest.json'), 'utf8')) as typeof manifest
   } catch {
     return []
   }
+  const map = manifest.address_map ?? {}
+  const sources = manifest.sources ?? {}
 
   const findings: ValidationFinding[] = []
   for (const [rel, addr] of Object.entries(map)) {
     if (typeof addr !== 'string') continue
     const abs = path.resolve(vaultRoot, rel)
-    if (!abs.startsWith(vaultRoot + path.sep)) continue // hostile/garbled entry — not ours to judge
+    if (!abs.startsWith(vaultRoot + path.sep)) continue // hostile/garbled entry - not ours to judge
     if (!fs.existsSync(abs)) {
       findings.push({
         rule: 'address-map',
         path: rel,
-        message: `.raw/.manifest.json address_map still maps ${addr} to this page, but it no longer exists — remove the stale entry`,
+        message: `.raw/.manifest.json address_map still maps ${addr} to this page, but it no longer exists - remove the stale entry`,
       })
       continue
     }
@@ -507,10 +861,88 @@ export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
       findings.push({
         rule: 'address-map',
         path: rel,
-        message: `address_map says ${addr} but the page's frontmatter says ${onPage || '(none)'} — map and page diverged`,
+        message: `address_map says ${addr} but the page's frontmatter says ${onPage || '(none)'} - map and page diverged`,
       })
     }
   }
+
+  /*
+   * THE DIRECTION NOTHING EVER WALKED (N1). The loop above asks of each map entry whether its
+   * page still resolves. Nothing asked of each PAGE whether the map knows it - which is how
+   * 274 of 1174 addressed pages came to be missing from the map without a single finding.
+   *
+   * What it costs when the map is wrong in this direction: `buildSourceIndex` and
+   * `dedupe.jobForPage` both read the map, so a page missing from it has no document behind it
+   * as far as the service is concerned.
+   */
+  const mapped = new Set(Object.keys(map))
+  for (const [address, holders] of scanAddresses(vaultRoot)) {
+    for (const rel of holders) {
+      if (mapped.has(rel)) continue
+      /*
+       * This asked only about pages an ingest CLAIMED (2026-09-20), because research pages have
+       * no `.raw/` document behind them and the rule was reporting 68 of them at once. That
+       * silenced the symptom and left the cause: a research run gives a page an address and
+       * records nothing, because the autoresearch skill never mentions addressing, so the map
+       * simply fell behind by every page such a run wrote - 73 of 1274 by the next day.
+       *
+       * `manifest-sync.ts` keeps new pages out of that hole now, inside each run's own commit,
+       * and `npm run manifest-backfill` wrote down the ones already there. So the question is
+       * worth asking of every addressed page again: what the map does NOT know, nothing
+       * maintains. `buildSourceIndex` and `dedupe.jobForPage` read it, and the ingest skill
+       * consults it before allocating - a page missing from it can be handed a second address.
+       */
+      findings.push({
+        rule: 'address-map',
+        path: rel,
+        message: `page carries ${address} but .raw/.manifest.json's address_map has no entry for it - a re-ingest would allocate a second address rather than reuse this one`,
+      })
+    }
+  }
+
+  /*
+   * The `sources` half of the same file, which nothing checked either:
+   *
+   *  - a `.raw/<job-id>/` directory named in no source entry (20 of 226 today), so whatever
+   *    that document produced is invisible to the source index and to dedupe;
+   *  - a `pages_created` entry pointing at a page that is gone (7 today).
+   */
+  const namedDirs = new Set<string>()
+  for (const [key, entry] of Object.entries(sources)) {
+    const parts = key.split('/')
+    if (parts[0] === '.raw' && parts.length > 1) namedDirs.add(parts[1]!)
+    const created = (entry as { pages_created?: unknown })?.pages_created
+    if (!Array.isArray(created)) continue
+    for (const page of created) {
+      if (typeof page !== 'string') continue
+      const abs = path.resolve(vaultRoot, page)
+      if (!abs.startsWith(vaultRoot + path.sep) || fs.existsSync(abs)) continue
+      findings.push({
+        rule: 'address-map',
+        path: page,
+        message: `.raw/.manifest.json lists this page as created by ${key}, but it no longer exists - remove the stale entry`,
+      })
+    }
+  }
+
+  let rawDirs: string[] = []
+  try {
+    rawDirs = fs
+      .readdirSync(path.join(vaultRoot, '.raw'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+  } catch {
+    /* no .raw at all: the checks above already returned nothing */
+  }
+  for (const dir of rawDirs) {
+    if (namedDirs.has(dir)) continue
+    findings.push({
+      rule: 'address-map',
+      path: `.raw/${dir}`,
+      message: 'this job directory is named in no source entry of .raw/.manifest.json - whatever it produced has no document behind it',
+    })
+  }
+
   return findings
 }
 
@@ -551,7 +983,7 @@ export function validateCounters(vaultRoot: string): ValidationFinding[] {
         findings.push({
           rule: 'stale-counter',
           path: rel,
-          message: `header claims ${claimed} ${label} but the vault has ${actual} — update the counter (or drop it from the header)`,
+          message: `header claims ${claimed} ${label} but the vault has ${actual} - update the counter (or drop it from the header)`,
         })
       }
     }
@@ -634,6 +1066,71 @@ export function validateHotCache(vaultRoot: string): ValidationFinding[] {
 }
 
 /** The standard composition the service wires in: per-page, address_map, counter and hot-cache checks. */
+/**
+ * The rules that answer about the WHOLE vault, whatever paths the validator is given.
+ *
+ * `validatePages` reads the pages it is handed; the three below read one file each - the
+ * manifest, the hub counters, the hot cache - and report everything wrong in it every time.
+ * That makes one call complete coverage for these rules, which is what lets a finding of theirs
+ * be cleared when it stops being reported (`ValidationStore.resolveMissing`). Without that they
+ * can be raised and never lowered: narrowing the address-map rule on 2026-09-20 took the vault
+ * from 72 findings to 4 and left 68 standing that nothing would ever clear, because the pages
+ * they name are not pages a run touches.
+ *
+ * Kept honest by a test rather than by care: `validator.test.ts` calls the validator with NO
+ * paths and asserts that every rule that still produces a finding is named here.
+ */
+/**
+ * Every rule there is, as a VALUE rather than a type.
+ *
+ * Typed as a key of each one, so leaving a rule out of it is a compile error rather than a
+ * silent gap. That matters because two other lists are checked against this one: a rule has to
+ * be either mechanically repairable or a judgement call (`maintenance.ts`), and one that is in
+ * neither reaches no fix run and is on nobody's list. `open-question-form` was in that state
+ * from the day it shipped until 2026-09-21, 15 findings' worth.
+ */
+const RULE_KEYS: Record<ValidationRule, true> = {
+  frontmatter: true,
+  dates: true,
+  address: true,
+  'dead-link': true,
+  'wrapped-link': true,
+  orphan: true,
+  'address-map': true,
+  'stale-counter': true,
+  'single-source-entity': true,
+  'source-url': true,
+  'nested-page': true,
+  'hot-cache-size': true,
+  quote: true,
+  'near-duplicate': true,
+  'title-name': true,
+  'page-schema': true,
+  'run-protocol': true,
+  'tag-mirroring': true,
+  'tag-singleton': true,
+  'em-dash': true,
+  'status-vocabulary': true,
+  'open-question-form': true,
+}
+
+export const ALL_RULES = Object.keys(RULE_KEYS) as ValidationRule[]
+
+export const VAULT_WIDE_RULES: ReadonlySet<ValidationRule> = new Set(['address-map', 'stale-counter', 'hot-cache-size'])
+
+/**
+ * Every rule `createValidator` can raise - which is every rule EXCEPT the two that need a job.
+ *
+ * `quote` compares a page's new quotations against the artifact the job read (`quotes.ts`), and
+ * `near-duplicate` against the commit before the run (`queue.ts`). Neither is reachable from a
+ * path list, so this validator's silence about them says nothing, and
+ * `ValidationStore.resolveMissing` must not read it as a repair - it takes this set as the
+ * rules the caller actually checked.
+ */
+export const VALIDATOR_RULES: ReadonlySet<ValidationRule> = new Set(
+  ALL_RULES.filter((r) => r !== 'quote' && r !== 'near-duplicate'),
+)
+
 export function createValidator(vaultRoot: string, graph?: { build(): VaultGraph }): Validator {
   return (paths) => [
     ...validatePages(vaultRoot, paths, graph?.build()),

@@ -74,7 +74,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     short: 'the last two years of results',
     sources: ['arXiv', 'official releases and changelogs', 'recent conference / peer-reviewed papers'],
     fetchEstimate: '30-40',
-    titleSuffix: ' — State of the Art',
+    titleSuffix: ' - State of the Art',
     emphasis:
       'what has changed recently, the current best results, and the open frontiers; treat ' +
       'sources older than ~2 years as background context only',
@@ -86,7 +86,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     short: 'filings, assignees and claim scope',
     sources: ['Google Patents', 'USPTO', 'EPO Espacenet'],
     fetchEstimate: '25-35',
-    titleSuffix: ' — Patent Landscape',
+    titleSuffix: ' - Patent Landscape',
     emphasis:
       'the intellectual-property landscape: notable filings and grants, their assignees, ' +
       'priority dates, and what the claims actually cover; note where a patent family is ' +
@@ -99,7 +99,7 @@ export const RESEARCH_PROFILES: readonly ResearchProfile[] = [
     short: 'who builds it and who funds it',
     sources: ['company sites', 'funding trackers', 'trade press'],
     fetchEstimate: '25-35',
-    titleSuffix: ' — Startup Landscape',
+    titleSuffix: ' - Startup Landscape',
     emphasis:
       'the commercial landscape: which companies are active, their funding stage and backers, ' +
       'and their product traction',
@@ -125,8 +125,32 @@ export function getResearchProfile(key: string | undefined): ResearchProfile {
   return (key !== undefined && BY_KEY.get(key)) || BY_KEY.get(DEFAULT_PROFILE_KEY)!
 }
 
-/** The prefix every synthesis page title (and file name) carries. */
-export const RESEARCH_PREFIX = 'Research: '
+/**
+ * The prefix every synthesis page title (and file name) carries.
+ *
+ * Colon-free since 2026-09-19 (B3). `Research: ` was the machine that minted the worst of this
+ * vault's dead links: a colon survives in `title:`, a filer that replaces it produces
+ * `Research - Foo`, and every link written from the title then resolves to nothing. Two pages
+ * account for 43 of the 55 colon-class dead-link occurrences.
+ */
+export const RESEARCH_PREFIX = 'Research - '
+
+/**
+ * The spelling used before 2026-09-19. Recognition has to accept both forever: 31 synthesis
+ * pages carry it, and a run that no longer recognises them files a second page beside one it
+ * should have extended.
+ */
+export const LEGACY_RESEARCH_PREFIX = 'Research: '
+
+/**
+ * How long a page title may be.
+ *
+ * This vault holds five file names between 213 and 221 characters - within a few bytes of the
+ * 255-byte limit every common filesystem has, and already past what some sync tools accept.
+ * A title is a name, and a name that cannot be written down is not one. 120 leaves room for
+ * the prefix, a lens suffix and the `.md`.
+ */
+export const TITLE_MAX_CHARS = 120
 
 /** The deterministic synthesis-page title the service pins for this lens + topic. */
 /**
@@ -144,8 +168,8 @@ export const RESEARCH_PREFIX = 'Research: '
  * meant anyway. Control characters and a leading dot or hyphen go, the same set the vault's
  * own `safe_name()` strips, so a title can neither escape its folder nor read as a flag.
  */
-export function titleSafe(topic: string): string {
-  const cleaned = [...topic.replace(/[/\\]+/g, '-')]
+export function titleSafe(topic: string, max: number = TITLE_MAX_CHARS): string {
+  const cleaned = [...topic.replace(/[/\\]+/g, '-').replace(/\s*[:?*"<>|]+\s*/g, ' - ')]
     // Control characters, the other half of what the vault's own `safe_name()` strips. A
     // character class would say this more directly, but the lint rule that forbids control
     // characters in a regex is right about every other use of one.
@@ -154,16 +178,47 @@ export function titleSafe(topic: string): string {
     .trim()
     // After the trim, not before: leading whitespace used to shelter the dot behind it.
     .replace(/^[.-]+/, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/(?:\s-\s){2,}/g, ' - ')
+    // A separator the replacement above LEFT at the end. A topic ending in a question mark -
+    // which is what a reformulated question is, and what a typed one often is - became
+    // "Research - ... -", a name with a dangling hyphen. `shortenTitle` already strips exactly
+    // this set when it cuts; a title short enough not to be cut deserves the same.
+    .replace(/[\s,;:-]+$/, '')
     .trim()
-  return cleaned === '' ? 'untitled' : cleaned
+  return cleaned === '' ? 'untitled' : shortenTitle(cleaned, max)
+}
+
+/**
+ * Cuts a title to {@link TITLE_MAX_CHARS} on a word boundary, deterministically.
+ *
+ * The autoresearch template is `Research: [Topic]`, and the topic is whatever the user asked -
+ * a whole question, in this vault's worst cases. Truncating on a word keeps the name readable
+ * and keeps two runs on one topic from colliding on a cut in the middle of a word.
+ */
+export function shortenTitle(title: string, max: number = TITLE_MAX_CHARS): string {
+  const trimmed = title.trim()
+  if (trimmed.length <= max) return trimmed
+  const cut = trimmed.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  return (space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:-]+$/, '').trim()
 }
 
 /**
  * The title the run is told to file its synthesis under. The one place a topic becomes a
  * name, so it is the one place the name has to be safe to be a filename.
  */
-export function researchTargetTitle(profile: ResearchProfile, topic: string): string {
-  return `${RESEARCH_PREFIX}${titleSafe(topic)}${profile.titleSuffix}`
+export function researchTargetTitle(profile: ResearchProfile, topic: string, title?: string): string {
+  const given = title?.trim() ?? ''
+  if (given === '') return `${RESEARCH_PREFIX}${titleSafe(topic)}${profile.titleSuffix}`
+  /*
+   * A title asked for as a title (phase 2) is held to what a page NAME can be: the prefix and
+   * this lens's suffix come out of the budget, so the whole name fits TITLE_MAX_CHARS. The
+   * topic-derived form above keeps its own behaviour - it has always spent the full budget on
+   * the topic alone, and changing that would rename pages this vault already holds.
+   */
+  const budget = TITLE_MAX_CHARS - RESEARCH_PREFIX.length - profile.titleSuffix.length
+  return `${RESEARCH_PREFIX}${titleSafe(given, budget)}${profile.titleSuffix}`
 }
 
 /**
@@ -183,7 +238,8 @@ export function isSynthesisPath(relPath: string): boolean {
   // land as `<first half>/<second half>.md` and pass this check, so the run reported a
   // synthesis filed and the warning that would have caught it never fired (see `titleSafe`).
   if (name.includes('/')) return false
-  return name.startsWith(RESEARCH_PREFIX)
+  // Both spellings: the colon-free one this service pins now, and the one 31 pages carry.
+  return name.startsWith(RESEARCH_PREFIX) || name.startsWith(LEGACY_RESEARCH_PREFIX)
 }
 
 /**
@@ -203,8 +259,8 @@ export function isSynthesisPath(relPath: string): boolean {
  * one legitimate alternative - folding into an existing synthesis - as an alternative TARGET
  * rather than as permission to skip the deliverable.
  */
-export function renderSynthesisMandate(profile: ResearchProfile, topic: string): string {
-  const title = researchTargetTitle(profile, topic)
+export function renderSynthesisMandate(profile: ResearchProfile, topic: string, pageTitle?: string): string {
+  const title = researchTargetTitle(profile, topic, pageTitle)
   return (
     `\n\n<synthesis_page>\n` +
     `This run is NOT finished until exactly one synthesis page under wiki/questions/ carries ` +
@@ -219,7 +275,7 @@ export function renderSynthesisMandate(profile: ResearchProfile, topic: string):
 /**
  * The lens block appended to the research prompt. Empty for `broad`, so a default run keeps
  * the base prompt verbatim. For a real lens it states the intent, the source preferences, the
- * synthesis framing and — explicitly — its subordination to the hygiene/notability/domain
+ * synthesis framing and - explicitly - its subordination to the hygiene/notability/domain
  * rules the system prompt already carries. The synthesis TITLE is pinned separately, by
  * `renderSynthesisMandate`, because every lens needs that and this block is lens-only.
  */

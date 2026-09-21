@@ -32,6 +32,17 @@ beforeEach(() => {
   store = new SettingsStore(db)
 })
 
+/**
+ * The default is 1 (A3, 2026-09-19): the vault's ingest skill was built for a single writer.
+ * Pinned to the VALUE and not just to the constant, because "the default is whatever the
+ * constant says" is a test that cannot fail.
+ */
+describe('the single-writer default', () => {
+  it('is one', () => {
+    expect(DEFAULT_CONCURRENCY).toBe(1)
+  })
+})
+
 describe('precedence: env baseline, table overrides', () => {
   it('falls back to the baseline when nothing is overridden', () => {
     expect(store.overrides()).toEqual({})

@@ -1,6 +1,6 @@
 ---
 type: question
-title: "Research: Who is funding precision fermentation, and against what substrate - Startup Landscape"
+title: "Research - Who is funding precision fermentation, and against what substrate - Startup Landscape"
 domain: unassigned
 created: 2026-09-15
 updated: 2026-09-15
@@ -33,7 +33,7 @@ sources:
   - "[[Perfect Day Pre-Series E 90m (article)]]"
   - "[[Solar Foods Grant and Funding (article)]]"
 ---
-# Research: Who is funding precision fermentation, and against what substrate - Startup Landscape
+# Research - Who is funding precision fermentation, and against what substrate - Startup Landscape
 
 ## Question
 

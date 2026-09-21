@@ -65,9 +65,12 @@ import { createValidator } from './pipeline/validator.js'
 import { budgetStatus } from './pipeline/budget.js'
 import { startRetrieveIndexScheduler, isRetrieveProvisioned, type RetrieveIndexScheduler } from './pipeline/retrieve-index.js'
 import { Mutex } from './util/mutex.js'
-import { refreshTransportPin } from './pipeline/transport.js'
+import { checkTransport } from './pipeline/transport.js'
 import { buildServer } from './api/server.js'
 import { ensureVaultExcludes } from './pipeline/vault-excludes.js'
+import { ensureAutoCommitDisabled } from './pipeline/vault-guards.js'
+import { reapRunMarkers } from './pipeline/run-marker.js'
+import { ValidationStore } from './db/validation.js'
 import { VaultReconciler } from './pipeline/reconcile.js'
 import { startWatcher, type Watcher } from './pipeline/watcher.js'
 import { startVaultWatcher, type VaultWatcher } from './pipeline/vault-watcher.js'
@@ -114,12 +117,21 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // Fail fast, before opening anything, if the bind policy is violated (hard rule 2).
   assertBindAllowed(config.server)
 
-  const pin = refreshTransportPin(config.vaultRoot)
+  const transport = checkTransport(config.vaultRoot)
+  const pin = transport.pin
   // Before anything can write: derived artifacts and agent scratch stay out of vault history.
   // Startup, not first-index-build, because an agent run can leave scratch long before one.
   // A vault this process cannot write (a read-only demo mount) is reported below, not fatal:
   // the exclude file is hygiene for writers, and such an instance has none.
   const excludes = ensureVaultExcludes(config.vaultRoot)
+  // And before anything can COMMIT: the vault plugin's own PostToolUse hook commits after every
+  // Write and Edit unless this flag is present, which would take every run's pages out from
+  // under the service that wrote them (hard rule 1). Asserted here because until now the flag
+  // was written by the dev-instance script and by nothing else, so a fresh clone was unguarded.
+  const autoCommitGuard = ensureAutoCommitDisabled(config.vaultRoot)
+  // Yesterday's run markers (SPEC.md §12.12): nothing reads one after its job is terminal, and
+  // a directory that only grows is a slow leak. Same reaping the vault's lock script does.
+  const reapedMarkers = reapRunMarkers(config.vaultRoot)
 
   const db = openDb(defaultDbPath())
   // The live-update bus is shared: the store publishes job/log events, the queue publishes
@@ -137,6 +149,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   // `watchFolder`/`maxUploadBytes` are read once here (they bind at startup — changing them is
   // flagged "restart required"); `concurrency`/`gitAutoCommit` apply live via the queue.
   const settings = new SettingsStore(db)
+  // Findings counted rather than repeated (A9): base product, not behind AGENTS_ENABLED.
+  const validation = new ValidationStore(db)
   const effective = settings.effective(config)
   // One graph builder for the whole service (its per-file cache makes rebuilds cheap): the
   // graph/pages/domains routes serve it, and the post-run validator reads in-degrees off it.
@@ -206,6 +220,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     // queue's pause decision and the dashboard's display can never disagree (SPEC.md §11.3).
     budgetExceeded: () => budgetStatus(config, settings.effective(config), store).exceeded,
     validate,
+    validationStore: validation,
   })
   // The other half of the F4 rule: the per-run sweep sits out whenever runs overlap, which
   // with concurrency above 1 is most of the time. This picks up what nobody staged, on the
@@ -288,6 +303,7 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     commitMutex,
     runRegistry,
     validate,
+    validation,
     stateStore: maintenanceState,
     runStore: agentRuns,
     // Same as the queue above: a maintenance run only hears about the list behind the flag.
@@ -529,6 +545,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     events,
     maintenance,
     settings,
+    validation,
+    validate,
     // User page edits/deletes commit behind the same mutex as ingest + maintenance, and
     // honour the live gitAutoCommit setting exactly like the queue does.
     commitMutex,
@@ -601,9 +619,24 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
   if (recaps !== undefined && !passive) recaps.start()
 
   // Log what the service actually runs with (overrides applied), not the bare baseline.
-  app.log.info({ ...describeConfig(effectiveConfig), transportPin: pin, vaultExcludes: excludes }, 'vault-service started')
+  app.log.info(
+    { ...describeConfig(effectiveConfig), transportPin: pin, transport: transport.pinned, vaultExcludes: excludes, vaultAutoCommitGuard: autoCommitGuard, reapedRunMarkers: reapedMarkers },
+    'vault-service started',
+  )
   if (excludes === 'unwritable') {
     app.log.warn('the vault is not writable by this process: .git/info/exclude was left as it is (expected on a read-only instance)')
+  }
+  // The pin decides how a run writes a page, and therefore whether this service can see what
+  // it wrote (see transport.ts). Detected hang-proof; reported, never overwritten.
+  if (transport.warning !== null) app.log.warn(transport.warning)
+  if (autoCommitGuard === 'created') {
+    app.log.warn(
+      'the vault was auto-committing its own writes: .vault-meta/auto-commit.disabled created, this service now owns every commit',
+    )
+  } else if (autoCommitGuard === 'unwritable') {
+    app.log.warn(
+      'the vault plugin may auto-commit: .vault-meta/auto-commit.disabled is missing and cannot be written (expected on a read-only instance)',
+    )
   }
   if (config.demoMode) {
     app.log.info(

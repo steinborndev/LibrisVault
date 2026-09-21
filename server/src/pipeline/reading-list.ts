@@ -151,6 +151,21 @@ export function canFindOpenCopy(entry: ReadingEntry): boolean {
 
 const FIELD = /^\s*(title|url|ref|domain|why|found|by|at|access|blocked|filed|filedat|archivedat|oa_url|oa_version|oa_at|oa_chars)\s*:\s*(.*)$/i
 
+/**
+ * Whether an entry states an address at all. The one definition, because this page has two
+ * readers and they disagreed (2026-09-20).
+ *
+ * `parseReadingList` has always required an http(s) url and drops an entry without one - the
+ * entry exists to be fetched. `attribute` read the raw lines instead and took any non-space
+ * value, so an entry a run had left as `url: ""` (no DOI found, nothing to guess) was absent
+ * from the key sets the "did this run add it?" test compares against, while still being found
+ * by the line scan. It therefore counted as newly added on EVERY writing run, had its `by:`
+ * line rewritten to whoever ran last, and dragged the whole page into that run's commit.
+ * Measured on the live list: one entry of 49, its provenance rewritten twelve times in nine
+ * days - ingest, Bruno, ingest, Bridget, research, lint - none of which added it.
+ */
+export const isReadingUrl = (url: string): boolean => /^https?:\/\//i.test(url.trim())
+
 /** Hosts that only ever serve the full text: an entry from one of them needs no toggle to be useful. */
 const OPEN_HOSTS = [
   'arxiv.org',
@@ -325,7 +340,7 @@ export function parseReadingList(markdown: string): ReadingEntry[] {
   const out: ReadingEntry[] = []
   let cur: Record<string, string> | null = null
   const flush = (): void => {
-    if (cur && typeof cur['title'] === 'string' && typeof cur['url'] === 'string' && /^https?:\/\//i.test(cur['url'])) {
+    if (cur && typeof cur['title'] === 'string' && typeof cur['url'] === 'string' && isReadingUrl(cur['url'])) {
       const found = cur['found']?.trim() || null
       const legacy = splitFound(found)
       const access = cur['access']?.trim().toLowerCase()
@@ -671,15 +686,19 @@ export class ReadingListService {
     const lines = markdown.split('\n')
     const isTitle = (l: string): boolean => /^[ \t]*[-*][ \t]+title[ \t]*:/i.test(l)
     const byLine = /^([ \t]*by[ \t]*:[ \t]*)(.*)$/i
-    const urlLine = /^[ \t]*url[ \t]*:[ \t]*(\S+)/i
+    // `(.*)`, as the field parser reads it, not `(\S+)`: the value is tested below rather than
+    // assumed to be an address because it happens to contain a non-space character.
+    const urlLine = /^[ \t]*url[ \t]*:[ \t]*(.*)$/i
     const out: ReadingAttribution[] = []
     let start = lines.findIndex(isTitle)
     while (start !== -1 && start < lines.length) {
       let end = start + 1
       while (end < lines.length && !isTitle(lines[end]!)) end++
       const block = lines.slice(start + 1, end)
-      const url = block.map((l) => urlLine.exec(l)?.[1]).find((u): u is string => u !== undefined)
-      if (url !== undefined && added(urlKey(url))) {
+      // The FIRST url line wins, the same rule the field parser follows, and it counts only
+      // when it is an address - an entry without one is not on the list the key sets describe.
+      const url = block.map((l) => urlLine.exec(l)?.[1]?.trim()).find((u): u is string => u !== undefined)
+      if (url !== undefined && isReadingUrl(url) && added(urlKey(url))) {
         const at = block.findIndex((l) => byLine.test(l))
         const was = at === -1 ? null : (byLine.exec(block[at]!)![2] ?? '').trim() || null
         if (was !== actor) {

@@ -176,7 +176,8 @@ describe('GET /api/v1/health', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as HealthResp
     expect(body.status).toBe('ok')
-    expect(body.queue.concurrency).toBe(2)
+    // One writer at a time (A3, 2026-09-19): the default the vault's ingest skill asks for.
+    expect(body.queue.concurrency).toBe(1)
     expect(body.jobs).toBeDefined()
     // Public route: must not leak filesystem layout.
     expect(body).not.toHaveProperty('vaultRoot')
@@ -725,7 +726,7 @@ describe('GET /api/v1/stats', () => {
     }
     expect(body.vaultName).toBe('vault')
     expect(typeof body.pages.total).toBe('number')
-    expect(body.queue.concurrency).toBe(2)
+    expect(body.queue.concurrency).toBe(1)
     expect(body.watcher.active).toBe(true)
     expect(body.kpis7d).toBeDefined()
   })
@@ -784,7 +785,7 @@ describe('POST /api/v1/query + sessions', () => {
     // A real wiki page so the [[Compound Interest]] citation resolves to a path.
     fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
     fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Compound Interest.md'), '# Compound Interest')
-    queryImpl = async () => okResult('Interest compounds — see [[Compound Interest]] and [[Nonexistent Page]].')
+    queryImpl = async () => okResult('Interest compounds - see [[Compound Interest]] and [[Nonexistent Page]].')
 
     const res = await fetch(`${baseUrl}/api/v1/query`, {
       method: 'POST',
@@ -936,68 +937,25 @@ describe('GET /api/v1/pages (citation preview)', () => {
   })
 })
 
-describe('POST /api/v1/sessions/:id/save', () => {
-  const poll = async (id: string): Promise<{ status: string; result?: { ok: boolean; pages: string[] } }> => {
-    for (let i = 0; i < 100; i++) {
-      const r = await fetch(`${baseUrl}/api/v1/maintenance/runs/${id}`)
-      const body = (await r.json()) as { status: string; result?: { ok: boolean; pages: string[] } }
-      if (body.status !== 'running') return body
-      await new Promise((res) => setTimeout(res, 5))
-    }
-    throw new Error('save run did not settle')
-  }
-
-  it('404s for an unknown session', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/sessions/nope/save`, { method: 'POST' })
-    expect(res.status).toBe(404)
-  })
-
-  it('400s when the session never completed a query (nothing to resume)', async () => {
+describe('there is no route that saves a conversation into the vault', () => {
+  /*
+   * Removed 2026-09-19 (SPEC.md §6.3). `POST /api/v1/sessions/:id/save` used to resume the
+   * chat's SDK session under a write profile and run the vault's `/save` flow. The decision is
+   * that a chat answer is never vault content: it is assembled FROM pages the vault already
+   * holds, so filing it writes a third copy of what two pages already say.
+   *
+   * This test is the guard on that, not a leftover. A route removed without one comes back the
+   * next time someone reads §6.3's older wording.
+   */
+  it('404s, and the chat stays read-only all the way down', async () => {
     const created = await fetch(`${baseUrl}/api/v1/sessions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ title: 'empty' }),
+      body: JSON.stringify({ title: 'a conversation' }),
     })
     const { session } = (await created.json()) as { session: { id: string } }
     const res = await fetch(`${baseUrl}/api/v1/sessions/${session.id}/save`, { method: 'POST' })
-    expect(res.status).toBe(400)
-    expect(((await res.json()) as { error: string }).error).toMatch(/nothing to save/)
-  })
-
-  it('resumes the chat SDK session under a WRITE profile and commits', async () => {
-    // Ask something first so the session records an sdk_session_id to resume.
-    await fetch(`${baseUrl}/api/v1/query`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ question: 'what is in the vault?' }),
-    })
-    const list = (await (await fetch(`${baseUrl}/api/v1/sessions`)).json()) as {
-      sessions: Array<{ id: string }>
-    }
-    const sessionId = list.sessions[0]!.id
-
-    let seen: { profile: string | undefined; resumeSessionId: string | undefined } = {
-      profile: undefined,
-      resumeSessionId: undefined,
-    }
-    maintAgent = async (opts) => {
-      seen = { profile: opts.profile, resumeSessionId: opts.resumeSessionId }
-      return okResult('saved')
-    }
-
-    const res = await fetch(`${baseUrl}/api/v1/sessions/${sessionId}/save`, { method: 'POST' })
-    expect(res.status).toBe(202)
-    const started = (await res.json()) as { id: string; kind: string; channel: string }
-    expect(started.kind).toBe('save')
-    expect(started.channel).toBe('maintenance:save')
-
-    const run = await poll(started.id)
-    expect(run.status).toBe('done')
-    expect(run.result?.ok).toBe(true)
-    // The chat is read-only by design, so the save must run write-enabled and carry the
-    // conversation forward — otherwise it has nothing to write, or no permission to write it.
-    expect(seen.profile).toBe('ingest')
-    expect(seen.resumeSessionId).toBe('sdk-session-1')
+    expect(res.status).toBe(404)
   })
 })
 
@@ -1033,7 +991,7 @@ describe('GET/PUT /api/v1/settings', () => {
   })
 
   it('applies a concurrency change live to the running queue', async () => {
-    expect(queue.stats().concurrency).toBe(2)
+    expect(queue.stats().concurrency).toBe(1)
     const res = await put({ concurrency: 4 })
     expect(res.status).toBe(200)
     const body = (await res.json()) as SettingsResp
@@ -1404,7 +1362,7 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     expect(run.status).toBe('done')
     // The service pins the synthesis title deterministically; the agent does not choose it.
     expect(prompt).toContain('research_lens')
-    expect(prompt).toContain('Research: tidal turbines — Patent Landscape')
+    expect(prompt).toContain('Research - tidal turbines - Patent Landscape')
     expect(prompt).toMatch(/does NOT\s+override the page-hygiene/)
   })
 
@@ -1423,6 +1381,141 @@ describe('POST /api/v1/maintenance (async job-style)', () => {
     const run = await pollRun(((await res.json()) as StartedRun).id)
     expect(run.status).toBe('done')
     expect(prompt).not.toContain('research_lens')
+  })
+
+  /*
+   * The page a question came from (docs/tasks/TASKS-QUESTIONS.md, phase 1). The route checks
+   * the TYPE only; containment and existence belong to `startResearch`, so every caller gets
+   * one answer. A path that fails there is dropped rather than refused, because naming the
+   * origin page is an optimisation on the prompt and never the request itself.
+   */
+  it('carries the origin page into the prompt, and drops one it cannot use', async () => {
+    const page = 'wiki/concepts/Origin Page.md'
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Origin Page.md'), '# Origin Page\n\n## Open questions\n\n- Not measured in this pass.\n')
+    let prompt = ''
+    maintAgent = async (opts) => {
+      prompt = opts.prompt
+      return okResult('research done')
+    }
+    const start = async (body: Record<string, unknown>): Promise<void> => {
+      const res = await fetch(`${baseUrl}/api/v1/maintenance/research`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      expect(res.status).toBe(202)
+      const run = await pollRun(((await res.json()) as StartedRun).id)
+      expect(run.status).toBe('done')
+    }
+
+    await start({ topic: 'tidal turbines', from: page })
+    expect(prompt).toContain('<question_origin>')
+    expect(prompt).toContain(page)
+
+    // Outside the wiki, escaping it, absolute, absent, wrong type, empty: the run still starts.
+    for (const bad of ['skills/x.md', 'wiki/../../etc/passwd', '/etc/passwd', 'wiki/concepts/Absent.md', 42, '']) {
+      prompt = ''
+      await start({ topic: 'tidal turbines', from: bad })
+      expect(prompt, `from ${JSON.stringify(bad)}`).not.toContain('<question_origin>')
+    }
+  })
+
+  /*
+   * Reformulating an open question before it becomes a topic (phase 2). The answer is a
+   * suggestion: when it does not work out the route says so with `topic: null` and the caller
+   * keeps the raw text, because this improves an action that has to work without it (D3).
+   */
+  it('reformulates a question into a topic and a page name', async () => {
+    const page = 'wiki/concepts/Reformulate Page.md'
+    fs.mkdirSync(path.join(vaultRoot, 'wiki', 'concepts'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki', 'concepts', 'Reformulate Page.md'), '# Reformulate Page\n\nTidal rotors, in brief.\n')
+    let prompt = ''
+    maintAgent = async (opts) => {
+      prompt = opts.prompt
+      return {
+        ...okResult('{}'),
+        structuredOutput: { topic: 'What is the installed cost per megawatt of rack-mounted tidal arrays?', title: 'Tidal Array Installed Cost' },
+      } as AgentRunResult
+    }
+    const res = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'No source in this pass gives an installed-cost figure.', from: page }),
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      topic: 'What is the installed cost per megawatt of rack-mounted tidal arrays?',
+      title: 'Tidal Array Installed Cost',
+    })
+    // The page travelled as a bounded excerpt, not as a read tool and a free hand.
+    expect(prompt).toContain('Tidal rotors, in brief')
+    expect(prompt).toContain('No source in this pass')
+  })
+
+  it('answers topic: null rather than an error when the reformulation does not work out', async () => {
+    for (const bad of [{ nonsense: true }, undefined]) {
+      maintAgent = async () => ({ ...okResult('{}'), structuredOutput: bad }) as AgentRunResult
+      const res = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'a note' }),
+      })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ topic: null })
+    }
+    // A failed run is the same answer, not a 500.
+    maintAgent = async () => ({ ...okResult(''), ok: false, error: 'exploded' }) as AgentRunResult
+    const failed = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'a note' }),
+    })
+    expect(failed.status).toBe(200)
+    expect(await failed.json()).toEqual({ topic: null })
+  })
+
+  it('requires a note, and ignores an origin path it must not read', async () => {
+    const empty = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: '   ' }),
+    })
+    expect(empty.status).toBe(400)
+
+    let prompt = ''
+    maintAgent = async (opts) => {
+      prompt = opts.prompt
+      return { ...okResult('{}'), structuredOutput: { topic: 'What is the cost?', title: 'Cost' } } as AgentRunResult
+    }
+    for (const bad of ['../../etc/passwd', '/etc/passwd', 'skills/x.md', 'wiki/concepts/Absent.md']) {
+      const res = await fetch(`${baseUrl}/api/v1/maintenance/research/topic`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'a note', from: bad }),
+      })
+      expect(res.status).toBe(200)
+      expect(prompt, `from ${bad}`).not.toContain('It stands on this page')
+    }
+  })
+
+  it('takes the reformulated title as the synthesis page name', async () => {
+    let prompt = ''
+    maintAgent = async (opts) => {
+      prompt = opts.prompt
+      return okResult('research done')
+    }
+    const res = await fetch(`${baseUrl}/api/v1/maintenance/research`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ topic: 'What is the installed cost per megawatt of rack-mounted tidal arrays?', title: 'Tidal Array Installed Cost' }),
+    })
+    expect(res.status).toBe(202)
+    const run = await pollRun(((await res.json()) as StartedRun).id)
+    expect(run.status).toBe('done')
+    // The page is named after the subject, not after a sentence cut mid-clause.
+    expect(prompt).toContain('"Research - Tidal Array Installed Cost"')
+    expect(prompt).not.toContain('Research - What is the installed cost')
   })
 
   it('returns 404 for an unknown run id', async () => {

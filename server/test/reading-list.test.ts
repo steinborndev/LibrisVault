@@ -925,6 +925,49 @@ title: "Reading list"
     expect(await reading.attributeRun('ingest', reading.urlKeys())).toEqual([])
   })
 
+  /*
+   * The entry with no address, which every writing run re-signed (found 2026-09-20 by watching
+   * a lint run put its own name on a nine-day-old research entry).
+   *
+   * A run that finds no DOI leaves `url: ""`. The parser drops such an entry - it exists to be
+   * fetched - so its key is in neither key set the "did this run add it?" test compares
+   * against, while the line scan still found it. So it counted as newly added on every run,
+   * had its `by:` rewritten to whoever ran last, and dragged the whole page into that commit.
+   * On the live list: one entry of 49, rewritten twelve times in nine days by runs that had
+   * nothing to do with it.
+   */
+  it('never re-signs an entry that states no address', async () => {
+    fs.appendFileSync(page, '\n- title: A paper nobody could find a link for\n  url: ""\n  why: Cited without a DOI.\n  by: research\n  at: 2026-09-11\n')
+    const reading = new ReadingListService(vaultRoot, store)
+
+    // It is not on the list the key sets describe, in either direction.
+    expect(reading.urlKeys().size).toBe(2)
+
+    // So no run may claim it - not the one running now, and not the next one either.
+    const before = reading.urlKeys()
+    expect(await reading.attributeRun('lint', before)).toEqual([])
+    expect(await reading.attributeRun('ingest', before)).toEqual([])
+    expect(fs.readFileSync(page, 'utf8')).toContain('  by: research\n')
+
+    // And the page is untouched, which is what keeps it out of an unrelated run's commit.
+    const untouched = fs.readFileSync(page, 'utf8')
+    await reading.attributeRun('Bridget', before)
+    expect(fs.readFileSync(page, 'utf8')).toBe(untouched)
+  })
+
+  it('still signs a real entry that sits next to an address-less one', async () => {
+    const reading = new ReadingListService(vaultRoot, store)
+    const before = reading.urlKeys()
+    fs.appendFileSync(
+      page,
+      '\n- title: A paper nobody could find a link for\n  url: ""\n  by: research\n  at: 2026-09-11\n' +
+        '\n- title: A paper the run did add\n  url: https://publisher.invalid/real\n  at: 2026-09-20\n',
+    )
+    const signed = await reading.attributeRun('lint', before)
+    expect(signed.map((x) => x.title)).toEqual(['A paper the run did add'])
+    expect(fs.readFileSync(page, 'utf8')).toContain('  by: research\n')
+  })
+
   it('leaves alone what another run committed in the meantime', async () => {
     const git = (...args: string[]): string => execFileSync('git', ['-C', vaultRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' })
     git('init', '-q')

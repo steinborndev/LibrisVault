@@ -17,15 +17,19 @@ POST   /jobs/:id/revert          undo one ingest: reverts its vault commit as a 
 DELETE /jobs/:id, /jobs          cancel a queued job / remove a settled one; clear history
 GET    /events                   SSE: job updates, log streams, stats + vault invalidation
 GET    /stats                    dashboard numbers, usage totals, budget
+POST   /stats/commits/:hash/dismiss   take one commit off the Activity stream; DELETE puts
+                                 it back. The vault keeps the commit, only the stream forgets
 POST   /query                    read-only question against the vault (+ citations)
 GET/POST/PATCH/DELETE /sessions  chat sessions
-POST   /sessions/:id/save        save a chat session into the vault (async run)
 GET    /pages?path=…[&full=1]    one wiki page's markdown - truncated preview, or the full
                                  page + title/type/mtime with full=1
 PUT    /pages                    user edit {path, markdown, baseMtime} → write + git commit
                                  (409 when the page changed since baseMtime); returns advisory
                                  validation findings
 DELETE /pages?path=…             user delete → unlink + git commit; returns staleLinks
+GET    /validation               the standing defect list: one row per defect with how often it
+                                 has been seen and how long it has stood, not one advisory line
+                                 per run (`?rule=`, `?limit=`, `?offset=`; `byRule` + `total`)
 GET    /graph                    the vault's wikilink graph: typed nodes + directed edges
 GET    /domains                  the domain registry (installed? + parsed entries)
 POST   /domains                  create a domain: append to the registry page, one commit
@@ -44,6 +48,9 @@ POST   /maintenance/lint-report  re-render the report from the current findings 
 POST   /maintenance/rejoin-links rejoin links a rename split; mechanical, costs nothing and
                                  cannot invent anything (`?dry=1` reports without writing)
 GET    /maintenance/research/profiles   the closed lens list + its default
+POST   /maintenance/research/topic      {text, from?} → a research topic reformulated from one
+                                 open question, with its own page as context; { topic: null }
+                                 when nothing better than the bullet itself can be made of it
 GET    /maintenance/runs         runs the process still holds - "what is happening now"
 GET    /maintenance/runs/:id     poll one run's result
 GET    /maintenance/history      the persistent run log, newest first (`?kind=`, `?limit=`)
@@ -52,7 +59,6 @@ GET    /maintenance/state        per-kind last-settle state behind the status he
 GET    /sources                  page → the document it came from (from `.raw/` manifests)
 GET    /sources/raw?path=…       one ingested document; an allow-list of formats the browser
                                  cannot execute is served inline, everything else downloads
-GET    /usage/samples            the newest usage samples (`?limit=`)
 GET/PUT /settings                runtime configuration
 POST   /settings/credential      {kind: oauth|api-key, value} → writes the env file (0600) and
                                  restarts; never echoes the value, 409 if it comes from the
@@ -69,6 +75,9 @@ POST   /agents                   spawn one (409 `full` once every desk in the ro
 POST   /agents/:id/{step,pause,resume,retire,plan}   act on one Fellow by hand
 PUT    /agents/shelf-order       the order the night walks the shelves - one serial queue,
                                  so it is a setting and not a view preference
+GET    /agents/shift             the night window, the cycle, the next start, recent shifts;
+                                 POST runs one now, ignoring the window (202, 409 if one is
+                                 already running, 503 where no shift runs on this instance)
 GET    /handoffs                 routed and unclaimed handoffs between Fellows
 POST   /handoffs/:id/spawn       spawn a Fellow from an unclaimed request, prefilled
 GET    /agents/:id/card          one Fellow's dossier: runs, pages, notebook path, plan
@@ -78,8 +87,14 @@ GET    /recaps, /recaps/:date    the daily record; POST /recaps/:date/answers re
 POST   /value-events             records that you opened a page or followed a recap link -
                                  what "value this month" counts
 GET    /library/scene            the room as the dashboard draws it: figures, shelves, desks
+POST   /library/move             put one domain's shelf in a room, optionally at a slot
 GET    /wings                    the rooms and which domain sits on which shelf
+PATCH  /wings/order              reorder the wings ({ids}); PATCH /wings/:id renames one or
+                                 moves its aisles
 GET    /usage/plan               plan utilization, the research share and what is left
+GET    /usage/samples            the newest usage samples (`?limit=`)
+POST   /usage/override           release one plan bound for now ({window} five_hour or
+                                 seven_day, defaulting to five_hour); DELETE revokes it
 GET    /reading-list             publications a run could not read, with open copies found
 POST   /reading-list/ingest      file one of them; /open-access looks for a copy right now;
                                  /archive puts one out of sight, or brings it back

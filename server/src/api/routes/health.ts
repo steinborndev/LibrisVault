@@ -5,6 +5,7 @@
 
 import type { FastifyInstance } from 'fastify'
 import type { AppContext } from '../server.js'
+import { isAutoCommitDisabled } from '../../pipeline/vault-guards.js'
 
 export function registerHealthRoute(app: FastifyInstance, ctx: AppContext): void {
   app.get('/api/v1/health', async () => {
@@ -19,6 +20,13 @@ export function registerHealthRoute(app: FastifyInstance, ctx: AppContext): void
       demoMode: ctx.config.demoMode,
       // The research agents extension (docs/agents/SPEC.md) is on: the UI shows its surfaces.
       fellows: ctx.fellows !== undefined,
+      /*
+       * False means the vault plugin's own hook is committing this service's writes out from
+       * under it (hard rule 1). Read live rather than cached from startup: the flag is one
+       * file in the vault, and a `git clean` in the vault takes it away without restarting us.
+       * Safe on a public route: it says whether a guard holds, never where the vault is.
+       */
+      autoCommitDisabled: isAutoCommitDisabled(ctx.config.vaultRoot),
       queue: ctx.queue.stats(),
       jobs: ctx.store.counts(),
       // Client-side pre-checks (the dropzone warns before uploading a file the server

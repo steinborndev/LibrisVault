@@ -691,6 +691,34 @@ function assignTimeline() {
 }
 assignTimeline()
 
+/* --------------------------------------------- one question, on every page it was left on */
+
+/*
+ * A vault writes a gap down wherever it meets it: a run that cannot settle something leaves the
+ * same open item on its notebook, on the page it filed and on the concept page it touched, in
+ * the wording each page invited. That is the shape the pinboard's clustering exists for - one
+ * card, with the other pages as "also on" links - and without it every card is a singleton and
+ * that half of the board never appears in a screenshot.
+ *
+ * The wordings are checked against the board's own rule rather than eyeballed: `questionOverlap`
+ * over the significant tokens puts both of these at 1.00 against the notebook's wording, where
+ * `CLUSTER_THRESHOLD` is 0.7. The lead is Ada's first standing question because she is the
+ * astronomy Fellow and these are her pages.
+ */
+const SPREAD_QUESTIONS = [
+  ['Candidate Vetting Pipeline',
+   'Would spectroscopy or a second transit settle the ambiguous candidate first?'],
+  ['Blended Eclipsing Binary',
+   'For the ambiguous candidate, which follow-up settles it first: spectroscopy or a second transit?'],
+]
+for (const [title, question] of SPREAD_QUESTIONS) {
+  const target = pages.find((p) => p.title === title && p.prerendered !== true)
+  // Loudly, not silently: the topic list is hand-written and a renamed concept would otherwise
+  // just quietly stop producing the cluster the screenshot exists to show.
+  if (!target) throw new Error(`demo vault: no page titled "${title}" to leave an open question on`)
+  target.body = `${target.body}\n\n## Open Questions\n\n- ${question}\n`
+}
+
 /* ------------------------------------------------------------------------- write it out */
 
 if (existsSync(OUT)) rmSync(OUT, { recursive: true, force: true })

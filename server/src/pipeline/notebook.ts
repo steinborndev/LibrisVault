@@ -124,8 +124,15 @@ export function renderNotebook(input: RenderNotebookInput): string {
   const fm = [
     '---',
     'type: meta',
-    `title: "Fellow: ${agent.name.replace(/"/g, "'")}"`,
-    `status: ${agent.state === 'retired' ? 'retired' : 'active'}`,
+    /*
+     * The name alone, and no colon in it: the page is filed as `<slug>.md`, a file name cannot
+     * carry a colon, and a wikilink an agent writes from the title has to land somewhere. The
+     * word "Fellow" is in the first line of the body instead, where it costs no link.
+     */
+    `title: "${agent.name.replace(/["#[\]|^:]/g, ' ').replace(/\s+/g, ' ').trim()}"`,
+    // `active` is not in the vault's status vocabulary (seed, developing, mature, evergreen,
+    // retired); a notebook that grows with every run is `developing`.
+    `status: ${agent.state === 'retired' ? 'retired' : 'developing'}`,
     `created: ${day(agent.createdAt)}`,
     `updated: ${day(now)}`,
     'tags:',
@@ -137,7 +144,7 @@ export function renderNotebook(input: RenderNotebookInput): string {
     '---',
   ].join('\n')
   const body = SECTION_ORDER.map((name) => `## ${name}\n\n${sections[name]}\n`).join('\n')
-  return `${fm}\n\n# Fellow: ${agent.name}\n\nA resident research Fellow of this library (docs/agents/SPEC.md). The Plan and Log sections are rendered by the service; Intent, Scope, Open Questions and Notes are yours and the Fellow's.\n\n${body}`
+  return `${fm}\n\n# ${agent.name}\n\nA resident research Fellow of this library (docs/agents/SPEC.md). The Plan and Log sections are rendered by the service; Intent, Scope, Open Questions and Notes are yours and the Fellow's.\n\n${body}`
 }
 
 export interface NotebookWriterOptions {

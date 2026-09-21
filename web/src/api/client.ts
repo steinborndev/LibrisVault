@@ -8,6 +8,7 @@ import type {
   Job,
   JobDetail,
   Stats,
+  ValidationList,
   Health,
   JobStatus,
   Session,
@@ -129,6 +130,15 @@ export const api = {
   health: (): Promise<Health> => fetch(`${BASE}/health`).then(json<Health>),
 
   stats: (): Promise<Stats> => fetch(`${BASE}/stats`).then(json<Stats>),
+
+  /** The standing validation list (A9). Base product: it answers with the flag off too. */
+  validation: (params?: { rule?: string; limit?: number }): Promise<ValidationList> => {
+    const q = new URLSearchParams()
+    if (params?.rule) q.set('rule', params.rule)
+    if (params?.limit) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return fetch(`${BASE}/validation${qs ? `?${qs}` : ''}`).then(json<ValidationList>)
+  },
 
   jobs: (params?: { status?: JobStatus; limit?: number }): Promise<{ jobs: Job[] }> => {
     const q = new URLSearchParams()
@@ -255,10 +265,6 @@ export const api = {
   deletePage: (path: string): Promise<PageDeleteResult> =>
     fetch(`${BASE}/pages?path=${encodeURIComponent(path)}`, { method: 'DELETE' }).then(json<PageDeleteResult>),
 
-  /** "Session in Vault sichern" - starts an async write-enabled run; poll it like a maintenance run. */
-  saveSession: (id: string): Promise<MaintenanceRun> =>
-    fetch(`${BASE}/sessions/${id}/save`, { method: 'POST' }).then(json<MaintenanceRun>),
-
   // ---- Maintenance (async: POST starts a run, GET polls its result) ----
 
   lint: (): Promise<MaintenanceRun> =>
@@ -313,12 +319,30 @@ export const api = {
   researchProfiles: (): Promise<ResearchProfilesResponse> =>
     fetch(`${BASE}/maintenance/research/profiles`).then(json<ResearchProfilesResponse>),
 
-  research: (topic: string, profileKey?: string): Promise<MaintenanceRun> =>
+  /**
+   * `from` is the vault page a question was left open on and `title` the name the synthesis
+   * page should take, both present only when the topic came from a reformulated question.
+   */
+  research: (topic: string, profileKey?: string, from?: string, title?: string): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/research`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(profileKey ? { topic, profileKey } : { topic }),
+      body: JSON.stringify({ topic, ...(profileKey ? { profileKey } : {}), ...(from ? { from } : {}), ...(title ? { title } : {}) }),
     }).then(json<MaintenanceRun>),
+
+  /**
+   * One open question, turned into a topic a research run can act on. A suggestion: `topic` is
+   * null when it did not work out, and the caller keeps what it had.
+   */
+  suggestTopic: (text: string, from?: string): Promise<{ topic: string | null; title?: string }> =>
+    fetch(`${BASE}/maintenance/research/topic`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, ...(from ? { from } : {}) }),
+    })
+      .then(json<{ topic: string | null; title?: string }>)
+      // A suggestion that cannot be fetched is simply no suggestion: never an error the user sees.
+      .catch(() => ({ topic: null })),
 
   domainBackfill: (): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/domain-backfill`, { method: 'POST' }).then(json<MaintenanceRun>),
