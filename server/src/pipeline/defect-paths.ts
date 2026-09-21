@@ -74,7 +74,23 @@ export const DEFECT_PATHS: Record<ValidationRule, RepairPath> = {
   'tag-singleton': 'pass',
   'em-dash': 'pass',
   'status-vocabulary': 'decision',
-  'open-question-form': 'run',
+  /*
+   * A RUN EXISTS FOR THIS RULE AND IS NOT OFFERED (measured 2026-09-21, the threshold agreed
+   * before the run: every bullet asks something, and at most 2 of 10 pages still carry a
+   * deictic bullet). One run over 10 findings moved the pages from 17 of 61 bullets asking
+   * something to 66 of 68, and from 10 of 10 pages carrying a deictic bullet to 5 of 10. Both
+   * halves are short of the bar, so the rule stays a decision, which is what the bar was
+   * agreed in advance to decide.
+   *
+   * What the number hides, and the reason this is worth revisiting rather than closing: 6 of
+   * the 7 remaining deictic bullets carry ONE phrase, `in this vault`, which `PASS_DEIXIS`
+   * counts beside `in this pass`. The two are not the same kind of reference - "in this pass"
+   * means nothing away from the page, and "in this vault" is a scope a question asked OF this
+   * vault legitimately carries. Counted without it, the run leaves 1 of 10 pages deictic,
+   * inside the bar. That is a question about the classifier in SPEC.md §12.15, not about this
+   * run, and it is recorded rather than decided here.
+   */
+  'open-question-form': 'decision',
 }
 
 /**
@@ -268,14 +284,16 @@ export const DEFECT_GUIDANCE: Record<ValidationRule, DefectGuidance> = {
     limit: 'Which of the two is right is the judgement, and a pass that guessed would standardise the wrong way.',
   },
   'open-question-form': {
-    path: 'run',
+    path: 'decision',
     what:
-      'Rewrite the page’s open-question bullets so each asks one thing, ends in a question mark, ' +
-      'names its subjects in full, and carries no reference to the run that wrote it.',
-    who: 'a bound agent run, one page',
-    cost: 'agent run · one page, one commit',
+      'Rewrite the bullets so each asks one thing, ends in a question mark, names its subjects in full, ' +
+      'and carries no reference to the run that wrote it. The reformulation on the board does one at a time.',
+    who: 'you, or the reformulation from the board',
+    cost: 'your reading, one bullet at a time',
     limit:
-      'A reformulated question is a NEW question: the text is its identity, so a proposal standing on ' +
-      'the old wording is vetoed and the board shows the new bullet as unplanned.',
+      'A bound run for this exists and is deliberately not offered. Measured over 10 pages against a bar ' +
+      'agreed before the run (every bullet asks something, at most 2 of 10 pages still deictic): it left ' +
+      '2 of 68 bullets asking nothing and 5 of 10 pages carrying a deictic bullet. A large improvement on ' +
+      'where those pages started - 17 of 61 bullets asked anything - and short of what was asked for.',
   },
 }

@@ -24,7 +24,7 @@
 
 import type { FastifyInstance } from 'fastify'
 import type { AppContext } from '../server.js'
-import { DEFECT_GUIDANCE } from '../../pipeline/defect-paths.js'
+import { DEFECT_GUIDANCE, DEFECT_PATHS } from '../../pipeline/defect-paths.js'
 import { evidenceFor, vaultReader } from '../../pipeline/defect-evidence.js'
 import type { StandingFinding } from '../../db/validation.js'
 import {
@@ -39,7 +39,7 @@ import {
   SingleFlight,
 } from '../../pipeline/defect-repair.js'
 import { planRepair } from '../../pipeline/repair.js'
-import { VALIDATOR_RULES, VAULT_WIDE_RULES } from '../../pipeline/validator.js'
+import { VALIDATOR_RULES, VAULT_WIDE_RULES, type ValidationRule } from '../../pipeline/validator.js'
 import { recheckStanding } from '../../pipeline/standing-recheck.js'
 import { Mutex } from '../../util/mutex.js'
 import { DEFECT_FIX_RULES } from '../../pipeline/defect-fix-prompt.js'
@@ -269,7 +269,7 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
      * Only asked for the rules that HAVE a run; everything else is a pass or a decision and
      * the notebook condition never arises.
      */
-    ...(DEFECT_FIX_RULES.has(f.rule) && f.path.startsWith(NOTEBOOK_PREFIX)
+    ...(DEFECT_PATHS[f.rule as ValidationRule] === 'run' && f.path.startsWith(NOTEBOOK_PREFIX)
       ? { fixBlock: defectFixBlock(f, notebookContext(ctx)) }
       : {}),
   })
@@ -435,7 +435,13 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
     const body = (request.body ?? {}) as { rule?: unknown; ids?: unknown }
     const resolved = resolveIds(ctx.validation, body, RUN_SELECTION_MAX)
     if ('error' in resolved) return reply.code(resolved.code).send({ error: resolved.error })
-    if (!DEFECT_FIX_RULES.has(resolved.rule)) {
+    /*
+     * BOTH: a prompt has to exist for the rule, AND the rule has to be classified as one a run
+     * repairs. The two are separate on purpose - a prompt that exists but is not offered is
+     * exactly the state `open-question-form` is in after its threshold run, and the screen and
+     * the route have to agree about that or the button is gone while the endpoint still fires.
+     */
+    if (!DEFECT_FIX_RULES.has(resolved.rule) || DEFECT_PATHS[resolved.rule as ValidationRule] !== 'run') {
       return reply.code(400).send({ error: `${resolved.rule} has no bound run; it is repaired by a pass or by you` })
     }
     /*
@@ -530,7 +536,14 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
     let recorded = 0
     if (pages.length > 0 && ctx.validate !== undefined && ctx.validation !== undefined) {
       const findings = ctx.validate(pages)
-      recorded = ctx.validation.record(findings, null).created.length
+      const { created, repeated } = ctx.validation.record(findings, null)
+      /*
+       * BOTH halves, not just `created`. A revert almost always puts BACK a defect the list
+       * had already seen and resolved, and `record()` counts that as a repeat - so reporting
+       * `created` alone says "0 re-recorded" after putting five findings back on the list,
+       * which reads as the revert having done nothing. Measured on the first real revert.
+       */
+      recorded = created.length + repeated
       // The defect is back on disk; anything else this page had that is now gone goes too.
       ctx.validation.resolveMissing(pages, findings, { checked: VALIDATOR_RULES, fullyChecked: VAULT_WIDE_RULES })
     }

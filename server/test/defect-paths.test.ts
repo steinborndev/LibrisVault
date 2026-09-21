@@ -32,7 +32,9 @@ describe('the repair-path classification', () => {
   it('names a pass for exactly the rules classified as having one', () => {
     const withPass = ALL_RULES.filter((r) => DEFECT_PATHS[r] === 'pass').sort()
     expect(Object.keys(RULE_PASSES).sort()).toEqual(withPass)
-    expect([...RUN_RULES].sort()).toEqual(['open-question-form', 'page-schema', 'quote'])
+    // `open-question-form` has a prompt and is NOT offered: its threshold run came in short
+    // of the bar agreed before it (see the record in `defect-paths.ts`).
+    expect([...RUN_RULES].sort()).toEqual(['page-schema', 'quote'])
   })
 
   /**
@@ -48,7 +50,7 @@ describe('the repair-path classification', () => {
       expect(DEFECT_PATHS[rule], rule).toBe('pass')
     }
     // Judgement rules phase 4 gives a bound run.
-    for (const rule of ['open-question-form', 'quote', 'page-schema'] as ValidationRule[]) {
+    for (const rule of ['quote', 'page-schema'] as ValidationRule[]) {
       expect(JUDGEMENT_RULES.has(rule), rule).toBe(true)
       expect(DEFECT_PATHS[rule], rule).toBe('run')
     }
@@ -65,6 +67,13 @@ describe('the repair-path classification', () => {
     expect(DEFECT_PATHS['title-name']).toBe('decision')
     expect(DEFECT_PATHS['address-map']).toBe('decision')
     expect(DEFECT_PATHS['near-duplicate']).toBe('decision')
+  })
+
+  it('keeps a rule whose run fell short of its threshold as a decision', () => {
+    // The bar was agreed BEFORE the run precisely so it could be failed. The guidance says
+    // what the run achieved and what was asked for, rather than hiding either.
+    expect(DEFECT_PATHS['open-question-form']).toBe('decision')
+    expect(DEFECT_GUIDANCE['open-question-form'].limit).toMatch(/agreed\s+before the run/)
   })
 
   it('says out loud what each partial path does not reach', () => {

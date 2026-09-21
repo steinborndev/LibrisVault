@@ -961,7 +961,9 @@ export class MaintenanceRunner {
     const prompt = renderDefectFixPrompt(rule, findings)
     return this.start('defect-fix', prompt, 'ingest', {
       label: `${rule} on ${pageSet.length === 1 ? '1 page' : `${pageSet.length} pages`}`,
-      commitMessage: `repair: a bound run over ${pageSet.length === 1 ? 'one page' : `${pageSet.length} pages`} carrying a ${rule} defect`,
+      // Mechanism only, never the subject of a page (hard rule 7). The rule name carries no
+      // article: "a open-question-form defect" is what one produced on the first real run.
+      commitMessage: `repair: a bound run over ${pageSet.length === 1 ? 'one page' : `${pageSet.length} pages`}, rule ${rule}`,
       defectPageSet: pageSet,
     })
   }

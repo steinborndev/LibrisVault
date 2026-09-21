@@ -379,25 +379,36 @@ describe('the run route', () => {
   }
 
   it('starts a run over exactly the pages of the findings', async () => {
-    const id = seed()
+    const id = seed('page-schema')
     const a = await serve()
-    const res = await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload: { rule: 'open-question-form', ids: [id] } })
+    const res = await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload: { rule: 'page-schema', ids: [id] } })
     expect(res.statusCode).toBe(202)
-    expect(started).toEqual([{ rule: 'open-question-form', pageSet: ['wiki/concepts/a.md'] }])
+    expect(started).toEqual([{ rule: 'page-schema', pageSet: ['wiki/concepts/a.md'] }])
     // And the attempt is counted before the run, not after: a crash still spent a try.
     expect(store.byId(id)!.fixAttempts).toBe(1)
   })
 
   it('refuses the whole request for an unknown id, a mixed rule, or an accepted finding', async () => {
-    const id = seed()
+    const id = seed('page-schema')
     const a = await serve()
     const code = async (payload: { rule: string; ids: string[] }): Promise<number> =>
       (await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload })).statusCode
-    expect(await code({ rule: 'open-question-form', ids: [id, 'nope'] })).toBe(404)
+    expect(await code({ rule: 'page-schema', ids: [id, 'nope'] })).toBe(404)
     expect(await code({ rule: 'quote', ids: [id] })).toBe(400)
-    expect(await code({ rule: 'open-question-form', ids: Array.from({ length: 11 }, () => id) })).toBe(400)
+    expect(await code({ rule: 'page-schema', ids: Array.from({ length: 11 }, () => id) })).toBe(400)
     store.accept(id, 'deliberate')
-    expect(await code({ rule: 'open-question-form', ids: [id] })).toBe(409)
+    expect(await code({ rule: 'page-schema', ids: [id] })).toBe(409)
+    expect(started).toEqual([])
+  })
+
+  it('refuses a rule whose prompt exists but whose classification is a decision', async () => {
+    // The two lists are separate on purpose: `open-question-form` keeps its prompt and is not
+    // offered, and the route has to agree with the screen about that.
+    const id = seed('open-question-form')
+    const a = await serve()
+    const res = await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload: { rule: 'open-question-form', ids: [id] } })
+    expect(res.statusCode).toBe(400)
+    expect(res.json<{ error: string }>().error).toContain('no bound run')
     expect(started).toEqual([])
   })
 
@@ -414,35 +425,43 @@ describe('the run route', () => {
   it('answers 503 without a credential, like every other agent action', async () => {
     const id = seed()
     const a = await serve({}, false)
-    expect((await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload: { rule: 'open-question-form', ids: [id] } })).statusCode).toBe(503)
+    expect((await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload: { rule: 'page-schema', ids: [id] } })).statusCode).toBe(503)
   })
 
-  it('refuses a notebook finding whose Fellow is working, and allows it when idle', async () => {
+  /**
+   * The section half of the notebook condition, through the route.
+   *
+   * Every rule that still HAS a bound run - `page-schema` and `quote` - repairs a section
+   * `renderNotebook` regenerates, so a notebook finding of either is refused whatever the
+   * Fellow is doing. The Fellow half is exercised directly against `defectFixBlock` above,
+   * where it is not gated behind which rules happen to be offered today.
+   */
+  it('refuses a notebook finding whose repair the notebook renderer would undo', async () => {
     const nb = `${NOTEBOOK_PREFIX}f.md`
     fs.mkdirSync(path.join(vault, NOTEBOOK_PREFIX), { recursive: true })
-    const id = seed('open-question-form', nb)
-    let busy = true
+    const id = seed('page-schema', nb)
     const fellows = {
       list: () => [{ agent: { id: 'a1', name: 'A Fellow', notebookPath: nb, state: 'sleeping' } }],
-      hasRunInFlight: () => busy,
+      hasRunInFlight: () => false,
     } as unknown as NonNullable<AppContext['fellows']>
     const a = await serve({ fellows })
-    const call = async (): Promise<number> =>
-      (await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload: { rule: 'open-question-form', ids: [id] } })).statusCode
-    expect(await call()).toBe(409)
-    busy = false
-    expect(await call()).toBe(202)
+    const res = await a.inject({ method: 'POST', url: '/api/v1/validation/repair/run', payload: { rule: 'page-schema', ids: [id] } })
+    expect(res.statusCode).toBe(409)
+    expect(res.json<{ error: string }>().error).toContain('regenerated')
+    expect(started).toEqual([])
   })
 
   it('renders a notebook row as a decision with the flag off, and asks no Fellow-only route', async () => {
     const nb = `${NOTEBOOK_PREFIX}f.md`
     fs.mkdirSync(path.join(vault, NOTEBOOK_PREFIX), { recursive: true })
-    seed('open-question-form', nb)
+    seed('page-schema', nb)
     const a = await serve()
     const list = await a.inject({ method: 'GET', url: '/api/v1/validation' })
     const row = list.json<{ findings: Array<{ path: string; fixBlock?: { fixable: boolean; why?: string } }> }>().findings.find((f) => f.path === nb)!
+    // A reason, always - never a disabled button with nothing beside it. Which of the two
+    // reasons it is depends on the rule, and both hold with the flag off.
     expect(row.fixBlock?.fixable).toBe(false)
-    expect(row.fixBlock?.why).toContain('not enabled here')
+    expect(row.fixBlock?.why).toBeTruthy()
   })
 })
 
@@ -519,6 +538,56 @@ describe('the revert', () => {
     // The em-dash is back on disk AND back on the list, in the same request.
     expect(fs.readFileSync(abs, 'utf8')).toContain('—')
     expect(body.recorded).toBeGreaterThan(0)
+    expect(store.list().some((f) => f.rule === 'em-dash')).toBe(true)
+  })
+
+  it('counts a defect it put BACK, not only one the list had never seen', async () => {
+    // A revert almost always restores a defect the list already knew and had resolved, which
+    // `record()` counts as a repeat. Reporting only the new ones said "0 re-recorded" after
+    // putting five findings back - measured on the first real revert.
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-C', vault, ...args], { stdio: 'ignore' })
+    }
+    git('init', '-q')
+    git('config', 'user.email', 'test@example.invalid')
+    git('config', 'user.name', 'test')
+    const rel = 'wiki/concepts/a.md'
+    const abs = path.join(vault, rel)
+    fs.writeFileSync(abs, '---\ntype: concept\nstatus: ongoing\ntags:\n  - alpha\n---\n\nA clause — and another.\n', 'utf8')
+    git('add', '-A')
+    git('commit', '-qm', 'fixture')
+    // The list has seen this defect and a repair cleared it.
+    store.record([{ rule: 'em-dash', path: rel, message: '1 em-dash on this page' }], null)
+    store.resolveMissing([rel], [], { checked: new Set(['em-dash']) })
+    expect(store.list()).toHaveLength(0)
+    fs.writeFileSync(abs, '---\ntype: concept\nstatus: ongoing\ntags:\n  - alpha\n---\n\nA clause - and another.\n', 'utf8')
+    git('add', '-A')
+    git('commit', '-qm', 'repair: dashes')
+    const hash = execFileSync('git', ['-C', vault, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+
+    const events = new EventBus()
+    const jobs = new JobStore(db)
+    app = await buildServer({
+      config: {
+        vaultRoot: vault,
+        obsidianVaultName: 'vault',
+        auth: null,
+        telegram: null,
+        demoMode: false,
+        server: { host: '127.0.0.1', port: 0, watchFolder: path.join(vault, 'inbox'), maxUploadBytes: 1024, authMode: 'local-single-user' },
+      },
+      store: jobs,
+      chat: new ChatStore(db),
+      queue: new IngestQueue({ store: jobs, vaultRoot: vault, auth: null, events, refreshHotCache: async () => 'noop', runIngest: async () => { throw new Error('x') } }),
+      events,
+      validation: store,
+      validate: createValidator(vault),
+      commitMutex: new Mutex(),
+      maintenance: new MaintenanceRunner({ vaultRoot: vault, auth: null, events, commitMutex: new Mutex(), runAgent: async () => { throw new Error('x') }, commit: async () => ({ committed: false, hash: '', committedPages: [] }) }),
+      logger: false,
+    })
+    const res = await app.inject({ method: 'POST', url: '/api/v1/validation/repair/revert', payload: { commit: hash } })
+    expect(res.json<{ recorded: number }>().recorded).toBeGreaterThan(0)
     expect(store.list().some((f) => f.rule === 'em-dash')).toBe(true)
   })
 
