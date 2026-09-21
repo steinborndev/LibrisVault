@@ -62,6 +62,8 @@ const args = process.argv.slice(2)
 const apply = args.includes('--apply')
 /** Also drop the characters that have no good substitute, rather than leaving those pages. */
 const strip = args.includes('--strip')
+/** Repair the TITLE line instead, on pages whose file name is already clean. */
+const titles = args.includes('--titles')
 const cwd = process.env['INIT_CWD'] ?? process.cwd()
 const vault = path.resolve(cwd, args.find((a) => !a.startsWith('--')) ?? path.join(process.env['HOME'] ?? '', 'vault'))
 
@@ -131,6 +133,80 @@ export function retitle(text: string): string {
   return fixed + withHeading
 }
 
+/**
+ * The title a page should carry, or null when it is already fine.
+ *
+ * Two routes, and the first one is the better evidence. Where the file name is the SAME WORDS
+ * as the title with the character already dealt with, the file name shows what was meant when
+ * the page was created, and it is taken as the title. Otherwise the characters are dealt with
+ * here, and not all of them the same way: a slash or a backslash separates two terms and
+ * becomes a hyphen (dropping it welds them into one word), while a question mark, an asterisk,
+ * a quotation mark and an angle bracket leave nothing behind when removed.
+ */
+export function titleFor(fileName: string, title: string): string | null {
+  if (title === '' || !UNSAFE.test(title)) return null
+  /*
+   * A YAML escape means the raw line is not the value: `\"` is one quotation mark, and the
+   * backslash in front of it is syntax. Running a character rule over the raw text turns that
+   * backslash into a hyphen. Two titles in the vault are in this state; they are left for a
+   * person rather than guessed at.
+   */
+  if (/\\["\\]/.test(title)) return null
+  const key = (v: string): string => v.toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (key(title) === key(fileName)) return fileName === title ? null : fileName
+  const cleaned = title
+    .replace(/[/\\]/g, '-')
+    .replace(/:[ \t]+/g, ' - ')
+    .replace(/[:?*"<>|]/g, '')
+    .replace(/ {2,}/g, ' ')
+    .replace(/ +([,.;)\]])/g, '$1')
+    .trim()
+  return cleaned === '' || cleaned === title ? null : cleaned
+}
+
+/**
+ * The other half of the same defect: the FILE name is clean, and the title still carries the
+ * character. No page is renamed and no link is touched - only the `title:` line moves, so this
+ * is the cheap half and it runs on its own.
+ */
+async function repairTitles(): Promise<number> {
+  const changes: { rel: string; from: string; to: string }[] = []
+  for (const rel of wikiPages(vault)) {
+    const abs = path.join(vault, rel)
+    const text = fs.readFileSync(abs, 'utf8')
+    const end = text.startsWith('---') ? text.indexOf('\n---', 3) : -1
+    if (end === -1) continue
+    const m = /^title:[ \t]*("?)(.*?)\1[ \t]*$/m.exec(text.slice(0, end))
+    if (m === null) continue
+    const next = titleFor(path.basename(rel, '.md'), m[2]!)
+    if (next === null) continue
+    changes.push({ rel, from: m[2]!, to: next })
+  }
+  console.log(`${changes.length} title(s) to clean`)
+  for (const c of changes.slice(0, 200)) console.log(`  ${c.from.slice(0, 88)}\n  -> ${c.to.slice(0, 88)}`)
+  if (changes.length === 0 || !apply) {
+    if (changes.length > 0) console.log('\ndry run - pass --apply to write and commit')
+    return 0
+  }
+
+  const git = (...a: string[]): string => execFileSync('git', ['-C', vault, ...a], { encoding: 'utf8' }).trim()
+  if (git('status', '--short') !== '') {
+    console.error('vault has uncommitted changes; commit or stash them first')
+    return 3
+  }
+  for (const c of changes) {
+    const abs = path.join(vault, c.rel)
+    const text = fs.readFileSync(abs, 'utf8')
+    const end = text.indexOf('\n---', 3)
+    // Only inside the frontmatter block, and only that one line.
+    const front = text.slice(0, end).replace(/^title:[ \t]*("?)(.*?)\1[ \t]*$/m, (_w, q: string) => `title: ${q}${c.to}${q}`)
+    fs.writeFileSync(abs, front + text.slice(end))
+  }
+  const res = await commitVault(vault, 'fix: title the pages as names a file name can hold', { pathspec: changes.map((c) => c.rel) })
+  console.log(`\n${res.committed ? `committed ${git('log', '-1', '--format=%h %s')}` : `nothing committed: ${res.note ?? ''}`}`)
+  return res.committed ? 0 : 4
+}
+
 async function main(): Promise<number> {
   if (!fs.existsSync(path.join(vault, 'wiki'))) {
     console.error(`not a vault: ${vault}`)
@@ -155,6 +231,8 @@ async function main(): Promise<number> {
     }
     renames.push({ from: rel, to, oldName, newName })
   }
+
+  if (titles) return await repairTitles()
 
   const byOldName = new Map(renames.map((r) => [r.oldName, r.newName]))
   console.log(`${renames.length} page(s) to rename, ${skipped.length} left for a person`)
@@ -207,7 +285,15 @@ async function main(): Promise<number> {
   return res.committed ? 0 : 4
 }
 
-// Only when run as a command; the two pure helpers above are imported by the tests.
-if (process.argv[1]?.endsWith('rename-unsafe-names.ts') === true || process.argv[1]?.endsWith('rename-unsafe-names.js') === true) {
-  process.exit(await main())
+// Only when run as a command; the pure helpers above are imported by other code. No top-level
+// await: it makes the module unimportable from a CommonJS loader, and the tests import it.
+const invoked = process.argv[1] ?? ''
+if (invoked.endsWith('rename-unsafe-names.ts') || invoked.endsWith('rename-unsafe-names.js')) {
+  void main().then(
+    (code) => process.exit(code),
+    (err: unknown) => {
+      console.error(err)
+      process.exit(1)
+    },
+  )
 }

@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { rewriteLinks, retitle, safeName } from '../src/cli/rename-unsafe-names.js'
+import { rewriteLinks, retitle, safeName, titleFor } from '../src/cli/rename-unsafe-names.js'
 
 const map = new Map([
   ['Research: One Thing', 'Research - One Thing'],
@@ -100,5 +100,36 @@ describe('the name a page should be filed under', () => {
   it('says no when there would be nothing left, or nothing to change', () => {
     expect(safeName('???', true)).toBeNull()
     expect(safeName('A Clean Name', true)).toBeNull()
+  })
+})
+
+describe('the title a page should carry', () => {
+  it('takes the file name when it is the same words already cleaned', () => {
+    // The file name is the better evidence: it shows what was chosen when the page was made.
+    expect(titleFor('Fc Mutations (YTE, LS-Xtend)', 'Fc Mutations (YTE, LS/Xtend)')).toBe('Fc Mutations (YTE, LS-Xtend)')
+    expect(titleFor('USP 1058 Classification', 'USP <1058> Classification')).toBe('USP 1058 Classification')
+  })
+
+  it('cleans the characters itself when the file name says something shorter', () => {
+    expect(titleFor('Research - A Short Name', 'Research - Does it work? Probably')).toBe('Research - Does it work Probably')
+  })
+
+  it('makes a separating slash a hyphen rather than welding the two terms', () => {
+    // Dropping it would produce "untimedunverified", which is not a word anybody wrote.
+    expect(titleFor('Some Page', 'On untimed/unverified entries')).toBe('On untimed-unverified entries')
+  })
+
+  it('turns a colon that separates into a hyphen, and one that does not into nothing', () => {
+    expect(titleFor('Some Page', 'Big Vessel: The Largest One')).toBe('Big Vessel - The Largest One')
+    expect(titleFor('Some Page', 'Ratio 3:1 in practice')).toBe('Ratio 31 in practice')
+  })
+
+  it('says nothing when the title is already fine', () => {
+    expect(titleFor('A Clean Name', 'A Clean Name')).toBeNull()
+    expect(titleFor('A Clean Name', 'A Different Clean Title')).toBeNull()
+  })
+
+  it('refuses a title carrying a YAML escape, where the raw line is not the value', () => {
+    expect(titleFor('Some Page', 'Retrieve the text of \\"A Paper\\"')).toBeNull()
   })
 })
