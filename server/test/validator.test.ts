@@ -641,7 +641,7 @@ describe('stale counters', () => {
  * eight research runs the next day put it at 68 - every one a page written from the web, none
  * claimed by any ingest. Repairing those would have been work undone by the next night.
  */
-describe('the address map and pages with no document behind them', () => {
+describe('the address map and the pages it does not know', () => {
   const addressed = (rel: string, address: string): void => {
     const abs = path.join(vaultRoot, rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -650,31 +650,40 @@ describe('the address map and pages with no document behind them', () => {
   const manifest = (m: Record<string, unknown>): void => write('.raw/.manifest.json', JSON.stringify(m))
   const addressFindings = (): ValidationFinding[] => validateAddressMap(vaultRoot).filter((f) => f.message.includes('no entry for it'))
 
-  it('says nothing about a page no ingest claims', () => {
+  /*
+   * This asked only about pages an INGEST claimed, for a while (2026-09-20 to 09-21). Research
+   * pages have no `.raw/` document behind them, the rule reported 68 of them at once, and
+   * narrowing it made the list usable again. It also silenced the cause: nothing told a
+   * research run to record an address, so the map fell behind by every page such a run wrote.
+   * `manifest-sync.ts` records them now, and the question is asked of every addressed page
+   * again - what the map does not know, nothing maintains.
+   */
+  it('reports a page the map does not know, whoever wrote it', () => {
     addressed('wiki/concepts/From The Web.md', 'c-000100')
     manifest({ address_map: {}, sources: {} })
-    expect(addressFindings()).toEqual([])
+    expect(addressFindings().map((f) => f.path)).toEqual(['wiki/concepts/From The Web.md'])
   })
 
-  it('still reports a page an ingest says it created', () => {
-    addressed('wiki/sources/From A Document.md', 'c-000101')
-    manifest({
-      address_map: {},
-      sources: { '.raw/01JOB/input.pdf': { pages_created: ['wiki/sources/From A Document.md'] } },
-    })
-    const found = addressFindings()
-    expect(found).toHaveLength(1)
-    expect(found[0]!.path).toBe('wiki/sources/From A Document.md')
-  })
-
-  it('tells the two apart in one vault', () => {
-    addressed('wiki/concepts/From The Web.md', 'c-000100')
+  it('reports one an ingest says it created just the same', () => {
     addressed('wiki/sources/From A Document.md', 'c-000101')
     manifest({
       address_map: {},
       sources: { '.raw/01JOB/input.pdf': { pages_created: ['wiki/sources/From A Document.md'] } },
     })
     expect(addressFindings().map((f) => f.path)).toEqual(['wiki/sources/From A Document.md'])
+  })
+
+  it('says nothing once the map knows the page', () => {
+    addressed('wiki/concepts/From The Web.md', 'c-000100')
+    manifest({ address_map: { 'wiki/concepts/From The Web.md': 'c-000100' }, sources: {} })
+    expect(addressFindings()).toEqual([])
+  })
+
+  it('says nothing about a page that carries no address at all', () => {
+    // A missing address is the vault lint's finding, not this one.
+    write('wiki/concepts/No Address.md', '---\ntype: concept\n---\n\nBody.\n')
+    manifest({ address_map: {}, sources: {} })
+    expect(addressFindings()).toEqual([])
   })
 
   it('leaves the other direction alone: a map entry whose page is gone', () => {

@@ -810,17 +810,6 @@ export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
   const map = manifest.address_map ?? {}
   const sources = manifest.sources ?? {}
 
-  /*
-   * The pages an INGEST says it created. The ingest skill writes `pages_created` beside the
-   * address map entry, in the same file and the same step, so a page named here is a page
-   * that came from a document.
-   */
-  const fromADocument = new Set<string>()
-  for (const entry of Object.values(sources)) {
-    const created = (entry as { pages_created?: unknown })?.pages_created
-    if (Array.isArray(created)) for (const p of created) if (typeof p === 'string') fromADocument.add(p)
-  }
-
   const findings: ValidationFinding[] = []
   for (const [rel, addr] of Object.entries(map)) {
     if (typeof addr !== 'string') continue
@@ -863,24 +852,22 @@ export function validateAddressMap(vaultRoot: string): ValidationFinding[] {
     for (const rel of holders) {
       if (mapped.has(rel)) continue
       /*
-       * A page no ingest claims has no document behind it, so the map is right to be silent
-       * about it - a research run reads the web and files what it learned, and there is no
-       * `.raw/` artifact to point at. The rule asked of every addressed page whether the map
-       * knows it, which made every research page a defect: the vault-layer repair left this at
-       * zero on 2026-09-19 and eight research runs on 2026-09-20 put it at 68, every one of
-       * them a page written from the web. Measured then: of those 68, an ingest claimed none.
+       * This asked only about pages an ingest CLAIMED (2026-09-20), because research pages have
+       * no `.raw/` document behind them and the rule was reporting 68 of them at once. That
+       * silenced the symptom and left the cause: a research run gives a page an address and
+       * records nothing, because the autoresearch skill never mentions addressing, so the map
+       * simply fell behind by every page such a run wrote - 73 of 1274 by the next day.
        *
-       * The narrowing costs one case: an ingest that writes NEITHER half - no map entry and no
-       * `pages_created` - is no longer told apart from a research page. Both halves are written
-       * by the same skill in the same step, so that is one failure rather than two, and it is
-       * worth the rule reporting something a person can act on. The other direction below,
-       * a map entry whose page is gone, is unaffected.
+       * `manifest-sync.ts` keeps new pages out of that hole now, inside each run's own commit,
+       * and `npm run manifest-backfill` wrote down the ones already there. So the question is
+       * worth asking of every addressed page again: what the map does NOT know, nothing
+       * maintains. `buildSourceIndex` and `dedupe.jobForPage` read it, and the ingest skill
+       * consults it before allocating - a page missing from it can be handed a second address.
        */
-      if (!fromADocument.has(rel)) continue
       findings.push({
         rule: 'address-map',
         path: rel,
-        message: `page carries ${address} but .raw/.manifest.json's address_map has no entry for it - the source index cannot find the document behind it`,
+        message: `page carries ${address} but .raw/.manifest.json's address_map has no entry for it - a re-ingest would allocate a second address rather than reuse this one`,
       })
     }
   }

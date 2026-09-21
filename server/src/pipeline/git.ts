@@ -10,7 +10,7 @@
  */
 
 import fs from 'node:fs'
-import { followRenames, parseStagedRenames, MANIFEST_PATH } from './manifest-renames.js'
+import { syncManifest, parseStagedChanges, MANIFEST_PATH } from './manifest-sync.js'
 import os from 'node:os'
 import path from 'node:path'
 import { runTool } from './preprocess/tools.js'
@@ -554,13 +554,14 @@ export async function commitVault(
   }
 
   /*
-   * A page this commit RENAMES is still named by `.raw/.manifest.json`, which carries its
-   * DragonScale address and the job that produced it. The run that renames it cannot fix that
-   * (it treats `.raw/` as service-owned, correctly), so the service follows the rename here,
-   * into this same commit - one run, one commit. See `manifest-renames.ts`.
+   * `.raw/.manifest.json` records which page holds which DragonScale address, and a run does
+   * not keep it: the ingest skill tells its runs to, and no other skill mentions addressing at
+   * all. So the service brings it into step here, with the rename this commit records and with
+   * the address each new page already carries, inside this same commit - one run, one commit.
+   * See `manifest-sync.ts`.
    */
-  const renames = parseStagedRenames(await git(vaultRoot, ['diff', '--cached', '--find-renames', '--name-status', '-z']))
-  if (followRenames(vaultRoot, renames)) await git(vaultRoot, ['add', '--', MANIFEST_PATH])
+  const changes = parseStagedChanges(await git(vaultRoot, ['diff', '--cached', '--find-renames', '--name-status', '-z']))
+  if (syncManifest(vaultRoot, changes)) await git(vaultRoot, ['add', '--', MANIFEST_PATH])
 
   // Gate on what is actually STAGED, not the whole working tree: with the fallback gone, a
   // pathspec that matched nothing leaves the tree dirty (orphans) but the index empty, and a

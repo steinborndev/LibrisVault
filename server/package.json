@@ -24,6 +24,7 @@
     "preprocprobe": "tsx src/cli/preprocprobe.ts",
     "vaultprobe": "tsx src/cli/vaultprobe.ts",
     "questionaudit": "tsx src/cli/questionaudit.ts",
+    "manifest-backfill": "tsx src/cli/manifest-backfill.ts",
     "questiontopic-eval": "tsx src/cli/questiontopic-eval.ts",
     "vaultrepair": "tsx src/cli/vaultrepair.ts",
     "quoteprobe": "tsx src/cli/quoteprobe.ts",
