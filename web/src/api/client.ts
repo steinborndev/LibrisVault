@@ -14,6 +14,7 @@ import type {
   RepairPlan,
   RepairOutcome,
   ManifestRepairPlan,
+  DefectFixSettlement,
   Health,
   JobStatus,
   Session,
@@ -185,6 +186,29 @@ export const api = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ rule, ids, pages }),
     }).then(json<RepairOutcome>),
+
+  /**
+   * The bound agent run over the pages of the selected findings. 202 with the run record; the
+   * dashboard then follows it like any other maintenance run.
+   */
+  repairRun: (rule: string, ids: string[]): Promise<MaintenanceRun & { findings: number; pages: number }> =>
+    fetch(`${BASE}/validation/repair/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rule, ids }),
+    }).then(json<MaintenanceRun & { findings: number; pages: number }>),
+
+  /** The bookkeeping a finished fix run owes: the re-check, the quote path, the veto. */
+  repairRunSettle: (runId: string): Promise<DefectFixSettlement> =>
+    fetch(`${BASE}/validation/repair/run/${encodeURIComponent(runId)}/settle`, { method: 'POST' }).then(json<DefectFixSettlement>),
+
+  /** Undoes one fix run's commit and puts the defect it removed back on the list. */
+  repairRevert: (commit: string): Promise<{ reverted: boolean; revertCommit?: string; pages: string[]; recorded: number }> =>
+    fetch(`${BASE}/validation/repair/revert`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commit }),
+    }).then(json<{ reverted: boolean; revertCommit?: string; pages: string[]; recorded: number }>),
 
   /** The address map's own plan; it is whole-file and cannot be scoped to selected findings. */
   manifestRepairPlan: (): Promise<ManifestRepairPlan> =>

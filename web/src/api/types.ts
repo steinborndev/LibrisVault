@@ -198,6 +198,16 @@ export interface StandingFinding {
   /** When somebody decided this defect may stay, and why (migration 35). */
   acceptedAt?: string | null
   acceptedReason?: string | null
+  /** How many fix runs have covered this, whatever the outcome (migration 36). */
+  fixAttempts?: number
+  lastFixAt?: string | null
+  /** The occurrence count when the last fix run started: a partial repair is not a failure. */
+  occurrencesAtLastFix?: number | null
+  /**
+   * Whether a bound run may repair this row right now, and why not when it may not. Present
+   * only for the rules that HAVE a run, and only on a Fellow notebook page (4.5).
+   */
+  fixBlock?: { fixable: boolean; why?: string }
 }
 
 /** How a defect of one rule gets repaired: a deterministic pass, a bound run, or a person. */
@@ -257,6 +267,22 @@ export interface RepairOutcome {
   recorded: number
   resolved: number
   recheckedAway: number
+}
+
+/** What a settled fix run did, and the bookkeeping that only makes sense once it has. */
+export interface DefectFixSettlement {
+  ok: boolean
+  commit: string | null
+  pages: string[]
+  recorded: number
+  resolved: number
+  recheckedAway: number
+  /** Quote findings the run's own check cleared; the standing re-check structurally cannot. */
+  quotesCleared: number
+  /** Proposals vetoed because the question they planned from was reformulated. */
+  vetoedProposals: string[]
+  /** How many of the selected findings are still on the list. */
+  stillStanding: number
 }
 
 /** The address map's own repair: one whole-file change, never scoped to selected findings. */
@@ -548,6 +574,8 @@ export type MaintenanceKind =
   | 'repair'
   | 'tag-fix'
   | 'retrieve-index'
+  /** One bound repair of a standing defect, on the pages of its findings (SPEC §12.16). */
+  | 'defect-fix'
 
 /** One tag repair from the tag-hygiene card (POST /maintenance/tag-fix). */
 export type TagFixAction =

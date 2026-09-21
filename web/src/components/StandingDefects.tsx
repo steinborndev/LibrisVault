@@ -28,6 +28,7 @@ import { PageLink } from './PageLink.tsx'
 import { Tip } from './Tip.tsx'
 import { queryState } from './QueryState.tsx'
 import { RepairPanel, type RepairTarget } from './RepairPanel.tsx'
+import { DefectFixRun } from './DefectFixRun.tsx'
 import { navigate } from '../lib/router.ts'
 
 /** One page of rows. The route caps at 200; "show more" walks it in steps of this. */
@@ -168,6 +169,7 @@ function DefectRow({
   vaultName,
   readOnly,
   onFix,
+  onRun,
 }: {
   finding: StandingFinding
   guidance: DefectGuidance | undefined
@@ -175,6 +177,8 @@ function DefectRow({
   readOnly: boolean
   /** Undefined when this rule has no deterministic pass: the row then offers no button. */
   onFix: (() => void) | undefined
+  /** Undefined when this rule has no bound run, or the row is blocked from one (4.5). */
+  onRun: (() => void) | undefined
 }): React.ReactElement {
   const [open, setOpen] = useState(false)
   return (
@@ -215,6 +219,21 @@ function DefectRow({
             vanishes reads as a feature that does not exist, and the demo is meant to show what
             the product does. The route would refuse it anyway, before any handler runs.
           */}
+          {/*
+            Why this row has no run button, where a rule that HAS one is blocked (4.5): a
+            Fellow's notebook while that Fellow is working, or a repair that the notebook
+            renderer would undo. Rendered as a sentence, never as a disabled button with no
+            explanation.
+          */}
+          {finding.fixBlock?.fixable === false && <p className="defect-limit">{finding.fixBlock.why}</p>}
+          {(finding.fixAttempts ?? 0) >= 2 && (
+            <p className="defect-limit">
+              {finding.fixAttempts} run(s) have tried this one already and it is still standing
+              {finding.occurrencesAtLastFix != null && finding.count < finding.occurrencesAtLastFix
+                ? ', though it was reported fewer times than before - a partial repair, not a failure.'
+                : '. Accepting it with a reason, or repairing it by hand, may cost less than another.'}
+            </p>
+          )}
           <div className="defect-buttons">
             {/*
               A button only where a deterministic pass reaches the page this finding stands on.
@@ -224,6 +243,11 @@ function DefectRow({
             {onFix !== undefined && (
               <button className="btn" onClick={onFix} disabled={readOnly} title={readOnly ? 'This instance is read-only' : 'Plan the repair for this page'}>
                 Fix this
+              </button>
+            )}
+            {onRun !== undefined && (
+              <button className="btn" onClick={onRun} disabled={readOnly} title={readOnly ? 'This instance is read-only' : 'Repair this page with one bound agent run'}>
+                Repair with a run
               </button>
             )}
             {finding.acceptedAt == null && <AcceptForm id={finding.id} disabled={!canAccept(finding, readOnly)} readOnly={readOnly} />}
@@ -328,6 +352,8 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
   const [showAccepted, setShowAccepted] = useState(false)
   /** The repair being planned, if any. One at a time: the server plans one per rule anyway. */
   const [repair, setRepair] = useState<RepairTarget | null>(null)
+  /** The finding being repaired by a bound run, if any. One page per run (decision 10). */
+  const [runFor, setRunFor] = useState<StandingFinding | null>(null)
   const list = useQuery({
     queryKey: ['validation', rule, limit],
     queryFn: () => api.validation({ ...(rule === null ? {} : { rule }), limit }),
@@ -400,6 +426,14 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
               onClose={() => setRepair(null)}
             />
           )}
+          {runFor !== null && (
+            <DefectFixRun
+              finding={runFor}
+              guidance={guidance?.[runFor.rule]}
+              readOnly={readOnly}
+              onClose={() => setRunFor(null)}
+            />
+          )}
           {groups.map((g) =>
             g.rows.length === 0 ? null : (
               <section className="defect-group" key={g.id}>
@@ -418,6 +452,12 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
                       guidance?.[f.rule]?.path === 'pass'
                         ? () => setRepair({ rule: f.rule, ids: [f.id], label: `Fix one ${f.rule} finding` })
                         : undefined
+                    }
+                    onRun={
+                      // A run only where the rule has one AND the server has not blocked this
+                      // particular row - which is the notebook condition, and holds with the
+                      // flag off too, where there is no Fellow to ask.
+                      guidance?.[f.rule]?.path === 'run' && f.fixBlock?.fixable !== false ? () => setRunFor(f) : undefined
                     }
                   />
                 ))}
