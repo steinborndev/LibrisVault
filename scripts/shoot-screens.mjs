@@ -4,17 +4,31 @@
  * Pair it with `demo-vault.mjs` so the pictures show a synthetic vault instead of real
  * notes (the README's first set leaked page titles into a public repo). Full recipe:
  *
+ *   npm run build                      # see the warning below before you do
  *   node scripts/demo-vault.mjs
  *   cd server && VAULT_ROOT=~/.local/share/vault-service/demo-vault \
- *     DB_PATH=~/.local/share/vault-service/demo-jobs.db PORT=8421 \
+ *     DB_PATH=~/.local/share/vault-service/demo-jobs.db PORT=8422 AGENTS_ENABLED=1 \
  *     TELEGRAM_BOT_TOKEN= CLAUDE_CODE_OAUTH_TOKEN=demo node dist/main.js &
  *   ~/.cache/ms-playwright/chromium-*\/chrome-linux64/chrome --headless --disable-gpu \
  *     --no-sandbox --remote-debugging-port=9333 --user-data-dir=/tmp/shoot-profile about:blank &
- *   node --experimental-websocket scripts/shoot-screens.mjs
+ *   BASE_URL=http://127.0.0.1:8422 node --experimental-websocket scripts/shoot-screens.mjs
+ *
+ * PORT 8422, NOT 8421 (corrected 2026-09-21). 8421 is where the running service sits, pointed
+ * at the real vault. Following the old recipe either fails on a bound port or photographs the
+ * live vault - "one environment variable away", which is how the first set leaked.
  *
  * `TELEGRAM_BOT_TOKEN=` is not optional: without it the demo process picks the real token
  * out of the service env file and starts a second poller, which knocks the real bot off
  * its own token (Telegram allows exactly one consumer).
+ *
+ * A BUILD INVALIDATES EVERY RUNNING SERVICE. Asset routes are registered at startup, so a
+ * `npm run build` that changes a bundle hash makes every already-running instance 404 its own
+ * JavaScript - the demo one AND the live one. Restart both after building, BY PID or through
+ * systemd: `pkill -f "PORT=8422"` matches nothing, because env prefixes are not in `ps args`.
+ *
+ * READ THE LOG, NOT JUST THE COUNT. "Wrote 14 screenshots" means written, not correct. A shot
+ * whose click missed says so on its own line and is shot anyway; a page that rendered no
+ * JavaScript comes out around 19 KB where a real one is 200 KB to 1 MB. Both have shipped.
  *
  * Waiting is done on the DOM, never on the network: the dashboard holds an SSE connection
  * open forever, so `networkidle` never fires and `--virtual-time-budget` never expires.
@@ -149,7 +163,14 @@ const SHOTS = [
      */
     file: 'home-night.png',
     route: '/',
-    settle: `document.querySelectorAll('[role="tab"], .seg button').length > 1`,
+    /*
+     * Wait for the BUTTON this shot is about to click, not for "some tab strip exists". The
+     * older condition was `[role="tab"], .seg button` and `.seg button` also matches the
+     * Research screen's segmented control, which the SPA keeps mounted - so it went true
+     * before Home's own strip rendered, `act` found nothing, and the shot came back showing
+     * the Activity view it meant to leave. It said so in the log; nobody was reading.
+     */
+    settle: `[...document.querySelectorAll('[role="tab"]')].some((x) => /night shift/i.test(x.textContent || ''))`,
     hold: 2500,
     /*
      * `[role="tab"]` only. Home has a second "Night shift" button, in the intake box, which
@@ -175,7 +196,7 @@ const SHOTS = [
      * says the function exists, a page says what it produces.
      */
     file: 'research-result.png',
-    route: '/catalog/page/wiki%2Fquestions%2FResearch%3A%20ADC%20Patent%20and%20IP%20Filings%20Since%202025%20for%20New%20Payload%2C%20Linker%20and%20Bispecific-Dual-Payload%20Platforms%20%E2%80%94%20Patent%20Landscape.md',
+    route: '/catalog/page/wiki%2Fquestions%2FResearch%20-%20ADC%20Patent%20and%20IP%20Filings%20Since%202025%20for%20New%20Payload%2C%20Linker%20and%20Bispecific-Dual-Payload%20Platforms%20-%20Patent%20Landscape.md',
     settle: `document.querySelectorAll('.page-body').length > 0`,
     hold: 2500,
   },
