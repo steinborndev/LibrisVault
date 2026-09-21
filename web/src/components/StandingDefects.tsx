@@ -27,6 +27,7 @@ import { canAccept, splitBlocks, subjectLink, provenanceOf, type DefectBlockId }
 import { PageLink } from './PageLink.tsx'
 import { Tip } from './Tip.tsx'
 import { queryState } from './QueryState.tsx'
+import { RepairPanel, type RepairTarget } from './RepairPanel.tsx'
 import { navigate } from '../lib/router.ts'
 
 /** One page of rows. The route caps at 200; "show more" walks it in steps of this. */
@@ -34,6 +35,9 @@ const PAGE = 50
 
 /** How long a reason may be. The route trims and caps at the same number. */
 const REASON_MAX = 500
+
+/** How many findings one "fix all" may carry. The route refuses more than this. */
+const FIX_ALL_CAP = 40
 
 /**
  * The three blocks, in the order a reader works them (decision 9).
@@ -163,11 +167,14 @@ function DefectRow({
   guidance,
   vaultName,
   readOnly,
+  onFix,
 }: {
   finding: StandingFinding
   guidance: DefectGuidance | undefined
   vaultName: string
   readOnly: boolean
+  /** Undefined when this rule has no deterministic pass: the row then offers no button. */
+  onFix: (() => void) | undefined
 }): React.ReactElement {
   const [open, setOpen] = useState(false)
   return (
@@ -208,7 +215,19 @@ function DefectRow({
             vanishes reads as a feature that does not exist, and the demo is meant to show what
             the product does. The route would refuse it anyway, before any handler runs.
           */}
-          {finding.acceptedAt == null && <AcceptForm id={finding.id} disabled={!canAccept(finding, readOnly)} readOnly={readOnly} />}
+          <div className="defect-buttons">
+            {/*
+              A button only where a deterministic pass reaches the page this finding stands on.
+              A rule classified `run` gets its button in phase 4; a `decision` gets none, which
+              is the honest rendering of "somebody has to decide what this page should say".
+            */}
+            {onFix !== undefined && (
+              <button className="btn" onClick={onFix} disabled={readOnly} title={readOnly ? 'This instance is read-only' : 'Plan the repair for this page'}>
+                Fix this
+              </button>
+            )}
+            {finding.acceptedAt == null && <AcceptForm id={finding.id} disabled={!canAccept(finding, readOnly)} readOnly={readOnly} />}
+          </div>
           <div className="defect-provenance">
             {/*
               Provenance, never a link: `lastJobId` holds whichever run last REPORTED this, which
@@ -223,11 +242,92 @@ function DefectRow({
   )
 }
 
+/**
+ * The address map's own repair (3.6), which is not a page pass and does not pretend to be.
+ *
+ * TWO LIMITS, both measured against the live vault and both said out loud here rather than
+ * only recorded in the task file:
+ *
+ *   - it reaches NONE of the `address-map` findings standing today. All four name a
+ *     `.raw/<job-id>/` directory that no source entry mentions, and what a job directory held
+ *     is not derivable from the directory. A repair that invented it would be inventing
+ *     provenance;
+ *   - it cannot be scoped to selected findings. It writes one whole file, so applying it fixes
+ *     every drift the map has, including entries the list never showed. This is the one place
+ *     where "write only what the list showed" does not hold, and the confirmation says so
+ *     before the commit rather than after it.
+ */
+function ManifestRepair({ readOnly }: { readOnly: boolean }): React.ReactElement {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const plan = useQuery({
+    queryKey: ['manifest-repair-plan'],
+    queryFn: () => api.manifestRepairPlan(),
+    enabled: open,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const apply = useMutation({
+    mutationFn: () => api.manifestRepairApply(plan.data!.beforeHash),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['validation'] }),
+  })
+  return (
+    <section className="defect-group">
+      <button className="defect-group-title linkish" onClick={() => setOpen(!open)} aria-expanded={open}>
+        The address map
+        <span className="dim">{open ? ' - hide' : ' - check it'}</span>
+      </button>
+      {open && (
+        <div className="repair-panel">
+          {plan.data === undefined ? (
+            <span className="dim">Reading the map…</span>
+          ) : (
+            <div className="repair-body">
+              <p>{plan.data.summary}.</p>
+              {plan.data.unnamedDirs.length > 0 && (
+                <p className="defect-limit">
+                  {plan.data.unnamedDirs.length} job director{plan.data.unnamedDirs.length === 1 ? 'y is' : 'ies are'} named
+                  in no source entry. No repair can reach those: what a job directory held is not derivable from the
+                  directory, and inventing it would be inventing provenance. They stay a decision.
+                </p>
+              )}
+              {plan.data.changes ? (
+                <>
+                  <p className="defect-limit">
+                    This writes the WHOLE map, not a selection: it fixes every drift it has, including entries the list
+                    never showed. One commit of its own.
+                  </p>
+                  <button className="btn" disabled={readOnly || apply.isPending} onClick={() => apply.mutate()}>
+                    {apply.isPending ? 'Writing…' : 'Repair the map'}
+                  </button>
+                  {apply.data !== undefined && (
+                    <p className="defect-note">
+                      {apply.data.stale
+                        ? 'The map changed since this was planned; nothing was written. Check it again.'
+                        : apply.data.written
+                          ? `Written${apply.data.commit?.hash ? `, commit ${apply.data.commit.hash.slice(0, 8)}` : ', not committed'}.`
+                          : 'Nothing to write.'}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="defect-note">Nothing in the map to repair.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function StandingDefects({ vaultName, readOnly = false }: { vaultName: string; readOnly?: boolean }): React.ReactElement | null {
   const [rule, setRule] = useState<string | null>(null)
   const [limit, setLimit] = useState(PAGE)
   /** The third block is collapsed by default: it is a record, not a working list. */
   const [showAccepted, setShowAccepted] = useState(false)
+  /** The repair being planned, if any. One at a time: the server plans one per rule anyway. */
+  const [repair, setRepair] = useState<RepairTarget | null>(null)
   const list = useQuery({
     queryKey: ['validation', rule, limit],
     queryFn: () => api.validation({ ...(rule === null ? {} : { rule }), limit }),
@@ -277,6 +377,29 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
               </button>
             ))}
           </div>
+          {/*
+            "Fix all N" (decision 5), on the narrowed rule rather than on every chip: the ids it
+            passes are the ones currently listed, so what the button promises is what the screen
+            is showing. The cap is the route's; a rule with more findings than that is worked in
+            pages, which is what "show more" is for.
+          */}
+          {rule !== null && guidance?.[rule]?.path === 'pass' && shown.length > 0 && (
+            <button
+              className="btn"
+              disabled={readOnly}
+              onClick={() => setRepair({ rule, ids: shown.slice(0, FIX_ALL_CAP).map((f) => f.id), label: `Fix ${Math.min(shown.length, FIX_ALL_CAP)} ${rule} finding(s)` })}
+            >
+              Fix all {Math.min(shown.length, FIX_ALL_CAP)}
+            </button>
+          )}
+          {repair !== null && (
+            <RepairPanel
+              target={repair}
+              guidance={guidance?.[repair.rule]}
+              readOnly={readOnly}
+              onClose={() => setRepair(null)}
+            />
+          )}
           {groups.map((g) =>
             g.rows.length === 0 ? null : (
               <section className="defect-group" key={g.id}>
@@ -285,7 +408,18 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
                   <Tip text={g.hint} />
                 </h4>
                 {g.rows.map((f) => (
-                  <DefectRow key={f.id} finding={f} guidance={guidance?.[f.rule]} vaultName={vaultName} readOnly={readOnly} />
+                  <DefectRow
+                    key={f.id}
+                    finding={f}
+                    guidance={guidance?.[f.rule]}
+                    vaultName={vaultName}
+                    readOnly={readOnly}
+                    onFix={
+                      guidance?.[f.rule]?.path === 'pass'
+                        ? () => setRepair({ rule: f.rule, ids: [f.id], label: `Fix one ${f.rule} finding` })
+                        : undefined
+                    }
+                  />
                 ))}
               </section>
             ),
@@ -297,6 +431,11 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
           )}
         </>
       )}
+      {/*
+        The address map, always offered: it is whole-vault and its rows are decisions, so it
+        belongs beside the list rather than inside a row.
+      */}
+      <ManifestRepair readOnly={readOnly} />
       {/*
         The third block (decision 9), outside the `total === 0` branch on purpose: a vault whose
         standing list is empty because every finding was accepted must still show what was

@@ -228,6 +228,48 @@ export interface FindingEvidence {
   note?: string
 }
 
+/** One page a repair plan would change. `beforeHash` is what the approval carries forward. */
+export interface PlannedRepairPage {
+  rel: string
+  why: string
+  diff: string
+  beforeHash: string
+}
+
+export interface RepairPlan {
+  pass: string
+  rule: string
+  pages: PlannedRepairPage[]
+  /** Pages of the selection the pass looked at and left alone. Not a failed fix. */
+  unchanged: string[]
+  findings: number
+}
+
+export interface RepairOutcome {
+  written: string[]
+  /** Pages whose content no longer matches the diff that was approved. Not written. */
+  stale: string[]
+  /** Pages somebody else is writing. Not written, and NOT the same as stale. */
+  busy: string[]
+  commit: { committed: boolean; hash?: string; committedPages: string[]; note?: string } | null
+  commitError?: string
+  /** What the post-write check found: new defects recorded, old ones cleared. */
+  recorded: number
+  resolved: number
+  recheckedAway: number
+}
+
+/** The address map's own repair: one whole-file change, never scoped to selected findings. */
+export interface ManifestRepairPlan {
+  added: Array<{ rel: string; address: string }>
+  droppedPages: Array<{ source: string; page: string }>
+  droppedAddresses: Array<{ rel: string; address: string }>
+  unnamedDirs: string[]
+  changes: boolean
+  beforeHash: string
+  summary: string
+}
+
 export interface ValidationList {
   findings: StandingFinding[]
   byRule: Array<{ rule: string; findings: number; occurrences: number }>

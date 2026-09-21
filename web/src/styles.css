@@ -6700,6 +6700,14 @@ tr:focus-within .rowacts {
   font-size: 11px;
   color: var(--text-dim);
 }
+/* A row's actions: the button where a pass reaches this page, and the accept beside it. */
+.defect-buttons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 /* The accept, with its reason. Permanent and reasoned: a snooze would only postpone the
    reading, and an accept without a reason is indistinguishable from neglect. */
 .defect-accept {
@@ -6716,6 +6724,86 @@ tr:focus-within .rowacts {
   font-size: 11px;
   color: var(--err);
 }
+/* ── The repair panel and its diffs ────────────────────────────────────────────────────
+   The approval is of a DIFF, so the diff is the thing on the screen: one per page, with its
+   own checkbox, all checked by default. */
+.repair-panel {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+.repair-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.repair-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.repair-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+}
+.repair-page {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.repair-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.repair-rel {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.repair-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* Vault text as DATA: monospace, wrapped, never in the dashboard's own voice. */
+.diff {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.diff-line {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-line.add {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.diff-line.del {
+  background: var(--err-bg);
+  color: var(--err);
+}
+.diff-line.meta {
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+}
+.diff-line.ctx {
+  color: var(--text-dim);
+}
+
 /* An accepted row is a record rather than a working row: no expansion, no evidence. */
 .defect-line.static {
   cursor: default;

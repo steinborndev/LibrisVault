@@ -11,6 +11,9 @@ import type {
   ValidationList,
   FindingEvidence,
   StandingFinding,
+  RepairPlan,
+  RepairOutcome,
+  ManifestRepairPlan,
   Health,
   JobStatus,
   Session,
@@ -159,6 +162,40 @@ export const api = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ reason }),
     }).then(json<{ finding: StandingFinding }>),
+
+  /**
+   * The deterministic repair, planned. Read-only and needs no credential: the rule is
+   * mechanical, so nothing is started and nothing can be invented. The client names FINDING
+   * IDS; the server resolves them to paths.
+   */
+  repairPlan: (rule: string, ids: string[]): Promise<RepairPlan> =>
+    fetch(`${BASE}/validation/repair/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rule, ids }),
+    }).then(json<RepairPlan>),
+
+  /**
+   * The same selection, applied. `pages` carries the `beforeHash` each page was planned
+   * against: the approval was of a diff, and a diff the page no longer has is not it.
+   */
+  repairApply: (rule: string, ids: string[], pages: Array<{ rel: string; beforeHash: string }>): Promise<RepairOutcome> =>
+    fetch(`${BASE}/validation/repair/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rule, ids, pages }),
+    }).then(json<RepairOutcome>),
+
+  /** The address map's own plan; it is whole-file and cannot be scoped to selected findings. */
+  manifestRepairPlan: (): Promise<ManifestRepairPlan> =>
+    fetch(`${BASE}/validation/repair/manifest/plan`, { method: 'POST' }).then(json<ManifestRepairPlan>),
+
+  manifestRepairApply: (beforeHash: string): Promise<{ written: boolean; stale: boolean; commit: { hash?: string } | null }> =>
+    fetch(`${BASE}/validation/repair/manifest/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ beforeHash }),
+    }).then(json<{ written: boolean; stale: boolean; commit: { hash?: string } | null }>),
 
   /** Takes an accept back; the finding returns to whichever block it belonged to. */
   unacceptFinding: (id: string): Promise<{ finding: StandingFinding }> =>
