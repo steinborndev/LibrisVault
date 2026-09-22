@@ -211,6 +211,14 @@ here guards against that. The worst measured case is finance: 9 entries, 3 chapt
 which reads fine. A threshold for a case nobody has seen is untested machinery in the name of a
 guess, and it gets built when a domain shows it.
 
+**The page count follows what is on screen** (added 2026-09-22, user decision). "Showing 42 of
+1320 pages" while the mode is on, 26 while one neighbourhood is open, 535 again when it goes
+off. The mask keeps every page of the domain in the arrays the canvas is handed, which is what
+leaves the layout alone - but that is a fact about the machinery, and the reader counts what
+they can see. The second number stays the vault, so the sentence goes on saying how much of the
+whole is in front of them. It is the same set the camera frames, on purpose: a count answering
+a different question from the picture beside it is one more thing to reconcile.
+
 **The heading does not move** (added 2026-09-22, user decision). The bar's middle block keeps
 its width when the neighbourhood's name is appended: the lead, the dot and the first letter stay
 exactly where they were, nothing else in the bar shifts, and the tail runs PAST the block's own
@@ -229,7 +237,8 @@ all. That is the accepted cost of a switch that lives where its three siblings l
 reason text has to carry it, so the four states are written here rather than invented at the
 keyboard:
 
-- available: no reason, the switch is simply live
+- available: "key articles of the selected domain" (2026-09-22, user wording), which names what
+  the mode draws rather than how it chooses them - the choosing is the list's business
 - nothing or several domains on show: "Filter to one domain to see where it begins."
 - the unfiled pile on show: "Pages without a domain are not one."
 - a domain under the bar: "Only 19 pages here, small enough to read whole." (the count is the

@@ -1116,11 +1116,15 @@ function GraphView({
     }
     const anchor = bloom === null ? null : at.get(bloom) ?? null
     /*
-     * What the camera frames: the open neighbourhood while there is one, the painted set
-     * otherwise. The LAYOUT is still never recomputed - the node list, the edge list and the
-     * grouping are untouched, which is the whole of the Positions decision - and this moves the
-     * camera only, so a click lands on a readable view of one page instead of on twelve more
-     * dots somewhere in a field of forty.
+     * What is ON SCREEN: the open neighbourhood while there is one, the painted set otherwise.
+     * It is the same set twice over - what the camera frames and what the page count in the bar
+     * reports - because a count that answered a different question from the picture beside it
+     * would be a third number for the reader to reconcile.
+     *
+     * The LAYOUT is still never recomputed: the node list, the edge list and the grouping are
+     * untouched, which is the whole of the Positions decision. This moves the camera only, so a
+     * click lands on a readable view of one page instead of on twelve more dots somewhere in a
+     * field of forty.
      */
     const framed =
       anchor === null ? new Set<number>([...landmarks, ...connectors]) : new Set<number>([anchor, ...bloomed])
@@ -1806,9 +1810,16 @@ function GraphView({
             <span className="scopeline">
               Showing{' '}
               <strong>
-                {realCount} of {pagePool}
+                {landmarkView?.framed.size ?? realCount} of {pagePool}
               </strong>{' '}
               pages
+              {/*
+                * With the Landmarks mask on, the first number is what is PAINTED rather than
+                * what is drawn (2026-09-22): the mask keeps every page of the domain in the
+                * arrays, which is what leaves the layout alone, but the reader counts what they
+                * can see. The second number stays the vault, so the sentence still says how much
+                * of the whole is in front of them.
+                */}
               {/*
                 * What the two numbers mean, when they disagree (2026-09-16). A search keeps the
                 * pages that MATCH plus their direct neighbours, so a hit is never a dot on its
@@ -2754,7 +2765,7 @@ function GraphPanel({
             on={landmarks}
             onToggle={onLandmarks}
             name="Landmarks"
-            desc={landmarkReason ?? 'the pages a domain is built around'}
+            desc={landmarkReason ?? 'key articles of the selected domain'}
             disabled={landmarkReason !== null}
             title={
               landmarkReason ??
