@@ -3345,6 +3345,15 @@ span.head-slot { display: inline-block; }
 /* A neighbour of the expanded landmark: the number column stays empty, because a neighbour has
    a place in this page's neighbourhood and none in the domain's reading order. */
 .lm-near .lm-t { color: var(--text-dim); }
+/* The expanded landmark heads its own neighbourhood, whether or not it is the selection - under
+   the lock there is none, and the head of a list must still read as its head. */
+.lm-anchor .lm-t { font-weight: 600; }
+/* …and the two numbers about it, said rather than left to the column to imply. */
+.lm-meta {
+  margin: 1px 0 6px 38px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
 .bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }
 /* A hollow ring where no one colour applies: several domains, a wing, the whole vault. */
 .bar-mid .mid-dot.none { background: transparent; border: 1.5px solid var(--text-faint); }

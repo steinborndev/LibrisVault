@@ -111,9 +111,9 @@ between the question and the answer with nothing left to justify it. Both are go
 open it is what the screen is about, and the three surfaces say so together rather than leaving
 the reader to find twelve new dots in a field of forty:
 
-- the LIST is that neighbourhood - the landmark, keeping its number so the place in the reading
-  order is not lost, and under it every page it links to or from inside the domain. The list
-  and the picture hold the same set, which is what finding 4 below is about;
+- the LIST is that neighbourhood - the landmark at its head, and under it every page it links
+  to or from inside the domain. The list and the picture hold the same set, which is what
+  finding 4 below is about;
 - the PICTURE is that neighbourhood and nothing else (corrected 2026-09-22, user decision, was
   half-transparent): every other landmark and connector is off the drawing. Remains of the
   other view inside a frame drawn around one page are a second picture the reader has to look
@@ -191,8 +191,15 @@ want to know where you were. No backlink count beside it: the rank is already st
 order, and a second number for the same thing is the mistake the size ramp is kept out of this
 for. The selected row is marked, unless the lock has cleared the selection. While a
 neighbourhood is open the list is that neighbourhood instead (see **Expansion**): the landmark
-with its number and the neighbours under it - unnumbered, because a neighbour
-has a place in this page's neighbourhood and none in the domain's reading order.
+at its head and the neighbours under it, unnumbered, because a neighbour has a place in this
+page's neighbourhood and none in the domain's reading order.
+
+**A number says what it counts, or it does not appear** (corrected 2026-09-22, finding 5). The
+head of a neighbourhood carries two figures on one quiet line - "25 neighbours · #13 of 40" -
+rather than the rank alone in the number column. In the reading order that column is
+unambiguous because forty of them run down it; at the head of a neighbourhood it is the only
+number on screen, and the only other thing a number can mean over a list is how long the list
+is. It was read that way, which is the reading the layout invited.
 
 **The chapters in the list.** From the second chapter on, a thin rule with a caption that says
 what the break means ("not linked to anything above · 3 pages"). The first gets nothing,
@@ -587,3 +594,19 @@ is right to read that as the list naming something that is not part of the expan
 Both halves are one set now: every page the landmark links to or from inside the domain is in
 the neighbourhood, is on screen, and is in the list. Measured in the running app: 27 painted
 blobs against 26 list rows, the one extra being the selection ring.
+
+**5. The rank at the head of a neighbourhood was read as a count (2026-09-22, reported, fixed).**
+
+The head row carried the landmark's place in the reading order in the same number column the
+full list uses - "37" over a list of 21 entries - and it was read as "37 entries", which is the
+only other thing a number over a list can mean. Nothing was wrong with the figure; the column
+was carrying a meaning it could no longer imply, because the forty rows that made it a rank
+were not on screen.
+
+Two ways out were on the table: drop the rank (Escape marks the row and scrolls to it, so the
+place is one press away) or label both figures. The second was taken, because the rank does
+work while reading - "thirteen of forty, a third of the way in" - and because a line under the
+head was free, the "show all" handle having gone the same day.
+
+The rule it leaves behind is worth more than the fix: in this list a number stands bare only
+where the column itself says what it counts.

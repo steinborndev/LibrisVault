@@ -2086,14 +2086,24 @@ function LandmarkList({
           <li className="lm-item">
             <button
               ref={selected === bloom ? cur : null}
-              className={`lm-row${selected === bloom ? ' cur' : ''}`}
+              className={`lm-row lm-anchor${selected === bloom ? ' cur' : ''}`}
               aria-current={selected === bloom ? 'true' : undefined}
               onClick={() => onPick(bloom)}
               title={titleOf(bloom)}
             >
-              <span className="lm-n">{at + 1}</span>
+              <span className="lm-n" aria-hidden />
               <span className="lm-t">{titleOf(bloom)}</span>
             </button>
+            {/*
+              * Both numbers, both labelled (2026-09-22). The rank used to stand alone in the
+              * number column, where the only other thing a number can mean over a list is how
+              * long the list is - and it was read that way. In the full list the column is
+              * unambiguous because forty of them run down it; here it is the only one, so it
+              * says what it counts or it does not appear.
+              */}
+            <p className="lm-meta">
+              {neighbourhood.length} neighbour{neighbourhood.length === 1 ? '' : 's'} · #{at + 1} of {set.order.length}
+            </p>
           </li>
           {/* The neighbours carry no number: they are this page's neighbourhood, not a place
               in the domain's reading order, and a number would claim they were. */}
