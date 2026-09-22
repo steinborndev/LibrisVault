@@ -2059,6 +2059,7 @@ function GraphView({
                 graph={graph}
                 path={selection.path}
                 health={health}
+                inLandmarks
                 onSelectPage={selectPage}
                 onTag={(t) => {
                   setTagFilter({ tag: t, around: selection.path })
@@ -2296,6 +2297,7 @@ function PageExplorer({
   onSelectPage,
   onTag,
   showSystem,
+  inLandmarks = false,
 }: {
   graph: VaultGraph
   path: string
@@ -2305,6 +2307,8 @@ function PageExplorer({
   showSystem: boolean
   /** A tag in the head, pressed: the screen turns it into the search that narrows the graph. */
   onTag: (tag: string) => void
+  /** Whether this detail stands inside the Landmarks column, where a focus cannot act. */
+  inLandmarks?: boolean
 }): React.ReactElement {
   const idx = useMemo(() => graph.nodes.findIndex((n) => n.path === path), [graph, path])
   const node = idx >= 0 ? graph.nodes[idx] : undefined
@@ -2507,7 +2511,22 @@ function PageExplorer({
         <LinkSection title="Related by tag" list={related} onSelect={onSelectPage} />
       </div>
       <div className="gx-actions">
-        <button className="btn" onClick={() => navigate(`/graph?focus=${encodeURIComponent(node.path)}`)}>
+        {/*
+          * Nothing to focus while the Landmarks mask is on (2026-09-22). The button sets
+          * `?focus=`, and a focus narrows nothing until a DEPTH is chosen - while a depth is
+          * one of the three things that turn the mode off. So pressing it there either does
+          * nothing or throws away the mode, and it says so instead.
+          */}
+        <button
+          className="btn"
+          disabled={inLandmarks}
+          onClick={() => navigate(`/graph?focus=${encodeURIComponent(node.path)}`)}
+          title={
+            inLandmarks
+              ? 'Not while Landmarks is on: a focus draws nothing until you pick a depth, and a depth turns the overlay off.'
+              : 'Draw the neighbourhood around this page'
+          }
+        >
           Focus neighborhood
         </button>
         {/*

@@ -301,7 +301,13 @@ community, and most of what it would light is not there either.
 So the three go grey together while the mode is on, in the same four words - "needs a whole
 community" - because it is the same reason; each keeps its own sentence in its tooltip, where
 there is room for the difference. And the block's order puts Spotlight third, between the two
-that draw and the one that lights. A search leaves the mode.
+that draw and the one that lights.
+
+**And so does "Focus neighborhood"** (added 2026-09-22, user report). The page detail's own
+action sets `?focus=`, and a focus narrows nothing until a DEPTH is chosen - while a depth is
+one of the three things that turn this mode off. Pressing it here therefore either does nothing
+or throws the mode away; measured, the drawing did not change. It is disabled in this column and
+says why. A search leaves the mode.
 
 **The lock.** The picture on screen, held (`graphFreeze.ts`, 2026-09-17). The two mechanisms
 collide before they combine: while the lock is closed the right-hand column is not rendered at
