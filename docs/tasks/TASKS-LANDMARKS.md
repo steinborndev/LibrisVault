@@ -441,3 +441,29 @@ answers and "12 of 22" only answers when the two sets happen not to overlap.
 Nothing else in the file moves either way: the set, the order, the chapters, the connectors and
 the recorded neighbour counts are unaffected, and the canvas takes the bloom as a set of nodes
 to paint whichever rule builds it.
+
+**2. What a click on a LANDMARK does to the column (2026-09-22, found building chunk 4,
+resolved by reading).**
+
+**The list** says "clicking an entry or a node replaces it with the page detail and a way back
+to the list". Taken to include a landmark, three other sentences of this file stop being
+reachable: the selected row is marked, the bloomed landmark's row carries its handle line
+underneath, and a click on the canvas moves the list's highlight - none of which can be seen
+if every click puts a page detail over the list. The handle would be the worst of the three,
+because it was put in the list precisely so it would already be on screen when it is wanted.
+
+There is one reading under which every sentence holds, and it is **Expansion**'s own: "Only a
+landmark expands; a click on a connector or on a neighbour that is already out selects and
+opens it exactly as anywhere else on this screen." A landmark has its own rule and is not the
+"node" of the list's sentence. So:
+
+- a landmark, on the canvas: expands, marks its row, and the list stands - that is where the
+  handle is;
+- a connector or a neighbour already out: the page detail, which is what "exactly as anywhere
+  else on this screen" means where the explorer is what stands in that column;
+- an entry in the list: the page detail, with the way back;
+- locked, any of them: the page, because exploration is what was left behind when the lock
+  closed.
+
+Built that way. Named here because it is a reading rather than a decision, and a one-line
+change if it is the wrong one.

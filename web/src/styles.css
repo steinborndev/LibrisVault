@@ -3589,6 +3589,95 @@ span.head-slot { display: inline-block; }
   padding: 16px 16px 12px;
   border-bottom: 1px solid var(--border);
 }
+
+/* ── Landmarks: the reading order beside the picture. The column is the explorer's, so the
+   frame is the explorer's too; what differs is that this is a list of the DOMAIN rather than
+   the detail of one selection. */
+.landmarks {
+  overflow-y: auto;
+}
+.lm-list {
+  margin: 0;
+  padding: 10px 8px 16px;
+  list-style: none;
+}
+.lm-item {
+  display: block;
+}
+.lm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.lm-row:hover {
+  background: var(--bg-elev-2);
+}
+.lm-row.cur {
+  border-color: var(--accent);
+  background: var(--bg-elev-2);
+}
+/* The number is the reader's place in the order, so it keeps a column of its own and the
+   titles all start on the same line however far the count has run. */
+.lm-n {
+  flex: none;
+  width: 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  color: var(--text-faint);
+}
+.lm-t {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+/* A thin rule with a caption, not a heading: one left-over page must not read as heavy as a
+   chapter of thirty-six. */
+.lm-break {
+  margin: 14px 8px 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.lm-more {
+  display: block;
+  margin: 1px 0 4px 38px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+.lm-more:hover {
+  text-decoration: underline;
+}
+/* The way back out of a page detail and into the list it was opened from. */
+.gx-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.gx-back:hover {
+  color: var(--text);
+}
 /* The kicker over a title in the explorer: the same label as `.bucket`, one step up because
    it sits over a heading rather than beside a name in a list. */
 .gx-kicker {

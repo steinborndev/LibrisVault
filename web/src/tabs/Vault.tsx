@@ -34,7 +34,7 @@ import { stepTrail } from '../lib/trail.ts'
 import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFreeze } from '../lib/graphFreeze.ts'
 import { BUCKET_LABELS as TYPE_LABELS } from '../lib/buckets.ts'
 import { detectClusters } from '../lib/communities.ts'
-import { BLOOM_CAP, NO_DOMAIN, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
+import { BLOOM_CAP, NO_DOMAIN, chapterSize, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
 
@@ -526,6 +526,22 @@ function GraphView({
   const [landmarkDomain, setLandmarkDomain] = useState<string | null>(viewMemory.landmarks)
   /** The expanded landmark, by path: one neighbourhood at a time. Exploration, not a preference. */
   const [bloom, setBloom] = useState<string | null>(viewMemory.bloom)
+  /** The cap lifted for THIS neighbourhood, by the handle line in the list. */
+  const [bloomAll, setBloomAll] = useState(false)
+  /**
+   * Whether the right-hand column is showing a page rather than the list. A landmark clicked on
+   * the canvas expands and keeps the list standing - that is where its handle line is, and a
+   * control you have to go back for is not a handle. Everything else that can be clicked while
+   * the mode is on - an entry in the list, a connector, a neighbour already out - opens the page
+   * detail, which is what "selects and opens it exactly as anywhere else on this screen" means
+   * where the explorer is what stands in that column.
+   */
+  const [listDetail, setListDetail] = useState(false)
+  /** One neighbourhood at a time, and a second click on the same landmark drops it, cap and all. */
+  const showBloom = (path: string | null): void => {
+    setBloomAll(false)
+    setBloom((b) => (path !== null && b === path ? null : path))
+  }
   /**
    * The explorer selection, keyed stably (path for a page, title for a gap) so it survives
    * the index churn a filter change causes. Clicking a node opens the panel instead of
@@ -622,6 +638,7 @@ function GraphView({
   const closeExplorer = (): void => {
     setSelection(null)
     setTrail([])
+    setListDetail(false)
   }
 
   /*
@@ -649,6 +666,7 @@ function GraphView({
     // The overlay belongs to the preferences and stays; the open neighbourhood belongs to the
     // exploration and goes, with the trail.
     setBloom(null)
+    setBloomAll(false)
   }, [active])
 
   const focusIndexFull = useMemo(
@@ -746,7 +764,7 @@ function GraphView({
     const lost = !landmarkAvail.available || landmarkAvail.domain !== landmarkDomain
     if (lost || spotlight || clusterStack.length > 0 || localDepth > 0 || query.trim() !== '') {
       setLandmarkDomain(null)
-      setBloom(null)
+      showBloom(null)
     }
   }, [landmarkDomain, landmarkAvail, spotlight, clusterStack.length, localDepth, query])
 
@@ -1053,7 +1071,7 @@ function GraphView({
    * A landmark the other filters have hidden is simply not in the drawing to paint; it stays in
    * the list, because the list is about the domain and not about the drawing.
    */
-  const landmarkMask = useMemo(() => {
+  const landmarkView = useMemo(() => {
     if (landmarkData === null) return null
     const at = new Map<string, number>()
     nodes.forEach((n, i) => at.set(n.path, i))
@@ -1075,14 +1093,27 @@ function GraphView({
      */
     const out = new Set<number>([...landmarks, ...connectors])
     const bloomed = new Set<number>()
-    for (const p of (bloom === null ? [] : landmarkData.neighbours.get(bloom) ?? [])) {
-      if (bloomed.size >= BLOOM_CAP) break
+    const near = bloom === null ? [] : landmarkData.neighbours.get(bloom) ?? []
+    let onScreen = 0
+    for (const p of near) {
       const i = at.get(p)
-      if (i === undefined || out.has(i)) continue
+      if (i === undefined) continue // a neighbour the other filters keep out of the drawing
+      if (out.has(i)) {
+        onScreen++
+        continue
+      }
+      if (!bloomAll && bloomed.size >= BLOOM_CAP) continue
       bloomed.add(i)
+      onScreen++
     }
-    return { landmarks, connectors, bloom: bloomed, inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0) }
-  }, [landmarkData, nodes, bloom])
+    return {
+      mask: { landmarks, connectors, bloom: bloomed, inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0) },
+      /** What the handle line states: of this page's neighbourhood, how much is on screen. */
+      shown: onScreen,
+      total: near.length,
+    }
+  }, [landmarkData, nodes, bloom, bloomAll])
+  const landmarkMask = landmarkView?.mask ?? null
 
   /*
    * The backlink range of what is DRAWN, for the authority legend. A gradient labelled "few to
@@ -1191,7 +1222,7 @@ function GraphView({
    * allowed, because they colour rather than reduce.
    */
   const toggleLandmarks = (): void => {
-    setBloom(null)
+    showBloom(null)
     if (landmarkDomain !== null) {
       setLandmarkDomain(null)
       return
@@ -1261,7 +1292,7 @@ function GraphView({
     // asked for - and it is the switch you are least likely to remember pressing.
     setShowSystem(false)
     setLandmarkDomain(null)
-    setBloom(null)
+    showBloom(null)
     setClusterStack([])
     setLocalDepth(0)
     closeExplorer() // selection + trail
@@ -1341,7 +1372,10 @@ function GraphView({
     const state = landmarkState(graph.nodes, new Set(f.selectedDomains), heldScope)
     const ok = f.landmarks !== null && state.available && state.domain === f.landmarks.domain
     setLandmarkDomain(ok ? f.landmarks!.domain : null)
+    // The record holds which landmark was open, not that its cap had been lifted: a lifted cap
+    // is a press, and the record is of a picture.
     setBloom(ok ? f.landmarks!.bloom : null)
+    setBloomAll(false)
     closeExplorer()
     navigate(f.focusPath === null ? '/graph' : `/graph?focus=${encodeURIComponent(f.focusPath)}`, { replace: true })
     setFitNonce((n) => n + 1)
@@ -1433,7 +1467,7 @@ function GraphView({
       // The two new rungs sit innermost first, as the ladder does: an open neighbourhood
       // immediately before the panel, the mode immediately before the cluster stack. Every rung
       // below the mode is inert while it is on, because it turned them off.
-      else if (bloom !== null) setBloom(null)
+      else if (bloom !== null) showBloom(null)
       else if (selection !== null) closeExplorer()
       else if (landmarkDomain !== null) setLandmarkDomain(null)
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
@@ -1442,6 +1476,26 @@ function GraphView({
       return
     }
     if (typing) return
+    /*
+     * Up and down walk the list, across the chapter rules: the chapters are breaks in ONE list
+     * and the walk does not stop at them. Enter needs no binding of its own - the list's
+     * selection IS the screen's selection, and Enter already opens that. Left and right stay
+     * with the domains.
+     */
+    if (landmarkData !== null && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault()
+      const order = landmarkData.order
+      if (order.length === 0) return
+      const at = selection?.kind === 'page' ? order.indexOf(selection.path) : -1
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      const next = at < 0 ? (step === 1 ? 0 : order.length - 1) : Math.min(order.length - 1, Math.max(0, at + step))
+      const path = order[next]
+      if (path !== undefined) {
+        selectPage(path)
+        setListDetail(false)
+      }
+      return
+    }
     if (e.key === 'Enter' && selection?.kind === 'page') {
       navigate(pageRoute(selection.path))
     } else if (e.key === '/') {
@@ -1764,7 +1818,13 @@ function GraphView({
              * click then opens the page (`openOnClick`): exploration is what was left behind
              * when the lock closed.
              */
-            if (landmarkData?.neighbours.has(n.path) === true) setBloom((b) => (b === n.path ? null : n.path))
+            if (landmarkData !== null) {
+              const isLandmark = landmarkData.neighbours.has(n.path)
+              if (isLandmark) showBloom(n.path)
+              // A landmark keeps the list standing, because the list is where its handle line
+              // is; anything else in this mode opens as it would anywhere else on this screen.
+              setListDetail(!isLandmark)
+            }
             selectPage(n.path)
           }}
           // The spotlight click, on a member node or anywhere in the community's hull: it
@@ -1870,7 +1930,54 @@ function GraphView({
             </>
           }
         />
-        {frozen === null && (
+        {/*
+          * The column's three faces. With the mode on it is the list - and the list is exempt
+          * from "the panel stays away while the lock is closed", by that rule's own reason
+          * rather than by its letter: `toggleFreeze` clears the selection because a picture
+          * held as a reading list has no page selected in it, and that aims at the SELECTION.
+          * The explorer is the detail of a selection; the list is part of the picture.
+          */}
+        {landmarkData !== null ? (
+          listDetail && selection?.kind === 'page' ? (
+            <aside className="graph-explorer" role="complementary" aria-label="Page detail">
+              <button className="gx-back" onClick={() => setListDetail(false)}>
+                <Icon name="back" /> Landmarks
+              </button>
+              <PageExplorer
+                graph={graph}
+                path={selection.path}
+                health={health}
+                onSelectPage={selectPage}
+                onTag={(t) => {
+                  setTagFilter({ tag: t, around: selection.path })
+                  closeExplorer()
+                }}
+                showSystem={showSystem}
+              />
+            </aside>
+          ) : (
+            <LandmarkList
+              set={landmarkData}
+              titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
+              selected={selection?.kind === 'page' ? selection.path : null}
+              bloom={bloom}
+              shown={landmarkView?.shown ?? 0}
+              total={landmarkView?.total ?? 0}
+              locked={frozen !== null}
+              onPick={(path) => {
+                // Locked, leaving for the page and coming back to the held picture is a reading
+                // pass, and one rule then governs the canvas and the list alike.
+                if (frozen !== null) {
+                  navigate(pageRoute(path))
+                  return
+                }
+                selectPage(path)
+                setListDetail(true)
+              }}
+              onShowAll={() => setBloomAll(true)}
+            />
+          )
+        ) : frozen === null ? (
         <GraphExplorer
           graph={graph}
           selection={selection}
@@ -1891,11 +1998,100 @@ function GraphView({
           showSystem={showSystem}
           onClose={closeExplorer}
         />
-        )}
+        ) : null}
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * The reading order, beside the picture (docs/tasks/TASKS-LANDMARKS.md).
+ *
+ * A row is a number and a title and nothing else. The rank is already stated by the order, and
+ * a second number for the same thing is the mistake the size ramp is kept out of this mode for.
+ * The number runs 1 to k UNBROKEN across the chapter rules, because the chapters are breaks in
+ * one list rather than sections of several - and because it is there for the reading pass the
+ * lock describes, where you leave for a page, come back, and want to know where you were.
+ */
+function LandmarkList({
+  set,
+  titleOf,
+  selected,
+  bloom,
+  shown,
+  total,
+  locked,
+  onPick,
+  onShowAll,
+}: {
+  set: LandmarkSet
+  titleOf: (path: string) => string
+  /** The selected page, or null - which is how a locked picture's list stands, without one. */
+  selected: string | null
+  /** The expanded landmark, whose row carries the handle line underneath. */
+  bloom: string | null
+  /** Of the expanded landmark's neighbourhood, how much is on screen, against the whole of it. */
+  shown: number
+  total: number
+  locked: boolean
+  onPick: (path: string) => void
+  onShowAll: () => void
+}): React.ReactElement {
+  const starts = new Map(set.chapters.map((at, c) => [at, c]))
+  const cur = useRef<HTMLButtonElement>(null)
+  // Walking with the arrows must not walk off the bottom of the column.
+  useEffect(() => {
+    cur.current?.scrollIntoView({ block: 'nearest' })
+  }, [selected])
+  return (
+    <aside className="graph-explorer landmarks" role="complementary" aria-label="Landmarks, in reading order">
+      <ol className="lm-list">
+        {set.order.map((path, i) => {
+          const chapter = starts.get(i)
+          const size = chapter === undefined ? 0 : chapterSize(set, chapter)
+          const on = selected === path
+          return (
+            <li key={path} className="lm-item">
+              {/*
+                * From the second chapter on, a thin rule with a caption that says what the break
+                * MEANS. Deliberately not a heading: the largest domain here breaks into 36, 3
+                * and 1, and a heading would give one left-over page the weight of thirty-six
+                * connected ones. The first chapter gets nothing, because it is simply the list.
+                */}
+              {chapter !== undefined && chapter > 0 && (
+                <p className="lm-break">
+                  not linked to anything above · {size} page{size === 1 ? '' : 's'}
+                </p>
+              )}
+              <button
+                ref={on ? cur : null}
+                className={`lm-row${on ? ' cur' : ''}`}
+                aria-current={on ? 'true' : undefined}
+                onClick={() => onPick(path)}
+                title={titleOf(path)}
+              >
+                <span className="lm-n">{i + 1}</span>
+                <span className="lm-t">{titleOf(path)}</span>
+              </button>
+              {/*
+                * The rest of a neighbourhood, as a line in the list rather than a control on the
+                * canvas: the canvas has no vocabulary for one and would need a widget, a hit
+                * target and a place to put them, while the list is already this mode's text
+                * surface and a count is the kind of thing it exists to say. Not offered while
+                * the picture is locked - pressing it would change the very picture being held.
+                */}
+              {bloom === path && shown < total && !locked && (
+                <button className="lm-more" onClick={onShowAll}>
+                  {shown} of {total} shown, show all
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+    </aside>
   )
 }
 
