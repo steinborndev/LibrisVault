@@ -9,7 +9,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { authorityGradient, authorityRamp, isDarkSurface } from '../src/components/GraphCanvas.tsx'
+import { authorityGradient, authorityRamp, authorityValue, isDarkSurface, type LandmarkMask } from '../src/components/GraphCanvas.tsx'
+import type { GraphNode } from '../src/api/types.ts'
 
 const rgb = (css: string): [number, number, number] => {
   const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(css)
@@ -82,5 +83,41 @@ describe('isDarkSurface', () => {
     expect(isDarkSurface('rgb(236, 239, 246)')).toBe(false)
     // Unreadable input assumes dark, which is this app's base theme.
     expect(isDarkSurface('')).toBe(true)
+  })
+})
+
+describe('what the authority lens counts', () => {
+  const nodes = [
+    { path: 'a', title: 'a', type: 'concepts', tags: [], domain: 'alpha', in: 40, out: 0 },
+    { path: 'b', title: 'b', type: 'concepts', tags: [], domain: 'alpha', in: 13, out: 0 },
+  ] satisfies GraphNode[]
+  const mask = (inDomain: number[]): LandmarkMask => ({
+    landmarks: new Set([0]),
+    connectors: new Set<number>(),
+    bloom: new Set<number>(),
+    inDomain,
+  })
+
+  it('reads the vault-wide count with no mask on', () => {
+    expect(authorityValue(null, nodes, 0)).toBe(40)
+    expect(authorityValue(null, nodes, 1)).toBe(13)
+  })
+
+  it('reads the domain-internal count the mask hands in', () => {
+    // The machine-learning finding as a case: a page with backlinks over the vault and none
+    // inside its own domain is not an authority OF that domain, and the lens has to say so.
+    expect(authorityValue(mask([7, 0]), nodes, 0)).toBe(7)
+    expect(authorityValue(mask([7, 0]), nodes, 1)).toBe(0)
+  })
+
+  it('falls back on a missing entry, never on a zero', () => {
+    // The trap this guards: `||` would read "no backlinks inside the domain" as "nobody said"
+    // and silently colour the page by its vault count instead.
+    expect(authorityValue(mask([5]), nodes, 1)).toBe(13)
+    expect(authorityValue(mask([0, 0]), nodes, 0)).toBe(0)
+  })
+
+  it('answers for a node nothing knows about', () => {
+    expect(authorityValue(null, nodes, 9)).toBe(0)
   })
 })
