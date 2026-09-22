@@ -467,3 +467,54 @@ opens it exactly as anywhere else on this screen." A landmark has its own rule a
 
 Built that way. Named here because it is a reading rather than a decision, and a one-line
 change if it is the wrong one.
+
+**3. A node's SCREEN position moves when the list opens, and the mask is not what moves it
+(2026-09-22, found measuring chunk 5, resolved by measurement).**
+
+Chunk 5 asks for "a node in the same screen position before and after the switch". Measured
+against the live vault it is not, in any of the three domains: 0 of 42, 0 of 9 and 0 of 11
+painted nodes land within half a pixel of where they stood, with medians of 12, 62 and 29 px.
+
+The layout is not what moved them. Across every one of those switches the layout worker was
+asked for nothing and answered nothing - posts 5 → 5, frames 170 → 170 - which is the
+observable form of the **Positions** decision and the thing that decision actually turns on.
+What moved is the CANVAS: the list opens in the right-hand column and takes 340 px of the
+drawing's width, the canvas re-frames to the room it has left (which is what it does for any
+resize it has not been panned away from), and the picture lands smaller and shifted.
+
+Isolated by opening that column first: with a page already selected, so the column is standing
+and the canvas keeps its 956 px, the same switch moves 26 of 43 painted nodes by nothing at all
+and the worst by 1.70 px - which is the node's own radius changing under a centroid, not a
+position changing.
+
+So the criterion holds of the mechanism and not of the pixels, and the difference is one the
+screen already has: clicking any node today opens that same column and re-frames that same way.
+Nothing to fix - the alternative is a canvas cropped by 340 px with a third of the drawing
+behind the list.
+
+## What the running app measured (2026-09-22, chunk 5)
+
+Against the live vault, through the real screen, `?labels=off`. Pictures under
+`docs/local/landmarks-2026-09-22/` - this repo is public and that vault is not, and this repo's
+own convention is that everything under `docs/img/` comes from the synthetic vault
+(`docs/screenshots.md`), which these do not.
+
+| Domain | drawn | painted | list | the breaks it drew | node sizes on screen |
+|---|---|---|---|---|---|
+| biomedicine | 535 | 42 | 40 rows | "· 3 pages", "· 1 page" | 40 at 7.7-7.8 px, 2 at 2.0-2.3 px |
+| finance | 78 | 9 | 9 rows | "· 2 pages" | 9 at 16.1-16.2 px |
+| cooking | 82 | 11 | 10 rows | "· 7 pages" | 10 at 16.7 px, 1 at 3.3 px |
+
+Every row of the chunk-1 table, read off the drawing rather than off the module: 40 landmarks
+in 36 + 3 + 1 closed by 2 connectors, 9 in 7 + 2 that no page joins, 10 in 3 + 7 with the one
+connector visibly bridging them, and the first chapter smaller than the second where the table
+says it is. Connectors appear in exactly the two domains that have them.
+
+One expansion at a time, by painted count: 42 → 55 open → 43 on a second click of the same
+landmark → 55 → 54 on another one. Two at once would be 67.
+
+Three distinguishable sizes, with one expansion open: 41 at 7.1-7.8 px, 12 at 5.0-5.1 px, 2 at
+2.0-2.3 px.
+
+The layout was asked for nothing throughout: 5 posts and 170 frames before the switch, the
+same after it, and the same again after four expansions.
