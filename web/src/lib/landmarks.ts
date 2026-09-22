@@ -56,10 +56,16 @@ export function landmarkCount(pages: number): number {
   return Math.min(LANDMARK_CEIL, Math.max(LANDMARK_FLOOR, Math.round(pages * LANDMARK_SHARE)))
 }
 
-/** Whether the mode can be switched on, and when it cannot, the reason the switch states. */
+/**
+ * Whether the mode can be switched on, and when it cannot, why - twice over. `reason` is the
+ * switch's own line and stays on ONE of them, beside three siblings whose lines are four words;
+ * `why` is the sentence behind it, which the row carries in its tooltip. A row that wrapped to
+ * three lines to explain itself would be the loudest thing in a block of switches that are all
+ * off.
+ */
 export type LandmarkState =
   | { available: true; domain: string; pages: number }
-  | { available: false; reason: string }
+  | { available: false; reason: string; why: string }
 
 /**
  * The one domain on show, or null for none and for several. Exactly `inDomainScope`'s two ways
@@ -84,11 +90,22 @@ export function landmarkState(
   wingScope: ReadonlySet<string> | null,
 ): LandmarkState {
   const domain = soleDomain(selectedDomains, wingScope)
-  if (domain === null) return { available: false, reason: 'Filter to one domain to see where it begins.' }
-  if (domain === NO_DOMAIN) return { available: false, reason: 'Pages without a domain are not one.' }
+  if (domain === null)
+    return { available: false, reason: 'Select a domain first', why: 'Filter to one domain to see where it begins.' }
+  if (domain === NO_DOMAIN)
+    return {
+      available: false,
+      reason: 'Not a domain',
+      why: 'Pages without a domain are not one: they share no subject, so "what is this built around" has no answer here.',
+    }
   const pages = domainPages(nodes, domain).length
   if (pages < LANDMARK_MIN_PAGES)
-    return { available: false, reason: `Only ${pages} pages here, small enough to read whole.` }
+    return {
+      available: false,
+      // The count is the domain's own, so the sentence can be checked against the panel.
+      reason: `Only ${pages} pages here`,
+      why: `Only ${pages} pages here, small enough to read whole.`,
+    }
   return { available: true, domain, pages }
 }
 

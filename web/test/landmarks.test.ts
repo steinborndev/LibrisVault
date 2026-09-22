@@ -139,23 +139,22 @@ describe('whether the mode is available', () => {
 
   it('says why it is not available, in the words the switch shows', () => {
     expect(landmarkState(nodes, new Set(['alpha']), null)).toEqual({ available: true, domain: 'alpha', pages: 30 })
-    expect(landmarkState(nodes, new Set(), null)).toEqual({
-      available: false,
-      reason: 'Filter to one domain to see where it begins.',
-    })
-    expect(landmarkState(nodes, new Set(['alpha', 'beta']), null)).toEqual({
-      available: false,
-      reason: 'Filter to one domain to see where it begins.',
-    })
-    expect(landmarkState(nodes, new Set([NO_DOMAIN]), null)).toEqual({
-      available: false,
-      reason: 'Pages without a domain are not one.',
-    })
-    // The count is the domain's own, so the sentence can be checked against the panel.
-    expect(landmarkState(nodes, new Set(['beta']), null)).toEqual({
-      available: false,
-      reason: 'Only 19 pages here, small enough to read whole.',
-    })
+    expect(landmarkState(nodes, new Set(), null)).toMatchObject({ available: false, reason: 'Select a domain first' })
+    expect(landmarkState(nodes, new Set(['alpha', 'beta']), null)).toMatchObject({ reason: 'Select a domain first' })
+    expect(landmarkState(nodes, new Set([NO_DOMAIN]), null)).toMatchObject({ reason: 'Not a domain' })
+    // The count is the domain's own, so the line can be checked against the panel.
+    expect(landmarkState(nodes, new Set(['beta']), null)).toMatchObject({ reason: 'Only 19 pages here' })
+  })
+
+  it('keeps the switch’s line to one line, and the sentence behind it', () => {
+    // The row sits beside three siblings whose lines are four words; a row that wrapped to three
+    // to explain itself would be the loudest thing in a block of switches that are all off.
+    for (const picked of [new Set<string>(), new Set([NO_DOMAIN]), new Set(['beta'])]) {
+      const state = landmarkState(nodes, picked, null)
+      if (state.available) throw new Error('expected an unavailable state')
+      expect(state.reason.length).toBeLessThanOrEqual(24)
+      expect(state.why.length).toBeGreaterThan(state.reason.length)
+    }
   })
 
   it('counts the domain rather than the drawing: system pages do not lift it over the bar', () => {
@@ -166,9 +165,9 @@ describe('whether the mode is available', () => {
       ],
       [],
     )
-    expect(landmarkState(n2, new Set(['alpha']), null)).toEqual({
+    expect(landmarkState(n2, new Set(['alpha']), null)).toMatchObject({
       available: false,
-      reason: 'Only 20 pages here, small enough to read whole.',
+      reason: 'Only 20 pages here',
     })
   })
 })

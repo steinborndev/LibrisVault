@@ -173,10 +173,17 @@ the mode goes off, the bloom with it, and the list is gone. Not latent, not reme
 already turns three other modes off when it comes on, so it must not be the one that lives on
 invisibly; and the way back is one press of a switch standing where it was.
 
-**The list names its measure** (added 2026-09-22, user wording). "key articles by backlink
-count", at the head of the reading order, staying put while the rows scroll under it - forty
-entries move, and a heading that left with them would take the answer to "by what?" with it.
-Its rule lines up with the one under the canvas bar beside it, so the two boxes read as one row.
+**The column has one heading, in two forms** (added 2026-09-22, user wording and decision). The
+reading order names its measure - "key articles by backlink count" - and an open neighbourhood
+names the page it is around. Same slot, same rule, same weight, and both stay put while the
+rows scroll under them: forty entries move, and a heading that left with them would take its
+own answer along. The single-line form's rule lines up with the one under the canvas bar beside
+it, so the two boxes read as one row; the page form carries a second, quieter line for its two
+figures and is that much taller.
+
+The expanded page is a HEADING rather than a marked first row. It is not a member of the list
+under it, and the ring and fill that mark a selected row would say it was - it keeps the weight
+and loses the box.
 
 **No trail** (added 2026-09-22, user decision). The breadcrumb along the bottom of the drawing
 is not drawn in this mode, and not kept either: the list IS where the reader stands, a second
@@ -255,28 +262,42 @@ all. That is the accepted cost of a switch that lives where its three siblings l
 reason text has to carry it, so the four states are written here rather than invented at the
 keyboard:
 
-- available: "key articles of the domain" (2026-09-22, user wording), which names what the mode
-  draws rather than how it chooses them - the choosing is the list's business
-- nothing or several domains on show: "Filter to one domain to see where it begins."
-- the unfiled pile on show: "Pages without a domain are not one."
-- a domain under the bar: "Only 19 pages here, small enough to read whole." (the count is the
-  domain's own)
+Each state says its piece in ONE line and keeps the sentence behind it in the row's tooltip
+(2026-09-22, user wording). The row sits in a block whose other lines are four words, and one
+that wrapped to three to explain itself would be the loudest thing in a column of switches that
+are all off.
+
+| State | the line | the sentence behind it |
+|---|---|---|
+| available | "key articles of the domain" | what the overlay does, in full |
+| nothing or several domains on show | "Select a domain first" | "Filter to one domain to see where it begins." |
+| the unfiled pile on show | "Not a domain" | "Pages without a domain are not one: they share no subject, so 'what is this built around' has no answer here." |
+| a domain under the bar | "Only 19 pages here" | "Only 19 pages here, small enough to read whole." |
+
+The line names what the overlay DRAWS rather than how it chooses - the choosing is the list's
+business, and the list is right there. The count in the last one is the domain's own, so the
+line can be checked against the panel.
 
 **Against the other modes.** Turning it on turns off Spotlight, the cluster drill-down and the
 local focus: three ways of making the graph smaller is two too many at once.
 
-**Areas goes with them** (corrected 2026-09-22, user report; it was allowed here on the ground
-that it colours rather than reduces). A hull does not colour - it asserts an AREA, the area of
-a community - and this overlay draws about a tenth of each one. Measured over the largest
-domain: of the fourteen communities its 535 pages fall into, six have three or more painted
-members and so would be drawn at all, and those six hold 8 to 14 per cent of their community.
-A convex hull over nine of eighty-seven points, placed by a layout that knew all eighty-seven,
-is a figure over a handful of scattered points that swallows whatever else lies between them -
-which is what it looked like. The switch is disabled while the mode is on and says why.
+**And so do Areas and Bridges** (corrected 2026-09-22, user report and decision; both were
+allowed here on the ground that they colour rather than reduce). All three of the other
+overlays are about COMMUNITIES, and this one draws about a tenth of each.
 
-Bridges stays, because it does colour: it tints the links it is handed by the communities they
-join, and a link between two landmarks of different communities is a true statement about those
-two landmarks whether or not the rest of either community is drawn. A search leaves the mode.
+The measurement is Areas's, and it carries the other two. Over the largest domain: of the
+fourteen communities its 535 pages fall into, six have three or more painted members and so
+would be drawn at all, and those six hold 8 to 14 per cent of their community. A convex hull
+over nine of eighty-seven points, placed by a layout that knew all eighty-seven, is a figure
+over a handful of scattered points that swallows whatever lies between them - which is what it
+looked like. Bridges tells an intra-community link from a bridge, and with a tenth of each
+community drawn most of both kinds are not on screen to be told apart. Spotlight lights a whole
+community, and most of what it would light is not there either.
+
+So the three go grey together while the mode is on, in the same four words - "needs a whole
+community" - because it is the same reason; each keeps its own sentence in its tooltip, where
+there is room for the difference. And the block's order puts Spotlight third, between the two
+that draw and the one that lights. A search leaves the mode.
 
 **The lock.** The picture on screen, held (`graphFreeze.ts`, 2026-09-17). The two mechanisms
 collide before they combine: while the lock is closed the right-hand column is not rendered at

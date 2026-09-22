@@ -3345,31 +3345,52 @@ span.head-slot { display: inline-block; }
 /* A neighbour of the expanded landmark: the number column stays empty, because a neighbour has
    a place in this page's neighbourhood and none in the domain's reading order. */
 .lm-near .lm-t { color: var(--text-dim); }
-/* The expanded landmark heads its own neighbourhood, whether or not it is the selection - under
-   the lock there is none, and the head of a list must still read as its head. */
-.lm-anchor .lm-t { font-weight: 600; }
-/* …and the two numbers about it, said rather than left to the column to imply. */
-.lm-meta {
-  margin: 1px 0 6px 38px;
-  font-size: 11px;
-  color: var(--text-faint);
-}
-/* The heading of the reading order. Quiet: it names the measure once, and the rows are what
-   the reader is here for. It STAYS while the rows move under it - forty entries scroll, and a
-   heading that leaves with them takes the answer to "by what?" with it. */
+
+/*
+ * The column's heading, in both of its forms: the reading order names its measure, an open
+ * neighbourhood names the page it is around. One class, so the two read as the same thing in
+ * the same slot - and it STAYS while the rows move under it, because forty entries scroll and a
+ * heading that left with them would take its own answer along.
+ */
 .lm-title {
   position: sticky;
   top: 0;
   z-index: 1;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
   margin: 0;
   /* The canvas bar's own metrics - 7px of padding around a 26px row - so this rule and the one
      under the bar beside it land on the same line instead of a few pixels apart. Built from the
      parts rather than from a height, which `border-box` would have swallowed the padding into. */
   padding: 7px 16px;
   line-height: 26px;
+  border: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elev);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+}
+/* The page form carries a second line, so its own height comes from the two lines rather than
+   from the bar's single row; everything else about it is the heading above. */
+.lm-title-page {
+  padding: 8px 16px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.lm-title-page:hover .lm-hname {
+  color: var(--accent);
+}
+.lm-hname {
+  display: block;
+}
+/* …and the two numbers about it, said rather than left to a column to imply. */
+.lm-hmeta {
+  display: block;
   font-size: 11px;
+  font-weight: 400;
   color: var(--text-faint);
 }
 .bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }

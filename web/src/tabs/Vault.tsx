@@ -778,8 +778,10 @@ function GraphView({
    * between two landmarks of different communities is a true statement about them.
    */
   useEffect(() => {
-    if (landmarkDomain !== null && showClusters) setShowClusters(false)
-  }, [landmarkDomain, showClusters])
+    if (landmarkDomain === null) return
+    if (showClusters) setShowClusters(false)
+    if (showNetwork) setShowNetwork(false)
+  }, [landmarkDomain, showClusters, showNetwork])
 
   useEffect(() => {
     if (landmarkDomain === null) return
@@ -1290,6 +1292,7 @@ function GraphView({
   const toggleLandmarks = (): void => {
     showBloom(null)
     setShowClusters(false)
+    setShowNetwork(false)
     // No trail in this mode, so none is left behind when it comes on.
     setTrail([])
     if (landmarkDomain !== null) {
@@ -1800,6 +1803,7 @@ function GraphView({
           landmarks={landmarkDomain !== null}
           onLandmarks={toggleLandmarks}
           landmarkReason={landmarkAvail.available ? null : landmarkAvail.reason}
+          landmarkWhy={landmarkAvail.available ? null : landmarkAvail.why}
           showSystem={showSystem}
           onSystem={toggleSystem}
           systemCount={systemCount}
@@ -2133,29 +2137,24 @@ function LandmarkList({
   if (bloom !== null && at >= 0) {
     return (
       <aside className="graph-explorer landmarks" role="complementary" aria-label="One landmark's neighbourhood">
+        {/*
+          * The expanded page heads its own neighbourhood, in the slot and the shape the reading
+          * order's heading uses: same rule, same weight, staying put while the rows move. It is
+          * a heading rather than a marked row - the first entry of a list it is not a member of
+          * would be a stranger reading of the same pixels - and it opens the page, because that
+          * is what pressing a page's name does everywhere else here.
+          *
+          * Both numbers are labelled (2026-09-22). The rank used to stand alone in the number
+          * column, where the only other thing a number over a list can mean is how long the
+          * list is, and it was read that way. Forty rows make that column a rank; one does not.
+          */}
+        <button className="lm-title lm-title-page" onClick={() => onPick(bloom)} title={titleOf(bloom)}>
+          <span className="lm-hname">{titleOf(bloom)}</span>
+          <span className="lm-hmeta">
+            {neighbourhood.length} neighbour{neighbourhood.length === 1 ? '' : 's'} · #{at + 1} of {set.order.length}
+          </span>
+        </button>
         <ol className="lm-list">
-          <li className="lm-item">
-            <button
-              ref={selected === bloom ? cur : null}
-              className={`lm-row lm-anchor${selected === bloom ? ' cur' : ''}`}
-              aria-current={selected === bloom ? 'true' : undefined}
-              onClick={() => onPick(bloom)}
-              title={titleOf(bloom)}
-            >
-              <span className="lm-n" aria-hidden />
-              <span className="lm-t">{titleOf(bloom)}</span>
-            </button>
-            {/*
-              * Both numbers, both labelled (2026-09-22). The rank used to stand alone in the
-              * number column, where the only other thing a number can mean over a list is how
-              * long the list is - and it was read that way. In the full list the column is
-              * unambiguous because forty of them run down it; here it is the only one, so it
-              * says what it counts or it does not appear.
-              */}
-            <p className="lm-meta">
-              {neighbourhood.length} neighbour{neighbourhood.length === 1 ? '' : 's'} · #{at + 1} of {set.order.length}
-            </p>
-          </li>
           {/* The neighbours carry no number: they are this page's neighbourhood, not a place
               in the domain's reading order, and a number would claim they were. */}
           {neighbourhood.map((path) => (
@@ -2690,6 +2689,7 @@ function GraphPanel({
   landmarks,
   onLandmarks,
   landmarkReason,
+  landmarkWhy,
   showSystem,
   onSystem,
   systemCount,
@@ -2727,8 +2727,10 @@ function GraphPanel({
   onSpotlight: () => void
   landmarks: boolean
   onLandmarks: () => void
-  /** Why the overlay cannot be switched on, or null when it can. */
+  /** Why the overlay cannot be switched on, in one line, or null when it can. */
   landmarkReason: string | null
+  /** The same in a sentence, for the row's tooltip. */
+  landmarkWhy: string | null
   showSystem: boolean
   onSystem: () => void
   systemCount: number
@@ -2811,35 +2813,51 @@ function GraphPanel({
             desc={landmarkReason ?? 'key articles of the domain'}
             disabled={landmarkReason !== null}
             title={
-              landmarkReason ??
-              'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns Spotlight, the drill-down and a focus off.'
+              landmarkWhy ??
+              'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns the other three overlays off.'
             }
           />
+          {/*
+            * The other three are all about COMMUNITIES, and this overlay draws about a tenth of
+            * each one - so each of them would describe a set the picture does not hold. They go
+            * grey together and say so in the same four words, because it is the same reason;
+            * each keeps its own sentence in the tooltip, where there is room for the difference.
+            */}
           <RowToggle
             on={showClusters}
             onToggle={onClusters}
             name="Areas"
-            desc={landmarks ? 'a hull needs its whole community' : 'tinted hull per community'}
+            desc={landmarks ? 'needs a whole community' : 'tinted hull per community'}
             disabled={landmarks}
             title={
               landmarks
-                ? 'Not while Landmarks is on: a hull is the area of a community, and this overlay draws about a tenth of each one - the shape would be a figure over a handful of scattered points.'
+                ? 'Not while Landmarks is on: a hull is the AREA of a community, and this overlay draws about a tenth of each one - the shape would be a figure over a handful of scattered points.'
                 : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together.'
+            }
+          />
+          <RowToggle
+            on={spotlight}
+            onToggle={onSpotlight}
+            name="Spotlight"
+            desc={landmarks ? 'needs a whole community' : 'hover isolates one community'}
+            disabled={landmarks}
+            title={
+              landmarks
+                ? 'Not while Landmarks is on: it lights a whole community, and this overlay draws about a tenth of each one - most of what it would light is not on screen. It also makes the graph smaller, which this already does.'
+                : 'Hovering highlights a whole community and dims the rest. Click inside a cluster\u2019s area to isolate it (and keep drilling into sub-communities); click a node to open its page. Esc backs out one level.'
             }
           />
           <RowToggle
             on={showNetwork}
             onToggle={onNetwork}
             name="Bridges"
-            desc="highlight community links"
-            title="Brighten the connections. Intra-community links lift into view; cross-community bridges show link direction as a colour gradient with an arrowhead."
-          />
-          <RowToggle
-            on={spotlight}
-            onToggle={onSpotlight}
-            name="Spotlight"
-            desc="hover isolates one community"
-            title="Hovering highlights a whole community and dims the rest. Click inside a cluster's area to isolate it (and keep drilling into sub-communities); click a node to open its page. Esc backs out one level."
+            desc={landmarks ? 'needs a whole community' : 'highlight community links'}
+            disabled={landmarks}
+            title={
+              landmarks
+                ? 'Not while Landmarks is on: it tells intra-community links from bridges, and with a tenth of each community drawn most of both kinds are not on screen to tell apart.'
+                : 'Brighten the connections. Intra-community links lift into view; cross-community bridges show link direction as a colour gradient with an arrowhead.'
+            }
           />
         </div>
         <Fold label="Include" state={includeOn === 0 ? 'none' : `${includeOn} on`} lit={includeOn > 0} openWhen={includeOn > 0}>
