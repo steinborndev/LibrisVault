@@ -2628,6 +2628,20 @@ details.hot-cache[open] summary {
   font-size: 11px;
   color: var(--text-faint);
 }
+/* A row whose condition is not met stays where it is and says why on its own second line -
+   the switch is the only thing that goes quiet, so the reason is read without hovering. */
+.rowtoggle:disabled {
+  cursor: default;
+}
+.rowtoggle:disabled:hover {
+  background: transparent;
+}
+.rowtoggle:disabled .sw {
+  opacity: 0.4;
+}
+.rowtoggle:disabled .tname {
+  color: var(--text-faint);
+}
 
 /* ── Disclosure. The closed summary carries the state inside it, so folding something
    away can never hide that it is switched on. ── */

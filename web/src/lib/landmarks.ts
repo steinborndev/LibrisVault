@@ -35,6 +35,14 @@ export const NO_DOMAIN = ''
  */
 export const LANDMARK_MIN_PAGES = 25
 
+/**
+ * How many neighbours one bloom paints. The cap is on what the bloom ADDS: the landmarks are the
+ * domain's highest-ranked pages and crowd the front of every neighbour list, so a cap taken off
+ * the top of that list would be spent on pages already on screen - on the top entry, all twelve
+ * of them (docs/tasks/TASKS-LANDMARKS.md, finding 1).
+ */
+export const BLOOM_CAP = 12
+
 /** Share of a domain's knowledge pages that become landmarks, between the two bounds below. */
 const LANDMARK_SHARE = 0.12
 const LANDMARK_FLOOR = 8
@@ -137,11 +145,20 @@ export interface LandmarkSet {
  * Where nothing joins anything, nothing is added and the chapters stand apart - which is then
  * true of the domain rather than of the drawing.
  */
-export function landmarkSet(
+/**
+ * The domain's own subgraph: its knowledge pages, the backlinks they lend each other, who
+ * neighbours whom, and the total rank both entry points below read.
+ */
+function domainGraph(
   nodes: readonly GraphNode[],
   edges: ReadonlyArray<readonly [number, number]>,
   domain: string,
-): LandmarkSet {
+): {
+  idx: number[]
+  inDeg: Map<number, number>
+  adj: Map<number, Set<number>>
+  rank: (x: number, y: number) => number
+} {
   const idx = domainPages(nodes, domain)
   const inside = new Set(idx)
   const inDeg = new Map<number, number>(idx.map((i) => [i, 0]))
@@ -156,6 +173,29 @@ export function landmarkSet(
   /** The rank, total: inside, then over the vault, then the path. */
   const rank = (x: number, y: number): number =>
     inDeg.get(y)! - inDeg.get(x)! || nodes[y]!.in - nodes[x]!.in || nodes[x]!.path.localeCompare(nodes[y]!.path)
+  return { idx, inDeg, adj, rank }
+}
+
+/** The counts and the neighbourhoods both entry points return, over one domain subgraph. */
+function readings(
+  nodes: readonly GraphNode[],
+  g: ReturnType<typeof domainGraph>,
+  marks: readonly number[],
+): Pick<LandmarkSet, 'inDomain' | 'neighbours'> {
+  const inDomain = new Map<string, number>()
+  for (const i of g.idx) inDomain.set(nodes[i]!.path, g.inDeg.get(i)!)
+  const neighbours = new Map<string, string[]>()
+  for (const i of marks) neighbours.set(nodes[i]!.path, [...g.adj.get(i)!].sort(g.rank).map((j) => nodes[j]!.path))
+  return { inDomain, neighbours }
+}
+
+export function landmarkSet(
+  nodes: readonly GraphNode[],
+  edges: ReadonlyArray<readonly [number, number]>,
+  domain: string,
+): LandmarkSet {
+  const g = domainGraph(nodes, edges, domain)
+  const { idx, inDeg, adj, rank } = g
 
   const byRank = [...idx].sort(rank)
   const marks = byRank.slice(0, landmarkCount(idx.length))
@@ -226,18 +266,59 @@ export function landmarkSet(
     for (const g of joins) parent[find(g)] = root
   }
 
-  const inDomain = new Map<string, number>()
-  for (const i of idx) inDomain.set(nodes[i]!.path, inDeg.get(i)!)
-  const neighbours = new Map<string, string[]>()
-  for (const i of marks) neighbours.set(nodes[i]!.path, [...adj.get(i)!].sort(rank).map((j) => nodes[j]!.path))
-
   return {
     domain,
     order: order.map((i) => nodes[i]!.path),
     chapters,
     connectors: connectors.map((i) => nodes[i]!.path),
-    inDomain,
-    neighbours,
+    ...readings(nodes, g, marks),
+  }
+}
+
+/** What the lock records of this mode: the computed order, its breaks, and the glue. */
+export type HeldLandmarks = Pick<LandmarkSet, 'domain'> & {
+  order: readonly string[]
+  chapters: readonly number[]
+  connectors: readonly string[]
+}
+
+/**
+ * A held set, read back against the graph as it stands.
+ *
+ * The ORDER comes from the record and is not re-derived: the set is what decides which nodes are
+ * drawn in this mode, the set is recomputed on every graph change, and a ranking that moved
+ * under a held picture would be the one thing the lock exists to prevent. What IS read off the
+ * graph is everything that is not the order - the counts the lens colours by and the
+ * neighbourhoods a bloom paints - because those say what the vault holds now.
+ *
+ * A held page that has since gone simply drops out, the way a `clusterStack` path already
+ * behaves, and a chapter that loses all of its pages drops with them rather than leaving a rule
+ * with nothing under it.
+ */
+export function heldLandmarkSet(
+  nodes: readonly GraphNode[],
+  edges: ReadonlyArray<readonly [number, number]>,
+  held: HeldLandmarks,
+): LandmarkSet {
+  const g = domainGraph(nodes, edges, held.domain)
+  const byPath = new Map<string, number>()
+  for (const i of g.idx) byPath.set(nodes[i]!.path, i)
+
+  const groups = held.chapters
+    .map((start, c) => held.order.slice(start, held.chapters[c + 1] ?? held.order.length).filter((p) => byPath.has(p)))
+    .filter((grp) => grp.length > 0)
+  const order: string[] = []
+  const chapters: number[] = []
+  for (const grp of groups) {
+    chapters.push(order.length)
+    order.push(...grp)
+  }
+  return {
+    domain: held.domain,
+    order,
+    chapters,
+    connectors: held.connectors.filter((p) => byPath.has(p)),
+    ...readings(nodes, g, order.map((p) => byPath.get(p)!)),
   }
 }
 

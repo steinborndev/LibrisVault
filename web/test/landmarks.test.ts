@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   landmarkCount,
   landmarkSet,
+  heldLandmarkSet,
   landmarkState,
   soleDomain,
   chapterSize,
@@ -322,5 +323,49 @@ describe("a landmark's neighbours", () => {
 
   it('are computed for every landmark and for nothing else', () => {
     expect([...set.neighbours.keys()].sort()).toEqual([...set.order].sort())
+  })
+})
+
+describe('a held set, read back', () => {
+  const live = landmarkSet(alpha.nodes, alpha.edges, 'alpha')
+  const held = { domain: 'alpha', order: live.order, chapters: live.chapters, connectors: live.connectors }
+
+  it('is the record’s order, not a fresh ranking', () => {
+    // The graph has moved under the held picture: `c1` now carries more internal backlinks than
+    // anything else, so a fresh run would list it first. The held one must not.
+    const louder = fixture(alphaPages, [...alphaLinks, ['v', 'c1'], ['w', 'c1'], ['u1', 'a1'], ['q', 'c1'], ['x', 'c1']])
+    expect(names(landmarkSet(louder.nodes, louder.edges, 'alpha').order)[0]).toBe('c1')
+    const back = heldLandmarkSet(louder.nodes, louder.edges, held)
+    expect(names(back.order)).toEqual(names(live.order))
+    expect(back.chapters).toEqual(live.chapters)
+    expect(names(back.connectors)).toEqual(names(live.connectors))
+  })
+
+  it('reads the counts and the neighbourhoods off the graph as it stands', () => {
+    const louder = fixture(alphaPages, [...alphaLinks, ['x', 'c1']])
+    const back = heldLandmarkSet(louder.nodes, louder.edges, held)
+    expect(back.inDomain.get(pathOf('c1'))).toBe(4) // 3 in the held picture
+    expect(names(back.neighbours.get(pathOf('c1'))!)).toContain('x')
+  })
+
+  it('drops a page that has gone, and a chapter that loses all of its pages', () => {
+    // b1 and b2 are the whole second chapter; c1 is the whole third.
+    const gone = new Set([pathOf('b1'), pathOf('b2'), pathOf('a3')])
+    const left = fixture(
+      alphaPages.filter((pg) => !gone.has(pathOf(pg.name))),
+      alphaLinks.filter(([a, b]) => !gone.has(pathOf(a)) && !gone.has(pathOf(b))),
+    )
+    const back = heldLandmarkSet(left.nodes, left.edges, held)
+    expect(names(back.order)).toEqual(['a1', 'a2', 'a4', 'a5', 'c1'])
+    // Two chapters left, and the offsets moved with the pages rather than pointing past them.
+    expect(back.chapters).toEqual([0, 4])
+    expect(back.order.slice(back.chapters[1]!)).toEqual([pathOf('c1')])
+  })
+
+  it('is idempotent, so locking a held picture records the same thing again', () => {
+    const back = heldLandmarkSet(alpha.nodes, alpha.edges, held)
+    expect(back.order).toEqual(live.order)
+    expect(back.chapters).toEqual(live.chapters)
+    expect(back.connectors).toEqual(live.connectors)
   })
 })

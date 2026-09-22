@@ -16,7 +16,7 @@ import { api } from '../api/client.ts'
 import { isKnowledgeNode } from '../lib/knowledge.ts'
 import { staleLinks, useStaleLinks } from '../lib/staleLinks.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
-import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
+import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, authorityValue, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
@@ -34,6 +34,7 @@ import { stepTrail } from '../lib/trail.ts'
 import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFreeze } from '../lib/graphFreeze.ts'
 import { BUCKET_LABELS as TYPE_LABELS } from '../lib/buckets.ts'
 import { detectClusters } from '../lib/communities.ts'
+import { BLOOM_CAP, NO_DOMAIN, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
 
@@ -71,11 +72,12 @@ function renderMetaValue(
  * the arrows were in the flat domain list until 2026-09-16.
  */
 const GRAPH_SHORTCUTS = [
-  { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked' },
+  { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked - a landmark included' },
   { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens' },
   { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
+  { keys: ['click'], what: 'with Landmarks on, a landmark shows its neighbourhood; a second click drops it' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
-  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a tag, the trail, the panel, a cluster, the gaps, a focus - or, with the picture locked, back to it' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a tag, the trail, a neighbourhood, the panel, Landmarks, a cluster, the gaps, a focus - or, with the picture locked, back to it' },
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
   { keys: ['/'], what: 'open the search for pages and tags; a click outside folds the list, the filter stays' },
   { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
@@ -128,9 +130,6 @@ export function Vault({ path, active = true }: { path: string; active?: boolean 
 }
 
 // ---------------------------------------------------------------------------- graph view
-
-/** Key under which "page has no domain" appears in the domain filter (SPEC §12.4 Stufe 1). */
-const NO_DOMAIN = ''
 
 /** Synthetic path prefix marking a ghost (gap) node in the canvas node list. */
 const GAP_PATH_PREFIX = '#gap:'
@@ -208,6 +207,15 @@ interface ViewPrefs {
   showNetwork: boolean
   spotlight: boolean
   showSystem: boolean
+  /**
+   * The Landmarks overlay: the DOMAIN it is on for, or null when it is off. An overlay, so it
+   * persists like its three siblings - and the domain rather than a boolean, because the mode is
+   * domain-scoped and a restored filter that no longer yields that domain has to turn it off.
+   * The open bloom is deliberately not here: it is exploration, and the prefs hold preferences.
+   * No version bump - this loader validates field by field, and a missing field already degrades
+   * to its default; the bump is reserved for a field whose meaning flipped.
+   */
+  landmarks: string | null
 }
 
 /** loadViewPrefs result: every field optional AND possibly explicitly undefined (validation
@@ -235,6 +243,7 @@ export function loadViewPrefs(): LoadedPrefs {
       showNetwork: bool(o.showNetwork),
       spotlight: bool(o.spotlight),
       showSystem: bool(o.showSystem),
+      landmarks: o.landmarks === null || typeof o.landmarks === 'string' ? o.landmarks : undefined,
     }
   } catch {
     return {} // storage unavailable (private mode) or corrupt JSON - defaults win
@@ -288,6 +297,8 @@ const viewMemory = {
   spotlight: savedPrefs.spotlight ?? false,
   clusterStack: [] as readonly ClusterFocus[],
   showSystem: savedPrefs.showSystem ?? false,
+  landmarks: savedPrefs.landmarks ?? null,
+  bloom: null as string | null,
   selection: null as Selection,
   trail: [] as string[],
   frozen: loadFrozen(),
@@ -307,6 +318,7 @@ function saveViewPrefs(): void {
     showNetwork: viewMemory.showNetwork,
     spotlight: viewMemory.spotlight,
     showSystem: viewMemory.showSystem,
+    landmarks: viewMemory.landmarks,
   }
   const json = JSON.stringify(prefs)
   if (json === lastSavedPrefs) return
@@ -506,6 +518,15 @@ function GraphView({
    */
   const [showSystem, setShowSystem] = useState(viewMemory.showSystem)
   /**
+   * Landmarks (docs/tasks/TASKS-LANDMARKS.md): the DOMAIN the overlay is on for, or null when it
+   * is off. The domain rather than a boolean, because the mode is scoped to one - the same
+   * reason the lock's record carries one - and because "the domain on show has changed" is then
+   * a comparison rather than a second piece of state that has to agree with the first.
+   */
+  const [landmarkDomain, setLandmarkDomain] = useState<string | null>(viewMemory.landmarks)
+  /** The expanded landmark, by path: one neighbourhood at a time. Exploration, not a preference. */
+  const [bloom, setBloom] = useState<string | null>(viewMemory.bloom)
+  /**
    * The explorer selection, keyed stably (path for a page, title for a gap) so it survives
    * the index churn a filter change causes. Clicking a node opens the panel instead of
    * navigating; "Open page" inside the panel is the explicit navigation - or a double-click
@@ -583,6 +604,8 @@ function GraphView({
       spotlight,
       clusterStack,
       showSystem,
+      landmarks: landmarkDomain,
+      bloom,
       selection,
       trail,
       frozen,
@@ -623,6 +646,9 @@ function GraphView({
     setSearchOpen(false)
     setClusterStack([])
     setLocalDepth(0)
+    // The overlay belongs to the preferences and stays; the open neighbourhood belongs to the
+    // exploration and goes, with the trail.
+    setBloom(null)
   }, [active])
 
   const focusIndexFull = useMemo(
@@ -693,6 +719,54 @@ function GraphView({
   const wingMode = useWingMode('vault.domainMode.graph', wings)
   const wing = wingMode.wing
   const wingScope = useMemo(() => (wing === null ? null : new Set(wings.find((g) => g.id === wing)?.domains ?? [])), [wing, wings])
+  /**
+   * Whether the Landmarks overlay can be switched on, and the reason its row shows when it
+   * cannot. One domain on show is either one picked in the chips or a room holding one, which
+   * are `inDomainScope`'s two ways of saying the same thing.
+   */
+  const landmarkAvail = useMemo(
+    () => landmarkState(graph.nodes, selectedDomains, wingScope),
+    [graph.nodes, selectedDomains, wingScope],
+  )
+  /*
+   * The mode yields, in both directions.
+   *
+   * When its condition falls away - a second domain picked, the chips cleared, a room turned -
+   * it goes off and the bloom with it: not latent, not remembered, because it already turns
+   * three other modes off when it comes on and must not be the one that lives on invisibly. The
+   * way back is one press of a switch standing where it was.
+   *
+   * And it steps aside for the three things it excludes whenever one of them is switched on
+   * AFTER it, which the "turning it on turns them off" rule only covers in the other order. That
+   * is not politeness: `graphFreeze` makes the exclusion a parse invariant, so a picture holding
+   * both would be written and then refused on the way back.
+   */
+  useEffect(() => {
+    if (landmarkDomain === null) return
+    const lost = !landmarkAvail.available || landmarkAvail.domain !== landmarkDomain
+    if (lost || spotlight || clusterStack.length > 0 || localDepth > 0 || query.trim() !== '') {
+      setLandmarkDomain(null)
+      setBloom(null)
+    }
+  }, [landmarkDomain, landmarkAvail, spotlight, clusterStack.length, localDepth, query])
+
+  /**
+   * The set, the order, the chapters and the connectors - over the DOMAIN rather than over the
+   * drawing, so a type chip, a tag, the system-page switch and the gaps overlay change what is
+   * on screen and change neither the set nor its order. Recomputed on every graph change like
+   * every other filter here, which means an ingest can reorder the list under the reader: named
+   * rather than discovered later, and the reason the lock records the order instead of the
+   * switch. While a picture holding this mode is locked, that record is what the order comes
+   * from and only the counts and the neighbourhoods are read off the graph as it stands.
+   */
+  const landmarkData = useMemo((): LandmarkSet | null => {
+    if (landmarkDomain === null) return null
+    const held = frozen?.landmarks ?? null
+    return held !== null && held.domain === landmarkDomain
+      ? heldLandmarkSet(graph.nodes, graph.edges, held)
+      : landmarkSet(graph.nodes, graph.edges, landmarkDomain)
+  }, [landmarkDomain, graph, frozen])
+
   /** The domain half of the scope: the picked domains, or the room on show when none is picked. */
   const inDomainScope = useCallback(
     (n: GraphNode): boolean =>
@@ -774,7 +848,7 @@ function GraphView({
   // of the focused page. Indices are remapped so the canvas gets a dense, self-contained
   // graph - that is also what keeps the force layout small in local mode on a huge vault.
   // When the gaps view is on, the unresolved targets are appended as synthetic ghost nodes.
-  const { nodes, edges, focusIndex, ghostIndices, realCount, matches, typeCounts, authority } = useMemo(() => {
+  const { nodes, edges, focusIndex, ghostIndices, realCount, matches, typeCounts } = useMemo(() => {
     /*
      * Two masks through one pipeline (2026-09-16). `keep` is what gets drawn. `pool` is the
      * same set MINUS the type filter, and it is what the type chips count: a section that
@@ -957,24 +1031,72 @@ function GraphView({
     // What the type chips show: the drawn set counted by type, with the type filter itself
     // left out of it. A type the other filters leave nothing of reads 0 rather than vanishing -
     // six chips are a shelf you learn the position of, unlike the domain rows below them.
-    /*
-     * The backlink range of what is DRAWN, for the authority legend. A gradient labelled "few
-     * to many" cannot be read back: a reader looking at a dot has no way to turn its colour
-     * into a count, which is the one question that lens exists to answer.
-     */
-    const ins: number[] = []
-    for (let i = 0; i < realCount; i++) ins.push(nodes[i]!.in)
-    ins.sort((a, b) => a - b)
-    const authority = ins.length > 0 ? { min: ins[0]!, median: ins[ins.length >> 1]!, max: ins[ins.length - 1]! } : null
-
     const typeCounts = new Map<string, number>()
     const counted = pool ?? keep
     graph.nodes.forEach((n, i) => {
       if (counted[i]) typeCounts.set(n.type, (typeCounts.get(n.type) ?? 0) + 1)
     })
 
-    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, typeCounts, authority }
+    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, typeCounts }
   }, [graph, selectedTypes, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
+
+  /**
+   * The paint mask, in subgraph indices.
+   *
+   * It deliberately does NOT go through the `keep`/`pool` pipeline above. Every page of the
+   * domain stays in the node and edge arrays the canvas is handed, and what this decides is
+   * where the ink goes - which is what buys the canvas's structural-identity check: an unchanged
+   * node list, edge list and domain grouping make the layout effect return before it posts, so
+   * switching the overlay costs one redraw and moves nothing. A `keep` mask would post a layout
+   * and the picture would re-deal on every press of the switch and again on every bloom.
+   *
+   * A landmark the other filters have hidden is simply not in the drawing to paint; it stays in
+   * the list, because the list is about the domain and not about the drawing.
+   */
+  const landmarkMask = useMemo(() => {
+    if (landmarkData === null) return null
+    const at = new Map<string, number>()
+    nodes.forEach((n, i) => at.set(n.path, i))
+    const pick = (paths: Iterable<string>): Set<number> => {
+      const out = new Set<number>()
+      for (const p of paths) {
+        const i = at.get(p)
+        if (i !== undefined) out.add(i)
+      }
+      return out
+    }
+    const landmarks = pick(landmarkData.order)
+    const connectors = pick(landmarkData.connectors)
+    /*
+     * The bloom: the landmark's neighbours by the list's own rank, skipping the ones already on
+     * screen, capped at twelve. The cap is on what the click ADDS - taken off the top of the
+     * whole neighbour list it would be spent on landmarks, which are by construction the
+     * highest-ranked pages of the domain (TASKS-LANDMARKS.md, finding 1).
+     */
+    const out = new Set<number>([...landmarks, ...connectors])
+    const bloomed = new Set<number>()
+    for (const p of (bloom === null ? [] : landmarkData.neighbours.get(bloom) ?? [])) {
+      if (bloomed.size >= BLOOM_CAP) break
+      const i = at.get(p)
+      if (i === undefined || out.has(i)) continue
+      bloomed.add(i)
+    }
+    return { landmarks, connectors, bloom: bloomed, inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0) }
+  }, [landmarkData, nodes, bloom])
+
+  /*
+   * The backlink range of what is DRAWN, for the authority legend. A gradient labelled "few to
+   * many" cannot be read back: a reader looking at a dot has no way to turn its colour into a
+   * count, which is the one question that lens exists to answer. Read through the canvas's own
+   * accessor, so the legend and the ramp can never state different numbers - inside the mode
+   * both count backlinks from inside the domain.
+   */
+  const authority = useMemo(() => {
+    const ins: number[] = []
+    for (let i = 0; i < realCount; i++) ins.push(authorityValue(landmarkMask, nodes, i))
+    ins.sort((a, b) => a - b)
+    return ins.length > 0 ? { min: ins[0]!, median: ins[ins.length >> 1]!, max: ins[ins.length - 1]! } : null
+  }, [nodes, realCount, landmarkMask])
 
   /*
    * The page types actually DRAWN, for the corner legend. Not the panel's chip list (2026-09-16):
@@ -1063,6 +1185,24 @@ function GraphView({
   /** One domain, replacing whatever was selected - what an arrow step through the list means. */
   const pickDomain = useCallback((d: string): void => setSelectedDomains(new Set([d])), [])
 
+  /**
+   * The switch. Turning it on turns Spotlight, the cluster drill-down and the local focus off:
+   * three ways of making the graph smaller is two too many at once. Areas and Bridges stay
+   * allowed, because they colour rather than reduce.
+   */
+  const toggleLandmarks = (): void => {
+    setBloom(null)
+    if (landmarkDomain !== null) {
+      setLandmarkDomain(null)
+      return
+    }
+    if (!landmarkAvail.available) return
+    setSpotlight(false)
+    setClusterStack([])
+    setLocalDepth(0)
+    setLandmarkDomain(landmarkAvail.domain)
+  }
+
   /** What the "System pages" toggle would add - the number it shows has to be that. */
   const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
   /*
@@ -1120,6 +1260,8 @@ function GraphView({
     // the drawing, so a reset that left it on would leave the graph saying a number nobody
     // asked for - and it is the switch you are least likely to remember pressing.
     setShowSystem(false)
+    setLandmarkDomain(null)
+    setBloom(null)
     setClusterStack([])
     setLocalDepth(0)
     closeExplorer() // selection + trail
@@ -1136,7 +1278,7 @@ function GraphView({
 
   /** Everything that decides the picture, as it stands now. */
   const snapshotFreeze = (): GraphFreeze => ({
-    v: 1,
+    v: 2,
     selectedTypes: [...selectedTypes].sort(),
     selectedDomains: [...selectedDomains].sort(),
     wingMode: wingMode.mode,
@@ -1153,6 +1295,21 @@ function GraphView({
     showClusters,
     showNetwork,
     spotlight,
+    /*
+     * The computed ORDER, not merely the switch: in this mode the set is what decides which
+     * nodes are drawn, and it is recomputed on every graph change - so without the order, an
+     * ingest could reorder the held list, which is the one thing the lock exists to prevent.
+     */
+    landmarks:
+      landmarkData === null
+        ? null
+        : {
+            domain: landmarkData.domain,
+            order: [...landmarkData.order],
+            chapters: [...landmarkData.chapters],
+            connectors: [...landmarkData.connectors],
+            bloom,
+          },
   })
   /** Back to the held picture, whatever is on the canvas now; the drawing is framed to it. */
   const applyFreeze = (f: GraphFreeze): void => {
@@ -1171,6 +1328,20 @@ function GraphView({
     setShowClusters(f.showClusters)
     setShowNetwork(f.showNetwork)
     setSpotlight(f.spotlight)
+    /*
+     * The overlay, re-tested on the way in. The parser enforces what it can check locally - a
+     * record pairing this mode with Spotlight, a drill-down, a depth or a search is one this
+     * interface cannot produce and is dropped whole - but it cannot know whether the domain
+     * still exists, still holds enough pages and is still the only one on show. Where that has
+     * stopped being true only THIS field is dropped: "that domain filtered, no overlay" is a
+     * picture that reads. The scope is read off the RECORD rather than off the screen, because
+     * the setters above land after this runs.
+     */
+    const heldScope = f.wingMode === 'wing' && f.wing !== null ? new Set(wings.find((g) => g.id === f.wing)?.domains ?? []) : null
+    const state = landmarkState(graph.nodes, new Set(f.selectedDomains), heldScope)
+    const ok = f.landmarks !== null && state.available && state.domain === f.landmarks.domain
+    setLandmarkDomain(ok ? f.landmarks!.domain : null)
+    setBloom(ok ? f.landmarks!.bloom : null)
     closeExplorer()
     navigate(f.focusPath === null ? '/graph' : `/graph?focus=${encodeURIComponent(f.focusPath)}`, { replace: true })
     setFitNonce((n) => n + 1)
@@ -1259,7 +1430,12 @@ function GraphView({
        */
       else if (tagFilter !== null) setTagFilter(null)
       else if (trail.length > 1) setTrail(selection?.kind === 'page' ? [selection.path] : [])
+      // The two new rungs sit innermost first, as the ladder does: an open neighbourhood
+      // immediately before the panel, the mode immediately before the cluster stack. Every rung
+      // below the mode is inert while it is on, because it turned them off.
+      else if (bloom !== null) setBloom(null)
       else if (selection !== null) closeExplorer()
+      else if (landmarkDomain !== null) setLandmarkDomain(null)
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
       else if (showGaps) setShowGaps(false)
       else if (focusPath !== null) navigate('/graph')
@@ -1493,6 +1669,9 @@ function GraphView({
           onNetwork={() => setShowNetwork((v) => !v)}
           spotlight={spotlight}
           onSpotlight={() => setSpotlight((v) => !v)}
+          landmarks={landmarkDomain !== null}
+          onLandmarks={toggleLandmarks}
+          landmarkReason={landmarkAvail.available ? null : landmarkAvail.reason}
           showSystem={showSystem}
           onSystem={toggleSystem}
           systemCount={systemCount}
@@ -1524,6 +1703,7 @@ function GraphView({
           showHulls={showClusters}
           network={showNetwork}
           spotlight={spotlight}
+          landmarkMask={landmarkMask}
           showLabels={!hideLabels}
           // Every filter/depth/gaps change re-frames the graph; SSE live updates don't touch this key.
           // Fullscreen rides along: entering or leaving changes the canvas width by ~40%,
@@ -1573,8 +1753,19 @@ function GraphView({
           openOnClick={frozen !== null}
           onSelect={(n) => {
             if (frozen !== null) return
-            if (n.path.startsWith(GAP_PATH_PREFIX)) selectGap(n.title)
-            else selectPage(n.path)
+            if (n.path.startsWith(GAP_PATH_PREFIX)) {
+              selectGap(n.title)
+              return
+            }
+            /*
+             * Only a landmark expands, and a second click on it drops the neighbourhood: one at
+             * a time. A connector, or a neighbour that is already out, selects exactly as
+             * anywhere else here - and under the lock nothing of this runs at all, because a
+             * click then opens the page (`openOnClick`): exploration is what was left behind
+             * when the lock closed.
+             */
+            if (landmarkData?.neighbours.has(n.path) === true) setBloom((b) => (b === n.path ? null : n.path))
+            selectPage(n.path)
           }}
           // The spotlight click, on a member node or anywhere in the community's hull: it
           // isolates the community (the hover previews exactly this set) - recursively:
@@ -2179,6 +2370,9 @@ function GraphPanel({
   onNetwork,
   spotlight,
   onSpotlight,
+  landmarks,
+  onLandmarks,
+  landmarkReason,
   showSystem,
   onSystem,
   systemCount,
@@ -2214,6 +2408,10 @@ function GraphPanel({
   onNetwork: () => void
   spotlight: boolean
   onSpotlight: () => void
+  landmarks: boolean
+  onLandmarks: () => void
+  /** Why the overlay cannot be switched on, or null when it can. */
+  landmarkReason: string | null
   showSystem: boolean
   onSystem: () => void
   systemCount: number
@@ -2305,6 +2503,20 @@ function GraphPanel({
             name="Spotlight"
             desc="hover isolates one community"
             title="Hovering highlights a whole community and dims the rest. Click inside a cluster's area to isolate it (and keep drilling into sub-communities); click a node to open its page. Esc backs out one level."
+          />
+          {/* The fourth overlay, beside its three siblings and usually grey: ten of this
+              vault's twenty-two domains clear its bar at all. That is the accepted cost of a
+              switch that lives where the others live, and the reason line is what carries it. */}
+          <RowToggle
+            on={landmarks}
+            onToggle={onLandmarks}
+            name="Landmarks"
+            desc={landmarkReason ?? 'the pages a domain is built around'}
+            disabled={landmarkReason !== null}
+            title={
+              landmarkReason ??
+              'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns Spotlight, the drill-down and a focus off.'
+            }
           />
         </div>
         <Fold label="Include" state={includeOn === 0 ? 'none' : `${includeOn} on`} lit={includeOn > 0} openWhen={includeOn > 0}>
@@ -2456,6 +2668,7 @@ function RowToggle({
   desc,
   count,
   title,
+  disabled = false,
 }: {
   on: boolean
   onToggle: () => void
@@ -2463,9 +2676,11 @@ function RowToggle({
   desc: string
   count?: number
   title: string
+  /** A row whose condition is not met: it stays in place, and `desc` is where it says why. */
+  disabled?: boolean
 }): React.ReactElement {
   return (
-    <button className="rowtoggle" aria-pressed={on} onClick={onToggle} title={title}>
+    <button className="rowtoggle" aria-pressed={on} disabled={disabled} onClick={onToggle} title={title}>
       <span className="sw" aria-hidden />
       <span className="rt-text">
         <span className="tname">{name}</span>
