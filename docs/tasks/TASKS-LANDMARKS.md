@@ -92,19 +92,28 @@ Where nothing joins anything, nothing is added and the chapters stand apart, whi
 the domain rather than of the drawing: finance's two chapters are joined by no page in the
 domain, however long the loop runs.
 
-**Expansion.** A click on a landmark shows its neighbours inside the domain, at most 12,
-ordered by domain-internal backlinks with the same tie-break as the list. Inside the domain is
-not a choice but the reach the screen has: the domain filter is a real filter upstream of this
-mask, so a page of another domain is not in the drawing at all and cannot be revealed by
-brightening it. The cap is the ordinary case and not an edge - every one of biomedicine's 40
-landmarks has more than 12 neighbours in its own domain, median 22 - which is why the rest of
-them needs a handle rather than a footnote.
+**Expansion.** A click on a landmark shows its neighbours inside the domain, ordered by
+domain-internal backlinks with the same tie-break as the list, and paints the first 12 that are
+not already on screen. Inside the domain is not a choice but the reach the screen has: the
+domain filter is a real filter upstream of this mask, so a page of another domain is not in the
+drawing at all and cannot be revealed by brightening it. The cap is the ordinary case and not an
+edge - every one of biomedicine's 40 landmarks has more than 12 neighbours in its own domain,
+median 22 - which is why the rest of them needs a handle rather than a footnote.
+
+**The cap is on what the bloom ADDS** (corrected 2026-09-22, finding 1 below). Taken off the top
+of the whole neighbour list it would be spent on pages that are already painted: the landmarks
+are the highest-ranked pages of the domain, so they crowd the front of every neighbour list -
+5.1 of a biomedicine landmark's top twelve on average, and all twelve of them on the entry
+standing at the top of the list, whose click would then change nothing on screen. Skipping what
+is already out is what makes the cap bound the growth of the picture, which is the thing it was
+asked to do.
 
 That handle is a line in the list, not a control on the canvas: the bloomed landmark's entry
-reads "12 of 22 shown, show all", and pressing it lifts the cap for that one bloom. The canvas
-has no vocabulary for a control and would need a widget, a hit target and a place to put them;
-the list is already the mode's text surface, and "12 of 22" is a number, which is the kind of
-thing the list exists to say.
+reads "17 of 22 shown, show all" - how much of this page's neighbourhood is on screen against
+the whole of it, so the five that were already landmarks are counted where the reader sees them
+- and pressing it lifts the cap for that one bloom. The canvas has no vocabulary for a control
+and would need a widget, a hit target and a place to put them; the list is already the mode's
+text surface, and "17 of 22" is a number, which is the kind of thing the list exists to say.
 
 A second click on the landmark drops the bloom, lifted cap and all: one neighbourhood at a
 time. Only a landmark expands; a click on a connector or on a neighbour that is already out
@@ -388,3 +397,47 @@ green suite is not a green repo.
    make its point stays under `docs/local/`, because this repo is public and the vault is not
    (hard rule 7). Before the PR: `node scripts/vault-name-scan.mjs --diff main` over what the
    merge would add, and `--file` over the PR body before it is posted.
+
+## Findings
+
+**1. A landmark's neighbours include other landmarks, and the cap did not say what that
+means (2026-09-22, found building chunk 1, RESOLVED as (b): the decision above now carries it).**
+
+The **Expansion** decision caps a bloom at 12 neighbours "ordered by domain-internal backlinks
+with the same tie-break as the list", and the list is the highest-ranked pages of the domain.
+So the landmarks crowd the front of every neighbour list, and a cap taken off the top of it is
+spent on pages that are already painted.
+
+Measured over the live graph, under the rules as built:
+
+| Measured | Result |
+|---|---|
+| Which population the recorded neighbour numbers count | all domain-internal neighbours, landmarks included: that reading gives median 22 and max 129 exactly, and is the only one under which "all 40 above the cap of 12" holds. Excluding landmarks gives median 17, max 109, and seven of the forty at or below 12 |
+| Of a biomedicine landmark's top 12 neighbours, how many are themselves landmarks | 5.1 on average, leaving 6.9 pages a click actually reveals |
+| The worst case, and where it falls | the FIRST entry of the list - the strongest page, the one a reader clicks first - has all 12 of its top neighbours already painted. That click changes nothing on screen. Three more of the forty reveal one or two pages |
+| The same in the mid-size domains | finance and cooking reveal at least 6 on every landmark; this is a biomedicine phenomenon |
+
+Neither the count nor the cap is wrong on its own; the two were decided against a neighbourhood
+nobody had split into "already on screen" and "not". Two ways out, each giving up one sentence:
+
+- **(a) Cap the whole list**, which is what the file literally says. The bloom set is the top 12
+  of all 22, a neighbour that is already a landmark stays landmark-sized, and "12 of 22 shown"
+  is literally true. The cost is the gesture: one landmark in forty blooms to nothing, and it is
+  the one standing at the top of the list. "show all" is the way out and the handle already
+  carries it.
+- **(b) Cap what the bloom ADDS.** Order the neighbours by the same rank, skip the ones already
+  painted, paint the first 12 of the rest. Every click reveals twelve pages, which is what the
+  cap's own reasoning asks for ("a bloom needs a cap, or one click undoes the mode"). The cost
+  is the handle's arithmetic: with 22 neighbours of which 5 are landmarks, 17 of them are on
+  screen once the bloom is open, so the line has to read "17 of 22 shown, show all" and the
+  number in it is no longer the cap.
+
+**Proposed resolution: (b), with the handle stating what is on screen rather than the cap.** The
+cap exists to bound how much one click grows the picture, and under (b) it does that exactly;
+under (a) it also bounds how much a click can grow it to nothing. The number the reader wants
+from that line is how much of this page's neighbourhood they are looking at, which "17 of 22"
+answers and "12 of 22" only answers when the two sets happen not to overlap.
+
+Nothing else in the file moves either way: the set, the order, the chapters, the connectors and
+the recorded neighbour counts are unaffected, and the canvas takes the bloom as a set of nodes
+to paint whichever rule builds it.
