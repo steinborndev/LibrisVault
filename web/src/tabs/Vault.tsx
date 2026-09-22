@@ -1096,18 +1096,22 @@ function GraphView({
     const connectors = pick(landmarkData.connectors)
     /*
      * The bloom: the landmark's WHOLE neighbourhood inside the domain, in the list's own rank
-     * order - the pages this click reveals and the ones that were already out as landmarks or
-     * connectors. Uncapped since 2026-09-22, because the click re-frames the picture onto the
+     * order. Uncapped since 2026-09-22, because the click re-frames the picture onto the
      * neighbourhood: what it puts up is a view of one page rather than a domain with a crowd in
      * the middle of it, and half an answer to a question asked in full is worse than the crowd.
+     *
+     * Every neighbour is in the set, INCLUDING the ones that are landmarks or connectors in the
+     * other view (corrected 2026-09-22). They were excluded while the picture only dimmed around
+     * an expansion, and that left the list naming pages the drawing was greying out - the list
+     * and the picture disagreeing about what the neighbourhood is. The set below is exactly what
+     * the list shows, which is exactly what stays on screen.
      */
-    const out = new Set<number>([...landmarks, ...connectors])
     const bloomed = new Set<number>()
     const neighbourhood: string[] = []
     for (const p of bloom === null ? [] : landmarkData.neighbours.get(bloom) ?? []) {
       const i = at.get(p)
       if (i === undefined) continue // a neighbour the other filters keep out of the drawing
-      if (!out.has(i)) bloomed.add(i)
+      bloomed.add(i)
       neighbourhood.push(p)
     }
     const anchor = bloom === null ? null : at.get(bloom) ?? null

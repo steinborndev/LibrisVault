@@ -207,13 +207,15 @@ export interface LandmarkMask {
   landmarks: ReadonlySet<number>
   /** The glue between chapters: smallest and unlabelled, because they are not entry points. */
   connectors: ReadonlySet<number>
-  /** The open bloom, between the two in size. Empty while no landmark is expanded. */
+  /**
+   * The open neighbourhood: every page the expanded landmark links to or from inside the
+   * domain, whatever it is in the other view. Empty while none is expanded.
+   */
   bloom: ReadonlySet<number>
   /**
-   * The expanded landmark itself, or null while none is. It and its bloom are the picture's
-   * subject for as long as it is open: everything else on the mask goes half-transparent and
-   * loses its label, so a neighbourhood reads as one thing rather than as twelve more dots in
-   * a field of forty. Null is the ordinary state, where the mask dims nothing.
+   * The expanded landmark itself, or null while none is. It and its neighbourhood are then the
+   * WHOLE picture - see `painted` - because the click re-frames onto them and remains of the
+   * other view inside that frame are a second picture the reader has to look past.
    */
   bloomAnchor: number | null
   /**
@@ -386,6 +388,20 @@ function clusterHue(id: number): number {
  * with five pinned at the cap - a flat scale exactly where importance matters most. The rank it
  * would carry is already stated, in order, by the list beside the drawing.
  */
+/**
+ * Whether the Landmarks mask puts ink on node `i`.
+ *
+ * With a neighbourhood open, ONLY that neighbourhood is on screen - the landmark and every page
+ * it links to or from inside the domain. The rest is not dimmed but gone: the click re-frames
+ * the picture onto one page, and half-transparent remains of the other view inside that frame
+ * are a second picture the reader has to look past.
+ */
+function painted(mask: LandmarkMask | null, i: number): boolean {
+  if (mask === null) return true
+  if (mask.bloomAnchor !== null) return i === mask.bloomAnchor || mask.bloom.has(i)
+  return mask.landmarks.has(i) || mask.connectors.has(i)
+}
+
 const LANDMARK_R = 10
 const BLOOM_R = 6.5
 const CONNECTOR_R = 4.5
@@ -532,13 +548,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const fitSubsetRef = useRef(fitSubset)
   fitSubsetRef.current = fitSubset
   /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
-  const isPainted = useCallback(
-    (i: number): boolean => {
-      const m = maskRef.current
-      return m === null || m.landmarks.has(i) || m.bloom.has(i) || m.connectors.has(i)
-    },
-    [],
-  )
+  const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i), [])
 
   // Neighbor sets for hover highlighting (undirected view of the directed edges).
   const neighbors = useMemo(() => {
@@ -575,8 +585,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const labelReps = useMemo(() => {
     // Inside the mode the representatives are chosen among the PAINTED nodes: a tier that
     // guaranteed a label to a node drawn at no alpha would guarantee nothing.
-    const paints = (i: number): boolean =>
-      landmarkMask === null || landmarkMask.landmarks.has(i) || landmarkMask.bloom.has(i) || landmarkMask.connectors.has(i)
+    const paints = (i: number): boolean => painted(landmarkMask, i)
     const parent = new Int32Array(nodes.length)
     for (let i = 0; i < nodes.length; i++) parent[i] = i
     const find = (x: number): number => {
@@ -768,11 +777,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
      * shape with most of it taken away" true without narrowing anything the layout can see.
      */
     const mask = landmarkMask
-    const paints = (i: number): boolean =>
-      mask === null || mask.landmarks.has(i) || mask.bloom.has(i) || mask.connectors.has(i)
-    /** An open neighbourhood, as the set it lights: the landmark and what its click revealed. */
-    const bloomFocus =
-      mask === null || mask.bloomAnchor === null ? null : new Set<number>([mask.bloomAnchor, ...mask.bloom])
+    const paints = (i: number): boolean => painted(mask, i)
 
     const revealStart = revealStartRef.current
     let revealing = false
@@ -819,14 +824,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       rawSpotCid >= 0 && (clusterSets?.get(rawSpotCid)?.size ?? 0) < realNodeCount ? rawSpotCid : -1
     const active = spotHover ?? selectedIndex ?? focusIndex
     /*
-     * Inside the mode a SELECTION marks its node and dims nothing - the list's highlight is the
-     * canvas's selection, and the ordinary neighbourhood spotlight would dim thirty-nine
-     * landmarks because one row is marked. An open BLOOM is the other case and does dim: it is
-     * the reader asking for one neighbourhood, and the rest of the mode's picture steps back
-     * for as long as it is open.
+     * Inside the mode a selection marks its node and dims nothing. The list's highlight IS the
+     * canvas's selection, so the ordinary neighbourhood spotlight would dim thirty-nine
+     * landmarks because one row is marked - and an open neighbourhood needs no dimming either,
+     * because everything outside it is off the picture entirely.
      */
     const highlight =
-      mask !== null ? bloomFocus
+      mask !== null ? null
       : spotCid >= 0 ? clusterSets!.get(spotCid)!
       : active !== null ? new Set([active, ...(neighbors.get(active) ?? [])])
       : null
@@ -1082,8 +1086,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const dimmed = highlight !== null && !highlight.has(i)
       const isGhost = ghostIndices !== undefined && ghostIndices.has(i)
       // A connector is drawn dim as well as small: it is the glue between chapters, and the
-      // landmarks are what the picture is about.
-      const roleAlpha = mask !== null && mask.connectors.has(i) ? 0.45 : 1
+      // landmarks are what the picture is about. Inside one neighbourhood it is not glue but a
+      // neighbour like any other, and the list names it, so it is drawn like one.
+      const roleAlpha = mask !== null && mask.bloomAnchor === null && mask.connectors.has(i) ? 0.45 : 1
       ctx.globalAlpha = (dimmed ? dimNode : roleAlpha) * nodeRev
       if (isGhost) {
         // Hollow, dashed ring in a faint neutral: present enough to click and count, but
@@ -1156,11 +1161,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         // are very few of them - naming them would offer a way in where the mode says there
         // is none. A bloom IS named: a click asking to see twelve pages is not answered by
         // twelve anonymous dots.
-        if (mask !== null && mask.connectors.has(i)) continue
-        // …and while a neighbourhood is open, only it carries names. A dimmed label is still a
-        // label: forty of them around the twelve pages that were just asked for is the noise
-        // the expansion was meant to cut through.
-        if (bloomFocus !== null && !bloomFocus.has(i)) continue
+        if (mask !== null && mask.connectors.has(i) && mask.bloomAnchor === null) continue
         if (!visible(x, pos[i * 2 + 1]!)) continue
         candidates.push(i)
       }

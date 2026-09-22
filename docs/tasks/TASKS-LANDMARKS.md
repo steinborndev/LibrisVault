@@ -112,11 +112,12 @@ open it is what the screen is about, and the three surfaces say so together rath
 the reader to find twelve new dots in a field of forty:
 
 - the LIST is that neighbourhood - the landmark, keeping its number so the place in the reading
-  order is not lost, and under it every neighbour the drawing has out. Its length is the number
-  the handle line states, so the two can be read against each other;
-- the PICTURE dims: every other landmark and connector goes half-transparent and loses its
-  label outright. A dimmed label is still a label, and forty of them around the twelve pages
-  just asked for is the noise the expansion was meant to cut through;
+  order is not lost, and under it every page it links to or from inside the domain. The list
+  and the picture hold the same set, which is what finding 4 below is about;
+- the PICTURE is that neighbourhood and nothing else (corrected 2026-09-22, user decision, was
+  half-transparent): every other landmark and connector is off the drawing. Remains of the
+  other view inside a frame drawn around one page are a second picture the reader has to look
+  past, and a dimmed label is still a label;
 - the HEADING names it after the domain, in the form `<domain> - <the page>`, because the
   middle of the bar is where a reader looks to find out what they are looking at.
 
@@ -563,3 +564,26 @@ Three distinguishable sizes, with one expansion open: 41 at 7.1-7.8 px, 12 at 5.
 
 The layout was asked for nothing throughout: 5 posts and 170 frames before the switch, the
 same after it, and the same again after four expansions.
+
+**4. The list was right and the picture was not (2026-09-22, reported as "the sidebar seems to
+show articles that are not part of the bloom", resolved).**
+
+Audited rather than argued: for every landmark of the three domains this file measures, the
+entries the sidebar lists were compared against the neighbours the graph payload itself gives,
+computed a second time and independently of the module.
+
+| Domain | landmarks | lists disagreeing with the payload | entries that are not a direct link | list length |
+|---|---|---|---|---|
+| biomedicine | 40 | 0 | 0 | min 14, median 22, max 129 |
+| cooking | 10 | 0 | 0 | min 11, median 14, max 22 |
+| finance | 9 | 0 | 0 | min 9, median 10, max 19 |
+
+So the list named nothing it should not have. What was wrong was the PICTURE: while an open
+neighbourhood only dimmed its surroundings, the set it lit left out the neighbours that happen
+to be landmarks or connectors in the other view - they stayed drawn in their own role and were
+greyed down with everything else. The list named them, the drawing greyed them, and the reader
+is right to read that as the list naming something that is not part of the expansion.
+
+Both halves are one set now: every page the landmark links to or from inside the domain is in
+the neighbourhood, is on screen, and is in the list. Measured in the running app: 27 painted
+blobs against 26 list rows, the one extra being the selection ring.
