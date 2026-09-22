@@ -238,3 +238,38 @@ describe('placeRegionLabels', () => {
     expect(out[0]!.key).toBe(2) // the weight-9 cluster is positioned first
   })
 })
+
+describe('a caption and the frame it has to fit in', () => {
+  // One hull in the middle of a small world, and a frame that leaves room on one side only.
+  const hull: Array<[number, number]> = [
+    [-20, -20],
+    [20, -20],
+    [20, 20],
+    [-20, 20],
+  ]
+  const hulls = new Map<number, Array<[number, number]>>([[1, hull]])
+  const label = { key: 1, width: 30, weight: 10 }
+
+  it('places inside the frame even when a better spot lies outside it', () => {
+    // The frame is cut off just above the hull, so the "up" default cannot be taken.
+    const placed = placeRegionLabels([label], hulls, 10, 4, [-200, -30, 200, 200])
+    expect(placed).toHaveLength(1)
+    const [x0, y0, x1, y1] = placed[0]!.box
+    expect(x0).toBeGreaterThanOrEqual(-200)
+    expect(y0).toBeGreaterThanOrEqual(-30)
+    expect(x1).toBeLessThanOrEqual(200)
+    expect(y1).toBeLessThanOrEqual(200)
+  })
+
+  it('drops a caption that fits nowhere inside the frame', () => {
+    // Half a word at the edge names nothing, and the hull is still there to be hovered.
+    expect(placeRegionLabels([label], hulls, 10, 4, [-21, -21, 21, 21])).toEqual([])
+  })
+
+  it('places as it always did when no frame is given', () => {
+    const free = placeRegionLabels([label], hulls, 10, 4)
+    const framed = placeRegionLabels([label], hulls, 10, 4, [-500, -500, 500, 500])
+    expect(free).toHaveLength(1)
+    expect(framed[0]!.box).toEqual(free[0]!.box)
+  })
+})

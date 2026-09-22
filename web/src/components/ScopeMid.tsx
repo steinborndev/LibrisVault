@@ -5,22 +5,31 @@
  * never moves, instead of re-centring it (the letters would jump with every switch). The
  * lead puts a heading of typical length about the centre; a long one runs to the right and
  * is cut with an ellipsis, with the full text on hover.
+ *
+ * An open neighbourhood is named after the domain, and is the one thing allowed past the
+ * block's own right edge rather than shortening what stands before it: the block keeps its
+ * width, so nothing in the bar moves and the heading starts and sits where it always did,
+ * and only the tail is longer.
  */
 
 import { domainColor } from '../lib/domains.ts'
 import type { ScopeHeading } from '../lib/scopeHeading.ts'
 
 export function ScopeMid({ heading }: { heading: ScopeHeading }): React.ReactElement {
-  const { text, domain, tag } = heading
+  const { text, domain, tag, bloom } = heading
   // A hollow ring where no one colour applies: a count, a wing, the whole vault.
   const dotClass = domain === null ? 'chip-dot mid-dot none' : 'chip-dot mid-dot'
   const dotStyle = domain === null ? undefined : { background: domain === '' ? 'var(--muted)' : domainColor(domain) }
   return (
-    <span className={tag ? 'bar-mid has-tag' : 'bar-mid'} title={tag?.around != null ? `${text} around ${tag.around}` : text}>
+    <span
+      className={`bar-mid${tag ? ' has-tag' : ''}${bloom === undefined ? '' : ' has-bloom'}`}
+      title={tag?.around != null ? `${text} around ${tag.around}` : bloom === undefined ? text : `${text} - ${bloom}`}
+    >
       <span className={dotClass} style={dotStyle} aria-hidden />
       <span className={tag ? 'mid-name mid-tag' : 'mid-name'}>{text}</span>
       {/* The page the tag was scoped to, quieter than the tag: the tag is what you chose,
           this is where you chose it. Truncated rather than wrapped - the bar is one line. */}
+      {bloom !== undefined && <span className="mid-bloom">- {bloom}</span>}
       {tag?.around != null && <span className="mid-around">around {tag.around}</span>}
     </span>
   )

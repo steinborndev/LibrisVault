@@ -598,18 +598,6 @@ button {
    panel and the box start and end on the same two lines. A column that pads itself (the
    graph canvas did) or a bar that sits inside one column (the library's did) breaks that,
    which is exactly how the two edges drifted apart. ══ */
-/* Row 1 explicitly, not by auto-placement: the bar spans both columns, so if a column
-   child is placed first the bar gets pushed into a row of its own BELOW it and the grid
-   silently collapses to one column. Stating the row makes DOM order irrelevant. */
-.ws-bar {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
 
 
 /* ---- Cards & layout ----
@@ -2628,6 +2616,20 @@ details.hot-cache[open] summary {
   font-size: 11px;
   color: var(--text-faint);
 }
+/* A row whose condition is not met stays where it is and says why on its own second line -
+   the switch is the only thing that goes quiet, so the reason is read without hovering. */
+.rowtoggle:disabled {
+  cursor: default;
+}
+.rowtoggle:disabled:hover {
+  background: transparent;
+}
+.rowtoggle:disabled .sw {
+  opacity: 0.4;
+}
+.rowtoggle:disabled .tname {
+  color: var(--text-faint);
+}
 
 /* ── Disclosure. The closed summary carries the state inside it, so folding something
    away can never hide that it is switched on. ── */
@@ -3011,7 +3013,99 @@ details.hot-cache[open] summary {
 
 /* While the list is open it has the corner: the minimap steps out of sight and comes back
    with the list gone. The list is what the reader is using; the overview is not. */
-.graph-stage.search-open .graph-minimap {
+.graph-stage.search-open /*
+ * What the page checks found on a save. It shared a class with the deletion banner that used
+ * to sit above the graph; that banner is gone (2026-09-22) and this kept its shape, so it
+ * keeps a name that says what it is.
+ */
+.page-findings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.page-findings svg {
+  flex: none;
+  color: var(--warn);
+}
+
+/*
+ * The scope line: where you are, at the top of the DRAWING. It replaced one or two boxes above
+ * the workspace that pushed the panel and the canvas down by 60px apiece, and did it at the
+ * moment the reader had just drilled in. Text only - a container around it would be the box
+ * again in a smaller size - with a halo so it stays readable over whatever it sits on.
+ */
+.graph-scope {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  max-width: calc(100% - 320px);
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-shadow: 0 0 4px var(--bg), 0 0 8px var(--bg);
+  pointer-events: none;
+}
+.graph-scope strong {
+  color: var(--text);
+  font-weight: 600;
+}
+/* The parts are what you can press; the line as a whole lets clicks through to the canvas. */
+.gs-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  pointer-events: auto;
+}
+.gs-level + .gs-level {
+  margin-left: 5px;
+}
+.gs-arrow {
+  margin: 0 5px;
+  color: var(--text-faint);
+}
+.gs-exit {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.gs-exit:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+.gs-exit svg {
+  width: 13px;
+  height: 13px;
+}
+/* The focused page's name in the panel, above its depth control. */
+.gp-focus {
+  margin: 0 0 7px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-minimap {
   visibility: hidden;
   pointer-events: none;
 }
@@ -3100,60 +3194,6 @@ details.hot-cache[open] summary {
 }
 /* Focus mode: one row, one segmented control for the neighborhood depth. Card-framed so
    it reads as a sibling of the domain band, not a loose text line (mockup 2026-07-21). */
-.focusbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-dim);
-  flex-wrap: wrap;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 11px;
-}
-.focusbar strong {
-  color: var(--text);
-}
-
-/* ── The isolated-community bar (spotlight click) ── Accent-tinted, unlike the neutral
-   focusbar: cluster focus is a temporary zoom-in the user should notice they are inside of. */
-.clusterbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-dim);
-  flex-wrap: wrap;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  padding: 7px 11px;
-}
-.clusterbar strong {
-  color: var(--text);
-}
-.clusterbar .cb-dot {
-  width: var(--dot);
-  height: var(--dot);
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.clusterbar .cb-meta {
-  font-variant-numeric: tabular-nums;
-}
-.clusterbar .cb-exit {
-  margin-left: auto;
-}
-/* Drill-down breadcrumb: one crumb per isolated level, earlier levels clickable. */
-.clusterbar .cb-level {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.clusterbar .cb-arrow {
-  color: var(--text-faint);
-}
 .seg {
   display: inline-flex;
   border: 1px solid var(--border-strong);
@@ -3309,6 +3349,76 @@ span.head-slot { display: inline-block; }
   line-height: 1.2;
 }
 .bar-mid .mid-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * An open neighbourhood, named after the domain. The block keeps its 320px, so the lead, the
+ * dot and the first letter stay exactly where they were and nothing else in the bar moves;
+ * what the tail does instead of shortening the domain is run PAST the block's right edge,
+ * into the empty stretch before the search. Both parts stop shrinking for that - the domain
+ * is short and is the thing the reader navigated by - and only the tail is ever cut, with the
+ * whole of it on hover. The search pill is later in the bar, so it paints over the overflow
+ * rather than under it.
+ */
+.bar-mid.has-bloom .mid-name { flex: none; }
+.mid-bloom {
+  flex: none;
+  max-width: min(300px, 26vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+/* A neighbour of the expanded landmark: the number column stays empty, because a neighbour has
+   a place in this page's neighbourhood and none in the domain's reading order. */
+.lm-near .lm-t { color: var(--text-dim); }
+
+/*
+ * The column's heading, in both of its forms: the reading order names its measure, an open
+ * neighbourhood names the page it is around. One class, so the two read as the same thing in
+ * the same slot - and it STAYS while the rows move under it, because forty entries scroll and a
+ * heading that left with them would take its own answer along.
+ */
+.lm-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  /* The canvas bar's own metrics - 7px of padding around a 26px row - so this rule and the one
+     under the bar beside it land on the same line instead of a few pixels apart. Built from the
+     parts rather than from a height, which `border-box` would have swallowed the padding into. */
+  padding: 7px 16px;
+  line-height: 26px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+}
+/* The page form carries a second line, so its own height comes from the two lines rather than
+   from the bar's single row; everything else about it is the heading above. */
+.lm-title-page {
+  padding: 8px 16px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.lm-title-page:hover .lm-hname {
+  color: var(--accent);
+}
+.lm-hname {
+  display: block;
+}
+/* …and the two numbers about it, said rather than left to a column to imply. */
+.lm-hmeta {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
 .bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }
 /* A hollow ring where no one colour applies: several domains, a wing, the whole vault. */
 .bar-mid .mid-dot.none { background: transparent; border: 1.5px solid var(--text-faint); }
@@ -3575,6 +3685,65 @@ span.head-slot { display: inline-block; }
   padding: 16px 16px 12px;
   border-bottom: 1px solid var(--border);
 }
+
+/* ── Landmarks: the reading order beside the picture. The column is the explorer's, so the
+   frame is the explorer's too; what differs is that this is a list of the DOMAIN rather than
+   the detail of one selection. */
+.landmarks {
+  overflow-y: auto;
+}
+.lm-list {
+  margin: 0;
+  padding: 10px 8px 16px;
+  list-style: none;
+}
+.lm-item {
+  display: block;
+}
+.lm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.lm-row:hover {
+  background: var(--bg-elev-2);
+}
+.lm-row.cur {
+  border-color: var(--accent);
+  background: var(--bg-elev-2);
+}
+/* The number is the reader's place in the order, so it keeps a column of its own and the
+   titles all start on the same line however far the count has run. */
+.lm-n {
+  flex: none;
+  width: 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  color: var(--text-faint);
+}
+.lm-t {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+/* A thin rule with a caption, not a heading: one left-over page must not read as heavy as a
+   chapter of thirty-six. */
+.lm-break {
+  margin: 14px 8px 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+}
 /* The kicker over a title in the explorer: the same label as `.bucket`, one step up because
    it sits over a heading rather than beside a name in a list. */
 .gx-kicker {
@@ -3675,11 +3844,18 @@ span.head-slot { display: inline-block; }
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
+/*
+ * The indent lives on the ROW alone (2026-09-22). It used to be here as well, so every title
+ * was set in 32px from each edge instead of 16 - a third of the column in a reading view's
+ * sidebar, spent on nothing, and paid for in wrapped lines and scrolling. The heading takes the
+ * same 16px of its own so the two still line up.
+ */
 .gx-sec {
-  padding: 12px 16px 2px;
+  padding: 12px 0 2px;
 }
 .gx-sec h3 {
   margin: 0 0 6px;
+  padding: 0 16px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -3922,57 +4098,18 @@ span.head-slot { display: inline-block; }
   color: var(--text-faint);
 }
 .page-side {
-  /* No longer sticky: it is a column of the same height as the article and scrolls itself. */
+  /* No longer sticky: it is a column of the same height as the article and scrolls itself.
+     No padding of its own either - it holds the explorer's link panel, whose rows carry their
+     own indent and want the whole width to put a title on one line. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  overflow: hidden;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 12px 14px;
   font-size: 13px;
 }
-.page-side h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-faint);
-  margin: 10px 0 6px;
-}
-.page-side h3:first-child {
-  margin-top: 0;
-}
-/* The toggle sits at the top and stays there; only the list under it scrolls. */
-.page-side-seg {
-  flex: none;
-  align-self: stretch;
-}
-.page-side-seg button {
-  flex: 1;
-  white-space: nowrap;
-}
-.page-side-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
 
-.linklist {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.linklist a {
-  color: var(--accent);
-  text-decoration: none;
-}
-.linklist a:hover {
-  text-decoration: underline;
-}
 .dim {
   color: var(--text-faint);
 }
@@ -4116,22 +4253,6 @@ span.head-slot { display: inline-block; }
   font-weight: 600;
 }
 
-.stale-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--warn-bg);
-  color: var(--text);
-  border: 1px solid var(--warn);
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  font-size: 14px;
-}
-.stale-banner svg {
-  color: var(--warn);
-  flex-shrink: 0;
-}
 
 /* ---- Domain governance (SPEC §12.4 Stufe 3) ---- */
 .domain-candidates {
@@ -5119,15 +5240,6 @@ kbd {
 .graph-workspace {
   flex: 1;
   height: auto;
-}
-.graph-workspace:has(> .ws-bar) {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-/* With a bar present the two columns belong to row 2; without one the single row is row 1
-   and these are ignored, because a grid-row beyond the template just creates it. */
-.graph-workspace:has(> .ws-bar) > .gpanel,
-.graph-workspace:has(> .ws-bar) > .graph-main {
-  grid-row: 2;
 }
 
 /* The content box: head, a body that scrolls inside itself, an optional foot. */

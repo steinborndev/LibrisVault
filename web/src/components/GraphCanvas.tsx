@@ -128,6 +128,20 @@ export interface GraphCanvasProps {
   /** The bar's own Fit button. Off where the screen offers the action somewhere better. */
   showFit?: boolean
   /**
+   * Which nodes a fit frames, or null for all of them. It changes no layout and hides nothing:
+   * the camera is simply put around a part of the picture, which is how the Landmarks overlay
+   * lands a click on a readable view of one page's neighbourhood instead of on twelve more dots
+   * somewhere in a field of forty. Read at the moment of the fit, so it always pairs with the
+   * `fitKey` that asked for one.
+   */
+  fitSubset?: ReadonlySet<number> | null
+  /**
+   * A node the fit puts in the MIDDLE of the picture rather than wherever the framed set's box
+   * happens to put it. The span is then measured from it in every direction, so the set still
+   * fits whole - at a wider zoom than a plain box fit, which is what centring costs.
+   */
+  fitCenter?: number | null
+  /**
    * Which graph this canvas is - the key its camera and its laid-out positions are kept
    * under. Two canvases are mounted at once (every screen stays in the DOM behind `hidden`),
    * and a positions array belongs to exactly one node list, so they must not share a slot.
@@ -178,6 +192,45 @@ export interface GraphCanvasProps {
   onClear?: () => void
   /** Extra UI rendered inside the canvas wrap (e.g. the search box, top-right). */
   overlay?: React.ReactNode
+  /**
+   * The Landmarks overlay's paint mask (docs/tasks/TASKS-LANDMARKS.md), or null when the mode
+   * is off. It PAINTS, it does not filter: every page of the domain stays in `nodes` and
+   * `edges`, and what this changes is which of them the canvas puts ink on. That is the whole
+   * reason the mode costs no layout - the node list, the edge list and the domain grouping are
+   * untouched, so the layout effect's structural-identity check returns before it posts, and
+   * the positions stand still across a switch and across a bloom.
+   */
+  landmarkMask?: LandmarkMask | null
+}
+
+/**
+ * Which nodes the Landmarks overlay paints, and how. Everything outside the three sets is drawn
+ * at no alpha, carries no label and cannot be clicked - a click on its position is a click on
+ * the background.
+ */
+export interface LandmarkMask {
+  /** The pages the domain is built around: full size, labelled, the subject of the picture. */
+  landmarks: ReadonlySet<number>
+  /** The glue between chapters: smallest and unlabelled, because they are not entry points. */
+  connectors: ReadonlySet<number>
+  /**
+   * The open neighbourhood: every page the expanded landmark links to or from inside the
+   * domain, whatever it is in the other view. Empty while none is expanded.
+   */
+  bloom: ReadonlySet<number>
+  /**
+   * The expanded landmark itself, or null while none is. It and its neighbourhood are then the
+   * WHOLE picture - see `painted` - because the click re-frames onto them and remains of the
+   * other view inside that frame are a second picture the reader has to look past.
+   */
+  bloomAnchor: number | null
+  /**
+   * Backlinks counted inside the DOMAIN, per node index - the value the authority lens reads
+   * while the mode is on. Over the vault an index hub lends every page it lists the same link,
+   * which is not a statement about the domain. Computed over the domain rather than over what
+   * is painted, so a bloom cannot recolour the picture under the reader's hand.
+   */
+  inDomain: readonly number[]
 }
 
 // Domain colors, the page-kind color map and the stub threshold live in lib/domains.ts (the
@@ -185,6 +238,21 @@ export interface GraphCanvasProps {
 // module into the main bundle). Re-exported for callers.
 import { domainColor, domainHue, STUB_BYTES, TYPE_VARS } from '../lib/domains.ts'
 export { domainColor, domainHue, STUB_BYTES, TYPE_VARS }
+
+/**
+ * What the authority lens counts for one node: the DOMAIN-internal backlinks while the Landmarks
+ * mask hands them in, the vault-wide count otherwise.
+ *
+ * Only the value moves. Which nodes make up the ramp's domain is unchanged - with a paint mask
+ * the drawn nodes are the domain - because a ramp rebuilt from what is painted would recolour
+ * the whole picture on every bloom, under the reader's hand.
+ *
+ * A count of zero is a count: the fallback is on a MISSING entry, never on a falsy one, which is
+ * the difference between "this page has no backlinks inside its domain" and "nobody said".
+ */
+export function authorityValue(mask: LandmarkMask | null, nodes: readonly GraphNode[], i: number): number {
+  return mask?.inDomain[i] ?? nodes[i]?.in ?? 0
+}
 
 /** The available color lenses. `domain`/`type` are categorical; the rest re-encode a metric. */
 export type Lens = 'domain' | 'type' | 'authority' | 'orphans' | 'stubs' | 'recency'
@@ -319,6 +387,41 @@ function clusterHue(id: number): number {
 }
 
 /** Two taps on the SAME node within this window are a double-tap (opens the page). */
+/**
+ * The three role radii of the Landmarks overlay, against the ordinary 3-to-12px degree scale.
+ * Inside the mode size says the ROLE, not the degree: `3 + min(9, sqrt(degree) * 1.1)` saturates
+ * at degree 67, so the top 40 pages of the largest domain here all sit between 8.4 and 12.0px
+ * with five pinned at the cap - a flat scale exactly where importance matters most. The rank it
+ * would carry is already stated, in order, by the list beside the drawing.
+ */
+/**
+ * Whether the Landmarks mask puts ink on node `i`.
+ *
+ * With a neighbourhood open, ONLY that neighbourhood is on screen - the landmark and every page
+ * it links to or from inside the domain. The rest is not dimmed but gone: the click re-frames
+ * the picture onto one page, and half-transparent remains of the other view inside that frame
+ * are a second picture the reader has to look past.
+ */
+function painted(mask: LandmarkMask | null, i: number): boolean {
+  if (mask === null) return true
+  if (mask.bloomAnchor !== null) return i === mask.bloomAnchor || mask.bloom.has(i)
+  return mask.landmarks.has(i) || mask.connectors.has(i)
+}
+
+/**
+ * The Library's rim, as the room draws it: `#fff4e2` at 1.6 wide, along the edge of whatever is
+ * being pointed at (`bc-rim` in RoomSvg). The graph borrows both, so one gesture looks the same
+ * in both places.
+ */
+const RIM_LIGHT = '#fff4e2'
+const RIM_WIDTH = 1.6
+/** How far outside the node's own edge the rim sits, in screen pixels. */
+const RIM_OUT = 3
+
+const LANDMARK_R = 10
+const BLOOM_R = 6.5
+const CONNECTOR_R = 4.5
+
 const DOUBLE_TAP_MS = 350
 
 /** A layout with at least this share of never-placed nodes restarts cold instead of reheating. */
@@ -405,7 +508,7 @@ function viewMemory(view: string): ViewMemory {
  */
 const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -449,6 +552,21 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // Controlled by the viewbar toggle; a ref so the draw closure reads the latest without redeps.
   const hoverSpotlightRef = useRef(spotlight)
   hoverSpotlightRef.current = spotlight
+  /*
+   * The mask, in a ref as well as in the props. `radius` reads it from here so its identity
+   * stays keyed on the node list alone: it is a dependency of `fitToView`, which is a
+   * dependency of the worker session, and a mask toggle that tore the worker down and built it
+   * again would be a strange way to spend a redraw. The draw pass reads the prop directly.
+   */
+  const maskRef = useRef(landmarkMask)
+  maskRef.current = landmarkMask
+  /** What the next fit frames; a ref, so `fitToView` keeps its identity across a change of it. */
+  const fitSubsetRef = useRef(fitSubset)
+  fitSubsetRef.current = fitSubset
+  const fitCenterRef = useRef(fitCenter)
+  fitCenterRef.current = fitCenter
+  /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
+  const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i), [])
 
   // Neighbor sets for hover highlighting (undirected view of the directed edges).
   const neighbors = useMemo(() => {
@@ -483,6 +601,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // own label, and a domain split across two blobs gets one in each. Union-find over the edges;
   // memoised on the node/edge set, not per frame.
   const labelReps = useMemo(() => {
+    // Inside the mode the representatives are chosen among the PAINTED nodes: a tier that
+    // guaranteed a label to a node drawn at no alpha would guarantee nothing.
+    const paints = (i: number): boolean => painted(landmarkMask, i)
     const parent = new Int32Array(nodes.length)
     for (let i = 0; i < nodes.length; i++) parent[i] = i
     const find = (x: number): number => {
@@ -493,12 +614,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       return x
     }
     for (const [a, b] of edges) {
+      if (!paints(a) || !paints(b)) continue
       const ra = find(a)
       const rb = find(b)
       if (ra !== rb) parent[ra] = rb
     }
     const compSize = new Map<number, number>()
     for (let i = 0; i < nodes.length; i++) {
+      if (!paints(i)) continue
       const r = find(i)
       compSize.set(r, (compSize.get(r) ?? 0) + 1)
     }
@@ -506,6 +629,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // so orphans and pairs don't each force a label (the graph has hundreds of gap nodes).
     const best = new Map<string, number>()
     for (let i = 0; i < nodes.length; i++) {
+      if (!paints(i)) continue
       const r = find(i)
       if ((compSize.get(r) ?? 0) < MIN_LABELED_CLUSTER) continue
       const key = `${r}\u0000${nodes[i]!.domain ?? ''}`
@@ -513,12 +637,22 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       if (cur === undefined || nodes[i]!.in + nodes[i]!.out > nodes[cur]!.in + nodes[cur]!.out) best.set(key, i)
     }
     return new Set(best.values())
-  }, [nodes, edges])
+  }, [nodes, edges, landmarkMask])
 
   const radius = useCallback(
     (i: number): number => {
       const n = nodes[i]
       if (!n) return 3
+      const m = maskRef.current
+      if (m !== null) {
+        // Role, in the order roles override one another. The screen never puts a landmark or a
+        // connector in a bloom (a bloom is what a click ADDS to the picture), so the ordering
+        // is belt and braces rather than a rule anyone has to hold in their head. An unpainted
+        // node keeps the ordinary radius: it is not drawn, but the fit still reads its extent.
+        if (m.landmarks.has(i)) return LANDMARK_R
+        if (m.bloom.has(i)) return BLOOM_R
+        if (m.connectors.has(i)) return CONNECTOR_R
+      }
       return 3 + Math.min(9, Math.sqrt(n.in + n.out) * 1.1)
     },
     [nodes],
@@ -530,17 +664,19 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
    * are not pages, and letting them into the domain would shift every page's colour the
    * moment the gaps view is toggled.
    */
+  const authorityOf = useCallback((i: number): number => authorityValue(landmarkMask, nodes, i), [landmarkMask, nodes])
+
   const authoritySorted = useMemo(() => {
     if (lens !== 'authority') return null
     const counts: number[] = []
     for (let i = 0; i < nodes.length; i++) {
       if (ghostIndices?.has(i) === true) continue
-      counts.push(nodes[i]!.in)
+      counts.push(authorityOf(i))
     }
     if (counts.length < 2) return null
     counts.sort((a, b) => a - b)
     return counts
-  }, [nodes, ghostIndices, lens])
+  }, [nodes, ghostIndices, lens, authorityOf])
 
   /**
    * Backlink count → position on the authority ramp (0 = least linked, 1 = most).
@@ -600,7 +736,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const dimBase = mixColor(cssVar('--bg-elev-2', '#1f2637'), muted, 0.55)
     const nowMs = Date.now()
     const darkSurface = isDarkSurface(cssVar('--bg-elev', '#131928'))
-    const colorFor = (n: GraphNode): string => {
+    const colorFor = (i: number): string => {
+      const n = nodes[i]!
       switch (lens) {
         case 'domain':
           return n.domain !== null ? domainColor(n.domain) : muted
@@ -609,7 +746,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         case 'authority':
           // On the page's own domain hue, with the accent standing in for a page that has no
           // domain - see `authorityRamp` for why lightness carries the metric.
-          return authorityRamp(n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'), authorityT(n.in), darkSurface)
+          return authorityRamp(n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'), authorityT(authorityOf(i)), darkSurface)
         case 'orphans':
           // No backlinks = unreachable except by search. Everything else recedes.
           return n.in === 0 ? cssVar('--err', '#e0645b') : dimBase
@@ -637,7 +774,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
      * to get there.
      */
     const nodeColors = new Array<string | undefined>(nodes.length)
-    const nodeColor = (i: number): string => (nodeColors[i] ??= colorFor(nodes[i]!))
+    const nodeColor = (i: number): string => (nodeColors[i] ??= colorFor(i))
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
@@ -650,6 +787,15 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // stays empty on purpose: the alternative is a quarter of the graph at 1:1, oversized
     // and moving, followed by a hard cut to the fitted frame. The status chip says so.
     if (holdRef.current) return
+
+    /*
+     * The mask. `paints` is the whole of what the overlay does to the drawing: an unpainted
+     * node is skipped by the node pass, by the edges that would reach it, by the hulls, by the
+     * label candidates, by the overview and by the hit test - which is what makes "the same
+     * shape with most of it taken away" true without narrowing anything the layout can see.
+     */
+    const mask = landmarkMask
+    const paints = (i: number): boolean => painted(mask, i)
 
     const revealStart = revealStartRef.current
     let revealing = false
@@ -695,12 +841,17 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const spotCid =
       rawSpotCid >= 0 && (clusterSets?.get(rawSpotCid)?.size ?? 0) < realNodeCount ? rawSpotCid : -1
     const active = spotHover ?? selectedIndex ?? focusIndex
+    /*
+     * Inside the mode a selection marks its node and dims nothing. The list's highlight IS the
+     * canvas's selection, so the ordinary neighbourhood spotlight would dim thirty-nine
+     * landmarks because one row is marked - and an open neighbourhood needs no dimming either,
+     * because everything outside it is off the picture entirely.
+     */
     const highlight =
-      spotCid >= 0
-        ? clusterSets!.get(spotCid)!
-        : active !== null
-          ? new Set([active, ...(neighbors.get(active) ?? [])])
-          : null
+      mask !== null ? null
+      : spotCid >= 0 ? clusterSets!.get(spotCid)!
+      : active !== null ? new Set([active, ...(neighbors.get(active) ?? [])])
+      : null
     // A transient hover (node or hull) may dim hard; a selection/focus spotlight is long-
     // lived, so it dims gently enough that the rest of the graph stays readable underneath.
     const transientSpot = spotHover !== null || spotCid >= 0
@@ -732,6 +883,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       for (let i = 0; i < nodes.length; i++) {
         const cid = clusters[i]
         if (cid === undefined || cid < 0) continue
+        if (!paints(i)) continue // a hull drawn around invisible nodes outlines nothing
         if (!showHulls && cid !== spotCid) continue
         const x = pos[i * 2]!
         const y = pos[i * 2 + 1]!
@@ -792,7 +944,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           labelInputs.push({ key: cid, width: ctx.measureText(label).width, weight: pts.length })
         }
       }
-      const placedLabels = placeRegionLabels(labelInputs, paddedHulls, labelH, labelH * 0.45)
+      const placedLabels = placeRegionLabels(labelInputs, paddedHulls, labelH, labelH * 0.45, [
+        minX + margin,
+        minY + margin,
+        maxX - margin,
+        maxY - margin,
+      ])
       // Keep the glyphs legible without ever moving them: clamp the on-screen size, then
       // grow each reserved box by the same factor. Shrinking (zoomed in) always fits;
       // growing (zoomed out) may not, and those labels are dropped rather than displaced.
@@ -867,6 +1024,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const x2 = pos[b * 2]!
       const y2 = pos[b * 2 + 1]!
       if (Number.isNaN(x1) || Number.isNaN(x2)) continue
+      if (!paints(a) || !paints(b)) continue
       if (!visible(x1, y1) && !visible(x2, y2)) continue
       const edgeRev = edgeIn(a, b)
       if (edgeRev <= 0.004) continue
@@ -940,6 +1098,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const x = pos[i * 2]!
       const y = pos[i * 2 + 1]!
       if (Number.isNaN(x)) continue
+      if (!paints(i)) continue
       if (!visible(x, y)) continue
       const nodeRev = nodeIn(i)
       if (nodeRev <= 0.004) continue
@@ -949,7 +1108,11 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const r = radius(i) * (revealing ? revealPop(nodeRev) : 1)
       const dimmed = highlight !== null && !highlight.has(i)
       const isGhost = ghostIndices !== undefined && ghostIndices.has(i)
-      ctx.globalAlpha = (dimmed ? dimNode : 1) * nodeRev
+      // A connector is drawn dim as well as small: it is the glue between chapters, and the
+      // landmarks are what the picture is about. Inside one neighbourhood it is not glue but a
+      // neighbour like any other, and the list names it, so it is drawn like one.
+      const roleAlpha = mask !== null && mask.bloomAnchor === null && mask.connectors.has(i) ? 0.45 : 1
+      ctx.globalAlpha = (dimmed ? dimNode : roleAlpha) * nodeRev
       if (isGhost) {
         // Hollow, dashed ring in a faint neutral: present enough to click and count, but
         // visibly not a real page. A tiny fill keeps it hit-testable at its center.
@@ -970,7 +1133,29 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
       }
-      if (i === focusIndex || i === selectedIndex || matches.has(i)) {
+      /*
+       * The selected node, inside the mode, wears the LIBRARY'S RIM (2026-09-22, user decision):
+       * the same warm light and the same 1.6px edge the room puts along the thing being pointed
+       * at. An accent ring was the obvious choice and the wrong one - blue on a blue-black
+       * canvas is one more circle among forty of the same colour, which is what it looked like.
+       *
+       * A darker halo goes under it, one stroke wider. On this canvas the background can be
+       * near-white, where a warm white edge would vanish; the halo is what the label pass
+       * already does for text, for the same reason.
+       */
+      if (mask !== null && i === selectedIndex) {
+        ctx.globalAlpha = nodeRev
+        ctx.strokeStyle = mixColor(cssVar('--bg', '#0d1117'), cssVar('--text', '#fff'), darkSurface ? 0.1 : 0.55)
+        ctx.lineWidth = 3.4 / t.k
+        ctx.beginPath()
+        ctx.arc(x, y, r + RIM_OUT / t.k, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.strokeStyle = RIM_LIGHT
+        ctx.lineWidth = RIM_WIDTH / t.k
+        ctx.beginPath()
+        ctx.arc(x, y, r + RIM_OUT / t.k, 0, Math.PI * 2)
+        ctx.stroke()
+      } else if (i === focusIndex || i === selectedIndex || matches.has(i)) {
         ctx.globalAlpha = nodeRev
         ctx.strokeStyle = i === selectedIndex ? cssVar('--accent', '#5b8def') : cssVar('--text', '#fff')
         ctx.lineWidth = (i === selectedIndex ? 2.2 : 1.6) / t.k
@@ -1016,6 +1201,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       for (let i = 0; i < nodes.length; i++) {
         const x = pos[i * 2]!
         if (Number.isNaN(x)) continue
+        if (!paints(i)) continue
+        // Connectors stay nameless. They are the glue rather than the entry points, and there
+        // are very few of them - naming them would offer a way in where the mode says there
+        // is none. A bloom IS named: a click asking to see twelve pages is not answered by
+        // twelve anonymous dots.
+        if (mask !== null && mask.connectors.has(i) && mask.bloomAnchor === null) continue
         if (!visible(x, pos[i * 2 + 1]!)) continue
         candidates.push(i)
       }
@@ -1095,7 +1286,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, positionsRef, transformRef])
+  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, authorityOf, landmarkMask, positionsRef, transformRef])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -1124,8 +1315,20 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       setOffMap(lost)
     }
     const mini = miniRef.current
-    if (mini) drawMinimap(mini, t, vp, pos, dpr)
-  }, [positionsRef, transformRef])
+    if (mini === null) return
+    /*
+     * No overview in the Landmarks mode. It is a map of where the picture sits inside the whole
+     * layout, and this mode frames what it paints - so the frame is always around the dots, the
+     * map always says "you are here, on all of it", and there is nothing left for it to help
+     * anybody navigate to. Its bounds are the layout's, so shrinking it to the painted set
+     * would be a second, differently-scaled picture rather than an answer.
+     */
+    if (maskRef.current !== null) {
+      if (!mini.hidden) mini.hidden = true
+      return
+    }
+    drawMinimap(mini, t, vp, pos, dpr, isPainted)
+  }, [positionsRef, transformRef, isPainted, maskRef])
   const scheduleDraw = useRafDraw(() => {
     draw()
     overlayPass()
@@ -1145,10 +1348,16 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // outside the initial frame ("the graph doesn't fit"). Only when a few stragglers blow
     // the extent far beyond the body of the graph (full span > 3× the 5-95 core) does the
     // fit fall back to the core; those outliers stay reachable by panning.
+    // A fit may be asked to frame PART of the picture (`fitSubset`); nothing else about the
+    // drawing changes, and a subset that turns out to hold no placed node frames nothing rather
+    // than everything.
+    const only = fitSubsetRef.current
+    const framed = (i: number): boolean => only === null || only.has(i)
     const xs: number[] = []
     const ys: number[] = []
     for (let i = 0; i < pos.length; i += 2) {
       if (Number.isNaN(pos[i]!)) continue // unplaced mid-update nodes have no extent yet
+      if (!framed(i / 2)) continue
       xs.push(pos[i]!)
       ys.push(pos[i + 1]!)
     }
@@ -1163,8 +1372,24 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ]
       return full[1] - full[0] > Math.max(1, core[1] - core[0]) * 3 ? core : full
     }
-    const [minX, maxX] = bounds(xs)
-    const [minY, maxY] = bounds(ys)
+    let [minX, maxX] = bounds(xs)
+    let [minY, maxY] = bounds(ys)
+    /*
+     * A centred fit: the box is made symmetric around one node, so it lands in the middle of
+     * the picture instead of wherever the set's own extent put it. Everything framed still
+     * fits, at the wider zoom that symmetry costs.
+     */
+    const mid = fitCenterRef.current
+    if (mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN)) {
+      const cx = pos[mid * 2]!
+      const cy = pos[mid * 2 + 1]!
+      const rx = Math.max(cx - minX, maxX - cx)
+      const ry = Math.max(cy - minY, maxY - cy)
+      minX = cx - rx
+      maxX = cx + rx
+      minY = cy - ry
+      maxY = cy + ry
+    }
     /*
      * A node is not its centre (fixed 2026-09-16). The extent above was the centres alone, and
      * the frame then cut the outermost circles in half and their labels off entirely - worst
@@ -1178,6 +1403,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     let rMax = 0
     for (let i = 0; i < pos.length; i += 2) {
       if (Number.isNaN(pos[i]!)) continue
+      if (!framed(i / 2)) continue
       rMax = Math.max(rMax, radius(i / 2))
     }
     const spanX = Math.max(1, maxX - minX + 2 * rMax)
@@ -1516,7 +1742,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // - these must not depend on a pointer move or a layout tick happening to come along.
   useEffect(() => {
     scheduleDraw()
-  }, [matches, focusIndex, selectedIndex, ghostIndices, lens, clusters, clusterLabels, spotlight, scheduleDraw])
+  }, [matches, focusIndex, selectedIndex, ghostIndices, lens, clusters, clusterLabels, spotlight, landmarkMask, scheduleDraw])
 
   /** Screen → world coordinates under the current transform. */
   const toWorld = useCallback((sx: number, sy: number): { x: number; y: number } => {
@@ -1538,6 +1764,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       let best: number | null = null
       let bestD = Infinity
       for (let i = 0; i < nodes.length; i++) {
+        // Unpainted is unclickable: a click on where it stands is a click on the background.
+        if (!isPainted(i)) continue
         const dx = pos[i * 2]! - x
         const dy = pos[i * 2 + 1]! - y
         const d = dx * dx + dy * dy // NaN for unplaced nodes → both comparisons false
@@ -1549,7 +1777,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       return best
     },
-    [nodes, radius, toWorld, positionsRef, transformRef],
+    [nodes, radius, isPainted, toWorld, positionsRef, transformRef],
   )
 
   /**
@@ -2172,7 +2400,14 @@ function miniProjection(bounds: { x0: number; y0: number; x1: number; y1: number
  * not lens), the picture's frame in the accent. Hidden whenever the whole graph is already
  * on screen - then there is nothing it could add.
  */
-function drawMinimap(mini: HTMLCanvasElement, t: { x: number; y: number; k: number }, vp: Viewport, pos: Float32Array, dpr: number): void {
+function drawMinimap(
+  mini: HTMLCanvasElement,
+  t: { x: number; y: number; k: number },
+  vp: Viewport,
+  pos: Float32Array,
+  dpr: number,
+  painted: (i: number) => boolean = () => true,
+): void {
   const bounds = worldBounds(pos)
   const hide = fullyInView(t, vp, bounds)
   if (mini.hidden !== hide) mini.hidden = hide
@@ -2195,6 +2430,7 @@ function drawMinimap(mini: HTMLCanvasElement, t: { x: number; y: number; k: numb
   for (let i = 0; i + 1 < pos.length; i += 2) {
     const x = pos[i]!
     if (Number.isNaN(x)) continue
+    if (!painted(i / 2)) continue
     ctx.fillRect(m.ox + x * m.s - 0.6, m.oy + pos[i + 1]! * m.s - 0.6, 1.2, 1.2)
   }
   ctx.globalAlpha = 1
@@ -2431,6 +2667,14 @@ const PENALTY_FOREIGN_HULL = 3
 const PENALTY_OWN_HULL = 2
 /** Per unit of distance beyond the hull edge, relative to the hull radius - keeps labels near. */
 const PENALTY_DISTANCE = 4
+/**
+ * A caption that does not fit in the picture (2026-09-22). It used to be placed in world space
+ * with no idea where the frame was, so zooming in cut captions in half at the edges - measured
+ * on the whole vault six notches in. The penalty is above every other one put together, so a
+ * spot inside the frame always beats a better-looking spot outside it; a caption with nowhere
+ * inside to go is dropped rather than drawn across the edge.
+ */
+const PENALTY_OFFSCREEN = 100
 
 /**
  * Places region (cluster) labels next to their hulls, legibly and - above all - close enough
@@ -2461,7 +2705,11 @@ export function placeRegionLabels(
   hulls: ReadonlyMap<number, Pt[]>,
   labelH: number,
   margin: number,
+  /** The visible world rectangle, when the caller has one: captions stay inside the frame. */
+  view: Box | null = null,
 ): PlacedRegionLabel[] {
+  const inFrame = (b: Box): boolean =>
+    view === null || (b[0] >= view[0] && b[1] >= view[1] && b[2] <= view[2] && b[3] <= view[3])
   const order = [...labels].sort((a, b) => b.weight - a.weight || a.key - b.key)
   const placedBoxes: Box[] = []
   const out: PlacedRegionLabel[] = []
@@ -2496,6 +2744,7 @@ export function placeRegionLabels(
         if (placedBoxes.some((p) => boxesOverlap(box, p))) continue
 
         let penalty = (out_ / Math.max(radius, 1)) * PENALTY_DISTANCE
+        if (!inFrame(box)) penalty += PENALTY_OFFSCREEN
         for (const [cid, poly] of hulls) {
           if (!boxIntersectsPolygon(box, poly)) continue
           penalty += cid === label.key ? PENALTY_OWN_HULL : PENALTY_FOREIGN_HULL
@@ -2509,8 +2758,10 @@ export function placeRegionLabels(
     }
 
     // Every candidate collided with an already-placed label: drop this one rather than
-    // stack two unreadable labels. Weight order keeps the labels that matter most.
-    if (best === null) continue
+    // stack two unreadable labels. Weight order keeps the labels that matter most. A caption
+    // that only fits outside the frame is dropped the same way - half a word at the edge names
+    // nothing, and the hull it belongs to is on screen to be hovered.
+    if (best === null || !inFrame(best.box)) continue
     out.push({ key: label.key, x: best.x, y: best.y, box: best.box, fallback: best.penalty > 0 })
     placedBoxes.push(best.box)
   }
