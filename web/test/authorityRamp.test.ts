@@ -95,6 +95,7 @@ describe('what the authority lens counts', () => {
     landmarks: new Set([0]),
     connectors: new Set<number>(),
     bloom: new Set<number>(),
+    bloomAnchor: null,
     inDomain,
   })
 

@@ -115,6 +115,23 @@ the whole of it, so the five that were already landmarks are counted where the r
 and would need a widget, a hit target and a place to put them; the list is already the mode's
 text surface, and "17 of 22" is a number, which is the kind of thing the list exists to say.
 
+**An open neighbourhood takes the screen** (added 2026-09-22, user decision). While one is
+open it is what the screen is about, and the three surfaces say so together rather than leaving
+the reader to find twelve new dots in a field of forty:
+
+- the LIST is that neighbourhood - the landmark, keeping its number so the place in the reading
+  order is not lost, and under it every neighbour the drawing has out. Its length is the number
+  the handle line states, so the two can be read against each other;
+- the PICTURE dims: every other landmark and connector goes half-transparent and loses its
+  label outright. A dimmed label is still a label, and forty of them around the twelve pages
+  just asked for is the noise the expansion was meant to cut through;
+- the HEADING names it after the domain, in the form `<domain> - <the page>`, because the
+  middle of the bar is where a reader looks to find out what they are looking at.
+
+All three come back on one press of Escape, which is why that press had to become the FIRST rung
+rather than the fourth: it was behind the trail, and walking two landmarks builds one, so the
+press meant to close the expansion silently dropped the crumbs and left the picture as it was.
+
 A second click on the landmark drops the bloom, lifted cap and all: one neighbourhood at a
 time. Only a landmark expands; a click on a connector or on a neighbour that is already out
 selects and opens it exactly as anywhere else on this screen. A bloom adds nothing to the graph the canvas
@@ -162,8 +179,10 @@ chapter rules, because the chapters are breaks in one list and not sections of s
 is there for the reading pass the lock describes, where you leave for a page and come back and
 want to know where you were. No backlink count beside it: the rank is already stated by the
 order, and a second number for the same thing is the mistake the size ramp is kept out of this
-for. The bloomed landmark's row carries its handle line underneath, and the selected row is
-marked, unless the lock has cleared the selection.
+for. The selected row is marked, unless the lock has cleared the selection. While a
+neighbourhood is open the list is that neighbourhood instead (see **Expansion**): the landmark
+with its number, the handle line under it, and the neighbours - unnumbered, because a neighbour
+has a place in this page's neighbourhood and none in the domain's reading order.
 
 **The chapters in the list.** From the second chapter on, a thin rule with a caption that says
 what the break means ("not linked to anything above · 3 pages"). The first gets nothing,
@@ -174,6 +193,14 @@ A domain whose set were nearly all single-page chapters would be a list of rules
 here guards against that. The worst measured case is finance: 9 entries, 3 chapters, 2 rules,
 which reads fine. A threshold for a case nobody has seen is untested machinery in the name of a
 guess, and it gets built when a domain shows it.
+
+**The heading does not move** (added 2026-09-22, user decision). The bar's middle block keeps
+its width when the neighbourhood's name is appended: the lead, the dot and the first letter stay
+exactly where they were, nothing else in the bar shifts, and the tail runs PAST the block's own
+right edge into the empty stretch before the search rather than shortening the domain in front
+of it. Both parts stop shrinking for that, and only the tail is ever cut, with the whole of it
+on hover. Measured across the three states: the first letter sits at the same x and the same y
+in all of them, and the bar keeps its height.
 
 **The switch.** A fourth row in the Overlays block, beside Areas, Bridges and Spotlight,
 disabled with its reason when no single domain is on show or the domain is under 25 knowledge
@@ -328,7 +355,10 @@ expansion turns into a map anyway.
   placement costs nothing to reason about, because the mode turns the drill-down and the local
   focus off, so every rung below it is inert while it is on. The click rows need a word too:
   "one click while the picture is locked" now also means that a landmark opens instead of
-  expanding.
+  expanding. **Corrected 2026-09-22:** the bloom is the FIRST rung, ahead of the trail and the
+  tag, not the one before the panel - an open neighbourhood is the innermost thing this screen
+  can hold, and behind the trail its Escape was being eaten by crumbs the reader had not looked
+  at.
 - The view prefs in `Vault.tsx` (`ViewPrefs`, `loadViewPrefs`, `saveViewPrefs`, `viewMemory`)
   plus `web/test/viewPrefs.test.ts`: the mode is an overlay and persists like its three
   siblings. No version bump - that loader validates field by field and a missing field already

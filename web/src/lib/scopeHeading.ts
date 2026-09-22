@@ -23,21 +23,31 @@ export interface ScopeHeading {
    * - none of which is one colour.
    */
   readonly domain: string | null
+  /**
+   * The page whose neighbourhood is open, when one is (the Graph's Landmarks overlay). It
+   * REFINES the heading rather than replacing it - the domain, then the page, so a reader who
+   * has expanded one landmark can see which one without looking away from the drawing. Absent
+   * whenever nothing is expanded.
+   */
+  readonly bloom?: string
 }
 
 export function scopeHeading(
   selected: ReadonlySet<string>,
   wingName: string | null,
   tag: { name: string; around: string | null } | null = null,
+  bloom: string | null = null,
 ): ScopeHeading {
   // The tag first: it is the thing the reader just did, and the domain heading behind it
-  // would describe a wider view than the one on screen.
+  // would describe a wider view than the one on screen. An open neighbourhood rides along with
+  // every other heading, because it says which page the drawing has been narrowed AROUND.
   if (tag !== null) return { text: `#${tag.name}`, domain: null, tag }
+  const under = (h: ScopeHeading): ScopeHeading => (bloom === null ? h : { ...h, bloom })
   if (selected.size === 1) {
     const only = [...selected][0]!
-    return { text: only === '' ? 'no domain' : only, domain: only }
+    return under({ text: only === '' ? 'no domain' : only, domain: only })
   }
-  if (selected.size > 1) return { text: `${selected.size} domains`, domain: null }
-  if (wingName !== null) return { text: wingName, domain: null }
-  return { text: 'all domains', domain: null }
+  if (selected.size > 1) return under({ text: `${selected.size} domains`, domain: null })
+  if (wingName !== null) return under({ text: wingName, domain: null })
+  return under({ text: 'all domains', domain: null })
 }

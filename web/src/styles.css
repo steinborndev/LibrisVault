@@ -3323,6 +3323,28 @@ span.head-slot { display: inline-block; }
   line-height: 1.2;
 }
 .bar-mid .mid-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * An open neighbourhood, named after the domain. The block keeps its 320px, so the lead, the
+ * dot and the first letter stay exactly where they were and nothing else in the bar moves;
+ * what the tail does instead of shortening the domain is run PAST the block's right edge,
+ * into the empty stretch before the search. Both parts stop shrinking for that - the domain
+ * is short and is the thing the reader navigated by - and only the tail is ever cut, with the
+ * whole of it on hover. The search pill is later in the bar, so it paints over the overflow
+ * rather than under it.
+ */
+.bar-mid.has-bloom .mid-name { flex: none; }
+.mid-bloom {
+  flex: none;
+  max-width: min(300px, 26vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+/* A neighbour of the expanded landmark: the number column stays empty, because a neighbour has
+   a place in this page's neighbourhood and none in the domain's reading order. */
+.lm-near .lm-t { color: var(--text-dim); }
 .bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }
 /* A hollow ring where no one colour applies: several domains, a wing, the whole vault. */
 .bar-mid .mid-dot.none { background: transparent; border: 1.5px solid var(--text-faint); }

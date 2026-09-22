@@ -202,6 +202,13 @@ export interface LandmarkMask {
   /** The open bloom, between the two in size. Empty while no landmark is expanded. */
   bloom: ReadonlySet<number>
   /**
+   * The expanded landmark itself, or null while none is. It and its bloom are the picture's
+   * subject for as long as it is open: everything else on the mask goes half-transparent and
+   * loses its label, so a neighbourhood reads as one thing rather than as twelve more dots in
+   * a field of forty. Null is the ordinary state, where the mask dims nothing.
+   */
+  bloomAnchor: number | null
+  /**
    * Backlinks counted inside the DOMAIN, per node index - the value the authority lens reads
    * while the mode is on. Over the vault an index hub lends every page it lists the same link,
    * which is not a statement about the domain. Computed over the domain rather than over what
@@ -752,6 +759,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const mask = landmarkMask
     const paints = (i: number): boolean =>
       mask === null || mask.landmarks.has(i) || mask.bloom.has(i) || mask.connectors.has(i)
+    /** An open neighbourhood, as the set it lights: the landmark and what its click revealed. */
+    const bloomFocus =
+      mask === null || mask.bloomAnchor === null ? null : new Set<number>([mask.bloomAnchor, ...mask.bloom])
 
     const revealStart = revealStartRef.current
     let revealing = false
@@ -798,13 +808,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       rawSpotCid >= 0 && (clusterSets?.get(rawSpotCid)?.size ?? 0) < realNodeCount ? rawSpotCid : -1
     const active = spotHover ?? selectedIndex ?? focusIndex
     /*
-     * Inside the mode a selection marks its node and dims nothing. The list's highlight IS the
-     * canvas's selection, so the ordinary neighbourhood spotlight would dim thirty-nine
-     * landmarks because one row is selected - the list destroying the picture it indexes. What
-     * "show me around this page" means here is the bloom.
+     * Inside the mode a SELECTION marks its node and dims nothing - the list's highlight is the
+     * canvas's selection, and the ordinary neighbourhood spotlight would dim thirty-nine
+     * landmarks because one row is marked. An open BLOOM is the other case and does dim: it is
+     * the reader asking for one neighbourhood, and the rest of the mode's picture steps back
+     * for as long as it is open.
      */
     const highlight =
-      mask !== null ? null
+      mask !== null ? bloomFocus
       : spotCid >= 0 ? clusterSets!.get(spotCid)!
       : active !== null ? new Set([active, ...(neighbors.get(active) ?? [])])
       : null
@@ -1135,6 +1146,10 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         // is none. A bloom IS named: a click asking to see twelve pages is not answered by
         // twelve anonymous dots.
         if (mask !== null && mask.connectors.has(i)) continue
+        // …and while a neighbourhood is open, only it carries names. A dimmed label is still a
+        // label: forty of them around the twelve pages that were just asked for is the noise
+        // the expansion was meant to cut through.
+        if (bloomFocus !== null && !bloomFocus.has(i)) continue
         if (!visible(x, pos[i * 2 + 1]!)) continue
         candidates.push(i)
       }

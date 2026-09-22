@@ -77,7 +77,7 @@ const GRAPH_SHORTCUTS = [
   { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
   { keys: ['click'], what: 'with Landmarks on, a landmark shows its neighbourhood; a second click drops it' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
-  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a tag, the trail, a neighbourhood, the panel, Landmarks, a cluster, the gaps, a focus - or, with the picture locked, back to it' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a neighbourhood, a tag, the trail, the panel, Landmarks, a cluster, the gaps, a focus - or, with the picture locked, back to it' },
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
   { keys: ['/'], what: 'open the search for pages and tags; a click outside folds the list, the filter stays' },
   { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
@@ -1094,22 +1094,33 @@ function GraphView({
     const out = new Set<number>([...landmarks, ...connectors])
     const bloomed = new Set<number>()
     const near = bloom === null ? [] : landmarkData.neighbours.get(bloom) ?? []
-    let onScreen = 0
+    /*
+     * The neighbourhood as the list shows it: every neighbour that is ON SCREEN, in the list's
+     * own rank order - the ones this click revealed and the ones that were already out as
+     * landmarks or connectors. Its length is the number the handle line states, which is what
+     * makes the two readable against each other.
+     */
+    const neighbourhood: string[] = []
     for (const p of near) {
       const i = at.get(p)
       if (i === undefined) continue // a neighbour the other filters keep out of the drawing
-      if (out.has(i)) {
-        onScreen++
-        continue
+      if (!out.has(i)) {
+        if (!bloomAll && bloomed.size >= BLOOM_CAP) continue
+        bloomed.add(i)
       }
-      if (!bloomAll && bloomed.size >= BLOOM_CAP) continue
-      bloomed.add(i)
-      onScreen++
+      neighbourhood.push(p)
     }
     return {
-      mask: { landmarks, connectors, bloom: bloomed, inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0) },
+      mask: {
+        landmarks,
+        connectors,
+        bloom: bloomed,
+        bloomAnchor: bloom === null ? null : at.get(bloom) ?? null,
+        inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0),
+      },
+      neighbourhood,
       /** What the handle line states: of this page's neighbourhood, how much is on screen. */
-      shown: onScreen,
+      shown: neighbourhood.length,
       total: near.length,
     }
   }, [landmarkData, nodes, bloom, bloomAll])
@@ -1260,8 +1271,11 @@ function GraphView({
         tagFilter === null
           ? null
           : { name: tagFilter.tag, around: tagFilter.around === null ? null : (graph.nodes.find((n) => n.path === tagFilter.around)?.title ?? null) },
+        // The open neighbourhood, by the page's own title: which landmark the drawing has been
+        // narrowed around, said where the reader is already looking.
+        bloom === null ? null : (graph.nodes.find((n) => n.path === bloom)?.title ?? null),
       ),
-    [selectedDomains, wing, wings, tagFilter, graph],
+    [selectedDomains, wing, wings, tagFilter, graph, bloom],
   )
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
@@ -1457,6 +1471,13 @@ function GraphView({
       }
       if (input !== '') setInput('')
       /*
+       * An open neighbourhood is the innermost thing this screen can hold, so it is the first
+       * thing back (corrected 2026-09-22). It was behind the trail, and walking two landmarks
+       * builds one - so the press that was meant to close the expansion silently dropped the
+       * crumbs instead and left the picture exactly as it was.
+       */
+      else if (bloom !== null) showBloom(null)
+      /*
        * The trail is its own rung, ahead of the panel (2026-09-16). It is the thing running
        * along the bottom of the drawing, and stepping out of a walk should drop the walk
        * before it drops the page you walked to - one press to forget the way you came, a
@@ -1464,10 +1485,8 @@ function GraphView({
        */
       else if (tagFilter !== null) setTagFilter(null)
       else if (trail.length > 1) setTrail(selection?.kind === 'page' ? [selection.path] : [])
-      // The two new rungs sit innermost first, as the ladder does: an open neighbourhood
-      // immediately before the panel, the mode immediately before the cluster stack. Every rung
-      // below the mode is inert while it is on, because it turned them off.
-      else if (bloom !== null) showBloom(null)
+      // The mode itself sits immediately before the cluster stack, as the ladder does. Every
+      // rung below it is inert while it is on, because it turned them off.
       else if (selection !== null) closeExplorer()
       else if (landmarkDomain !== null) setLandmarkDomain(null)
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
@@ -1961,6 +1980,7 @@ function GraphView({
               titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
               selected={selection?.kind === 'page' ? selection.path : null}
               bloom={bloom}
+              neighbourhood={landmarkView?.neighbourhood ?? []}
               shown={landmarkView?.shown ?? 0}
               total={landmarkView?.total ?? 0}
               locked={frozen !== null}
@@ -2020,6 +2040,7 @@ function LandmarkList({
   titleOf,
   selected,
   bloom,
+  neighbourhood,
   shown,
   total,
   locked,
@@ -2030,8 +2051,10 @@ function LandmarkList({
   titleOf: (path: string) => string
   /** The selected page, or null - which is how a locked picture's list stands, without one. */
   selected: string | null
-  /** The expanded landmark, whose row carries the handle line underneath. */
+  /** The expanded landmark, whose neighbourhood the list shows while it is open. */
   bloom: string | null
+  /** That neighbourhood as the drawing has it: every neighbour on screen, in the list's order. */
+  neighbourhood: readonly string[]
   /** Of the expanded landmark's neighbourhood, how much is on screen, against the whole of it. */
   shown: number
   total: number
@@ -2045,6 +2068,56 @@ function LandmarkList({
   useEffect(() => {
     cur.current?.scrollIntoView({ block: 'nearest' })
   }, [selected])
+
+  /*
+   * With a neighbourhood open the list is that neighbourhood: the landmark, keeping its number
+   * so the reader's place in the order is not lost, and under it every neighbour the drawing
+   * has out. The picture behind it says the same thing - everything else is half-transparent
+   * and unnamed - and Escape puts both back. The rest of the order is one press away and would
+   * otherwise be forty rows of noise around the twelve that were just asked for.
+   */
+  const at = bloom === null ? -1 : set.order.indexOf(bloom)
+  if (bloom !== null && at >= 0) {
+    const handle = shown < total && !locked && (
+      <button className="lm-more" onClick={onShowAll}>
+        {shown} of {total} shown, show all
+      </button>
+    )
+    return (
+      <aside className="graph-explorer landmarks" role="complementary" aria-label="One landmark's neighbourhood">
+        <ol className="lm-list">
+          <li className="lm-item">
+            <button
+              ref={selected === bloom ? cur : null}
+              className={`lm-row${selected === bloom ? ' cur' : ''}`}
+              aria-current={selected === bloom ? 'true' : undefined}
+              onClick={() => onPick(bloom)}
+              title={titleOf(bloom)}
+            >
+              <span className="lm-n">{at + 1}</span>
+              <span className="lm-t">{titleOf(bloom)}</span>
+            </button>
+            {handle}
+          </li>
+          {/* The neighbours carry no number: they are this page's neighbourhood, not a place
+              in the domain's reading order, and a number would claim they were. */}
+          {neighbourhood.map((path) => (
+            <li key={path} className="lm-item">
+              <button
+                className={`lm-row lm-near${selected === path ? ' cur' : ''}`}
+                onClick={() => onPick(path)}
+                title={titleOf(path)}
+              >
+                <span className="lm-n" aria-hidden />
+                <span className="lm-t">{titleOf(path)}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </aside>
+    )
+  }
+
   return (
     <aside className="graph-explorer landmarks" role="complementary" aria-label="Landmarks, in reading order">
       <ol className="lm-list">
@@ -2075,18 +2148,6 @@ function LandmarkList({
                 <span className="lm-n">{i + 1}</span>
                 <span className="lm-t">{titleOf(path)}</span>
               </button>
-              {/*
-                * The rest of a neighbourhood, as a line in the list rather than a control on the
-                * canvas: the canvas has no vocabulary for one and would need a widget, a hit
-                * target and a place to put them, while the list is already this mode's text
-                * surface and a count is the kind of thing it exists to say. Not offered while
-                * the picture is locked - pressing it would change the very picture being held.
-                */}
-              {bloom === path && shown < total && !locked && (
-                <button className="lm-more" onClick={onShowAll}>
-                  {shown} of {total} shown, show all
-                </button>
-              )}
             </li>
           )
         })}
