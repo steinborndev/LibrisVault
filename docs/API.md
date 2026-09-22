@@ -29,7 +29,34 @@ PUT    /pages                    user edit {path, markdown, baseMtime} → write
 DELETE /pages?path=…             user delete → unlink + git commit; returns staleLinks
 GET    /validation               the standing defect list: one row per defect with how often it
                                  has been seen and how long it has stood, not one advisory line
-                                 per run (`?rule=`, `?limit=`, `?offset=`; `byRule` + `total`)
+                                 per run (`?rule=`, `?limit=`, `?offset=`; `byRule` + `total`).
+                                 Each row carries where its subject is (`subject`: a page, a job
+                                 by its `.raw/` directory name, or none with the reason) and
+                                 `guidance` names, per rule, what the repair is and who performs
+                                 it. `?accepted=1` returns the accepted rows instead
+GET    /validation/:id/evidence  what one finding is based on: the column the producer filled
+                                 (a quotation and the part of it that does stand in the source)
+                                 or a fresh read of the page, capped and marked where cut
+POST   /validation/:id/accept    {reason} → the defect may stay; the reason is required and
+                                 stored verbatim (400 empty, 404 unknown, 409 already accepted).
+                                 DELETE on the same path takes it back
+POST   /validation/repair/plan   {rule, ids} → what a deterministic pass would change on the
+                                 pages those findings name: per page the reason, the diff and a
+                                 hash of the content planned against. Read-only, no credential
+POST   /validation/repair/apply  {rule, ids, pages:[{rel, beforeHash}]} → plans again and writes
+                                 only the pages whose content still matches the approved hash;
+                                 answers written / stale / busy apart, and one commit
+POST   /validation/repair/run    {rule, ids} → one bound agent run over exactly those pages, at
+                                 most 10 (503 without a credential, 409 when a Fellow's notebook
+                                 is not repairable right now, 400 for a rule with no run)
+POST   /validation/repair/run/:id/settle   the bookkeeping a finished fix run owes: the
+                                 re-check, the quote rule's own clearing path, and the veto of
+                                 proposals planned from a question that was reformulated
+POST   /validation/repair/revert {commit} → undoes one fix run's commit and re-records the
+                                 defect it put back (409 on a dirty tree or a conflict)
+POST   /validation/repair/manifest/plan   the address map's own repair; it writes the whole
+                                 file rather than a selection, and reaches no finding that names
+                                 a job directory no source entry mentions. `/apply` commits it
 GET    /graph                    the vault's wikilink graph: typed nodes + directed edges
 GET    /domains                  the domain registry (installed? + parsed entries)
 POST   /domains                  create a domain: append to the registry page, one commit

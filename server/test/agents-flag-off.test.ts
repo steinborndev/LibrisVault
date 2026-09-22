@@ -35,6 +35,7 @@ import type { FastifyInstance } from 'fastify'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { JobStore } from '../src/db/jobs.js'
 import { ChatStore } from '../src/db/chat.js'
+import { ValidationStore } from '../src/db/validation.js'
 import { SettingsStore } from '../src/db/settings.js'
 import { IngestQueue } from '../src/pipeline/queue.js'
 import { EventBus } from '../src/pipeline/events.js'
@@ -180,6 +181,39 @@ describe('with the Fellows extension unwired', () => {
    * strings would assert a contract that does not exist, and `'off'` is truthy, so it would
    * light up every Fellow surface it meant to hide.
    */
+  /*
+   * Everything TASKS-DEFECT-PATHS adds beside the list. It cannot go in the control group
+   * above, because that group asserts a flat 200 and this route legitimately 404s for an
+   * unknown finding - which is the answer, not a gate. So it is asserted against a finding
+   * that exists. The defect list is the base product's own screen: a row that could not be
+   * opened or judged with the flag off would be the same 404-per-mount class hard rule 8 is
+   * about, one layer further in.
+   */
+  it('serves a finding\'s evidence with the flag off', async () => {
+    const validation = new ValidationStore(db)
+    validation.record([{ rule: 'orphan', path: 'wiki/a.md', message: 'nothing links here' }], null)
+    const id = validation.list()[0]!.id
+    app = await build({ validation })
+    const res = await app.inject({ method: 'GET', url: `/api/v1/validation/${id}/evidence` })
+    expect(res.statusCode).toBe(200)
+    // And the list itself carries the guidance the screen renders, with the flag off too.
+    const list = await app.inject({ method: 'GET', url: '/api/v1/validation' })
+    expect(Object.keys((list.json() as { guidance: Record<string, unknown> }).guidance)).toContain('open-question-form')
+    // Accepting a defect is base product too: it is the only way the list is ever emptied of
+    // the rules that need a judgement, and six of the nine standing ones are those.
+    const accept = await app.inject({ method: 'POST', url: `/api/v1/validation/${id}/accept`, payload: { reason: 'deliberate' } })
+    expect(accept.statusCode).toBe(200)
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/validation/${id}/accept` })).statusCode).toBe(200)
+    // And the repair routes: registered, answering, and refusing for their own reasons rather
+    // than because the extension is unwired. A 400 for a missing field is an ANSWER; a 404
+    // here would be the 404-per-click hard rule 8 is about.
+    for (const url of ['/api/v1/validation/repair/plan', '/api/v1/validation/repair/apply']) {
+      const res = await app.inject({ method: 'POST', url, payload: {} })
+      expect(`${url} -> ${res.statusCode}`).toBe(`${url} -> 400`)
+    }
+    expect((await app.inject({ method: 'POST', url: '/api/v1/validation/repair/manifest/plan' })).statusCode).toBe(200)
+  })
+
   /*
    * The one route in this area that must ANSWER with the flag off (decision D4,
    * docs/tasks/TASKS-QUESTIONS.md). The pinboard that sends most reformulations is gated, but

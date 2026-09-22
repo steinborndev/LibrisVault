@@ -158,15 +158,34 @@ export function quoteHolds(quote: string, corpusIndex: string): boolean {
  * "not found in the source" describes badly.
  */
 export function longestRun(quote: string, corpusIndex: string): number {
+  return longestMatch(quote, corpusIndex).words
+}
+
+/**
+ * The same run, with the WORDS it is made of.
+ *
+ * Why the span and not just the length (TASKS-DEFECT-PATHS 1.2): a row on the standing list
+ * says "longest match 3 of 20 words" and the reader cannot tell WHICH three without the
+ * source in front of them. The span is taken from the QUOTE's own words, not from the corpus:
+ * the corpus here is a normalised lowercase word stream (see {@link wordIndex}), so the
+ * source's own rendering - its capitals, its punctuation, its line breaks - is not
+ * recoverable from it, and a row claiming to show the source would be showing a
+ * reconstruction. The row says "matched" rather than "the source says".
+ */
+export function longestMatch(quote: string, corpusIndex: string): { readonly words: number; readonly span: string } {
   const words = wordsOf(quote)
   let best = 0
+  let at = 0
   for (let i = 0; i < words.length; i++) {
     // Each start extends only while it is still found, so this stays linear per start.
     let n = best
     while (i + n < words.length && corpusIndex.includes(needleOf(words.slice(i, i + n + 1)))) n++
-    if (n > best) best = n
+    if (n > best) {
+      best = n
+      at = i
+    }
   }
-  return best
+  return { words: best, span: best === 0 ? '' : words.slice(at, at + best).join(' ') }
 }
 
 // --- what counts as a quote on a page (7.1) ----------------------------------
@@ -433,12 +452,21 @@ export async function checkQuotes(args: {
     if (quoteHolds(quote.text, corpus.index)) continue
     // How much of it IS there, so a misquote reads as one and an invention as one (7.4).
     const words = wordsOf(quote.text).length
+    const match = longestMatch(quote.text, corpus.index)
     findings.push({
       rule: 'quote',
       path: quote.path,
       message:
         `quote not found in the source: ${JSON.stringify(quote.text.slice(0, FINDING_CHARS))} ` +
-        `(longest match ${longestRun(quote.text, corpus.index)} of ${words} words)`,
+        `(longest match ${match.words} of ${words} words)`,
+      /*
+       * Written down HERE because nothing else will ever hold it (TASKS-DEFECT-PATHS 1.3). The
+       * message carries the first 80 characters of the quotation and a length; the reader
+       * needs the quotation in full and the part of it that does stand in the source. Both are
+       * in memory exactly once, in this loop, and a re-read of the page cannot produce the
+       * second at all - that needs the job's artifact.
+       */
+      evidence: JSON.stringify({ quote: quote.text, matched: match.span, words, matchedWords: match.words }),
     })
   }
   return { findings, summary: { checked: quotes.length, unverified: findings.length } }

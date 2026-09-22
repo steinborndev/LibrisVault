@@ -8,6 +8,64 @@ was and the day it landed. The entries below are those merges, newest first. The
 journals under `docs/tasks/` carry the detail, findings and dead ends included; this file carries
 only what a reader outside the work needs to know.
 
+## 2026-09-21 - a path out of the standing defect list
+
+The standing defect list ended one failure and stopped there: it replaced 406 advisory lines in
+job logs nobody read with 57 rows on the System screen, and every row was a `<span>`. No link to
+the page, no evidence, no statement of who was supposed to do anything. Six of the nine standing
+rules need a judgement, which means a person decides - and the person had been given a list and
+nothing else. This gives every defect a path: fixable, acceptable, or explained and linked.
+
+### Added
+
+- **A row opens.** It shows where its subject is - the page, or the job its `.raw/` directory
+  names - the evidence the finding is based on, and one line saying what the repair is, who
+  performs it and what it costs. For a quotation the evidence is written down when the finding is
+  made, because the check compares the page against the document the job read and nothing
+  afterwards holds that document. `npm run backfill-quote-evidence` fills it in for findings that
+  predate the column.
+- **Three blocks instead of one list**: fixable, your decision, accepted. The rule chips stay as
+  a filter. "What's due" names the defects, which it never did - it said *Everything healthy*
+  above 57 of them.
+- **Accept, permanently and with a reason.** A list that cannot be emptied becomes the job-log
+  lines again one layer up. Accepted findings leave the list, the rule counts and the lint-fix
+  prompt, and can be taken back.
+- **The deterministic repair passes are reachable from the dashboard**: plan, read the diff per
+  page, uncheck what you disagree with, apply - one commit, revertable. The plan is filtered to
+  the pages the list actually showed; the vault-wide sweep stays `npm run vaultrepair`.
+- **A bound agent run** for the two rules whose repair needs reading and where a run was measured
+  to deliver it: a quotation checked against the document the job read, and a missing section
+  filled from what the page and the graph already hold. One page per finding, at most ten, no
+  other page and no new page - enforced at tool time and by a commit check that reverts.
+
+### Changed
+
+- **The list pages.** It asked for 50 rows and had no way past them, so 7 of 57 were unreachable
+  from the screen entirely.
+- **The defect card moved** from the foot of System → Checks into the maintenance card set, so
+  the status head can name it and jump to it like every other tool. It is one click further away
+  and mentioned where it never was.
+- **`SPEC.md` §12.15 no longer says open questions are repaired one at a time only.** Pipeline
+  code still rewrites nothing; a bound agent run over one page is the writer the hard rule
+  allows. A reformulated question is a NEW question - the text is its identity - so research a
+  Fellow planned from the old wording is vetoed, and the confirmation says so before the run.
+- **`npm run vaultrepair` commits through the service's own writer.** It used to take the vault's
+  per-file locks and commit with no commit mutex at all, which is acceptable for a hand-run
+  one-off and not for the same code called from a service.
+
+### Known limits, measured rather than assumed
+
+- **A run for the open-question rule exists and is not offered.** Against a bar agreed before it
+  ran - every bullet asks something, at most 2 of 10 pages still referring to the run that wrote
+  them - one run over 10 pages left 2 of 68 bullets asking nothing and 5 of 10 pages still
+  referring. A large improvement on where those pages started (17 of 61 bullets asked anything)
+  and short of what was asked for, so the rule stays a decision.
+- **Two rules reach no button at all**, and their rows say why: the title-drift pass repairs the
+  pages that LINK to a drifted title and never the page the finding stands on, and the address
+  map cannot invent what a job directory held.
+- **A quote finding is one per PAGE, not one per quotation.** Repairing one bad quotation on a
+  page that has two leaves the row standing, and the count is what moves.
+
 ## 2026-09-21 - the vault layer made correct, and an open question that survives leaving its page
 
 Tag `vault-layer-2026-09-21`. 96 commits, 222 files.

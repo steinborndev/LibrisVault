@@ -134,6 +134,15 @@ export interface RunAgentOptions {
    */
   readonly expand?: { readonly pageSet: readonly string[]; readonly maxNew: number }
   /**
+   * The defect-fix lock for a `defect-fix` run (TASKS-DEFECT-PATHS 4.4): exactly the pages of
+   * the findings it was given, and nothing else - no other page and no new page.
+   *
+   * A SECOND POLICY rather than a flag on `expand`, because the two differ in the one rule
+   * that matters: an expand run is additive, and a defect fix replaces lines by definition.
+   * Never set together with `expand`.
+   */
+  readonly defectFix?: { readonly pageSet: readonly string[] }
+  /**
    * Pins the run to one model (SDK model id such as `claude-sonnet-5`). A Fellow's model
    * applies to all of its runs (docs/agents/SPEC.md section 7); omitted = the CLI default.
    */
@@ -291,6 +300,8 @@ export function buildOptions(
             },
           },
         }),
+    // A defect fix is held to the pages of its findings, and to nothing else (4.4).
+    ...(opts.defectFix === undefined ? {} : { defectFix: { pageSet: opts.defectFix.pageSet } }),
   }
   // Web tools stay out of context unless this is a research run; a read-only query run
   // also drops the write tools so the model never even attempts a vault mutation.

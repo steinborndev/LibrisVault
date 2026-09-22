@@ -163,7 +163,13 @@ export interface QuestionsOptions {
   readonly commit?: (root: string, message: string, paths: readonly string[]) => Promise<CommitResult>
   readonly autoCommit?: () => boolean
   /** Vetoes one pending proposal; wired to the Fellow service's decision path. */
-  readonly veto?: (proposalId: string) => Promise<void>
+  /**
+   * Vetoes one proposal, with the note that says why. The note is a PARAMETER since
+   * 2026-09-21: two things end a question's identity now - the user's strike-through, and a
+   * bound run reformulating the bullet (SPEC.md §12.15) - and a proposal vetoed by the second
+   * saying "archived on the pinboard" would be a lie in the Fellow's own record.
+   */
+  readonly veto?: (proposalId: string, note: string) => Promise<void>
 }
 
 export class QuestionsService {
@@ -253,10 +259,52 @@ export class QuestionsService {
       const key = questionKey(text)
       for (const p of this.o.proposals?.() ?? []) {
         if (questionKey(p.provenance.text) !== key) continue
-        await this.o.veto(p.id)
+        await this.o.veto(p.id, 'the question was archived on the pinboard')
         vetoed.push(p.id)
       }
     }
     return { changed: true, vetoed }
+  }
+
+  /**
+   * Vetoes every pending proposal whose provenance names a question the page no longer has
+   * (TASKS-DEFECT-PATHS 4.6, SPEC.md §12.15).
+   *
+   * A REFORMULATED QUESTION IS A NEW QUESTION. The text IS the identity (`questionKey`), so a
+   * proposal a Fellow planned against the old wording no longer names anything that exists -
+   * exactly the situation a strike-through creates, and handled the same way.
+   *
+   * `was` is the page's bullets as they stood BEFORE the run. Nothing in the finding carries
+   * them: the `open-question-form` message counts bullets and names none, so they have to be
+   * snapshotted by the caller before it starts writing.
+   *
+   * Returns the proposals vetoed. Never throws, and does nothing at all when the Fellows are
+   * unwired - with `AGENTS_ENABLED` off there are no proposals and no veto callback, and the
+   * step is skipped without a 404 and without a refusal.
+   */
+  async vetoReformulated(page: string, was: readonly string[]): Promise<string[]> {
+    if (this.o.veto === undefined) return []
+    let now: string[]
+    try {
+      const markdown = fs.readFileSync(path.join(this.o.vaultRoot, page), 'utf8')
+      now = parseQuestionBullets(markdown).map((b) => questionKey(b.text))
+    } catch {
+      return []
+    }
+    const present = new Set(now)
+    const vetoed: string[] = []
+    for (const p of this.o.proposals?.() ?? []) {
+      const key = questionKey(p.provenance.text)
+      // Only a question this page USED to carry and no longer does: a proposal standing on
+      // another page's question is none of this run's business.
+      if (!was.includes(key) || present.has(key)) continue
+      try {
+        await this.o.veto(p.id, 'the question was reformulated on its page')
+        vetoed.push(p.id)
+      } catch {
+        /* a proposal that can no longer be decided is not this run's failure */
+      }
+    }
+    return vetoed
   }
 }

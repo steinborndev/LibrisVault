@@ -26,7 +26,6 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   planRepair,
-  applyRepair,
   diffOf,
   wikiPages,
   planTitleDrift,
@@ -48,6 +47,8 @@ import { planManifestRepair, planLogArchive } from '../pipeline/repair.js'
 import { renderIndex, renderOverviewCounters, updateOverview, renderBucketPages, updateBucketHub, bucketHubs } from '../pipeline/hubs.js'
 import { withWikiLocks } from '../pipeline/wiki-lock.js'
 import { commitPaths } from '../pipeline/git.js'
+import { applySelection, contentHash } from '../pipeline/defect-repair.js'
+import { Mutex } from '../util/mutex.js'
 
 /**
  * The passes, in the order phase 8 runs them. Each is one commit.
@@ -155,22 +156,32 @@ function reportTitleDrift(vaultRoot: string): void {
   console.log('  (reported only: repairing it rewrites the title AND every link, which is one commit of its own)')
 }
 
+/**
+ * Applying, through the SAME code path the dashboard uses (TASKS-DEFECT-PATHS 3.4).
+ *
+ * This used to take the per-file locks and call `commitPaths` directly, with no commit mutex
+ * anywhere. That is acceptable for a hand-run one-off with no service running, and it is a
+ * hard rule 1 violation the moment the same writing lives in a service. So the writing moved
+ * to `pipeline/defect-repair.ts` and this passes its own mutex - honest, because it runs with
+ * no service beside it - and reports what it gets back instead of printing from inside.
+ *
+ * The approval hashes are the plan's own: a CLI run plans and applies in one breath, so the
+ * content it approves IS the content it planned against, and a page that changed in between
+ * comes back as stale exactly as it did before.
+ */
 async function apply(vaultRoot: string, plan: RepairPlan, subject: string): Promise<number> {
   if (plan.edits.length === 0) {
     console.log('nothing to apply')
     return 0
   }
-  const rels = plan.edits.map((e) => e.rel)
-  const result = await withWikiLocks(vaultRoot, rels, async (held, busy) => {
-    if (busy.length > 0) console.log(`skipping ${busy.length} page(s) somebody else is writing`)
-    const mine: RepairPlan = { ...plan, edits: plan.edits.filter((e) => held.includes(e.rel)) }
-    const { written, stale } = applyRepair(vaultRoot, mine)
-    if (stale.length > 0) console.log(`skipping ${stale.length} page(s) that changed since the plan was made`)
-    if (written.length === 0) return { written, commit: undefined }
-    const commit = await commitPaths(vaultRoot, subject, written)
-    return { written, commit }
-  })
-  console.log(`wrote ${result.written.length} page(s)` + (result.commit?.hash ? `, commit ${result.commit.hash.slice(0, 8)}` : ', not committed'))
+  const approved = new Map(plan.edits.map((e) => [e.rel, contentHash(e.before)]))
+  const result = await applySelection(vaultRoot, plan, subject, approved, { commitMutex: new Mutex() })
+  if (result.busy.length > 0) console.log(`skipping ${result.busy.length} page(s) somebody else is writing`)
+  if (result.stale.length > 0) console.log(`skipping ${result.stale.length} page(s) that changed since the plan was made`)
+  console.log(
+    `wrote ${result.written.length} page(s)` +
+      (result.commit?.hash ? `, commit ${result.commit.hash.slice(0, 8)}` : ', not committed'),
+  )
   return 0
 }
 

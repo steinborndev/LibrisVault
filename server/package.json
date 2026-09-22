@@ -28,6 +28,7 @@
     "rename-unsafe": "tsx src/cli/rename-unsafe-names.ts",
     "questiontopic-eval": "tsx src/cli/questiontopic-eval.ts",
     "vaultrepair": "tsx src/cli/vaultrepair.ts",
+    "backfill-quote-evidence": "tsx src/cli/backfill-quote-evidence.ts",
     "quoteprobe": "tsx src/cli/quoteprobe.ts",
     "usageprobe": "tsx src/cli/usageprobe.ts",
     "oasweep": "tsx src/cli/oasweep.ts",

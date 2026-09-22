@@ -165,6 +165,18 @@ export interface Stats {
   generatedAt: string
 }
 
+/**
+ * Where a finding's subject is, resolved by the SERVER (TASKS-DEFECT-PATHS 1.1).
+ *
+ * A `.raw/<job-id>/` path names its job by the DIRECTORY NAME. `lastJobId` is whoever last
+ * reported the finding - a maintenance run's id as often as a job's - and is provenance, never
+ * a link target.
+ */
+export type FindingSubject =
+  | { kind: 'page'; path: string }
+  | { kind: 'job'; jobId: string; exists: boolean }
+  | { kind: 'none'; why: string }
+
 /** One standing validation defect (A9): counted rather than repeated on every run. */
 export interface StandingFinding {
   id: string
@@ -177,12 +189,125 @@ export interface StandingFinding {
   lastSeen: string
   lastJobId: string | null
   resolvedAt: string | null
+  /** What the producer saw, where the page itself no longer holds it (migration 34). */
+  evidence?: string | null
+  subject?: FindingSubject
+  /** Whether the run that last REPORTED this is still in the job history. Provenance only. */
+  lastJobExists?: boolean
+  hasEvidence?: boolean
+  /** When somebody decided this defect may stay, and why (migration 35). */
+  acceptedAt?: string | null
+  acceptedReason?: string | null
+  /** How many fix runs have covered this, whatever the outcome (migration 36). */
+  fixAttempts?: number
+  lastFixAt?: string | null
+  /** The occurrence count when the last fix run started: a partial repair is not a failure. */
+  occurrencesAtLastFix?: number | null
+  /**
+   * Whether a bound run may repair this row right now, and why not when it may not. Present
+   * only for the rules that HAVE a run, and only on a Fellow notebook page (4.5).
+   */
+  fixBlock?: { fixable: boolean; why?: string }
+}
+
+/** How a defect of one rule gets repaired: a deterministic pass, a bound run, or a person. */
+export type RepairPath = 'pass' | 'run' | 'decision'
+
+/** What the expanded row says under a finding of this rule. Served, not mirrored here. */
+export interface DefectGuidance {
+  path: RepairPath
+  what: string
+  who: string
+  cost: string
+  limit?: string
+}
+
+/** One block of evidence: what it is, and the excerpt itself. */
+export interface EvidenceBlock {
+  label: string
+  text: string
+  truncated?: boolean
+}
+
+export interface FindingEvidence {
+  id: string
+  rule: string
+  path: string
+  blocks: EvidenceBlock[]
+  source: 'stored' | 'page' | 'none'
+  note?: string
+}
+
+/** One page a repair plan would change. `beforeHash` is what the approval carries forward. */
+export interface PlannedRepairPage {
+  rel: string
+  why: string
+  diff: string
+  beforeHash: string
+}
+
+export interface RepairPlan {
+  pass: string
+  rule: string
+  pages: PlannedRepairPage[]
+  /** Pages of the selection the pass looked at and left alone. Not a failed fix. */
+  unchanged: string[]
+  findings: number
+}
+
+export interface RepairOutcome {
+  written: string[]
+  /** Pages whose content no longer matches the diff that was approved. Not written. */
+  stale: string[]
+  /** Pages somebody else is writing. Not written, and NOT the same as stale. */
+  busy: string[]
+  commit: { committed: boolean; hash?: string; committedPages: string[]; note?: string } | null
+  commitError?: string
+  /** What the post-write check found: new defects recorded, old ones cleared. */
+  recorded: number
+  resolved: number
+  recheckedAway: number
+}
+
+/** What a settled fix run did, and the bookkeeping that only makes sense once it has. */
+export interface DefectFixSettlement {
+  ok: boolean
+  commit: string | null
+  pages: string[]
+  recorded: number
+  resolved: number
+  recheckedAway: number
+  /** Quote findings the run's own check cleared; the standing re-check structurally cannot. */
+  quotesCleared: number
+  /** Proposals vetoed because the question they planned from was reformulated. */
+  vetoedProposals: string[]
+  /** How many of the selected findings are still on the list. */
+  stillStanding: number
+}
+
+/** The address map's own repair: one whole-file change, never scoped to selected findings. */
+export interface ManifestRepairPlan {
+  added: Array<{ rel: string; address: string }>
+  droppedPages: Array<{ source: string; page: string }>
+  droppedAddresses: Array<{ rel: string; address: string }>
+  unnamedDirs: string[]
+  changes: boolean
+  beforeHash: string
+  summary: string
 }
 
 export interface ValidationList {
   findings: StandingFinding[]
   byRule: Array<{ rule: string; findings: number; occurrences: number }>
   total: number
+  /** How many findings stand accepted: the third block's own count. */
+  accepted?: number
+  /**
+   * What can be done about each rule and by whom, keyed by rule. Served by the API rather than
+   * kept here: the records are exhaustive over the rule union at compile time on the SERVER,
+   * and a second copy in this file would drift the first time a rule lands.
+   */
+  guidance?: Record<string, DefectGuidance>
 }
 
 export interface Health {
@@ -449,6 +574,8 @@ export type MaintenanceKind =
   | 'repair'
   | 'tag-fix'
   | 'retrieve-index'
+  /** One bound repair of a standing defect, on the pages of its findings (SPEC §12.16). */
+  | 'defect-fix'
 
 /** One tag repair from the tag-hygiene card (POST /maintenance/tag-fix). */
 export type TagFixAction =

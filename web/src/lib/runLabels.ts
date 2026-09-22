@@ -12,6 +12,7 @@ export const RUN_TITLES: Record<string, string> = {
   cleanup: 'Reference cleanup',
   repair: 'Graph repair',
   'retrieve-index': 'Retrieval index rebuilt',
+  'defect-fix': 'Standing defect repaired',
 }
 
 /**
@@ -32,6 +33,7 @@ export const RUN_RUNNING_TITLES: Record<string, string> = {
   cleanup: 'Cleaning up references',
   repair: 'Repairing the graph',
   'retrieve-index': 'Rebuilding the retrieval index',
+  'defect-fix': 'Repairing a standing defect',
 }
 
 /**
@@ -67,6 +69,9 @@ export function runTitle(kind: string, ok: boolean): string {
     'tag-fix': 'Tag repairs failed',
     research: 'Research run failed',
     'retrieve-index': 'Retrieval index rebuild failed',
+    // Not "no repair written": a fix run that leaves a page alone because it could not
+    // establish what the source says is a correct outcome, and the row says so separately.
+    'defect-fix': 'Defect repair failed',
   }
   return failed[kind] ?? `${RUN_TITLES[kind] ?? kind} failed`
 }

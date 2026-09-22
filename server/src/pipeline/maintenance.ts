@@ -55,7 +55,7 @@ import { RunRegistry } from './run-registry.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
-import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit, EXPAND_MAX_NEW } from './expand.js'
+import { describeFindings, gitCommitReader, renderExpandRules, validateDefectFixCommit, validateExpandCommit, EXPAND_MAX_NEW } from './expand.js'
 import { deltaBetween, parseSdkUsage, type UsageMonitor } from './usage-monitor.js'
 import { restoreCommitPaths, headHash, commitFileStatus } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
@@ -83,6 +83,8 @@ import { HOT_CACHE_WORD_BUDGET, VALIDATOR_RULES, VAULT_WIDE_RULES, type Validato
 import { recheckStanding } from './standing-recheck.js'
 import type { EventBus } from './events.js'
 import { buildRetrieveIndex, hasRetrieveScripts, RetrieveScriptsMissingError, type RetrieveIndexBuilder } from './retrieve-index.js'
+import { renderDefectFixPrompt } from './defect-fix-prompt.js'
+import type { StandingFinding } from '../db/validation.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
 import { Mutex } from '../util/mutex.js'
@@ -108,6 +110,8 @@ export type MaintenanceKind =
   | 'repair'
   | 'tag-fix'
   | 'retrieve-index'
+  /** One bound repair of a standing defect, on the pages of its findings (SPEC.md §12.16). */
+  | 'defect-fix'
 
 /**
  * One user-selected graph-repair task (SPEC.md §12.4 graph view). `connect` = an isolated
@@ -427,6 +431,12 @@ interface RunOptions {
   readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
   /** An expand run's page set: the commit is validated against it and reverted on a violation (A3). */
   readonly expandPageSet?: readonly string[]
+  /**
+   * A defect-fix run's page set (TASKS-DEFECT-PATHS 4.4). Same mechanism as `expandPageSet`
+   * and a different rule set: the commit check keeps outside-set, no-delete and a new-page cap
+   * of zero, and DROPS additivity, because a defect fix replaces lines by definition.
+   */
+  readonly defectPageSet?: readonly string[]
 }
 
 /** What a run may be started as. `query` is read-only and is used by the `plan` kind only. */
@@ -931,6 +941,30 @@ export class MaintenanceRunner {
       ...fellowRunOptions(fellow),
       ...(fellow.timeoutMs === undefined ? { timeoutMs: EXPAND_TIMEOUT_MS } : {}),
       expandPageSet: pageSet,
+    })
+  }
+
+  /**
+   * A bound DEFECT FIX (SPEC.md §12.16, TASKS-DEFECT-PATHS phase 4).
+   *
+   * Three rules name a defect whose repair needs reading rather than a rule: an open question
+   * that cannot be read away from its page, a quotation that is not in the document the job
+   * read, a page missing the one heading its type is supposed to carry. No deterministic pass
+   * can ever produce those, and until this existed they were a list with no action at all.
+   *
+   * The narrowest scope guard in the repo: exactly the pages of the findings, no other page, no
+   * new page, no rename, no delete. Enforced at tool time by the `PreToolUse` hook and behind
+   * that by a commit check that reverts the whole commit - never by the prompt's wording (hard
+   * rule 4).
+   */
+  startDefectFix(rule: string, findings: readonly StandingFinding[], pageSet: readonly string[]): MaintenanceRun {
+    const prompt = renderDefectFixPrompt(rule, findings)
+    return this.start('defect-fix', prompt, 'ingest', {
+      label: `${rule} on ${pageSet.length === 1 ? '1 page' : `${pageSet.length} pages`}`,
+      // Mechanism only, never the subject of a page (hard rule 7). The rule name carries no
+      // article: "a open-question-form defect" is what one produced on the first real run.
+      commitMessage: `repair: a bound run over ${pageSet.length === 1 ? 'one page' : `${pageSet.length} pages`}, rule ${rule}`,
+      defectPageSet: pageSet,
     })
   }
 
@@ -1490,6 +1524,11 @@ export class MaintenanceRunner {
         ...(kind === 'research-expand' && opts.expandPageSet !== undefined
           ? { expand: { pageSet: opts.expandPageSet, maxNew: EXPAND_MAX_NEW } }
           : {}),
+        /*
+         * The defect-fix lock (4.4), the same mechanism one rule set over: the hook refuses a
+         * write outside the page set, and the commit check below reverts what it cannot see.
+         */
+        ...(kind === 'defect-fix' && opts.defectPageSet !== undefined ? { defectFix: { pageSet: opts.defectPageSet } } : {}),
         // A Fellow's run is pinned to its model, effort and budget cap (docs/agents/SPEC.md).
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.effort ? { effort: opts.effort } : {}),
@@ -1610,6 +1649,35 @@ export class MaintenanceRunner {
           })
         }
         log('info', 'research-expand stayed inside its page set')
+      }
+
+      /*
+       * A defect fix is bound to the pages of its findings (4.4). Three of the expand check's
+       * four rules - outside-set, no-delete, and a new-page cap of ZERO - and NOT additivity,
+       * which requires every existing body line to survive: a defect fix replaces lines by
+       * definition, so the expand check would revert exactly the run it was reused for.
+       */
+      if (kind === 'defect-fix' && opts.defectPageSet !== undefined && commitHash !== null) {
+        const findings = await validateDefectFixCommit(gitCommitReader(this.vaultRoot, commitHash, commitFrom), opts.defectPageSet)
+        if (findings.length > 0) {
+          const finding = describeFindings(findings)
+          log('warn', `maintenance: defect-fix broke its scope: ${finding}`)
+          const undone = await this.commitMutex.runExclusive(() =>
+            restoreCommitPaths(this.vaultRoot, commitHash, `revert defect-fix ${commitHash.slice(0, 8)}`, commitFrom),
+          )
+          log(undone.reverted ? 'warn' : 'error', undone.reverted ? `reverted ${commitHash.slice(0, 8)} with ${undone.hash?.slice(0, 8)}` : `revert failed: ${undone.message ?? 'unknown'}`)
+          this.events.publish({ kind: 'stats' })
+          return withDelta({
+            ok: false,
+            kind,
+            pages: [],
+            commit: undone.reverted ? (undone.hash ?? null) : commitHash,
+            usage: res.usage,
+            error: `defect-fix reverted: ${finding}${undone.reverted ? '' : ` (revert failed: ${undone.message ?? 'unknown'})`}`,
+            answer: res.result,
+          })
+        }
+        log('info', 'defect-fix stayed inside its page set')
       }
 
       /*

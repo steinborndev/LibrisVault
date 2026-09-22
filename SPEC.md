@@ -853,8 +853,23 @@ page with a sentence cut mid-clause**.
 deictic, emits one finding naming both. Advisory (§12.16). It never says the section should go,
 which is why `## Open questions` stays off the run-protocol heading list.
 
-**Not retroactive.** The 355 standing bullets are repaired one at a time by the reformulation and
-by the user's strike-through. Pipeline code does not rewrite vault content (hard rule 1).
+**Retroactive only through a bound agent run (amended 2026-09-21, user decision).** It read
+"not retroactive" until then, which was right about the mechanism and wrong about the limit:
+PIPELINE CODE still rewrites no bullet, and that is what hard rule 1 forbids. An AGENT RUN is
+the writer hard rule 1 allows, so the standing bullets of one page can be rewritten by a run
+bound to that page - one page per finding, at most ten pages of the same rule per run, no other
+page, no new page, no rename, no delete, enforced by a path whitelist at tool time and by a
+commit check with auto-revert behind it, not by prompt wording (§12.16, `defect-fix`). The
+reformulation and the user's strike-through remain the other two paths; what changed is that
+the list of 355 is no longer only worked one question at a time.
+
+**A reformulated question is a NEW question.** The text IS the identity (`questionKey`), so a
+proposal a Fellow planned against the old wording no longer names anything that exists. It is
+vetoed, the same way archiving a question vetoes it, and the board shows the new bullet as
+unplanned. The run therefore snapshots the page's bullets BEFORE it writes: nothing in the
+finding carries the old text, because the `open-question-form` message counts bullets and names
+none. This is the second way a question's identity ends, alongside the strike-through (§12.4).
+It can discard a planned night's work, so the confirmation says so before the run starts.
 
 ### 12.16 The standing defect list (added 2026-09-21)
 
@@ -896,3 +911,54 @@ reports it. Two of the three constraints on that are the arguments of one call,
 **Every rule sits on exactly one list**, mechanical or judgement, enforced by an exhaustive type
 and a test. A rule on neither reaches no fix run: `open-question-form` (§12.15) was in that state
 from the day it shipped, 15 findings' worth, with five others.
+
+**Every defect has a path out of the list (added 2026-09-21,
+`docs/tasks/TASKS-DEFECT-PATHS.md`).** The list above ended the 406 job-log lines and replaced
+them with 57 rows nobody could act on: the rows were spans, with no link to the page, no
+evidence, and no statement of who was supposed to do something. A THIRD classification answers
+that, `Record<ValidationRule, 'pass' | 'run' | 'decision'>` in `pipeline/defect-paths.ts`,
+exhaustive over the rule union at compile time and served with the list so the dashboard renders
+what the server decided. It crosses the mechanical/judgement split deliberately and does not
+widen it: that split answers what a lint-fix AGENT PROMPT may be told about, and widening it to
+build a "fixable" block would put judgement calls into a prompt.
+
+| Path | What it means | Who writes |
+|---|---|---|
+| `pass` | a deterministic repair pass reaches the page the finding stands on | `pipeline/defect-repair.ts`, behind the vault's per-file lock and the commit mutex, one commit |
+| `run` | the repair needs reading, and one bound agent run does it on one page | the maintenance runner |
+| `decision` | nothing can produce the repair without somebody deciding | the user, in the page view |
+
+**Plan, diff, confirm - and the dry run stays mandatory, for the same reason `cli/vaultrepair.ts`
+makes `--apply` the only way past it.** These passes rewrite pages a person wrote months ago, in
+bulk, by rule. `POST /validation/repair/plan` is read-only and returns per page the reason, the
+diff and a hash of the content it planned against; `POST /validation/repair/apply` plans again
+and writes only the pages whose fresh content still hashes to what was approved. The hash is what
+carries the approval forward: the apply re-plans, which sets `before` to the current content and
+would make `applyRepair`'s own comparison unreachable, and the approval was of a DIFF rather than
+of a page. A page whose lock somebody else holds is reported as skipped, which means something
+different to the reader than stale.
+
+**The plan is filtered to the pages the findings name, and that has a price the screen states.**
+A pass is built vault-wide: measured 2026-09-21, `tag-singleton` would change **26 pages against
+14 findings** and `em-dash` **2 against 1**. The surplus is pages the validator has never read -
+it only ever sees the pages a run touched, plus the pages the list already names - and each will
+surface as a NEW finding of a rule the user believes they emptied. That is expected rather than a
+repair that did not hold, and the rule's guidance line says so. The vault-wide sweep stays the
+CLI's.
+
+**Two exceptions, both measured and both rendered rather than hidden.** `title-name` gets no
+button: `titleLinkPass` edits the pages that LINK to a drifted title, never the page the finding
+stands on, so a filtered run reaches nothing (0 pages vault-wide). And the address map's repair
+cannot be scoped to selected findings - it writes one whole file - and reaches none of the
+`address-map` findings standing today, all four of which name a `.raw/<job-id>/` directory that no
+source entry mentions: what a job directory held is not derivable from the directory, and
+inventing it would be inventing provenance.
+
+**A defect can also be ACCEPTED, permanently and with a reason** (migration 35, `accepted_at` /
+`accepted_reason`, separate from `resolved_at`: resolved means the defect is gone, accepted means
+it may stay). A list that cannot be emptied becomes the 406 job-log lines again one layer up, and
+six of the nine standing rules need a judgement whose answer is often "this is fine". The reason
+is required - a snooze only postpones the reading. Accepted findings leave `list()` and
+`countsByRule()`, which has two wanted consequences: an accepted mechanical finding stops reaching
+the lint-fix prompt, and its page stops being re-read by the standing re-check unless something
+else on it still stands.
