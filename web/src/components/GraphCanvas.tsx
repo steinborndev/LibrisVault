@@ -926,7 +926,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           labelInputs.push({ key: cid, width: ctx.measureText(label).width, weight: pts.length })
         }
       }
-      const placedLabels = placeRegionLabels(labelInputs, paddedHulls, labelH, labelH * 0.45)
+      const placedLabels = placeRegionLabels(labelInputs, paddedHulls, labelH, labelH * 0.45, [
+        minX + margin,
+        minY + margin,
+        maxX - margin,
+        maxY - margin,
+      ])
       // Keep the glyphs legible without ever moving them: clamp the on-screen size, then
       // grow each reserved box by the same factor. Shrinking (zoomed in) always fits;
       // growing (zoomed out) may not, and those labels are dropped rather than displaced.
@@ -2606,6 +2611,14 @@ const PENALTY_FOREIGN_HULL = 3
 const PENALTY_OWN_HULL = 2
 /** Per unit of distance beyond the hull edge, relative to the hull radius - keeps labels near. */
 const PENALTY_DISTANCE = 4
+/**
+ * A caption that does not fit in the picture (2026-09-22). It used to be placed in world space
+ * with no idea where the frame was, so zooming in cut captions in half at the edges - measured
+ * on the whole vault six notches in. The penalty is above every other one put together, so a
+ * spot inside the frame always beats a better-looking spot outside it; a caption with nowhere
+ * inside to go is dropped rather than drawn across the edge.
+ */
+const PENALTY_OFFSCREEN = 100
 
 /**
  * Places region (cluster) labels next to their hulls, legibly and - above all - close enough
@@ -2636,7 +2649,11 @@ export function placeRegionLabels(
   hulls: ReadonlyMap<number, Pt[]>,
   labelH: number,
   margin: number,
+  /** The visible world rectangle, when the caller has one: captions stay inside the frame. */
+  view: Box | null = null,
 ): PlacedRegionLabel[] {
+  const inFrame = (b: Box): boolean =>
+    view === null || (b[0] >= view[0] && b[1] >= view[1] && b[2] <= view[2] && b[3] <= view[3])
   const order = [...labels].sort((a, b) => b.weight - a.weight || a.key - b.key)
   const placedBoxes: Box[] = []
   const out: PlacedRegionLabel[] = []
@@ -2671,6 +2688,7 @@ export function placeRegionLabels(
         if (placedBoxes.some((p) => boxesOverlap(box, p))) continue
 
         let penalty = (out_ / Math.max(radius, 1)) * PENALTY_DISTANCE
+        if (!inFrame(box)) penalty += PENALTY_OFFSCREEN
         for (const [cid, poly] of hulls) {
           if (!boxIntersectsPolygon(box, poly)) continue
           penalty += cid === label.key ? PENALTY_OWN_HULL : PENALTY_FOREIGN_HULL
@@ -2684,8 +2702,10 @@ export function placeRegionLabels(
     }
 
     // Every candidate collided with an already-placed label: drop this one rather than
-    // stack two unreadable labels. Weight order keeps the labels that matter most.
-    if (best === null) continue
+    // stack two unreadable labels. Weight order keeps the labels that matter most. A caption
+    // that only fits outside the frame is dropped the same way - half a word at the edge names
+    // nothing, and the hull it belongs to is on screen to be hovered.
+    if (best === null || !inFrame(best.box)) continue
     out.push({ key: label.key, x: best.x, y: best.y, box: best.box, fallback: best.penalty > 0 })
     placedBoxes.push(best.box)
   }
