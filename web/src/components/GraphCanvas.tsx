@@ -136,6 +136,12 @@ export interface GraphCanvasProps {
    */
   fitSubset?: ReadonlySet<number> | null
   /**
+   * A node the fit puts in the MIDDLE of the picture rather than wherever the framed set's box
+   * happens to put it. The span is then measured from it in every direction, so the set still
+   * fits whole - at a wider zoom than a plain box fit, which is what centring costs.
+   */
+  fitCenter?: number | null
+  /**
    * Which graph this canvas is - the key its camera and its laid-out positions are kept
    * under. Two canvases are mounted at once (every screen stays in the DOM behind `hidden`),
    * and a positions array belongs to exactly one node list, so they must not share a slot.
@@ -492,7 +498,7 @@ function viewMemory(view: string): ViewMemory {
  */
 const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -547,6 +553,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   /** What the next fit frames; a ref, so `fitToView` keeps its identity across a change of it. */
   const fitSubsetRef = useRef(fitSubset)
   fitSubsetRef.current = fitSubset
+  const fitCenterRef = useRef(fitCenter)
+  fitCenterRef.current = fitCenter
   /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
   const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i), [])
 
@@ -1115,7 +1123,28 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
       }
-      if (i === focusIndex || i === selectedIndex || matches.has(i)) {
+      /*
+       * The selected node, inside the mode, is ringed in LIGHT (2026-09-22, user decision): the
+       * Library's rim - a bright edge along the thing being pointed at - rather than the
+       * hairline that reads as one more circle among forty of the same colour. Two strokes, a
+       * wide faint one under a narrow bright one, which is a glow without a shadow blur: blur
+       * is in device pixels and would thicken as the mode zooms in on a neighbourhood.
+       */
+      if (mask !== null && i === selectedIndex) {
+        const [gr, gg, gb] = parseRgb(cssVar('--accent', '#5b8def')) ?? [91, 141, 239]
+        ctx.globalAlpha = nodeRev
+        for (const [width, alpha, out] of [
+          [7, 0.16, 4],
+          [4, 0.3, 3],
+          [1.8, 0.95, 2.5],
+        ] as const) {
+          ctx.strokeStyle = `rgba(${gr}, ${gg}, ${gb}, ${alpha})`
+          ctx.lineWidth = width / t.k
+          ctx.beginPath()
+          ctx.arc(x, y, r + out / t.k, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+      } else if (i === focusIndex || i === selectedIndex || matches.has(i)) {
         ctx.globalAlpha = nodeRev
         ctx.strokeStyle = i === selectedIndex ? cssVar('--accent', '#5b8def') : cssVar('--text', '#fff')
         ctx.lineWidth = (i === selectedIndex ? 2.2 : 1.6) / t.k
@@ -1332,8 +1361,24 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ]
       return full[1] - full[0] > Math.max(1, core[1] - core[0]) * 3 ? core : full
     }
-    const [minX, maxX] = bounds(xs)
-    const [minY, maxY] = bounds(ys)
+    let [minX, maxX] = bounds(xs)
+    let [minY, maxY] = bounds(ys)
+    /*
+     * A centred fit: the box is made symmetric around one node, so it lands in the middle of
+     * the picture instead of wherever the set's own extent put it. Everything framed still
+     * fits, at the wider zoom that symmetry costs.
+     */
+    const mid = fitCenterRef.current
+    if (mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN)) {
+      const cx = pos[mid * 2]!
+      const cy = pos[mid * 2 + 1]!
+      const rx = Math.max(cx - minX, maxX - cx)
+      const ry = Math.max(cy - minY, maxY - cy)
+      minX = cx - rx
+      maxX = cx + rx
+      minY = cy - ry
+      maxY = cy + ry
+    }
     /*
      * A node is not its centre (fixed 2026-09-16). The extent above was the centres alone, and
      * the frame then cut the outermost circles in half and their labels off entirely - worst

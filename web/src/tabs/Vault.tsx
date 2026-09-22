@@ -532,15 +532,6 @@ function GraphView({
    */
   const landmarkRef = useRef(landmarkDomain)
   landmarkRef.current = landmarkDomain
-  /**
-   * Whether the right-hand column is showing a page rather than the list. A landmark clicked on
-   * the canvas expands and keeps the list standing - that is where its handle line is, and a
-   * control you have to go back for is not a handle. Everything else that can be clicked while
-   * the mode is on - an entry in the list, a connector, a neighbour already out - opens the page
-   * detail, which is what "selects and opens it exactly as anywhere else on this screen" means
-   * where the explorer is what stands in that column.
-   */
-  const [listDetail, setListDetail] = useState(false)
   /** One neighbourhood at a time, and a second click on the same landmark drops it. */
   const showBloom = (path: string | null): void => {
     setBloom((b) => (path !== null && b === path ? null : path))
@@ -647,7 +638,6 @@ function GraphView({
   const closeExplorer = (): void => {
     setSelection(null)
     setTrail([])
-    setListDetail(false)
   }
 
   /*
@@ -1604,10 +1594,7 @@ function GraphView({
       const step = e.key === 'ArrowDown' ? 1 : -1
       const next = at < 0 ? (step === 1 ? 0 : order.length - 1) : Math.min(order.length - 1, Math.max(0, at + step))
       const path = order[next]
-      if (path !== undefined) {
-        selectPage(path)
-        setListDetail(false)
-      }
+      if (path !== undefined) selectPage(path)
       return
     }
     if (e.key === 'Enter' && selection?.kind === 'page') {
@@ -1817,6 +1804,9 @@ function GraphView({
           // whole domain when it goes off. `fitSubset` says which nodes that is.
           fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}`}
           fitSubset={landmarkView?.framed ?? null}
+          // …and an open neighbourhood puts its own page in the middle of it, so the thing the
+          // click was about is where the eye already is.
+          fitCenter={landmarkMask?.bloomAnchor ?? null}
           barLeft={
             <span className="scopeline">
               Showing{' '}
@@ -1874,12 +1864,26 @@ function GraphView({
              * click then opens the page (`openOnClick`): exploration is what was left behind
              * when the lock closed.
              */
+            /*
+             * Inside the mode a click READS (2026-09-22, user decision). With a neighbourhood
+             * open every node on screen is one of its pages, so a click opens it - the anchor
+             * excepted, which closes the neighbourhood it heads. With none open, a landmark
+             * opens its own and a connector opens its page.
+             *
+             * What a click does NOT do there is move the selection: the anchor keeps it, so
+             * Escape out of an article comes back to the landmark the reader left from, lit.
+             */
             if (landmarkData !== null) {
-              const isLandmark = landmarkData.neighbours.has(n.path)
-              if (isLandmark) showBloom(n.path)
-              // A landmark keeps the list standing, because the list is where its handle line
-              // is; anything else in this mode opens as it would anywhere else on this screen.
-              setListDetail(!isLandmark)
+              if (bloom !== null) {
+                if (n.path === bloom) showBloom(null)
+                else navigate(pageRoute(n.path))
+                return
+              }
+              if (landmarkData.neighbours.has(n.path)) {
+                showBloom(n.path)
+                selectPage(n.path)
+              } else navigate(pageRoute(n.path))
+              return
             }
             selectPage(n.path)
           }}
@@ -2050,43 +2054,23 @@ function GraphView({
           * The explorer is the detail of a selection; the list is part of the picture.
           */}
         {landmarkData !== null ? (
-          listDetail && selection?.kind === 'page' ? (
-            <aside className="graph-explorer" role="complementary" aria-label="Page detail">
-              <button className="gx-back" onClick={() => setListDetail(false)}>
-                <Icon name="back" /> Landmarks
-              </button>
-              <PageExplorer
-                graph={graph}
-                path={selection.path}
-                health={health}
-                inLandmarks
-                onSelectPage={selectPage}
-                onTag={(t) => {
-                  setTagFilter({ tag: t, around: selection.path })
-                  closeExplorer()
-                }}
-                showSystem={showSystem}
-              />
-            </aside>
-          ) : (
-            <LandmarkList
-              set={landmarkData}
-              titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
-              selected={selection?.kind === 'page' ? selection.path : null}
-              bloom={bloom}
-              neighbourhood={landmarkView?.neighbourhood ?? []}
-              onPick={(path) => {
-                // Locked, leaving for the page and coming back to the held picture is a reading
-                // pass, and one rule then governs the canvas and the list alike.
-                if (frozen !== null) {
-                  navigate(pageRoute(path))
-                  return
-                }
-                selectPage(path)
-                setListDetail(true)
-              }}
-            />
-          )
+          <LandmarkList
+            set={landmarkData}
+            titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
+            selected={selection?.kind === 'page' ? selection.path : null}
+            bloom={bloom}
+            neighbourhood={landmarkView?.neighbourhood ?? []}
+            onPick={(path) => {
+              /*
+               * A row opens its page - there is no page detail in this column any more, so
+               * the second press on "Open page" it used to need is gone. In the reading order
+               * the row is also where the reader was, so it takes the selection with it; in a
+               * neighbourhood the anchor keeps it, and Escape comes back to the landmark.
+               */
+              if (bloom === null) selectPage(path)
+              navigate(pageRoute(path))
+            }}
+          />
         ) : frozen === null ? (
         <GraphExplorer
           graph={graph}
@@ -2297,7 +2281,6 @@ function PageExplorer({
   onSelectPage,
   onTag,
   showSystem,
-  inLandmarks = false,
 }: {
   graph: VaultGraph
   path: string
@@ -2307,8 +2290,6 @@ function PageExplorer({
   showSystem: boolean
   /** A tag in the head, pressed: the screen turns it into the search that narrows the graph. */
   onTag: (tag: string) => void
-  /** Whether this detail stands inside the Landmarks column, where a focus cannot act. */
-  inLandmarks?: boolean
 }): React.ReactElement {
   const idx = useMemo(() => graph.nodes.findIndex((n) => n.path === path), [graph, path])
   const node = idx >= 0 ? graph.nodes[idx] : undefined
@@ -2511,21 +2492,10 @@ function PageExplorer({
         <LinkSection title="Related by tag" list={related} onSelect={onSelectPage} />
       </div>
       <div className="gx-actions">
-        {/*
-          * Nothing to focus while the Landmarks mask is on (2026-09-22). The button sets
-          * `?focus=`, and a focus narrows nothing until a DEPTH is chosen - while a depth is
-          * one of the three things that turn the mode off. So pressing it there either does
-          * nothing or throws away the mode, and it says so instead.
-          */}
         <button
           className="btn"
-          disabled={inLandmarks}
           onClick={() => navigate(`/graph?focus=${encodeURIComponent(node.path)}`)}
-          title={
-            inLandmarks
-              ? 'Not while Landmarks is on: a focus draws nothing until you pick a depth, and a depth turns the overlay off.'
-              : 'Draw the neighbourhood around this page'
-          }
+          title="Draw the neighbourhood around this page"
         >
           Focus neighborhood
         </button>

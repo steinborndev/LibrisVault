@@ -3744,22 +3744,6 @@ span.head-slot { display: inline-block; }
   font-size: 11px;
   color: var(--text-faint);
 }
-/* The way back out of a page detail and into the list it was opened from. */
-.gx-back {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 12px;
-  cursor: pointer;
-}
-.gx-back:hover {
-  color: var(--text);
-}
 /* The kicker over a title in the explorer: the same label as `.bucket`, one step up because
    it sits over a heading rather than beside a name in a list. */
 .gx-kicker {

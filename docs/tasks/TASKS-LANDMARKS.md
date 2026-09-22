@@ -117,7 +117,9 @@ the reader to find twelve new dots in a field of forty:
 - the PICTURE is that neighbourhood and nothing else (corrected 2026-09-22, user decision, was
   half-transparent): every other landmark and connector is off the drawing. Remains of the
   other view inside a frame drawn around one page are a second picture the reader has to look
-  past, and a dimmed label is still a label;
+  past, and a dimmed label is still a label. The selected page stands in a ring of LIGHT - the
+  Library's own rim, a bright edge under a soft one - because a hairline reads as one more
+  circle among forty of the same colour;
 - the HEADING names it after the domain, in the form `<domain> - <the page>`, because the
   middle of the bar is where a reader looks to find out what they are looking at. That slot has
   since become the screen's general answer to "what am I looking at" (2026-09-22): Spotlight
@@ -131,7 +133,10 @@ press meant to close the expansion silently dropped the crumbs and left the pict
 
 **What the camera frames** (added 2026-09-22, user decision). The mode frames what it paints:
 the landmarks when it comes on, one neighbourhood while one is open, the landmarks again when
-Escape closes it, and the whole domain when the mode goes off. One rule rather than four cases,
+Escape closes it, and the whole domain when the mode goes off. An open neighbourhood puts its
+own page in the MIDDLE of that frame, so the thing the click was about is where the eye already
+is; the span is then measured from it in every direction, which costs a little zoom and buys a
+picture that reads as being about one page. One rule rather than four cases,
 and it is what makes an uncapped expansion readable - a hundred neighbours framed is a picture
 of a page, where a hundred neighbours inside the domain's own extent is a crowd.
 
@@ -140,9 +145,19 @@ the edge list and the grouping are untouched, so no layout is posted and no node
 in the world. Measured over a switch, an expansion, an Escape and a switch back: the layout
 worker was asked for nothing and answered nothing.
 
+**A click READS** (corrected 2026-09-22, user decision; it used to open a page detail in the
+column, behind a second press on "Open page"). With a neighbourhood open, every node on screen
+and every row in the list is one of its pages, so a click opens that page - the anchor excepted,
+which closes the neighbourhood it heads. With none open, a landmark opens its own neighbourhood
+and a connector opens its page. There is no page detail in this column any more; the column is
+the list, in one of its two forms.
+
+What a click does NOT do inside a neighbourhood is move the selection. The anchor keeps it, so
+Escape out of an article comes back to the landmark the reader left from, lit and centred, with
+its neighbourhood still open.
+
 A second click on the landmark drops the bloom: one neighbourhood at a
-time. Only a landmark expands; a click on a connector or on a neighbour that is already out
-selects and opens it exactly as anywhere else on this screen. A bloom adds nothing to the graph the canvas
+time. A bloom adds nothing to the graph the canvas
 lays out - those neighbours were always in it and merely unpainted - so they appear where they
 stand instead of arriving out of a re-settling layout, and the camera moving to them is a
 different thing from the picture re-settling under them. What a click does while the picture
@@ -339,9 +354,8 @@ held picture rather than leaving it. Reported as: lock a drilled-in cluster, tur
 read an article, come back, and Spotlight is on again. This mode rides along: switched off under
 a closed lock, it stays off.
 
-A click in the LIST opens the page too, rather than replacing the column with the page detail.
-Unlocked, the detail and its way back are browsing; locked, leaving for the page and returning
-to the held picture is a reading pass, and one rule then governs the canvas and the list alike.
+A click in the LIST opens the page, locked or not - one rule governs the canvas and the list
+alike, and there is no page detail left in the column for it to diverge over.
 
 What the record holds is the computed order, not merely the switch. `graphFreeze.ts` calls
 itself a snapshot of "everything that decides which nodes are drawn and how", and in this mode
@@ -575,7 +589,9 @@ the recorded neighbour counts are unaffected, and the canvas takes the bloom as 
 to paint whichever rule builds it.
 
 **2. What a click on a LANDMARK does to the column (2026-09-22, found building chunk 4,
-resolved by reading).**
+resolved by reading, then OVERTAKEN the same day: the column has no page detail any more, so a
+click simply opens the page it names. The reading below is kept because it is why the list and
+the picture ended up agreeing about what a neighbourhood is).**
 
 **The list** says "clicking an entry or a node replaces it with the page detail and a way back
 to the list". Taken to include a landmark, three other sentences of this file stop being
