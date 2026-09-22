@@ -4111,37 +4111,7 @@ span.head-slot { display: inline-block; }
 .page-side h3:first-child {
   margin-top: 0;
 }
-/* The toggle sits at the top and stays there; only the list under it scrolls. */
-.page-side-seg {
-  flex: none;
-  align-self: stretch;
-}
-.page-side-seg button {
-  flex: 1;
-  white-space: nowrap;
-}
-.page-side-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
 
-.linklist {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.linklist a {
-  color: var(--accent);
-  text-decoration: none;
-}
-.linklist a:hover {
-  text-decoration: underline;
-}
 .dim {
   color: var(--text-faint);
 }

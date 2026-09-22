@@ -209,6 +209,17 @@ is not drawn in this mode, and not kept either: the list IS where the reader sta
 line of crumbs says the same thing worse, and a trail kept out of sight would go on eating an
 Escape press for a walk nobody could see. It comes back with the mode off.
 
+**The reading view's own panel** (added 2026-09-22, user decision). Opening an article from
+this mode lands in the same link panel the graph's explorer shows - what points at the page,
+what it points at, each list an equal share of the column with its own scroll - rather than the
+one-list-behind-a-toggle the reading view used to carry. One shape for "what is around this
+page", wherever the reader meets it, computed by one function so the two panels cannot drift
+apart about what counts as related.
+
+Inside the overlay the tag list goes and the two link lists take a half each. This mode is
+about how the pages of one domain LINK; a list of pages that merely share a word with this one
+is a different question asked in the same column.
+
 **The list.** Right-hand column, where the explorer sits today. Clicking an entry or a node
 replaces it with the page detail and a way back to the list, the pattern the Research screen
 already uses for its ledgers. Up and down walk it; Enter needs no binding of its own, because

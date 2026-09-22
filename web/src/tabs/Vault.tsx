@@ -2300,65 +2300,7 @@ function PageExplorer({
    * in every page's neighbourhood, that the drawing behind them does not contain, and that
    * push the pages you came for below the fold.
    */
-  const visible = (n: GraphNode): boolean => showSystem || isKnowledge(n)
-  const backlinks = useMemo(
-    () =>
-      idx < 0
-        ? []
-        : graph.edges.filter(([, to]) => to === idx).map(([from]) => graph.nodes[from]!).filter(visible).sort(byTitle),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graph, idx, showSystem],
-  )
-  const outgoing = useMemo(
-    () =>
-      idx < 0
-        ? []
-        : graph.edges.filter(([from]) => from === idx).map(([, to]) => graph.nodes[to]!).filter(visible).sort(byTitle),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graph, idx, showSystem],
-  )
-  // Tag rarity across the vault: a tag on half the pages is near-worthless as a "related"
-  // signal, one on three pages is a strong one. IDF weight = log(N / df); a tag on every page
-  // scores 0 and drops out on its own, so no fixed denylist has to keep pace with the vault.
-  const tagIdf = useMemo(() => {
-    const df = new Map<string, number>()
-    let n = 0
-    for (const nd of graph.nodes) {
-      if (!isKnowledge(nd)) continue
-      n++
-      for (const t of new Set(nd.tags.filter(isThematicTag))) df.set(t, (df.get(t) ?? 0) + 1)
-    }
-    const idf = new Map<string, number>()
-    for (const [t, count] of df) idf.set(t, Math.log(n / count))
-    return idf
-  }, [graph])
-
-  // Related by shared tag, excluding pages already linked either way - the tag axis surfaces
-  // neighbors the wikilinks don't. Structural tags (`#source`, …) carry no subject and are
-  // dropped; candidates are ranked by summed IDF of the shared thematic tags so the closest
-  // neighbors win, not the alphabetically-first ones. Capped so the panel stays a summary.
-  const related = useMemo(() => {
-    if (!node) return []
-    const own = node.tags.filter(isThematicTag)
-    if (own.length === 0) return []
-    const weight = new Map(own.map((t) => [t, tagIdf.get(t) ?? 0]))
-    const linked = new Set([path, ...backlinks.map((n) => n.path), ...outgoing.map((n) => n.path)])
-    return graph.nodes
-      // The same overlay as the two lists above it. It sits in the same panel and answers the
-      // same kind of question, so hiding system pages in two of three lists would be the
-      // arbitrary half of a rule.
-      .filter((n) => !linked.has(n.path) && visible(n))
-      .map((n) => {
-        let score = 0
-        for (const t of new Set(n.tags)) score += weight.get(t) ?? 0
-        return { node: n, score }
-      })
-      .filter((c) => c.score > 0)
-      .sort((a, b) => b.score - a.score || byTitle(a.node, b.node))
-      .slice(0, 6)
-      .map((c) => c.node)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, node, path, backlinks, outgoing, tagIdf, showSystem])
+  const { backlinks, outgoing, related } = useMemo(() => pageLinks(graph, path, showSystem), [graph, path, showSystem])
 
   // ---- graph repair (deterministic findings for THIS page → one bounded agent run) ----
   const qc = useQueryClient()
@@ -2626,6 +2568,63 @@ function GapList({
 const byTitle = (a: GraphNode, b: GraphNode): number => a.title.localeCompare(b.title)
 
 /** One titled list of pages in the explorer; nothing renders when the list is empty. */
+/**
+ * The three lists a link panel shows for one page: what points at it, what it points at, and
+ * what shares its subject without either. Pulled out of the explorer (2026-09-22) because the
+ * reading view now shows the same three, and two copies of "what counts as related" would
+ * drift the first time either was touched.
+ *
+ * `showSystem` is the graph's own overlay: the lists show what the drawing shows. It applies to
+ * all three, because they sit in one panel and answer the same kind of question - hiding system
+ * pages in two of three would be the arbitrary half of a rule.
+ */
+export function pageLinks(
+  graph: VaultGraph,
+  path: string,
+  showSystem: boolean,
+): { backlinks: GraphNode[]; outgoing: GraphNode[]; related: GraphNode[] } {
+  const idx = graph.nodes.findIndex((n) => n.path === path)
+  const node = idx >= 0 ? graph.nodes[idx] : undefined
+  const visible = (n: GraphNode): boolean => showSystem || isKnowledge(n)
+  const backlinks =
+    idx < 0 ? [] : graph.edges.filter(([, to]) => to === idx).map(([from]) => graph.nodes[from]!).filter(visible).sort(byTitle)
+  const outgoing =
+    idx < 0 ? [] : graph.edges.filter(([from]) => from === idx).map(([, to]) => graph.nodes[to]!).filter(visible).sort(byTitle)
+  if (node === undefined) return { backlinks, outgoing, related: [] }
+
+  /*
+   * Tag rarity across the vault: a tag on half the pages is near-worthless as a "related"
+   * signal, one on three pages is a strong one. IDF weight = log(N / df); a tag on every page
+   * scores 0 and drops out on its own, so no fixed denylist has to keep pace with the vault.
+   */
+  const df = new Map<string, number>()
+  let total = 0
+  for (const nd of graph.nodes) {
+    if (!isKnowledge(nd)) continue
+    total++
+    for (const t of new Set(nd.tags.filter(isThematicTag))) df.set(t, (df.get(t) ?? 0) + 1)
+  }
+  const own = node.tags.filter(isThematicTag)
+  if (own.length === 0) return { backlinks, outgoing, related: [] }
+  const weight = new Map(own.map((t) => [t, Math.log(total / (df.get(t) ?? total))]))
+  const linked = new Set([path, ...backlinks.map((n) => n.path), ...outgoing.map((n) => n.path)])
+  // Related by shared tag, excluding pages already linked either way - the tag axis surfaces
+  // neighbours the wikilinks do not. Ranked by summed IDF so the closest win, not the
+  // alphabetically first, and capped so the panel stays a summary.
+  const related = graph.nodes
+    .filter((n) => !linked.has(n.path) && visible(n))
+    .map((n) => {
+      let score = 0
+      for (const t of new Set(n.tags)) score += weight.get(t) ?? 0
+      return { node: n, score }
+    })
+    .filter((c) => c.score > 0)
+    .sort((a, b) => b.score - a.score || byTitle(a.node, b.node))
+    .slice(0, 6)
+    .map((c) => c.node)
+  return { backlinks, outgoing, related }
+}
+
 function LinkSection({
   title,
   list,
@@ -3447,22 +3446,14 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
   }, [graph])
 
   const nodeIndex = useMemo(() => graph.nodes.findIndex((n) => n.path === path), [graph, path])
-  /** Which of the two link lists the sidebar shows; the toggle above it switches them. */
-  const [side, setSide] = useState<'backlinks' | 'outgoing'>('backlinks')
-  const backlinks = useMemo(() => {
-    if (nodeIndex < 0) return []
-    return graph.edges
-      .filter(([, to]) => to === nodeIndex)
-      .map(([from]) => graph.nodes[from]!)
-      .sort((a, b) => a.title.localeCompare(b.title))
-  }, [graph, nodeIndex])
-  const outgoing = useMemo(() => {
-    if (nodeIndex < 0) return []
-    return graph.edges
-      .filter(([from]) => from === nodeIndex)
-      .map(([, to]) => graph.nodes[to]!)
-      .sort((a, b) => a.title.localeCompare(b.title))
-  }, [graph, nodeIndex])
+  /*
+   * What is around this page, computed exactly as the graph's explorer computes it - one
+   * function, so "what counts as related" cannot drift between the two panels that show it.
+   * The overlays come from the graph's own memory: this view is a step out of that picture,
+   * and the lists should say what the picture behind them says.
+   */
+  const inLandmarks = viewMemory.landmarks !== null
+  const links = useMemo(() => pageLinks(graph, path, viewMemory.showSystem), [graph, path])
 
   const node = nodeIndex >= 0 ? graph.nodes[nodeIndex] : undefined
   /** Renders one wikilink target as an in-app link, or plain text when it resolves to nothing. */
@@ -3583,14 +3574,14 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
                   <Icon name="copy" /> {copiedPath ? 'Copied' : 'Copy vault path'}
                 </button>
                 <div className="omenu-sep" />
-                {confirmDelete && backlinks.length > 0 && (
+                {confirmDelete && links.backlinks.length > 0 && (
                   <div className="omenu-note" role="note">
-                    {backlinks.length} page{backlinks.length === 1 ? '' : 's'} link here (
-                    {backlinks
+                    {links.backlinks.length} page{links.backlinks.length === 1 ? '' : 's'} link here (
+                    {links.backlinks
                       .slice(0, 3)
                       .map((b) => b.title)
                       .join(', ')}
-                    {backlinks.length > 3 ? ', …' : ''}) - deleting leaves dangling links.
+                    {links.backlinks.length > 3 ? ', …' : ''}) - deleting leaves dangling links.
                   </div>
                 )}
                 <button
@@ -3711,53 +3702,20 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
           {pageQ.data?.mtime && <div className="page-mtime">Last changed {timeAgo(pageQ.data.mtime)}</div>}
         </article>
 
-        <aside className="page-side">
-          {/*
-            One list at a time, chosen by the same pill toggle the rest of the shell uses.
-            Both lists stacked made the column longer than the article on a well-linked page,
-            which is what set the two scrolling against each other; and which of the two you
-            want is a question you answer once, not a thing to scroll past.
+        {/*
+          * The same panel the graph's explorer shows (2026-09-22, user decision): three lists
+          * as equal shares, each scrolling on its own, rather than one list behind a pill
+          * toggle. One shape for "what is around this page", wherever the reader meets it.
+          *
+          * Inside the Landmarks overlay the tag list goes and the two link lists take a half
+          * each: that mode is about how the pages of one domain LINK, and a list of pages that
+          * merely share a word with this one is a different question asked in the same column.
           */}
-          <div className="seg page-side-seg" role="radiogroup" aria-label="Links">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={side === 'backlinks'}
-              className={side === 'backlinks' ? 'active' : ''}
-              onClick={() => setSide('backlinks')}
-            >
-              Backlinks {backlinks.length}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={side === 'outgoing'}
-              className={side === 'outgoing' ? 'active' : ''}
-              onClick={() => setSide('outgoing')}
-            >
-              Outgoing {outgoing.length}
-            </button>
-          </div>
-          <div className="page-side-body">
-            {(side === 'backlinks' ? backlinks : outgoing).length === 0 ? (
-              <p className="dim">{side === 'backlinks' ? 'No page links here.' : 'No outgoing links.'}</p>
-            ) : (
-              <ul className="linklist">
-                {(side === 'backlinks' ? backlinks : outgoing).map((n) => (
-                  <li key={n.path}>
-                    <a
-                      href={pageRoute(n.path)}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        navigate(pageRoute(n.path))
-                      }}
-                    >
-                      {n.title}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            )}
+        <aside className="page-side">
+          <div className="gx-body thirds">
+            <LinkSection title="Backlinks" list={links.backlinks} onSelect={(p) => navigate(pageRoute(p))} />
+            <LinkSection title="Links to" list={links.outgoing} onSelect={(p) => navigate(pageRoute(p))} />
+            {!inLandmarks && <LinkSection title="Related by tag" list={links.related} onSelect={(p) => navigate(pageRoute(p))} />}
           </div>
         </aside>
       </div>
