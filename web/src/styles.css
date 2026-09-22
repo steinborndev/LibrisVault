@@ -3844,11 +3844,18 @@ span.head-slot { display: inline-block; }
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
+/*
+ * The indent lives on the ROW alone (2026-09-22). It used to be here as well, so every title
+ * was set in 32px from each edge instead of 16 - a third of the column in a reading view's
+ * sidebar, spent on nothing, and paid for in wrapped lines and scrolling. The heading takes the
+ * same 16px of its own so the two still line up.
+ */
 .gx-sec {
-  padding: 12px 16px 2px;
+  padding: 12px 0 2px;
 }
 .gx-sec h3 {
   margin: 0 0 6px;
+  padding: 0 16px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -4091,25 +4098,16 @@ span.head-slot { display: inline-block; }
   color: var(--text-faint);
 }
 .page-side {
-  /* No longer sticky: it is a column of the same height as the article and scrolls itself. */
+  /* No longer sticky: it is a column of the same height as the article and scrolls itself.
+     No padding of its own either - it holds the explorer's link panel, whose rows carry their
+     own indent and want the whole width to put a title on one line. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  overflow: hidden;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 12px 14px;
   font-size: 13px;
-}
-.page-side h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-faint);
-  margin: 10px 0 6px;
-}
-.page-side h3:first-child {
-  margin-top: 0;
 }
 
 .dim {
