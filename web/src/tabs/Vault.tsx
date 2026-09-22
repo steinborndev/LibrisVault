@@ -14,7 +14,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { isKnowledgeNode } from '../lib/knowledge.ts'
-import { staleLinks, useStaleLinks } from '../lib/staleLinks.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
 import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, authorityValue, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
@@ -1332,11 +1331,15 @@ function GraphView({
         tagFilter === null
           ? null
           : { name: tagFilter.tag, around: tagFilter.around === null ? null : (graph.nodes.find((n) => n.path === tagFilter.around)?.title ?? null) },
-        // The open neighbourhood, by the page's own title: which landmark the drawing has been
-        // narrowed around, said where the reader is already looking.
-        bloom === null ? null : (graph.nodes.find((n) => n.path === bloom)?.title ?? null),
+        /*
+         * What the drawing has been narrowed to, after the domain: the expanded page by its own
+         * title, or the mode's name where the mode is the answer. The cluster is deliberately
+         * NOT here - it stands in the scope line at the top of the drawing, and a thing said
+         * twice in one screen is a thing the reader has to check against itself.
+         */
+        bloom !== null ? (graph.nodes.find((n) => n.path === bloom)?.title ?? null) : spotlight ? 'Spotlight' : null,
       ),
-    [selectedDomains, wing, wings, tagFilter, graph, bloom],
+    [selectedDomains, wing, wings, tagFilter, graph, bloom, spotlight],
   )
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
@@ -1701,80 +1704,7 @@ function GraphView({
 
   return (
     <div className={`vault-graph${fullscreen ? ' fullscreen' : ''}`} ref={rootRef}>
-      <StaleLinksBanner />
       <div className="workspace graph-workspace">
-        {(clusterFocus !== null || focusNode) && (
-          <div className="ws-bar">
-      {/* The isolated community as its own row (the spotlight-click result), mirroring the
-          focusbar: what is isolated, how big it is, and the one way back. The domain dot and
-          the "· domain" suffix make the cluster ≠ domain distinction visible - one domain
-          usually splits into several communities, and this row names exactly one of them. */}
-      {clusterFocus !== null && (
-        <div className="clusterbar" role="status">
-          {clusterFocus.domain !== null && (
-            <span className="cb-dot" style={{ background: domainColor(clusterFocus.domain) }} aria-hidden />
-          )}
-          <span>Cluster:</span>
-          {/* One crumb per drill-down level; clicking an earlier level pops back to it. */}
-          {clusterStack.map((cf, i) => {
-            const label = cf.label !== '' ? cf.label : 'unlabeled community'
-            const isTop = i === clusterStack.length - 1
-            return (
-              <span key={`${i}-${cf.anchor}`} className="cb-level">
-                {i > 0 && <span className="cb-arrow" aria-hidden>→</span>}
-                {isTop ? (
-                  <strong>{label}</strong>
-                ) : (
-                  <button
-                    className="linkish"
-                    onClick={() => setClusterStack((prev) => prev.slice(0, i + 1))}
-                    title={`Back to this level (${cf.paths.size} pages)`}
-                  >
-                    {label}
-                  </button>
-                )}
-              </span>
-            )
-          })}
-          <span className="cb-meta">
-            {clusterFocus.paths.size} pages
-            {clusterFocus.domain !== null ? ` · ${clusterFocus.domain}` : ''}
-          </span>
-          <button
-            className="btn ghost cb-exit"
-            onClick={() => setClusterStack([])}
-            title="Back to the full graph (Esc backs out one level at a time)"
-          >
-            <Icon name="x" /> Full graph
-          </button>
-        </div>
-      )}
-
-      {/* Focus mode as its own row: the neighborhood depth is ONE state, so it reads as one
-          segmented control (1 · 2 · whole graph), not four loose chips. */}
-      {focusNode && (
-        <div className="focusbar">
-          <span>
-            Focus: <strong>{focusNode.title}</strong>
-          </span>
-          <span className="seg" role="group" aria-label="Neighborhood depth">
-            {([1, 2] as const).map((d) => (
-              <button key={d} className={localDepth === d ? 'active' : ''} onClick={() => setLocalDepth(d)}>
-                Depth {d}
-              </button>
-            ))}
-            <button className={localDepth === 0 ? 'active' : ''} onClick={() => setLocalDepth(0)}>
-              Whole graph
-            </button>
-          </span>
-          <button className="btn ghost" onClick={() => navigate('/graph')} title="Clear focus">
-            <Icon name="x" /> Clear
-          </button>
-        </div>
-      )}
-
-          </div>
-        )}
         <GraphPanel
           lens={lens}
           onLens={setLens}
@@ -1804,6 +1734,9 @@ function GraphView({
           onLandmarks={toggleLandmarks}
           landmarkReason={landmarkAvail.available ? null : landmarkAvail.reason}
           landmarkWhy={landmarkAvail.available ? null : landmarkAvail.why}
+          focusTitle={focusNode?.title ?? null}
+          localDepth={localDepth}
+          onDepth={setLocalDepth}
           showSystem={showSystem}
           onSystem={toggleSystem}
           systemCount={systemCount}
@@ -1953,6 +1886,62 @@ function GraphView({
           onClear={() => setSelection(null)}
           overlay={
             <>
+              {/*
+                * Where you are, at the top of the DRAWING (2026-09-22, user decision). It used
+                * to be one or two boxes above the workspace, which pushed the panel and the
+                * canvas down by 60px apiece - and did it at the moment a reader had just
+                * drilled in, so the picture lost height exactly when it was carrying the most.
+                * Text, centred, no frame of its own: the state belongs to the drawing, and a
+                * container around it would be the box again in a smaller size.
+                */}
+              {(clusterStack.length > 0 || focusNode !== undefined) && (
+                <div className="graph-scope" role="status">
+                  {focusNode !== undefined && (
+                    <span className="gs-part">
+                      Focus: <strong>{focusNode.title}</strong>
+                      <button className="gs-exit" onClick={() => navigate('/graph')} title="Clear the focus">
+                        <Icon name="x" />
+                      </button>
+                    </span>
+                  )}
+                  {clusterStack.length > 0 && (
+                    <span className="gs-part">
+                      Cluster:{' '}
+                      {clusterStack.map((cf, i) => {
+                        const label = cf.label !== '' ? cf.label : 'unlabeled community'
+                        const isTop = i === clusterStack.length - 1
+                        return (
+                          <span key={`${i}-${cf.anchor}`} className="gs-level">
+                            {i > 0 && (
+                              <span className="gs-arrow" aria-hidden>
+                                →
+                              </span>
+                            )}
+                            {isTop ? (
+                              <strong>{label}</strong>
+                            ) : (
+                              <button
+                                className="linkish"
+                                onClick={() => setClusterStack((prev) => prev.slice(0, i + 1))}
+                                title={`Back to this level (${cf.paths.size} pages)`}
+                              >
+                                {label}
+                              </button>
+                            )}
+                          </span>
+                        )
+                      })}
+                      <button
+                        className="gs-exit"
+                        onClick={() => setClusterStack([])}
+                        title="Back to the full graph (Esc backs out one level at a time)"
+                      >
+                        <Icon name="x" />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              )}
               {query.trim() !== '' && realCount === 0 && (
                 <div className="graph-empty" role="status">
                   No pages match “{query.trim()}”.
@@ -2690,6 +2679,9 @@ function GraphPanel({
   onLandmarks,
   landmarkReason,
   landmarkWhy,
+  focusTitle,
+  localDepth,
+  onDepth,
   showSystem,
   onSystem,
   systemCount,
@@ -2731,6 +2723,10 @@ function GraphPanel({
   landmarkReason: string | null
   /** The same in a sentence, for the row's tooltip. */
   landmarkWhy: string | null
+  /** The focused page, when the view is around one - the depth control belongs to it. */
+  focusTitle: string | null
+  localDepth: 0 | 1 | 2
+  onDepth: (d: 0 | 1 | 2) => void
   showSystem: boolean
   onSystem: () => void
   systemCount: number
@@ -2881,6 +2877,33 @@ function GraphPanel({
           </div>
         </Fold>
       </div>
+
+      {/*
+        * The focus depth, where the controls live (2026-09-22). It used to sit in a bar above
+        * the workspace, which is the one thing on this screen that pushed the drawing down -
+        * and the depth is a setting, not a statement about where you are. Which page the view
+        * is around IS a statement, and it stands in the scope line at the top of the drawing.
+        */}
+      {focusTitle !== null && (
+        <div className="gp-sec">
+          <div className="gp-head">
+            <span className="gp-eyebrow">Focus</span>
+          </div>
+          <div className="gp-focus" title={focusTitle}>
+            {focusTitle}
+          </div>
+          <div className="seg" role="group" aria-label="Neighbourhood depth">
+            {([1, 2] as const).map((d) => (
+              <button key={d} className={localDepth === d ? 'active' : ''} onClick={() => onDepth(d)}>
+                Depth {d}
+              </button>
+            ))}
+            <button className={localDepth === 0 ? 'active' : ''} onClick={() => onDepth(0)}>
+              Whole graph
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="gp-sec">
         <div className="gp-head">
@@ -3283,9 +3306,7 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
 
   const del = useMutation({
     mutationFn: () => api.deletePage(path),
-    onSuccess: (res) => {
-      // Feed the lint-guidance banner: these backlinks just went dangling.
-      staleLinks.add(res.staleLinks, pageQ.data?.title ?? path)
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['graph'] })
       void qc.invalidateQueries({ queryKey: ['stats'] })
       navigate('/graph')
@@ -3565,11 +3586,10 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
         )}
       </div>
 
-      <StaleLinksBanner />
       {del.isError && <div className="toast err">Delete failed: {(del.error as Error).message}</div>}
 
       {saveFindings.length > 0 && (
-        <div className="stale-banner" role="status">
+        <div className="page-findings" role="status">
           <Icon name="graph" />
           <span>
             Saved, but the page checks found {saveFindings.length} issue{saveFindings.length === 1 ? '' : 's'}:{' '}
@@ -3749,97 +3769,3 @@ function EditorPreview({
   )
 }
 
-/**
- * Banner shown after manual deletions: N backlinks now point at nothing. Primary action is
- * the bounded reference-cleanup agent run (maintenance kind `cleanup`) - one click instead
- * of leaving the dangling references to be discovered weeks later by a lint. The banner
- * tracks the run inline (poll every 2 s) so the user never has to leave the tab.
- */
-function StaleLinksBanner(): React.ReactElement | null {
-  const state = useStaleLinks()
-  const qc = useQueryClient()
-  const [runId, setRunId] = useState<string | null>(null)
-  const start = useMutation({
-    mutationFn: () => api.cleanupReferences(state.pages),
-    onSuccess: (run) => setRunId(run.id),
-  })
-  const runQ = useQuery({
-    queryKey: ['maintenance-run', runId],
-    queryFn: () => api.maintenanceRun(runId!),
-    enabled: runId !== null,
-    refetchInterval: (q) => (q.state.data && q.state.data.status !== 'running' ? false : 2000),
-  })
-  const run = runQ.data
-  const settled = run !== undefined && run.status !== 'running'
-  useEffect(() => {
-    if (run?.status === 'done') {
-      // The run edited pages and committed - refresh everything derived from the vault.
-      void qc.invalidateQueries({ queryKey: ['graph'] })
-      void qc.invalidateQueries({ queryKey: ['stats'] })
-    }
-  }, [run?.status, qc])
-
-  if (state.count === 0) return null
-  const dismiss = (): void => {
-    staleLinks.clear()
-    setRunId(null)
-    start.reset()
-  }
-  const pages = state.pages.join(', ')
-
-  let body: React.ReactElement
-  if (runId !== null && !settled) {
-    body = (
-      <span>
-        Reference cleanup is running - removing dangling links to <strong>{pages}</strong>…
-      </span>
-    )
-  } else if (run?.status === 'done') {
-    const touched = run.result?.pages.length ?? 0
-    body = (
-      <span>
-        Reference cleanup finished: {touched} page{touched === 1 ? '' : 's'} updated (one revertable commit).
-      </span>
-    )
-  } else if (run?.status === 'error' || start.isError) {
-    body = (
-      <span>
-        Reference cleanup failed: {run?.error ?? (start.error as Error | undefined)?.message ?? 'unknown error'}
-      </span>
-    )
-  } else {
-    body = (
-      <span>
-        Deleting <strong>{pages}</strong> left <strong>{state.count}</strong> link
-        {state.count === 1 ? '' : 's'} dangling.
-      </span>
-    )
-  }
-
-  return (
-    <div className="stale-banner" role="status">
-      <Icon name="graph" />
-      {body}
-      <span className="spacer" />
-      {runId === null && state.pages.length > 0 && (
-        <button className="btn primary" onClick={() => start.mutate()} disabled={start.isPending}>
-          {start.isPending ? 'Starting…' : 'Clean up references'}
-        </button>
-      )}
-      {run?.status === 'error' && (
-        <button className="btn" onClick={() => { setRunId(null); start.reset() }}>
-          Retry
-        </button>
-      )}
-      <button
-        className="btn ghost"
-        onClick={dismiss}
-        disabled={runId !== null && !settled}
-        title="Dismiss"
-        aria-label="Dismiss banner"
-      >
-        <Icon name="x" />
-      </button>
-    </div>
-  )
-}

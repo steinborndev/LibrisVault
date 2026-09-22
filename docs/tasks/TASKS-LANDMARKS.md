@@ -119,7 +119,11 @@ the reader to find twelve new dots in a field of forty:
   other view inside a frame drawn around one page are a second picture the reader has to look
   past, and a dimmed label is still a label;
 - the HEADING names it after the domain, in the form `<domain> - <the page>`, because the
-  middle of the bar is where a reader looks to find out what they are looking at.
+  middle of the bar is where a reader looks to find out what they are looking at. That slot has
+  since become the screen's general answer to "what am I looking at" (2026-09-22): Spotlight
+  puts its own name there, and a cluster drill-down puts nothing there at all, because it
+  stands in the scope line at the top of the drawing and a thing said twice is a thing the
+  reader has to check against itself.
 
 All three come back on one press of Escape, which is why that press had to become the FIRST rung
 rather than the fourth: it was behind the trail, and walking two landmarks builds one, so the
