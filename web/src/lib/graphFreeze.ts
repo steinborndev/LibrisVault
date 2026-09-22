@@ -1,7 +1,13 @@
 /**
- * The graph's lock (2026-09-17): the picture on screen, held as a snapshot of everything that
- * decides which nodes are drawn and how - the filters, the room, the focus and its depth, the
- * gaps and the system pages, the search, a tag, the drill-down, the lens and the overlays.
+ * The graph's lock (2026-09-17): the picture on screen, held - the filters, the room, the focus
+ * and its depth, the gaps and the system pages, the search, a tag, the drill-down, the lens and
+ * the overlays.
+ *
+ * What it HOLDS is which nodes are drawn and where they sit, so an excursion - another domain,
+ * a search, a page read and come back from - returns to exactly them. What it FOLLOWS, since
+ * 2026-09-22, is the switches that say how that same set is coloured: a lens, an overlay, the
+ * gaps and the system pages. A reader who turns one off after locking is changing the held
+ * picture rather than leaving it, and the record used to turn it back on at the next return.
  *
  * The screen keeps the record in sessionStorage: a reload keeps the picture, closing the
  * browser tab lets it go, because it is a bookmark for one sitting and not a preference. This

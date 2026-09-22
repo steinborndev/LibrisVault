@@ -324,6 +324,15 @@ on this screen", and under the lock that is what anywhere else does. A bloom tha
 the lock closed stays open and stays painted: closing it would be the lock altering the very
 picture it claims to hold.
 
+**What the lock holds, and what it follows** (corrected 2026-09-22, user report). It holds
+which nodes are drawn and where they sit: the filters, the room, the drill-down, the focus, the
+search and the tag stay as they were, and the next Escape returns to them from any excursion.
+It FOLLOWS the switches that say how that same set is coloured - the lens and the four overlays,
+the gaps and the system pages - because a reader who turns one off after locking is changing the
+held picture rather than leaving it. Reported as: lock a drilled-in cluster, turn Spotlight off,
+read an article, come back, and Spotlight is on again. This mode rides along: switched off under
+a closed lock, it stays off.
+
 A click in the LIST opens the page too, rather than replacing the column with the page detail.
 Unlocked, the detail and its way back are browsing; locked, leaving for the page and returning
 to the held picture is a reading pass, and one rule then governs the canvas and the list alike.

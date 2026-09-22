@@ -1468,6 +1468,40 @@ function GraphView({
     setFrozen(snapshotFreeze())
   }
 
+  /*
+   * A held picture follows the switches that say HOW it is drawn (2026-09-22).
+   *
+   * The record is a snapshot, so a switch turned off after the lock closed was turned back on
+   * by the next return to it - the reader had changed the picture and the lock undid the
+   * change, which is not what holding it means. Reported as: lock a drilled-in cluster, turn
+   * Spotlight off, read an article, come back, and Spotlight is on again.
+   *
+   * The line is what the lock is FOR. It holds which nodes are drawn and where they sit, so
+   * the filters, the room, the drill-down, the focus, the search and the tag stay exactly as
+   * they were and the next Escape returns from any excursion to them. How that same set is
+   * coloured is a preference, it persists across sessions in its own right, and a reader who
+   * changes one is changing the held picture rather than leaving it.
+   *
+   * The mode's exclusions are re-imposed here rather than trusted: the effect that enforces
+   * them lands one render later, and a record written in between is one the parser would drop
+   * whole on the way back.
+   */
+  useEffect(() => {
+    if (frozen === null) return
+    const held =
+      landmarkData === null || spotlight || query.trim() !== '' || clusterStack.length > 0 || localDepth > 0
+        ? null
+        : {
+            domain: landmarkData.domain,
+            order: [...landmarkData.order],
+            chapters: [...landmarkData.chapters],
+            connectors: [...landmarkData.connectors],
+            bloom,
+          }
+    const next: GraphFreeze = { ...frozen, lens, showClusters, showNetwork, spotlight, showSystem, showGaps, landmarks: held }
+    if (serializeGraphFreeze(next) !== serializeGraphFreeze(frozen)) setFrozen(next)
+  }, [frozen, lens, showClusters, showNetwork, spotlight, showSystem, showGaps, landmarkData, bloom, query, clusterStack, localDepth])
+
   // ---- keyboard layer. Window-level (the canvas isn't focusable), via the same stable-
   // listener ref pattern the canvas uses for wheel/zoom keys; gated on this view being the
   // VISIBLE tab - tabs stay mounted but hidden (App.tsx), and hidden = no offsetParent.
