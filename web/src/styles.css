@@ -3354,6 +3354,24 @@ span.head-slot { display: inline-block; }
   font-size: 11px;
   color: var(--text-faint);
 }
+/* The heading of the reading order. Quiet: it names the measure once, and the rows are what
+   the reader is here for. It STAYS while the rows move under it - forty entries scroll, and a
+   heading that leaves with them takes the answer to "by what?" with it. */
+.lm-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  /* The canvas bar's own metrics - 7px of padding around a 26px row - so this rule and the one
+     under the bar beside it land on the same line instead of a few pixels apart. Built from the
+     parts rather than from a height, which `border-box` would have swallowed the padding into. */
+  padding: 7px 16px;
+  line-height: 26px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 11px;
+  color: var(--text-faint);
+}
 .bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }
 /* A hollow ring where no one colour applies: several domains, a wing, the whole vault. */
 .bar-mid .mid-dot.none { background: transparent; border: 1.5px solid var(--text-faint); }

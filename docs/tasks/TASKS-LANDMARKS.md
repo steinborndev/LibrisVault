@@ -173,6 +173,11 @@ the mode goes off, the bloom with it, and the list is gone. Not latent, not reme
 already turns three other modes off when it comes on, so it must not be the one that lives on
 invisibly; and the way back is one press of a switch standing where it was.
 
+**The list names its measure** (added 2026-09-22, user wording). "key articles by backlink
+count", at the head of the reading order, staying put while the rows scroll under it - forty
+entries move, and a heading that left with them would take the answer to "by what?" with it.
+Its rule lines up with the one under the canvas bar beside it, so the two boxes read as one row.
+
 **No trail** (added 2026-09-22, user decision). The breadcrumb along the bottom of the drawing
 is not drawn in this mode, and not kept either: the list IS where the reader stands, a second
 line of crumbs says the same thing worse, and a trail kept out of sight would go on eating an
@@ -258,8 +263,20 @@ keyboard:
   domain's own)
 
 **Against the other modes.** Turning it on turns off Spotlight, the cluster drill-down and the
-local focus: three ways of making the graph smaller is two too many at once. Areas and Bridges
-stay allowed, because they colour rather than reduce. A search leaves the mode.
+local focus: three ways of making the graph smaller is two too many at once.
+
+**Areas goes with them** (corrected 2026-09-22, user report; it was allowed here on the ground
+that it colours rather than reduces). A hull does not colour - it asserts an AREA, the area of
+a community - and this overlay draws about a tenth of each one. Measured over the largest
+domain: of the fourteen communities its 535 pages fall into, six have three or more painted
+members and so would be drawn at all, and those six hold 8 to 14 per cent of their community.
+A convex hull over nine of eighty-seven points, placed by a layout that knew all eighty-seven,
+is a figure over a handful of scattered points that swallows whatever else lies between them -
+which is what it looked like. The switch is disabled while the mode is on and says why.
+
+Bridges stays, because it does colour: it tints the links it is handed by the communities they
+join, and a link between two landmarks of different communities is a true statement about those
+two landmarks whether or not the rest of either community is drawn. A search leaves the mode.
 
 **The lock.** The picture on screen, held (`graphFreeze.ts`, 2026-09-17). The two mechanisms
 collide before they combine: while the lock is closed the right-hand column is not rendered at

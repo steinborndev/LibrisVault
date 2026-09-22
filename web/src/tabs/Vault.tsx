@@ -768,6 +768,19 @@ function GraphView({
    * is not politeness: `graphFreeze` makes the exclusion a parse invariant, so a picture holding
    * both would be written and then refused on the way back.
    */
+  /*
+   * Areas cannot say anything true here, so it goes off and stays off - by a rule rather than by
+   * the switch alone, which is what covers a restored lock and a restored preference. A hull is
+   * the AREA of a community, and the mask draws about a tenth of each one: measured over the
+   * largest domain, the six hulls that would be drawn hold 8 to 14 per cent of their community,
+   * so each is a figure over a handful of scattered points that swallows whatever else lies
+   * between them. Bridges is untouched, because it colours the links it is given and a link
+   * between two landmarks of different communities is a true statement about them.
+   */
+  useEffect(() => {
+    if (landmarkDomain !== null && showClusters) setShowClusters(false)
+  }, [landmarkDomain, showClusters])
+
   useEffect(() => {
     if (landmarkDomain === null) return
     const lost = !landmarkAvail.available || landmarkAvail.domain !== landmarkDomain
@@ -1276,6 +1289,7 @@ function GraphView({
    */
   const toggleLandmarks = (): void => {
     showBloom(null)
+    setShowClusters(false)
     // No trail in this mode, so none is left behind when it comes on.
     setTrail([])
     if (landmarkDomain !== null) {
@@ -2163,6 +2177,9 @@ function LandmarkList({
 
   return (
     <aside className="graph-explorer landmarks" role="complementary" aria-label="Landmarks, in reading order">
+      {/* What the list is a list OF, said once at its head: the order is a ranking, and a
+          ranking that does not name its measure is a list of assertions. */}
+      <p className="lm-title">key articles by backlink count</p>
       <ol className="lm-list">
         {set.order.map((path, i) => {
           const chapter = starts.get(i)
@@ -2802,8 +2819,13 @@ function GraphPanel({
             on={showClusters}
             onToggle={onClusters}
             name="Areas"
-            desc="tinted hull per community"
-            title="Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together."
+            desc={landmarks ? 'a hull needs its whole community' : 'tinted hull per community'}
+            disabled={landmarks}
+            title={
+              landmarks
+                ? 'Not while Landmarks is on: a hull is the area of a community, and this overlay draws about a tenth of each one - the shape would be a figure over a handful of scattered points.'
+                : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together.'
+            }
           />
           <RowToggle
             on={showNetwork}
