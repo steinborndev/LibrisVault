@@ -117,9 +117,11 @@ the reader to find twelve new dots in a field of forty:
 - the PICTURE is that neighbourhood and nothing else (corrected 2026-09-22, user decision, was
   half-transparent): every other landmark and connector is off the drawing. Remains of the
   other view inside a frame drawn around one page are a second picture the reader has to look
-  past, and a dimmed label is still a label. The selected page stands in a ring of LIGHT - the
-  Library's own rim, a bright edge under a soft one - because a hairline reads as one more
-  circle among forty of the same colour;
+  past, and a dimmed label is still a label. The selected page wears the LIBRARY'S RIM - its
+  warm light at its own 1.6px, the same edge the room puts along whatever is being pointed at -
+  because an accent ring is blue on a blue-black canvas and reads as one more circle among
+  forty of the same colour. A darker halo goes under it for the light theme, where a warm white
+  edge would otherwise vanish, which is what the label pass already does for text;
 - the HEADING names it after the domain, in the form `<domain> - <the page>`, because the
   middle of the bar is where a reader looks to find out what they are looking at. That slot has
   since become the screen's general answer to "what am I looking at" (2026-09-22): Spotlight

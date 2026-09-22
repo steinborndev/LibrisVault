@@ -408,6 +408,16 @@ function painted(mask: LandmarkMask | null, i: number): boolean {
   return mask.landmarks.has(i) || mask.connectors.has(i)
 }
 
+/**
+ * The Library's rim, as the room draws it: `#fff4e2` at 1.6 wide, along the edge of whatever is
+ * being pointed at (`bc-rim` in RoomSvg). The graph borrows both, so one gesture looks the same
+ * in both places.
+ */
+const RIM_LIGHT = '#fff4e2'
+const RIM_WIDTH = 1.6
+/** How far outside the node's own edge the rim sits, in screen pixels. */
+const RIM_OUT = 3
+
 const LANDMARK_R = 10
 const BLOOM_R = 6.5
 const CONNECTOR_R = 4.5
@@ -1124,26 +1134,27 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.fill()
       }
       /*
-       * The selected node, inside the mode, is ringed in LIGHT (2026-09-22, user decision): the
-       * Library's rim - a bright edge along the thing being pointed at - rather than the
-       * hairline that reads as one more circle among forty of the same colour. Two strokes, a
-       * wide faint one under a narrow bright one, which is a glow without a shadow blur: blur
-       * is in device pixels and would thicken as the mode zooms in on a neighbourhood.
+       * The selected node, inside the mode, wears the LIBRARY'S RIM (2026-09-22, user decision):
+       * the same warm light and the same 1.6px edge the room puts along the thing being pointed
+       * at. An accent ring was the obvious choice and the wrong one - blue on a blue-black
+       * canvas is one more circle among forty of the same colour, which is what it looked like.
+       *
+       * A darker halo goes under it, one stroke wider. On this canvas the background can be
+       * near-white, where a warm white edge would vanish; the halo is what the label pass
+       * already does for text, for the same reason.
        */
       if (mask !== null && i === selectedIndex) {
-        const [gr, gg, gb] = parseRgb(cssVar('--accent', '#5b8def')) ?? [91, 141, 239]
         ctx.globalAlpha = nodeRev
-        for (const [width, alpha, out] of [
-          [7, 0.16, 4],
-          [4, 0.3, 3],
-          [1.8, 0.95, 2.5],
-        ] as const) {
-          ctx.strokeStyle = `rgba(${gr}, ${gg}, ${gb}, ${alpha})`
-          ctx.lineWidth = width / t.k
-          ctx.beginPath()
-          ctx.arc(x, y, r + out / t.k, 0, Math.PI * 2)
-          ctx.stroke()
-        }
+        ctx.strokeStyle = mixColor(cssVar('--bg', '#0d1117'), cssVar('--text', '#fff'), darkSurface ? 0.1 : 0.55)
+        ctx.lineWidth = 3.4 / t.k
+        ctx.beginPath()
+        ctx.arc(x, y, r + RIM_OUT / t.k, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.strokeStyle = RIM_LIGHT
+        ctx.lineWidth = RIM_WIDTH / t.k
+        ctx.beginPath()
+        ctx.arc(x, y, r + RIM_OUT / t.k, 0, Math.PI * 2)
+        ctx.stroke()
       } else if (i === focusIndex || i === selectedIndex || matches.has(i)) {
         ctx.globalAlpha = nodeRev
         ctx.strokeStyle = i === selectedIndex ? cssVar('--accent', '#5b8def') : cssVar('--text', '#fff')
