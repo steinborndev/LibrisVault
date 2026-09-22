@@ -1270,13 +1270,20 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       setOffMap(lost)
     }
     const mini = miniRef.current
+    if (mini === null) return
     /*
-     * The overview shows what is painted; its BOUNDS stay the whole layout's, because that is
-     * what the camera relates to and the mask moves no camera. So the frame keeps meaning what
-     * it meant and the dots inside it are the picture.
+     * No overview in the Landmarks mode. It is a map of where the picture sits inside the whole
+     * layout, and this mode frames what it paints - so the frame is always around the dots, the
+     * map always says "you are here, on all of it", and there is nothing left for it to help
+     * anybody navigate to. Its bounds are the layout's, so shrinking it to the painted set
+     * would be a second, differently-scaled picture rather than an answer.
      */
-    if (mini) drawMinimap(mini, t, vp, pos, dpr, isPainted)
-  }, [positionsRef, transformRef, isPainted])
+    if (maskRef.current !== null) {
+      if (!mini.hidden) mini.hidden = true
+      return
+    }
+    drawMinimap(mini, t, vp, pos, dpr, isPainted)
+  }, [positionsRef, transformRef, isPainted, maskRef])
   const scheduleDraw = useRafDraw(() => {
     draw()
     overlayPass()

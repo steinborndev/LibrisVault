@@ -875,7 +875,7 @@ function GraphView({
   // of the focused page. Indices are remapped so the canvas gets a dense, self-contained
   // graph - that is also what keeps the force layout small in local mode on a huge vault.
   // When the gaps view is on, the unresolved targets are appended as synthetic ghost nodes.
-  const { nodes, edges, focusIndex, ghostIndices, realCount, matches, typeCounts } = useMemo(() => {
+  const { nodes, edges, focusIndex, ghostIndices, realCount, matches, counted } = useMemo(() => {
     /*
      * Two masks through one pipeline (2026-09-16). `keep` is what gets drawn. `pool` is the
      * same set MINUS the type filter, and it is what the type chips count: a section that
@@ -1058,13 +1058,7 @@ function GraphView({
     // What the type chips show: the drawn set counted by type, with the type filter itself
     // left out of it. A type the other filters leave nothing of reads 0 rather than vanishing -
     // six chips are a shelf you learn the position of, unlike the domain rows below them.
-    const typeCounts = new Map<string, number>()
-    const counted = pool ?? keep
-    graph.nodes.forEach((n, i) => {
-      if (counted[i]) typeCounts.set(n.type, (typeCounts.get(n.type) ?? 0) + 1)
-    })
-
-    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, typeCounts }
+    return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, counted: pool ?? keep }
   }, [graph, selectedTypes, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
 
   /**
@@ -1141,6 +1135,38 @@ function GraphView({
     }
   }, [landmarkData, nodes, bloom])
   const landmarkMask = landmarkView?.mask ?? null
+
+  /**
+   * What the type chips show: the view counted by type, with the type filter itself left out of
+   * it, so a chip always answers "of what the OTHER filters leave, this many are of that type".
+   * A type the rest of the view holds nothing of reads 0 rather than vanishing - six chips are
+   * a shelf you learn the position of.
+   *
+   * With the Landmarks mask on they count what is PAINTED (2026-09-22): the landmarks and their
+   * connectors, or one neighbourhood while one is open. The paths come from the set rather than
+   * from the drawing, because the drawing has already been through the type filter and counting
+   * there would make every other chip read 0 - the exact trap the pool above exists to avoid.
+   */
+  const typeCounts = useMemo(() => {
+    const out = new Map<string, number>()
+    const at = new Map<string, number>()
+    graph.nodes.forEach((n, i) => at.set(n.path, i))
+    const bump = (i: number | undefined): void => {
+      if (i === undefined || !counted[i]) return
+      const t = graph.nodes[i]!.type
+      out.set(t, (out.get(t) ?? 0) + 1)
+    }
+    if (landmarkData === null) {
+      graph.nodes.forEach((_, i) => bump(i))
+      return out
+    }
+    const paths =
+      bloom === null
+        ? [...landmarkData.order, ...landmarkData.connectors]
+        : [bloom, ...(landmarkData.neighbours.get(bloom) ?? [])]
+    for (const p of paths) bump(at.get(p))
+    return out
+  }, [graph, counted, landmarkData, bloom])
 
   /*
    * The backlink range of what is DRAWN, for the authority legend. A gradient labelled "few to
@@ -2765,7 +2791,7 @@ function GraphPanel({
             on={landmarks}
             onToggle={onLandmarks}
             name="Landmarks"
-            desc={landmarkReason ?? 'key articles of the selected domain'}
+            desc={landmarkReason ?? 'key articles of the domain'}
             disabled={landmarkReason !== null}
             title={
               landmarkReason ??
@@ -2783,7 +2809,7 @@ function GraphPanel({
             on={showNetwork}
             onToggle={onNetwork}
             name="Bridges"
-            desc="brighten links between communities"
+            desc="highlight community links"
             title="Brighten the connections. Intra-community links lift into view; cross-community bridges show link direction as a colour gradient with an arrowhead."
           />
           <RowToggle
