@@ -25,7 +25,7 @@ throwaway; the numbers are the record.
 | Pages needed to join the chapters, under the rule "The islands" states | biomedicine 2, cooking 1, materials-science 1, battery-technology 1, the rest 0; finance stays in two pieces | Connectors are worth drawing and there are very few of them; where they do not help, that is a finding |
 | Chapter shape of the set, per eligible domain | biomedicine 36 + 3 + 1, cooking 3 + 7, finance 7 + 2, materials-science 4 + 2 + 2, battery-technology 7 + 1, the other five one chapter | Chapters are a mid-size phenomenon, half the eligible domains simply get a list, and the first chapter is not always the biggest |
 | Spine plus one hop, globally | 423 of 535 pages | A global "+1 hop" step is not a step, it is almost everything; expansion has to be per node |
-| Neighbours of a landmark, inside the domain against over the whole vault | biomedicine median 22, p90 39, max 129 inside; 26, 47, 136 over the vault; all 40 above the cap of 12 either way | A bloom needs a cap, or one click undoes the mode - and the cap is the ordinary case, not an edge |
+| Neighbours of a landmark, inside the domain against over the whole vault | biomedicine median 22, p90 39, max 129 inside; 26, 47, 136 over the vault; all 40 above the cap of 12 either way | A bloom needs a cap, or one click undoes the mode - **overtaken 2026-09-22**: the click re-frames onto the neighbourhood, so there is no cap and these are the sizes of the views it opens |
 | Domains with 25 or more knowledge pages | 10 of 22 | The switch is unavailable in more than half the vault, which is what its reason text has to carry |
 | In-degree counted inside the domain vs over the whole vault | biomedicine 38/40 identical, but small domains gain YouTube channels and, in machine-learning, an entity with 0 links inside the domain and 13 outside | Authority is counted inside the domain |
 | Rank order vs a connected walk | 5 of 40 entries unconnected to anything read so far, against 2 of 40 | The list follows the walk |
@@ -93,27 +93,19 @@ the domain rather than of the drawing: finance's two chapters are joined by no p
 domain, however long the loop runs.
 
 **Expansion.** A click on a landmark shows its neighbours inside the domain, ordered by
-domain-internal backlinks with the same tie-break as the list, and paints the first 12 that are
-not already on screen. Inside the domain is not a choice but the reach the screen has: the
-domain filter is a real filter upstream of this mask, so a page of another domain is not in the
-drawing at all and cannot be revealed by brightening it. The cap is the ordinary case and not an
-edge - every one of biomedicine's 40 landmarks has more than 12 neighbours in its own domain,
-median 22 - which is why the rest of them needs a handle rather than a footnote.
+domain-internal backlinks with the same tie-break as the list. All of them, and the camera goes
+round them. Inside the domain is not a choice but the reach the screen has: the domain filter is
+a real filter upstream of this mask, so a page of another domain is not in the drawing at all
+and cannot be revealed by brightening it.
 
-**The cap is on what the bloom ADDS** (corrected 2026-09-22, finding 1 below). Taken off the top
-of the whole neighbour list it would be spent on pages that are already painted: the landmarks
-are the highest-ranked pages of the domain, so they crowd the front of every neighbour list -
-5.1 of a biomedicine landmark's top twelve on average, and all twelve of them on the entry
-standing at the top of the list, whose click would then change nothing on screen. Skipping what
-is already out is what makes the cap bound the growth of the picture, which is the thing it was
-asked to do.
-
-That handle is a line in the list, not a control on the canvas: the bloomed landmark's entry
-reads "17 of 22 shown, show all" - how much of this page's neighbourhood is on screen against
-the whole of it, so the five that were already landmarks are counted where the reader sees them
-- and pressing it lifts the cap for that one bloom. The canvas has no vocabulary for a control
-and would need a widget, a hit target and a place to put them; the list is already the mode's
-text surface, and "17 of 22" is a number, which is the kind of thing the list exists to say.
+**No cap, because the click RE-FRAMES** (corrected 2026-09-22, user decision; it was 12, then
+12 of what the bloom adds, and the reasoning for both is in finding 1 below). The cap existed so
+one click could not undo the mode by putting a page's whole neighbourhood back into a domain
+with forty landmarks in it. The click no longer does that: it frames the picture onto the
+neighbourhood, so what it puts up is a VIEW OF ONE PAGE rather than a domain with a crowd in the
+middle of it. Against that, a cap only withholds part of an answer the reader has just asked for
+in full, and the handle line that offered the rest - "17 of 22 shown, show all" - is a step
+between the question and the answer with nothing left to justify it. Both are gone.
 
 **An open neighbourhood takes the screen** (added 2026-09-22, user decision). While one is
 open it is what the screen is about, and the three surfaces say so together rather than leaving
@@ -132,11 +124,23 @@ All three come back on one press of Escape, which is why that press had to becom
 rather than the fourth: it was behind the trail, and walking two landmarks builds one, so the
 press meant to close the expansion silently dropped the crumbs and left the picture as it was.
 
-A second click on the landmark drops the bloom, lifted cap and all: one neighbourhood at a
+**What the camera frames** (added 2026-09-22, user decision). The mode frames what it paints:
+the landmarks when it comes on, one neighbourhood while one is open, the landmarks again when
+Escape closes it, and the whole domain when the mode goes off. One rule rather than four cases,
+and it is what makes an uncapped expansion readable - a hundred neighbours framed is a picture
+of a page, where a hundred neighbours inside the domain's own extent is a crowd.
+
+This moves the CAMERA and nothing else, which is the line **Positions** draws: the node list,
+the edge list and the grouping are untouched, so no layout is posted and no node changes place
+in the world. Measured over a switch, an expansion, an Escape and a switch back: the layout
+worker was asked for nothing and answered nothing.
+
+A second click on the landmark drops the bloom: one neighbourhood at a
 time. Only a landmark expands; a click on a connector or on a neighbour that is already out
 selects and opens it exactly as anywhere else on this screen. A bloom adds nothing to the graph the canvas
 lays out - those neighbours were always in it and merely unpainted - so they appear where they
-stand instead of arriving out of a re-settling layout. What a click does while the picture
+stand instead of arriving out of a re-settling layout, and the camera moving to them is a
+different thing from the picture re-settling under them. What a click does while the picture
 is held is under **The lock** below.
 
 **Positions.** Unchanged, and the mechanism is the decision, because the obvious implementation
@@ -168,6 +172,11 @@ the mode goes off, the bloom with it, and the list is gone. Not latent, not reme
 already turns three other modes off when it comes on, so it must not be the one that lives on
 invisibly; and the way back is one press of a switch standing where it was.
 
+**No trail** (added 2026-09-22, user decision). The breadcrumb along the bottom of the drawing
+is not drawn in this mode, and not kept either: the list IS where the reader stands, a second
+line of crumbs says the same thing worse, and a trail kept out of sight would go on eating an
+Escape press for a walk nobody could see. It comes back with the mode off.
+
 **The list.** Right-hand column, where the explorer sits today. Clicking an entry or a node
 replaces it with the page detail and a way back to the list, the pattern the Research screen
 already uses for its ledgers. Up and down walk it; Enter needs no binding of its own, because
@@ -181,7 +190,7 @@ want to know where you were. No backlink count beside it: the rank is already st
 order, and a second number for the same thing is the mistake the size ramp is kept out of this
 for. The selected row is marked, unless the lock has cleared the selection. While a
 neighbourhood is open the list is that neighbourhood instead (see **Expansion**): the landmark
-with its number, the handle line under it, and the neighbours - unnumbered, because a neighbour
+with its number and the neighbours under it - unnumbered, because a neighbour
 has a place in this page's neighbourhood and none in the domain's reading order.
 
 **The chapters in the list.** From the second chapter on, a thin rule with a caption that says
@@ -202,7 +211,10 @@ of it. Both parts stop shrinking for that, and only the tail is ever cut, with t
 on hover. Measured across the three states: the first letter sits at the same x and the same y
 in all of them, and the bar keeps its height.
 
-**The switch.** A fourth row in the Overlays block, beside Areas, Bridges and Spotlight,
+**The switch.** The FIRST row of the Overlays block, above Areas, Bridges and Spotlight
+(moved there 2026-09-22, user decision: it is the only one of the four that changes what the
+picture is ABOUT rather than how the same picture is coloured, and it turns the other three off
+when it comes on),
 disabled with its reason when no single domain is on show or the domain is under 25 knowledge
 pages. In the default view it is therefore usually grey - 10 of 22 domains clear the bar at
 all. That is the accepted cost of a switch that lives where its three siblings live, and the
@@ -336,9 +348,10 @@ expansion turns into a map anyway.
   right-hand column's render condition (today a flat `frozen === null`, now the explorer while
   the lock is open and the list whenever the mode is on), `openOnClick` and the early return in
   `onSelect` taught that a landmark under the lock opens rather than blooms, and `toggleFreeze`
-  clearing the selection while leaving the mode and the open bloom where they are. **Not** the `keep`/`pool` pipeline, and
-  **not** the `fitKey`: nothing about the drawn set changes, so there is nothing to re-frame,
-  and a re-frame would undo the stillness the Positions decision exists to buy.
+  clearing the selection while leaving the mode and the open bloom where they are. **Not** the `keep`/`pool` pipeline. The `fitKey` **is** carried (corrected
+  2026-09-22): it frames the landmarks, then one neighbourhood, then the landmarks again, then
+  the domain, through the canvas's new `fitSubset`. That moves the camera and posts no layout,
+  which is the half of the Positions decision that was ever load-bearing.
 - `web/src/components/GraphCanvas.tsx`: the painted set and the connector set as props; nodes
   outside them drawn at no alpha and kept out of the label budget, `labelReps` and hit-testing;
   connectors dim and unlabelled; the bloom set; the role-sized radius; the authority ramp
@@ -431,7 +444,9 @@ green suite is not a green repo.
 ## Findings
 
 **1. A landmark's neighbours include other landmarks, and the cap did not say what that
-means (2026-09-22, found building chunk 1, RESOLVED as (b): the decision above now carries it).**
+means (2026-09-22, found building chunk 1, resolved as (b) and then OVERTAKEN the same day:
+there is no cap at all now, because the click re-frames onto the neighbourhood. The measurement
+below is kept because it is what made the overlap visible in the first place).**
 
 The **Expansion** decision caps a bloom at 12 neighbours "ordered by domain-internal backlinks
 with the same tie-break as the list", and the list is the highest-ranked pages of the domain.

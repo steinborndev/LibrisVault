@@ -3670,20 +3670,6 @@ span.head-slot { display: inline-block; }
   font-size: 11px;
   color: var(--text-faint);
 }
-.lm-more {
-  display: block;
-  margin: 1px 0 4px 38px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: 11px;
-  color: var(--accent);
-  text-align: left;
-  cursor: pointer;
-}
-.lm-more:hover {
-  text-decoration: underline;
-}
 /* The way back out of a page detail and into the list it was opened from. */
 .gx-back {
   display: flex;

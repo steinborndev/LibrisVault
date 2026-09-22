@@ -35,13 +35,13 @@ export const NO_DOMAIN = ''
  */
 export const LANDMARK_MIN_PAGES = 25
 
-/**
- * How many neighbours one bloom paints. The cap is on what the bloom ADDS: the landmarks are the
- * domain's highest-ranked pages and crowd the front of every neighbour list, so a cap taken off
- * the top of that list would be spent on pages already on screen - on the top entry, all twelve
- * of them (docs/tasks/TASKS-LANDMARKS.md, finding 1).
+/*
+ * There is no cap on a bloom (2026-09-22, user decision). It was 12, on the ground that one
+ * click must not undo the mode by putting a page's whole neighbourhood back on screen - but the
+ * click now re-frames the picture onto that neighbourhood, so what it puts up is a view of one
+ * page rather than a domain with a crowd in the middle of it. A cap would only hide part of the
+ * answer to a question the reader has just asked in full.
  */
-export const BLOOM_CAP = 12
 
 /** Share of a domain's knowledge pages that become landmarks, between the two bounds below. */
 const LANDMARK_SHARE = 0.12

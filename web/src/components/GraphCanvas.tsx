@@ -128,6 +128,14 @@ export interface GraphCanvasProps {
   /** The bar's own Fit button. Off where the screen offers the action somewhere better. */
   showFit?: boolean
   /**
+   * Which nodes a fit frames, or null for all of them. It changes no layout and hides nothing:
+   * the camera is simply put around a part of the picture, which is how the Landmarks overlay
+   * lands a click on a readable view of one page's neighbourhood instead of on twelve more dots
+   * somewhere in a field of forty. Read at the moment of the fit, so it always pairs with the
+   * `fitKey` that asked for one.
+   */
+  fitSubset?: ReadonlySet<number> | null
+  /**
    * Which graph this canvas is - the key its camera and its laid-out positions are kept
    * under. Two canvases are mounted at once (every screen stays in the DOM behind `hidden`),
    * and a positions array belongs to exactly one node list, so they must not share a slot.
@@ -468,7 +476,7 @@ function viewMemory(view: string): ViewMemory {
  */
 const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -520,6 +528,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
    */
   const maskRef = useRef(landmarkMask)
   maskRef.current = landmarkMask
+  /** What the next fit frames; a ref, so `fitToView` keeps its identity across a change of it. */
+  const fitSubsetRef = useRef(fitSubset)
+  fitSubsetRef.current = fitSubset
   /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
   const isPainted = useCallback(
     (i: number): boolean => {
@@ -1284,10 +1295,16 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // outside the initial frame ("the graph doesn't fit"). Only when a few stragglers blow
     // the extent far beyond the body of the graph (full span > 3× the 5-95 core) does the
     // fit fall back to the core; those outliers stay reachable by panning.
+    // A fit may be asked to frame PART of the picture (`fitSubset`); nothing else about the
+    // drawing changes, and a subset that turns out to hold no placed node frames nothing rather
+    // than everything.
+    const only = fitSubsetRef.current
+    const framed = (i: number): boolean => only === null || only.has(i)
     const xs: number[] = []
     const ys: number[] = []
     for (let i = 0; i < pos.length; i += 2) {
       if (Number.isNaN(pos[i]!)) continue // unplaced mid-update nodes have no extent yet
+      if (!framed(i / 2)) continue
       xs.push(pos[i]!)
       ys.push(pos[i + 1]!)
     }
@@ -1317,6 +1334,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     let rMax = 0
     for (let i = 0; i < pos.length; i += 2) {
       if (Number.isNaN(pos[i]!)) continue
+      if (!framed(i / 2)) continue
       rMax = Math.max(rMax, radius(i / 2))
     }
     const spanX = Math.max(1, maxX - minX + 2 * rMax)

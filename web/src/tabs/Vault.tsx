@@ -34,7 +34,7 @@ import { stepTrail } from '../lib/trail.ts'
 import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFreeze } from '../lib/graphFreeze.ts'
 import { BUCKET_LABELS as TYPE_LABELS } from '../lib/buckets.ts'
 import { detectClusters } from '../lib/communities.ts'
-import { BLOOM_CAP, NO_DOMAIN, chapterSize, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
+import { NO_DOMAIN, chapterSize, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
 
@@ -526,8 +526,13 @@ function GraphView({
   const [landmarkDomain, setLandmarkDomain] = useState<string | null>(viewMemory.landmarks)
   /** The expanded landmark, by path: one neighbourhood at a time. Exploration, not a preference. */
   const [bloom, setBloom] = useState<string | null>(viewMemory.bloom)
-  /** The cap lifted for THIS neighbourhood, by the handle line in the list. */
-  const [bloomAll, setBloomAll] = useState(false)
+  /*
+   * The mode, in a ref as well, for `selectPage` alone: reading the state there would make that
+   * function reactive, and it is a dependency of the one-shot `?select=` effect, which must not
+   * re-run because an overlay was switched. The same latest-value idiom as `frozenRef`.
+   */
+  const landmarkRef = useRef(landmarkDomain)
+  landmarkRef.current = landmarkDomain
   /**
    * Whether the right-hand column is showing a page rather than the list. A landmark clicked on
    * the canvas expands and keeps the list standing - that is where its handle line is, and a
@@ -537,9 +542,8 @@ function GraphView({
    * where the explorer is what stands in that column.
    */
   const [listDetail, setListDetail] = useState(false)
-  /** One neighbourhood at a time, and a second click on the same landmark drops it, cap and all. */
+  /** One neighbourhood at a time, and a second click on the same landmark drops it. */
   const showBloom = (path: string | null): void => {
-    setBloomAll(false)
     setBloom((b) => (path !== null && b === path ? null : path))
   }
   /**
@@ -632,7 +636,13 @@ function GraphView({
 
   const selectPage = (path: string): void => {
     setSelection({ kind: 'page', path })
-    setTrail((prev) => stepTrail(prev, path, TRAIL_MAX))
+    /*
+     * No trail in the Landmarks mode (2026-09-22, user decision). The list IS where the reader
+     * stands, and a second line of crumbs along the bottom says the same thing worse. Not
+     * merely undrawn but not KEPT: a trail behind the drawing would go on eating an Escape
+     * press for a walk nobody could see.
+     */
+    setTrail((prev) => (landmarkRef.current !== null ? [] : stepTrail(prev, path, TRAIL_MAX)))
   }
   const selectGap = (title: string): void => setSelection({ kind: 'gap', title })
   const closeExplorer = (): void => {
@@ -666,7 +676,6 @@ function GraphView({
     // The overlay belongs to the preferences and stays; the open neighbourhood belongs to the
     // exploration and goes, with the trail.
     setBloom(null)
-    setBloomAll(false)
   }, [active])
 
   const focusIndexFull = useMemo(
@@ -1086,44 +1095,43 @@ function GraphView({
     const landmarks = pick(landmarkData.order)
     const connectors = pick(landmarkData.connectors)
     /*
-     * The bloom: the landmark's neighbours by the list's own rank, skipping the ones already on
-     * screen, capped at twelve. The cap is on what the click ADDS - taken off the top of the
-     * whole neighbour list it would be spent on landmarks, which are by construction the
-     * highest-ranked pages of the domain (TASKS-LANDMARKS.md, finding 1).
+     * The bloom: the landmark's WHOLE neighbourhood inside the domain, in the list's own rank
+     * order - the pages this click reveals and the ones that were already out as landmarks or
+     * connectors. Uncapped since 2026-09-22, because the click re-frames the picture onto the
+     * neighbourhood: what it puts up is a view of one page rather than a domain with a crowd in
+     * the middle of it, and half an answer to a question asked in full is worse than the crowd.
      */
     const out = new Set<number>([...landmarks, ...connectors])
     const bloomed = new Set<number>()
-    const near = bloom === null ? [] : landmarkData.neighbours.get(bloom) ?? []
-    /*
-     * The neighbourhood as the list shows it: every neighbour that is ON SCREEN, in the list's
-     * own rank order - the ones this click revealed and the ones that were already out as
-     * landmarks or connectors. Its length is the number the handle line states, which is what
-     * makes the two readable against each other.
-     */
     const neighbourhood: string[] = []
-    for (const p of near) {
+    for (const p of bloom === null ? [] : landmarkData.neighbours.get(bloom) ?? []) {
       const i = at.get(p)
       if (i === undefined) continue // a neighbour the other filters keep out of the drawing
-      if (!out.has(i)) {
-        if (!bloomAll && bloomed.size >= BLOOM_CAP) continue
-        bloomed.add(i)
-      }
+      if (!out.has(i)) bloomed.add(i)
       neighbourhood.push(p)
     }
+    const anchor = bloom === null ? null : at.get(bloom) ?? null
+    /*
+     * What the camera frames: the open neighbourhood while there is one, the painted set
+     * otherwise. The LAYOUT is still never recomputed - the node list, the edge list and the
+     * grouping are untouched, which is the whole of the Positions decision - and this moves the
+     * camera only, so a click lands on a readable view of one page instead of on twelve more
+     * dots somewhere in a field of forty.
+     */
+    const framed =
+      anchor === null ? new Set<number>([...landmarks, ...connectors]) : new Set<number>([anchor, ...bloomed])
     return {
       mask: {
         landmarks,
         connectors,
         bloom: bloomed,
-        bloomAnchor: bloom === null ? null : at.get(bloom) ?? null,
+        bloomAnchor: anchor,
         inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0),
       },
       neighbourhood,
-      /** What the handle line states: of this page's neighbourhood, how much is on screen. */
-      shown: neighbourhood.length,
-      total: near.length,
+      framed,
     }
-  }, [landmarkData, nodes, bloom, bloomAll])
+  }, [landmarkData, nodes, bloom])
   const landmarkMask = landmarkView?.mask ?? null
 
   /*
@@ -1234,6 +1242,8 @@ function GraphView({
    */
   const toggleLandmarks = (): void => {
     showBloom(null)
+    // No trail in this mode, so none is left behind when it comes on.
+    setTrail([])
     if (landmarkDomain !== null) {
       setLandmarkDomain(null)
       return
@@ -1386,10 +1396,7 @@ function GraphView({
     const state = landmarkState(graph.nodes, new Set(f.selectedDomains), heldScope)
     const ok = f.landmarks !== null && state.available && state.domain === f.landmarks.domain
     setLandmarkDomain(ok ? f.landmarks!.domain : null)
-    // The record holds which landmark was open, not that its cap had been lifted: a lifted cap
-    // is a press, and the record is of a picture.
     setBloom(ok ? f.landmarks!.bloom : null)
-    setBloomAll(false)
     closeExplorer()
     navigate(f.focusPath === null ? '/graph' : `/graph?focus=${encodeURIComponent(f.focusPath)}`, { replace: true })
     setFitNonce((n) => n + 1)
@@ -1786,7 +1793,11 @@ function GraphView({
           // thousand pages down to a handful, and without a re-fit those few keep the scale the
           // whole vault had and sit in one corner as a speck of their own drawing.
           showFit={false}
-          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}`}
+          // …and the mode frames what it paints: the landmarks when it comes on, one
+          // neighbourhood while one is open, the landmarks again when Escape closes it, and the
+          // whole domain when it goes off. `fitSubset` says which nodes that is.
+          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}`}
+          fitSubset={landmarkView?.framed ?? null}
           barLeft={
             <span className="scopeline">
               Showing{' '}
@@ -1929,7 +1940,7 @@ function GraphView({
               >
                 <Icon name={frozen !== null ? 'lock' : 'unlock'} />
               </button>
-              {trail.length > 1 && (
+              {landmarkDomain === null && trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">
                   {trail.map((p, i) => {
                     const n = graph.nodes.find((g) => g.path === p)
@@ -1981,9 +1992,6 @@ function GraphView({
               selected={selection?.kind === 'page' ? selection.path : null}
               bloom={bloom}
               neighbourhood={landmarkView?.neighbourhood ?? []}
-              shown={landmarkView?.shown ?? 0}
-              total={landmarkView?.total ?? 0}
-              locked={frozen !== null}
               onPick={(path) => {
                 // Locked, leaving for the page and coming back to the held picture is a reading
                 // pass, and one rule then governs the canvas and the list alike.
@@ -1994,7 +2002,6 @@ function GraphView({
                 selectPage(path)
                 setListDetail(true)
               }}
-              onShowAll={() => setBloomAll(true)}
             />
           )
         ) : frozen === null ? (
@@ -2041,11 +2048,7 @@ function LandmarkList({
   selected,
   bloom,
   neighbourhood,
-  shown,
-  total,
-  locked,
   onPick,
-  onShowAll,
 }: {
   set: LandmarkSet
   titleOf: (path: string) => string
@@ -2055,12 +2058,7 @@ function LandmarkList({
   bloom: string | null
   /** That neighbourhood as the drawing has it: every neighbour on screen, in the list's order. */
   neighbourhood: readonly string[]
-  /** Of the expanded landmark's neighbourhood, how much is on screen, against the whole of it. */
-  shown: number
-  total: number
-  locked: boolean
   onPick: (path: string) => void
-  onShowAll: () => void
 }): React.ReactElement {
   const starts = new Map(set.chapters.map((at, c) => [at, c]))
   const cur = useRef<HTMLButtonElement>(null)
@@ -2078,11 +2076,6 @@ function LandmarkList({
    */
   const at = bloom === null ? -1 : set.order.indexOf(bloom)
   if (bloom !== null && at >= 0) {
-    const handle = shown < total && !locked && (
-      <button className="lm-more" onClick={onShowAll}>
-        {shown} of {total} shown, show all
-      </button>
-    )
     return (
       <aside className="graph-explorer landmarks" role="complementary" aria-label="One landmark's neighbourhood">
         <ol className="lm-list">
@@ -2097,7 +2090,6 @@ function LandmarkList({
               <span className="lm-n">{at + 1}</span>
               <span className="lm-t">{titleOf(bloom)}</span>
             </button>
-            {handle}
           </li>
           {/* The neighbours carry no number: they are this page's neighbourhood, not a place
               in the domain's reading order, and a number would claim they were. */}
@@ -2740,6 +2732,21 @@ function GraphPanel({
           <span className="gp-eyebrow">Overlays</span>
         </div>
         <div className="gp-toggles">
+          {/* First in the block (2026-09-22, user decision): it is the only overlay that
+              changes what the picture is ABOUT rather than how the same picture is coloured,
+              and it turns the three below it off when it comes on. Usually grey - ten of this
+              vault's twenty-two domains clear its bar at all - and the reason line carries it. */}
+          <RowToggle
+            on={landmarks}
+            onToggle={onLandmarks}
+            name="Landmarks"
+            desc={landmarkReason ?? 'the pages a domain is built around'}
+            disabled={landmarkReason !== null}
+            title={
+              landmarkReason ??
+              'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns Spotlight, the drill-down and a focus off.'
+            }
+          />
           <RowToggle
             on={showClusters}
             onToggle={onClusters}
@@ -2760,20 +2767,6 @@ function GraphPanel({
             name="Spotlight"
             desc="hover isolates one community"
             title="Hovering highlights a whole community and dims the rest. Click inside a cluster's area to isolate it (and keep drilling into sub-communities); click a node to open its page. Esc backs out one level."
-          />
-          {/* The fourth overlay, beside its three siblings and usually grey: ten of this
-              vault's twenty-two domains clear its bar at all. That is the accepted cost of a
-              switch that lives where the others live, and the reason line is what carries it. */}
-          <RowToggle
-            on={landmarks}
-            onToggle={onLandmarks}
-            name="Landmarks"
-            desc={landmarkReason ?? 'the pages a domain is built around'}
-            disabled={landmarkReason !== null}
-            title={
-              landmarkReason ??
-              'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns Spotlight, the drill-down and a focus off.'
-            }
           />
         </div>
         <Fold label="Include" state={includeOn === 0 ? 'none' : `${includeOn} on`} lit={includeOn > 0} openWhen={includeOn > 0}>
