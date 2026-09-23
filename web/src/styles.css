@@ -4411,6 +4411,9 @@ span.head-slot { display: inline-block; }
 .split-key-hint {
   margin: 0 0 4px;
 }
+.split-key-draft .btn {
+  margin: 0 2px;
+}
 .split-proposal select.split-merge {
   margin-left: 4px;
 }

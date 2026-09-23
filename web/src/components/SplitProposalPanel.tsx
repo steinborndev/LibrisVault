@@ -197,6 +197,11 @@ function DecisionSurface({
     ),
   )
   const namedFor = useRef<number[]>([])
+  /** One naming pass for every promoted group: started from the actions row or from any key field. */
+  const draftNames = (): void => {
+    namedFor.current = groups.map((g) => g.leader)
+    naming.start()
+  }
   useEffect(() => {
     const n = naming.result?.splitNaming
     if (n !== undefined) dispatch({ type: 'named', naming: n, leaders: namedFor.current })
@@ -239,6 +244,7 @@ function DecisionSurface({
             registryKeys={registryKeys}
             problem={problems.get(s.id) ?? null}
             readOnly={readOnly}
+            draft={{ start: draftNames, running: naming.running }}
           />
         ))}
       </div>
@@ -285,10 +291,7 @@ function DecisionSurface({
             <button
               className="btn"
               disabled={readOnly || naming.running}
-              onClick={() => {
-                namedFor.current = groups.map((g) => g.leader)
-                naming.start()
-              }}
+              onClick={draftNames}
               title={readOnly ? 'This instance is read-only' : 'One read-only agent run drafts keys, descriptions and tags; your own edits stay'}
             >
               {naming.running ? 'Drafting names…' : 'Draft names with an agent'}
@@ -373,6 +376,7 @@ function ShelfCard({
   registryKeys,
   problem,
   readOnly,
+  draft,
 }: {
   shelf: SplitShelf
   proposal: SplitProposal
@@ -384,6 +388,7 @@ function ShelfCard({
   registryKeys: readonly string[]
   problem: string | null
   readOnly: boolean
+  draft: DraftNames
 }): React.ReactElement {
   const types = Object.entries(s.types)
     .sort((a, b) => b[1] - a[1])
@@ -474,6 +479,7 @@ function ShelfCard({
           problem={problem}
           readOnly={readOnly}
           byId={byId}
+          draft={draft}
         />
       )}
 
@@ -522,6 +528,12 @@ function ShelfCard({
   )
 }
 
+/** The naming pass, as a key field can start it: one run names every promoted group at once. */
+interface DraftNames {
+  readonly start: () => void
+  readonly running: boolean
+}
+
 /** The fields of a promoted group: key (checked while typing), description, tags. */
 function ChildEditor({
   group,
@@ -532,6 +544,7 @@ function ChildEditor({
   problem,
   readOnly,
   byId,
+  draft,
 }: {
   group: { leader: number; members: number[] }
   proposal: SplitProposal
@@ -542,6 +555,7 @@ function ChildEditor({
   problem: string | null
   readOnly: boolean
   byId: (id: number) => SplitShelf
+  draft: DraftNames
 }): React.ReactElement {
   const f = childFields(state, p, group)
   const paths = useMemo(() => new Set(group.members.flatMap((id) => byId(id).pages.map((m) => m.path))), [group.members, byId])
@@ -566,11 +580,33 @@ function ChildEditor({
           data-field="key"
           value={f.key}
           disabled={readOnly}
-          placeholder="coin one - not a tag the pages carry"
-          aria-invalid={problem !== null}
+          placeholder={draft.running ? 'drafting…' : 'coin one - not a tag the pages carry'}
+          aria-invalid={problem !== null && !draft.running}
           onChange={(e) => edit('key', e.target.value.trim().toLowerCase())}
         />
-        {problem !== null ? (
+        {f.key === '' ? (
+          // An empty key is not yet a mistake: say what fills it, and offer the pass right here
+          // rather than only in the actions row below the cards.
+          <span className="dim split-key-draft">
+            {draft.running ? (
+              'The agent is drafting the names of every promoted shelf…'
+            ) : (
+              <>
+                {problem ?? 'Needs a key'} - type one, or{' '}
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  disabled={readOnly}
+                  onClick={draft.start}
+                  title="One read-only agent run drafts key, description and tags for every promoted shelf, and a narrowed entry for the parent; what you typed yourself stays"
+                >
+                  draft names with the agent
+                </button>{' '}
+                (read-only, about $0.40)
+              </>
+            )}
+          </span>
+        ) : problem !== null ? (
           <span className="field-err">{problem}</span>
         ) : (
           <span className={collision.inside > 0 ? 'field-warn' : 'dim'} data-collision={`${collision.inside},${collision.elsewhere}`}>

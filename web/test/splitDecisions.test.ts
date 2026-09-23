@@ -194,7 +194,7 @@ describe('the plan request', () => {
       { type: 'edit', leader: 1, field: 'key', value: 'beta' },
     )
     expect([...decisionProblems(s, proposal, ['alpha', 'beta'])]).toEqual([
-      [0, 'Coin a key'],
+      [0, 'Needs a key'],
       [1, 'A domain with that key exists already'],
     ])
     expect(keyProblem('Not a key', [], [], 'alpha')).toMatch(/Lowercase/)

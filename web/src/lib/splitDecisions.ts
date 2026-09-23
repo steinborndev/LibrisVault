@@ -170,7 +170,7 @@ export function parentFields(
 
 /** Why a group's key cannot be applied yet, or null when it can. */
 export function keyProblem(key: string, others: readonly string[], registryKeys: readonly string[], parent: string): string | null {
-  if (key === '') return 'Coin a key'
+  if (key === '') return 'Needs a key'
   if (!isValidDomainKey(key)) return 'Lowercase letters, digits and hyphens only'
   if (key === 'meta' || key === 'unassigned') return 'That key is reserved'
   if (key === parent) return 'That is the parent\'s own key'
