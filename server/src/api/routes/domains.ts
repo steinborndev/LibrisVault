@@ -62,8 +62,28 @@ import {
   SplitRefused,
   type SplitWriterOptions,
 } from '../../pipeline/domain-split-write.js'
-import { afterVaultWrite } from './validation.js'
 import type { NamingInput } from '../../pipeline/split-naming.js'
+
+/**
+ * The rules a split can change: it rewrites `domain:` and `updated:` and nothing else, and
+ * `tag-mirroring` is the one rule that reads `domain:`, `dates` the one that reads `updated:`.
+ *
+ * Checked on the written pages and on nothing else. Validating them under every rule was tried
+ * on a copy of the live vault and booked 158 findings on the 218 pages of one split -
+ * `page-schema`, `open-question-form`, `title-name` and more, every one of them there before the
+ * split and invisible to the standing list only because nothing had re-read those pages since
+ * their rule arrived. Booked by a split, they read as the split's doing, which they are not.
+ */
+const SPLIT_RULES: ReadonlySet<string> = new Set(['tag-mirroring', 'dates'])
+
+/** Validates and records what a split wrote, under the rules a split can change. */
+function checkSplitWrite(ctx: AppContext, written: readonly string[]): { recorded: number; resolved: number } {
+  if (written.length === 0 || ctx.validate === undefined || ctx.validation === undefined) return { recorded: 0, resolved: 0 }
+  const findings = ctx.validate(written).filter((f) => SPLIT_RULES.has(f.rule))
+  const { created } = ctx.validation.record(findings, null)
+  const resolved = ctx.validation.resolveMissing([...written], findings, { checked: SPLIT_RULES })
+  return { recorded: created.length, resolved }
+}
 
 /** How each refusal of the split writer answers over HTTP. */
 const REFUSAL_STATUS: Record<SplitRefused['code'], number> = {
@@ -215,9 +235,9 @@ export function registerDomainsRoute(
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error })
     try {
       const result = await applySplit(config.vaultRoot, parsed.request, writer())
-      // Checked like every other deterministic write of the dashboard: a split that booked a
-      // finding (a key equal to a tag, say) puts it on the standing list at once.
-      const validation = afterVaultWrite(ctx, result.written.map((w) => w.path))
+      // A split that booked a finding (a key equal to a tag, say) puts it on the standing list
+      // at once - under the rules a split can change, and no others (`SPLIT_RULES`).
+      const validation = checkSplitWrite(ctx, result.written.map((w) => w.path))
       return reply.send({ ...result, validation })
     } catch (err) {
       return refuse(reply, err)
@@ -232,7 +252,7 @@ export function registerDomainsRoute(
     const { id } = req.params as { id: string }
     try {
       const result = await applyRemainder(config.vaultRoot, id, writer())
-      const validation = afterVaultWrite(ctx, result.written.map((w) => w.path))
+      const validation = checkSplitWrite(ctx, result.written.map((w) => w.path))
       return reply.send({ ...result, validation })
     } catch (err) {
       return refuse(reply, err)

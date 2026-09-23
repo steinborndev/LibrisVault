@@ -651,7 +651,8 @@ function PlanView({ plan, vaultName }: { plan: SplitPlan; vaultName: string }): 
       <p className="tab-hint">
         {plan.counts.ok} page{plan.counts.ok === 1 ? '' : 's'} would move:{' '}
         {[...perChild].map(([k, n]) => `${n} to ${k}`).join(', ')}. One commit with the registry, <code>wiki/index.md</code> and
-        those pages; each page changes its <code>domain:</code> and <code>updated:</code> lines and nothing else.
+        those pages; each page changes its <code>domain:</code> and <code>updated:</code> lines and nothing else. The write
+        takes the vault's own lock page by page, so a few hundred pages take about a minute.
       </p>
       {plan.warnings.map((w, i) => (
         <p key={i} className="field-warn">
