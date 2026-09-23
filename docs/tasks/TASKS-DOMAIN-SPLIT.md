@@ -336,15 +336,26 @@ under **E2E results**.
 
 ## Gate A: acceptance of milestone A
 
-- [ ] **A.1** `npm test`, `npm run typecheck`, `npm run lint`: green and exit 0, with the file
+- [x] **A.1** `npm test`, `npm run typecheck`, `npm run lint`: green and exit 0, with the file
       and test counts recorded.
-- [ ] **A.2** Phase 7's `[A]` stages (E0 to E3, the `[A]` half of E10, E11, E12), with the `[A]`
+      **2026-09-23, branch at the gate:** server 121 files, 2037 tests; web 68 files, 728 tests;
+      all three exit 0. Against main before the branch: +1 and +6 server files and tests beyond
+      the 120 and 2031 of phase 1's first run, web +1 file.
+- [x] **A.2** Phase 7's `[A]` stages (E0 to E3, the `[A]` half of E10, E11, E12), with the `[A]`
       half of `scripts/e2e-domain-split.mjs` (7.1), which is written in this milestone. Results
       recorded under **E2E results**.
-- [ ] **A.3** `scripts/vault-name-scan.mjs --diff main` over the branch and `--file` over the PR
+- [x] **A.3** `scripts/vault-name-scan.mjs --diff main` over the branch and `--file` over the PR
       body; UI strings and fixtures read by eye.
+      **Clean.** `--diff main`: nothing matched over 2336 terms. `--file` over a drafted merge
+      text: nothing matched. By hand, because the scan knows titles only: the added lines checked
+      against 90 terms it cannot know (every domain key of the vault, the 32 proposed tag hints,
+      the 40 landmark titles of the largest domain): 0 hits. Fixtures are synthetic (`alpha`,
+      `Page B0-001`); the UI strings name mechanisms.
 - [ ] **A.4** Docs owed: `docs/API.md` (the GET route), `CHANGELOG.md`, SPEC.md §12.4 stage 4
       part one (appendix A), the last applied only on the user's word.
+      **`docs/API.md` and `CHANGELOG.md` written** (the changelog entry is dated `2026-09-xx`
+      until the merge). Appendix A part one is ready as it stands and matches what was built;
+      SPEC.md is untouched until the user's word.
 - [ ] **A.5** Merge.
 
 ## The usage gate
@@ -711,7 +722,41 @@ not already hold (the dedupe verdict says so before the agent runs).
 
 ## E2E results
 
-Empty until phase 7 runs. Counts, hashes and PASS or FAIL only: no titles, no tags, no vault text.
+Counts, hashes and PASS or FAIL only: no titles, no tags, no vault text.
+
+### Milestone A, 2026-09-23 (Gate A)
+
+Live vault HEAD `dd0fe9a2` throughout; the copy taken at 09:57, the worktree detached at the
+branch tip and built there. Every stage run by `scripts/e2e-domain-split.mjs`; screenshots under
+`$E/shots` only.
+
+| Stage | Result | Numbers |
+|---|---|---|
+| E0 | 10 PASS | live `inFlight` 0, no maintenance run, live vault clean, hour 9, port free, 959 GB free, the three commands exit 0; live jobs `done` 46, `cancelled` 1 |
+| E1 | 4 PASS | the copy's HEAD equals the live one, clean, both push URLs disabled, `user_version` 36 on both |
+| E2 | 7 PASS | pid on 8435 with the copy's `VAULT_ROOT`, bot token empty, the log names the copy and `telegram: off`, health shows the snapshot's 46 + 1 jobs, `user_version` 36, `quick_check` ok |
+| E3 | 18 PASS | 537 pages, 8 shelves 161, 67, 59, 49, 44, 34, 30, 28, 65 with the parent; two calls deep-equal; the route's body byte-identical to `splitprobe --json` on the copy; another seed 0 of 537, three days back 4 of 517 (0.8 %); misfiling on 1 shelf, exactly the one under 0.6; 9 chips with the route's sizes, 8 hulls, 9 of 9 chips narrow the Graph to their size and the Catalog to as many rows; the status item names 41 %; 8 panel cards in rank order with the route's conductance; 0 of 136 API responses 404 |
+| E10, flag off | 14 PASS | `health.fellows` the boolean `false`; the same walk passes; 0 of 124 responses 404; 0 requests to a Fellow route |
+| E10, demo | 10 PASS | `demoMode` true; the GET route and the Graph and Catalog walk pass; System stays switched off, the panel with it; 0 of 138 responses 404 |
+| E11 | 4 PASS | the live vault's HEAD equals E0's and is clean; the live jobs equal E0's; the live UI's 2 assets answer 200; `curious.service` still the process started at 08:53 |
+| E12 | PASS | the instance stopped by pid (environ `PORT=8435`, comm `node`); the worktree and the copy stay until the user agrees |
+
+The copy's HEAD did not move in any stage: no background commit on the copy.
+
+**Two findings on the way, neither touching D1 to D18.**
+
+1. **The first flag-off walk FAILED (2 of 14): the Research screen asked `/api/v1/usage/plan`
+   without an `enabled` guard**, 4 requests and 4 404s in one walk, because the screen is mounted
+   behind `[hidden]` on every visit. Pre-existing on main (`e98712a`), not this feature's code,
+   and exactly the class hard rule 8 names. Fixed on this branch as its own commit
+   (`fix(research): …`), so it can be taken out if it should land separately; the rerun is the
+   one recorded above.
+2. **The first demo walk FAILED (4 of 13) on the System checks**, because the hosted demo
+   switches the whole System screen off by design. The script was wrong, not the product: in
+   the demo it now checks that System stays off. The Graph and Catalog halves passed as they were.
+
+A development loop ran before the gate (tsx instance on an earlier copy, Vite with a proxy):
+17 PASS there; that copy was deleted before the gate's fresh E0.
 
 ---
 
