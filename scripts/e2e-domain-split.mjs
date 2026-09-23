@@ -79,6 +79,7 @@ const NAMING = has('--naming') // E4: run the paid naming pass
 const KEYS = arg('--keys') // E4 without the naming pass: three keys, typed by hand
 const DOC = expandHome(arg('--doc')) // E8: the document to ingest
 const URL_DOC = arg('--url') // E8: or a URL
+const JOB = arg('--job') // E8: evaluate a job that already ran, without uploading (and paying) again
 
 if (STAGES.length === 0 || !VAULT) {
   console.error('usage: e2e-domain-split.mjs --stage <E0,…,E12> --vault <copy> [--port 8435] [--cdp url] …')
@@ -948,11 +949,16 @@ async function stageE8() {
   console.log('\nE8: a real ingest after the split')
   assertIdentity()
   const state = loadState()
-  if (!DOC && !URL_DOC) {
-    console.error('E8 needs --doc <file> or --url <url>')
+  if (!DOC && !URL_DOC && !JOB) {
+    console.error('E8 needs --doc <file>, --url <url> or --job <id>')
     process.exit(2)
   }
   const head = git(VAULT, 'rev-parse', 'HEAD')
+  let job = null
+  let refusal = null
+  let jobId = JOB
+  if (JOB) note(`evaluating job ${JOB} as it ran; the upload and the 409 during the run are the first run's`)
+  else {
   let res
   if (DOC) {
     const form = new FormData()
@@ -962,10 +968,8 @@ async function stageE8() {
     res = await fetch(`http://127.0.0.1:${PORT}/api/v1/jobs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: URL_DOC }) })
   }
   const body = await res.json()
-  const jobId = body.jobs?.[0]?.id
+  jobId = body.jobs?.[0]?.id
   check('E8', 'the upload is accepted and not a duplicate', res.status < 300 && jobId && !body.jobs[0].duplicateOf, `${res.status} ${body.jobs?.[0]?.status}`)
-  let job = null
-  let refusal = null
   const until = Date.now() + 45 * 60000
   while (Date.now() < until) {
     job = (await api(`/api/v1/jobs/${jobId}`)).body.job
@@ -977,7 +981,15 @@ async function stageE8() {
     await new Promise((r) => setTimeout(r, 5000))
   }
   check('E8', 'while it runs, the remainder re-file answers 409 "a run is writing the vault"', refusal?.status === 409 && refusal?.body?.code === 'run-active', `${refusal?.status} ${refusal?.body?.code}`)
-  check('E8', 'the job ends done', job?.status === 'done', `${job?.status}, $${job?.cost_usd ?? '?'}`)
+  }
+  // `done` is set a moment BEFORE the queue commits and stores the hash: wait for the hash, or a
+  // job read at the transition looks like one that committed nothing (the first E8 run did).
+  for (let i = 0; i < 120; i++) {
+    job = (await api(`/api/v1/jobs/${jobId}`)).body.job
+    if (job?.commit_hash || !['done'].includes(job?.status)) break
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  check('E8', 'the job ends done, with its commit', job?.status === 'done' && Boolean(job?.commit_hash), `${job?.status}, $${job?.cost_usd?.toFixed?.(2) ?? '?'}`)
   const hash = job?.commit_hash
   const status = hash ? git(VAULT, 'show', '--name-status', '--pretty=format:', hash).split('\n').filter(Boolean).map((l) => l.split('\t')) : []
   const created = status.filter(([st, f]) => st === 'A' && /^wiki\/(concepts|entities|sources|comparisons|questions|references)\//.test(f)).map(([, f]) => f)
@@ -990,8 +1002,8 @@ async function stageE8() {
   note(`created pages by domain: ${JSON.stringify(byKey)}`)
   const onChild = created.length - (byKey.PARENT ?? 0) - (byKey.other ?? 0)
   check('E8', 'every page it created carries a CHILD key (the narrowed parent works)', created.length > 0 && onChild === created.length, `${onChild} of ${created.length}`)
-  const commits = git(VAULT, 'rev-list', `${head}..HEAD`).split('\n').filter(Boolean)
-  note(`the copy's HEAD moved by ${commits.length} commit(s)`)
+  if (!JOB) note(`the copy's HEAD moved by ${git(VAULT, 'rev-list', `${head}..HEAD`).split('\n').filter(Boolean).length} commit(s)`)
+  note(`the job's commit: ${status.length} files, ${created.length} knowledge page(s) created`)
   saveState({ ...state, jobId, jobCommit: hash, created })
 }
 
