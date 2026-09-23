@@ -457,20 +457,23 @@ async function uiWalk(stage, parent, p, tag) {
     const pct = Math.round(parent.share * 100)
     check(stage, 'the status item is recommended and names the share', title === `One domain holds ${pct} % of the vault` && (await page.evaluate(`(${item})?.querySelector('.sev')?.classList.contains('rec') === true`)), title ?? 'absent')
     if (title) await page.evaluate(`(${item}).click(); true`)
+    // A shelf the user left is listed as left, not as a card (6.3): after E4 that is one.
+    const leftFps = new Set((p.decisions ?? []).filter((d) => d.decision === 'leave').map((d) => d.fingerprint))
+    const shown = p.shelves.filter((s) => !leftFps.has(s.fingerprint))
     const cards = await page.waitFor(
-      `(() => { const c = [...document.querySelectorAll('.split-shelf')]; return c.length === ${p.shelves.length} ? c.map((x) => Number(/^(\\d+) pages/.exec(x.querySelector('.candidate-head .candidate-meta')?.textContent ?? '')?.[1])) : null })()`,
+      `(() => { const c = [...document.querySelectorAll('.split-shelf')]; return c.length === ${shown.length} ? c.map((x) => Number(/^(\\d+) pages/.exec(x.querySelector('.candidate-head .candidate-meta')?.textContent ?? '')?.[1])) : null })()`,
       30000,
     )
-    check(stage, "the System panel shows the shelves in the route's rank order and sizes", JSON.stringify(cards) === JSON.stringify(p.shelves.map((s) => s.size)), `${cards?.length ?? 0} cards`)
+    check(stage, "the System panel shows the shelves in the route's rank order and sizes", JSON.stringify(cards) === JSON.stringify(shown.map((s) => s.size)), `${cards?.length ?? 0} cards${leftFps.size > 0 ? `, ${p.shelves.length - shown.length} left` : ''}`)
     const numbers = await page.evaluate(`[...document.querySelectorAll('.split-shelf .split-numbers')].map((x) => x.textContent)`)
-    const expected = p.shelves.map((s) => `${Math.round(s.conductance * 100)} % of links leave it`)
+    const expected = shown.map((s) => `${Math.round(s.conductance * 100)} % of links leave it`)
     check(stage, "the panel's conductance figures are the route's", numbers.length === expected.length && numbers.every((t, i) => t.startsWith(expected[i])))
     const warned = await page.evaluate(`document.querySelectorAll('.split-shelf.misfile').length`)
-    check(stage, 'the panel warns on the misfiling shelves only', warned === p.shelves.filter((s) => s.misfile).length, `${warned} warned`)
+    check(stage, 'the panel warns on the misfiling shelves only', warned === shown.filter((s) => s.misfile).length, `${warned} warned`)
     await page.shot(`${tag}-system-panel.png`)
     // [B] One promote and back: the decision surface renders its summary, parent entry and
     // Fellow line - the one place that may ask a Fellow route, and only with the flag on.
-    const first = p.shelves[0].id
+    const first = shown[0].id
     await clickIn(page, first, 'Promote')
     const surface = await page.waitFor(`document.querySelector('.split-decision') !== null`, 15000)
     check(stage, '[B] promoting a shelf opens the decision surface', Boolean(surface))
@@ -691,6 +694,12 @@ async function stageE4() {
   console.log('\nE4: the decision set, and the naming pass')
   assertIdentity()
   const { parent, p } = await parentProposal()
+  // A decision a development loop left behind would hide a card or turn a click into an undo.
+  // The final run starts from a fresh snapshot with none, and then this restores nothing.
+  for (const d of p.decisions ?? []) {
+    await fetch(`http://127.0.0.1:${PORT}/api/v1/domains/${encodeURIComponent(parent.domain)}/split/decisions/${encodeURIComponent(d.fingerprint)}`, { method: 'DELETE' })
+  }
+  if ((p.decisions ?? []).length > 0) note(`${p.decisions.length} stored decision(s) restored first`)
   const page = await uiPage()
   const cards = await openPanel(page, p.shelves.length, parent.domain)
   check('E4', 'the panel shows one card per shelf', cards === p.shelves.length, `${cards ?? 0} of ${p.shelves.length}`)
