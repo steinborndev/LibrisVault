@@ -401,8 +401,14 @@ async function uiWalk(stage, parent, p, tag) {
     }
     check(stage, 'every Catalog chip shows exactly its number of rows', rowsOk === chips.length, `${rowsOk} of ${chips.length}`)
 
-    // System: the status item, and the panel it jumps to.
+    // System: the status item, and the panel it jumps to. The hosted demo switches the whole
+    // screen off (SPEC.md §12.8), so there the check is that it stays off.
     await page.goto(`${UI}/system`)
+    if (EXPECT_DEMO) {
+      const off = await page.waitFor(`[...document.querySelectorAll('h1, h2, h3, strong, div')].some((x) => x.textContent?.trim() === 'System is switched off here')`, 20000)
+      check(stage, 'System stays switched off in the demo, the panel with it', Boolean(off) && (await page.evaluate(`document.querySelectorAll('.split-shelf').length`)) === 0)
+      await page.shot(`${tag}-system-off.png`)
+    } else {
     const item = `[...document.querySelectorAll('.ms-item')].find((b) => b.querySelector('.ms-title')?.textContent.startsWith('One domain holds'))`
     const title = await page.waitFor(`(${item})?.querySelector('.ms-title')?.textContent ?? null`, 30000)
     const pct = Math.round(parent.share * 100)
@@ -419,6 +425,7 @@ async function uiWalk(stage, parent, p, tag) {
     const warned = await page.evaluate(`document.querySelectorAll('.split-shelf.misfile').length`)
     check(stage, 'the panel warns on the misfiling shelves only', warned === p.shelves.filter((s) => s.misfile).length, `${warned} warned`)
     await page.shot(`${tag}-system-panel.png`)
+    }
 
     const api404 = page.network.filter((r) => r.status === 404 && r.url.includes('/api/'))
     check(stage, 'no API request answered 404 during the walk', api404.length === 0, `${api404.length} of ${page.network.filter((r) => r.status !== null).length} responses`)
