@@ -152,8 +152,18 @@ export function Chat({ researchPrefill = '', researchFrom = '' }: { researchPref
    * it answers - can I afford this run - is asked HERE, in front of the composer, so the
    * answer belongs here too. Same query key as the Library's, so the two share one cached
    * reading rather than sampling a rate-limited endpoint twice.
+   *
+   * Asked only with the Fellows wired: the route is theirs, and without the guard this screen,
+   * mounted behind [hidden] on every visit, cost one 404 per mount and minute with the flag off
+   * (hard rule 8; found by the domain split's flag-off walk, TASKS-DOMAIN-SPLIT E10).
    */
-  const planQ = useQuery({ queryKey: ['usage-plan'], queryFn: api.usagePlan, refetchInterval: 60_000, retry: false })
+  const planQ = useQuery({
+    queryKey: ['usage-plan'],
+    queryFn: api.usagePlan,
+    enabled: health.data?.fellows === true,
+    refetchInterval: 60_000,
+    retry: false,
+  })
   const corner = planCorner(planQ.data, Date.now())
 
   const sessionsQ = useQuery({ queryKey: ['sessions'], queryFn: api.sessions })
