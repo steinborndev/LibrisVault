@@ -381,20 +381,28 @@ Started 2026-09-23 on the user's word, on the same branch.
 
 In `server/src/pipeline/domains.ts`, pure, beside `appendDomainSection`.
 
-- [ ] **4.1 `replaceDomainSection(markdown, key, entry)`**: replaces exactly the section of
+- [x] **4.1 `replaceDomainSection(markdown, key, entry)`**: replaces exactly the section of
       `key`, from its `## key` heading to the next `## ` heading or the end, and preserves every
       other byte. Null when the key is missing.
-- [ ] **4.2 `insertDomainSectionsAfter(markdown, afterKey, entries)`**: inserts the sections
+      **Done.** The whitespace that separated the section from the next one is kept as it was, so
+      "every other byte" includes the blank lines around it.
+- [x] **4.2 `insertDomainSectionsAfter(markdown, afterKey, entries)`**: inserts the sections
       directly after `afterKey`'s, in the given order and in the shape `appendDomainSection`
       writes. Null when `afterKey` is missing or any key exists already.
-- [ ] **4.3 `applyRegistrySplit(markdown, { parent, children })`** composes the two and returns
+- [x] **4.3 `applyRegistrySplit(markdown, { parent, children })`** composes the two and returns
       the new text or a typed refusal: `unknown-parent`, `duplicate-key`, `invalid-key`,
       `reserved-key` (`meta`, `unassigned`).
-- [ ] **4.4 The deterministic parent draft**, the floor under the naming pass: the parent's old
+      **Done**, with `parentEntry` beside `parent` and `children` in its argument: the narrowed
+      entry is part of the same write (D8).
+- [x] **4.4 The deterministic parent draft**, the floor under the naming pass: the parent's old
       description with one sentence appended that names what now has its own domain ("Pages on
       `a`, `b` and `c` have their own domains."), and its tag hints minus every tag a promoted
       child lists. Shown as a diff and editable in phase 6.
-- [ ] **4.5 The seed's conventions** (`scripts/vault-extensions/domains.md`) gain D1's sentence:
+      **Done** as `draftParentEntry` in `domains.ts`, hand-mirrored in `web/src/lib/domainDraft.ts`
+      (the decision surface shows it before any request) and pinned by the same cases in both
+      suites. A promoted group without a key yet stays out of the sentence, and its tags leave the
+      parent all the same.
+- [x] **4.5 The seed's conventions** (`scripts/vault-extensions/domains.md`) gain D1's sentence:
       altitude is judged against the vault's volume; a domain that outgrows a shelf is split into
       peers, and the part that stays keeps the old key with a narrowed description. The installed
       copy belongs to the user and is amended by hand (8.6).
@@ -408,27 +416,41 @@ parent draft never keeps a tag a child lists.
 **DoD:** tests green; `applyRegistrySplit` over the E2E copy's registry (stage E5) changes only
 the parent section and adds only the new ones.
 
+**Phase 4 measured.** `domains.test.ts` 29 tests, 11 of them new; the three commands exit 0. On the
+E2E copy: the plan's registry diff removes 5 lines, all of them the parent's, and adds the three
+new sections in order (E5); after the apply every other section of the real registry is
+byte-identical and the children stand directly after the parent (E6).
+
 ## Phase 5: the writer
 
 `server/src/pipeline/domain-split-write.ts`. Hard rule 1's order throughout: the vault's per-file
 locks OUTSIDE the commit mutex; the writes and the commit inside it.
 
-- [ ] **5.1 The request:** `{ parent, parentEntry: { description, tags }, children: [{ key,
+- [x] **5.1 The request:** `{ parent, parentEntry: { description, tags }, children: [{ key,
       description, tags, pages: [{ address, path }] }] }`. A merged shelf is simply one child
       with the union of the pages; the server knows nothing about merges. Validated before
       anything else: keys valid, new and not reserved; at least one child; every address listed
       once.
-- [ ] **5.2 `planSplit`**, read-only: the registry diff; one line pair per page (`domain:
+      **Done** as `parseSplitRequest`. "New" is asked of the registry by the plan and the apply,
+      not by the parser, so it cannot go stale between the two; a child with no pages, or with the
+      parent's own key, is refused as well.
+- [x] **5.2 `planSplit`**, read-only: the registry diff; one line pair per page (`domain:
       <parent>` to `domain: <child>`); what `wiki/index.md` will show per heading; and a verdict
       per page: `ok`, `gone` (the address resolves to no page), `moved` (its `domain:` is no
       longer the parent), `unaddressed`. Warnings: the parent keeps fewer than `SHELF_MIN_PAGES`;
       a child key collides with a tag (both counts, from `keyCollision`); a child carries the
       misfiling warning.
-- [ ] **5.3 Refusals before any lock**, typed errors answered with 409 at the route: while
+      **Done.** A child carries the misfiling warning when it is mostly made of a shelf that
+      does: a merge inherits it.
+- [x] **5.3 Refusals before any lock**, typed errors answered with 409 at the route: while
       `RunRegistry.activeRuns > 0` ("a run is writing the vault"); while the service's git
       auto-commit setting is off ("a split is only offered with commits on, because its undo is
       a revert"). Demo mode refuses every non-GET already (403), the plan included.
-- [ ] **5.4 `applySplit`**, in this order:
+      **Done, and one name differs:** `RunRegistry` was not reachable from a route. `main.ts`
+      built one and handed it to the queue and the maintenance runner only; it now reaches the
+      routes as `ctx.runRegistry`, the same instance. The check and the registration run with no
+      `await` between them, so no run can start in the gap.
+- [x] **5.4 `applySplit`**, in this order:
   1. `runRegistry.begin()` for the whole apply, so no run that starts meanwhile can count itself
      the sole writer and sweep the split's files as its own leftovers (the F4 discipline
      `run-registry.ts` describes);
@@ -445,20 +467,34 @@ locks OUTSIDE the commit mutex; the writes and the commit inside it.
   5. read every written page back and report any whose `domain:` is not its child key;
   6. record the split (5.6) and return `{ commit, written, skipped: [{ address, reason }],
      verified }`.
-- [ ] **5.5 `applyRemainder(splitId)`**: the same writer over the pages of an applied split whose
+
+  **Done**, with two additions. Everything is computed inside the mutex before the first byte is
+  written, and a commit that fails puts every file back and unstages it: the apply is all or
+  nothing. And the route checks the written pages afterwards under `tag-mirroring` and `dates`
+  only, the two rules that read what a split writes. Under every rule, on the copy, one split
+  booked 158 findings on its 218 pages (`page-schema` 95, `open-question-form` 34, `title-name`
+  24 and four more), all of them there before the split and unseen only because nothing had
+  re-read those pages since their rule arrived; booked by a split, they would read as its doing.
+  **Measured: 68.8 s for 311 pages on the server.** The time is the vault's lock script, about
+  0.1 s per call and two calls per page; the lock module is shared and was not changed for
+  this. The preview says so ("a few hundred pages take about a minute").
+- [x] **5.5 `applyRemainder(splitId)`**: the same writer over the pages of an applied split whose
       `domain:` is still, or again, the parent. The registry is untouched (its sections exist);
       one commit, subject `domains: re-file <n> pages after the split of <parent>`, added to the
       split's record.
-- [ ] **5.6 Migration 37:** `domain_splits (id, user_id DEFAULT 'local', parent, children JSON
+- [x] **5.6 Migration 37:** `domain_splits (id, user_id DEFAULT 'local', parent, children JSON
       [{ key, addresses }], commits JSON, created_at, reverted_at)`. Operational state only:
       losing it loses the remainder and revert conveniences and nothing of the vault, because the
       split commit names every page it moved (SPEC §8).
-- [ ] **5.7 Routes:** `POST /api/v1/domains/:key/split/plan`, `POST
+      **Done**, with 6.3's table in the same migration. Store: `server/src/db/domain-splits.ts`.
+- [x] **5.7 Routes:** `POST /api/v1/domains/:key/split/plan`, `POST
       /api/v1/domains/:key/split/apply`, `GET /api/v1/domains/splits` (applied splits, each with
       its commits and live remainder count), `POST /api/v1/domains/splits/:id/remainder`. All base
       product, all in the flag-off test's `UNGATED` group.
 - [ ] **5.8 Hard rule 1:** the writer's row in CLAUDE.md's writer table (appendix B) BEFORE the
       branch merges, and a note on the hubs row that it has a new caller.
+      **Drafted** in appendix B, both the row and the hubs note; CLAUDE.md waits for the user's
+      word (8.5).
 
 **Tests** (`server/test/domain-split-write.test.ts`, against real git in a temp fixture vault, the
 way `reconcile.test.ts` and the revert tests work):
@@ -483,43 +519,84 @@ way `reconcile.test.ts` and the revert tests work):
 **DoD:** the three commands green; stage E6 on the E2E copy, with the duration of the apply
 recorded.
 
+**Phase 5 measured.** `domain-split-write.test.ts` 22 tests against real git (the list above,
+plus the request parser, the line change keeping its quoting, and a failed commit leaving the
+tree clean), `domain-split-route.test.ts` 5 more for the write routes (demo 403, the 409s, the
+leave and defer memory, the naming pass on the read-only path, an apply through the route);
+`agents-flag-off.test.ts` asserts every write route registered with the flag off. The three
+commands exit 0. E6 on the copy: under **E2E results**, milestone B; the apply took 68.8 s.
+
+**Two findings on the way, neither touching D1 to D18.**
+
+1. **The batch lock called a refused path busy, for good.** `withWikiLocks` reported every
+   non-zero acquire as `busy`; the single form has always written such a page unlocked. The
+   vault's script refuses a path containing `..` with exit 4, and two pages of the largest
+   domain carry one (a title ending in a full stop). In a development run they were skipped as
+   `busy` by the split and would have been by every remainder re-file after it. Fixed in the
+   shared module as its own commit (`fix(wiki-lock): …`), with a test.
+2. **The post-write validation** described under 5.4.
+
 ## Phase 6: the decision surface
 
-- [ ] **6.1 Decisions per shelf** in the phase-3 panel, now with controls: promote, leave, defer,
+- [x] **6.1 Decisions per shelf** in the phase-3 panel, now with controls: promote, leave, defer,
       and "merge with" another shelf. A promoted shelf gets a key field (checked while typing:
       `isValidDomainKey`, not an existing key, and the two collision counts of `keyCollision`), a
       description (drafted by `draftDomainDescription`, with the landmarks beside it as the
       evidence) and tags (the shelf's, editable). Below them the parent section as a diff against
       its current entry (4.4's draft), and the before-and-after figures from `splitShelves.ts`,
       recomputed on every change. The decision state is a pure reducer in `web/src/lib/`.
-- [ ] **6.2 The naming pass**, optional: `POST /api/v1/domains/:key/split/naming` starts the
+      **Done** as `web/src/lib/splitDecisions.ts`. A field shows the user's edit, then the naming
+      pass's answer, then the draft; a key is never drafted, because the obvious draft is the top
+      tag D7 forbids. The collision counts are computed in the browser from the graph it already
+      holds (`keyCollisionOf`, the server's `keyCollision` mirrored), so they move as the key is
+      typed.
+- [x] **6.2 The naming pass**, optional: `POST /api/v1/domains/:key/split/naming` starts the
       maintenance kind `split-naming` through the read-only run path (`runReadOnly`, `query`
       profile: no writer registration, no sweep, no commit) with the chosen shelves' landmarks,
       sizes and tags, the other registry keys, and the parent's entry. It answers per shelf a
       key, a description and tags, and for the parent a narrowed description and tags, in a fixed
       block format parsed leniently like `parseDomainReview`. Its answers fill the fields; the
       user's own edits win.
-- [ ] **6.3 Memory, migration 38:** `domain_split_decisions (user_id, parent, fingerprint,
+      **Done** (`pipeline/split-naming.ts`). The body names GROUPS of shelf ids, a merge being a
+      group of two; the route reads their landmarks, sizes and tags from the proposal itself, so
+      the prompt carries what the proposal says and nothing a client made up. The read-only path
+      now says in the run's own log that it is one, which is what E4 reads.
+- [x] **6.3 Memory, migration 38:** `domain_split_decisions (user_id, parent, fingerprint,
       decision 'leave' | 'defer', decided_at, PRIMARY KEY (user_id, parent, fingerprint))`. A left
       shelf is not proposed again while its fingerprint holds; a deferred one comes back at the
       next maintenance run; both can be restored. (Folded into migration 37 if both land in one
       branch.)
-- [ ] **6.4 Plan, then apply:** "Preview" shows the plan (registry diff, pages per child, skipped
+      **Done, folded into 37.** What "comes back at the next maintenance run" means, since the
+      plan did not say: a left shelf is listed under the cards as left, with restore; a deferred
+      one stays a card, marked deferred and starting at "defer" in the panel, and starts open
+      again in the guided run, which is the next maintenance run. Leave and defer are stored the
+      moment they are clicked, not at an apply. The decisions ride beside the proposal in the GET
+      route's answer as `decisions`, never in the memoised proposal, so E3's byte comparison with
+      `splitprobe` drops that one field.
+- [x] **6.4 Plan, then apply:** "Preview" shows the plan (registry diff, pages per child, skipped
       pages with their reasons, warnings); "Apply" is the two-step confirm every other vault
       write of the dashboard uses. The summary names the commit, the written count, the skipped
       pages and the remainder.
-- [ ] **6.5 Applied splits** under the panel, each with its commits, its live remainder and
+- [x] **6.5 Applied splits** under the panel, each with its commits, its live remainder and
       "re-file the remainder".
-- [ ] **6.6 Revert (D17):** `POST /api/v1/domains/splits/:id/revert` reverts the split's commits
+- [x] **6.6 Revert (D17):** `POST /api/v1/domains/splits/:id/revert` reverts the split's commits
       newest first through `revertCommit` (clean tree, conflict abort, behind the commit mutex).
       It refuses, naming the pages, while any page outside those commits carries one of the
       split's child keys. On success the record is marked reverted.
-- [ ] **6.7 The guided maintenance run** (SPEC §12.7) gains the split as a decision step that
+      **Done, with two consequences of `revertCommit` the plan did not state.** It leaves the hubs
+      and the address counter alone on purpose, so the split's revert re-renders
+      `wiki/index.md` in a commit of its own afterwards; and its subject was fixed at `revert
+      ingest …`, so it takes the caller's (`domains: revert <hash>, part of the split of
+      <parent>`). A conflict on a later commit resets HEAD to where this call found it, undoing the
+      reverts it had already made. E9's "diff prints nothing" is therefore asked with the same
+      paths left out that `revertCommit` documents (the hubs, the counter), and after the hand
+      move of E6 is reverted by hand too.
+- [x] **6.7 The guided maintenance run** (SPEC §12.7) gains the split as a decision step that
       embeds THE SAME component as the panel: one implementation per decision surface.
-- [ ] **6.8 Fellows (hard rule 8):** when `health.fellows` is true, the panel lists the Fellows
+- [x] **6.8 Fellows (hard rule 8):** when `health.fellows` is true, the panel lists the Fellows
       whose home domain is the parent and what each would keep, from the existing `GET
       /api/v1/agents`. With the flag off the line is not rendered and the request is not made.
-- [ ] **6.9 Leave and defer routes:** `POST /api/v1/domains/:key/split/decisions` and `DELETE
+- [x] **6.9 Leave and defer routes:** `POST /api/v1/domains/:key/split/decisions` and `DELETE
       /api/v1/domains/:key/split/decisions/:fingerprint`, in the `UNGATED` group.
 
 **Tests:** the naming prompt (it carries the shelves and the existing keys and asks for no edit)
@@ -531,6 +608,23 @@ names the orphaned pages, a conflict aborts and leaves the tree byte-identical);
 proves no Fellow request.
 
 **DoD:** the three commands green; stages E4 to E9 on the E2E copy.
+
+**Phase 6 measured.** `split-naming.test.ts` 5 tests (prompt, parser well-formed, drifted,
+partial, prose); `splitDecisions.test.ts` 15 (the reducer, the memory, the fields, the plan
+request, the web mirror of the parent draft, the key collision); `maintenanceStatus.test.ts` 2
+more for the guided run's split step. The naming pass's `query` profile is asserted through the
+route with a runner mock, the revert against real git in `domain-split-write.test.ts`. That the
+Fellow line asks nothing with the flag off is read from E10's network log, not from a unit test:
+the web suite renders no components. The three commands exit 0. E4 to E9: under **E2E results**.
+
+**One finding on D15, and no change proposed.** The fingerprint holds for the shelf that was
+left (28 pages before and after, the same three landmarks) and does NOT hold for the one that
+was deferred: once its neighbours were promoted, 15 of its 67 pages fell back to the rest, its
+size band went from 6 to 5 and one of its three landmarks changed. So it came back open, not
+marked deferred. That is D15 as written ("while its fingerprint holds"), and for a defer it
+costs nothing, since a defer is meant to come back. For a LEAVE it would mean a left shelf is
+asked about again after a split of its siblings changes it; whether that is right is a question
+for the first real split (8.7), not a defect.
 
 ---
 
@@ -549,7 +643,7 @@ E0**, the `[A]` stages again too, because the branch has changed under them sinc
 Whatever environment came before (a development loop's, or the one Gate A left behind) is
 removed first.
 
-- [ ] **7.1 `scripts/e2e-domain-split.mjs`**, the scripted half. It REFUSES to start unless the
+- [x] **7.1 `scripts/e2e-domain-split.mjs`**, the scripted half. It REFUSES to start unless the
       process listening on `--port` has, in its `/proc/<pid>/environ`, a `VAULT_ROOT` equal to
       `--vault`, and that path is not `~/vault` by realpath. Each check prints PASS or FAIL with
       its numbers; the run ends with a summary and a non-zero exit on any FAIL. It records the
@@ -560,6 +654,15 @@ removed first.
       before the instance exists: it asserts the port is FREE instead. E1 and E11 read files and
       the live instance only. E12 stops the instance by the rule written below and leaves the
       worktree and the copy to be removed by hand.
+      **[B] written.** E4, E5 and E6 run in ONE browser page (`--stage E4,E5,E6`), because the
+      decisions live in the page. `--naming` runs the paid pass, `--keys` types three keys by hand
+      for a free development run; `--doc`/`--url` feed E8, and `--job` re-reads a job that already
+      ran instead of paying for a second upload. Four things the runbook left open, decided in the
+      script: E4 restores decisions a development loop left behind before it decides; the walk
+      expects no card for a shelf stored as left; E6's "the deferred one is proposed" counts a
+      shelf holding most of its pages, whether or not its fingerprint held (phase 6, the finding
+      on D15); and E9 reverts the hand move of E6 by hand before it compares, and leaves out of the
+      comparison exactly what `revertCommit` leaves alone (the hubs, the address counter).
 
 ### E0: preconditions `[A]`
 
@@ -769,24 +872,88 @@ The copy's HEAD did not move in any stage: no background commit on the copy.
 A development loop ran before the gate (tsx instance on an earlier copy, Vite with a proxy):
 17 PASS there; that copy was deleted before the gate's fresh E0.
 
+### Milestone B, 2026-09-23 (the final run, E0 to E12 fresh)
+
+Gate A's environment removed first (the instance stopped, the worktree unregistered, the copy
+deleted). Live vault HEAD `dd0fe9a2` throughout; the copy taken at 11:17 in 8.4 s, the worktree
+detached at the branch tip `08608e8` and built there; the main tree's `web/dist` untouched (its
+`index.html` still dated 2026-09-22). Every stage run by `scripts/e2e-domain-split.mjs`;
+screenshots under `$E/shots` only.
+
+| Stage | Result | Numbers |
+|---|---|---|
+| E0 | 10 PASS | live `inFlight` 0, no maintenance run, live vault clean, hour 11, port free, 959 GB free, the three commands exit 0; live jobs `done` 46, `cancelled` 1 |
+| E1 | 4 PASS | the copy's HEAD equals the live one, clean, both push URLs disabled, `user_version` 36 on both; `fsck` exit 0 |
+| E2 | 7 PASS | pid on 8435 with the copy's `VAULT_ROOT`, bot token empty, the log names the copy and `telegram: off`, health shows 46 + 1 jobs, **`user_version` 37**, `quick_check` ok. Migration 37 on the real snapshot: 24 tables, 17 281 rows, 0 tables with another count than the live file, `foreign_key_check` empty |
+| E3 | 18 PASS | the Gate A numbers again: 537 pages, 8 shelves 161, 67, 59, 49, 44, 34, 30, 28, 65 with the parent; the route byte-identical to `splitprobe --json` (without `decisions`); another seed 0 of 537, three days back 4 of 517; 9 chips, 8 hulls, 9 of 9 narrow Graph and Catalog; the status item names 41 %; 8 cards in rank order; [B] a promote opens the decision surface; 0 of 132 responses 404 |
+| E4 | 15 PASS | the decision set by clicks: ranks 1 and 2 promoted, ranks 3 and 4 merged, rank 5 left, rank 6 deferred; both remembered on the server. The naming pass: 202, settled `done`, 3 of 3 shelves named, **$0.45**; its log says `query` profile; HEAD unmoved, copy clean, no commit. Pages carrying each coined key as a tag: 0, 0, 0; the parent's description differs from the old one |
+| E5 | 8 PASS | 3 children, 313 pages; every line pair parent to child; the registry diff removes 5 lines, all the parent's, and adds the 3 sections in order; warnings: none (no promoted shelf is the misfiling one); nothing written |
+| E6 | 19 PASS | **68.8 s on the server** for 311 pages; ONE commit (`3a5a444`) of 313 files: registry, index, 311 pages; 1244 changed lines, every one `domain:` or `updated:`; `content_updated:` untouched; the locked page skipped `busy`, the hand-moved one `moved`; all 311 read back; the children directly after the parent, every other registry section byte-identical; the index states and lists 58, 160, 93; tag-mirroring 0 to 0, the standing list otherwise unchanged; `fsck` 0; Graph 58, 160, 93; the Library places 3 of 3; the Catalog lists 58 rows. The proposal afterwards: 4 shelves over 225 pages, none holding a moved page; the left shelf's fingerprint holds and it has no card (3 cards); the deferred shelf returns as a shelf of 52 holding 52 of its 67 pages, fingerprint changed |
+| E7 | 5 PASS | remainder 1 (the busy page); re-filed through the panel: one commit (`04a9606`) of exactly that page and the index; remainder 0, the split holds both commits; the hand-moved page not remainder |
+| E8 | 3 PASS, 1 FAIL, then 2 PASS | the upload accepted, no duplicate; **during the run the remainder re-file answered 409 `run-active`**; the job `done`, **$3.58**. The FAIL was the script's (below); re-read with `--job`: the commit (`9a12c49`) has 15 files and creates **2 knowledge pages, both carrying the CHILD key** of the largest promoted shelf, 0 the parent's. No existing page's `domain:` changed |
+| E9 | 9 PASS | the revert refused with 409 `orphans`, naming exactly the 2 pages of E8; the E8 job reverted; then the split: its 2 commits newest first, then the index; the record marked reverted; after the hand move's own revert, `git diff` against the tree before E6 is empty outside the 5 files left alone by design (index, log, overview, hot cache, address counter); the proposal is E3's again, sizes and fingerprints |
+| E10, flag off | 15 PASS | `health.fellows` the boolean `false`; the walk passes with 7 cards and 1 left (E4's leave); a promote opens the surface; 0 of 116 responses 404; 0 requests to a Fellow route |
+| E10, demo | 11 PASS | `demoMode` true; 7 of 7 split writes answer 403 `demo_read_only`; the Graph and Catalog walk pass; System stays switched off, and with it every split control, so "disabled rather than hidden" has nothing to show in the demo; 0 of 125 responses 404 |
+| E11 | 4 PASS | the live vault's HEAD equals E0's and is clean; the live jobs equal E0's; the live UI's 2 assets answer 200; `curious.service` still the process started at 08:53 |
+| E12 | PASS | the instance stopped by pid (environ `PORT=8435`, comm `node`); the worktree removed after these results were recorded; the copy stays until the user agrees |
+
+`npm run permprobe` against the COPY (8.3), not the live vault: `canary outside vault: blocked`,
+`canary in skills/: blocked`, the expand probe PASS; the copy's HEAD unmoved and clean after it.
+
+The copy's HEAD moved only by the stages' own commits: E6 the hand move and the split, E7 the
+re-file, E8 the ingest, E9 two reverts, the index re-render, the job's revert and the hand move's.
+
+**Three findings, none touching D1 to D18.**
+
+1. **E8's first read was the script's race, not the product's.** A job reads `done` a moment
+   before the queue commits and stores its hash; the script read it in that moment and saw no
+   pages. It now waits for the hash; the job was re-read with `--job`, not paid for twice.
+2. **E8 cost $3.58**, against the plan's estimate of $1 to $2 (49 turns for one PDF).
+3. **An apply takes about a minute per 300 pages**, spent in the vault's lock script (phase 5).
+
+A development loop ran before this (tsx instance on the Gate A copy, Vite with a proxy, keys typed
+by hand, no paid stage). It found the lock and validation findings of phase 5 and the D15 finding
+of phase 6, and the script corrections above; that copy was deleted before this run's fresh E0.
+
 ---
 
 ## Phase 8: acceptance and documentation
 
 Nothing of this branch merges before this: phase 8 is the gate of the one merge.
 
-- [ ] **8.1** `npm test`, `npm run typecheck`, `npm run lint`: green and exit 0, the file and test
+- [x] **8.1** `npm test`, `npm run typecheck`, `npm run lint`: green and exit 0, the file and test
       counts recorded.
-- [ ] **8.2** Phase 7 complete: every stage PASS, or its failure written up above with the fix.
-- [ ] **8.3** `npm run permprobe`: the naming pass adds a run kind on existing permission wiring
+      **2026-09-23, branch tip:** server 123 files, 2082 tests; web 69 files, 745 tests; all three
+      exit 0. New since Gate A: 2 server files (`domain-split-write`, `split-naming`) and 1 web
+      file (`splitDecisions`), plus tests added to `domains`, `domain-split-route`,
+      `agents-flag-off`, `wiki-lock` and `maintenanceStatus`.
+- [x] **8.2** Phase 7 complete: every stage PASS, or its failure written up above with the fix.
+      **Complete.** One FAIL (E8's first read), the script's, written up with its fix; every other
+      check PASS.
+- [x] **8.3** `npm run permprobe`: the naming pass adds a run kind on existing permission wiring
       (the `query` profile), so this is a check rather than a fix. Expect `canary outside vault:
       blocked`.
-- [ ] **8.4** `scripts/vault-name-scan.mjs --diff main` over the branch and `--file` over the PR
+      **`canary outside vault: blocked`**, run against the E2E copy (the probe runs a real agent
+      and aims a canary at the vault it is given; `~/vault` is written by nothing in this work).
+- [x] **8.4** `scripts/vault-name-scan.mjs --diff main` over the branch and `--file` over the PR
       body; strings and fixtures read by eye.
+      **Clean.** `--diff main`: nothing matched over 2336 terms; `--file` over the task file,
+      `docs/API.md`, `CHANGELOG.md` and a drafted merge text: nothing matched. By hand, against
+      147 terms the scan cannot know (every registry key of the copy, its tag hints, the three
+      coined keys, the original proposal's tags and landmark titles): the one real hit was the new
+      split cases in `domains.test.ts` and `splitDecisions.test.ts`, which named children and tags
+      a real vault carries; they were made synthetic (`test: synthetic names …`). What remains are
+      two keys of the registry fixture already on `main`, in that same file, because the cases run
+      against it.
 - [ ] **8.5** Docs owed: `docs/API.md` (every new route), `CHANGELOG.md` (the milestone-A entry
       grows into the feature's one entry), SPEC.md §12.4 stage 4 with both parts (appendix A),
       CLAUDE.md's writer table (appendix B), the seed's conventions (4.5). SPEC.md and CLAUDE.md
       only on the user's word.
+      **Written:** `docs/API.md` (every new route), `CHANGELOG.md` (one entry for the feature,
+      still dated `2026-09-xx`), the seed's conventions (4.5). **Ready, waiting for the user's
+      word:** SPEC.md §12.4 stage 4, both parts (appendix A, part two aligned with what was built:
+      the revert re-renders the index; leave and defer), and the CLAUDE.md writer row with the note
+      on the hubs row (appendix B).
 - [ ] **8.6** The user amends the installed registry's conventions by hand in the page editor:
       the one sentence of 4.5.
 - [ ] **8.7** Not part of this work, and written down so it is not mistaken for it: the first real
@@ -828,7 +995,9 @@ parts land together, with the one merge.
 > address and each only while it still carries the parent key; and `wiki/index.md`. It stamps
 > `updated:`, never `content_updated:`. It refuses while an agent run writes and while auto-commit
 > is off. Pages that did not move form a visible remainder with its own re-file. A revert reverts
-> the split's own commits and refuses while other pages carry its keys. The registry conventions
+> the split's own commits newest first, re-renders the index, and refuses while other pages carry
+> its keys. A left shelf is remembered by its fingerprint and not proposed again while that holds;
+> a deferred one comes back at the next guided maintenance run. The registry conventions
 > gain one sentence: altitude is judged against the vault's volume, and a domain that outgrows a
 > shelf is split into peers, the part that stays keeping the old key with a narrowed description.
 
@@ -840,6 +1009,17 @@ parts land together, with the one merge.
 
 With one sentence under the table: the registry now has two writers, `api/routes/domains.ts`
 (append) and the split writer (narrow and insert), both under the registry's own per-file lock.
+
+And the note on the hubs row (5.8), appended to its "What it writes" cell:
+
+> Since the domain split, `renderIndex` has a caller that is not a run: the split writer renders
+> `wiki/index.md` into its own commit, under the index's per-file lock, which it takes itself -
+> the one place the index is written by a user action rather than a run's commit. A split's
+> revert re-renders it once more in a commit of its own, because `revertCommit` leaves the hubs
+> alone.
+
+Measured facts for the row, from phase 7: one apply of 311 pages is one commit of 313 files and
+takes about 69 s, almost all of it the vault's lock script run twice per page.
 
 ## Appendix C: the API
 
