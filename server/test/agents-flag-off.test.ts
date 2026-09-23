@@ -86,6 +86,10 @@ const UNGATED: ReadonlyArray<readonly [string, string]> = [
   // whether or not the research agents exist, so a screen asking a Fellow-only route for it
   // would 404 on every mount with the flag off - which is the class hard rule 8 is about.
   ['GET', '/api/v1/validation'],
+  // The domain-split proposal (TASKS-DOMAIN-SPLIT 2.5): it corrects the base product's own
+  // registry loop. Asked of a domain the fixture registry below lists, because an unlisted key
+  // is a 404 by design.
+  ['GET', '/api/v1/domains/alpha/split'],
 ]
 
 describe('with the Fellows extension unwired', () => {
@@ -149,7 +153,8 @@ describe('with the Fellows extension unwired', () => {
   beforeEach(() => {
     db = openDb(MEMORY_DB)
     vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flagoff-'))
-    fs.mkdirSync(path.join(vaultRoot, 'wiki'), { recursive: true })
+    fs.mkdirSync(path.join(vaultRoot, 'wiki/meta'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki/meta/domains.md'), '## Domains\n\n## alpha\n\nA synthetic domain.\n')
   })
   afterEach(async () => {
     await app?.close()
