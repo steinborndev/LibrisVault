@@ -180,3 +180,27 @@ export function largestDepartment(nodes: readonly GraphNode[]): { domain: string
     if (best === null || pages > best.pages) best = { domain, pages }
   return best === null ? null : { ...best, share: knowledge > 0 ? best.pages / knowledge : 0 }
 }
+
+/**
+ * The collision cost of a key being typed (TASKS-DOMAIN-SPLIT 6.1, D7): the pages inside the new
+ * domain and the pages elsewhere in the vault that carry `key` as a tag. Each page inside would
+ * book a `tag-mirroring` finding the moment the key is its `domain:`. Case-insensitive and over
+ * every page of any kind, like the server's `keyCollision`, which this mirrors so the counts
+ * move as the user types rather than after a round trip.
+ */
+export function keyCollisionOf(
+  nodes: ReadonlyArray<Pick<GraphNode, 'path' | 'tags'>>,
+  paths: ReadonlySet<string>,
+  key: string,
+): { inside: number; elsewhere: number } {
+  const k = key.trim().toLowerCase()
+  if (k === '') return { inside: 0, elsewhere: 0 }
+  let inside = 0
+  let elsewhere = 0
+  for (const n of nodes) {
+    if (!n.tags.some((t) => t.toLowerCase() === k)) continue
+    if (paths.has(n.path)) inside++
+    else elsewhere++
+  }
+  return { inside, elsewhere }
+}
