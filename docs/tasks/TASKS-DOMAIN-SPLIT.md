@@ -978,6 +978,29 @@ Nothing of this branch merges before this: phase 8 is the gate of the one merge.
       read as overlapping shelves, which they never are. What stays of the view is the Catalog's
       shelf chips and the System panel.
 
+      **The first real split, 2026-09-23, by the user on the live instance.** Before it: a full
+      copy `~/vault-backup-2026-09-23` (`.git` included, `fsck` ok), the vault tag
+      `pre-domain-split-2026-09-23` at `dd0fe9a`, a database backup, and the audit saved. One
+      shelf promoted, named by the naming pass ($0.41, `done`, no commit, the vault untouched).
+      The apply: commit **`1dd21fd6`**, 61 files (the registry, the index, 59 pages), 3.8 s;
+      236 changed page lines, every one `domain:` or `updated:`, `content_updated:` untouched;
+      the registry went from 22 to 23 sections with the new one directly after the parent and
+      every other section and the conventions byte-identical; the index states and lists 59 under
+      the new heading; remainder 0; 0 `tag-mirroring` findings; the vault clean, no lock left.
+      The parent's proposal afterwards: 478 pages, 8 shelves, 72 with the rest.
+
+      **Audit diff and one finding.** Against the saved audit, 13 numeric fields moved: the index's
+      size and version, git's blob counts, and **4 more links, one more dead link** (130 to 131).
+      The naming pass had written four wikilinks into the parent's registry description, one of
+      them to the new domain key, which no page carries. Not the writer's fault, but a registry
+      description is read word for word by every ingest. Fixed in code the same day
+      (`fix(domains): registry descriptions of a split are plain text`: the prompt asks for plain
+      text, its parser and the split request turn links back into their words), and in the vault
+      by a user edit through the page route, commit `23704dd` (the one description line, plus the
+      `updated:`/`content_updated:` stamps a user edit writes). The links are back at 26 010 and
+      the dead ones at 130, the values before the split. Also the same day: the empty key field
+      offers the naming pass itself (`feat(web): draft names with the agent …`).
+
 ---
 
 ## Appendix A: SPEC.md §12.4, stage 4 (draft)
