@@ -339,8 +339,9 @@ under **E2E results**.
 - [x] **A.1** `npm test`, `npm run typecheck`, `npm run lint`: green and exit 0, with the file
       and test counts recorded.
       **2026-09-23, branch at the gate:** server 121 files, 2037 tests; web 68 files, 728 tests;
-      all three exit 0. Against main before the branch: +1 and +6 server files and tests beyond
-      the 120 and 2031 of phase 1's first run, web +1 file.
+      all three exit 0. New on the branch: 3 server files (`communities`, `domain-split-engine`,
+      `domain-split-route`) and 2 web files (`communities-parity`, `splitShelves`), plus tests
+      added to `agents-flag-off` and `maintenanceStatus`.
 - [x] **A.2** Phase 7's `[A]` stages (E0 to E3, the `[A]` half of E10, E11, E12), with the `[A]`
       half of `scripts/e2e-domain-split.mjs` (7.1), which is written in this milestone. Results
       recorded under **E2E results**.
