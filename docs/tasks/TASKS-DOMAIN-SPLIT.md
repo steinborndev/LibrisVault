@@ -12,19 +12,21 @@ The measurements and the reasoning behind every decision below are in
 This file does not repeat the argument. It states the decisions, the phases, what each phase
 has to prove, and the final end-to-end test.
 
-**Two milestones, two merges, and a gate between them.** Milestone A (phases 1 to 3) ships the
-proposal as a view and writes nothing. Milestone B (phases 4 to 6) adds the write. Between them
-the user lives with the view for at least a week: that is the best test of whether the shelves
-are right before several hundred pages move, and the view alone may already answer the everyday
-complaint (analysis, R13). Phase 7 is the final end-to-end test against a throwaway copy of the
-vault; its read-only half is also milestone A's gate. Phase 8 is acceptance. This departs from
-`TASKS-DEFECT-PATHS.md`, whose phases were stages of one merge, on purpose: here the first
-milestone is useful on its own, and the second one is a decision the first one informs.
+**Two milestones, one merge** (changed 2026-09-23, after milestone A was built). Milestone A
+(phases 1 to 3) is the proposal as a view and writes nothing; milestone B (phases 4 to 6) adds
+the write. Both live on one branch, `feat/domain-split`, and it merges ONCE, after phase 8, like
+the phases of `TASKS-DEFECT-PATHS.md`. Gate A stays as the checkpoint at which milestone A was
+measured on its own. The first version of this plan merged A alone and then asked for a week of
+use before B; the user dropped both on 2026-09-23, for two reasons. The safety that week was to
+buy already lives in B: a preview before any write, one commit, one revert, and phase 7 on a
+throwaway copy. And A alone on `main` would have shown a status item recommending a split that
+nobody could perform. The questions the week was to answer are asked at the first real split
+instead (see the usage gate below). Phase 7 is the final end-to-end test against a throwaway
+copy of the vault; phase 8 is acceptance.
 
-**Built under decision R2 (a): flat, with the registry convention amended.** The analysis left
-one decision to the user: split into peers (a), or introduce a second level of domains (b).
-This plan assumes (a), the analysis's recommendation. If (b) is chosen, phases 1 to 3 stand as
-written and phases 4 to 6 are void.
+**Decision R2: (a), flat, with the registry convention amended** (the user, 2026-09-23, with
+the go-ahead for milestone B). The analysis left one decision open: split into peers (a), or
+introduce a second level of domains (b). Milestone B builds (a).
 
 **Read first:** SPEC.md §12.4 (all three stages), §12.7 (the guided maintenance run), §12.12 (the
 hubs are service-owned), §12.13 (`updated:` and `content_updated:`); CLAUDE.md hard rules 1, 4,
@@ -334,7 +336,7 @@ filter alone keeps entity-shaped tags out on this vault. The UI walk ran first a
 development loop (tsx instance on the copy, Vite with a proxy): 17 PASS, 0 FAIL. The gate run is
 under **E2E results**.
 
-## Gate A: acceptance of milestone A
+## Gate A: the checkpoint after milestone A
 
 - [x] **A.1** `npm test`, `npm run typecheck`, `npm run lint`: green and exit 0, with the file
       and test counts recorded.
@@ -352,23 +354,28 @@ under **E2E results**.
       against 90 terms it cannot know (every domain key of the vault, the 32 proposed tag hints,
       the 40 landmark titles of the largest domain): 0 hits. Fixtures are synthetic (`alpha`,
       `Page B0-001`); the UI strings name mechanisms.
-- [ ] **A.4** Docs owed: `docs/API.md` (the GET route), `CHANGELOG.md`, SPEC.md §12.4 stage 4
+- [x] **A.4** Docs owed: `docs/API.md` (the GET route), `CHANGELOG.md`, SPEC.md §12.4 stage 4
       part one (appendix A), the last applied only on the user's word.
       **`docs/API.md` and `CHANGELOG.md` written** (the changelog entry is dated `2026-09-xx`
       until the merge). Appendix A part one is ready as it stands and matches what was built;
-      SPEC.md is untouched until the user's word.
-- [ ] **A.5** Merge.
+      SPEC.md is untouched until the user's word. **The SPEC part moved to 8.5 (2026-09-23)**,
+      where both parts land together.
+- [x] **A.5** ~~Merge.~~ **Dropped 2026-09-23:** milestone A does not merge on its own; the
+      branch merges once, after phase 8 (see the intro).
 
-## The usage gate
+## The usage gate (dropped 2026-09-23)
 
-The user works with the Shelves overlay and the panel for at least a week and records here:
-whether the shelves read right; which ones they would promote; whether the misfiling warning
-agrees with their own sense of the subject; and whether the view alone answers the complaint.
-**Milestone B starts only on the user's word.**
+It asked for a week of use between the milestones, recorded here: whether the shelves read right,
+which ones the user would promote, whether the misfiling warning agrees with their own sense of
+the subject, and whether the view alone answers the complaint. The last question was answered by
+the go-ahead for milestone B. The other three are asked where they decide something: in the
+decision surface of phase 6, in front of the first real split (8.7).
 
 ---
 
 # Milestone B: the write
+
+Started 2026-09-23 on the user's word, on the same branch.
 
 ## Phase 4: registry operations
 
@@ -537,7 +544,10 @@ files a new page; and the live system is untouched afterwards.
 **The environment.** Everything lives under `E=$HOME/e2e-split`: `vault/` (the copy), `app/` (a
 git worktree of the branch, built there, so the main tree's `web/dist` is never touched), `data/`
 (a snapshot of the live database, the log, an inbox, screenshots). The instance listens on port
-8435. All of it is deleted at the end.
+8435. All of it is deleted at the end. **The final run takes every stage, E0 to E12, from a fresh
+E0**, the `[A]` stages again too, because the branch has changed under them since Gate A.
+Whatever environment came before (a development loop's, or the one Gate A left behind) is
+removed first.
 
 - [ ] **7.1 `scripts/e2e-domain-split.mjs`**, the scripted half. It REFUSES to start unless the
       process listening on `--port` has, in its `/proc/<pid>/environ`, a `VAULT_ROOT` equal to
@@ -763,7 +773,7 @@ A development loop ran before the gate (tsx instance on an earlier copy, Vite wi
 
 ## Phase 8: acceptance and documentation
 
-Nothing of milestone B merges before this.
+Nothing of this branch merges before this: phase 8 is the gate of the one merge.
 
 - [ ] **8.1** `npm test`, `npm run typecheck`, `npm run lint`: green and exit 0, the file and test
       counts recorded.
@@ -773,23 +783,27 @@ Nothing of milestone B merges before this.
       blocked`.
 - [ ] **8.4** `scripts/vault-name-scan.mjs --diff main` over the branch and `--file` over the PR
       body; strings and fixtures read by eye.
-- [ ] **8.5** Docs owed: `docs/API.md` (every new route), `CHANGELOG.md`, SPEC.md §12.4 stage 4
-      part two (appendix A), CLAUDE.md's writer table (appendix B), the seed's conventions (4.5).
-      SPEC.md and CLAUDE.md only on the user's word.
+- [ ] **8.5** Docs owed: `docs/API.md` (every new route), `CHANGELOG.md` (the milestone-A entry
+      grows into the feature's one entry), SPEC.md §12.4 stage 4 with both parts (appendix A),
+      CLAUDE.md's writer table (appendix B), the seed's conventions (4.5). SPEC.md and CLAUDE.md
+      only on the user's word.
 - [ ] **8.6** The user amends the installed registry's conventions by hand in the page editor:
       the one sentence of 4.5.
 - [ ] **8.7** Not part of this work, and written down so it is not mistaken for it: the first real
       split of `~/vault` is the user's own act, after the merge and after the live instance has
       been rebuilt and restarted by its documented procedure. Before it, `node
       scripts/vault-audit.mjs ~/vault --json` is saved; after it, the same is diffed against it,
-      and the commit hash is recorded here.
+      and the commit hash is recorded here. After that split the Shelves overlay (3.2) is
+      re-evaluated, as decided on 2026-09-23: kept as a lens for large domains that were not
+      split, or removed. It keeps no stored state, so removing it is cheap. The decision is
+      written here.
 
 ---
 
 ## Appendix A: SPEC.md §12.4, stage 4 (draft)
 
-Applied only on the user's word (CLAUDE.md: SPEC.md is not edited without being asked). Part one
-lands with milestone A, part two with milestone B.
+Applied only on the user's word (CLAUDE.md: SPEC.md is not edited without being asked). Both
+parts land together, with the one merge.
 
 > **Meta categories, stage 4: splitting a domain (added 2026-09-xx).** Stages 2 and 3 grow a
 > domain out of the unassigned pool. Stage 4 is the other direction: a domain that has outgrown
@@ -841,6 +855,6 @@ POST   /api/v1/domains/splits/:id/remainder                re-file what did not 
 POST   /api/v1/domains/splits/:id/revert                   revert the split's commits, newest first
 ```
 
-Milestone A ships the first line; milestone B the rest. Every route is base product and joins the
+All of it ships with the one merge. Every route is base product and joins the
 `UNGATED` group of `server/test/agents-flag-off.test.ts`; every POST and DELETE is refused in demo
 mode by the existing hook.
