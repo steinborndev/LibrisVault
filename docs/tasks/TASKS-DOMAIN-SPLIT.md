@@ -233,19 +233,29 @@ From here on the numbers above are the reference for E3, not the analysis's.
 
 ## Phase 2: the route
 
-- [ ] **2.1 `GET /api/v1/domains/:key/split`** in `api/routes/domains.ts`. 404 for a key the
+- [x] **2.1 `GET /api/v1/domains/:key/split`** in `api/routes/domains.ts`. 404 for a key the
       registry does not list; 400 for `meta` and `unassigned` (`isDepartmentDomain`); otherwise
       200 with the proposal, including `eligible: false` and its reason for a small domain and
       `shelves: []` and its reason for one that holds together. Both are answers, not errors.
-- [ ] **2.2 Memoised per graph object and key.** The graph builder returns the same object for
+      **Done.** The 400 is checked before the registry, so `meta` and `unassigned` answer 400
+      whether or not a registry lists them.
+- [x] **2.2 Memoised per graph object and key.** The graph builder returns the same object for
       an unchanged vault, so an unchanged vault costs one computation per domain.
-- [ ] **2.3 Addresses** through `readAddresses` for the domain's pages. A page without an
+      **Done** as `splitProposals(vaultRoot)` in the route module: a WeakMap from graph object to
+      a per-key map, so an old graph and its proposals are collected together.
+- [x] **2.3 Addresses** through `readAddresses` for the domain's pages. A page without an
       address is listed as unaddressed and can never be approved (phase 5 needs it). Today all
       537 pages of the largest domain have one.
-- [ ] **2.4 Types** hand-mirrored in `web/src/api/types.ts`, as that file's header prescribes,
+- [x] **2.4 Types** hand-mirrored in `web/src/api/types.ts`, as that file's header prescribes,
       and one client function.
-- [ ] **2.5 Flag-off:** base product; the route joins the `UNGATED` group of
+      **Done, with one field the plan did not name**: `totals.largestOther`, the largest
+      department domain OTHER than the one split. Without it the client cannot compute "the
+      largest share after" for a selection that promotes only some shelves (3.1), because the
+      second-largest domain is not in the proposal.
+- [x] **2.5 Flag-off:** base product; the route joins the `UNGATED` group of
       `server/test/agents-flag-off.test.ts`.
+      **Done.** The flag-off fixture vault gained a one-domain registry, because the control
+      group asserts a flat 200 and an unlisted key is a 404 by design.
 
 **Tests** (`server/test/domain-split-route.test.ts`): a fixture vault built in a temp directory
 (a registry, three planted blocks of synthetic pages with addresses) through the real route: 200
@@ -256,14 +266,22 @@ to the vault changes the graph object and the answer.
 **DoD:** the three commands green; on the E2E instance (stage E3) the route returns the shelves
 `splitprobe` printed for the same vault HEAD.
 
+**Phase 2 measured.** `domain-split-route.test.ts` 6 tests, the flag-off suite 7, all green; the
+three commands exit 0. The E3 half is stronger than written: the script compares the route's
+body with `splitprobe --json` for the same copy BYTE FOR BYTE, not only the shelf sizes. Result
+under **E2E results**.
+
 ## Phase 3: the view
 
-- [ ] **3.1 `web/src/lib/splitShelves.ts`**, pure: proposal to `clusterIds` and `clusterLabels`
+- [x] **3.1 `web/src/lib/splitShelves.ts`**, pure: proposal to `clusterIds` and `clusterLabels`
       for the current node array (matched by path); the mask for one shelf; and the selection
       arithmetic the decision UI of phase 6 reuses (pages moved, parent keeps, the largest share
       after, links turning cross-domain from the link matrix) for any set of promoted shelves and
       merges.
-- [ ] **3.2 Graph screen, a "Shelves" overlay**, available under exactly the condition Landmarks
+      **Done**, plus `shelfState` (the enabling rule, 3.2), `shelfChips` and `largestDepartment`
+      (the status input, 3.5). A new domain in a selection is named `shelf:<ids>` until it has a
+      key.
+- [x] **3.2 Graph screen, a "Shelves" overlay**, available under exactly the condition Landmarks
       uses (one domain on show, `inDomainScope`), disabled under `SPLIT_MIN_PAGES` with the
       reason, and saying "holds together" when there are no shelves. While it is on, the hulls
       are the proposed shelves, handed to `GraphCanvas` through its `clusters` and
@@ -271,20 +289,36 @@ to the vault changes the graph object and the answer.
       for the rest. A chip NARROWS the view through `narrow()`, like the tag filter, so the type
       chips go on counting what the other filters leave. The cluster toggle and the overlay
       exclude each other, because both draw hulls.
-- [ ] **3.3 Catalog:** the same chips when exactly one domain is selected; a chip filters the
+      **Done, with the exclusion drawn wider than written:** the overlay also turns Landmarks
+      and Spotlight off and yields to either, like Landmarks yields. Landmarks paints a tenth
+      of each shelf; a Spotlight click re-detects communities over the drawing, which is the
+      partition this overlay replaces. Bridges stays allowed and colours the links between
+      shelves. The overlay is session memory, not a saved preference: it shows a proposal.
+      The hulls take a per-shelf hue (no domain map), and the chips wear the same hue. `NO_DOMAIN`,
+      `meta` and `unassigned` answer "Not a domain", because the route answers them 400.
+      The canvas now states the number of hulls it drew as `data-hulls`, which is what lets E3
+      count them without scanning pixels.
+- [x] **3.3 Catalog:** the same chips when exactly one domain is selected; a chip filters the
       rows.
-- [ ] **3.4 The proposal panel**, in System, in the Domains card of the expert tools
+      **Done** as a "Shelves" section of the panel, shown when the one selected domain passes
+      the overlay's condition and has shelves; the proposal is asked only then.
+- [x] **3.4 The proposal panel**, in System, in the Domains card of the expert tools
       (`card-domains`): a domain picker defaulting to the largest, the shelf cards in rank order
       (size, types, conductance, stability, precision and recall, the misfiling warning,
       landmarks as page links, tags, confused-with, outside neighbours), and the totals for
       "promote all". Read-only: no control in it writes anything until phase 6.
-- [ ] **3.5 The status model** (`web/src/lib/maintenanceStatus.ts`): a new area `split`,
+      **Done** as `components/SplitProposalPanel.tsx`, mounted in `tabs/Maintenance.tsx` under
+      the domain candidates (the Domains card lives there; System renders it). The picker lists
+      every department domain with its size; a small one shows its reason.
+- [x] **3.5 The status model** (`web/src/lib/maintenanceStatus.ts`): a new area `split`,
       `recommended` when the largest department domain holds `OVERSIZE_SHARE` or more of the
       knowledge pages and at least `SPLIT_MIN_PAGES`, never `due` (a large domain blocks nothing).
       Cost "none, deterministic", jump to the panel. Derived from the graph the dashboard already
       loads; no new request.
-- [ ] **3.6 Hard rule 8:** nothing in this phase requests a Fellow route. The Fellow line of the
+      **Done.** Below the share the item is absent rather than healthy.
+- [x] **3.6 Hard rule 8:** nothing in this phase requests a Fellow route. The Fellow line of the
       panel arrives in phase 6, behind `health.fellows`.
+      **Checked by hand and by E10**: the three new queries ask only the split route.
 
 **Tests:** `web/test/splitShelves.test.ts` (matching by path, pages absent from the proposal get
 −1, the mask, the selection arithmetic including a merge, each against a hand count);
@@ -292,6 +326,13 @@ to the vault changes the graph object and the answer.
 overlay's enabling rule as a pure function beside the Landmarks one, with the same cases.
 
 **DoD:** the three commands green; stage E3's UI walk passes on the E2E instance.
+
+**Phase 3 measured.** `splitShelves.test.ts` 13 tests, `maintenanceStatus.test.ts` 30 (3 new);
+the three commands exit 0. D7 re-measured on the copy: 0 of the 32 proposed tag hints of the
+largest domain equal the name of an entity page (slugged title or alias), so the structural
+filter alone keeps entity-shaped tags out on this vault. The UI walk ran first against a
+development loop (tsx instance on the copy, Vite with a proxy): 17 PASS, 0 FAIL. The gate run is
+under **E2E results**.
 
 ## Gate A: acceptance of milestone A
 
@@ -493,6 +534,10 @@ git worktree of the branch, built there, so the main tree's `web/dist` is never 
       copy's HEAD before and after every stage, so every commit a stage produced is listed and any
       foreign one (a recap written in the background, say) is explained rather than miscounted.
       The `[A]` stages are written with milestone A, the `[B]` stages with milestone B.
+      **[A] written.** E0 is the one stage that cannot pass the identity check, because it runs
+      before the instance exists: it asserts the port is FREE instead. E1 and E11 read files and
+      the live instance only. E12 stops the instance by the rule written below and leaves the
+      worktree and the copy to be removed by hand.
 
 ### E0: preconditions `[A]`
 
@@ -510,19 +555,26 @@ git worktree of the branch, built there, so the main tree's `web/dist` is never 
 E=$HOME/e2e-split
 mkdir -p "$E/data/inbox" "$E/shots"
 cp -a ~/vault "$E/vault"                                   # .git, .raw and .vault-meta included
-rm -rf "$E/vault/.vault-meta/locks"                        # never inherit a held lock
+find "$E/vault/.vault-meta/locks" -mindepth 1 ! -name .gitkeep -delete   # never inherit a held lock
 git -C "$E/vault" remote -v                                # every push URL reads PUSH_DISABLED_...
 git -C "$E/vault" fsck --no-progress                       # exit 0
 sqlite3 ~/.local/share/librisvault-dev/jobs.db ".backup $E/data/jobs.db"
-git -C ~/dev/Curious worktree add "$E/app" <branch>
+git -C ~/dev/Curious worktree add --detach "$E/app" <branch>
 cp -al ~/dev/Curious/node_modules "$E/app/node_modules"    # hardlinks: vite resolves symlinks away
 cp -al ~/dev/Curious/web/node_modules "$E/app/web/node_modules"
+cp -al ~/dev/Curious/server/node_modules "$E/app/server/node_modules"
 (cd "$E/app" && npm run build)                             # built in the worktree, never in the main tree
 ```
 
 Checks: the copy's HEAD equals E0's live HEAD; `git -C "$E/vault" status --short` is empty; the
 snapshot's `PRAGMA user_version` equals the live one (the instance migrates it on start, which is
 itself part of the test).
+
+**Three corrections to the block above, found running it (2026-09-23).** `rm -rf` of the locks
+directory deleted its tracked `.gitkeep`, so the copy was never clean; only the lock files are
+removed now. `git worktree add` refuses a branch that is checked out in the main tree, which it
+is while the branch is worked on; the worktree is detached at the branch tip. And
+`server/node_modules` exists beside the other two and is hardlinked as well.
 
 ### E2: the instance `[A]`
 
@@ -541,6 +593,7 @@ setsid nohup "$E/app/scripts/dev-instance.sh" npm run start:prod --workspace ser
   `VAULT_ROOT` pointing at the copy in its environment, the log's first line names the copy,
   `/api/v1/health` shows the snapshot's job counts, and the startup log shows the bot off.
 - The database migrated: `user_version` is the new one, `PRAGMA quick_check` says ok.
+  Milestone A adds no migration, so for `[A]` the version stays 36.
 
 ### E3: the proposal and the view `[A]`
 
