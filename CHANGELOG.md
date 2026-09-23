@@ -8,7 +8,7 @@ was and the day it landed. The entries below are those merges, newest first. The
 journals under `docs/tasks/` carry the detail, findings and dead ends included; this file carries
 only what a reader outside the work needs to know.
 
-## 2026-09-xx - splitting an oversized domain into peers
+## 2026-09-23 - splitting an oversized domain into peers
 
 The domain registry knew how a domain is born from pages that fit nothing, and nothing about a
 domain that has outgrown being a shelf. On a vault where one domain holds two fifths of the

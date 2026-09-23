@@ -491,10 +491,10 @@ locks OUTSIDE the commit mutex; the writes and the commit inside it.
       /api/v1/domains/:key/split/apply`, `GET /api/v1/domains/splits` (applied splits, each with
       its commits and live remainder count), `POST /api/v1/domains/splits/:id/remainder`. All base
       product, all in the flag-off test's `UNGATED` group.
-- [ ] **5.8 Hard rule 1:** the writer's row in CLAUDE.md's writer table (appendix B) BEFORE the
+- [x] **5.8 Hard rule 1:** the writer's row in CLAUDE.md's writer table (appendix B) BEFORE the
       branch merges, and a note on the hubs row that it has a new caller.
-      **Drafted** in appendix B, both the row and the hubs note; CLAUDE.md waits for the user's
-      word (8.5).
+      **In CLAUDE.md** since 2026-09-23, on the user's word: the row, the hubs note and the
+      sentence on the registry's two writers, as drafted in appendix B.
 
 **Tests** (`server/test/domain-split-write.test.ts`, against real git in a temp fixture vault, the
 way `reconcile.test.ts` and the revert tests work):
@@ -945,7 +945,7 @@ Nothing of this branch merges before this: phase 8 is the gate of the one merge.
       a real vault carries; they were made synthetic (`test: synthetic names …`). What remains are
       two keys of the registry fixture already on `main`, in that same file, because the cases run
       against it.
-- [ ] **8.5** Docs owed: `docs/API.md` (every new route), `CHANGELOG.md` (the milestone-A entry
+- [x] **8.5** Docs owed: `docs/API.md` (every new route), `CHANGELOG.md` (the milestone-A entry
       grows into the feature's one entry), SPEC.md §12.4 stage 4 with both parts (appendix A),
       CLAUDE.md's writer table (appendix B), the seed's conventions (4.5). SPEC.md and CLAUDE.md
       only on the user's word.
@@ -953,7 +953,8 @@ Nothing of this branch merges before this: phase 8 is the gate of the one merge.
       still dated `2026-09-xx`), the seed's conventions (4.5). **Ready, waiting for the user's
       word:** SPEC.md §12.4 stage 4, both parts (appendix A, part two aligned with what was built:
       the revert re-renders the index; leave and defer), and the CLAUDE.md writer row with the note
-      on the hubs row (appendix B).
+      on the hubs row (appendix B). **Applied 2026-09-23 on the user's word**, both appendices as
+      they stand, with the merge; SPEC.md's route listing names the new routes too.
 - [ ] **8.6** The user amends the installed registry's conventions by hand in the page editor:
       the one sentence of 4.5.
 - [ ] **8.7** Not part of this work, and written down so it is not mistaken for it: the first real
