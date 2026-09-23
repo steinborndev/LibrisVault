@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { isKnowledgeNode } from '../lib/knowledge.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
-import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, authorityValue, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
+import { GraphCanvas, domainColor, clusterHue, TYPE_VARS, authorityGradient, authorityValue, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
@@ -34,6 +34,7 @@ import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFre
 import { BUCKET_LABELS as TYPE_LABELS } from '../lib/buckets.ts'
 import { detectClusters } from '../lib/communities.ts'
 import { NO_DOMAIN, chapterSize, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
+import { shelfChips, shelfClusters, shelfPaths, shelfState, type ShelfKey } from '../lib/splitShelves.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
 
@@ -298,6 +299,14 @@ const viewMemory = {
   showSystem: savedPrefs.showSystem ?? false,
   landmarks: savedPrefs.landmarks ?? null,
   bloom: null as string | null,
+  /*
+   * The Shelves overlay (TASKS-DOMAIN-SPLIT 3.2) and the chip narrowing it. Session memory only,
+   * not a saved preference: it shows a PROPOSAL, which is a question put to the vault rather
+   * than a way of drawing it, and a reload that came back to it would be the proposal asking
+   * again unbidden.
+   */
+  shelves: null as string | null,
+  shelfChip: null as ShelfKey | null,
   selection: null as Selection,
   trail: [] as string[],
   frozen: loadFrozen(),
@@ -525,6 +534,13 @@ function GraphView({
   const [landmarkDomain, setLandmarkDomain] = useState<string | null>(viewMemory.landmarks)
   /** The expanded landmark, by path: one neighbourhood at a time. Exploration, not a preference. */
   const [bloom, setBloom] = useState<string | null>(viewMemory.bloom)
+  /**
+   * The Shelves overlay (docs/tasks/TASKS-DOMAIN-SPLIT.md 3.2): the DOMAIN it is on for, like
+   * Landmarks, or null. While it is on the hulls are the proposal's shelves rather than the
+   * communities of the drawing, and a chip narrows the view to one of them.
+   */
+  const [shelvesDomain, setShelvesDomain] = useState<string | null>(viewMemory.shelves)
+  const [shelfChip, setShelfChip] = useState<ShelfKey | null>(viewMemory.shelfChip)
   /*
    * The mode, in a ref as well, for `selectPage` alone: reading the state there would make that
    * function reactive, and it is a dependency of the one-shot `?select=` effect, which must not
@@ -616,6 +632,8 @@ function GraphView({
       showSystem,
       landmarks: landmarkDomain,
       bloom,
+      shelves: shelvesDomain,
+      shelfChip,
       selection,
       trail,
       frozen,
@@ -744,6 +762,38 @@ function GraphView({
     () => landmarkState(graph.nodes, selectedDomains, wingScope),
     [graph.nodes, selectedDomains, wingScope],
   )
+  /** The same condition for the Shelves overlay, with the split's own bar (TASKS-DOMAIN-SPLIT 3.2). */
+  const shelfAvail = useMemo(() => shelfState(graph.nodes, selectedDomains, wingScope), [graph.nodes, selectedDomains, wingScope])
+  /*
+   * The proposal, asked only while the overlay is on. Base product, so no Fellow guard (hard
+   * rule 8 runs the other way). Keyed on the graph's build time: the server memoises per graph,
+   * and a vault that changed is a proposal that may have.
+   */
+  const splitQ = useQuery({
+    queryKey: ['domain-split', shelvesDomain, graph.builtAt],
+    queryFn: () => api.domainSplit(shelvesDomain!),
+    enabled: shelvesDomain !== null,
+    staleTime: Infinity,
+  })
+  const proposal = shelvesDomain !== null && splitQ.data?.domain === shelvesDomain ? splitQ.data : null
+  /*
+   * The overlay yields like Landmarks does: when its condition falls away, and when something
+   * it excludes is switched on after it. Areas, because both draw hulls; Landmarks, because it
+   * draws a tenth of each shelf; Spotlight and its drill-down, because a click there re-detects
+   * communities over the drawing, which is exactly the partition this overlay replaces.
+   */
+  useEffect(() => {
+    if (shelvesDomain === null) return
+    const lost = !shelfAvail.available || shelfAvail.domain !== shelvesDomain
+    if (lost || showClusters || landmarkDomain !== null || spotlight || clusterStack.length > 0) setShelvesDomain(null)
+  }, [shelvesDomain, shelfAvail, showClusters, landmarkDomain, spotlight, clusterStack.length])
+  /** A chip is a narrowing inside the overlay: it goes with it, and with a shelf that is gone. */
+  useEffect(() => {
+    if (shelfChip === null) return
+    if (shelvesDomain === null) setShelfChip(null)
+    else if (proposal !== null && shelfChip !== 'rest' && !proposal.shelves.some((s) => s.id === shelfChip)) setShelfChip(null)
+  }, [shelfChip, shelvesDomain, proposal])
+  const chipPaths = useMemo(() => (proposal !== null && shelfChip !== null ? shelfPaths(proposal, shelfChip) : null), [proposal, shelfChip])
   /*
    * The mode yields, in both directions.
    *
@@ -973,6 +1023,13 @@ function GraphView({
       )
     }
 
+    /*
+     * A shelf chip NARROWS like the tag filter (TASKS-DOMAIN-SPLIT 3.2), to the pages the
+     * proposal puts on that shelf - through `narrow`, so the type chips go on counting what the
+     * other filters leave.
+     */
+    if (chipPaths !== null) narrow((mask) => mask.map((k, i) => k && chipPaths.has(graph.nodes[i]!.path)))
+
     // Search NARROWS the graph, it does not merely highlight (the old behaviour): with a
     // query present, keep only the pages related to it - the ones that match, plus their
     // direct neighbours so a match keeps its context - intersected with the filters already
@@ -1063,7 +1120,7 @@ function GraphView({
     // left out of it. A type the other filters leave nothing of reads 0 rather than vanishing -
     // six chips are a shelf you learn the position of, unlike the domain rows below them.
     return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, counted: pool ?? keep }
-  }, [graph, selectedTypes, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
+  }, [graph, selectedTypes, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter, chipPaths])
 
   /**
    * The paint mask, in subgraph indices.
@@ -1218,10 +1275,17 @@ function GraphView({
   // missing page has no community. Small clusters (< MIN_CLUSTER) are dropped so the canvas
   // isn't peppered with singleton blobs. Each surviving cluster is labelled by its tags.
   const { clusterIds, clusterLabels, clusterDomains } = useMemo(() => {
+    /*
+     * With the Shelves overlay on, the hulls are the PROPOSAL's shelves, matched to the drawing
+     * by path, never a partition of the drawing (analysis R4: filtered to the domain, the
+     * drawing's own Louvain shows 14 hulls against 8 shelves). No domain map: every shelf is in
+     * one domain, so each wears its own hue, the one its chip shows.
+     */
+    if (proposal !== null) return { ...shelfClusters(proposal, nodes), clusterDomains: new Map<number, string>() }
     if (!showClusters && !showNetwork && !spotlight)
       return { clusterIds: null as number[] | null, clusterLabels: new Map<number, string>(), clusterDomains: new Map<number, string>() }
     return detectClusters(nodes, edges, realCount)
-  }, [showClusters, showNetwork, spotlight, nodes, edges, realCount])
+  }, [showClusters, showNetwork, spotlight, nodes, edges, realCount, proposal])
 
   // The clickable result list under the search box - the rings in the graph show WHERE the
   // matches are, this shows WHAT they are. Every match is listed (the dropdown scrolls);
@@ -1295,6 +1359,38 @@ function GraphView({
     setLandmarkDomain(landmarkAvail.domain)
   }
 
+  /**
+   * The Shelves switch. Turning it on turns off what it excludes (see the yield effect above);
+   * turning it off drops a chip with it.
+   */
+  const toggleShelves = (): void => {
+    if (shelvesDomain !== null) {
+      setShelvesDomain(null)
+      setShelfChip(null)
+      return
+    }
+    if (!shelfAvail.available) return
+    setShowClusters(false)
+    setLandmarkDomain(null)
+    showBloom(null)
+    setSpotlight(false)
+    setClusterStack([])
+    setShelvesDomain(shelfAvail.domain)
+  }
+  /** The switch's line while it is on: how many shelves, or why there are none. */
+  const shelfDesc =
+    shelvesDomain === null
+      ? 'proposed sub-shelves of the domain'
+      : proposal === null
+        ? splitQ.isError
+          ? 'could not load the proposal'
+          : 'computing…'
+        : proposal.shelves.length === 0
+          ? proposal.reason?.startsWith('Holds together')
+            ? 'holds together'
+            : 'no stable shelves'
+          : `${proposal.shelves.length} proposed shelves`
+
   /** What the "System pages" toggle would add - the number it shows has to be that. */
   const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
   /*
@@ -1361,6 +1457,8 @@ function GraphView({
     setShowSystem(false)
     setLandmarkDomain(null)
     showBloom(null)
+    setShelvesDomain(null)
+    setShelfChip(null)
     setClusterStack([])
     setLocalDepth(0)
     closeExplorer() // selection + trail
@@ -1574,6 +1672,9 @@ function GraphView({
       // rung below it is inert while it is on, because it turned them off.
       else if (selection !== null) closeExplorer()
       else if (landmarkDomain !== null) setLandmarkDomain(null)
+      // A shelf chip first, then the overlay: the narrowing is the inner of the two.
+      else if (shelfChip !== null) setShelfChip(null)
+      else if (shelvesDomain !== null) setShelvesDomain(null)
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
       else if (showGaps) setShowGaps(false)
       else if (focusPath !== null) navigate('/graph')
@@ -1755,6 +1856,11 @@ function GraphView({
           onLandmarks={toggleLandmarks}
           landmarkReason={landmarkAvail.available ? null : landmarkAvail.reason}
           landmarkWhy={landmarkAvail.available ? null : landmarkAvail.why}
+          shelves={shelvesDomain !== null}
+          onShelves={toggleShelves}
+          shelfReason={shelfAvail.available ? null : shelfAvail.reason}
+          shelfWhy={shelfAvail.available ? null : shelfAvail.why}
+          shelfDesc={shelfDesc}
           focusTitle={focusNode?.title ?? null}
           localDepth={localDepth}
           onDepth={setLocalDepth}
@@ -1786,7 +1892,7 @@ function GraphView({
           clusters={clusterIds}
           clusterLabels={clusterLabels}
           clusterDomains={clusterDomains}
-          showHulls={showClusters}
+          showHulls={showClusters || proposal !== null}
           network={showNetwork}
           spotlight={spotlight}
           landmarkMask={landmarkMask}
@@ -1802,7 +1908,7 @@ function GraphView({
           // …and the mode frames what it paints: the landmarks when it comes on, one
           // neighbourhood while one is open, the landmarks again when Escape closes it, and the
           // whole domain when it goes off. `fitSubset` says which nodes that is.
-          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}`}
+          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}|sh${shelvesDomain ?? ''}:${shelfChip ?? ''}`}
           fitSubset={landmarkView?.framed ?? null}
           // …and an open neighbourhood puts its own page in the middle of it, so the thing the
           // click was about is where the eye already is.
@@ -1932,8 +2038,24 @@ function GraphView({
                 * Text, centred, no frame of its own: the state belongs to the drawing, and a
                 * container around it would be the box again in a smaller size.
                 */}
-              {(clusterStack.length > 0 || focusNode !== undefined) && (
+              {(clusterStack.length > 0 || focusNode !== undefined || (proposal !== null && proposal.shelves.length > 0)) && (
                 <div className="graph-scope" role="status">
+                  {proposal !== null && proposal.shelves.length > 0 && (
+                    <span className="gs-part gs-shelves" role="toolbar" aria-label="Proposed shelves">
+                      {shelfChips(proposal).map((c) => (
+                        <button
+                          key={String(c.key)}
+                          className={`chip${shelfChip === c.key ? ' active' : ''}`}
+                          aria-pressed={shelfChip === c.key}
+                          onClick={() => setShelfChip((cur) => (cur === c.key ? null : c.key))}
+                          title={c.key === 'rest' ? 'The pages no shelf takes: they stay with the domain' : `Show only this proposed shelf`}
+                        >
+                          {c.key !== 'rest' && <span className="chip-dot" style={{ background: `hsl(${clusterHue(c.key)} 60% 55%)` }} aria-hidden />}
+                          {c.label} <span className="chip-n">{c.size}</span>
+                        </button>
+                      ))}
+                    </span>
+                  )}
                   {focusNode !== undefined && (
                     <span className="gs-part">
                       Focus: <strong>{focusNode.title}</strong>
@@ -2701,6 +2823,11 @@ function GraphPanel({
   onLandmarks,
   landmarkReason,
   landmarkWhy,
+  shelves,
+  onShelves,
+  shelfReason,
+  shelfWhy,
+  shelfDesc,
   focusTitle,
   localDepth,
   onDepth,
@@ -2745,6 +2872,13 @@ function GraphPanel({
   landmarkReason: string | null
   /** The same in a sentence, for the row's tooltip. */
   landmarkWhy: string | null
+  /** The Shelves overlay (TASKS-DOMAIN-SPLIT 3.2): on, the switch, and why it cannot be. */
+  shelves: boolean
+  onShelves: () => void
+  shelfReason: string | null
+  shelfWhy: string | null
+  /** The line while it can be switched: what it would show, or what it shows. */
+  shelfDesc: string
   /** The focused page, when the view is around one - the depth control belongs to it. */
   focusTitle: string | null
   localDepth: 0 | 1 | 2
@@ -2833,6 +2967,17 @@ function GraphPanel({
             title={
               landmarkWhy ??
               'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns the other three overlays off.'
+            }
+          />
+          <RowToggle
+            on={shelves}
+            onToggle={onShelves}
+            name="Shelves"
+            desc={shelfReason ?? shelfDesc}
+            disabled={shelfReason !== null}
+            title={
+              shelfWhy ??
+              'Draw the shelves this domain falls into, as the split proposal computes them: a stable grouping by links, the same on every visit. A chip narrows the drawing to one shelf. Nothing is written. Turns Areas, Landmarks and Spotlight off.'
             }
           />
           {/*

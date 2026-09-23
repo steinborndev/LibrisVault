@@ -50,3 +50,6 @@ export function domainColor(domain: string): string {
 
 /** A page under ~this many bytes is treated as a stub (frontmatter + a line). */
 export const STUB_BYTES = 1024
+
+/** A registry key: lowercase, hyphenated, no spaces - the server's `isValidDomainKey`, mirrored. */
+export const isValidDomainKey = (key: string): boolean => /^[a-z0-9][a-z0-9-]*$/.test(key)

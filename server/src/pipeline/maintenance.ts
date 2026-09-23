@@ -52,6 +52,7 @@ import {
   type LogEntryInput,
 } from './hubs.js'
 import { RunRegistry } from './run-registry.js'
+import { parseSplitNaming, splitNamingPrompt, type NamingInput, type SplitNaming } from './split-naming.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
@@ -112,6 +113,8 @@ export type MaintenanceKind =
   | 'retrieve-index'
   /** One bound repair of a standing defect, on the pages of its findings (SPEC.md §12.16). */
   | 'defect-fix'
+  /** Names for the shelves of a domain split; read-only, `query` profile (TASKS-DOMAIN-SPLIT 6.2). */
+  | 'split-naming'
 
 /**
  * One user-selected graph-repair task (SPEC.md §12.4 graph view). `connect` = an isolated
@@ -306,6 +309,8 @@ export interface MaintenanceResult {
   readonly reportPath?: string
   /** Present for a domain-review run: the agent's verdict per candidate. */
   readonly domainReview?: DomainReview
+  /** Present for a split-naming run: the parsed names, descriptions and tags per shelf. */
+  readonly splitNaming?: SplitNaming
   /** Present for a `plan` run: the schema-bound answer, still to be validated by the caller. */
   readonly structuredOutput?: unknown
   /** Plan utilization points the run consumed per window, when both samples were taken (A5). */
@@ -387,6 +392,8 @@ export const EXPAND_TIMEOUT_MS = 20 * 60_000
 /** The recap's summary lines: three minutes and one USD (section 7). */
 export const RECAP_TIMEOUT_MS = 3 * 60_000
 export const RECAP_BUDGET_USD = 1
+/** The split naming pass reads a handful of landmark pages; measured at about $0.40. */
+export const SPLIT_NAMING_BUDGET_USD = 1
 
 /** The per-run knobs a Fellow context pins (model, effort, budget) plus its attribution. */
 function fellowRunOptions(fellow: FellowRunContext | undefined): Partial<RunOptions> {
@@ -1252,6 +1259,20 @@ export class MaintenanceRunner {
   }
 
   /**
+   * The naming pass of a domain split (docs/tasks/TASKS-DOMAIN-SPLIT.md 6.2, D14). Read-only BY
+   * CONSTRUCTION: the `query` profile through `runReadOnly`, so the sandbox gives it no vault
+   * write path, and there is no writer registration, no sweep and no commit to begin with.
+   * Unlike `domain-review`, no sentence in the prompt is what keeps it read-only.
+   */
+  startSplitNaming(input: NamingInput): MaintenanceRun {
+    return this.start('split-naming', splitNamingPrompt(input), 'query', {
+      label: `names for ${input.shelves.length} ${input.shelves.length === 1 ? 'shelf' : 'shelves'} of ${input.parent.key}`,
+      timeoutMs: PLAN_TIMEOUT_MS,
+      maxBudgetUsd: SPLIT_NAMING_BUDGET_USD,
+    })
+  }
+
+  /**
    * Rebuilds the hybrid-retrieval index (SPEC.md §12.6) — the one DETERMINISTIC kind: no
    * agent, no credential (so it also works in setup mode), no commit (the artifacts are
    * excluded from vault history). First run doubles as provisioning. Serialized on its own
@@ -1839,6 +1860,9 @@ export class MaintenanceRunner {
     runId = '',
     startedMs = Date.now(),
   ): Promise<MaintenanceResult> {
+    // Said in the run's own log, so "this run could not write" is read off the run rather than
+    // off the code (TASKS-DOMAIN-SPLIT E4 checks it for the naming pass).
+    log('info', `maintenance: ${kind} runs read-only under the query profile - no vault write path, no commit`)
     const res = await this.runAgentFn({
       vaultRoot: this.vaultRoot,
       prompt,
@@ -1866,6 +1890,9 @@ export class MaintenanceRunner {
       log('error', `maintenance: ${kind} returned no structured answer`)
       return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: 'the run returned no structured answer', answer: res.result })
     }
+    // The naming pass's answer IS its deliverable, parsed here like `domain-review`'s is.
+    const naming = kind === 'split-naming' ? parseSplitNaming(res.result ?? '') : undefined
+    if (naming !== undefined) log('info', `maintenance: ${kind} named ${Object.keys(naming.shelves).length} shelf/shelves`)
     log('info', `maintenance: ${kind} complete`)
     return withDelta({
       ok: true,
@@ -1874,6 +1901,7 @@ export class MaintenanceRunner {
       commit: null,
       usage: res.usage,
       answer: res.result,
+      ...(naming !== undefined ? { splitNaming: naming } : {}),
       ...(res.structuredOutput !== undefined ? { structuredOutput: res.structuredOutput } : {}),
     })
   }

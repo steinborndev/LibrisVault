@@ -396,7 +396,7 @@ const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
  * cannot take a pathspec, which is why this is a reverse-diff apply rather than a revert - and
  * `git apply` is all-or-nothing, so guard 3 holds without an abort path to get wrong.
  */
-export async function revertCommit(vaultRoot: string, hash: string): Promise<RevertResult> {
+export async function revertCommit(vaultRoot: string, hash: string, message?: string): Promise<RevertResult> {
   try {
     await git(vaultRoot, ['cat-file', '-e', `${hash}^{commit}`])
   } catch {
@@ -504,9 +504,27 @@ export async function revertCommit(vaultRoot: string, hash: string): Promise<Rev
     }
   }
 
-  await git(vaultRoot, [...AUTHOR_ARGS, 'commit', '--no-verify', '-m', `revert ingest ${hash.slice(0, 8)}`])
+  await git(vaultRoot, [...AUTHOR_ARGS, 'commit', '--no-verify', '-m', message ?? `revert ingest ${hash.slice(0, 8)}`])
   const newHash = (await git(vaultRoot, ['rev-parse', 'HEAD'])).trim()
   return { reverted: true, hash: newHash }
+}
+
+/**
+ * Unstages exactly these paths, leaving the working tree alone: what a writer that restored its
+ * files after a failed commit does, so the index does not keep what the tree no longer has.
+ */
+export async function unstagePaths(vaultRoot: string, paths: readonly string[]): Promise<void> {
+  if (paths.length === 0) return
+  await git(vaultRoot, ['reset', '-q', '--', ...paths])
+}
+
+/**
+ * Moves HEAD, the index and the tree back to `hash`. Only for a caller that recorded `hash`
+ * itself, inside the commit mutex, on a tree `revertCommit` had just found clean - the split's
+ * revert undoing its own earlier reverts after a later one conflicted. Never a general undo.
+ */
+export async function resetHardTo(vaultRoot: string, hash: string): Promise<void> {
+  await git(vaultRoot, ['reset', '--hard', '-q', hash])
 }
 
 export interface CommitOptions {

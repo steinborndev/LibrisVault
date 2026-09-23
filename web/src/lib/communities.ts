@@ -3,6 +3,12 @@
  * plus the cluster labelling/tinting metadata the canvas draws. Lives outside the Vault tab
  * because it is pure graph algorithmics - no React, no view state - and is unit-tested on
  * its own (web/test/detectClusters.test.ts).
+ *
+ * `louvainCommunities` has a server copy, `server/src/pipeline/communities.ts`, which the
+ * domain-split proposal runs (docs/tasks/TASKS-DOMAIN-SPLIT.md 1.1) and which adds only a
+ * resolution parameter. Two copies for the reason `api/types.ts` gives for the hand-mirrored
+ * types, pinned the same way: `web/test/communities-parity.test.ts` and its server twin assert
+ * one hard-coded label array over one seeded graph. Change both or neither.
  */
 
 import type { GraphNode } from '../api/types.ts'

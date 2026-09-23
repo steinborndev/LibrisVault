@@ -62,6 +62,53 @@ GET    /domains                  the domain registry (installed? + parsed entrie
 POST   /domains                  create a domain: append to the registry page, one commit
 GET    /domains/candidates       themes among `unassigned` pages worth a domain (free)
 POST   /domains/candidates/:key/dismiss     stop proposing this theme (DELETE undoes it)
+GET    /domains/:key/split       the shelves one domain falls into (free, read-only): a consensus
+                                 of 40 seeded Louvain runs over its knowledge pages and their
+                                 links, shelves of 25 pages or more, each with its evidence and
+                                 ranked by separability; the rest stays with the domain. 404 for a
+                                 key the registry does not list, 400 for meta and unassigned; a
+                                 domain under 50 pages (`eligible: false`) or one that holds
+                                 together (`shelves: []`) answers 200 with its `reason`. Memoised
+                                 per graph, so an unchanged vault costs one computation. Beside
+                                 the proposal: `decisions`, the shelves left or deferred, by
+                                 fingerprint
+POST   /domains/:key/split/naming          the optional naming pass → 202 { id, channel }, polled
+                                 like every maintenance run. Body { groups: number[][] }, shelf ids
+                                 of the current proposal, a merge being a group of two or more.
+                                 Kind `split-naming`, `query` profile, read-only path: no vault
+                                 write, no commit. The settled result carries `splitNaming`: a
+                                 key, description and tags per shelf (1-based), and the parent's
+                                 narrowed description and tags
+POST   /domains/:key/split/plan            the dry run of a decision set; writes nothing. Body
+                                 { parentEntry: { description, tags }, children: [{ key,
+                                 description, tags, pages: [{ address, path }] }] } - a merged
+                                 shelf is one child with the union of the pages. Answers the
+                                 registry diff, one line pair per page with its verdict (ok, gone,
+                                 moved, unaddressed), what the index will show per domain, and the
+                                 warnings (parent-small, key-collision, misfile). 400 for a bad
+                                 body, 409 for a key the registry lists, 404 for an unknown parent
+POST   /domains/:key/split/apply           the split, ONE commit: the parent's section narrowed, the
+                                 new sections directly after it, the `domain:` line of exactly the
+                                 approved pages that still carry the parent key (plus `updated:`,
+                                 never `content_updated:`), and `wiki/index.md`. Same body as the
+                                 plan. → { splitId, commit, written, skipped: [{ address, path,
+                                 reason }], verified, unverified, durationMs, validation }. 409
+                                 while a run writes the vault (`run-active`), with auto-commit off
+                                 (`auto-commit-off`), or while the registry or index is locked
+                                 (`registry-busy`). Takes the vault's lock page by page: a few
+                                 hundred pages take about a minute
+POST   /domains/:key/split/decisions       leave or defer a shelf: { fingerprint, decision }. A
+                                 left shelf is not proposed again while its fingerprint holds
+DELETE /domains/:key/split/decisions/:fingerprint   restore it
+GET    /domains/splits                     applied splits, newest first, each with its children,
+                                 its commits and its live `remainder` (pages still, or again, in
+                                 the parent)
+POST   /domains/splits/:id/remainder       re-file the remainder: the same write without the
+                                 registry, one commit added to the split. 409 as the apply
+POST   /domains/splits/:id/revert          revert the split's commits newest first, then re-render
+                                 the index in a commit of its own. 409 `orphans` with `pages` while
+                                 a page outside the split carries one of its keys; 409
+                                 `revert-failed` on a conflict, with the vault left as it was
 POST   /maintenance/{lint,lint-fix,research,hot-cache,domain-backfill,domain-review,cleanup,repair}
                                  starts an async run → { id, channel }; lint-fix 409s without a
                                  report, backfill 409s without a registry, review 409s with no

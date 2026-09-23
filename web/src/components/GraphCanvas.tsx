@@ -382,7 +382,7 @@ function mixColor(a: string, b: string, t: number): string {
 }
 
 /** Distinct, theme-agnostic hue per cluster id for the community hulls. */
-function clusterHue(id: number): number {
+export function clusterHue(id: number): number {
   return (id * 47) % 360
 }
 
@@ -878,6 +878,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const regionLabelBoxes: Array<[number, number, number, number]> = []
     // With hulls off, the spotlight still traces the HOVERED community's hull (and its label,
     // via the shared `members` map below) - the preview of what a click would isolate.
+    let drawnHulls = 0
     if (clusters !== null && (showHulls || spotCid >= 0)) {
       const members = new Map<number, Array<[number, number]>>()
       for (let i = 0; i < nodes.length; i++) {
@@ -902,6 +903,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         // moved the label anchors with it, which is half of why labels jumped on zoom.
         const padded = expandHull(hull, cx, cy, HULL_PAD)
         paddedHulls.set(cid, padded)
+        drawnHulls++
         ctx.beginPath()
         traceSmooth(ctx, padded)
         // Tint by the cluster's dominant domain so the color means something; fall back to a
@@ -977,6 +979,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         regionLabelBoxes.push(drawnBox)
       }
     }
+
+    /*
+     * How many hulls this frame drew, on the element: the one fact about the hulls a harness
+     * can read without scanning pixels (docs/tasks/TASKS-DOMAIN-SPLIT.md E3, "one hull per
+     * shelf"). Written only when it changes, so a frame costs a comparison.
+     */
+    const hullCount = String(drawnHulls)
+    if (canvas.dataset.hulls !== hullCount) canvas.dataset.hulls = hullCount
 
     // Edges first, faint; highlighted edges stronger. NaN endpoints (a node the worker
     // hasn't placed yet, mid live-update) simply don't draw this frame.

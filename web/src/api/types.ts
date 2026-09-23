@@ -576,6 +576,8 @@ export type MaintenanceKind =
   | 'retrieve-index'
   /** One bound repair of a standing defect, on the pages of its findings (SPEC §12.16). */
   | 'defect-fix'
+  /** Names for the shelves of a domain split, read-only (TASKS-DOMAIN-SPLIT 6.2). */
+  | 'split-naming'
 
 /** One tag repair from the tag-hygiene card (POST /maintenance/tag-fix). */
 export type TagFixAction =
@@ -683,6 +685,155 @@ export interface CandidatesResponse {
   dismissed: Array<{ key: string; dismissedAt: string }>
 }
 
+/*
+ * The split proposal (GET /api/v1/domains/:key/split, docs/tasks/TASKS-DOMAIN-SPLIT.md), mirrored
+ * by hand from `server/src/pipeline/domain-split.ts`. Read-only in milestone A: nothing here is
+ * ever sent back.
+ */
+
+/** A page of the proposal, by path; `address` is what an approval will key on (null: none). */
+export interface SplitMember {
+  path: string
+  address: string | null
+}
+
+export interface SplitPageRef extends SplitMember {
+  title: string
+}
+
+export interface ShelfLandmark extends SplitPageRef {
+  inShelf: number
+  inDomain: number
+  inVault: number
+}
+
+/** Another shelf (by id) or the rest the tags confuse this shelf with, both directions. */
+export interface ShelfConfusion {
+  with: number | 'rest'
+  gives: number
+  receives: number
+}
+
+export interface KeyCollision {
+  key: string
+  inside: number
+  elsewhere: number
+}
+
+export interface SplitShelf {
+  /** Rank order, 0 first; meaningful inside one proposal only. */
+  id: number
+  rank: number
+  size: number
+  types: Record<string, number>
+  entities: number
+  conductance: number
+  stability: number
+  precision: number | null
+  recall: number | null
+  separability: number
+  misfile: boolean
+  confusedWith: ShelfConfusion[]
+  landmarks: ShelfLandmark[]
+  tags: string[]
+  topTagCollision: KeyCollision | null
+  outsideNeighbours: { count: number; pages: Array<SplitPageRef & { domain: string | null; links: number }> }
+  fingerprint: string
+  pages: SplitMember[]
+}
+
+export interface DomainShare {
+  /** A domain key, or `shelf:<id>`. */
+  domain: string
+  pages: number
+  share: number
+}
+
+export interface SplitProposal {
+  domain: string
+  pages: number
+  eligible: boolean
+  /** Why there are no shelves (too small, or holds together); null when there are. */
+  reason: string | null
+  shelves: SplitShelf[]
+  rest: { size: number; types: Record<string, number>; entities: number; pages: SplitMember[] }
+  /** Directed links inside the domain, group to group: shelves in id order, then the rest. */
+  links: number[][]
+  totals: {
+    inShelves: number
+    withParent: number
+    internalLinks: number
+    untagged: number
+    knowledgePages: number
+    largestNow: DomainShare
+    largestAfter: DomainShare
+    /** The largest department domain other than this one: the floor under any "after". */
+    largestOther: DomainShare
+  }
+  unaddressed: string[]
+  params: { runs: number; gamma: number; agree: number; seed: number; shelfMinPages: number }
+  /** The remembered leave and defer decisions for this domain's shelves, by fingerprint (6.3). */
+  decisions: ShelfDecisionRecord[]
+}
+
+/* ---- The write of a split (TASKS-DOMAIN-SPLIT phases 5 and 6), mirrored from domain-split-write.ts ---- */
+
+export type ShelfDecision = 'leave' | 'defer'
+
+export interface ShelfDecisionRecord {
+  fingerprint: string
+  decision: ShelfDecision
+  decidedAt: string
+}
+
+/** The body of the plan and the apply. A merged shelf is one child with the union of the pages. */
+export interface SplitRequestBody {
+  parentEntry: { description: string; tags: string[] }
+  children: Array<{ key: string; description: string; tags: string[]; pages: SplitMember[] }>
+}
+
+export type SplitPageVerdict = 'ok' | 'gone' | 'moved' | 'unaddressed'
+export type SplitSkipReason = Exclude<SplitPageVerdict, 'ok'> | 'busy'
+
+export type SplitWarning =
+  | { kind: 'parent-small'; keeps: number; min: number }
+  | { kind: 'key-collision'; key: string; inside: number; elsewhere: number }
+  | { kind: 'misfile'; key: string }
+
+export interface SplitPlan {
+  parent: string
+  registry: { diff: string; sections: string[] }
+  pages: Array<{ address: string | null; path: string; child: string; verdict: SplitPageVerdict; from?: string; to?: string }>
+  counts: Record<SplitPageVerdict, number>
+  index: Array<{ domain: string; pages: number }>
+  warnings: SplitWarning[]
+}
+
+export interface SplitApplyResult {
+  splitId: string
+  commit: string
+  written: Array<{ address: string | null; path: string; child: string }>
+  skipped: Array<{ address: string | null; path: string; reason: SplitSkipReason }>
+  verified: boolean
+  unverified: string[]
+  durationMs: number
+}
+
+export interface SplitSummary {
+  id: string
+  parent: string
+  children: Array<{ key: string; addresses: string[] }>
+  commits: string[]
+  createdAt: string
+  revertedAt: string | null
+  remainder: number
+}
+
+export interface SplitNaming {
+  shelves: Record<number, { key?: string; description?: string; tags?: string[] }>
+  parent: { description?: string; tags?: string[] }
+}
+
 export type DomainVerdict = 'new-domain' | 'existing' | 'not-a-domain'
 
 /** The optional agent judgement on one candidate. */
@@ -716,6 +867,8 @@ export interface MaintenanceResult {
   lint?: LintReport
   /** Present for a domain-review run: the agent's verdict per candidate. */
   domainReview?: DomainReview
+  /** Present for a split-naming run: names, descriptions and tags per shelf (1-based). */
+  splitNaming?: SplitNaming
   reportPath?: string
 }
 

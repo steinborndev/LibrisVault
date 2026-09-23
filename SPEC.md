@@ -232,6 +232,8 @@ GET    /api/v1/sources              page → ingested document, read from `.raw/
 GET    /api/v1/sources/raw?path=    the document itself; only an allowlisted format is
                                     served inline, everything else as a download (§9)
 GET    /api/v1/domains              domain registry; …/candidates + …/dismiss (12.4 stage 3)
+                                    …/:key/split (proposal, naming, plan, apply, decisions)
+                                    and …/splits (remainder, revert) (12.4 stage 4)
 POST   /api/v1/maintenance/…        the maintenance runs: lint, lint-fix, hot-cache, repair,
                                     tag-fix, domain-backfill, domain-review, retrieve-index
 GET    /api/v1/maintenance/state    cadence status per area (12.7 stage b)
@@ -574,6 +576,35 @@ new domains from evidence; the decision remains the user's.
   topic endlessly. Dismissals can be restored individually.
 - **Self-healing:** After creation a candidate disappears anyway because its tags now belong to
   a domain; the dismissal is only the additional safeguard for the time until the next backfill.
+
+**Meta categories, stage 4: splitting a domain (added 2026-09-23, user decision).** Stages 2
+and 3 grow a domain out of the unassigned pool. Stage 4 is the other direction: a domain that has
+outgrown being a shelf is split into peers.
+
+*Part one, the proposal.* `GET /api/v1/domains/:key/split` computes, deterministically and for
+free, the shelves a domain falls into: a consensus of 40 seeded Louvain runs (resolution 0.4)
+over the domain's knowledge pages and the links among them, in which a link is stable when its
+two ends share a cluster in 90 % of the runs, and the shelves are the connected groups of stable
+links with 25 pages or more. Smaller groups stay with the domain. Each shelf carries its evidence
+(size, conductance, stability, tag precision and recall, landmarks, distinctive tags without the
+entity-shaped ones, the tag-collision cost of a key) and is ranked by separability. A domain
+under 50 knowledge pages is not offered a split. The Graph's Shelves overlay and the Catalog
+narrow to a proposed shelf, System shows the proposal, and the status model recommends it when
+one domain holds a quarter of the knowledge pages. Nothing is written.
+
+*Part two, the write.* The user promotes, merges, leaves or defers shelves and names each
+promoted one; a key is coined, never copied from a frequent tag. An optional read-only agent
+pass (`split-naming`, `query` profile) drafts names and descriptions. The apply writes ONE
+commit: the parent's registry section, narrowed so it no longer claims what left it; the new
+sections, directly after it; the `domain:` field of exactly the approved pages, identified by
+address and each only while it still carries the parent key; and `wiki/index.md`. It stamps
+`updated:`, never `content_updated:`. It refuses while an agent run writes and while auto-commit
+is off. Pages that did not move form a visible remainder with its own re-file. A revert reverts
+the split's own commits newest first, re-renders the index, and refuses while other pages carry
+its keys. A left shelf is remembered by its fingerprint and not proposed again while that holds;
+a deferred one comes back at the next guided maintenance run. The registry conventions
+gain one sentence: altitude is judged against the vault's volume, and a domain that outgrows a
+shelf is split into peers, the part that stays keeping the old key with a narrowed description.
 
 **Resolving gaps instead of filling them (added 2026-09-05).** The Gaps view of the Home panel
 ("Worth a run") used to offer only one way out of a gap: research. Many gaps never deserve a

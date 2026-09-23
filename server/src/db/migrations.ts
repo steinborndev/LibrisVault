@@ -912,6 +912,39 @@ ALTER TABLE validation_findings ADD COLUMN occurrences_at_last_fix INTEGER;
  * compare against, and every partial repair reads as a run that changed nothing.
  */
 
+/*
+ * A domain split (docs/tasks/TASKS-DOMAIN-SPLIT.md 5.6 and 6.3, folded into one migration
+ * because both landed on one branch).
+ *
+ * `domain_splits` remembers what a split approved, so its REMAINDER (the pages that did not
+ * move, or were moved back) can be shown and re-filed, and so its revert knows its commits.
+ * `domain_split_decisions` remembers a "leave" or a "defer" per shelf fingerprint.
+ *
+ * Operational state only (SPEC.md §8): losing both tables loses the remainder, the revert
+ * convenience and the memory of what was left, and nothing of the vault, because the split
+ * commit itself names every page it moved.
+ */
+const V37 = `
+CREATE TABLE domain_splits (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL DEFAULT 'local',
+  parent      TEXT NOT NULL,
+  children    TEXT NOT NULL,
+  commits     TEXT NOT NULL DEFAULT '[]',
+  created_at  TEXT NOT NULL,
+  reverted_at TEXT
+);
+CREATE INDEX idx_domain_splits_parent ON domain_splits(user_id, parent);
+CREATE TABLE domain_split_decisions (
+  user_id     TEXT NOT NULL DEFAULT 'local',
+  parent      TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  decision    TEXT NOT NULL CHECK (decision IN ('leave', 'defer')),
+  decided_at  TEXT NOT NULL,
+  PRIMARY KEY (user_id, parent, fingerprint)
+);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -949,4 +982,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 34, up: V34 },
   { version: 35, up: V35 },
   { version: 36, up: V36 },
+  { version: 37, up: V37 },
 ]

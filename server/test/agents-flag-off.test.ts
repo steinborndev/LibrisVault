@@ -86,6 +86,12 @@ const UNGATED: ReadonlyArray<readonly [string, string]> = [
   // whether or not the research agents exist, so a screen asking a Fellow-only route for it
   // would 404 on every mount with the flag off - which is the class hard rule 8 is about.
   ['GET', '/api/v1/validation'],
+  // The domain-split proposal (TASKS-DOMAIN-SPLIT 2.5): it corrects the base product's own
+  // registry loop. Asked of a domain the fixture registry below lists, because an unlisted key
+  // is a 404 by design.
+  ['GET', '/api/v1/domains/alpha/split'],
+  // The applied splits (TASKS-DOMAIN-SPLIT 5.7): the System panel lists them under the proposal.
+  ['GET', '/api/v1/domains/splits'],
 ]
 
 describe('with the Fellows extension unwired', () => {
@@ -149,7 +155,8 @@ describe('with the Fellows extension unwired', () => {
   beforeEach(() => {
     db = openDb(MEMORY_DB)
     vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flagoff-'))
-    fs.mkdirSync(path.join(vaultRoot, 'wiki'), { recursive: true })
+    fs.mkdirSync(path.join(vaultRoot, 'wiki/meta'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki/meta/domains.md'), '## Domains\n\n## alpha\n\nA synthetic domain.\n')
   })
   afterEach(async () => {
     await app?.close()
@@ -212,6 +219,30 @@ describe('with the Fellows extension unwired', () => {
       expect(`${url} -> ${res.statusCode}`).toBe(`${url} -> 400`)
     }
     expect((await app.inject({ method: 'POST', url: '/api/v1/validation/repair/manifest/plan' })).statusCode).toBe(200)
+  })
+
+  /*
+   * The write half of the domain split (TASKS-DOMAIN-SPLIT 5.7, 6.2, 6.6, 6.9): base product,
+   * so every route is registered and refuses for its own reason with the flag off. A 400 for a
+   * missing field and a 404 for an unknown split are ANSWERS; the assertion is that none of them
+   * is the unregistered-route 404, whose body says "not found" and nothing else.
+   */
+  it('registers every split write route with the flag off', async () => {
+    app = await build()
+    const cases: Array<[string, string, number]> = [
+      ['POST', '/api/v1/domains/alpha/split/plan', 400],
+      ['POST', '/api/v1/domains/alpha/split/apply', 400],
+      ['POST', '/api/v1/domains/alpha/split/naming', 400],
+      ['POST', '/api/v1/domains/alpha/split/decisions', 400],
+      ['DELETE', '/api/v1/domains/alpha/split/decisions/fp', 200],
+      ['POST', '/api/v1/domains/splits/none/remainder', 404],
+      ['POST', '/api/v1/domains/splits/none/revert', 404],
+    ]
+    for (const [method, url, status] of cases) {
+      const res = await app.inject({ method: method as 'POST', url, payload: {} })
+      expect(`${method} ${url} -> ${res.statusCode}`).toBe(`${method} ${url} -> ${status}`)
+      expect((res.json() as { error?: string }).error).not.toBe('not found')
+    }
   })
 
   /*

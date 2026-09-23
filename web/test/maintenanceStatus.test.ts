@@ -22,6 +22,7 @@ const healthy = (over: Partial<MaintStatusInput> = {}): MaintStatusInput => ({
   index: { scriptsPresent: true, provisioned: true },
   unversioned: { untracked: 0, modified: 0 },
   defects: { fixable: 0, decision: 0 },
+  largestDomain: null,
   now: NOW,
   ...over,
 })
@@ -272,5 +273,41 @@ describe('buildRunPlan', () => {
       healthy({ registryInstalled: false, index: { scriptsPresent: true, provisioned: false } }),
     )
     expect(buildRunPlan(s)).toEqual([])
+  })
+})
+
+describe('the split step of the guided run (TASKS-DOMAIN-SPLIT 6.7)', () => {
+  it('is a decision step after the domain decisions and before the tag repairs, when the item is recommended', () => {
+    const plan = buildRunPlan(
+      deriveMaintenanceStatus(healthy({ candidateCount: 1, tagRepairCount: 3, largestDomain: { domain: 'alpha', pages: 100, share: 0.25 } })),
+    )
+    expect(plan.map((p) => p.id)).toEqual(['domains', 'backfill2', 'split', 'tags'])
+    expect(plan.find((p) => p.id === 'split')!.kind).toBe('decision')
+  })
+
+  it('is not planned while the item is absent', () => {
+    expect(buildRunPlan(deriveMaintenanceStatus(healthy({ largestDomain: { domain: 'alpha', pages: 96, share: 0.24 } })))).toEqual([])
+  })
+})
+
+describe('the split item (TASKS-DOMAIN-SPLIT 3.5)', () => {
+  const share = (pages: number, of: number) => ({ domain: 'alpha', pages, share: pages / of })
+
+  it('recommends the proposal when one domain holds a quarter of the knowledge pages', () => {
+    const item = byId(deriveMaintenanceStatus(healthy({ largestDomain: share(100, 400) })), 'split')
+    expect(item).toMatchObject({ severity: 'recommended', cost: 'none, deterministic', anchor: 'card-domains' })
+    expect(item!.title).toContain('25 %')
+  })
+
+  it('is absent at 24 %, and under the split bar whatever the share', () => {
+    expect(byId(deriveMaintenanceStatus(healthy({ largestDomain: share(96, 400) })), 'split')).toBeUndefined()
+    expect(byId(deriveMaintenanceStatus(healthy({ largestDomain: share(49, 60) })), 'split')).toBeUndefined()
+    expect(byId(deriveMaintenanceStatus(healthy({ largestDomain: null })), 'split')).toBeUndefined()
+  })
+
+  it('is never due, however large the domain', () => {
+    const s = deriveMaintenanceStatus(healthy({ largestDomain: share(900, 1000) }))
+    expect(byId(s, 'split')!.severity).toBe('recommended')
+    expect(s.due).toBe(0)
   })
 })

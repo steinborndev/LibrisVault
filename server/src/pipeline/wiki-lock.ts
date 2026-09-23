@@ -232,7 +232,16 @@ export async function withWikiLocks<T>(
     if (code === 0) {
       held.push(rel)
       lockPath.set(rel, page)
-    } else busy.push(rel)
+    } else if (code === 75) busy.push(rel)
+    /*
+     * Any other code is the script refusing the REQUEST, not a writer holding the page - the
+     * single form's contract, which this batch form broke until 2026-09-23. Exit 4 is what the
+     * script answers for a path containing `..`, which a file name holds as soon as a title ends
+     * in a full stop, and two pages of the live vault's largest domain do. Reported as busy they were busy
+     * forever: no retry could ever lock them, so a split left them behind and its remainder
+     * re-file skipped them again. Written unlocked, as the single form does, and never
+     * released, because nothing was acquired.
+     */ else held.push(rel)
   }
 
   /*
