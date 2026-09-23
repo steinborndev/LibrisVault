@@ -1860,6 +1860,9 @@ export class MaintenanceRunner {
     runId = '',
     startedMs = Date.now(),
   ): Promise<MaintenanceResult> {
+    // Said in the run's own log, so "this run could not write" is read off the run rather than
+    // off the code (TASKS-DOMAIN-SPLIT E4 checks it for the naming pass).
+    log('info', `maintenance: ${kind} runs read-only under the query profile - no vault write path, no commit`)
     const res = await this.runAgentFn({
       vaultRoot: this.vaultRoot,
       prompt,

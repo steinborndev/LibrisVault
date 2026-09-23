@@ -329,9 +329,14 @@ describe('the split write routes', () => {
     fs.rmSync(vaultRoot, { recursive: true, force: true })
   })
 
+  let logLines: string[] = []
   const build = async (over: { demoMode?: boolean; autoCommit?: boolean } = {}): Promise<{ app: FastifyInstance; maintenance: MaintenanceRunner }> => {
     db = openDb(MEMORY_DB)
     const events = new EventBus()
+    logLines = []
+    events.subscribe((e) => {
+      if (e.kind === 'log') logLines.push(e.log.message)
+    })
     const store = new JobStore(db, events)
     registry = new RunRegistry()
     calls = []
@@ -454,6 +459,8 @@ describe('the split write routes', () => {
     expect(run.status).toBe('done')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.profile).toBe('query')
+    // And the run says so in its own log, which is what stage E4 reads on the live copy.
+    expect(logLines).toContain('maintenance: split-naming runs read-only under the query profile - no vault write path, no commit')
     expect(calls[0]!.prompt).toContain('## shelf 1')
     expect(run.result?.commit).toBeNull()
     expect(run.result?.splitNaming?.shelves[1]).toEqual({ key: 'coined-one', description: 'The first.', tags: ['a', 'b'] })
