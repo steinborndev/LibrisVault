@@ -12,6 +12,10 @@ import {
   domainSystemPrompt,
   DOMAIN_REGISTRY_PATH,
   UNASSIGNED,
+  replaceDomainSection,
+  insertDomainSectionsAfter,
+  applyRegistrySplit,
+  draftParentEntry,
 } from '../src/pipeline/domains.js'
 import {
   MaintenanceRunner,
@@ -265,5 +269,133 @@ describe('domain backfill prompt', () => {
     expect(p).toMatch(/Do not create, delete, rename or merge any page/)
     expect(p).toMatch(/Do not invent new keys/)
     expect(p).toContain(UNASSIGNED)
+  })
+})
+
+/* ------------------------------------------------------ splitting a domain (TASKS-DOMAIN-SPLIT phase 4) */
+
+describe('replaceDomainSection', () => {
+  it('replaces exactly the section and leaves the text before and after it byte for byte', () => {
+    const next = replaceDomainSection(REGISTRY, 'biomedicine', { description: 'Narrowed.', tags: ['biomedical'] })!
+    const start = REGISTRY.indexOf('## biomedicine')
+    const end = REGISTRY.indexOf('## finance')
+    expect(next.slice(0, start)).toBe(REGISTRY.slice(0, start))
+    expect(next.slice(next.indexOf('## finance'))).toBe(REGISTRY.slice(end))
+    expect(next.slice(start, next.indexOf('## finance'))).toBe('## biomedicine\n\nNarrowed.\n\n**Tags:** `biomedical`\n\n')
+  })
+
+  it('handles the last section of the file', () => {
+    const next = replaceDomainSection(REGISTRY, 'meta', { description: 'Machinery, narrowed.', tags: [] })!
+    expect(next.slice(0, REGISTRY.indexOf('## meta'))).toBe(REGISTRY.slice(0, REGISTRY.indexOf('## meta')))
+    expect(next.endsWith('## meta\n\nMachinery, narrowed.\n')).toBe(true)
+  })
+
+  it('never touches a heading above the marker, and is null for a key it does not list', () => {
+    expect(replaceDomainSection(REGISTRY, 'how a new domain is born', { description: 'x', tags: [] })).toBeNull()
+    expect(replaceDomainSection(REGISTRY, 'cooking', { description: 'x', tags: [] })).toBeNull()
+  })
+})
+
+describe('insertDomainSectionsAfter', () => {
+  it('inserts directly after the section, in order, in the shape appendDomainSection writes', () => {
+    const next = insertDomainSectionsAfter(REGISTRY, 'biomedicine', [
+      { key: 'alpha', description: 'First child.', tags: ['a1', 'a2'] },
+      { key: 'beta', description: 'Second child.', tags: [] },
+    ])!
+    expect(parseDomainRegistry(next).domains.map((d) => d.key)).toEqual(['biomedicine', 'alpha', 'beta', 'finance', 'meta'])
+    expect(next).toContain('## alpha\n\nFirst child.\n\n**Tags:** `a1`, `a2`\n\n## beta\n\nSecond child.\n\n## finance')
+    // Everything up to the end of the parent's section is untouched.
+    const end = REGISTRY.indexOf('## finance')
+    expect(next.slice(0, end)).toBe(REGISTRY.slice(0, end))
+  })
+
+  it('appends after a parent that is the last section', () => {
+    const next = insertDomainSectionsAfter(REGISTRY, 'meta', [{ key: 'alpha', description: 'Child.', tags: [] }])!
+    expect(parseDomainRegistry(next).domains.map((d) => d.key)).toEqual(['biomedicine', 'finance', 'meta', 'alpha'])
+    expect(next.endsWith('## meta\n\nThe wiki\'s own machinery.\n\n## alpha\n\nChild.\n')).toBe(true)
+  })
+
+  it('is null for a missing parent, a taken key, or a key repeated among the entries', () => {
+    expect(insertDomainSectionsAfter(REGISTRY, 'cooking', [{ key: 'alpha', description: 'x', tags: [] }])).toBeNull()
+    expect(insertDomainSectionsAfter(REGISTRY, 'biomedicine', [{ key: 'finance', description: 'x', tags: [] }])).toBeNull()
+    expect(
+      insertDomainSectionsAfter(REGISTRY, 'biomedicine', [
+        { key: 'alpha', description: 'x', tags: [] },
+        { key: 'alpha', description: 'y', tags: [] },
+      ]),
+    ).toBeNull()
+  })
+})
+
+describe('applyRegistrySplit', () => {
+  const split = {
+    parent: 'biomedicine',
+    parentEntry: { description: 'Biology, narrowed.', tags: ['biomedical'] },
+    children: [
+      { key: 'drug-delivery', description: 'Getting drugs where they act.', tags: ['mrna-delivery', 'drug-delivery'] },
+      { key: 'gene-editing', description: 'Changing genomes.', tags: [] },
+    ],
+  }
+
+  it('lists the narrowed parent and the children directly after it, and nothing else changes', () => {
+    const r = applyRegistrySplit(REGISTRY, split)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const parsed = parseDomainRegistry(r.markdown).domains
+    expect(parsed.map((d) => d.key)).toEqual(['biomedicine', 'drug-delivery', 'gene-editing', 'finance', 'meta'])
+    expect(parsed[0]).toEqual({ key: 'biomedicine', description: 'Biology, narrowed.', tags: ['biomedical'] })
+    expect(parsed[1]!.tags).toEqual(['mrna-delivery', 'drug-delivery'])
+    const before = parseDomainRegistry(REGISTRY).domains
+    expect(parsed.slice(3)).toEqual(before.slice(1))
+    // The conventions above `## Domains` untouched, byte for byte.
+    const marker = REGISTRY.indexOf('## Domains')
+    expect(r.markdown.slice(0, marker)).toBe(REGISTRY.slice(0, marker))
+    // And what follows the parent's old section too.
+    expect(r.markdown.slice(r.markdown.indexOf('## finance'))).toBe(REGISTRY.slice(REGISTRY.indexOf('## finance')))
+  })
+
+  it('refuses each case with its own reason and writes nothing', () => {
+    expect(applyRegistrySplit(REGISTRY, { ...split, parent: 'cooking' })).toEqual({ ok: false, refusal: 'unknown-parent', key: 'cooking' })
+    const child = (key: string) => ({ ...split, children: [{ key, description: 'x', tags: [] }] })
+    expect(applyRegistrySplit(REGISTRY, child('finance'))).toEqual({ ok: false, refusal: 'duplicate-key', key: 'finance' })
+    expect(applyRegistrySplit(REGISTRY, child('Not A Key'))).toEqual({ ok: false, refusal: 'invalid-key', key: 'Not A Key' })
+    expect(applyRegistrySplit(REGISTRY, child('meta'))).toEqual({ ok: false, refusal: 'reserved-key', key: 'meta' })
+    expect(applyRegistrySplit(REGISTRY, child(UNASSIGNED))).toEqual({ ok: false, refusal: 'reserved-key', key: UNASSIGNED })
+    expect(
+      applyRegistrySplit(REGISTRY, {
+        ...split,
+        children: [
+          { key: 'alpha', description: 'x', tags: [] },
+          { key: 'alpha', description: 'y', tags: [] },
+        ],
+      }),
+    ).toEqual({ ok: false, refusal: 'duplicate-key', key: 'alpha' })
+  })
+
+  it('splits a parent that is the last section', () => {
+    const r = applyRegistrySplit(REGISTRY, { parent: 'meta', parentEntry: { description: 'M.', tags: [] }, children: [{ key: 'alpha', description: 'A.', tags: [] }] })
+    expect(r.ok && parseDomainRegistry(r.markdown).domains.map((d) => d.key)).toEqual(['biomedicine', 'finance', 'meta', 'alpha'])
+  })
+})
+
+describe('draftParentEntry', () => {
+  it('appends one sentence naming what left, and never keeps a tag a child lists', () => {
+    const d = draftParentEntry(
+      { description: 'Biology, medicine and drug delivery.', tags: ['mrna-delivery', 'biomedical', 'drug-delivery', 'genomics'] },
+      [
+        { key: 'drug-delivery', tags: ['mrna-delivery', 'Drug-Delivery'] },
+        { key: 'gene-editing', tags: ['genomics'] },
+        { key: 'imaging', tags: [] },
+      ],
+    )
+    expect(d.description).toBe('Biology, medicine and drug delivery. Pages on `drug-delivery`, `gene-editing` and `imaging` have their own domains.')
+    expect(d.tags).toEqual(['biomedical'])
+  })
+
+  it('reads right for one child and for two', () => {
+    expect(draftParentEntry({ description: 'X.', tags: [] }, [{ key: 'a', tags: [] }]).description).toBe('X. Pages on `a` have their own domain.')
+    expect(draftParentEntry({ description: 'X.', tags: [] }, [{ key: 'a', tags: [] }, { key: 'b', tags: [] }]).description).toBe(
+      'X. Pages on `a` and `b` have their own domains.',
+    )
   })
 })
