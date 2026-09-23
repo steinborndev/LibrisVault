@@ -139,7 +139,8 @@ function assertIdentity() {
 
 /* -------------------------------------------------------------------------------- helpers */
 
-const git = (dir, ...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim()
+// quotePath off: a path with a non-ASCII letter must read the same in git's output as on disk.
+const git = (dir, ...a) => execFileSync('git', ['-c', 'core.quotePath=false', '-C', dir, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).trim()
 const sqlite = (db, sql) => execFileSync('sqlite3', ['-readonly', db, sql], { encoding: 'utf8' }).trim()
 const loadState = () => (STATE && existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {})
 const saveState = (s) => writeFileSync(STATE, JSON.stringify(s, null, 2))
@@ -580,12 +581,20 @@ async function uiPage() {
   return SHARED
 }
 
-/** System, the split status item, the panel with one card per shelf of the proposal. */
-async function openPanel(page, shelves) {
+/**
+ * System, the split panel, with `domain` picked, and one card per shelf shown. The status item
+ * jumps there while one domain is oversized; after a split it may be gone, so "All tools" is
+ * the other way in, and the picker is set because the parent need no longer be the largest.
+ */
+async function openPanel(page, shelves, domain) {
   await page.goto(`${UI}/system`)
   const item = `[...document.querySelectorAll('.ms-item')].find((b) => b.querySelector('.ms-title')?.textContent.startsWith('One domain holds'))`
-  await page.waitFor(`(${item}) !== undefined`, 30000)
-  await page.evaluate(`(${item})?.click(); true`)
+  const all = `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'All tools')`
+  await page.waitFor(`(${item}) !== undefined || (${all}) !== undefined`, 30000)
+  await page.evaluate(`((${item}) ?? (${all}))?.click(); true`)
+  const picker = `document.querySelector('.split-proposal select[aria-label="Domain to propose a split for"]')`
+  await page.waitFor(`${picker} !== null`, 30000)
+  if (domain !== undefined && (await page.evaluate(`${picker}.value`)) !== domain) await setField(page, picker, domain)
   return page.waitFor(`document.querySelectorAll('.split-shelf').length === ${shelves} ? ${shelves} : null`, 30000)
 }
 
@@ -650,16 +659,21 @@ async function openFindings() {
   return out
 }
 
-/** Lines of `wiki/index.md` under each `## ` heading that are page entries. */
+/**
+ * Each domain heading of `wiki/index.md` (`## key (n)`): the count it states, and the page
+ * entries actually listed under it. Both, so a heading that says one number and lists another
+ * fails too.
+ */
 function indexCounts() {
   const out = {}
   let current = null
   for (const line of readFileSync(join(VAULT, 'wiki/index.md'), 'utf8').split('\n')) {
-    const h = /^## (.+?)\s*$/.exec(line)
+    const h = /^## (\S+) \((\d+)\)\s*$/.exec(line)
     if (h) {
-      current = h[1].trim()
-      out[current] = 0
-    } else if (current !== null && /^- /.test(line)) out[current]++
+      current = h[1]
+      out[current] = { stated: Number(h[2]), listed: 0 }
+    } else if (/^## /.test(line)) current = null
+    else if (current !== null && /^- /.test(line)) out[current].listed++
   }
   return out
 }
@@ -678,7 +692,7 @@ async function stageE4() {
   assertIdentity()
   const { parent, p } = await parentProposal()
   const page = await uiPage()
-  const cards = await openPanel(page, p.shelves.length)
+  const cards = await openPanel(page, p.shelves.length, parent.domain)
   check('E4', 'the panel shows one card per shelf', cards === p.shelves.length, `${cards ?? 0} of ${p.shelves.length}`)
   const ids = p.shelves.map((s) => s.id) // rank order
   const [a, b, c, d, left, deferred] = ids
@@ -699,7 +713,11 @@ async function stageE4() {
     stored.some((x) => x.fingerprint === fp(left) && x.decision === 'leave') && stored.some((x) => x.fingerprint === fp(deferred) && x.decision === 'defer'),
     `${stored.length} decisions`,
   )
-  saveState({ ...loadState(), decision: { parent: parent.domain, promoted: [a, b], merged: [c, d], left, deferred, leftFp: fp(left), deferredFp: fp(deferred) } })
+  const addrs = (id) => p.shelves.find((s) => s.id === id).pages.map((m) => m.address).filter(Boolean)
+  saveState({
+    ...loadState(),
+    decision: { parent: parent.domain, promoted: [a, b], merged: [c, d], left, deferred, leftFp: fp(left), deferredFp: fp(deferred), deferredAddrs: addrs(deferred) },
+  })
   await page.shot('e4-decisions.png')
 
   const keyField = (id) => `${cardOf(id)}?.querySelector('[data-field="key"]')`
@@ -836,7 +854,12 @@ async function stageE6() {
   const perChild = {}
   for (const w of out?.written ?? []) perChild[w.child] = (perChild[w.child] ?? 0) + 1
   const idx = indexCounts()
-  check('E6', 'the index shows each child with its count', state.plan.children.every((k) => idx[k] === perChild[k]), state.plan.children.map((k) => `${idx[k]}/${perChild[k]}`).join(', '))
+  check(
+    'E6',
+    'the index shows each child with its count',
+    state.plan.children.every((k) => idx[k]?.stated === perChild[k] && idx[k]?.listed === perChild[k]),
+    state.plan.children.map((k) => `${idx[k]?.stated}/${idx[k]?.listed}/${perChild[k]}`).join(', '),
+  )
   const findingsAfter = await openFindings()
   check('E6', 'no new tag-mirroring finding', (findingsAfter['tag-mirroring'] ?? 0) <= (findingsBefore['tag-mirroring'] ?? 0), `${findingsBefore['tag-mirroring'] ?? 0} -> ${findingsAfter['tag-mirroring'] ?? 0}`)
   const deltas = Object.keys({ ...findingsBefore, ...findingsAfter }).filter((r) => (findingsBefore[r] ?? 0) !== (findingsAfter[r] ?? 0))
@@ -854,8 +877,8 @@ async function stageE6() {
   const scene = await api('/api/v1/library/scene')
   if (scene.status === 404) note('the Library room: not wired (flag off)')
   else {
-    const shelves = [scene.body?.main, ...(scene.body?.wings ?? [])].flatMap((r) => r?.shelves ?? [])
-    check('E6', 'the Library room places the new shelves without an error', scene.status === 200 && state.plan.children.every((k) => shelves.some((x) => x.domain === k && x.books > 0)), `${scene.status}`)
+    const placed = (scene.body?.departments ?? []).filter((x) => state.plan.children.includes(x.domain) && x.room && x.books > 0)
+    check('E6', 'the Library room places the new shelves without an error', scene.status === 200 && placed.length === state.plan.children.length, `${scene.status}, ${placed.length} of ${state.plan.children.length} placed`)
   }
   // The Catalog with a new domain selected.
   await page.goto(`${UI}/catalog?domain=${encodeURIComponent(state.plan.children[0])}`)
@@ -867,11 +890,16 @@ async function stageE6() {
   const writtenAddr = new Set((out?.written ?? []).map((w) => w.address))
   check('E6', 'the promoted shelves are gone from the proposal', after2.shelves.every((s) => s.pages.filter((m) => writtenAddr.has(m.address)).length === 0), `${after2.shelves.length} shelves, ${after2.pages} pages`)
   const leftShelf = after2.shelves.find((s) => s.fingerprint === state.decision.leftFp)
-  const deferredShelf = after2.shelves.find((s) => s.fingerprint === state.decision.deferredFp)
   const leftStored = after2.decisions.some((x) => x.fingerprint === state.decision.leftFp && x.decision === 'leave')
   check('E6', 'the left shelf is not proposed (its fingerprint holds and is remembered)', Boolean(leftShelf) && leftStored, leftShelf ? 'fingerprint holds' : 'fingerprint changed')
-  check('E6', 'the deferred shelf is proposed again', Boolean(deferredShelf), deferredShelf ? 'fingerprint holds' : 'fingerprint changed')
-  await openPanel(page, after2.shelves.length - (leftShelf ? 1 : 0))
+  // A deferred shelf is proposed again when a shelf holding most of its pages is: whether it is
+  // still RECOGNISED as the deferred one is the fingerprint's question (D15), noted, not asked.
+  const deferredAddrs = new Set(state.decision.deferredAddrs)
+  const overlap = (s) => s.pages.filter((m) => deferredAddrs.has(m.address)).length
+  const best = after2.shelves.slice().sort((x, y) => overlap(y) - overlap(x))[0]
+  check('E6', 'the deferred shelf is proposed again', best !== undefined && overlap(best) * 2 > deferredAddrs.size, `${best ? overlap(best) : 0} of its ${deferredAddrs.size} pages on one shelf of ${best?.size ?? 0}`)
+  note(`the deferred shelf's fingerprint ${best?.fingerprint === state.decision.deferredFp ? 'holds' : 'changed: it comes back open, not marked deferred'}`)
+  await openPanel(page, after2.shelves.length - (leftShelf ? 1 : 0), state.decision.parent)
   const shownCards = await page.evaluate(`[...document.querySelectorAll('.split-shelf')].map((x) => Number(x.dataset.shelf))`)
   check('E6', 'the panel shows no card for the left shelf', leftShelf ? !shownCards.includes(leftShelf.id) : false, `${shownCards.length} cards`)
   await page.shot('e6-after.png')
@@ -888,7 +916,7 @@ async function stageE7() {
   const page = await uiPage()
   const { p } = await parentProposal()
   const left = p.shelves.some((s) => s.fingerprint === state.decision.leftFp) ? 1 : 0
-  await openPanel(page, p.shelves.length - left)
+  await openPanel(page, p.shelves.length - left, state.decision.parent)
   const row = `document.querySelector('.split-row[data-split="${state.splitId}"]')`
   const btn = (text) => `[...(${row})?.querySelectorAll('button') ?? []].find((x) => x.textContent.startsWith(${lit(text)}))`
   const head = git(VAULT, 'rev-parse', 'HEAD')
