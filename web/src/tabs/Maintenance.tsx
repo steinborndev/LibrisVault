@@ -44,6 +44,7 @@ import { JobLog } from '../components/JobLog.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { StandingDefects } from '../components/StandingDefects.tsx'
+import { SplitProposalPanel } from '../components/SplitProposalPanel.tsx'
 import { Tip } from '../components/Tip.tsx'
 import { useMaintenanceRun, type MaintenanceRunState } from '../hooks/useMaintenanceRun.ts'
 import { useMaintenanceStatus, type MaintenanceStatusData } from '../hooks/useMaintenanceStatus.ts'
@@ -380,6 +381,11 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
               onStartBackfill={backfill.start}
               backfillRunning={backfill.running}
             />
+          )}
+          {/* The other direction (TASKS-DOMAIN-SPLIT 3.4): a domain that has outgrown a shelf.
+              Read-only; the status head's split item jumps here. */}
+          {domains.data?.installed && (
+            <SplitProposalPanel nodes={graph.data?.nodes} builtAt={graph.data?.builtAt} vaultName={vaultName} />
           )}
         </div>
         )}
