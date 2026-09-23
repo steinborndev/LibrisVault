@@ -6,7 +6,7 @@
  * sentence in the prompt is courtesy, the profile is the guarantee.
  */
 import { describe, it, expect } from 'vitest'
-import { parseSplitNaming, splitNamingPrompt, SPLIT_NAMING_FORMAT, type NamingInput } from '../src/pipeline/split-naming.js'
+import { parseSplitNaming, plainText, splitNamingPrompt, SPLIT_NAMING_FORMAT, type NamingInput } from '../src/pipeline/split-naming.js'
 
 const INPUT: NamingInput = {
   parent: { key: 'alpha', description: 'Everything alpha.', tags: ['one', 'two'] },
@@ -29,8 +29,9 @@ describe('splitNamingPrompt', () => {
     expect(prompt).toContain('- beta\n- gamma')
   })
 
-  it('asks for no edit, coined keys, and the fixed answer format', () => {
+  it('asks for no edit, coined keys, plain text, and the fixed answer format', () => {
     expect(prompt).toContain('Do NOT edit any file')
+    expect(prompt).toContain('No wikilinks')
     expect(prompt).toMatch(/do NOT copy a tag/)
     expect(prompt.endsWith(SPLIT_NAMING_FORMAT)).toBe(true)
   })
@@ -80,5 +81,26 @@ describe('parseSplitNaming', () => {
   it('keeps what a partial answer has, and yields nothing from prose', () => {
     expect(parseSplitNaming('## shelf 2\nkey: only-a-key').shelves).toEqual({ 2: { key: 'only-a-key' } })
     expect(parseSplitNaming('I would call the first one something broad.')).toEqual({ shelves: {}, parent: {} })
+  })
+})
+
+describe('plain text in the answer', () => {
+  it('turns wikilinks and Markdown links back into their words, in descriptions and tags', () => {
+    // The first real pass on a live vault put four wikilinks into the parent's description,
+    // one to the new domain key: a dead link on the registry page, brackets in every ingest prompt.
+    const out = parseSplitNaming(
+      [
+        '## shelf 1',
+        'key: first-subject',
+        'description: Covers [[Page A01]] and [[Page B02|the second page]], see [the guide](https://example.invalid).',
+        'tags: [[t-one]], t-two',
+        '## parent',
+        'description: What stays; [[first-subject]] has its own domain.',
+      ].join('\n'),
+    )
+    expect(out.shelves[1]!.description).toBe('Covers Page A01 and the second page, see the guide.')
+    expect(out.shelves[1]!.tags).toEqual(['t-one', 't-two'])
+    expect(out.parent.description).toBe('What stays; first-subject has its own domain.')
+    expect(plainText('  no   links\there ')).toBe('no links here')
   })
 })

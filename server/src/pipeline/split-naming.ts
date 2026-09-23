@@ -86,15 +86,35 @@ export function splitNamingPrompt(input: NamingInput): string {
     `the domain covers and where its line to its sibling shelves runs.\n` +
     `- The parent keeps its key. Its new description must no longer claim what the shelves took.\n` +
     `- Judge by what the pages are ABOUT. Read a few landmark pages before you answer.\n` +
+    `- Write plain text. No wikilinks ([[...]]), no Markdown links, no headings inside a field: ` +
+    `a description is read word for word by every later ingest, and a link there is not a page ` +
+    `reference, it is noise (and a link to a domain key points at no page at all).\n` +
     `- Do NOT edit any file. Your answer IS the deliverable.\n\n` +
     SPLIT_NAMING_FORMAT
   )
 }
 
+/**
+ * A field's text with its wikilinks and Markdown links turned back into their words.
+ *
+ * The prompt asks for plain text and the first real pass on a live vault answered with four
+ * wikilinks in the parent's description anyway, one of them to the new domain key, which no page
+ * carries: a dead link booked on the registry page and every ingest reading brackets in its
+ * domain block. So the parse keeps the words and drops the link, whatever the prompt achieved.
+ */
+export function plainText(v: string): string {
+  return v
+    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, '$2')
+    .replace(/\[\[([^\]]*)\]\]/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 const tagList = (v: string): string[] =>
   v
     .split(',')
-    .map((t) => t.trim().replace(/^[`#]+|`$/g, '').toLowerCase())
+    .map((t) => plainText(t).replace(/^[`#]+|`$/g, '').toLowerCase())
     .filter((t) => t !== '')
 
 export function parseSplitNaming(text: string): SplitNaming {
@@ -105,7 +125,8 @@ export function parseSplitNaming(text: string): SplitNaming {
   const flush = (): void => {
     if (current === null) return
     const f = current.fields
-    const description = f.get('description')
+    const rawDescription = f.get('description')
+    const description = rawDescription === undefined ? undefined : plainText(rawDescription)
     const tags = f.get('tags')
     if (current.target === 'parent') {
       parent = { ...(description ? { description } : {}), ...(tags ? { tags: tagList(tags) } : {}) }

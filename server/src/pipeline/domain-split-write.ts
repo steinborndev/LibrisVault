@@ -41,6 +41,7 @@ import {
   type RegistrySplitRefusal,
 } from './domains.js'
 import { isKnowledge, keyCollision, SHELF_MIN_PAGES, type SplitProposal } from './domain-split.js'
+import { plainText } from './split-naming.js'
 
 /** The generated index, rewritten inside the split's own commit because it groups by domain (D9). */
 export const INDEX_PATH = 'wiki/index.md'
@@ -82,7 +83,9 @@ const strList = (v: unknown): string[] =>
 export function parseSplitRequest(parent: string, body: unknown): { ok: true; request: SplitRequest } | { ok: false; error: string } {
   const b = (body ?? {}) as Record<string, unknown>
   const pe = (b['parentEntry'] ?? {}) as Record<string, unknown>
-  const parentEntry = { description: str(pe['description']), tags: [...new Set(strList(pe['tags']))] }
+  // Registry descriptions are read word for word by every ingest: a link there is noise, and one
+  // to a domain key is a dead link on the registry page. Plain text, whoever wrote the field.
+  const parentEntry = { description: plainText(str(pe['description'])), tags: [...new Set(strList(pe['tags']))] }
   if (parentEntry.description === '') return { ok: false, error: 'the parent needs a description (parentEntry.description)' }
   const rawChildren = Array.isArray(b['children']) ? (b['children'] as unknown[]) : []
   if (rawChildren.length === 0) return { ok: false, error: 'a split needs at least one child' }
@@ -98,7 +101,7 @@ export function parseSplitRequest(parent: string, body: unknown): { ok: true; re
     if (key === parent) return { ok: false, error: `a child cannot take the parent's own key "${key}"` }
     if (keys.has(key)) return { ok: false, error: `"${key}" is listed twice` }
     keys.add(key)
-    const description = str(c['description'])
+    const description = plainText(str(c['description']))
     if (description === '') return { ok: false, error: `"${key}" needs a description` }
     const rawPages = Array.isArray(c['pages']) ? (c['pages'] as unknown[]) : []
     if (rawPages.length === 0) return { ok: false, error: `"${key}" has no pages` }

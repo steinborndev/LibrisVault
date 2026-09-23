@@ -162,6 +162,18 @@ describe('parseSplitRequest', () => {
   })
 })
 
+describe('the registry text of a request', () => {
+  it('is plain text: wikilinks and Markdown links become their words', () => {
+    const r = parseSplitRequest('alpha', {
+      ...REQUEST,
+      parentEntry: { description: 'What stays; [[first]] and [[Page A01|the first page]] left.', tags: [] },
+      children: [{ ...REQUEST.children[0]!, description: 'See [the guide](https://example.invalid).' }],
+    })
+    expect(r.ok && r.request.parentEntry.description).toBe('What stays; first and the first page left.')
+    expect(r.ok && r.request.children[0]!.description).toBe('See the guide.')
+  })
+})
+
 describe('refileText', () => {
   it('changes exactly the domain line, keeps its quoting, stamps updated and never content_updated', () => {
     const before = page('A01', 'alpha').replace('domain: alpha', 'domain: "alpha"')
