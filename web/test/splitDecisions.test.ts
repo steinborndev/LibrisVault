@@ -208,15 +208,15 @@ describe('draftParentEntry (the web mirror of the server draft)', () => {
   // The same cases as `server/test/domains.test.ts`, so the two copies cannot drift apart.
   it('matches the server on its own cases', () => {
     const d = draftParentEntry(
-      { description: 'Biology, medicine and drug delivery.', tags: ['mrna-delivery', 'biomedical', 'drug-delivery', 'genomics'] },
+      { description: 'Alpha, beta and gamma.', tags: ['t-one', 't-two', 'child-one', 't-three'] },
       [
-        { key: 'drug-delivery', tags: ['mrna-delivery', 'Drug-Delivery'] },
-        { key: 'gene-editing', tags: ['genomics'] },
-        { key: 'imaging', tags: [] },
+        { key: 'child-one', tags: ['t-one', 'Child-One'] },
+        { key: 'child-two', tags: ['t-three'] },
+        { key: 'child-three', tags: [] },
       ],
     )
-    expect(d.description).toBe('Biology, medicine and drug delivery. Pages on `drug-delivery`, `gene-editing` and `imaging` have their own domains.')
-    expect(d.tags).toEqual(['biomedical'])
+    expect(d.description).toBe('Alpha, beta and gamma. Pages on `child-one`, `child-two` and `child-three` have their own domains.')
+    expect(d.tags).toEqual(['t-two'])
     expect(draftParentEntry({ description: 'X.', tags: [] }, [{ key: 'a', tags: [] }]).description).toBe('X. Pages on `a` have their own domain.')
   })
 })

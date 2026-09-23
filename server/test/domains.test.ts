@@ -276,12 +276,12 @@ describe('domain backfill prompt', () => {
 
 describe('replaceDomainSection', () => {
   it('replaces exactly the section and leaves the text before and after it byte for byte', () => {
-    const next = replaceDomainSection(REGISTRY, 'biomedicine', { description: 'Narrowed.', tags: ['biomedical'] })!
+    const next = replaceDomainSection(REGISTRY, 'biomedicine', { description: 'Narrowed.', tags: ['t-kept'] })!
     const start = REGISTRY.indexOf('## biomedicine')
     const end = REGISTRY.indexOf('## finance')
     expect(next.slice(0, start)).toBe(REGISTRY.slice(0, start))
     expect(next.slice(next.indexOf('## finance'))).toBe(REGISTRY.slice(end))
-    expect(next.slice(start, next.indexOf('## finance'))).toBe('## biomedicine\n\nNarrowed.\n\n**Tags:** `biomedical`\n\n')
+    expect(next.slice(start, next.indexOf('## finance'))).toBe('## biomedicine\n\nNarrowed.\n\n**Tags:** `t-kept`\n\n')
   })
 
   it('handles the last section of the file', () => {
@@ -292,7 +292,7 @@ describe('replaceDomainSection', () => {
 
   it('never touches a heading above the marker, and is null for a key it does not list', () => {
     expect(replaceDomainSection(REGISTRY, 'how a new domain is born', { description: 'x', tags: [] })).toBeNull()
-    expect(replaceDomainSection(REGISTRY, 'cooking', { description: 'x', tags: [] })).toBeNull()
+    expect(replaceDomainSection(REGISTRY, 'no-such-key', { description: 'x', tags: [] })).toBeNull()
   })
 })
 
@@ -316,7 +316,7 @@ describe('insertDomainSectionsAfter', () => {
   })
 
   it('is null for a missing parent, a taken key, or a key repeated among the entries', () => {
-    expect(insertDomainSectionsAfter(REGISTRY, 'cooking', [{ key: 'alpha', description: 'x', tags: [] }])).toBeNull()
+    expect(insertDomainSectionsAfter(REGISTRY, 'no-such-key', [{ key: 'alpha', description: 'x', tags: [] }])).toBeNull()
     expect(insertDomainSectionsAfter(REGISTRY, 'biomedicine', [{ key: 'finance', description: 'x', tags: [] }])).toBeNull()
     expect(
       insertDomainSectionsAfter(REGISTRY, 'biomedicine', [
@@ -330,10 +330,10 @@ describe('insertDomainSectionsAfter', () => {
 describe('applyRegistrySplit', () => {
   const split = {
     parent: 'biomedicine',
-    parentEntry: { description: 'Biology, narrowed.', tags: ['biomedical'] },
+    parentEntry: { description: 'The parent, narrowed.', tags: ['t-kept'] },
     children: [
-      { key: 'drug-delivery', description: 'Getting drugs where they act.', tags: ['mrna-delivery', 'drug-delivery'] },
-      { key: 'gene-editing', description: 'Changing genomes.', tags: [] },
+      { key: 'child-one', description: 'The first synthetic child.', tags: ['t-one', 't-two'] },
+      { key: 'child-two', description: 'The second synthetic child.', tags: [] },
     ],
   }
 
@@ -342,9 +342,9 @@ describe('applyRegistrySplit', () => {
     expect(r.ok).toBe(true)
     if (!r.ok) return
     const parsed = parseDomainRegistry(r.markdown).domains
-    expect(parsed.map((d) => d.key)).toEqual(['biomedicine', 'drug-delivery', 'gene-editing', 'finance', 'meta'])
-    expect(parsed[0]).toEqual({ key: 'biomedicine', description: 'Biology, narrowed.', tags: ['biomedical'] })
-    expect(parsed[1]!.tags).toEqual(['mrna-delivery', 'drug-delivery'])
+    expect(parsed.map((d) => d.key)).toEqual(['biomedicine', 'child-one', 'child-two', 'finance', 'meta'])
+    expect(parsed[0]).toEqual({ key: 'biomedicine', description: 'The parent, narrowed.', tags: ['t-kept'] })
+    expect(parsed[1]!.tags).toEqual(['t-one', 't-two'])
     const before = parseDomainRegistry(REGISTRY).domains
     expect(parsed.slice(3)).toEqual(before.slice(1))
     // The conventions above `## Domains` untouched, byte for byte.
@@ -355,7 +355,7 @@ describe('applyRegistrySplit', () => {
   })
 
   it('refuses each case with its own reason and writes nothing', () => {
-    expect(applyRegistrySplit(REGISTRY, { ...split, parent: 'cooking' })).toEqual({ ok: false, refusal: 'unknown-parent', key: 'cooking' })
+    expect(applyRegistrySplit(REGISTRY, { ...split, parent: 'no-such-key' })).toEqual({ ok: false, refusal: 'unknown-parent', key: 'no-such-key' })
     const child = (key: string) => ({ ...split, children: [{ key, description: 'x', tags: [] }] })
     expect(applyRegistrySplit(REGISTRY, child('finance'))).toEqual({ ok: false, refusal: 'duplicate-key', key: 'finance' })
     expect(applyRegistrySplit(REGISTRY, child('Not A Key'))).toEqual({ ok: false, refusal: 'invalid-key', key: 'Not A Key' })
@@ -381,15 +381,15 @@ describe('applyRegistrySplit', () => {
 describe('draftParentEntry', () => {
   it('appends one sentence naming what left, and never keeps a tag a child lists', () => {
     const d = draftParentEntry(
-      { description: 'Biology, medicine and drug delivery.', tags: ['mrna-delivery', 'biomedical', 'drug-delivery', 'genomics'] },
+      { description: 'Alpha, beta and gamma.', tags: ['t-one', 't-two', 'child-one', 't-three'] },
       [
-        { key: 'drug-delivery', tags: ['mrna-delivery', 'Drug-Delivery'] },
-        { key: 'gene-editing', tags: ['genomics'] },
-        { key: 'imaging', tags: [] },
+        { key: 'child-one', tags: ['t-one', 'Child-One'] },
+        { key: 'child-two', tags: ['t-three'] },
+        { key: 'child-three', tags: [] },
       ],
     )
-    expect(d.description).toBe('Biology, medicine and drug delivery. Pages on `drug-delivery`, `gene-editing` and `imaging` have their own domains.')
-    expect(d.tags).toEqual(['biomedical'])
+    expect(d.description).toBe('Alpha, beta and gamma. Pages on `child-one`, `child-two` and `child-three` have their own domains.')
+    expect(d.tags).toEqual(['t-two'])
   })
 
   it('reads right for one child and for two', () => {
