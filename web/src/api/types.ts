@@ -683,6 +683,93 @@ export interface CandidatesResponse {
   dismissed: Array<{ key: string; dismissedAt: string }>
 }
 
+/*
+ * The split proposal (GET /api/v1/domains/:key/split, docs/tasks/TASKS-DOMAIN-SPLIT.md), mirrored
+ * by hand from `server/src/pipeline/domain-split.ts`. Read-only in milestone A: nothing here is
+ * ever sent back.
+ */
+
+/** A page of the proposal, by path; `address` is what an approval will key on (null: none). */
+export interface SplitMember {
+  path: string
+  address: string | null
+}
+
+export interface SplitPageRef extends SplitMember {
+  title: string
+}
+
+export interface ShelfLandmark extends SplitPageRef {
+  inShelf: number
+  inDomain: number
+  inVault: number
+}
+
+/** Another shelf (by id) or the rest the tags confuse this shelf with, both directions. */
+export interface ShelfConfusion {
+  with: number | 'rest'
+  gives: number
+  receives: number
+}
+
+export interface KeyCollision {
+  key: string
+  inside: number
+  elsewhere: number
+}
+
+export interface SplitShelf {
+  /** Rank order, 0 first; meaningful inside one proposal only. */
+  id: number
+  rank: number
+  size: number
+  types: Record<string, number>
+  entities: number
+  conductance: number
+  stability: number
+  precision: number | null
+  recall: number | null
+  separability: number
+  misfile: boolean
+  confusedWith: ShelfConfusion[]
+  landmarks: ShelfLandmark[]
+  tags: string[]
+  topTagCollision: KeyCollision | null
+  outsideNeighbours: { count: number; pages: Array<SplitPageRef & { domain: string | null; links: number }> }
+  fingerprint: string
+  pages: SplitMember[]
+}
+
+export interface DomainShare {
+  /** A domain key, or `shelf:<id>`. */
+  domain: string
+  pages: number
+  share: number
+}
+
+export interface SplitProposal {
+  domain: string
+  pages: number
+  eligible: boolean
+  /** Why there are no shelves (too small, or holds together); null when there are. */
+  reason: string | null
+  shelves: SplitShelf[]
+  rest: { size: number; types: Record<string, number>; entities: number; pages: SplitMember[] }
+  /** Directed links inside the domain, group to group: shelves in id order, then the rest. */
+  links: number[][]
+  totals: {
+    inShelves: number
+    withParent: number
+    internalLinks: number
+    untagged: number
+    knowledgePages: number
+    largestNow: DomainShare
+    largestAfter: DomainShare
+  }
+  unaddressed: string[]
+  params: { runs: number; gamma: number; agree: number; seed: number; shelfMinPages: number }
+}
+
 export type DomainVerdict = 'new-domain' | 'existing' | 'not-a-domain'
 
 /** The optional agent judgement on one candidate. */

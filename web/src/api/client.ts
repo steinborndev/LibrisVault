@@ -8,6 +8,7 @@ import type {
   Job,
   JobDetail,
   Stats,
+  SplitProposal,
   ValidationList,
   FindingEvidence,
   StandingFinding,
@@ -479,6 +480,10 @@ export const api = {
 
   domainCandidates: (): Promise<CandidatesResponse> =>
     fetch(`${BASE}/domains/candidates`).then(json<CandidatesResponse>),
+
+  /** The shelves a domain falls into (TASKS-DOMAIN-SPLIT phase 2): deterministic, read-only. */
+  domainSplit: (key: string): Promise<SplitProposal> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split`).then(json<SplitProposal>),
 
   domainReview: (): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/domain-review`, { method: 'POST' }).then(json<MaintenanceRun>),
