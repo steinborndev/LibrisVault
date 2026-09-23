@@ -4297,6 +4297,35 @@ span.head-slot { display: inline-block; }
   font-size: 12px;
   color: var(--text-dim);
 }
+/* The split proposal (TASKS-DOMAIN-SPLIT 3.4): the candidate card's shape, one per shelf. */
+.split-proposal select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 2px 6px;
+  max-width: 100%;
+}
+.split-shelf.misfile {
+  border-color: var(--warn);
+}
+.split-numbers {
+  margin: 0 0 6px;
+}
+.split-landmarks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.gs-shelves {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
 .chip.verdict-new-domain {
   border-color: var(--ok);
   color: var(--ok);

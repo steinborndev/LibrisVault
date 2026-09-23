@@ -382,7 +382,7 @@ function mixColor(a: string, b: string, t: number): string {
 }
 
 /** Distinct, theme-agnostic hue per cluster id for the community hulls. */
-function clusterHue(id: number): number {
+export function clusterHue(id: number): number {
   return (id * 47) % 360
 }
 
