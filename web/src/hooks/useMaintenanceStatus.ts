@@ -15,6 +15,7 @@ import { api } from '../api/client.ts'
 import type { MaintenanceAreaState } from '../api/types.ts'
 import { computeTagReport, recommendedKeys, MAX_TAG_ACTIONS } from '../lib/tagReport.ts'
 import { deriveMaintenanceStatus, type MaintStatus } from '../lib/maintenanceStatus.ts'
+import { largestDepartment } from '../lib/splitShelves.ts'
 
 export interface MaintenanceStatusData {
   readonly status: MaintStatus
@@ -52,6 +53,8 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
     () => (graph.data !== undefined ? computeTagReport(graph.data.nodes) : null),
     [graph.data],
   )
+  /** The split item's input, from the graph already loaded: no request of its own. */
+  const largest = useMemo(() => (graph.data !== undefined ? largestDepartment(graph.data.nodes) : null), [graph.data])
 
   const failed = stats.isError || graph.isError || domains.isError || candidates.isError
   const retry = (): void => {
@@ -102,11 +105,12 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
       index: index.data ?? null,
       unversioned: stats.data.unversioned ?? null,
       defects: defectCounts,
+      largestDomain: largest,
       now: new Date(),
     })
     const lastRuns = new Map((state.data?.areas ?? []).map((a) => [a.kind, a]))
     return { status, lastRuns }
-  }, [stats.data, domains.data, candidates.data, report, index.data, state.data, defectCounts])
+  }, [stats.data, domains.data, candidates.data, report, index.data, state.data, defectCounts, largest])
 
   return { data, failed, retry }
 }

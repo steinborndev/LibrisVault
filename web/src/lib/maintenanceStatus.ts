@@ -12,10 +12,12 @@
  * unit-testable; the `useMaintenanceStatus` hook feeds it from the live queries.
  */
 
+import { OVERSIZE_SHARE, SPLIT_MIN_PAGES } from './splitShelves.ts'
+
 export type MaintSeverity = 'due' | 'recommended' | 'healthy'
 
 /** Stable area ids; `anchor` is the DOM id of the expert card the item jumps to. */
-export type MaintAreaId = 'backfill' | 'domains' | 'tags' | 'lint' | 'hot-cache' | 'index' | 'unversioned' | 'defects'
+export type MaintAreaId = 'backfill' | 'domains' | 'tags' | 'lint' | 'hot-cache' | 'index' | 'unversioned' | 'defects' | 'split'
 
 export interface MaintStatusItem {
   readonly id: MaintAreaId
@@ -64,6 +66,12 @@ export interface MaintStatusInput {
    * the list, so counting it here would put it straight back on.
    */
   readonly defects: { fixable: number; decision: number } | null
+  /**
+   * The largest department domain and its share of every knowledge page (TASKS-DOMAIN-SPLIT
+   * 3.5), from the graph the dashboard already loads. Null while loading, and for a vault
+   * without domains: the item is then omitted.
+   */
+  readonly largestDomain: { domain: string; pages: number; share: number } | null
   readonly now: Date
 }
 
@@ -370,6 +378,25 @@ export function deriveMaintenanceStatus(input: MaintStatusInput): MaintStatus {
         anchor: 'card-defects',
       })
     }
+  }
+
+  /*
+   * One domain outgrowing a shelf (TASKS-DOMAIN-SPLIT 3.5). `recommended` at most, never `due`:
+   * a large domain blocks nothing, and a split is a decision about the vault's shape that
+   * nobody should be nagged into. Absent below the share, not "healthy" - a domain of a fifth of
+   * the vault is not a state worth a green line of its own. The proposal it jumps to is free.
+   */
+  const big = input.largestDomain
+  if (big !== null && big.share >= OVERSIZE_SHARE && big.pages >= SPLIT_MIN_PAGES) {
+    const pct = Math.round(big.share * 100)
+    items.push({
+      id: 'split',
+      severity: 'recommended',
+      title: `One domain holds ${pct} % of the vault`,
+      why: `${big.domain} holds ${big.pages} knowledge pages - filtering by it narrows little. The split proposal shows the shelves it falls into; nothing is written.`,
+      cost: 'none, deterministic',
+      anchor: 'card-domains',
+    })
   }
 
   if (input.index !== null && input.index.scriptsPresent) {
