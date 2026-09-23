@@ -27,10 +27,9 @@ undoes. The domain that is split keeps its key, narrowed so it no longer claims 
   well tags alone tell it from its siblings, the pages it is built around, its distinctive tags
   and what one of them would cost as a key - and the shelves are ranked by how cleanly they stand
   apart, not by size. Free, read-only, the same for the same vault.
-- **The Shelves overlay on the Graph screen**, beside Landmarks and under the same condition (one
-  domain on show). The hulls are the proposal's shelves rather than the communities of the
-  drawing, and a chip per shelf narrows the view to it. The Catalog carries the same chips when
-  one domain is selected.
+- **Shelf chips in the Catalog** when one domain is selected: a chip per proposed shelf narrows
+  the rows to it. (The Graph screen drew the same shelves as an overlay on the day of the merge;
+  it was removed the same day at the user's request.)
 - **The decision surface in System's Domains card**, and as a step of the guided maintenance run:
   per shelf promote, merge with another, leave or defer; per new domain a key checked while it is
   typed (including how many pages already carry it as a tag), a description and tags; the domain

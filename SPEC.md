@@ -588,9 +588,10 @@ two ends share a cluster in 90 % of the runs, and the shelves are the connected 
 links with 25 pages or more. Smaller groups stay with the domain. Each shelf carries its evidence
 (size, conductance, stability, tag precision and recall, landmarks, distinctive tags without the
 entity-shaped ones, the tag-collision cost of a key) and is ranked by separability. A domain
-under 50 knowledge pages is not offered a split. The Graph's Shelves overlay and the Catalog
-narrow to a proposed shelf, System shows the proposal, and the status model recommends it when
-one domain holds a quarter of the knowledge pages. Nothing is written.
+under 50 knowledge pages is not offered a split. The Catalog narrows to a proposed shelf, System
+shows the proposal, and the status model recommends it when one domain holds a quarter of the
+knowledge pages. Nothing is written. (A Graph overlay drawing the shelves as hulls shipped with the
+merge and was removed the same day at the user's request.)
 
 *Part two, the write.* The user promotes, merges, leaves or defers shelves and names each
 promoted one; a key is coined, never copied from a frequent tag. An optional read-only agent

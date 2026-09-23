@@ -300,6 +300,10 @@ under **E2E results**.
       `meta` and `unassigned` answer "Not a domain", because the route answers them 400.
       The canvas now states the number of hulls it drew as `data-hulls`, which is what lets E3
       count them without scanning pixels.
+      **Removed 2026-09-23, after the merge, at the user's request** (see 8.7): the overlay, its
+      switch and chips, `shelfClusters`, the `gs-shelves` style and `data-hulls` are gone; the
+      Graph screen is as it was before this branch. The Catalog chips (3.3) and the System panel
+      stay.
 - [x] **3.3 Catalog:** the same chips when exactly one domain is selected; a chip filters the
       rows.
       **Done** as a "Shelves" section of the panel, shown when the one selected domain passes
@@ -734,7 +738,7 @@ setsid nohup "$E/app/scripts/dev-instance.sh" npm run start:prod --workspace ser
 - The UI, driven over CDP the way `scripts/shoot-screens.mjs` does it (wait on a selector, never
   on `networkidle`, which the SSE stream keeps open; clear `localStorage` before each domain
   change, because the domain selection survives a reload):
-  - the Graph filtered to `$PARENT` with the Shelves overlay on: one hull and one chip per shelf
+  - (removed with the overlay, 2026-09-23) the Graph filtered to `$PARENT` with the Shelves overlay on: one hull and one chip per shelf
     plus the rest, each chip's count equal to the route's size;
   - a chip narrows the Graph to exactly that many pages (the screen's own "N of M" line);
   - the Catalog with the same chip shows the same number of rows;
@@ -965,6 +969,10 @@ Nothing of this branch merges before this: phase 8 is the gate of the one merge.
       re-evaluated, as decided on 2026-09-23: kept as a lens for large domains that were not
       split, or removed. It keeps no stored state, so removing it is cheap. The decision is
       written here.
+      **Decided 2026-09-23, before the first real split: removed.** The user looked at it on the
+      live instance and does not need it; the convex hulls of shelves interleaved in the layout
+      read as overlapping shelves, which they never are. What stays of the view is the Catalog's
+      shelf chips and the System panel.
 
 ---
 
@@ -984,8 +992,8 @@ parts land together, with the one merge.
 > links with 25 pages or more. Smaller groups stay with the domain. Each shelf carries its evidence
 > (size, conductance, stability, tag precision and recall, landmarks, distinctive tags without the
 > entity-shaped ones, the tag-collision cost of a key) and is ranked by separability. A domain
-> under 50 knowledge pages is not offered a split. The Graph's Shelves overlay and the Catalog
-> narrow to a proposed shelf, System shows the proposal, and the status model recommends it when
+> under 50 knowledge pages is not offered a split. The Catalog narrows to a proposed shelf,
+> System shows the proposal, and the status model recommends it when
 > one domain holds a quarter of the knowledge pages. Nothing is written.
 >
 > *Part two, the write.* The user promotes, merges, leaves or defers shelves and names each
