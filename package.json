@@ -25,6 +25,7 @@
     "permprobe": "npm run permprobe --workspace server",
     "preprocprobe": "npm run preprocprobe --workspace server",
     "vaultprobe": "npm run vaultprobe --workspace server --",
+    "splitprobe": "npm run splitprobe --workspace server --",
     "questionaudit": "npm run questionaudit --workspace server --",
     "questiontopic-eval": "npm run questiontopic-eval --workspace server --",
     "vaultrepair": "npm run vaultrepair --workspace server --",
