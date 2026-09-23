@@ -107,17 +107,24 @@ permutation**, so the order in which the graph builder happens to list them neve
 
 Pure functions. No route, no UI, no disk access except in the probe.
 
-- [ ] **1.1 `server/src/pipeline/communities.ts`**: a port of `louvainCommunities` from
+- [x] **1.1 `server/src/pipeline/communities.ts`**: a port of `louvainCommunities` from
       `web/src/lib/communities.ts`, with one addition, an optional resolution `gamma` (default 1,
       which is the web's behaviour). The web copy is not changed. Both are pinned by the parity
       test below, and both file headers say so: the same trade-off `web/src/api/types.ts` states
       for the hand-mirrored API types.
-- [ ] **1.2 `consensusShelves(pages, links, opts)`** in `server/src/pipeline/domain-split.ts`:
+      **Done.** The parity fixture is `planted([12, 10, 8, 6], 0.5, 0.04, seed 7)`, 85 links;
+      its labels are deliberately not the blocks (four communities, two pages placed across),
+      which makes the array sensitive to a change in either copy.
+- [x] **1.2 `consensusShelves(pages, links, opts)`** in `server/src/pipeline/domain-split.ts`:
       sort by path, `CONSENSUS_RUNS` seeded permutations, one Louvain run each at
       `CONSENSUS_GAMMA`, stable links, union-find, components of `SHELF_MIN_PAGES` or more are the
       shelves, everything else stays with the parent. Self-links are ignored. A component of
       `HOLDS_TOGETHER_SHARE` or more of the domain yields no shelves and the reason.
-- [ ] **1.3 The evidence per shelf**, all deterministic:
+      **Done.** Louvain is fed the DIRECTED links, as the graph builder records them and the web's
+      hull lens feeds them (a reciprocal pair weighs two); agreement is measured on the distinct
+      undirected pairs. A domain with no stable group of 25 that does not hold together either
+      answers "no stable group" as its reason.
+- [x] **1.3 The evidence per shelf**, all deterministic:
   - `size`, `types` (pages per top-level bucket), `entities`;
   - `conductance`: the share of the shelf's link ends inside the domain that leave the shelf;
   - `stability`: the mean agreement over the shelf's internal links;
@@ -138,23 +145,38 @@ Pure functions. No route, no UI, no disk access except in the probe.
   - `rank` by D5; `misfile` when `precision < MISFILE_PRECISION`;
   - `fingerprint`: the first `FINGERPRINT_LANDMARKS` landmark addresses, sorted, plus
     `floor(log2(size))`.
-- [ ] **1.4 The totals:** pages in shelves, pages left with the parent, the link matrix between
+- [x] **1.4 The totals:** pages in shelves, pages left with the parent, the link matrix between
       the shelves and the rest (from which the client computes the cross-domain cost of any
       selection or merge), and the largest department domain's share now and after promoting
       every shelf.
-- [ ] **1.5 `keyCollision(graph, shelfPaths, key)`**: the pages inside the shelf and the pages
+      **Done, and one reading fixed here.** "The knowledge pages" is the denominator of the
+      share: every knowledge page of the vault (`kind: knowledge`, not `upstream-demo`), not
+      only those of department domains. The matrix is DIRECTED (rows from, columns to); the
+      client sums both directions for a cost.
+- [x] **1.5 `keyCollision(graph, shelfPaths, key)`**: the pages inside the shelf and the pages
       elsewhere in the vault that carry `key` as a tag. Used by the proposal for each shelf's
       top tag and by phase 6 for a key being typed.
-- [ ] **1.6 `proposeSplit(graph, domain, addresses)`** composes the above into `SplitProposal`.
+      **Done.** Case-insensitive, over every page of the vault (any kind), because
+      `tag-mirroring` reads every page that carries a `domain:`.
+- [x] **1.6 `proposeSplit(graph, domain, addresses)`** composes the above into `SplitProposal`.
       Addresses come in from the caller (`readAddresses` in `hubs.ts`); the engine never reads a
       file.
-- [ ] **1.7 `server/src/cli/splitprobe.ts`**, `npm run splitprobe -- <domain> [--stability]`,
+      **Done.** Two notes on the plan's wording. `topDistinct` is a closure inside the web's
+      `detectClusters` and has no server counterpart: `domain-split.ts` carries the same score
+      (`c / size - (df - c) / (N - size)`, floor 0.05, fallback to raw order), computed with the
+      DOMAIN as the population. And `isDepartmentDomain` lives in `pipeline/library.ts`, not in
+      `domains.ts`; it is imported from there, as `questions.ts` already does (a pure function,
+      so the import constructs nothing of the Fellow subsystem, hard rule 8).
+- [x] **1.7 `server/src/cli/splitprobe.ts`**, `npm run splitprobe -- <domain> [--stability]`,
       read-only like `vaultprobe`: prints the proposal for a domain of the vault at `VAULT_ROOT`.
       `--stability` adds five other seeds and "the vault N days ago" for N = 3, 14 and 30 (pages
       whose freshness date is newer are left out) and prints, per case, the share of the common
       pages that land on another shelf. It replaces the analysis's throwaway scripts and is safe
       against the live vault: it reads files and writes nothing. Wired like `vaultprobe`:
       `tsx src/cli/splitprobe.ts` in `server/package.json`, a forwarding script in the root one.
+      **Done.** Its default output is counts, shares and fingerprint hashes only, so it can be
+      quoted here; `--names` adds landmark titles and tags for the terminal. `--vault <path>`
+      points it at another vault than `VAULT_ROOT`.
 
 **Tests** (`server/test/communities.test.ts`, `server/test/domain-split-engine.test.ts`,
 `web/test/communities-parity.test.ts`), all on graphs from one seeded planted-partition generator
@@ -182,6 +204,32 @@ at vault HEAD `dd0fe9a2`: 8 shelves (161, 66, 59, 49, 44, 34, 30, 28) and 66 pag
 parent; another seed and three days back each move at most 1 %. If the vault has moved on, the
 new HEAD and numbers are recorded here and the stability bounds still hold. The time of one
 proposal for the largest domain is recorded.
+
+**Phase 1 measured (2026-09-23, vault HEAD `dd0fe9a2`, unchanged since the analysis).**
+`npm test` 120 + 67 files, 2031 + 712 tests; `npm run typecheck` and `npm run lint` exit 0.
+The new suites: `communities.test.ts` 4, `domain-split-engine.test.ts` 19,
+`communities-parity.test.ts` 1.
+
+`npm run splitprobe -- <largest domain> --stability` against `~/vault`, read-only:
+
+| Measured | Result | Against the plan |
+|---|---|---|
+| Pages, links in the domain | 537, 3473 | as measured |
+| Shelves | 8: 161, **67**, 59, 49, 44, 34, 30, 28 | one page differs: 67 against 66 |
+| With the parent | **65** | 66 in the plan |
+| One proposal | 120 ms | 96 ms in the analysis's script |
+| Another seed, five of them | 0, 0, 1, 0, 3 of 537 pages move (0.0 to 0.6 %); one seed yields a ninth shelf out of the rest, moving no page off its shelf | at most 1 %: PASS |
+| Three days back | 517 pages, 4 of them move (0.8 %), 9 shelves | at most 1 %: PASS |
+| 14 and 30 days back | 16.5 % and 30.4 % move, 6 and 4 shelves | not bounded; the domain grew by 106 and 202 pages in those windows |
+| Misfiling warning | on one shelf of eight (rank 8, precision 0.40); the next lowest is 0.67 | the analysis measured 0.43 without the rest as a class |
+| Precision, conductance | 0.40 to 0.95; 0.04 to 0.12 | the analysis: 43 to 100 %; 0.04 to 0.12 |
+| Pages the tags cannot place | 13 | 12 in the analysis |
+| Largest domain share | 40.6 % now, 12.2 % after promoting all eight | |
+
+**The one-page difference is the seed, not a defect.** The analysis's consensus used its own
+permutation stream; this one uses `CONSENSUS_SEED` through mulberry32, and the plan itself
+measures another seed at 0.2 % (one page of 537). The five other seeds above move 0 to 3 pages.
+From here on the numbers above are the reference for E3, not the analysis's.
 
 ## Phase 2: the route
 
