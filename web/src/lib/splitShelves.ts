@@ -59,10 +59,21 @@ export function shelfState(
   return { available: true, domain, pages }
 }
 
-/** A shelf's name until it has one: its rank and its two most distinctive tags. */
-export function shelfLabel(shelf: Pick<SplitShelf, 'rank' | 'tags'>): string {
+/**
+ * What a shelf is called until it has a key: its rank, and nothing else. Its tags were once
+ * part of this label ("1 · #a #b"), and that read as the name the new domain would get - the one
+ * thing a key must never be, since a key copied from a tag the pages carry books a
+ * `tag-mirroring` finding on every one of them (D7). The tags are shown beside it instead,
+ * marked as tags, by `shelfTagHint`.
+ */
+export function shelfLabel(shelf: Pick<SplitShelf, 'rank'>): string {
+  return `Shelf ${shelf.rank}`
+}
+
+/** The shelf's two most distinctive tags, as tags: "tagged #a #b", or '' without any. */
+export function shelfTagHint(shelf: Pick<SplitShelf, 'tags'>): string {
   const tags = shelf.tags.slice(0, 2).map((t) => `#${t}`)
-  return tags.length > 0 ? `${shelf.rank} · ${tags.join(' ')}` : `Shelf ${shelf.rank}`
+  return tags.length > 0 ? `tagged ${tags.join(' ')}` : ''
 }
 
 /** The paths one chip narrows to. An unknown id is an empty set, never the whole domain. */
@@ -72,10 +83,12 @@ export function shelfPaths(proposal: Pick<SplitProposal, 'shelves' | 'rest'>, ke
 }
 
 /** The chips, in rank order and then the rest, each with the route's own count. */
-export function shelfChips(proposal: Pick<SplitProposal, 'shelves' | 'rest'>): Array<{ key: ShelfKey; label: string; size: number }> {
+export function shelfChips(
+  proposal: Pick<SplitProposal, 'shelves' | 'rest'>,
+): Array<{ key: ShelfKey; label: string; hint: string; size: number }> {
   return [
-    ...proposal.shelves.map((s) => ({ key: s.id as ShelfKey, label: shelfLabel(s), size: s.size })),
-    ...(proposal.rest.size > 0 ? [{ key: 'rest' as ShelfKey, label: 'Rest', size: proposal.rest.size }] : []),
+    ...proposal.shelves.map((s) => ({ key: s.id as ShelfKey, label: shelfLabel(s), hint: shelfTagHint(s), size: s.size })),
+    ...(proposal.rest.size > 0 ? [{ key: 'rest' as ShelfKey, label: 'Rest', hint: '', size: proposal.rest.size }] : []),
   ]
 }
 

@@ -4404,6 +4404,13 @@ span.head-slot { display: inline-block; }
 .split-fellows {
   margin: 8px 0;
 }
+/* A shelf's tags beside its rank, set apart from the name so they never read as one (D7). */
+.split-tagged {
+  font-style: italic;
+}
+.split-key-hint {
+  margin: 0 0 4px;
+}
 .split-proposal select.split-merge {
   margin-left: 4px;
 }

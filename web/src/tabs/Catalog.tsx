@@ -474,8 +474,8 @@ export function Catalog({
                 {shelf === null ? 'proposed' : shelf === 'rest' ? 'rest' : `shelf ${shelf + 1}`}
               </span>
             </div>
-            {/* The Graph's Shelves chips, filtering rows instead of nodes: the same shelves, in
-                the same rank order, with the route's own counts. */}
+            {/* A chip per proposed shelf, in rank order, with the route's own counts. Named by
+                rank; the tags ride in the tooltip, never in the name (D7). */}
             <div className="typechips stacked">
               {shelfChips(proposal).map((c) => {
                 const active = shelf === c.key
@@ -485,7 +485,7 @@ export function Catalog({
                     className={`chip${active ? ' active' : ''}${shelf !== null && !active ? ' dimmed' : ''}`}
                     aria-pressed={active}
                     onClick={() => setShelf(active ? null : c.key)}
-                    title={c.key === 'rest' ? 'The pages no shelf takes: they stay with the domain' : 'Only this proposed shelf'}
+                    title={c.key === 'rest' ? 'The pages no shelf takes: they stay with the domain' : `Only this proposed shelf${c.hint ? ` (${c.hint})` : ''}`}
                   >
                     {c.key !== 'rest' && <span className="chip-dot" style={{ background: `hsl(${clusterHue(c.key)} 60% 55%)` }} aria-hidden />}
                     {c.label} <span className="chip-n">{c.size}</span>

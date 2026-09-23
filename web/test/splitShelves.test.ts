@@ -7,6 +7,8 @@ import { describe, it, expect } from 'vitest'
 import {
   largestDepartment,
   shelfChips,
+  shelfLabel,
+  shelfTagHint,
   shelfPaths,
   shelfState,
   splitOutcome,
@@ -90,6 +92,14 @@ const node = (path: string, domain: string | null, over: Partial<GraphNode> = {}
   ...over,
 })
 
+describe('shelfLabel and shelfTagHint (D7)', () => {
+  it('names a shelf by its rank alone, and shows its tags apart, marked as tags', () => {
+    expect(shelfLabel({ rank: 3 })).toBe('Shelf 3')
+    expect(shelfTagHint({ tags: ['t-a', 't-b', 't-c'] })).toBe('tagged #t-a #t-b')
+    expect(shelfTagHint({ tags: [] })).toBe('')
+  })
+})
+
 describe('shelfPaths and shelfChips', () => {
   it('narrows to exactly one shelf, the rest, or nothing for an unknown id', () => {
     expect(shelfPaths(proposal, 1)).toEqual(new Set(range('b', 20)))
@@ -103,6 +113,12 @@ describe('shelfPaths and shelfChips', () => {
       [1, 20],
       [2, 10],
       ['rest', 5],
+    ])
+     expect(shelfChips(proposal).map((c) => [c.label, c.hint])).toEqual([
+      ['Shelf 1', 'tagged #t-a #t-b'],
+      ['Shelf 2', 'tagged #t-d'],
+      ['Shelf 3', ''],
+      ['Rest', ''],
     ])
   })
 })

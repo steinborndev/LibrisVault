@@ -28,7 +28,7 @@ import type {
   ShelfDecision,
 } from '../api/types.ts'
 import { isKnowledgeNode } from '../lib/knowledge.ts'
-import { keyCollisionOf, shelfLabel, splitOutcome, SPLIT_MIN_PAGES } from '../lib/splitShelves.ts'
+import { keyCollisionOf, shelfLabel, shelfTagHint, splitOutcome, SPLIT_MIN_PAGES } from '../lib/splitShelves.ts'
 import {
   childFields,
   decisionProblems,
@@ -405,6 +405,11 @@ function ShelfCard({
         <span className="candidate-meta">
           {s.size} pages · {types}
         </span>
+        {shelfTagHint(s) !== '' && (
+          <span className="candidate-meta split-tagged" title="Its most distinctive tags - a hint to what it holds, never its name">
+            {shelfTagHint(s)}
+          </span>
+        )}
         {s.misfile && (
           <span
             className="chip verdict-existing"
@@ -489,9 +494,9 @@ function ShelfCard({
           {s.topTagCollision !== null && (
             <>
               {' '}
-              - as a key, <code>{s.topTagCollision.key}</code> is carried by {s.topTagCollision.inside} page
-              {s.topTagCollision.inside === 1 ? '' : 's'} here and {s.topTagCollision.elsewhere} elsewhere, so a key is
-              coined rather than copied.
+              - <code>{s.topTagCollision.key}</code> would make a poor key: {s.topTagCollision.inside} page
+              {s.topTagCollision.inside === 1 ? '' : 's'} here and {s.topTagCollision.elsewhere} elsewhere already carry it as
+              a tag.
             </>
           )}
         </p>
@@ -545,13 +550,18 @@ function ChildEditor({
   const size = group.members.reduce((a, id) => a + byId(id).size, 0)
   return (
     <div className="split-child">
+      <p className="tab-hint split-key-hint">
+        This shelf becomes a new domain. Its key is its name in the registry and in the{' '}
+        <code>domain:</code> field of every page it takes: coin one, or let the agent draft it. A tag the pages already
+        carry makes a poor key.
+      </p>
       {group.members.length > 1 && (
         <p className="candidate-meta">
           One new domain of {size} pages: {group.members.map((id) => shelfLabel(byId(id))).join(' + ')}
         </p>
       )}
       <label className="split-field">
-        <span>Key</span>
+        <span>Domain key</span>
         <input
           data-field="key"
           value={f.key}
