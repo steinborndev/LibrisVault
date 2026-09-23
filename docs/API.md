@@ -62,6 +62,14 @@ GET    /domains                  the domain registry (installed? + parsed entrie
 POST   /domains                  create a domain: append to the registry page, one commit
 GET    /domains/candidates       themes among `unassigned` pages worth a domain (free)
 POST   /domains/candidates/:key/dismiss     stop proposing this theme (DELETE undoes it)
+GET    /domains/:key/split       the shelves one domain falls into (free, read-only): a consensus
+                                 of 40 seeded Louvain runs over its knowledge pages and their
+                                 links, shelves of 25 pages or more, each with its evidence and
+                                 ranked by separability; the rest stays with the domain. 404 for a
+                                 key the registry does not list, 400 for meta and unassigned; a
+                                 domain under 50 pages (`eligible: false`) or one that holds
+                                 together (`shelves: []`) answers 200 with its `reason`. Memoised
+                                 per graph, so an unchanged vault costs one computation
 POST   /maintenance/{lint,lint-fix,research,hot-cache,domain-backfill,domain-review,cleanup,repair}
                                  starts an async run → { id, channel }; lint-fix 409s without a
                                  report, backfill 409s without a registry, review 409s with no
