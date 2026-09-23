@@ -1,14 +1,13 @@
 /**
- * The split proposal on screen (docs/tasks/TASKS-DOMAIN-SPLIT.md 3.1): what the Graph, the
- * Catalog and the System panel do with `GET /api/v1/domains/:key/split`.
+ * The split proposal on screen (docs/tasks/TASKS-DOMAIN-SPLIT.md 3.1): what the Catalog and the
+ * System panel do with `GET /api/v1/domains/:key/split`.
  *
  * Pure, like `landmarks.ts` and `communities.ts`: no React, no fetching, unit-tested on its own.
  * The shelves come from the SERVER and are never recomputed here - the proposal's partition is
- * fixed by the proposal (D3), and the hull lens's own Louvain over the drawing is exactly what
- * it must not be confused with (analysis, finding 1). What lives here is the translation into
- * the canvas's vocabulary (`clusters`, `clusterLabels`), the mask a chip narrows to, and the
- * arithmetic of a selection - which shelves would be promoted, merged or not - that the
- * decision surface of milestone B reuses unchanged.
+ * fixed by the proposal (D3). What lives here is the chip a Catalog row filter narrows to, and
+ * the arithmetic of a selection - which shelves would be promoted, merged or not - that the
+ * decision surface reuses. (The Graph screen's Shelves overlay drew the same shelves as hulls
+ * and was removed on 2026-09-23 at the user's request.)
  */
 
 import type { GraphNode, SplitProposal, SplitShelf } from '../api/types.ts'
@@ -27,9 +26,9 @@ export type ShelfKey = number | 'rest'
 const isDepartment = (d: string): boolean => d !== NO_DOMAIN && d !== 'meta' && d !== 'unassigned'
 
 /**
- * Whether the Shelves overlay can be switched on, and why not - under exactly the condition
- * Landmarks uses (one domain on show, `soleDomain`), with the split's own bar. The same two
- * texts: `reason` on one line beside its siblings, `why` for the tooltip.
+ * Whether one domain on show can be offered its shelves, and why not - under exactly the
+ * condition Landmarks uses (one domain on show, `soleDomain`), with the split's own bar. The
+ * Catalog asks it before it asks for the proposal. `reason` on one line, `why` for a tooltip.
  */
 export type ShelfState =
   | { available: true; domain: string; pages: number }
@@ -64,23 +63,6 @@ export function shelfState(
 export function shelfLabel(shelf: Pick<SplitShelf, 'rank' | 'tags'>): string {
   const tags = shelf.tags.slice(0, 2).map((t) => `#${t}`)
   return tags.length > 0 ? `${shelf.rank} · ${tags.join(' ')}` : `Shelf ${shelf.rank}`
-}
-
-/**
- * The proposal in the canvas's terms, for the node array on screen: each node's shelf id by
- * path, -1 for a page that stays with the parent and for every page the proposal does not hold
- * (another domain, a system page, a ghost). The rest gets no hull: it is not a shelf.
- */
-export function shelfClusters(
-  proposal: Pick<SplitProposal, 'shelves'>,
-  nodes: ReadonlyArray<Pick<GraphNode, 'path'>>,
-): { clusterIds: number[]; clusterLabels: Map<number, string> } {
-  const of = new Map<string, number>()
-  for (const s of proposal.shelves) for (const p of s.pages) of.set(p.path, s.id)
-  return {
-    clusterIds: nodes.map((n) => of.get(n.path) ?? -1),
-    clusterLabels: new Map(proposal.shelves.map((s) => [s.id, shelfLabel(s)])),
-  }
 }
 
 /** The paths one chip narrows to. An unknown id is an empty set, never the whole domain. */

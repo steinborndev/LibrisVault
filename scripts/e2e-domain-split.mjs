@@ -392,47 +392,17 @@ async function uiWalk(stage, parent, p, tag) {
   const page = await cdpPage(CDP)
   try {
     const chips = [...p.shelves.map((s) => s.size), ...(p.rest.size > 0 ? [p.rest.size] : [])]
-    // Graph, filtered to the parent through the saved view preferences.
+    // The Graph's Shelves overlay was removed on 2026-09-23 at the user's request; the walk
+    // starts in the Catalog, the one screen that still narrows to a shelf.
     await page.goto(`${UI}/`)
-    await page.evaluate(`localStorage.clear(); sessionStorage.clear(); localStorage.setItem('vault.graphPrefs', ${lit(
-      JSON.stringify({ v: 2, lens: 'domain', selectedTypes: [], selectedDomains: [parent.domain], showClusters: false, showGaps: false, showNetwork: false, spotlight: false, showSystem: false, landmarks: null }),
-    )}); true`)
-    await page.goto(`${UI}/graph`)
-    await page.waitFor(`[...document.querySelectorAll('canvas')].some((c) => c.getBoundingClientRect().height > 300)`)
-    const toggle = `[...document.querySelectorAll('button.rowtoggle')].find((b) => b.querySelector('.tname')?.textContent === 'Shelves')`
-    const enabled = await page.waitFor(`(${toggle}) && !(${toggle}).disabled`, 20000)
-    check(stage, 'the Shelves switch is available for the parent', Boolean(enabled))
-    await page.evaluate(`(${toggle}).click(); true`)
-    const shown = await page.waitFor(
-      `(() => { const b = [...document.querySelectorAll('.gs-shelves button')]; return b.length === ${chips.length} ? b.map((x) => Number(x.querySelector('.chip-n')?.textContent)) : null })()`,
-      30000,
-    )
-    check(stage, 'one chip per shelf plus the rest, each with the route\'s size', JSON.stringify(shown) === JSON.stringify(chips), `${shown?.length ?? 0} chips`)
-    const hulls = await page.waitFor(
-      `(() => { const c = [...document.querySelectorAll('canvas')].find((x) => x.dataset.hulls !== undefined && x.getBoundingClientRect().height > 300); return c && Number(c.dataset.hulls) === ${p.shelves.length} ? Number(c.dataset.hulls) : null })()`,
-      30000,
-    )
-    check(stage, 'one hull per shelf', hulls === p.shelves.length, `${hulls ?? 'n/a'} hulls, ${p.shelves.length} shelves`)
-    await new Promise((r) => setTimeout(r, 4000))
-    await page.shot(`${tag}-graph-shelves.png`)
-    const showing = `Number((/Showing\\s+(\\d+)\\s+of/.exec(document.querySelector('.scopeline')?.textContent ?? '') ?? [])[1])`
-    let narrowOk = 0
-    for (let i = 0; i < chips.length; i++) {
-      await page.evaluate(`document.querySelectorAll('.gs-shelves button')[${i}].click(); true`)
-      const n = await page.waitFor(`${showing} === ${chips[i]} ? ${showing} : null`, 15000)
-      if (n === chips[i]) narrowOk++
-      else note(`chip ${i + 1}: Showing ${await page.evaluate(showing)} against ${chips[i]}`)
-      if (i === 0) await page.shot(`${tag}-graph-chip1.png`)
-      await page.evaluate(`document.querySelectorAll('.gs-shelves button')[${i}].click(); true`)
-    }
-    check(stage, 'every chip narrows the Graph to exactly its size', narrowOk === chips.length, `${narrowOk} of ${chips.length}`)
+    await page.evaluate(`localStorage.clear(); sessionStorage.clear(); true`)
 
-    // Catalog, the same chips when the parent is the one domain selected.
+    // Catalog: a chip per shelf and the rest when the parent is the one domain selected.
     await page.evaluate(`localStorage.clear(); true`)
     await page.goto(`${UI}/catalog?domain=${encodeURIComponent(parent.domain)}`)
     const section = `[...document.querySelectorAll('.gpanel .gp-sec')].find((s) => s.querySelector('.gp-eyebrow')?.textContent === 'Shelves')`
     const catChips = await page.waitFor(`(() => { const s = ${section}; return s ? s.querySelectorAll('button.chip').length : null })()`, 30000)
-    check(stage, 'the Catalog shows the same chips', catChips === chips.length, `${catChips ?? 0} chips`)
+    check(stage, 'the Catalog shows one chip per shelf plus the rest', catChips === chips.length, `${catChips ?? 0} chips`)
     const rows = `document.querySelectorAll('table.lib-table tbody tr').length`
     let rowsOk = 0
     for (let i = 0; i < chips.length && catChips === chips.length; i++) {

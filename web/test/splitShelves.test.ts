@@ -1,14 +1,12 @@
 /**
- * The split proposal on screen (docs/tasks/TASKS-DOMAIN-SPLIT.md 3.1): matching by path, the
- * chip mask, the selection arithmetic, and the overlay's enabling rule. Every expected number is
+ * The split proposal on screen (docs/tasks/TASKS-DOMAIN-SPLIT.md 3.1): the chip mask, the
+ * selection arithmetic, and the rule that says when a domain is offered its shelves. Every expected number is
  * a hand count over the fixture below.
  */
 import { describe, it, expect } from 'vitest'
 import {
   largestDepartment,
   shelfChips,
-  shelfClusters,
-  shelfLabel,
   shelfPaths,
   shelfState,
   splitOutcome,
@@ -90,21 +88,6 @@ const node = (path: string, domain: string | null, over: Partial<GraphNode> = {}
   out: 0,
   in: 0,
   ...over,
-})
-
-describe('shelfClusters', () => {
-  it('matches by path, and gives -1 to the rest and to every page the proposal does not hold', () => {
-    const nodes = [node('wiki/b3.md', 'alpha'), node('wiki/r0.md', 'alpha'), node('wiki/zz.md', 'beta'), node('wiki/a0.md', 'alpha')]
-    const { clusterIds, clusterLabels } = shelfClusters(proposal, nodes)
-    expect(clusterIds).toEqual([1, -1, -1, 0])
-    expect(clusterLabels.get(0)).toBe('1 · #t-a #t-b')
-    expect(clusterLabels.get(2)).toBe('Shelf 3')
-    expect(clusterLabels.has(-1)).toBe(false)
-  })
-
-  it('labels a shelf by rank and its first two tags', () => {
-    expect(shelfLabel({ rank: 4, tags: ['x'] })).toBe('4 · #x')
-  })
 })
 
 describe('shelfPaths and shelfChips', () => {
