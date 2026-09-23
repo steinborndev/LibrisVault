@@ -1455,6 +1455,8 @@ function GuidedRun({
   const [outcomes, setOutcomes] = useState<Record<string, StepOutcome>>({})
   /** Domains created in the decision step - what makes the follow-up backfill run vs. skip. */
   const [created, setCreated] = useState<string[]>([])
+  /** What the split step applied, for its line in the summary. */
+  const [splitNote, setSplitNote] = useState<string | null>(null)
 
   const backfill1 = useMaintenanceRun(() => api.domainBackfill())
   const backfill2 = useMaintenanceRun(() => api.domainBackfill())
@@ -1626,6 +1628,16 @@ function GuidedRun({
               suppressBackfillPrompt
               onDomainCreated={(key) => setCreated((prev) => [...prev, key])}
             />
+          ) : step.id === 'split' ? (
+            // The same panel as System's Domains card (one implementation per decision surface),
+            // with a deferred shelf open again: this run is the "next maintenance run" (6.3).
+            <SplitProposalPanel
+              nodes={graph.data?.nodes}
+              builtAt={graph.data?.builtAt}
+              vaultName={vaultName}
+              guided
+              onApplied={(r, parent) => setSplitNote(`${parent} split: ${r.written.length} page(s) in commit ${r.commit.slice(0, 8)}.`)}
+            />
           ) : (
             <TagHygieneCard
               nodes={graph.data?.nodes}
@@ -1641,6 +1653,11 @@ function GuidedRun({
               Skip step
             </button>
             <span className="spacer" />
+            {step.id === 'split' && (
+              <button className="btn primary" onClick={() => finish('split', splitNote !== null ? 'done' : 'skipped', splitNote ?? 'No split applied.')}>
+                Continue
+              </button>
+            )}
             {step.id === 'domains' && (
               <button
                 className="btn primary"

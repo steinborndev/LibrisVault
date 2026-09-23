@@ -434,7 +434,7 @@ export function deriveMaintenanceStatus(input: MaintStatusInput): MaintStatus {
 
 /* ── Guided run (SPEC §12.7 Stufe c) ─────────────────────────────────────────────────── */
 
-export type RunStepId = 'backfill' | 'domains' | 'backfill2' | 'tags' | 'lint' | 'hot-cache'
+export type RunStepId = 'backfill' | 'domains' | 'backfill2' | 'split' | 'tags' | 'lint' | 'hot-cache'
 
 export interface RunPlanStep {
   readonly id: RunStepId
@@ -480,6 +480,20 @@ export function buildRunPlan(status: MaintStatus): RunPlanStep[] {
       kind: 'auto',
       title: 'Backfill new domains',
       why: 'A created domain owns no pages until its unassigned backlog is re-filed - queued automatically.',
+    })
+  }
+  /*
+   * The split (TASKS-DOMAIN-SPLIT 6.7): after the domain decisions, because a split is one
+   * too, and before the tag repairs, because a split changes which tags mirror a domain. It
+   * is only ever `recommended`, so it rides with lint and the hot cache as something the run
+   * offers rather than something it owes.
+   */
+  if (sev('split') === 'recommended') {
+    steps.push({
+      id: 'split',
+      kind: 'decision',
+      title: 'Split an oversized domain',
+      why: 'One domain holds a large share of the vault. Promote, merge, leave or defer its shelves - or skip; nothing is written without a preview and a second click.',
     })
   }
   if (sev('tags') === 'due') {

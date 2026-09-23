@@ -276,6 +276,20 @@ describe('buildRunPlan', () => {
   })
 })
 
+describe('the split step of the guided run (TASKS-DOMAIN-SPLIT 6.7)', () => {
+  it('is a decision step after the domain decisions and before the tag repairs, when the item is recommended', () => {
+    const plan = buildRunPlan(
+      deriveMaintenanceStatus(healthy({ candidateCount: 1, tagRepairCount: 3, largestDomain: { domain: 'alpha', pages: 100, share: 0.25 } })),
+    )
+    expect(plan.map((p) => p.id)).toEqual(['domains', 'backfill2', 'split', 'tags'])
+    expect(plan.find((p) => p.id === 'split')!.kind).toBe('decision')
+  })
+
+  it('is not planned while the item is absent', () => {
+    expect(buildRunPlan(deriveMaintenanceStatus(healthy({ largestDomain: { domain: 'alpha', pages: 96, share: 0.24 } })))).toEqual([])
+  })
+})
+
 describe('the split item (TASKS-DOMAIN-SPLIT 3.5)', () => {
   const share = (pages: number, of: number) => ({ domain: 'alpha', pages, share: pages / of })
 
