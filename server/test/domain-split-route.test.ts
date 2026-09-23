@@ -89,6 +89,7 @@ const Proposal = z.strictObject({
     knowledgePages: z.number(),
     largestNow: Share,
     largestAfter: Share,
+    largestOther: Share,
   }),
   unaddressed: z.array(z.string()),
   params: z.object({ runs: z.number(), gamma: z.number(), agree: z.number(), seed: z.number(), shelfMinPages: z.number() }),

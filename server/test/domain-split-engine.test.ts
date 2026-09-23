@@ -264,6 +264,7 @@ describe('the evidence', () => {
     expect(p.totals.knowledgePages).toBe(122)
     expect(p.totals.largestNow).toEqual({ domain: DOMAIN, pages: 92, share: 92 / 122 })
     expect(p.totals.largestAfter.pages).toBe(40)
+    expect(p.totals.largestOther).toEqual({ domain: 'beta', pages: 30, share: 30 / 122 })
   })
 
   it('lists the unaddressed pages', () => {

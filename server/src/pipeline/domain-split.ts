@@ -173,6 +173,11 @@ export interface SplitProposal {
     readonly knowledgePages: number
     readonly largestNow: DomainShare
     readonly largestAfter: DomainShare
+    /**
+     * The largest department domain OTHER than this one, so the client can compute the share
+     * after any selection of shelves without the sizes of every domain.
+     */
+    readonly largestOther: DomainShare
   }
   /** Pages of the domain without an `address:`. They can be shown, never approved. */
   readonly unaddressed: readonly string[]
@@ -403,6 +408,7 @@ export function proposeSplit(
     return best
   }
   const largestNow = largestOf(deptSize)
+  const largestOther = largestOf(new Map([...deptSize].filter(([d]) => d !== domain)))
   const members = (paths: readonly string[]): SplitMember[] => paths.map((p) => ({ path: p, address: addressOf(p) }))
   const unaddressed = domainPaths.filter((p) => !addresses.has(p))
 
@@ -422,6 +428,7 @@ export function proposeSplit(
       knowledgePages: K,
       largestNow,
       largestAfter: largestNow,
+      largestOther,
     },
     unaddressed,
     params,
@@ -663,6 +670,7 @@ export function proposeSplit(
       knowledgePages: K,
       largestNow,
       largestAfter: largestOf(after),
+      largestOther,
     },
     unaddressed,
     params,

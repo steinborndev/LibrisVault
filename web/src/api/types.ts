@@ -765,6 +765,8 @@ export interface SplitProposal {
     knowledgePages: number
     largestNow: DomainShare
     largestAfter: DomainShare
+    /** The largest department domain other than this one: the floor under any "after". */
+    largestOther: DomainShare
   }
   unaddressed: string[]
   params: { runs: number; gamma: number; agree: number; seed: number; shelfMinPages: number }
