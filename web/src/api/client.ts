@@ -61,9 +61,18 @@ import type {
   SourceIndex,
   PageWriteResult,
   PageDeleteResult,
+  SplitApplyResult,
+  SplitPlan,
+  SplitRequestBody,
+  SplitSummary,
+  ShelfDecision,
+  ShelfDecisionRecord,
 } from './types.ts'
 
 const BASE = '/api/v1'
+
+/** A JSON POST, for the calls that send a body. */
+const jsonPost = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
 /**
  * A failed request, with the machine-readable reason where the endpoint sends one. The
@@ -76,6 +85,8 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** The parsed error body, for a refusal that names what it refused (a split revert's pages). */
+    readonly body?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -103,8 +114,10 @@ async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = ''
     let code: string | undefined
+    let parsed: Record<string, unknown> | undefined
     try {
       const body = (await res.json()) as { error?: string; message?: string; issues?: string[]; code?: string }
+      parsed = body as Record<string, unknown>
       detail = body.error ? `: ${body.error}` : ''
       code = body.code
       // The demo guard names its reason in `error` and explains it in `message`: the message
@@ -120,7 +133,7 @@ async function json<T>(res: Response): Promise<T> {
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(`${res.status} ${res.statusText}${detail}`, res.status, code)
+    throw new ApiError(`${res.status} ${res.statusText}${detail}`, res.status, code, parsed)
   }
   return res.json() as Promise<T>
 }
@@ -484,6 +497,38 @@ export const api = {
   /** The shelves a domain falls into (TASKS-DOMAIN-SPLIT phase 2): deterministic, read-only. */
   domainSplit: (key: string): Promise<SplitProposal> =>
     fetch(`${BASE}/domains/${encodeURIComponent(key)}/split`).then(json<SplitProposal>),
+
+  /** The dry run of a decision set: the registry diff, the pages, the warnings. Writes nothing. */
+  domainSplitPlan: (key: string, body: SplitRequestBody): Promise<SplitPlan> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/plan`, jsonPost(body)).then(json<SplitPlan>),
+
+  /** The one-commit split (TASKS-DOMAIN-SPLIT 5.4). */
+  domainSplitApply: (key: string, body: SplitRequestBody): Promise<SplitApplyResult> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/apply`, jsonPost(body)).then(json<SplitApplyResult>),
+
+  /** The optional read-only naming pass, for groups of shelf ids (a merge is a group of two). */
+  domainSplitNaming: (key: string, groups: number[][]): Promise<MaintenanceRun> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/naming`, jsonPost({ groups })).then(json<MaintenanceRun>),
+
+  domainSplitDecide: (key: string, fingerprint: string, decision: ShelfDecision): Promise<{ ok: true; decisions: ShelfDecisionRecord[] }> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/decisions`, jsonPost({ fingerprint, decision })).then(
+      json<{ ok: true; decisions: ShelfDecisionRecord[] }>,
+    ),
+
+  domainSplitRestore: (key: string, fingerprint: string): Promise<{ ok: true; decisions: ShelfDecisionRecord[] }> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/decisions/${encodeURIComponent(fingerprint)}`, { method: 'DELETE' }).then(
+      json<{ ok: true; decisions: ShelfDecisionRecord[] }>,
+    ),
+
+  domainSplits: (): Promise<{ splits: SplitSummary[] }> => fetch(`${BASE}/domains/splits`).then(json<{ splits: SplitSummary[] }>),
+
+  domainSplitRemainder: (id: string): Promise<{ commit: string; written: Array<{ address: string; path: string; child: string }>; skipped: SplitApplyResult['skipped'] }> =>
+    fetch(`${BASE}/domains/splits/${encodeURIComponent(id)}/remainder`, { method: 'POST' }).then(
+      json<{ commit: string; written: Array<{ address: string; path: string; child: string }>; skipped: SplitApplyResult['skipped'] }>,
+    ),
+
+  domainSplitRevert: (id: string): Promise<{ commits: string[]; indexCommit: string | null }> =>
+    fetch(`${BASE}/domains/splits/${encodeURIComponent(id)}/revert`, { method: 'POST' }).then(json<{ commits: string[]; indexCommit: string | null }>),
 
   domainReview: (): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/domain-review`, { method: 'POST' }).then(json<MaintenanceRun>),

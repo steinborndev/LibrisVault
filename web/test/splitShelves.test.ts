@@ -77,6 +77,7 @@ const proposal: SplitProposal = {
   },
   unaddressed: [],
   params: { runs: 40, gamma: 0.4, agree: 0.9, seed: 1, shelfMinPages: 25 },
+  decisions: [],
 }
 
 const node = (path: string, domain: string | null, over: Partial<GraphNode> = {}): GraphNode => ({

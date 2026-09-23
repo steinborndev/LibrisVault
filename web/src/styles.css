@@ -4321,6 +4321,100 @@ span.head-slot { display: inline-block; }
   gap: 6px;
   margin: 6px 0;
 }
+/* The decision surface of a split (TASKS-DOMAIN-SPLIT 6.1): the choice row, a promoted shelf's
+   fields, the parent's narrowed entry, the preview and the applied splits. */
+.split-shelf.choice-promote {
+  border-color: var(--accent);
+}
+.split-shelf.choice-merged,
+.split-shelf.choice-defer {
+  opacity: 0.8;
+}
+.split-choice,
+.split-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.split-actions .spacer {
+  flex: 1;
+}
+.split-child,
+.split-parent,
+.split-plan {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.split-field {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: start;
+  gap: 2px 8px;
+  font-size: 13px;
+}
+.split-field > span:first-child {
+  color: var(--text-dim);
+  padding-top: 4px;
+}
+.split-field > span:not(:first-child) {
+  grid-column: 2;
+  font-size: 12px;
+}
+.split-field input,
+.split-field textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 8px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.split-field input[aria-invalid='true'] {
+  border-color: var(--err);
+}
+.field-err {
+  color: var(--err);
+}
+.field-warn {
+  color: var(--warn);
+}
+.split-decision {
+  margin-top: 10px;
+}
+.split-history {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+.split-row.reverted {
+  opacity: 0.7;
+}
+.split-skip {
+  font-size: 12px;
+  margin: 2px 0;
+}
+.split-applied,
+.split-left,
+.split-fellows {
+  margin: 8px 0;
+}
+.split-proposal select.split-merge {
+  margin-left: 4px;
+}
+@media (max-width: 560px) {
+  .split-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .split-field > span:not(:first-child) {
+    grid-column: 1;
+  }
+}
 .gs-shelves {
   flex-wrap: wrap;
   justify-content: center;
