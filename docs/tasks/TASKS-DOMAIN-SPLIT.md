@@ -551,7 +551,11 @@ commands exit 0. E6 on the copy: under **E2E results**, milestone B; the apply t
       recomputed on every change. The decision state is a pure reducer in `web/src/lib/`.
       **Done** as `web/src/lib/splitDecisions.ts`. A field shows the user's edit, then the naming
       pass's answer, then the draft; a key is never drafted, because the obvious draft is the top
-      tag D7 forbids. The collision counts are computed in the browser from the graph it already
+      tag D7 forbids.
+      **Relabelled 2026-09-23, after the merge, at the user's request:** a shelf is named "Shelf
+      N" until it has a key; its top tags stand beside it as "tagged #a #b", its top tag's cost is
+      phrased as "would make a poor key", and a promoted shelf says above its key field what the
+      key is. The old label, "1 · #a #b", read as the name the new domain would get. The collision counts are computed in the browser from the graph it already
       holds (`keyCollisionOf`, the server's `keyCollision` mirrored), so they move as the key is
       typed.
 - [x] **6.2 The naming pass**, optional: `POST /api/v1/domains/:key/split/naming` starts the
