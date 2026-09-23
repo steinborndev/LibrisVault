@@ -144,6 +144,36 @@ async function commitPagesOf(vaultRoot: string, hash: string): Promise<string[]>
   }
 }
 
+/**
+ * The three calls every write to the vault gets, in this order (TASKS-DEFECT-PATHS 3.5):
+ *   1. validate + record  - so a defect the write itself introduced lands on the list;
+ *   2. resolveMissing     - what this write covered and no longer finds;
+ *   3. recheckStanding    - the rest of the list, whose pages nothing else re-reads.
+ *
+ * `recheckStanding` hardcodes `checked: VALIDATOR_RULES` and passes no `fullyChecked`, so it
+ * can clear neither `quote` nor `near-duplicate` and never clears a whole-vault rule per
+ * page. Both of SPEC.md §12.16's conditions hold by construction.
+ *
+ * Exported for the other deterministic writers of the dashboard (the domain split), so a
+ * mechanical write is checked the same way wherever it is made.
+ */
+export function afterVaultWrite(
+  ctx: Pick<AppContext, 'validate' | 'validation'>,
+  written: readonly string[],
+): { recorded: number; resolved: number; recheckedAway: number } {
+  if (written.length === 0 || ctx.validate === undefined || ctx.validation === undefined) {
+    return { recorded: 0, resolved: 0, recheckedAway: 0 }
+  }
+  const findings = ctx.validate(written)
+  const { created } = ctx.validation.record(findings, null)
+  const resolved = ctx.validation.resolveMissing([...written], findings, {
+    checked: VALIDATOR_RULES,
+    fullyChecked: VAULT_WIDE_RULES,
+  })
+  const recheckedAway = recheckStanding(ctx.validation, ctx.validate, { exclude: [...written] })
+  return { recorded: created.length, resolved, recheckedAway }
+}
+
 export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): void {
   /**
    * Fix runs waiting to settle, by run id. In memory and deliberately so: a service restart
@@ -219,29 +249,8 @@ export function registerValidationRoute(app: FastifyInstance, ctx: AppContext): 
    */
   const fallbackMutex = new Mutex()
 
-  /**
-   * The three calls every write to the vault gets, in this order (3.5):
-   *   1. validate + record  - so a defect the repair itself introduced lands on the list;
-   *   2. resolveMissing     - what this write covered and no longer finds;
-   *   3. recheckStanding    - the rest of the list, whose pages nothing else re-reads.
-   *
-   * `recheckStanding` hardcodes `checked: VALIDATOR_RULES` and passes no `fullyChecked`, so it
-   * can clear neither `quote` nor `near-duplicate` and never clears a whole-vault rule per
-   * page. Both of SPEC.md §12.16's conditions hold by construction.
-   */
-  const afterWrite = (written: readonly string[]): { recorded: number; resolved: number; recheckedAway: number } => {
-    if (written.length === 0 || ctx.validate === undefined || ctx.validation === undefined) {
-      return { recorded: 0, resolved: 0, recheckedAway: 0 }
-    }
-    const findings = ctx.validate(written)
-    const { created } = ctx.validation.record(findings, null)
-    const resolved = ctx.validation.resolveMissing([...written], findings, {
-      checked: VALIDATOR_RULES,
-      fullyChecked: VAULT_WIDE_RULES,
-    })
-    const recheckedAway = recheckStanding(ctx.validation, ctx.validate, { exclude: [...written] })
-    return { recorded: created.length, resolved, recheckedAway }
-  }
+  const afterWrite = (written: readonly string[]): { recorded: number; resolved: number; recheckedAway: number } =>
+    afterVaultWrite(ctx, written)
 
   const jobExists = (id: string): boolean => {
     try {
