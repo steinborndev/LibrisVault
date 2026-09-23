@@ -329,7 +329,8 @@ export function consensusShelves(
 
 /* --------------------------------------------------------------------------- the evidence */
 
-const isKnowledge = (n: GraphNode): boolean => n.kind === 'knowledge' && n.origin !== UPSTREAM_DEMO
+/** A knowledge page of this vault: not structure, not the plugin's demo material. */
+export const isKnowledge = (n: GraphNode): boolean => n.kind === 'knowledge' && n.origin !== UPSTREAM_DEMO
 
 const tagsOf = (n: GraphNode): string[] => [...new Set(n.tags.map((t) => t.toLowerCase()))]
 
