@@ -422,9 +422,12 @@ async function uiWalk(stage, parent, p, tag) {
 
     const api404 = page.network.filter((r) => r.status === 404 && r.url.includes('/api/'))
     check(stage, 'no API request answered 404 during the walk', api404.length === 0, `${api404.length} of ${page.network.filter((r) => r.status !== null).length} responses`)
+    // Route paths only, never a query string: a query can carry a page path of the vault.
+    for (const r of api404) note(`404: ${new URL(r.url).pathname}`)
     if (EXPECT_AGENTS === 'off') {
       const fellow = page.network.filter((r) => FELLOW_ROUTES.some((f) => new URL(r.url).pathname.startsWith(f)))
       check(stage, 'no request to a Fellow route', fellow.length === 0, `${fellow.length} requests`)
+      for (const path of new Set(fellow.map((r) => new URL(r.url).pathname))) note(`Fellow route asked: ${path}`)
     }
   } finally {
     await page.close()
