@@ -154,7 +154,14 @@ export function parentFields(
   current: { description: string; tags: readonly string[] },
 ): { description: string; tags: string[] } {
   const children = promotedGroups(s, proposal).map((g) => childFields(s, proposal, g))
-  const draft = draftParentEntry(current, children.map((c) => ({ key: c.key === '' ? '?' : c.key, tags: c.tags })))
+  // A group without a key yet takes its tags out of the parent and stays out of the sentence:
+  // "Pages on `?`" would be a draft nobody could keep.
+  const draft = draftParentEntry(current, children.map((c) => ({ key: c.key, tags: c.tags })))
+  const unnamed = children.filter((c) => c.key === '')
+  if (unnamed.length > 0) {
+    const named = draftParentEntry(current, children.filter((c) => c.key !== ''))
+    draft.description = named.description
+  }
   return {
     description: s.parentEdits.description ?? s.parentNamed.description ?? draft.description,
     tags: s.parentEdits.tags ?? s.parentNamed.tags ?? draft.tags,

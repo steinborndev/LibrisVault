@@ -149,6 +149,22 @@ describe('the fields', () => {
   })
 })
 
+describe('the parent draft while a key is missing', () => {
+  it('leaves a keyless group out of the sentence, and its tags out of the parent all the same', () => {
+    const s = run(
+      fresh(),
+      { type: 'choose', id: 0, choice: 'promote' },
+      { type: 'choose', id: 1, choice: 'promote' },
+      { type: 'edit', leader: 1, field: 'key', value: 'second' },
+    )
+    expect(parentFields(s, proposal, current)).toEqual({
+      description: 'Everything alpha. Pages on `second` have their own domain.',
+      tags: ['t-z'],
+    })
+    expect(parentFields(run(fresh(), { type: 'choose', id: 0, choice: 'promote' }), proposal, current).description).toBe('Everything alpha.')
+  })
+})
+
 describe('the plan request', () => {
   it('is null with nothing promoted, and one child per group with the union of its pages', () => {
     expect(planRequest(fresh(), proposal, current)).toBeNull()

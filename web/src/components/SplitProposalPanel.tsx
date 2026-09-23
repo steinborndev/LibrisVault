@@ -398,7 +398,7 @@ function ShelfCard({
   const byId = (id: number): SplitShelf => p.shelves.find((o) => o.id === id)!
 
   return (
-    <div className={`candidate subcard sc-pad split-shelf${s.misfile ? ' misfile' : ''} choice-${follower ? 'merged' : choice}`}>
+    <div className={`candidate subcard sc-pad split-shelf${s.misfile ? ' misfile' : ''} choice-${follower ? 'merged' : choice}`} data-shelf={s.id}>
       <div className="candidate-head">
         <span className="chip-dot" style={{ background: `hsl(${clusterHue(s.id)} 60% 55%)` }} aria-hidden />
         <strong>{shelfLabel(s)}</strong>
@@ -553,6 +553,7 @@ function ChildEditor({
       <label className="split-field">
         <span>Key</span>
         <input
+          data-field="key"
           value={f.key}
           disabled={readOnly}
           placeholder="coin one - not a tag the pages carry"
@@ -562,7 +563,7 @@ function ChildEditor({
         {problem !== null ? (
           <span className="field-err">{problem}</span>
         ) : (
-          <span className={collision.inside > 0 ? 'field-warn' : 'dim'}>
+          <span className={collision.inside > 0 ? 'field-warn' : 'dim'} data-collision={`${collision.inside},${collision.elsewhere}`}>
             as a tag: {collision.inside} page{collision.inside === 1 ? '' : 's'} here, {collision.elsewhere} elsewhere
             {collision.inside > 0 && ' - each would repeat its own domain in its tags'}
           </span>
@@ -570,11 +571,11 @@ function ChildEditor({
       </label>
       <label className="split-field">
         <span>Description</span>
-        <textarea rows={3} value={f.description} disabled={readOnly} onChange={(e) => edit('description', e.target.value)} />
+        <textarea rows={3} data-field="description" value={f.description} disabled={readOnly} onChange={(e) => edit('description', e.target.value)} />
       </label>
       <label className="split-field">
         <span>Tags</span>
-        <input value={tagsText(f.tags)} disabled={readOnly} onChange={(e) => edit('tags', tagsOf(e.target.value))} />
+        <input data-field="tags" value={tagsText(f.tags)} disabled={readOnly} onChange={(e) => edit('tags', tagsOf(e.target.value))} />
       </label>
     </div>
   )
@@ -607,11 +608,11 @@ function ParentEntry({
       <Diff text={diff} />
       <label className="split-field">
         <span>Description</span>
-        <textarea rows={3} value={next.description} disabled={readOnly} onChange={(e) => onEdit('description', e.target.value)} />
+        <textarea rows={3} data-field="parent-description" value={next.description} disabled={readOnly} onChange={(e) => onEdit('description', e.target.value)} />
       </label>
       <label className="split-field">
         <span>Tags</span>
-        <input value={tagsText(next.tags)} disabled={readOnly} onChange={(e) => onEdit('tags', tagsOf(e.target.value))} />
+        <input data-field="parent-tags" value={tagsText(next.tags)} disabled={readOnly} onChange={(e) => onEdit('tags', tagsOf(e.target.value))} />
       </label>
     </div>
   )
@@ -735,7 +736,7 @@ function AppliedSplitRow({ split: s, vaultName }: { split: SplitSummary; vaultNa
   const orphans = (revert.error instanceof ApiError ? (revert.error.body?.['pages'] as string[] | undefined) : undefined) ?? []
   const reverted = s.revertedAt !== null
   return (
-    <div className={`subcard sc-pad split-row${reverted ? ' reverted' : ''}`}>
+    <div className={`subcard sc-pad split-row${reverted ? ' reverted' : ''}`} data-split={s.id}>
       <div className="candidate-head">
         <code>{s.parent}</code> → {s.children.map((c) => c.key).join(', ')}
         <span className="candidate-meta">
