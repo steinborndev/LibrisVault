@@ -9,6 +9,8 @@
  *                                        page, as ONE git commit behind the shared mutex
  *   POST   /domains/candidates/:key/dismiss    stop proposing this theme
  *   DELETE /domains/candidates/:key/dismiss    reconsider it
+ *   GET    /domains/:key/split          the shelves a domain falls into - deterministic,
+ *                                        free, read-only (docs/tasks/TASKS-DOMAIN-SPLIT.md)
  *
  * Creating a domain is the one write here, and it goes through the same discipline as a user
  * page edit (CLAUDE.md hard rule 1 as amended): `commitPaths` with an exact pathspec — never
@@ -35,6 +37,37 @@ import {
 } from '../../pipeline/domains.js'
 import { findDomainCandidates } from '../../pipeline/domain-candidates.js'
 import type { DismissalStore } from '../../db/domain-dismissals.js'
+import type { VaultGraph } from '../../pipeline/graph.js'
+import { proposeSplit, type SplitProposal } from '../../pipeline/domain-split.js'
+import { readAddresses } from '../../pipeline/hubs.js'
+import { isDepartmentDomain } from '../../pipeline/library.js'
+
+/**
+ * The split proposal, memoised per graph object and key (TASKS-DOMAIN-SPLIT 2.2, 2.3). The
+ * graph builder hands back the SAME object for an unchanged vault, so an unchanged vault costs
+ * one computation per domain, and any change to a page - which is what could change the answer -
+ * produces a new object and a fresh proposal. A WeakMap, so an old graph and its proposals go
+ * together.
+ *
+ * The addresses are read here, from the pages themselves, and handed to the engine, which never
+ * reads a file. A page without one is listed in `unaddressed` and can never be approved.
+ */
+export function splitProposals(vaultRoot: string): (graph: VaultGraph, key: string) => SplitProposal {
+  const memo = new WeakMap<VaultGraph, Map<string, SplitProposal>>()
+  return (graph, key) => {
+    let perKey = memo.get(graph)
+    if (perKey === undefined) {
+      perKey = new Map()
+      memo.set(graph, perKey)
+    }
+    const hit = perKey.get(key)
+    if (hit !== undefined) return hit
+    const paths = graph.nodes.filter((n) => n.domain === key).map((n) => n.path)
+    const proposal = proposeSplit(graph, key, readAddresses(vaultRoot, paths))
+    perKey.set(key, proposal)
+    return proposal
+  }
+}
 
 export function registerDomainsRoute(
   app: FastifyInstance,
@@ -45,6 +78,7 @@ export function registerDomainsRoute(
   const { config } = ctx
   const commitMutex = ctx.commitMutex ?? new Mutex()
   const autoCommit = ctx.autoCommit ?? ((): boolean => true)
+  const proposalFor = splitProposals(config.vaultRoot)
 
   app.get('/api/v1/domains', async (_req, reply) => {
     const registry = readDomainRegistry(config.vaultRoot)
@@ -62,6 +96,24 @@ export function registerDomainsRoute(
       dismissed: dismissals.keys(),
     })
     return reply.send({ ...report, dismissed: dismissals.list() })
+  })
+
+  /*
+   * The split proposal (SPEC.md §12.4 stage 4, part one). Base product, not behind
+   * `AGENTS_ENABLED`: it reads the registry and the graph, both of which the base product owns.
+   * A small domain and one that holds together are ANSWERS (200 with the reason), not errors;
+   * only a key that is no domain at all is one.
+   */
+  app.get('/api/v1/domains/:key/split', async (req, reply) => {
+    const key = (req.params as { key: string }).key.trim().toLowerCase()
+    if (!isDepartmentDomain(key)) {
+      return reply.code(400).send({ error: `"${key}" is not a domain a split can be proposed for` })
+    }
+    const registry = readDomainRegistry(config.vaultRoot)
+    if (registry === null || !registry.domains.some((d) => d.key === key)) {
+      return reply.code(404).send({ error: `the registry lists no domain "${key}"` })
+    }
+    return reply.send(proposalFor(graph.build(), key))
   })
 
   app.post('/api/v1/domains/candidates/:key/dismiss', async (req, reply) => {
