@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { makeProj, boxFaces, depthOf, fitRoom, mix, seeded } from '../src/lib/library/iso.ts'
-import { ROOM, WALL_H, wingSlotPositions, mainSlotPositions, shelfStand, breakSign, signText, ANCHORS, SLOTS } from '../src/lib/library/room.ts'
+import { ROOM, WALL_H, wingSlotPositions, mainSlotPositions, shelfStand, layoutSign, signText, SIGN_MIN_SIZE, ANCHORS, SLOTS } from '../src/lib/library/room.ts'
 import {
   toolFamily,
   poseForFamily,
@@ -57,12 +57,27 @@ describe('room model', () => {
     expect(ANCHORS.desks).toHaveLength(10)
   })
 
-  it('breaks long signs at the hyphen and reads hyphens as spaces', () => {
-    expect(breakSign('astronomy', () => true)).toEqual(['astronomy'])
-    expect(breakSign('climate-science', (t) => t.length <= 10)).toEqual(['climate-', 'science'])
-    expect(breakSign('knowledge management', (t) => t.length <= 12)).toEqual(['knowledge', 'management'])
-    expect(breakSign('abcdefghijklmnop', () => false)).toEqual(['abcdefghijklmnop'])
+  it('sets a sign on one line, then on two split where the longer line is shortest, and reads hyphens as spaces', () => {
+    // One unit per character at size 10, scaling with the size.
+    const m = (t: string, size: number): number => (t.length * size) / 10
+    expect(layoutSign('astronomy', 20, 10, m)).toEqual({ lines: ['astronomy'], size: 10 })
+    expect(layoutSign('climate-science', 10, 10, m)).toEqual({ lines: ['climate-', 'science'], size: 10 })
+    expect(layoutSign('knowledge management', 12, 10, m)).toEqual({ lines: ['knowledge', 'management'], size: 10 })
+    // The old break cut before the middle word: `ice` over a line far wider than the shelf.
+    expect(layoutSign('ice sheetdynamics monitoring', 18, 10, m).lines).toEqual(['ice sheetdynamics', 'monitoring'])
     expect(signText('climate-science')).toBe('climate science')
+  })
+
+  it('shrinks only a sign whose best two lines do not fit, and cuts at the floor', () => {
+    const m = (t: string, size: number): number => (t.length * size) / 10
+    // 17 characters on a 16-wide face: 10 * 16/17 = 9.4.
+    expect(layoutSign('ice sheetdynamics monitoring', 16, 10, m)).toEqual({ lines: ['ice sheetdynamics', 'monitoring'], size: 9.4 })
+    // Below the floor the size stops and the lines that still overflow end in an ellipsis.
+    const tight = layoutSign('ice sheetdynamics monitoring', 10, 10, m)
+    expect(tight.size).toBe(SIGN_MIN_SIZE)
+    for (const l of tight.lines) expect(m(l, tight.size)).toBeLessThanOrEqual(10)
+    expect(tight.lines[0]).toMatch(/…$/)
+    expect(layoutSign('abcdefghijklmnop', 10, 10, m)).toEqual({ lines: ['abcdefghijk…'], size: SIGN_MIN_SIZE })
   })
 })
 
