@@ -1717,12 +1717,6 @@ details.hot-cache[open] summary {
 .maint-status {
   margin-bottom: 16px;
 }
-/* Tab-wide severity chips: due (amber) / soon (accent) / healthy (green). */
-.ms-counts {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-}
 .ms-actions {
   display: inline-flex;
   gap: 12px;
@@ -10744,3 +10738,96 @@ tr:focus-within .rowacts {
 .setup-banner.demo .demo-sep {
   opacity: 0.6;
 }
+
+/* ── System restructure (proposal 2026-09-24) ────────────────────────────────
+   The column is the map of the machine room: four groups, one entry per place. The dot is
+   the entry's STATUS where it has one (a maintenance tool, the overview) and an empty ring
+   where it does not - the old column coloured every dot by whether it was selected, which
+   said nothing the row's own highlight did not already say. */
+.sys-nav .gp-sec { padding-bottom: 10px; }
+.sys-nav .gp-sec:first-child { padding-top: 10px; }
+.sys-nav .domlist { min-height: 0; flex: none; overflow: visible; }
+.sys-nav .domrow.lead { font-size: 13px; }
+.sys-nav .dot.sd-due { background: var(--warn); }
+.sys-nav .dot.sd-rec { background: var(--busy); }
+.sys-nav .dot.sd-ok { background: var(--ok); }
+.sys-nav .dot.sd-ring { background: transparent; box-shadow: inset 0 0 0 1.5px var(--border-strong); }
+.sys-nav .domrow .n.due { color: var(--warn); font-weight: 600; }
+.sys-nav .domrow .n.rec { color: var(--busy); font-weight: 600; }
+.sys-nav .domrow.active { box-shadow: inset 2px 0 0 var(--accent); }
+.sys-nav-legend {
+  margin-top: auto;
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sys-nav-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sys-nav-legend .dot { display: inline-block; width: var(--dot-sm); height: var(--dot-sm); border-radius: 50%; }
+
+/* Where you are, one click from where you came from. */
+.sys-crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  margin-right: -4px;
+}
+.sys-crumb:hover { color: var(--accent); }
+
+/* A tool's status block: the "What's due" rows, narrowed to this tool, not clickable. */
+.ms-item.static { cursor: default; }
+.ms-item.static:hover .ms-title { color: var(--text); }
+.sys-why .ms-items { margin-top: 0; }
+.maint.tool-only { display: block; }
+
+.sys-intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  max-width: 76ch;
+}
+.sys-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sys-toolbar .spacer { flex: 1; }
+.runlog th:first-child, .sys-runs td.sr-dot { width: 34px; padding-right: 0; }
+.sr-dot .hrow-dot { display: inline-block; vertical-align: middle; }
+.sys-runs .rt-name, .runlog .rt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sys-runs td.num { width: 64px; }
+.sys-runs td.faintc { width: 92px; }
+.sys-runs .rl-times { color: var(--text-faint); font-size: 12px; margin-left: 6px; }
+.runlog th:nth-child(3), .runlog th:nth-child(4) { width: 70px; }
+.runlog th:nth-child(5) { width: 96px; }
+.runlog th:nth-child(6) { width: 84px; }
+.runlog .rl-kind { color: var(--text-faint); }
+.runlog .rl-err { color: var(--err); }
+.sys-details summary { cursor: pointer; font-size: 12px; color: var(--text-faint); margin-top: 10px; }
+.sys-details[open] summary { margin-bottom: 6px; }
+.conn-facts { margin-bottom: 10px; }
+
+/* Settings: one editor for every group, with the save bar pinned to the foot of the pane
+   so the state of an edit is never below the fold. */
+.settings-grouped .settings-grid { margin-top: 0; }
+.setting.dirty { box-shadow: inset 3px 0 0 var(--accent); padding-left: 12px; }
+.setting-tag.dirty { color: var(--accent-ink); background: var(--accent); }
+.sys-savebar {
+  position: sticky;
+  bottom: -22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px -16px -22px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.sys-savebar .spacer { flex: 1; }
+.sys-savebar.dirty { background: var(--accent-soft); color: var(--accent); font-weight: 500; }

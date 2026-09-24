@@ -60,7 +60,24 @@ import { pageRoute, navigate } from '../lib/router.ts'
  * that screen's control column, next to every other section, and would otherwise be on
  * screen twice.
  */
-export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolean }): React.ReactElement {
+export function Maintenance({
+  showRunHistory = true,
+  card,
+  onJump,
+  compact = false,
+}: {
+  showRunHistory?: boolean
+  /**
+   * Render exactly one tool card (its anchor, e.g. `card-lint`) and nothing around it: the
+   * System screen gives every tool a section of its own in the control column, so the card
+   * no longer needs the status head, the focus bar or the "All tools" dump to be reached.
+   */
+  card?: string
+  /** Where a "What's due" item goes when clicked; the System screen routes it to a section. */
+  onJump?: (anchor: string) => void
+  /** The status head without its "All tools" toggle (the tools are listed in the column). */
+  compact?: boolean
+} = {}): React.ReactElement {
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const vaultName = stats.data?.vaultName ?? 'vault'
 
@@ -87,7 +104,10 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
   // views: 'overview' (head + run history), one focused card (a status item was clicked -
   // show exactly the tool that item is about), 'all' (every card), or the guided run
   // (Stufe c) replacing everything while it walks the plan.
-  const [view, setView] = useState<'overview' | 'all' | string>('overview')
+  const [view, setView] = useState<'overview' | 'all' | string>(card ?? 'overview')
+  useEffect(() => {
+    if (card !== undefined) setView(card)
+  }, [card])
   const [runPlan, setRunPlan] = useState<RunPlanStep[] | null>(null)
   const maintStatus = useMaintenanceStatus()
   const statusData = maintStatus.data
@@ -112,6 +132,7 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
 
   return (
     <>
+      {card === undefined && (
       <div className={view === 'overview' ? 'health-grid' : ''}>
       <StatusHead
         data={statusData}
@@ -119,8 +140,8 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
         onRetry={maintStatus.retry}
         allShown={view === 'all'}
         setupMode={setupMode}
-        onToggleTools={() => setView(view === 'all' ? 'overview' : 'all')}
-        onJump={(anchor) => setView(anchor)}
+        onToggleTools={compact ? undefined : () => setView(view === 'all' ? 'overview' : 'all')}
+        onJump={(anchor) => (onJump !== undefined ? onJump(anchor) : setView(anchor))}
         onStartRun={() => {
           const plan = statusData !== null ? buildRunPlan(statusData.status) : []
           if (plan.length > 0) {
@@ -131,7 +152,8 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
       />
       {view === 'overview' && showRunHistory && <RunHistory data={statusData} />}
       </div>
-      {view !== 'overview' && view !== 'all' && (
+      )}
+      {card === undefined && view !== 'overview' && view !== 'all' && (
         <div className="focus-bar">
           <button className="linkish" onClick={() => setView('overview')}>
             ← Back to what&apos;s due
@@ -142,7 +164,7 @@ export function Maintenance({ showRunHistory = true }: { showRunHistory?: boolea
         </div>
       )}
       {view !== 'overview' && (
-      <div className="maint single">
+      <div className={`maint single${card !== undefined ? ' tool-only' : ''}`}>
       <div className="mcol">
         {/* Lint */}
         {showCard('card-lint') && (
@@ -421,7 +443,7 @@ function StatusHead({
   onRetry: () => void
   allShown: boolean
   setupMode: boolean
-  onToggleTools: () => void
+  onToggleTools: (() => void) | undefined
   onJump: (anchor: string) => void
   onStartRun: () => void
 }): React.ReactElement {
@@ -464,17 +486,15 @@ function StatusHead({
           <Tip text="Deterministic check over data the dashboard already has (graph, candidates, tag report, report/cache/index age) - computing it costs nothing. 'Due' blocks other maintenance or degrades quality; 'soon' is worth doing soon; everything else is explicitly healthy. Click an item to focus exactly that tool; 'All tools' shows every card." />
         </h3>
         <span className="right ms-actions">
-          <span className="ms-counts">
-            {status.due > 0 && <span className="sev due">{status.due} due</span>}
-            {status.recommended > 0 && <span className="sev rec">{status.recommended} soon</span>}
-            <span className="sev ok">{status.healthy} healthy</span>
-          </span>
-          <button className="btn" onClick={onToggleTools}>
-            {allShown ? 'Hide all tools' : 'All tools'}
-          </button>
+          {/* The counts live in the screen's head now (System Overview), not a second time here. */}
+          {onToggleTools !== undefined && (
+            <button className="btn" onClick={onToggleTools}>
+              {allShown ? 'Hide all tools' : 'All tools'}
+            </button>
+          )}
           {planSize > 0 && (
             <button
-              className="btn primary"
+              className="btn primary sm"
               disabled={setupMode}
               onClick={onStartRun}
               title={
