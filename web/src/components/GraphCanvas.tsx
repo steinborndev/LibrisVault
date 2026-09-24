@@ -440,6 +440,14 @@ export function clusterHue(id: number): number {
  * the picture onto one page, and half-transparent remains of the other view inside that frame
  * are a second picture the reader has to look past.
  */
+/**
+ * The pages the landmark mode names in full (wrapped titles, placed around the dot): the
+ * landmarks in the overview, the expanded landmark and its whole neighbourhood in a bloom.
+ */
+function namedInFull(mask: LandmarkMask, i: number): boolean {
+  return mask.bloomAnchor === null ? mask.landmarks.has(i) : i === mask.bloomAnchor || mask.bloom.has(i)
+}
+
 function painted(mask: LandmarkMask | null, i: number, only: ReadonlySet<number> | null = null): boolean {
   // The Areas stepper (2026-09-24) shows one community at a time on the same layout: the
   // rest of the graph is not drawn, not hit and not framed, exactly like the landmark mask.
@@ -873,7 +881,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
      */
     const mask = landmarkMask
     const paints = (i: number): boolean => painted(mask, i, onlyNodes)
-    const landmarkOverview = mask !== null && mask.bloomAnchor === null
+    // The landmark mode's own label pass, in the overview and in an open neighbourhood alike.
+    const landmarkOverview = mask !== null
 
     const revealStart = revealStartRef.current
     let revealing = false
@@ -1332,7 +1341,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         if (mask !== null && mask.connectors.has(i) && mask.bloomAnchor === null) continue
         // The overview's landmarks get their own pass below: every one named, wrapped, placed
         // around its dot (2026-09-24).
-        if (landmarkOverview && mask.landmarks.has(i)) continue
+        if (landmarkOverview && namedInFull(mask, i)) continue
         if (!visible(x, pos[i * 2 + 1]!)) continue
         candidates.push(i)
       }
@@ -1437,7 +1446,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         discs.push({ x, y: pos[i * 2 + 1]!, r: radius(i) })
       }
       ctx.font = `${11 / t.k}px system-ui, sans-serif`
-      const order = [...mask.landmarks].sort((a, b) => (mask.rank?.get(a) ?? 1e9) - (mask.rank?.get(b) ?? 1e9))
+      // The overview in reading order; a neighbourhood with its landmark first, then as it is
+      // listed (the list's own order is the domain rank, which is also node order here).
+      const order =
+        mask.bloomAnchor === null
+          ? [...mask.landmarks].sort((a, b) => (mask.rank?.get(a) ?? 1e9) - (mask.rank?.get(b) ?? 1e9))
+          : [mask.bloomAnchor, ...mask.bloom]
       const lmLabels: Array<{ i: number; lines: string[]; box: LBox }> = []
       for (const i of order) {
         const x = pos[i * 2]!
@@ -1459,7 +1473,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           ctx.fillStyle = textColor
           ctx.fillText(line, cx, l.box[1] + j * lineH)
         })
-        const rank = mask.rank?.get(l.i)
+        // The place in the reading order only where the list beside it numbers its rows.
+        const rank = mask.bloomAnchor === null ? mask.rank?.get(l.i) : undefined
         const rs = radius(l.i) * t.k
         if (rank !== undefined && rs >= 6) {
           ctx.globalAlpha = labelIn
@@ -1620,7 +1635,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const r = hulled >= 0 ? Math.max(radius(i / 2), HULL_PAD) : radius(i / 2)
       // A landmark in the overview brings its WRAPPED title: all of it,
       // up to four lines, which is what the label pass will draw.
-      if (mask !== null && mask.bloomAnchor === null && mask.landmarks.has(i / 2)) {
+      if (mask !== null && namedInFull(mask, i / 2)) {
         const lines = wrapTitle(title, 160, 4, (str) => ctx.measureText(str).width)
         items.push({ x, y, r, labelHalf: Math.max(...lines.map((l) => ctx.measureText(l).width)) / 2 + 2, labelLines: lines.length })
         continue
@@ -1645,15 +1660,16 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   }, [scheduleDraw, positionsRef, transformRef, radius, nodes])
 
   /**
-   * The overview's display spread (lib/landmarkLayout.ts): recomputed when the
-   * mask or the drawing changes and when the layout settles, cleared outside the overview - an
-   * open neighbourhood is drawn where its pages really stand.
+   * The landmark mode's display spread (lib/landmarkLayout.ts): recomputed when the mask or
+   * the drawing changes and when the layout settles, cleared outside the mode. It covers the
+   * overview and, since 2026-09-24, an open neighbourhood too, with its landmark held in the
+   * middle of the picture.
    */
   const computeSpread = useCallback((): boolean => {
     const m = maskRef.current
     const pos = positionsRef.current
     const canvas = canvasRef.current
-    if (m === null || m.bloomAnchor !== null || canvas === null || pos.length < nodes.length * 2) {
+    if (m === null || canvas === null || pos.length < nodes.length * 2) {
       const had = displayRef.current !== null
       displayRef.current = null
       return had
@@ -1674,7 +1690,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     ctx.font = '11px system-ui, sans-serif'
     const widths = new Map<number, { w: number; lines: number }>()
     for (const p of pts) {
-      if (!m.landmarks.has(p.i)) continue
+      if (!namedInFull(m, p.i)) continue
       const lines = wrapTitle(nodes[p.i]!.title, 160, 4, (str) => ctx.measureText(str).width)
       widths.set(p.i, { w: Math.max(...lines.map((l) => ctx.measureText(l).width)) + 4, lines: lines.length })
     }
@@ -1687,6 +1703,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       },
       vp,
       { x: 16, top: 18, bottom: 24 },
+      // An open neighbourhood keeps its landmark in the middle of the picture.
+      m.bloomAnchor,
     )
     const out = pos.slice()
     for (const [i, [x, y]] of moved) {
