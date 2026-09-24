@@ -1476,8 +1476,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           ctx.fillStyle = textColor
           ctx.fillText(line, cx, l.box[1] + j * lineH)
         })
-        // The place in the reading order only where the list beside it numbers its rows.
-        const rank = mask.bloomAnchor === null ? mask.rank?.get(l.i) : undefined
+        // The number its row carries in the list beside it (the anchor of a bloom has none).
+        const rank = mask.rank?.get(l.i)
         const rs = radius(l.i) * t.k
         if (rank !== undefined && rs >= 6) {
           ctx.globalAlpha = labelIn

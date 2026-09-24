@@ -1158,7 +1158,13 @@ function GraphView({
         bloom: bloomed,
         bloomAnchor: anchor,
         inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0),
-        rank: new Map(landmarkData.order.flatMap((p, r) => (at.has(p) ? [[at.get(p)!, r + 1] as [number, number]] : []))),
+        // The number in each dot is the number its row carries in the list beside it: the place
+        // in the reading order, or with a neighbourhood open, the place in that neighbourhood.
+        rank: new Map(
+          (bloom === null ? landmarkData.order : neighbourhood).flatMap((p, r) =>
+            at.has(p) ? [[at.get(p)!, r + 1] as [number, number]] : [],
+          ),
+        ),
       },
       neighbourhood,
       framed,
@@ -2179,6 +2185,11 @@ function GraphView({
             selected={selection?.kind === 'page' ? selection.path : null}
             bloom={bloom}
             neighbourhood={landmarkView?.neighbourhood ?? []}
+            // The bloom from the list, as a click on the landmark's dot does it.
+            onBloom={(path) => {
+              showBloom(path)
+              selectPage(path)
+            }}
             onPick={(path) => {
               /*
                * A row opens its page - there is no page detail in this column any more, so
@@ -2235,6 +2246,7 @@ function LandmarkList({
   bloom,
   neighbourhood,
   onPick,
+  onBloom,
 }: {
   set: LandmarkSet
   titleOf: (path: string) => string
@@ -2245,6 +2257,8 @@ function LandmarkList({
   /** That neighbourhood as the drawing has it: every neighbour on screen, in the list's order. */
   neighbourhood: readonly string[]
   onPick: (path: string) => void
+  /** Open a landmark's neighbourhood from its row, without finding its dot first. */
+  onBloom: (path: string) => void
 }): React.ReactElement {
   const starts = new Map(set.chapters.map((at, c) => [at, c]))
   const cur = useRef<HTMLButtonElement>(null)
@@ -2278,20 +2292,23 @@ function LandmarkList({
         <button className="lm-title lm-title-page" onClick={() => onPick(bloom)} title={titleOf(bloom)}>
           <span className="lm-hname">{titleOf(bloom)}</span>
           <span className="lm-hmeta">
-            {neighbourhood.length} neighbour{neighbourhood.length === 1 ? '' : 's'} · #{at + 1} of {set.order.length}
+            {neighbourhood.length} neighbour{neighbourhood.length === 1 ? '' : 's'} by backlink count · #{at + 1} of{' '}
+            {set.order.length}
           </span>
         </button>
         <ol className="lm-list">
-          {/* The neighbours carry no number: they are this page's neighbourhood, not a place
-              in the domain's reading order, and a number would claim they were. */}
-          {neighbourhood.map((path) => (
+          {/* Numbered since 2026-09-24 (user decision), in the neighbourhood's own order - backlinks
+              inside the domain, as the reading order ranks - and the same number stands in each
+              dot. The heading says what the numbers count, so they cannot be read as places in
+              the domain's order. */}
+          {neighbourhood.map((path, i) => (
             <li key={path} className="lm-item">
               <button
                 className={`lm-row lm-near${selected === path ? ' cur' : ''}`}
                 onClick={() => onPick(path)}
                 title={titleOf(path)}
               >
-                <span className="lm-n" aria-hidden />
+                <span className="lm-n">{i + 1}</span>
                 <span className="lm-t">{titleOf(path)}</span>
               </button>
             </li>
@@ -2324,6 +2341,7 @@ function LandmarkList({
                   not linked to anything above · {size} page{size === 1 ? '' : 's'}
                 </p>
               )}
+              <div className="lm-line">
               <button
                 ref={on ? cur : null}
                 className={`lm-row${on ? ' cur' : ''}`}
@@ -2334,6 +2352,16 @@ function LandmarkList({
                 <span className="lm-n">{i + 1}</span>
                 <span className="lm-t">{titleOf(path)}</span>
               </button>
+              {/* Its neighbourhood, from the row: the same bloom a click on its dot opens. */}
+              <button
+                className="lm-bloom"
+                onClick={() => onBloom(path)}
+                title={`Show the neighbourhood of ${titleOf(path)}`}
+                aria-label={`Show the neighbourhood of ${titleOf(path)}`}
+              >
+                <Icon name="network" />
+              </button>
+              </div>
             </li>
           )
         })}

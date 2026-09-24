@@ -3365,9 +3365,32 @@ span.head-slot { display: inline-block; }
   color: var(--text-dim);
   font-weight: 500;
 }
-/* A neighbour of the expanded landmark: the number column stays empty, because a neighbour has
-   a place in this page's neighbourhood and none in the domain's reading order. */
+/* A neighbour of the expanded landmark, numbered in its neighbourhood's own order. */
 .lm-near .lm-t { color: var(--text-dim); }
+/* A reading-order row with its bloom button at the right end: quiet until the row is pointed
+   at or the button has the focus, and outside the row's own button (two buttons, not nested). */
+.lm-line { display: flex; align-items: flex-start; gap: 2px; }
+.lm-line > .lm-row { flex: 1; min-width: 0; }
+.lm-bloom {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 3px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  opacity: 0.45;
+  cursor: pointer;
+}
+.lm-bloom svg { width: 14px; height: 14px; }
+.lm-line:hover .lm-bloom,
+.lm-bloom:focus-visible { opacity: 1; }
+.lm-bloom:hover { color: var(--accent); border-color: var(--border); background: var(--bg-elev-2); }
 
 /*
  * The column's heading, in both of its forms: the reading order names its measure, an open
