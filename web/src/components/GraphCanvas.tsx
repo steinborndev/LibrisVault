@@ -528,9 +528,18 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const canvasRef = useRef<HTMLCanvasElement>(null)
   /** Paths recently added to the view → timestamp, for the arrival flash. */
   const flashRef = useRef<Map<string, number>>(new Map())
-  const [hover, setHover] = useState<number | null>(null)
+  const [hover, setHoverState] = useState<number | null>(null)
   const hoverRef = useRef<number | null>(null)
-  hoverRef.current = hover
+  /*
+   * The ref is written HERE, not from the render: the draw that follows a hover change runs
+   * on the next animation frame, which can come before React has rendered the new state - and
+   * a draw reading a ref set at render time then paints the PREVIOUS hover's labels. That was
+   * half of a label flicker (2026-09-24): the same pointer position drew different titles.
+   */
+  const setHover = useCallback((next: number | null): void => {
+    hoverRef.current = next
+    setHoverState(next)
+  }, [])
   // Hovered community HULL (spotlight only): the pointer is inside a cluster's tinted area
   // without touching a node. Keeps the community highlight from flickering off between
   // member nodes and makes the whole hull one clickable isolate-surface. Only ever holds an
@@ -1228,13 +1237,22 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const matchesLead = matches.size <= MATCH_LABEL_LIMIT
     const interactive = (i: number): boolean =>
       i === hovered || i === selectedIndex || i === focusIndex || (matchesLead && matches.has(i))
+    /*
+     * The RESTING labels are placed without the interactive ones (2026-09-24). They used to
+     * share one greedy pass with the hovered title at its head, so every hover re-dealt the
+     * whole collision cascade: a borderline title far from the pointer appeared or vanished
+     * with each node the pointer crossed, measured on one hub title as shown for 107 of 126
+     * hover targets and hidden at rest. Now the resting set is the same whatever is hovered,
+     * and the interactive titles are laid on top, hiding only the resting titles they cover.
+     */
     const prio = (i: number): number =>
-      interactive(i) ? 4
-      : highlight !== null && highlight.has(i) ? 3
+      highlight !== null && highlight.has(i) ? 3
       : ghostIndices !== undefined && ghostIndices.has(i) ? 2
       : labelReps.has(i) ? 1
       : 0
-    candidates.sort((a, b) => {
+    const resting = candidates.filter((i) => !interactive(i))
+    const onTop = candidates.filter(interactive)
+    resting.sort((a, b) => {
       const pd = prio(b) - prio(a)
       if (pd !== 0) return pd
       const dd = nodes[b]!.in + nodes[b]!.out - (nodes[a]!.in + nodes[a]!.out)
@@ -1252,38 +1270,47 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     ctx.lineJoin = 'round'
-    let drawn = 0
-    // Labels are last in. The collision solver has nothing stable to place against while
-    // nodes are still arriving, and forty titles appearing mid-reveal is its own flicker.
-    let examined = 0
-    for (const i of candidates) {
-      if (labelIn <= 0.004) break
-      if (drawn >= MAX_LABELS || examined >= MAX_EXAMINED) break
-      examined++
+    type Label = { i: number; text: string; x: number; y: number; box: [number, number, number, number]; ghost: boolean }
+    const layOut = (i: number, full: boolean): Label => {
       const n = nodes[i]!
-      const isGhost = ghostIndices !== undefined && ghostIndices.has(i)
-      const full = interactive(i)
+      const ghost = ghostIndices !== undefined && ghostIndices.has(i)
       // Long titles are the main space hogs - truncate unless the node is the one the
       // user is interacting with (the tooltip carries the full title regardless).
       const text = !full && n.title.length > 30 ? `${n.title.slice(0, 28)}…` : n.title
-      ctx.font = `${isGhost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
+      ctx.font = `${ghost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
       const w = ctx.measureText(text).width
       const x = pos[i * 2]!
       const y = pos[i * 2 + 1]! + radius(i) + 3 / t.k
-      const box: [number, number, number, number] = [x - w / 2 - padX, y, x + w / 2 + padX, y + labelH]
-      // Interactive labels skip the cull - "what am I pointing at" must always answer.
-      if (!full && placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) {
-        continue
+      return { i, text, x, y, box: [x - w / 2 - padX, y, x + w / 2 + padX, y + labelH], ghost }
+    }
+    const overlaps = (a: Label['box'], b: Label['box']): boolean => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+    const restingLabels: Label[] = []
+    let examined = 0
+    // Labels are last in. The collision solver has nothing stable to place against while
+    // nodes are still arriving, and forty titles appearing mid-reveal is its own flicker.
+    if (labelIn > 0.004) {
+      for (const i of resting) {
+        if (restingLabels.length >= MAX_LABELS || examined >= MAX_EXAMINED) break
+        examined++
+        const l = layOut(i, false)
+        if (placed.some((p) => overlaps(l.box, p))) continue
+        placed.push(l.box)
+        restingLabels.push(l)
       }
-      placed.push(box)
-      drawn++
-      ctx.globalAlpha = (highlight !== null && !highlight.has(i) ? dimLabel : 0.95) * labelIn
+    }
+    // Interactive labels skip the cull - "what am I pointing at" must always answer - and
+    // hide only the resting titles they sit on.
+    const topLabels = labelIn > 0.004 ? onTop.map((i) => layOut(i, true)) : []
+    const shown = [...restingLabels.filter((l) => !topLabels.some((tl) => overlaps(l.box, tl.box))), ...topLabels]
+    for (const l of shown) {
+      ctx.font = `${l.ghost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
+      ctx.globalAlpha = (highlight !== null && !highlight.has(l.i) ? dimLabel : 0.95) * labelIn
       // A halo in the background color keeps text legible across edges and foreign nodes.
       ctx.lineWidth = 3 / t.k
       ctx.strokeStyle = halo
-      ctx.strokeText(text, x, y)
-      ctx.fillStyle = isGhost ? cssVar('--text-faint', '#6b7791') : textColor
-      ctx.fillText(text, x, y)
+      ctx.strokeText(l.text, l.x, l.y)
+      ctx.fillStyle = l.ghost ? cssVar('--text-faint', '#6b7791') : textColor
+      ctx.fillText(l.text, l.x, l.y)
     }
     ctx.globalAlpha = 1
     paintedRef.current = true
@@ -1912,7 +1939,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       setHullHover(nextHull)
       scheduleDraw()
     }
-  }, [hitTest, hitCluster, scheduleDraw])
+  }, [hitTest, hitCluster, scheduleDraw, setHover])
   const refreshHoverRef = useRef(refreshHover)
   refreshHoverRef.current = refreshHover
 
@@ -1933,7 +1960,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
-  }, [scheduleDraw])
+  }, [scheduleDraw, setHover])
 
   /**
    * The tooltip follows the pointer, clamped inside the wrap - its old fixed bottom-left
