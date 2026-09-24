@@ -59,7 +59,7 @@ export type SettingsSection = 'all' | 'service' | 'integrations'
  * serves every group and stays mounted while you move between them, so an edit in one group
  * survives a look at another, and the save bar counts all of them.
  */
-export type SettingsGroup = 'intake' | 'runs' | 'research' | 'instance'
+export type SettingsGroup = 'intake' | 'runs' | 'research'
 
 export const SETTINGS_GROUP_OF: Record<keyof EffectiveSettings, SettingsGroup> = {
   watchFolder: 'intake',
@@ -83,7 +83,6 @@ const GROUP_LABEL: Record<SettingsGroup, string> = {
   intake: 'Intake',
   runs: 'Runs & budget',
   research: 'Research budget',
-  instance: 'This instance',
 }
 
 /** A hint's first sentence stays on the row; the whole text moves behind the ⓘ. */
@@ -221,28 +220,6 @@ export function SettingsEditor({
       </button>
     </div>
   )
-
-  if (group === 'instance') {
-    return (
-      <div>
-        <div className="settings-ro">
-          {Object.entries(READ_ONLY_LABELS).map(([key, label]) =>
-            data.readOnly[key] ? (
-              <div className="settings-ro-row" key={key}>
-                <span className="settings-ro-label">{label}</span>
-                <code>{data.readOnly[key]}</code>
-              </div>
-            ) : null,
-          )}
-        </div>
-        <p className="setting-hint">
-          Set at start from the service environment, so none of these change here. The API key itself is
-          never shown or stored - only its source. The bind address is deliberately not changeable through
-          the UI.
-        </p>
-      </div>
-    )
-  }
 
   if (group !== undefined) {
     return (

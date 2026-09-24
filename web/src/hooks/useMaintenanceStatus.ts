@@ -93,6 +93,7 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
     // The lint area needs the RUN record, not just the report file - a run that finished
     // without writing one is otherwise indistinguishable from no run at all.
     const lintRun = (state.data?.areas ?? []).find((a) => a.kind === 'lint')
+    const hotRun = (state.data?.areas ?? []).find((a) => a.kind === 'hot-cache' && a.ok)
     const status = deriveMaintenanceStatus({
       undomained: candidates.data.undomainedCount,
       registryInstalled: domains.data.installed,
@@ -101,7 +102,10 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
       tagRepairCount: recommendedKeys(report, MAX_TAG_ACTIONS).size,
       lintReport: stats.data.lintReport,
       lastLintRun: lintRun !== undefined ? { finishedAt: lintRun.finishedAt, ok: lintRun.ok } : null,
-      hotCacheUpdatedAt: stats.data.hotCacheUpdatedAt,
+      // Dated from the last REFRESH run, as the hot cache card dates it: the file's mtime moves
+      // with every research run that writes the cache, so it made a cache that was never
+      // refreshed look fresh here while the card beside it said "16 d ago".
+      hotCacheUpdatedAt: hotRun?.finishedAt ?? null,
       index: index.data ?? null,
       unversioned: stats.data.unversioned ?? null,
       defects: defectCounts,

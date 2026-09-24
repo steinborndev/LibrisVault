@@ -43,6 +43,8 @@ export function duration(startIso: string | null, endIso: string | null): string
 export function tokens(n: number | null): string {
   if (n === null || n === undefined) return '-'
   if (n < 1000) return String(n)
+  // Past a million the k form stopped reading as a size ("182834.7k").
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   return `${(n / 1000).toFixed(1)}k`
 }
 

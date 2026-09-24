@@ -47,7 +47,7 @@ export interface MaintStatusInput {
    * feed said a report had just been written. Null when no lint has ever run.
    */
   readonly lastLintRun: { finishedAt: string; ok: boolean } | null
-  /** mtime of wiki/hot.md, or null when never refreshed. */
+  /** When the last hot-cache refresh RUN finished (not the file mtime), or null when none has. */
   readonly hotCacheUpdatedAt: string | null
   /** Retrieval-index card facts; null while still loading (item omitted then). */
   readonly index: { scriptsPresent: boolean; provisioned: boolean } | null

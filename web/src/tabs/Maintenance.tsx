@@ -176,7 +176,7 @@ export function Maintenance({
             </h3>
             <span className="right">
               <button
-                className="btn"
+                className="btn sm"
                 disabled={lint.running || lintFix.running || lastReport === null}
                 onClick={lintFix.start}
                 title={
@@ -188,14 +188,14 @@ export function Maintenance({
                 {lintFix.running ? 'Fixing…' : 'Fix safe findings'}
               </button>
               <button
-                className="btn"
+                className="btn sm"
                 disabled={rejoin.isPending || lint.running || lintFix.running}
                 onClick={() => rejoin.mutate()}
                 title="Join wikilinks a line wrap broke apart, where the collapsed title names a page that exists (one git commit, no agent run)"
               >
                 {rejoin.isPending ? 'Joining…' : 'Join broken links'}
               </button>
-              <button className="btn primary" disabled={lint.running || lintFix.running} onClick={lint.start}>
+              <button className="btn primary sm" disabled={lint.running || lintFix.running} onClick={lint.start}>
                 {lint.running ? 'Running…' : 'Start lint'}
               </button>
             </span>
@@ -260,9 +260,11 @@ export function Maintenance({
                 }
               />
             </h3>
-            <button className="btn" disabled={hot.running} onClick={hot.start}>
-              {hot.running ? 'Running…' : 'Refresh'}
-            </button>
+            <span className="right">
+              <button className="btn primary sm" disabled={hot.running} onClick={hot.start}>
+                {hot.running ? 'Running…' : 'Refresh'}
+              </button>
+            </span>
           </div>
           <div className="tool-meta">
             {/*
@@ -271,21 +273,16 @@ export function Maintenance({
              * from the mtime made a cache that had never been refreshed look fresh. The
              * refresh is dated from the last `hot-cache` run instead.
              */}
+            {/* When it was last REFRESHED is the verdict line above the card (same source, the
+                last hot-cache run); the card adds what the verdict does not say. */}
             {(() => {
               const refresh = maintStatus.data?.lastRuns.get('hot-cache')
-              return refresh ? (
-                <span title={new Date(refresh.finishedAt).toLocaleString('en-US')}>
-                  Last refresh {timeAgo(refresh.finishedAt)}
-                  {refresh.ok ? '' : ' (failed)'}
-                </span>
-              ) : (
-                <span>Never refreshed.</span>
-              )
+              const parts: string[] = []
+              if (refresh !== undefined && !refresh.ok) parts.push(`last refresh failed ${timeAgo(refresh.finishedAt)}`)
+              if (stats.data?.hotCacheUpdatedAt) parts.push(`last written ${timeAgo(stats.data.hotCacheUpdatedAt)}`)
+              if (stats.data?.hotCacheWords != null) parts.push(`${stats.data.hotCacheWords} words, budget ${stats.data.hotCacheBudget}`)
+              return <span>{parts.join(' · ')}</span>
             })()}
-            {stats.data?.hotCacheUpdatedAt && <span> · last written {timeAgo(stats.data.hotCacheUpdatedAt)}</span>}
-            {stats.data?.hotCacheWords != null && (
-              <span> · {stats.data.hotCacheWords} words, budget {stats.data.hotCacheBudget}</span>
-            )}
           </div>
           {stats.data?.hotCacheWords != null && stats.data.hotCacheWords > stats.data.hotCacheLimit && (
             <div className="toast warn">
@@ -348,14 +345,16 @@ export function Maintenance({
               Domains
               <Tip text="The meta-categories pages are filed under, maintained as a vault page. Every ingest gets this list as a closed set; when nothing fits, 'unassigned' is used. New domains are only ever created by you - never by an agent." />
             </h3>
-            <button
-              className="btn"
-              disabled={backfill.running || !domains.data?.installed}
-              onClick={backfill.start}
-              title={domains.data?.installed ? 'File existing pages into domains (page content untouched)' : 'No registry installed'}
-            >
-              {backfill.running ? 'Running…' : 'Start backfill'}
-            </button>
+            <span className="right">
+              <button
+                className="btn primary sm"
+                disabled={backfill.running || !domains.data?.installed}
+                onClick={backfill.start}
+                title={domains.data?.installed ? 'File existing pages into domains (page content untouched)' : 'No registry installed'}
+              >
+                {backfill.running ? 'Running…' : 'Start backfill'}
+              </button>
+            </span>
           </div>
           {domains.data?.installed === false ? (
             <p className="tab-hint">
@@ -367,31 +366,8 @@ export function Maintenance({
             <>
               <div className="tool-meta">
                 Registry: {domains.data && <PageLink path={domains.data.path} vaultName={vaultName} />}
+                {totalPages > 0 && <span> · {undomained > 0 ? `${undomained} page${undomained === 1 ? '' : 's'} with no domain field` : 'every page carries a domain field'}</span>}
               </div>
-              <div className="filters" style={{ marginTop: 10 }}>
-                {domains.data?.domains.map((d) => (
-                  <span key={d.key} className="chip" title={d.description}>
-                    {d.key}
-                  </span>
-                ))}
-              </div>
-              {/* The backfill-is-due number as a bar, not a sentence buried in prose. */}
-              {totalPages > 0 && (
-                <div className="progress">
-                  <span>
-                    {totalPages - undomained} / {totalPages} pages filed
-                  </span>
-                  <span className="track" aria-hidden>
-                    <span
-                      className="fill"
-                      style={{ width: `${Math.round(((totalPages - undomained) / totalPages) * 100)}%` }}
-                    />
-                  </span>
-                  <span>
-                    {undomained > 0 ? `${undomained} without domain` : 'all filed'}
-                  </span>
-                </div>
-              )}
             </>
           )}
           {backfill.running && <JobLog jobId="maintenance:domain-backfill" seed={false} />}
@@ -730,8 +706,9 @@ function TagHygieneCard({
           Tags - hygiene
           <Tip text="Deterministic tag lint, computed from the live graph - the report itself writes nothing. Repairs with an unambiguous direction come preselected: uncheck what you disagree with, then 'Fix selected' runs an agent over exactly the checked actions - frontmatter tags only, one revertable git commit. Non-actionable findings (implied tags, single-use tags) are collapsed under Observations." />
         </h3>
+        <span className="right">
         <button
-          className="btn primary"
+          className="btn primary sm"
           disabled={actions.length === 0 || conflict !== null || fix.running}
           onClick={fix.start}
           title={
@@ -744,6 +721,7 @@ function TagHygieneCard({
         >
           {fix.running ? 'Fixing…' : `Fix selected${actions.length > 0 ? ` (${Math.min(actions.length, MAX_TAG_ACTIONS)})` : ''}`}
         </button>
+        </span>
       </div>
       {conflict !== null && (
         <div className="toast err">
@@ -1011,9 +989,11 @@ function RetrievalIndexCard(): React.ReactElement {
           />
         </h3>
         {!missing && (
-          <button className="btn" disabled={build.running} onClick={build.start}>
-            {build.running ? 'Building…' : s?.provisioned ? 'Rebuild' : 'Build index'}
-          </button>
+          <span className="right">
+            <button className="btn primary sm" disabled={build.running} onClick={build.start}>
+              {build.running ? 'Building…' : s?.provisioned ? 'Rebuild' : 'Build index'}
+            </button>
+          </span>
         )}
       </div>
 
@@ -1126,7 +1106,7 @@ function DomainCandidates({
             <input type="checkbox" checked={withAgent} onChange={(e) => setWithAgent(e.target.checked)} />
             With agent review
           </label>
-          <button className="btn" disabled={review.running || (withAgent && data.candidates.length === 0)} onClick={start}>
+          <button className="btn sm" disabled={review.running || (withAgent && data.candidates.length === 0)} onClick={start}>
             {review.running ? 'Running…' : 'Check candidates'}
           </button>
         </div>
