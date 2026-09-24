@@ -2182,6 +2182,12 @@ function GraphView({
           <LandmarkList
             set={landmarkData}
             titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
+            // In the page-type view each number is filled with its dot's type colour.
+            fillOf={(path) => {
+              if (lens !== 'type') return null
+              const type = graph.nodes.find((n) => n.path === path)?.type
+              return `var(${(type !== undefined ? TYPE_VARS[type] : undefined) ?? '--muted'})`
+            }}
             selected={selection?.kind === 'page' ? selection.path : null}
             bloom={bloom}
             neighbourhood={landmarkView?.neighbourhood ?? []}
@@ -2247,6 +2253,7 @@ function LandmarkList({
   neighbourhood,
   onPick,
   onBloom,
+  fillOf,
 }: {
   set: LandmarkSet
   titleOf: (path: string) => string
@@ -2259,7 +2266,14 @@ function LandmarkList({
   onPick: (path: string) => void
   /** Open a landmark's neighbourhood from its row, without finding its dot first. */
   onBloom: (path: string) => void
+  /** The fill of a row's number (its dot's colour in the page-type view), or null for a ring. */
+  fillOf: (path: string) => string | null
 }): React.ReactElement {
+  /** A row's number: a ring, or a disc in its dot's colour with the ink that reads on it. */
+  const numStyle = (path: string): React.CSSProperties | undefined => {
+    const fill = fillOf(path)
+    return fill === null ? undefined : { background: fill, borderColor: fill, color: 'var(--accent-ink)' }
+  }
   const starts = new Map(set.chapters.map((at, c) => [at, c]))
   const cur = useRef<HTMLButtonElement>(null)
   // Walking with the arrows must not walk off the bottom of the column.
@@ -2308,7 +2322,9 @@ function LandmarkList({
                 onClick={() => onPick(path)}
                 title={titleOf(path)}
               >
-                <span className="lm-n">{i + 1}</span>
+                <span className="lm-n lm-num" style={numStyle(path)}>
+                  {i + 1}
+                </span>
                 <span className="lm-t">{titleOf(path)}</span>
               </button>
             </li>
@@ -2342,25 +2358,26 @@ function LandmarkList({
                 </p>
               )}
               <div className="lm-line">
-              <button
-                ref={on ? cur : null}
-                className={`lm-row${on ? ' cur' : ''}`}
-                aria-current={on ? 'true' : undefined}
-                onClick={() => onPick(path)}
-                title={titleOf(path)}
-              >
-                <span className="lm-n">{i + 1}</span>
-                <span className="lm-t">{titleOf(path)}</span>
-              </button>
-              {/* Its neighbourhood, from the row: the same bloom a click on its dot opens. */}
-              <button
-                className="lm-bloom"
-                onClick={() => onBloom(path)}
-                title={`Show the neighbourhood of ${titleOf(path)}`}
-                aria-label={`Show the neighbourhood of ${titleOf(path)}`}
-              >
-                <Icon name="network" />
-              </button>
+                {/* The number opens the landmark's neighbourhood (2026-09-24, user decision) -
+                    the same bloom a click on its dot opens; the title opens the page. */}
+                <button
+                  className="lm-n lm-num lm-num-btn"
+                  style={numStyle(path)}
+                  onClick={() => onBloom(path)}
+                  title={`Show the neighbourhood of ${titleOf(path)}`}
+                  aria-label={`${i + 1}: show the neighbourhood of ${titleOf(path)}`}
+                >
+                  {i + 1}
+                </button>
+                <button
+                  ref={on ? cur : null}
+                  className={`lm-row${on ? ' cur' : ''}`}
+                  aria-current={on ? 'true' : undefined}
+                  onClick={() => onPick(path)}
+                  title={titleOf(path)}
+                >
+                  <span className="lm-t">{titleOf(path)}</span>
+                </button>
               </div>
             </li>
           )

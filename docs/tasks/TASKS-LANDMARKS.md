@@ -219,8 +219,13 @@ now carry 1 to n in the neighbourhood's own order - domain-internal backlinks, t
 order's measure - and each dot carries its row's number, so the picture and the list read
 against each other the way the overview's do. Finding 4 stands: the heading says what the
 numbers count ("16 neighbours by backlink count · #2 of 37"), so they cannot be taken for places
-in the domain's order. Each row of the reading order also has a bloom button at its right end,
-the same bloom a click on the landmark's dot opens, for a landmark whose dot is hard to find.
+in the domain's order. A row's NUMBER opens the landmark's neighbourhood - the same bloom a click
+on its dot opens, for a landmark whose dot is hard to find - and its title opens the page. (A
+separate bloom button at the row's end came first and was replaced the same day: the number is
+the control the eye already goes to.) The number is a ring, filled with its dot's colour in the
+page-type view; on the fill it takes `--accent-ink`, measured at a contrast of 5.3 to 5.7 on the
+light theme's six type colours and 6.4 to 9.5 on the dark theme's, where white would fall to 2
+to 3. The numbers inside the dots choose their ink by the same measure.
 
 **When the condition falls away.** A second domain picked, the chips cleared, a room turned:
 the mode goes off, the neighbourhood with it, and the list is gone. Not latent, not remembered.
