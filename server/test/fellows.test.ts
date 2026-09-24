@@ -154,6 +154,8 @@ describe('notebook page', () => {
     expect(md).toContain('title: "Ada"')
     expect(md).toContain('updated: 2026-09-06')
     expect(md).toContain('agent_id: a1')
+    // Filed as the vault's machinery on every write, so no backfill has to and none is undone.
+    expect(md).toMatch(/^domain: meta$/m)
     for (const s of ['## Intent', '## Scope', '## Plan', '## Log', '## Open Questions', '## Notes']) expect(md).toContain(s)
     expect(md).toContain('2026-09-06 · research-step · Limb darkening · 1 page(s) · 2.10 USD')
   })
