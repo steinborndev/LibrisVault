@@ -1340,17 +1340,6 @@ button {
 }
 /* Collapsed by default - the hot cache is the one arbitrarily long block on the overview.
    The summary row carries the cache's age + the refresh action (no trip to Maintenance). */
-details.hot-cache summary {
-  cursor: pointer;
-  margin-bottom: 0;
-  user-select: none;
-}
-details.hot-cache summary::marker {
-  color: var(--text-faint);
-}
-details.hot-cache[open] summary {
-  margin-bottom: 10px;
-}
 .md h1, .md h2, .md h3 { margin: 14px 0 6px; line-height: 1.25; }
 .md h1 { font-size: 20px; }
 .md h2 { font-size: 17px; }
@@ -10792,6 +10781,17 @@ tr:focus-within .rowacts {
 .sv-why { color: var(--text-dim); min-width: 0; }
 .sv-cost { color: var(--text-faint); font-size: 11.5px; white-space: nowrap; }
 .sv-row.ok .sv-title { font-weight: 500; color: var(--text-dim); }
+
+/* Domains as three task cards: the split and candidate panels bring their own head, which
+   takes the card-head place inside a card of their own (the guided run keeps them inline). */
+.subcard.sc-pad > .domain-candidates { margin-top: 0; border-top: 0; padding-top: 0; }
+.subcard.sc-pad > .domain-candidates > .sc-head:first-child { margin: -12px -13px 12px; padding: 9px 13px; }
+.subcard.sc-pad > .domain-candidates > .sc-head .sc-title { font-size: 12.5px; }
+.subcard.sc-pad > .domain-candidates > .sc-head .candidate-actions { margin-left: auto; }
+.area-why { margin: 0 0 6px; font-size: 13px; color: var(--text-dim); }
+/* The hot cache's contents, open by default: the card is where you read what every run reads. */
+.hot-cache { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.hot-cache .md { max-height: none; overflow: visible; }
 
 .sys-intro {
   margin: 0;

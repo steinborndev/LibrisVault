@@ -2,7 +2,7 @@
  * System (restructure 2026-09-24, sweep the same day). The column is a map of the machine
  * room in four groups, and every entry is a route (`/system?section=<id>`):
  *
- *   Overview      what needs you - three figures and the status head with the guided run
+ *   Overview      every status area, due ones first, and the guided run
  *   Maintenance   one entry per tool; the dot is that tool's severity from the status model
  *   Insight       usage & cost, vault stats (every figure about the vault's SHAPE lives here,
  *                 none in a tool), history (runs and commits)
@@ -251,7 +251,8 @@ export function System({ section = '', setting = '' }: { section?: string; setti
 
           {current.group === 'maintenance' && current.anchor !== undefined && (
             <>
-              <Verdict items={currentItems} />
+              {/* Domains carries a verdict per task in each of its three cards. */}
+              {current.id !== 'domains' && <Verdict items={currentItems} />}
               <div className="sys-pane" key={current.id}>
                 <Maintenance card={current.anchor} />
                 {current.kinds !== undefined && <ToolRuns kinds={current.kinds} />}
@@ -306,38 +307,14 @@ function Verdict({ items }: { items: readonly MaintStatusItem[] }): React.ReactE
 }
 
 /**
- * The landing: three figures that lead somewhere, then what is due. What Home and the header
- * already show - pages, the queue, the watcher, the bot, the activity stream - is not here.
+ * The landing: what is due and what is healthy, every area at once. The spend figures live
+ * in Usage & cost and are not repeated here; the guided run starts from the head below.
  */
 function OverviewSection({ onGo }: { onGo: (id: string) => void }): React.ReactElement {
-  const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
-  const runs = useQuery({ queryKey: ['maintenance-history', 'all'], queryFn: () => api.maintenanceHistory({ limit: 200 }) })
-  const s = stats.data
-  const failed7d = (runs.data?.runs ?? []).filter((r) => !r.ok && Date.now() - Date.parse(r.finishedAt) < 7 * 864e5).length
-  const budget = s?.budget
   return (
-    <>
-      <Facts size="lead">
-        <Fact
-          size="lead"
-          k="Spend today"
-          v={s ? <Cost value={s.usage.today.costUsd} authMode={s.authMode} /> : '…'}
-          sub={
-            budget === undefined
-              ? undefined
-              : budget.limit === null
-                ? 'no daily budget'
-                : `of ${budget.unit === 'usd' ? usd(budget.limit) : `${budget.limit} ingests`} a day`
-          }
-          onOpen={() => onGo('usage')}
-        />
-        <Fact size="lead" k="Spend 7 days" v={s ? <Cost value={s.usage.last7d.costUsd} authMode={s.authMode} /> : '…'} sub={s ? `${s.usage.last7d.ingests} runs` : undefined} onOpen={() => onGo('usage')} />
-        <Fact size="lead" k="Failed runs · 7d" v={runs.data ? String(failed7d) : '…'} tone={failed7d > 0 ? 'err' : undefined} sub="in History" onOpen={() => navigate('/system?section=history&failed=1')} />
-      </Facts>
-      <div className="sys-pane">
-        <Maintenance compact showRunHistory={false} onJump={(anchor) => onGo(sectionForAnchor(anchor))} />
-      </div>
-    </>
+    <div className="sys-pane">
+      <Maintenance compact showRunHistory={false} onJump={(anchor) => onGo(sectionForAnchor(anchor))} />
+    </div>
   )
 }
 

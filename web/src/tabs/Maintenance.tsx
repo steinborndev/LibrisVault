@@ -42,6 +42,7 @@ function selectedActions(report: TagReport, selected: ReadonlySet<string>): TagF
 }
 import { JobLog } from '../components/JobLog.tsx'
 import { Markdown } from '../components/Markdown.tsx'
+import { frontmatter } from '../lib/frontmatter.ts'
 import { PageLink, PageLinks } from '../components/PageLink.tsx'
 import { StandingDefects } from '../components/StandingDefects.tsx'
 import { SplitProposalPanel } from '../components/SplitProposalPanel.tsx'
@@ -95,9 +96,6 @@ export function Maintenance({
   })
   const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
-  // How much of the vault is still unfiled - the number that says whether a backfill is due.
-  const undomained = graph.data?.nodes.filter((n) => n.domain === null).length ?? 0
-  const totalPages = stats.data?.pages.total ?? 0
   const lastReport = stats.data?.lintReport ?? null
 
   // The status head is the screen's primary surface (SPEC §12.7). Below it there are four
@@ -116,6 +114,7 @@ export function Maintenance({
   // now (its own screen), so this tab no longer has to force-open anything to reach it.
   const setupMode = health.data !== undefined && !health.data.credentialConfigured
   const showCard = (anchor: string): boolean => view === 'all' || view === anchor
+  const areaItem = (id: MaintStatusItem['id']): MaintStatusItem | undefined => statusData?.status.items.find((i) => i.id === id)
 
   if (view === 'run' && runPlan !== null) {
     return (
@@ -297,10 +296,11 @@ export function Maintenance({
               and it belongs next to the button that refreshes it rather than costing the
               dashboard's landing screen a collapsible panel you had to scroll past. */}
           {stats.data?.hotCache && (
-            <details className="hot-cache">
-              <summary>Show what the cache contains</summary>
-              <Markdown source={stats.data.hotCache} />
-            </details>
+            <div className="hot-cache">
+              {/* The body only: the page's frontmatter is bookkeeping, and it rendered as one
+                  run-on paragraph above the part worth reading. */}
+              <Markdown source={frontmatter(stats.data.hotCache).body} />
+            </div>
           )}
         </div>
         )}
@@ -337,14 +337,22 @@ export function Maintenance({
         </div>
         )}
 
-        {/* Domain registry + backfill (SPEC §12.4 Stufe 2) */}
+        {/*
+          Domains as three tasks, not one box (2026-09-24): filing the pages the registry
+          already covers, deciding on new domains, and splitting one that has outgrown a shelf.
+          They share a subject and nothing else - different inputs, different costs, different
+          consequences - so each gets its own card with its own verdict and its own action, in
+          the order they depend on each other (candidates stay incomplete until pages are filed).
+        */}
         {showCard('card-domains') && (
+        <>
         <div className="subcard sc-pad" id="card-domains">
           <div className="sc-head">
             <h3 className="sc-title">
-              Domains
-              <Tip text="The meta-categories pages are filed under, maintained as a vault page. Every ingest gets this list as a closed set; when nothing fits, 'unassigned' is used. New domains are only ever created by you - never by an agent." />
+              Filing
+              <Tip text="Files pages that carry no domain field yet into the registry's domains - frontmatter only, page content untouched, one revertable commit. Every ingest already gets the registry as a closed set; this catches the pages from before." />
             </h3>
+            <AreaSev item={areaItem('backfill')} />
             <span className="right">
               <button
                 className="btn primary sm"
@@ -364,28 +372,43 @@ export function Maintenance({
             </p>
           ) : (
             <>
+              {areaItem('backfill') !== undefined && <p className="area-why">{areaItem('backfill')!.why}</p>}
               <div className="tool-meta">
                 Registry: {domains.data && <PageLink path={domains.data.path} vaultName={vaultName} />}
-                {totalPages > 0 && <span> · {undomained > 0 ? `${undomained} page${undomained === 1 ? '' : 's'} with no domain field` : 'every page carries a domain field'}</span>}
+                <span> · {areaItem('backfill')?.cost ?? 'agent run · one commit'}</span>
               </div>
             </>
           )}
           {backfill.running && <JobLog jobId="maintenance:domain-backfill" seed={false} />}
           {backfill.error && <div className="toast err">{backfill.error}</div>}
           {backfill.result && <RunResult result={backfill.result} vaultName={vaultName} label="Filed" />}
-          {domains.data?.installed && (
+        </div>
+        {domains.data?.installed && (
+          <div className="subcard sc-pad" id="card-domain-candidates">
             <DomainCandidates
               vaultName={vaultName}
               onStartBackfill={backfill.start}
               backfillRunning={backfill.running}
+              title="New domains"
+              badge={<AreaSev item={areaItem('domains')} />}
+              why={areaItem('domains')?.why}
             />
-          )}
-          {/* The other direction (TASKS-DOMAIN-SPLIT 3.4): a domain that has outgrown a shelf.
-              Read-only; the status head's split item jumps here. */}
-          {domains.data?.installed && (
-            <SplitProposalPanel nodes={graph.data?.nodes} builtAt={graph.data?.builtAt} vaultName={vaultName} />
-          )}
-        </div>
+          </div>
+        )}
+        {/* The other direction (TASKS-DOMAIN-SPLIT 3.4): a domain that has outgrown a shelf. */}
+        {domains.data?.installed && (
+          <div className="subcard sc-pad" id="card-domain-split">
+            <SplitProposalPanel
+              nodes={graph.data?.nodes}
+              builtAt={graph.data?.builtAt}
+              vaultName={vaultName}
+              title="Split"
+              badge={<AreaSev item={areaItem('split') ?? { severity: 'healthy' }} />}
+              why={areaItem('split')?.why ?? 'No domain holds so much of the vault that it needs splitting; the proposal below is there if you want one anyway.'}
+            />
+          </div>
+        )}
+        </>
         )}
 
         {/* Tag hygiene (lint equivalent for tags + the bounded repair run) */}
@@ -423,7 +446,8 @@ function StatusHead({
   onJump: (anchor: string) => void
   onStartRun: () => void
 }): React.ReactElement {
-  const [showHealthy, setShowHealthy] = useState(false)
+  // Open by default (2026-09-24): "healthy" is a state worth seeing, not a footnote.
+  const [showHealthy, setShowHealthy] = useState(true)
 
   if (data === null) {
     // A failed input query must offer a way out - not spin as "Checking…" forever.
@@ -511,6 +535,13 @@ function StatusHead({
       )}
     </div>
   )
+}
+
+/** The severity of one status area as a chip in a card head (the Domains cards). */
+function AreaSev({ item }: { item: Pick<MaintStatusItem, 'severity'> | undefined }): React.ReactElement | null {
+  if (item === undefined) return null
+  const cls = item.severity === 'due' ? 'due' : item.severity === 'recommended' ? 'rec' : 'ok'
+  return <span className={`sev ${cls}`}>{item.severity === 'recommended' ? 'soon' : item.severity}</span>
 }
 
 /** Restart-proof "last run" line for areas whose outcome no vault file captures. */
@@ -1042,10 +1073,17 @@ function DomainCandidates({
   autoReview = false,
   suppressBackfillPrompt = false,
   onDomainCreated,
+  title = 'Candidates for new domains',
+  badge,
+  why,
 }: {
   vaultName: string
   onStartBackfill: () => void
   backfillRunning: boolean
+  /** As a card of its own (System / Domains): its title, severity chip and verdict line. */
+  title?: string
+  badge?: React.ReactNode
+  why?: string | undefined
   /** Guided run (SPEC §12.7 Stufe c): start the read-only review by itself when candidates exist. */
   autoReview?: boolean
   /** Guided run: the follow-up backfill is queued as a step - no inline prompt needed. */
@@ -1097,7 +1135,8 @@ function DomainCandidates({
   return (
     <div className="domain-candidates">
       <div className="sc-head">
-        <h4 className="sc-title">Candidates for new domains</h4>
+        <h4 className="sc-title">{title}</h4>
+        {badge}
         <div className="candidate-actions">
           <label
             className="toggle"
@@ -1111,6 +1150,7 @@ function DomainCandidates({
           </button>
         </div>
       </div>
+      {why !== undefined && <p className="area-why">{why}</p>}
 
       <p className="tab-hint">
         Topics among the <code>unassigned</code> pages large enough for a domain of their own ({data.threshold}+
