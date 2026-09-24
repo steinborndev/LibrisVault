@@ -765,15 +765,18 @@ function AppliedSummary({ result, parent, onDone }: { result: SplitApplyResult; 
 
 /** Applied splits (6.5), each with its commits, its live remainder, the re-file and the revert. */
 function AppliedSplits({ vaultName }: { vaultName: string }): React.ReactElement | null {
+  const [open, setOpen] = useState(false)
   const q = useQuery({ queryKey: ['domain-splits'], queryFn: api.domainSplits })
   const splits = q.data?.splits ?? []
   if (splits.length === 0) return null
+  // Folded by default (2026-09-24): a record of what was done, not part of the decision above
+  // it. The toggle speaks the same way the Overview's healthy areas do.
   return (
     <div className="split-history">
-      <h4 className="sc-title">Applied splits</h4>
-      {splits.map((s) => (
-        <AppliedSplitRow key={s.id} split={s} vaultName={vaultName} />
-      ))}
+      <button className="linkish split-history-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {open ? 'hide' : 'show'} {splits.length} applied split{splits.length === 1 ? '' : 's'}
+      </button>
+      {open && splits.map((s) => <AppliedSplitRow key={s.id} split={s} vaultName={vaultName} />)}
     </div>
   )
 }

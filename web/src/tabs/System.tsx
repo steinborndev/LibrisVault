@@ -62,9 +62,9 @@ const SECTIONS: readonly SectionDef[] = [
 
   { id: 'lint', label: 'Lint & links', sub: 'wiki health report, safe fixes, broken wikilinks', group: 'maintenance', anchor: 'card-lint', areas: ['lint'], kinds: ['lint', 'lint-fix'] },
   { id: 'defects', label: 'Standing defects', sub: 'what the validator keeps finding, and the repair for each', group: 'maintenance', anchor: 'card-defects', areas: ['defects'], kinds: ['defect-fix'] },
-  { id: 'domains', label: 'Domains', sub: 'filing pages, new domains, oversized domains', group: 'maintenance', anchor: 'card-domains', areas: ['domains', 'backfill', 'split'], kinds: ['domain-backfill', 'domain-review', 'split-naming'] },
+  { id: 'domains', label: 'Domains', sub: 'filing pages, new domains, oversized domains', group: 'maintenance', anchor: 'card-domains', areas: ['domains', 'backfill', 'split'] },
   { id: 'tags', label: 'Tags', sub: 'spelling variants, echoes of a domain, bounded repairs', group: 'maintenance', anchor: 'card-tags', areas: ['tags'], kinds: ['tag-fix'] },
-  { id: 'hot-cache', label: 'Hot cache', sub: 'the compact context every agent run reads first', group: 'maintenance', anchor: 'card-hot-cache', areas: ['hot-cache'], kinds: ['hot-cache'] },
+  { id: 'hot-cache', label: 'Hot cache', sub: 'the compact context every agent run reads first', group: 'maintenance', anchor: 'card-hot-cache', areas: ['hot-cache'] },
   { id: 'index', label: 'Retrieval index', sub: 'chunk and BM25 index behind Research answers', group: 'maintenance', anchor: 'card-index', areas: ['index'], kinds: ['retrieve-index'] },
   { id: 'git', label: 'Git', sub: 'pages the vault history does not have yet', group: 'maintenance', anchor: 'card-unversioned', areas: ['unversioned'] },
 

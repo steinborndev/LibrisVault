@@ -272,13 +272,18 @@ export function Maintenance({
              * from the mtime made a cache that had never been refreshed look fresh. The
              * refresh is dated from the last `hot-cache` run instead.
              */}
-            {/* When it was last REFRESHED is the verdict line above the card (same source, the
-                last hot-cache run); the card adds what the verdict does not say. */}
+            {/* Two different facts, named apart: when the cache was last UPDATED (every ingest
+                does that, and it is what the verdict above dates) and when it was last fully
+                REFRESHED, which rewrites and compacts it. */}
             {(() => {
               const refresh = maintStatus.data?.lastRuns.get('hot-cache')
               const parts: string[] = []
-              if (refresh !== undefined && !refresh.ok) parts.push(`last refresh failed ${timeAgo(refresh.finishedAt)}`)
-              if (stats.data?.hotCacheUpdatedAt) parts.push(`last written ${timeAgo(stats.data.hotCacheUpdatedAt)}`)
+              if (stats.data?.hotCacheUpdatedAt) parts.push(`updated ${timeAgo(stats.data.hotCacheUpdatedAt)} (every ingest updates it)`)
+              parts.push(
+                refresh === undefined
+                  ? 'never fully refreshed'
+                  : `last full refresh ${timeAgo(refresh.finishedAt)}${refresh.ok ? '' : ' (failed)'}`,
+              )
               if (stats.data?.hotCacheWords != null) parts.push(`${stats.data.hotCacheWords} words, budget ${stats.data.hotCacheBudget}`)
               return <span>{parts.join(' · ')}</span>
             })()}

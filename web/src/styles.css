@@ -10789,6 +10789,7 @@ tr:focus-within .rowacts {
 .subcard.sc-pad > .domain-candidates > .sc-head .sc-title { font-size: 12.5px; }
 .subcard.sc-pad > .domain-candidates > .sc-head .candidate-actions { margin-left: auto; }
 .area-why { margin: 0 0 6px; font-size: 13px; color: var(--text-dim); }
+.split-history-toggle { justify-self: start; font-size: 12px; }
 /* The hot cache's contents, open by default: the card is where you read what every run reads. */
 .hot-cache { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
 .hot-cache .md { max-height: none; overflow: visible; }
