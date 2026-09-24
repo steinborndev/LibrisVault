@@ -3078,6 +3078,11 @@ button {
   width: 13px;
   height: 13px;
 }
+/* The Areas stepper: the ring's dots sit on the line itself, centred on its text. */
+.gs-areas { align-items: center; }
+.gs-areas .cc-dots { margin-left: 6px; }
+.gs-all { color: var(--text-dim); }
+.gs-count { margin-left: 6px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
 /* The focused page's name in the panel, above its depth control. */
 .gp-focus {
   margin: 0 0 7px;
