@@ -75,7 +75,7 @@ const AREA_DOTS_MAX = 30
 
 const GRAPH_SHORTCUTS = [
   { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked - a landmark included' },
-  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens' },
+  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens; with Areas on, an area is shown alone' },
   { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
   { keys: ['click'], what: 'with Landmarks on, a landmark shows its neighbourhood; a second click drops it' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
@@ -83,7 +83,7 @@ const GRAPH_SHORTCUTS = [
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
   { keys: ['/'], what: 'open the search for pages and tags; a click outside folds the list, the filter stays' },
   { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
-  { keys: ['a', 'd'], what: 'with Areas on, step through the areas one at a time; Esc shows them all again' },
+  { keys: ['a', 'd'], what: 'with Areas on, step through the areas one at a time (a click in one goes straight to it); Esc shows them all again' },
   { keys: ['f'], what: 'fit the view' },
   { keys: ['+', '-'], what: 'zoom in and out' },
   { keys: ['wheel'], what: 'zoom towards the pointer' },
@@ -1252,6 +1252,7 @@ function GraphView({
   useEffect(() => {
     if (areaAt !== null && !areaRing.includes(areaAt)) setAreaAt(null)
   }, [areaRing, areaAt])
+  const areaRingSet = useMemo(() => new Set(areaRing), [areaRing])
   const areaOnly = useMemo(() => {
     if (areaAt === null || clusterIds === null) return null
     const only = new Set<number>()
@@ -1857,6 +1858,10 @@ function GraphView({
           fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}|a${areaAt ?? ''}`}
           fitSubset={areaOnly ?? landmarkView?.framed ?? null}
           onlyNodes={areaOnly}
+          // A click in an area shows it alone - the stepper's stop for that community; Esc goes
+          // back to all of them. Only from the overview: inside one area there is nothing to pick.
+          onAreaClick={areaAt === null && areaRing.length > 0 ? (cid) => setAreaAt(cid) : undefined}
+          areaIds={areaRingSet}
           // …and an open neighbourhood puts its own page in the middle of it, so the thing the
           // click was about is where the eye already is.
           fitCenter={landmarkMask?.bloomAnchor ?? null}
@@ -2943,7 +2948,7 @@ function GraphPanel({
             title={
               landmarks
                 ? 'Not while Landmarks is on: a hull is the AREA of a community, and this overlay draws about a tenth of each one - the shape would be a figure over a handful of scattered points.'
-                : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together. a and d step through them one at a time.'
+                : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together. a and d step through them one at a time, a click shows one alone, Esc brings them all back.'
             }
           />
         </div>
