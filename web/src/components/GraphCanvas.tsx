@@ -1459,6 +1459,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         const y = pos[i * 2 + 1]!
         const lines = wrapTitle(nodes[i]!.title, 160 / t.k, 4, (str) => ctx.measureText(str).width)
         const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 2 * padX
+        // Under its own dot first, always: the spread is laid out to leave that room. Only where
+        // the room is not there (a neighbourhood of forty-odd pages on one screen) does a caption
+        // take another side rather than sit on a neighbour.
         const box = placeAround(x, y, radius(i), w, lines.length * lineH, 3 / t.k, placed, discs, [minX + margin, minY + margin, maxX - margin, maxY - margin])
         placed.push(box)
         lmLabels.push({ i, lines, box })
@@ -1702,9 +1705,11 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         return c === undefined ? { w: 0, h: 0 } : { w: c.w, h: c.lines * 13 }
       },
       vp,
-      { x: 16, top: 18, bottom: 24 },
+      // The bottom keeps clear of the controls standing in the drawing's lower corners.
+      { x: 16, top: 18, bottom: 44 },
       // An open neighbourhood keeps its landmark in the middle of the picture.
       m.bloomAnchor,
+      FIT_ZOOM_MAX,
     )
     const out = pos.slice()
     for (const [i, [x, y]] of moved) {

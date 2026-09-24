@@ -109,6 +109,11 @@ export function spreadPoints(
   margins: { x: number; top: number; bottom: number },
   /** A point held in the middle of the area and never pushed (an open neighbourhood's landmark). */
   pin: number | null = null,
+  /**
+   * The closest the frame will be shown at. A small set fits at a zoom past the fit's ceiling,
+   * and laid out for that zoom its dots then stand closer on screen than the room they were given.
+   */
+  maxK = Infinity,
   blend = 0.8,
 ): Map<number, [number, number]> {
   const out = new Map<number, [number, number]>()
@@ -134,7 +139,7 @@ export function spreadPoints(
   const W = vp.w - 2 * margins.x
   const H = vp.h - margins.top - margins.bottom
   // The zoom the points are handed back at: the original extent fitted into the area.
-  const k0 = Math.min(W / Math.max(1, x1 - x0), H / Math.max(1, y1 - y0))
+  const k0 = Math.min(W / Math.max(1e-9, x1 - x0), H / Math.max(1e-9, y1 - y0), maxK)
   const at = pts.map((p, j) => {
     const c = caption(p.i)
     const rs = p.r * k0
@@ -162,7 +167,7 @@ export function spreadPoints(
     }
   }
   const rect = (a: (typeof at)[number]): Box => [a.x - a.half, a.y - a.rs - 4, a.x + a.half, a.y + a.below]
-  for (let it = 0; it < 400; it++) {
+  for (let it = 0; it < 1500; it++) {
     let moved = false
     for (let a = 0; a < at.length; a++) {
       for (let b = a + 1; b < at.length; b++) {
