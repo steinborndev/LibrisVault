@@ -116,6 +116,20 @@ const noop = (): void => undefined
  * row of its own to delete.
  */
 const runIdOf = (e: ActivityEvent): string | null => (e.id.startsWith('logrun:') ? e.id.slice('logrun:'.length) : null)
+/** The run behind a kept-settle row (`settle:<kind>:<runId>`), or null for any other row. */
+const settleRunOf = (e: ActivityEvent): string | null => {
+  if (!e.id.startsWith('settle:')) return null
+  const rest = e.id.slice('settle:'.length)
+  const at = rest.indexOf(':')
+  return at < 0 ? null : rest.slice(at + 1)
+}
+/** What the trash of a settled run removes: its history entry, or the settle kept in its place. */
+const removeRun = (e: ActivityEvent): (() => Promise<unknown>) | undefined => {
+  const run = runIdOf(e)
+  if (run !== null) return () => api.deleteRun(run)
+  const settle = settleRunOf(e)
+  return settle !== null ? () => api.forgetSettle(settle) : undefined
+}
 
 /** True while the caret is somewhere the arrow keys already mean something. */
 function inField(target: EventTarget | null): boolean {
@@ -993,7 +1007,7 @@ export function Home({
                               vaultName={vaultName}
                               authMode={authMode}
                               onOpen={() => openDetail(e.id)}
-                              {...(runIdOf(e) !== null ? { remove: () => api.deleteRun(runIdOf(e)!) } : {})}
+                              {...(removeRun(e) !== undefined ? { remove: removeRun(e)! } : {})}
                             />
                           ),
                         )}

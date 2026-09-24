@@ -293,6 +293,10 @@ export const api = {
   deleteRun: (id: string): Promise<{ deleted: boolean }> =>
     fetch(`${BASE}/maintenance/history/${id}`, { method: 'DELETE' }).then(json<{ deleted: boolean }>),
 
+  /** Forgets one run's kept settle: the stream's row for a run the history no longer holds. */
+  forgetSettle: (runId: string): Promise<{ forgotten: boolean }> =>
+    fetch(`${BASE}/maintenance/state/${encodeURIComponent(runId)}`, { method: 'DELETE' }).then(json<{ forgotten: boolean }>),
+
   /** Takes a commit off the Activity stream; the vault keeps it. */
   dismissCommit: (hash: string): Promise<{ ok: boolean }> =>
     fetch(`${BASE}/stats/commits/${encodeURIComponent(hash)}/dismiss`, { method: 'POST' }).then(json<{ ok: boolean }>),
