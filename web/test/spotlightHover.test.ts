@@ -6,6 +6,7 @@ import {
   SPOT_IDLE,
   SPOT_SHOW_DELAY_MS,
   buildSpotGeoms,
+  placeSpotLabel,
   pointInPolygon,
   resolveAreaCid,
   smoothOutline,
@@ -98,5 +99,22 @@ describe('when the spotlight shows', () => {
     const next = wantSpot(on, 4, false, 400)
     expect(next.cid).toBe(4)
     expect(spotAlpha(next, 400)).toBe(1)
+  })
+})
+
+describe('where the spotlight label goes', () => {
+  const hull: Array<[number, number]> = [[0, 100], [100, 100], [100, 200], [0, 200]]
+  const view = [-500, -500, 500, 500] as const
+
+  it('sits a gap above the highest of the outline and the member nodes', () => {
+    const box = placeSpotLabel(hull, [{ x: 50, y: 90, r: 20 }], 80, 20, 8, view)!
+    // The node reaches up to y = 70, above the outline's top at 100.
+    expect(box[3]).toBe(70 - 8)
+    expect((box[0] + box[2]) / 2).toBe(50)
+  })
+
+  it('goes below when above would leave the frame', () => {
+    const box = placeSpotLabel(hull, [], 80, 20, 8, [-500, 90, 500, 500])!
+    expect(box[1]).toBe(200 + 8)
   })
 })

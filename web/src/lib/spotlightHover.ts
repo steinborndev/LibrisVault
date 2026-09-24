@@ -262,3 +262,48 @@ export function spotAlpha(s: SpotState, now: number): number {
 export function spotBusy(s: SpotState, now: number): boolean {
   return s.pending !== null || (s.cid >= 0 && now - s.fadeFrom < SPOT_FADE_MS)
 }
+
+/** A disc in world units: a member node the spotlight label must not sit under. */
+export interface Disc {
+  x: number
+  y: number
+  r: number
+}
+
+/**
+ * Where the spotlight's label goes, world units: centred over the community, its bottom a
+ * `gap` above whichever is higher - the drawn outline or the top of a member node. The general
+ * region-label placer anchors against the outline alone, and a node sitting ON the outline
+ * (the topmost member usually does) was drawn over its own community's name. Below the
+ * community instead when above would leave the visible frame.
+ */
+export function placeSpotLabel(
+  hull: readonly Pt[],
+  discs: readonly Disc[],
+  boxW: number,
+  boxH: number,
+  gap: number,
+  view: readonly [number, number, number, number],
+): [number, number, number, number] | null {
+  if (hull.length < 3) return null
+  let x0 = Infinity
+  let x1 = -Infinity
+  let y0 = Infinity
+  let y1 = -Infinity
+  for (const [x, y] of hull) {
+    if (x < x0) x0 = x
+    if (x > x1) x1 = x
+    if (y < y0) y0 = y
+    if (y > y1) y1 = y
+  }
+  let top = y0
+  let bottom = y1
+  for (const d of discs) {
+    top = Math.min(top, d.y - d.r)
+    bottom = Math.max(bottom, d.y + d.r)
+  }
+  const cx = Math.min(Math.max((x0 + x1) / 2, view[0] + boxW / 2), view[2] - boxW / 2)
+  let by = top - gap - boxH
+  if (by < view[1]) by = bottom + gap
+  return [cx - boxW / 2, by, cx + boxW / 2, by + boxH]
+}
