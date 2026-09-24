@@ -26,7 +26,7 @@ export function ScopeMid({ heading, after }: { heading: ScopeHeading; after?: Re
   const dotStyle = domain === null ? undefined : { background: domain === '' ? 'var(--muted)' : domainColor(domain) }
   return (
     <span
-      className={`bar-mid${tag ? ' has-tag' : ''}${bloom === undefined ? '' : ' has-bloom'}`}
+      className={`bar-mid${tag ? ' has-tag' : ''}${bloom === undefined ? '' : ' has-bloom'}${after !== undefined && after !== null ? ' has-after' : ''}`}
       title={tag?.around != null ? `${text} around ${tag.around}` : bloom === undefined ? text : `${text} - ${bloom}`}
     >
       <span className={dotClass} style={dotStyle} aria-hidden />
