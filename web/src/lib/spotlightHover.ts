@@ -16,8 +16,15 @@ import type { ClusterGeom, Pt } from './graphZoom.ts'
 /** Padding around a community's body, in WORLD units - drawn and hit-tested alike. */
 export const HULL_PAD = 26
 
-/** A member farther than this multiple of the median member distance is a spatial outlier. */
-const HULL_OUTLIER_FACTOR = 2.5
+/**
+ * Two members belong to one PART of their community's area when they are this close, as a
+ * multiple of the community's median nearest-neighbour distance - or within LINK_FLOOR_PADS
+ * paddings, whichever is wider. A community the layout keeps in two places is two islands.
+ */
+const LINK_FACTOR = 2.5
+const LINK_FLOOR_PADS = 4
+/** Points on the circle of padding around each member; the part is their convex hull. */
+const RING = 16
 
 /** Samples per curve segment when the smoothed outline is turned back into a polygon. */
 const SMOOTH_STEPS = 6
@@ -43,34 +50,42 @@ export function convexHull(points: readonly Pt[]): Pt[] {
 }
 
 /**
- * The subset of member points the hull should enclose: the cluster BODY, spatial outliers
- * trimmed (measured from the component-wise median point, past HULL_OUTLIER_FACTOR x the
- * median distance). Fewer than 5 members keep all; never trims below 3.
+ * A community's members split into spatial parts (single linkage at the community's own link
+ * distance). Replaces the outlier trim of 2026-09 (`hullBody`), which kept a tongue of tint out
+ * of empty space by dropping far members - and dropped a whole group of four from a 21-page
+ * area with them, so the area visibly failed to hold pages it owned. Parts hold every member.
  */
-export function hullBody(points: readonly Pt[]): Pt[] {
-  if (points.length < 5) return [...points]
-  const xs = points.map((p) => p[0]).sort((a, b) => a - b)
-  const ys = points.map((p) => p[1]).sort((a, b) => a - b)
-  const mid = points.length >> 1
-  const mx = xs[mid]!
-  const my = ys[mid]!
-  const dists = points.map(([x, y]) => Math.hypot(x - mx, y - my))
-  const medDist = [...dists].sort((a, b) => a - b)[mid]!
-  if (medDist <= 1e-6) return [...points]
-  const threshold = medDist * HULL_OUTLIER_FACTOR
-  const body = points.filter((_, i) => dists[i]! <= threshold)
-  return body.length >= 3 ? body : [...points]
+export function splitParts(points: readonly Pt[], pad = HULL_PAD): Pt[][] {
+  const n = points.length
+  if (n <= 1) return n === 1 ? [[points[0]!]] : []
+  const nn = points.map((p, i) => {
+    let best = Infinity
+    for (let j = 0; j < n; j++) if (j !== i) best = Math.min(best, Math.hypot(p[0] - points[j]![0], p[1] - points[j]![1]))
+    return best
+  })
+  const median = [...nn].sort((a, b) => a - b)[n >> 1]!
+  const link = Math.max(LINK_FLOOR_PADS * pad, LINK_FACTOR * median)
+  const parent = points.map((_, i) => i)
+  const find = (x: number): number => {
+    while (parent[x] !== x) x = parent[x] = parent[parent[x]!]!
+    return x
+  }
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++)
+      if (Math.hypot(points[i]![0] - points[j]![0], points[i]![1] - points[j]![1]) <= link) parent[find(i)] = find(j)
+  const groups = new Map<number, Pt[]>()
+  points.forEach((p, i) => (groups.get(find(i)) ?? groups.set(find(i), []).get(find(i))!).push(p))
+  return [...groups.values()].sort((a, b) => b.length - a.length)
 }
 
-/** Pushes each hull point outward from the centroid by `pad` world units. */
-export function expandHull(hull: readonly Pt[], cx: number, cy: number, pad: number): Pt[] {
-  return hull.map(([x, y]) => {
-    const dx = x - cx
-    const dy = y - cy
-    const d = Math.hypot(dx, dy) || 1
-    return [x + (dx / d) * pad, y + (dy / d) * pad] as Pt
-  })
+/** The padded outline of one part: the convex hull of a circle of `pad` around every member. */
+export function paddedPart(points: readonly Pt[], pad = HULL_PAD): Pt[] {
+  const ring: Pt[] = []
+  for (const [x, y] of points)
+    for (let k = 0; k < RING; k++) ring.push([x + pad * Math.cos((2 * Math.PI * k) / RING), y + pad * Math.sin((2 * Math.PI * k) / RING)])
+  return convexHull(ring)
 }
+
 
 /**
  * The outline the canvas draws for a padded hull - quadratic curves through the edge
@@ -120,9 +135,14 @@ export function polygonArea(poly: readonly Pt[]): number {
  * of exactly that shape.
  */
 export interface SpotGeom extends ClusterGeom {
-  /** The padded convex hull the drawing traces; empty when fewer than 3 members. */
+  /**
+   * The largest part's padded hull, which the labels are placed against (and `hull`, from
+   * ClusterGeom, its smoothed outline - what the zoom magnet reads). Empty below 3 members.
+   */
   padded: Pt[]
-  /** Area of `hull`, world units squared - the tie-break between overlapping communities. */
+  /** Every part: the padded hull the drawing traces and its smoothed outline, largest first. */
+  parts: Array<{ padded: Pt[]; outline: Pt[] }>
+  /** Area of all parts, world units squared - the tie-break between overlapping communities. */
   area: number
 }
 
@@ -159,12 +179,19 @@ export function buildSpotGeoms(
       if (py < y0) y0 = py
       if (py > y1) y1 = py
     }
-    const body = pts.length >= 3 ? hullBody(pts) : pts
-    const cx = body.reduce((s, p) => s + p[0], 0) / body.length
-    const cy = body.reduce((s, p) => s + p[1], 0) / body.length
-    const padded = pts.length >= 3 ? expandHull(convexHull(body), cx, cy, HULL_PAD) : []
-    const hull = padded.length >= 3 ? smoothOutline(padded) : []
-    geoms.push({ id: cid, members: pts, hull, padded, area: polygonArea(hull), cx, cy, extent: Math.max(x1 - x0, y1 - y0) })
+    // The magnet's mass centre is the largest part's, where most of the community stands.
+    const partPts = pts.length >= 3 ? splitParts(pts) : []
+    const main = partPts[0] ?? pts
+    const cx = main.reduce((s, p) => s + p[0], 0) / main.length
+    const cy = main.reduce((s, p) => s + p[1], 0) / main.length
+    const parts = partPts.map((pp) => {
+      const padded = paddedPart(pp)
+      return { padded, outline: smoothOutline(padded) }
+    })
+    const padded = parts[0]?.padded ?? []
+    const hull = parts[0]?.outline ?? []
+    const area = parts.reduce((s, p) => s + polygonArea(p.outline), 0)
+    geoms.push({ id: cid, members: pts, hull, padded, parts, area, cx, cy, extent: Math.max(x1 - x0, y1 - y0) })
   }
   return geoms
 }
@@ -191,8 +218,8 @@ export function resolveAreaCid(
   let best = -1
   let bestArea = Infinity
   for (const g of geoms) {
-    if (g.hull.length < 3 || !isolatable(g.id)) continue
-    if (!pointInPolygon(x, y, g.hull)) continue
+    if (g.parts.length === 0 || !isolatable(g.id)) continue
+    if (!g.parts.some((p) => pointInPolygon(x, y, p.outline))) continue
     if (g.id === current) return g.id
     if (g.area < bestArea) {
       bestArea = g.area

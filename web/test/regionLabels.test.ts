@@ -3,7 +3,6 @@ import {
   pointInPolygon,
   boxIntersectsPolygon,
   placeRegionLabels,
-  hullBody,
   discCounter,
   type RegionLabelInput,
 } from '../src/components/GraphCanvas.tsx'
@@ -40,44 +39,6 @@ describe('boxIntersectsPolygon', () => {
   })
   it('false when the box is clear of the polygon', () => {
     expect(boxIntersectsPolygon([20, 20, 30, 30], square)).toBe(false)
-  })
-})
-
-describe('hullBody', () => {
-  it('drops a far spatial outlier from a compact cluster (the cross-domain-entity case)', () => {
-    // Four members bunched near the origin + one flung far right (a shared entity the layout
-    // pulled toward another cluster). The tongue toward it must not be part of the hull.
-    const body: Pt[] = [
-      [0, 0],
-      [1, 0],
-      [0, 1],
-      [1, 1],
-    ]
-    const withOutlier: Pt[] = [...body, [400, 5]]
-    const trimmed = hullBody(withOutlier)
-    expect(trimmed).toHaveLength(4)
-    expect(trimmed).not.toContainEqual([400, 5])
-  })
-
-  it('keeps a genuinely elongated cluster intact (no false outlier)', () => {
-    const line: Pt[] = [
-      [0, 0],
-      [10, 0],
-      [20, 0],
-      [30, 0],
-      [40, 0],
-    ]
-    expect(hullBody(line)).toHaveLength(5) // spread is uniform — nothing is an outlier
-  })
-
-  it('leaves small clusters (< 5) untouched — too few to tell a body from a corner', () => {
-    const pts: Pt[] = [
-      [0, 0],
-      [1, 1],
-      [200, 200],
-      [2, 0],
-    ]
-    expect(hullBody(pts)).toHaveLength(4)
   })
 })
 

@@ -970,23 +970,25 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const paddedHulls = new Map<number, Pt[]>()
       for (const g of geoms) {
         members.set(g.id, g.members as Pt[])
-        if (g.padded.length < 3) continue // 2 points make no area worth tinting
-        // Labels are placed against the DRAWN outline (the smoothed curve), not the padded
-        // polygon it rounds off: at a pointed hull the polygon's corner stands well clear of the
-        // curve, and a label anchored there floated far above the area it names.
+        if (g.parts.length === 0) continue // fewer than 3 members make no area worth tinting
+        // Labels are placed against the DRAWN outline of the largest part (the smoothed curve,
+        // not the padded polygon it rounds off), where most of the community stands.
         paddedHulls.set(g.id, g.hull as Pt[])
         // The hull on show fades with the spotlight; hulls drawn for the overlay stay put.
         const a = g.id === spotCid && !showHulls ? spotA : 1
-        ctx.beginPath()
-        traceSmooth(ctx, g.padded)
         // Tint by the cluster's dominant domain so the color means something; fall back to a
         // per-id hue only for a community with no domain at all.
         const dom = clusterDomains?.get(g.id)
         const hue = dom !== undefined ? domainHue(dom) : clusterHue(g.id)
         ctx.fillStyle = `hsl(${hue} 60% 55% / ${0.09 * a})`
         ctx.strokeStyle = `hsl(${hue} 60% 60% / ${0.4 * a})`
-        ctx.fill()
-        ctx.stroke()
+        // One area, drawn as the islands the layout keeps it in: every member inside a part.
+        for (const part of g.parts) {
+          ctx.beginPath()
+          traceSmooth(ctx, part.padded)
+          ctx.fill()
+          ctx.stroke()
+        }
       }
       // Second pass: measure widths (needs the canvas), place, then draw. Everything here is
       // in WORLD units at a size derived from the graph's extent - never from the live zoom.
@@ -3069,7 +3071,7 @@ function useRafDraw(draw: () => void): () => void {
 }
 
 // The hull helpers moved to lib/spotlightHover.ts; re-exported for the region-label tests.
-export { hullBody, pointInPolygon } from '../lib/spotlightHover.ts'
+export { pointInPolygon } from '../lib/spotlightHover.ts'
 
 /**
  * Counts the node discs a box touches, through a uniform grid - the placement asks this for
