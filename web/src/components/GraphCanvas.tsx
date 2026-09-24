@@ -76,6 +76,9 @@ const MIN_LABELED_CLUSTER = 3
  */
 const FIT_ZOOM_MAX = 3
 
+/** Screen height of the spotlight hull's label box; the glyphs are 82 % of it (about 13px). */
+const SPOT_LABEL_PX = 16
+
 export interface GraphCanvasProps {
   nodes: GraphNode[]
   /** Directed [from, to] index pairs into `nodes`. */
@@ -940,7 +943,10 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       for (const g of geoms) {
         members.set(g.id, g.members as Pt[])
         if (g.padded.length < 3) continue // 2 points make no area worth tinting
-        paddedHulls.set(g.id, g.padded)
+        // Labels are placed against the DRAWN outline (the smoothed curve), not the padded
+        // polygon it rounds off: at a pointed hull the polygon's corner stands well clear of the
+        // curve, and a label anchored there floated far above the area it names.
+        paddedHulls.set(g.id, g.hull as Pt[])
         // The hull on show fades with the spotlight; hulls drawn for the overlay stay put.
         const a = g.id === spotCid && !showHulls ? spotA : 1
         ctx.beginPath()
@@ -973,7 +979,11 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         }
       }
       const span = Number.isFinite(sMinX) ? Math.hypot(sMaxX - sMinX, sMaxY - sMinY) : 0
-      const labelH = Math.min(LABEL_H_MAX, Math.max(LABEL_H_MIN, span * LABEL_H_OF_SPAN))
+      // The spotlight's own hull (Areas off) is transient - it comes and goes with the
+      // pointer, so the reason for world-sized labels (a label that stays put at every zoom)
+      // does not apply to it. It gets a fixed SCREEN size instead: in a drilled-in group the
+      // world size bottomed out at LABEL_H_MIN, a 36px box at 3x, set that far above the hull.
+      const labelH = showHulls ? Math.min(LABEL_H_MAX, Math.max(LABEL_H_MIN, span * LABEL_H_OF_SPAN)) : SPOT_LABEL_PX / t.k
       const fontWorld = labelH * 0.82
       ctx.font = `600 ${fontWorld}px system-ui, sans-serif`
       const labelInputs: RegionLabelInput[] = []

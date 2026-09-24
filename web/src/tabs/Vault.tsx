@@ -2759,7 +2759,7 @@ function GraphPanel({
   /** Re-frame the drawing. The action, not a state - the strip flashes rather than latches. */
   onFit: () => void
 }): React.ReactElement {
-  const includeOn = (showSystem ? 1 : 0) + (showGaps ? 1 : 0)
+  const includeOn = (showSystem ? 1 : 0) + (showGaps ? 1 : 0) + (showNetwork ? 1 : 0)
   /** Hovering a pill previews its meaning; leaving falls back to the one in force. */
   const [lensPreview, setLensPreview] = useState<Lens | null>(null)
   const shownLens = LENSES.find((l) => l.key === (lensPreview ?? lens)) ?? LENSES[0]!
@@ -2822,7 +2822,7 @@ function GraphPanel({
         <div className="gp-toggles">
           {/* First in the block (2026-09-22, user decision): it is the only overlay that
               changes what the picture is ABOUT rather than how the same picture is coloured,
-              and it turns the three below it off when it comes on. Usually grey - ten of this
+              and it turns Spotlight, Areas and Bridges off when it comes on. Usually grey - ten of this
               vault's twenty-two domains clear its bar at all - and the reason line carries it. */}
           <RowToggle
             on={landmarks}
@@ -2832,27 +2832,15 @@ function GraphPanel({
             disabled={landmarkReason !== null}
             title={
               landmarkWhy ??
-              'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns the other three overlays off.'
+              'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns Spotlight, Areas and Bridges off.'
             }
           />
           {/*
-            * The other three are all about COMMUNITIES, and this overlay draws about a tenth of
+            * Spotlight, Areas and Bridges are all about COMMUNITIES, and this overlay draws about a tenth of
             * each one - so each of them would describe a set the picture does not hold. They go
             * grey together and say so in the same four words, because it is the same reason;
             * each keeps its own sentence in the tooltip, where there is room for the difference.
             */}
-          <RowToggle
-            on={showClusters}
-            onToggle={onClusters}
-            name="Areas"
-            desc={landmarks ? 'needs a whole community' : 'tinted hull per community'}
-            disabled={landmarks}
-            title={
-              landmarks
-                ? 'Not while Landmarks is on: a hull is the AREA of a community, and this overlay draws about a tenth of each one - the shape would be a figure over a handful of scattered points.'
-                : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together.'
-            }
-          />
           <RowToggle
             on={spotlight}
             onToggle={onSpotlight}
@@ -2866,15 +2854,15 @@ function GraphPanel({
             }
           />
           <RowToggle
-            on={showNetwork}
-            onToggle={onNetwork}
-            name="Bridges"
-            desc={landmarks ? 'needs a whole community' : 'highlight community links'}
+            on={showClusters}
+            onToggle={onClusters}
+            name="Areas"
+            desc={landmarks ? 'needs a whole community' : 'tinted hull per community'}
             disabled={landmarks}
             title={
               landmarks
-                ? 'Not while Landmarks is on: it tells intra-community links from bridges, and with a tenth of each community drawn most of both kinds are not on screen to tell apart.'
-                : 'Brighten the connections. Intra-community links lift into view; cross-community bridges show link direction as a colour gradient with an arrowhead.'
+                ? 'Not while Landmarks is on: a hull is the AREA of a community, and this overlay draws about a tenth of each one - the shape would be a figure over a handful of scattered points.'
+                : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together.'
             }
           />
         </div>
@@ -2895,6 +2883,20 @@ function GraphPanel({
               desc="unwritten link targets, as ghosts"
               count={gapCount}
               title="Show unresolved links as ghost nodes - the pages your vault still wants written."
+            />
+            {/* Here since 2026-09-24 (user decision): an overlay nobody reaches for day to day,
+                beside the other two things you switch on for a particular look. */}
+            <RowToggle
+              on={showNetwork}
+              onToggle={onNetwork}
+              name="Bridges"
+              desc={landmarks ? 'needs a whole community' : 'highlight community links'}
+              disabled={landmarks}
+              title={
+                landmarks
+                  ? 'Not while Landmarks is on: it tells intra-community links from bridges, and with a tenth of each community drawn most of both kinds are not on screen to tell apart.'
+                  : 'Brighten the connections. Intra-community links lift into view; cross-community bridges show link direction as a colour gradient with an arrowhead.'
+              }
             />
           </div>
         </Fold>
