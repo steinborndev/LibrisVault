@@ -1001,6 +1001,20 @@ Nothing of this branch merges before this: phase 8 is the gate of the one merge.
       the dead ones at 130, the values before the split. Also the same day: the empty key field
       offers the naming pass itself (`feat(web): draft names with the agent …`).
 
+      **Two more splits the same day, and the second finding (2026-09-24).** The user split the
+      same parent twice more (`de82eb3`, 120 pages; `6356f68`, 44 pages), both as clean as the
+      first by the same checks. Then four ingests ran. None of their 20 new pages went to a child,
+      and none belonged there; but the naming pass had rewritten the parent from what it was
+      shown, so "biology and medicine" had become one therapy class, and one general paper's 3
+      pages found no domain at all (`unassigned`, 12 to 15 knowledge pages). The analysis's R1
+      risk inverted: not a parent that claims too much, one that claims too little. Fixed in code
+      (`fix(domains): the naming pass narrows the parent by what left …`: start from the current
+      description, remove only what left, keep the breadth, and the pass is told what stays with
+      the parent), and in the vault by user edits through the page route: the parent's first
+      sentence restored to its breadth (`9459cb5`) and the 3 pages re-filed (`902175e`,
+      `e7c0fcf`, `4dcfa7d`); `unassigned` is back at 12. Lesson for the next split: read the
+      parent's diff for what it STILL covers, not only for what it gave up.
+
 ---
 
 ## Appendix A: SPEC.md §12.4, stage 4 (draft)
