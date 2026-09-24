@@ -26,7 +26,18 @@ export interface NamingShelf {
 }
 
 export interface NamingInput {
-  readonly parent: { readonly key: string; readonly description: string; readonly tags: readonly string[] }
+  readonly parent: {
+    readonly key: string
+    readonly description: string
+    readonly tags: readonly string[]
+    /**
+     * What stays with the parent: its page count and the most frequent tags of those pages.
+     * Without it the agent sees only what leaves, and on the first live splits it described
+     * the parent as the sum of what it could see - "biology and medicine" became one therapy
+     * class, and the next general paper found no domain at all.
+     */
+    readonly stays?: { readonly pages: number; readonly tags: readonly string[] }
+  }
   readonly shelves: readonly NamingShelf[]
   /** Every other key the registry lists: a new key must be none of them. */
   readonly otherKeys: readonly string[]
@@ -74,7 +85,11 @@ export function splitNamingPrompt(input: NamingInput): string {
     `domains. You name the new ones and narrow the old one. The pages were grouped by their ` +
     `links; your job is only the words.\n\n` +
     `The domain being split: \`${input.parent.key}\` - ${input.parent.description}\n` +
-    `Its current tag hints: ${input.parent.tags.join(', ') || '(none)'}\n\n` +
+    `Its current tag hints: ${input.parent.tags.join(', ') || '(none)'}\n` +
+    (input.parent.stays !== undefined
+      ? `What stays with it after the split: ${input.parent.stays.pages} pages; their most frequent tags: ` +
+        `${input.parent.stays.tags.join(', ') || '(none)'}\n\n`
+      : '\n') +
     `The other domains that already exist (a new key must be none of these, and should sit at ` +
     `the same altitude - a domain is a shelf, not a book):\n` +
     `${input.otherKeys.map((k) => `- ${k}`).join('\n') || '(none)'}\n\n` +
@@ -84,7 +99,11 @@ export function splitNamingPrompt(input: NamingInput): string {
     `makes every such page repeat its own domain in its tags.\n` +
     `- Each description is what a later ingest reads to decide where a new page goes. Say what ` +
     `the domain covers and where its line to its sibling shelves runs.\n` +
-    `- The parent keeps its key. Its new description must no longer claim what the shelves took.\n` +
+    `- The parent keeps its key and EVERYTHING it covered that the shelves did not take, general ` +
+    `topics no shelf holds included. Start from its current description: remove only the claims ` +
+    `the shelves took, keep its breadth, and say which new domains now hold what left. Never ` +
+    `redescribe the parent as the sum of the pages you can see - a new page on a general subject ` +
+    `of the parent must still find it.\n` +
     `- Judge by what the pages are ABOUT. Read a few landmark pages before you answer.\n` +
     `- Write plain text. No wikilinks ([[...]]), no Markdown links, no headings inside a field: ` +
     `a description is read word for word by every later ingest, and a link there is not a page ` +

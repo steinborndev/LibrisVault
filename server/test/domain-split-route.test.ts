@@ -462,6 +462,8 @@ describe('the split write routes', () => {
     // And the run says so in its own log, which is what stage E4 reads on the live copy.
     expect(logLines).toContain('maintenance: split-naming runs read-only under the query profile - no vault write path, no commit')
     expect(calls[0]!.prompt).toContain('## shelf 1')
+    // Two shelves of 40 are not being named, and no page is left over: 80 stay with the parent.
+    expect(calls[0]!.prompt).toContain('What stays with it after the split: 80 pages')
     expect(run.result?.commit).toBeNull()
     expect(run.result?.splitNaming?.shelves[1]).toEqual({ key: 'coined-one', description: 'The first.', tags: ['a', 'b'] })
     expect(run.result?.splitNaming?.parent).toEqual({ description: 'What stays.', tags: ['c'] })

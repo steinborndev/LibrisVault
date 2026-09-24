@@ -44,7 +44,7 @@ import {
   isValidDomainKey,
   DOMAIN_REGISTRY_PATH,
 } from '../../pipeline/domains.js'
-import { findDomainCandidates } from '../../pipeline/domain-candidates.js'
+import { findDomainCandidates, STRUCTURAL_TAGS } from '../../pipeline/domain-candidates.js'
 import type { DismissalStore } from '../../db/domain-dismissals.js'
 import type { VaultGraph } from '../../pipeline/graph.js'
 import { proposeSplit, type SplitProposal } from '../../pipeline/domain-split.js'
@@ -308,8 +308,29 @@ export function registerDomainsRoute(
     }
     const registry = readDomainRegistry(config.vaultRoot)
     const parent = registry?.domains.find((d) => d.key === key)
+    // What stays with the parent - the rest and every shelf not being named - so the agent
+    // narrows the parent by what left rather than redescribing it by what it happens to see.
+    const chosen = new Set(groups.flat())
+    const staying = new Set([
+      ...proposal.rest.pages.map((m) => m.path),
+      ...proposal.shelves.filter((s) => !chosen.has(s.id)).flatMap((s) => s.pages.map((m) => m.path)),
+    ])
+    const tagCount = new Map<string, number>()
+    for (const n of graph.build().nodes) {
+      if (!staying.has(n.path)) continue
+      for (const t of n.tags) {
+        const tag = t.toLowerCase()
+        if (!STRUCTURAL_TAGS.has(tag)) tagCount.set(tag, (tagCount.get(tag) ?? 0) + 1)
+      }
+    }
+    const stayTags = [...tagCount].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 15).map(([t]) => t)
     const input: NamingInput = {
-      parent: { key, description: parent?.description ?? '', tags: parent?.tags ?? [] },
+      parent: {
+        key,
+        description: parent?.description ?? '',
+        tags: parent?.tags ?? [],
+        stays: { pages: staying.size, tags: stayTags },
+      },
       otherKeys: (registry?.domains ?? []).map((d) => d.key).filter((k) => k !== key),
       shelves: groups.map((group, i) => {
         const shelves = group.map((id) => proposal.shelves.find((s) => s.id === id)!)

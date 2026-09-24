@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { parseSplitNaming, plainText, splitNamingPrompt, SPLIT_NAMING_FORMAT, type NamingInput } from '../src/pipeline/split-naming.js'
 
 const INPUT: NamingInput = {
-  parent: { key: 'alpha', description: 'Everything alpha.', tags: ['one', 'two'] },
+  parent: { key: 'alpha', description: 'Everything alpha.', tags: ['one', 'two'], stays: { pages: 12, tags: ['t-rest', 't-other'] } },
   otherKeys: ['beta', 'gamma'],
   shelves: [
     { n: 1, size: 40, tags: ['one'], frequentTags: ['one'], landmarks: [{ title: 'Page A01', path: 'wiki/concepts/Page A01.md' }] },
@@ -32,6 +32,11 @@ describe('splitNamingPrompt', () => {
   it('asks for no edit, coined keys, plain text, and the fixed answer format', () => {
     expect(prompt).toContain('Do NOT edit any file')
     expect(prompt).toContain('No wikilinks')
+    // The parent is narrowed by what LEFT, from its current text, and told what stays (the
+    // first live splits redescribed it as the sum of what the agent could see).
+    expect(prompt).toContain('What stays with it after the split: 12 pages; their most frequent tags: t-rest, t-other')
+    expect(prompt).toContain('keep its breadth')
+    expect(prompt).toContain('Start from its current description')
     expect(prompt).toMatch(/do NOT copy a tag/)
     expect(prompt.endsWith(SPLIT_NAMING_FORMAT)).toBe(true)
   })
