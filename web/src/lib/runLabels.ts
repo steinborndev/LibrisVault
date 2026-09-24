@@ -13,6 +13,8 @@ export const RUN_TITLES: Record<string, string> = {
   repair: 'Graph repair',
   'retrieve-index': 'Retrieval index rebuilt',
   'defect-fix': 'Standing defect repaired',
+  'split-naming': 'Shelf names proposed',
+  recap: 'Daily recap written',
 }
 
 /**
@@ -34,6 +36,8 @@ export const RUN_RUNNING_TITLES: Record<string, string> = {
   repair: 'Repairing the graph',
   'retrieve-index': 'Rebuilding the retrieval index',
   'defect-fix': 'Repairing a standing defect',
+  'split-naming': 'Proposing shelf names',
+  recap: 'Writing the daily recap',
 }
 
 /**
