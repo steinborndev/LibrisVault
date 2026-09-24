@@ -33,7 +33,9 @@ import {
   worldBounds,
   zoomAt as zoomTransform,
   LEASH_PAD_WORLD,
+  fitTransform,
   type ClusterGeom,
+  type FitItem,
   type Viewport,
 } from '../lib/graphZoom.ts'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react'
@@ -528,9 +530,18 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const canvasRef = useRef<HTMLCanvasElement>(null)
   /** Paths recently added to the view → timestamp, for the arrival flash. */
   const flashRef = useRef<Map<string, number>>(new Map())
-  const [hover, setHover] = useState<number | null>(null)
+  const [hover, setHoverState] = useState<number | null>(null)
   const hoverRef = useRef<number | null>(null)
-  hoverRef.current = hover
+  /*
+   * The ref is written HERE, not from the render: the draw that follows a hover change runs
+   * on the next animation frame, which can come before React has rendered the new state - and
+   * a draw reading a ref set at render time then paints the PREVIOUS hover's labels. That was
+   * half of a label flicker (2026-09-24): the same pointer position drew different titles.
+   */
+  const setHover = useCallback((next: number | null): void => {
+    hoverRef.current = next
+    setHoverState(next)
+  }, [])
   // Hovered community HULL (spotlight only): the pointer is inside a cluster's tinted area
   // without touching a node. Keeps the community highlight from flickering off between
   // member nodes and makes the whole hull one clickable isolate-surface. Only ever holds an
@@ -570,6 +581,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   fitSubsetRef.current = fitSubset
   const fitCenterRef = useRef(fitCenter)
   fitCenterRef.current = fitCenter
+  /** Whether titles are drawn at all; a fit makes room for them only then. */
+  const showLabelsRef = useRef(showLabels)
+  showLabelsRef.current = showLabels
   /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
   const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i), [])
 
@@ -1228,13 +1242,22 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const matchesLead = matches.size <= MATCH_LABEL_LIMIT
     const interactive = (i: number): boolean =>
       i === hovered || i === selectedIndex || i === focusIndex || (matchesLead && matches.has(i))
+    /*
+     * The RESTING labels are placed without the interactive ones (2026-09-24). They used to
+     * share one greedy pass with the hovered title at its head, so every hover re-dealt the
+     * whole collision cascade: a borderline title far from the pointer appeared or vanished
+     * with each node the pointer crossed, measured on one hub title as shown for 107 of 126
+     * hover targets and hidden at rest. Now the resting set is the same whatever is hovered,
+     * and the interactive titles are laid on top, hiding only the resting titles they cover.
+     */
     const prio = (i: number): number =>
-      interactive(i) ? 4
-      : highlight !== null && highlight.has(i) ? 3
+      highlight !== null && highlight.has(i) ? 3
       : ghostIndices !== undefined && ghostIndices.has(i) ? 2
       : labelReps.has(i) ? 1
       : 0
-    candidates.sort((a, b) => {
+    const resting = candidates.filter((i) => !interactive(i))
+    const onTop = candidates.filter(interactive)
+    resting.sort((a, b) => {
       const pd = prio(b) - prio(a)
       if (pd !== 0) return pd
       const dd = nodes[b]!.in + nodes[b]!.out - (nodes[a]!.in + nodes[a]!.out)
@@ -1252,38 +1275,47 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     ctx.lineJoin = 'round'
-    let drawn = 0
-    // Labels are last in. The collision solver has nothing stable to place against while
-    // nodes are still arriving, and forty titles appearing mid-reveal is its own flicker.
-    let examined = 0
-    for (const i of candidates) {
-      if (labelIn <= 0.004) break
-      if (drawn >= MAX_LABELS || examined >= MAX_EXAMINED) break
-      examined++
+    type Label = { i: number; text: string; x: number; y: number; box: [number, number, number, number]; ghost: boolean }
+    const layOut = (i: number, full: boolean): Label => {
       const n = nodes[i]!
-      const isGhost = ghostIndices !== undefined && ghostIndices.has(i)
-      const full = interactive(i)
+      const ghost = ghostIndices !== undefined && ghostIndices.has(i)
       // Long titles are the main space hogs - truncate unless the node is the one the
       // user is interacting with (the tooltip carries the full title regardless).
       const text = !full && n.title.length > 30 ? `${n.title.slice(0, 28)}…` : n.title
-      ctx.font = `${isGhost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
+      ctx.font = `${ghost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
       const w = ctx.measureText(text).width
       const x = pos[i * 2]!
       const y = pos[i * 2 + 1]! + radius(i) + 3 / t.k
-      const box: [number, number, number, number] = [x - w / 2 - padX, y, x + w / 2 + padX, y + labelH]
-      // Interactive labels skip the cull - "what am I pointing at" must always answer.
-      if (!full && placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) {
-        continue
+      return { i, text, x, y, box: [x - w / 2 - padX, y, x + w / 2 + padX, y + labelH], ghost }
+    }
+    const overlaps = (a: Label['box'], b: Label['box']): boolean => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+    const restingLabels: Label[] = []
+    let examined = 0
+    // Labels are last in. The collision solver has nothing stable to place against while
+    // nodes are still arriving, and forty titles appearing mid-reveal is its own flicker.
+    if (labelIn > 0.004) {
+      for (const i of resting) {
+        if (restingLabels.length >= MAX_LABELS || examined >= MAX_EXAMINED) break
+        examined++
+        const l = layOut(i, false)
+        if (placed.some((p) => overlaps(l.box, p))) continue
+        placed.push(l.box)
+        restingLabels.push(l)
       }
-      placed.push(box)
-      drawn++
-      ctx.globalAlpha = (highlight !== null && !highlight.has(i) ? dimLabel : 0.95) * labelIn
+    }
+    // Interactive labels skip the cull - "what am I pointing at" must always answer - and
+    // hide only the resting titles they sit on.
+    const topLabels = labelIn > 0.004 ? onTop.map((i) => layOut(i, true)) : []
+    const shown = [...restingLabels.filter((l) => !topLabels.some((tl) => overlaps(l.box, tl.box))), ...topLabels]
+    for (const l of shown) {
+      ctx.font = `${l.ghost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
+      ctx.globalAlpha = (highlight !== null && !highlight.has(l.i) ? dimLabel : 0.95) * labelIn
       // A halo in the background color keeps text legible across edges and foreign nodes.
       ctx.lineWidth = 3 / t.k
       ctx.strokeStyle = halo
-      ctx.strokeText(text, x, y)
-      ctx.fillStyle = isGhost ? cssVar('--text-faint', '#6b7791') : textColor
-      ctx.fillText(text, x, y)
+      ctx.strokeText(l.text, l.x, l.y)
+      ctx.fillStyle = l.ghost ? cssVar('--text-faint', '#6b7791') : textColor
+      ctx.fillText(l.text, l.x, l.y)
     }
     ctx.globalAlpha = 1
     paintedRef.current = true
@@ -1377,57 +1409,41 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ]
       return full[1] - full[0] > Math.max(1, core[1] - core[0]) * 3 ? core : full
     }
-    let [minX, maxX] = bounds(xs)
-    let [minY, maxY] = bounds(ys)
+    const [minX, maxX] = bounds(xs)
+    const [minY, maxY] = bounds(ys)
     /*
-     * A centred fit: the box is made symmetric around one node, so it lands in the middle of
-     * the picture instead of wherever the set's own extent put it. Everything framed still
-     * fits, at the wider zoom that symmetry costs.
+     * A node is not its centre (fixed 2026-09-16, and again 2026-09-24). Each framed node
+     * brings its radius, which is world-space and grows with the zoom, and the title drawn
+     * under it, which is screen-space (11px type) and does not; `fitTransform` finds the zoom
+     * at which all of them fit. The title is measured as the resting pass draws it, truncated,
+     * and a node the draw leaves nameless (a connector outside a bloom) brings none.
      */
-    const mid = fitCenterRef.current
-    if (mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN)) {
-      const cx = pos[mid * 2]!
-      const cy = pos[mid * 2 + 1]!
-      const rx = Math.max(cx - minX, maxX - cx)
-      const ry = Math.max(cy - minY, maxY - cy)
-      minX = cx - rx
-      maxX = cx + rx
-      minY = cy - ry
-      maxY = cy + ry
-    }
-    /*
-     * A node is not its centre (fixed 2026-09-16). The extent above was the centres alone, and
-     * the frame then cut the outermost circles in half and their labels off entirely - worst
-     * on a small subgraph, where a handful of nodes zooms in far enough that a 12-unit radius
-     * is most of a hundred screen pixels. Two corrections, in the two spaces they belong to:
-     *
-     *   the RADIUS is world-space, so it widens the span;
-     *   the LABEL is screen-space (11px text, 13px line, 3px gap, whatever the zoom), so it
-     *   is a pad - and it hangs BELOW its node, which is why the pads are asymmetric.
-     */
-    let rMax = 0
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return
+    ctx.save()
+    ctx.font = '11px system-ui, sans-serif'
+    const mask = maskRef.current
+    const items: FitItem[] = []
     for (let i = 0; i < pos.length; i += 2) {
-      if (Number.isNaN(pos[i]!)) continue
+      const x = pos[i]!
+      const y = pos[i + 1]!
+      if (Number.isNaN(x)) continue
       if (!framed(i / 2)) continue
-      rMax = Math.max(rMax, radius(i / 2))
+      if (x < minX || x > maxX || y < minY || y > maxY) continue // a straggler the core fit leaves out
+      const title = nodes[i / 2]?.title ?? ''
+      const named = showLabelsRef.current && !(mask !== null && mask.connectors.has(i / 2) && mask.bloomAnchor === null)
+      const text = title.length > 30 ? `${title.slice(0, 28)}…` : title
+      items.push({ x, y, r: radius(i / 2), labelHalf: named ? ctx.measureText(text).width / 2 + 2 : 0 })
     }
-    const spanX = Math.max(1, maxX - minX + 2 * rMax)
-    const spanY = Math.max(1, maxY - minY + 2 * rMax)
-    // Sideways the labels are centred on their nodes and reach further than any radius does;
-    // this is the old flat pad, kept, because a title's width is not worth measuring here.
-    const padX = 110
-    const padTop = 18
-    const padBottom = 40 // the label's own line, plus the gap above it and air below
-    const k = Math.min(8, Math.max(0.15, Math.min((w - padX) / spanX, (h - padTop - padBottom) / spanY)))
-    transformRef.current = {
-      k,
-      x: -((minX + maxX) / 2) * k,
-      // The usable box sits above the viewport's middle by half the difference of the pads,
-      // so the content has to move with it or the room made at the bottom is spent at the top.
-      y: -((minY + maxY) / 2) * k - (padBottom - padTop) / 2,
-    }
+    ctx.restore()
+    const mid = fitCenterRef.current
+    const centre: [number, number] | null =
+      mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN) ? [pos[mid * 2]!, pos[mid * 2 + 1]!] : null
+    const next = fitTransform(items, { w, h }, { x: 16, top: 18, bottom: 24 }, centre)
+    if (next === null) return
+    transformRef.current = next
     scheduleDraw()
-  }, [scheduleDraw, positionsRef, transformRef, radius])
+  }, [scheduleDraw, positionsRef, transformRef, radius, nodes])
 
   // ---------------------------------------------------------------- layout worker session
   //
@@ -1912,7 +1928,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       setHullHover(nextHull)
       scheduleDraw()
     }
-  }, [hitTest, hitCluster, scheduleDraw])
+  }, [hitTest, hitCluster, scheduleDraw, setHover])
   const refreshHoverRef = useRef(refreshHover)
   refreshHoverRef.current = refreshHover
 
@@ -1933,7 +1949,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
-  }, [scheduleDraw])
+  }, [scheduleDraw, setHover])
 
   /**
    * The tooltip follows the pointer, clamped inside the wrap - its old fixed bottom-left

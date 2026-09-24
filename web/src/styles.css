@@ -7385,6 +7385,18 @@ tr:focus-within .rowacts {
   color: var(--text-faint);
   opacity: 0.6;
 }
+/* In the table both are one block, no taller than the title line beside them (2026-09-24).
+   The link sat inline on the text baseline, where its 18px box pushed the line 1.5px past
+   the placeholder's: every row grew when the source index arrived, a second after the rows
+   did, and a table of 1300 rows moved by 30px at the twentieth and by more below it. */
+.lt-source .src-link,
+.lt-source .src-none {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 0;
+}
 
 /* The outcome of the run that just finished, in the same fixed head as the strip. */
 .runbanner {
