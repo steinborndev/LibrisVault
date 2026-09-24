@@ -26,6 +26,7 @@
     "preprocprobe": "npm run preprocprobe --workspace server",
     "vaultprobe": "npm run vaultprobe --workspace server --",
     "splitprobe": "npm run splitprobe --workspace server --",
+    "graphprobe": "tsx scripts/graph-layout-probe.mjs",
     "questionaudit": "npm run questionaudit --workspace server --",
     "questiontopic-eval": "npm run questiontopic-eval --workspace server --",
     "vaultrepair": "npm run vaultrepair --workspace server --",
