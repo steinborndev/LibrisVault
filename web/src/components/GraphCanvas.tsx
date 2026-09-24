@@ -33,7 +33,9 @@ import {
   worldBounds,
   zoomAt as zoomTransform,
   LEASH_PAD_WORLD,
+  fitTransform,
   type ClusterGeom,
+  type FitItem,
   type Viewport,
 } from '../lib/graphZoom.ts'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react'
@@ -579,6 +581,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   fitSubsetRef.current = fitSubset
   const fitCenterRef = useRef(fitCenter)
   fitCenterRef.current = fitCenter
+  /** Whether titles are drawn at all; a fit makes room for them only then. */
+  const showLabelsRef = useRef(showLabels)
+  showLabelsRef.current = showLabels
   /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
   const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i), [])
 
@@ -1404,57 +1409,41 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ]
       return full[1] - full[0] > Math.max(1, core[1] - core[0]) * 3 ? core : full
     }
-    let [minX, maxX] = bounds(xs)
-    let [minY, maxY] = bounds(ys)
+    const [minX, maxX] = bounds(xs)
+    const [minY, maxY] = bounds(ys)
     /*
-     * A centred fit: the box is made symmetric around one node, so it lands in the middle of
-     * the picture instead of wherever the set's own extent put it. Everything framed still
-     * fits, at the wider zoom that symmetry costs.
+     * A node is not its centre (fixed 2026-09-16, and again 2026-09-24). Each framed node
+     * brings its radius, which is world-space and grows with the zoom, and the title drawn
+     * under it, which is screen-space (11px type) and does not; `fitTransform` finds the zoom
+     * at which all of them fit. The title is measured as the resting pass draws it, truncated,
+     * and a node the draw leaves nameless (a connector outside a bloom) brings none.
      */
-    const mid = fitCenterRef.current
-    if (mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN)) {
-      const cx = pos[mid * 2]!
-      const cy = pos[mid * 2 + 1]!
-      const rx = Math.max(cx - minX, maxX - cx)
-      const ry = Math.max(cy - minY, maxY - cy)
-      minX = cx - rx
-      maxX = cx + rx
-      minY = cy - ry
-      maxY = cy + ry
-    }
-    /*
-     * A node is not its centre (fixed 2026-09-16). The extent above was the centres alone, and
-     * the frame then cut the outermost circles in half and their labels off entirely - worst
-     * on a small subgraph, where a handful of nodes zooms in far enough that a 12-unit radius
-     * is most of a hundred screen pixels. Two corrections, in the two spaces they belong to:
-     *
-     *   the RADIUS is world-space, so it widens the span;
-     *   the LABEL is screen-space (11px text, 13px line, 3px gap, whatever the zoom), so it
-     *   is a pad - and it hangs BELOW its node, which is why the pads are asymmetric.
-     */
-    let rMax = 0
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return
+    ctx.save()
+    ctx.font = '11px system-ui, sans-serif'
+    const mask = maskRef.current
+    const items: FitItem[] = []
     for (let i = 0; i < pos.length; i += 2) {
-      if (Number.isNaN(pos[i]!)) continue
+      const x = pos[i]!
+      const y = pos[i + 1]!
+      if (Number.isNaN(x)) continue
       if (!framed(i / 2)) continue
-      rMax = Math.max(rMax, radius(i / 2))
+      if (x < minX || x > maxX || y < minY || y > maxY) continue // a straggler the core fit leaves out
+      const title = nodes[i / 2]?.title ?? ''
+      const named = showLabelsRef.current && !(mask !== null && mask.connectors.has(i / 2) && mask.bloomAnchor === null)
+      const text = title.length > 30 ? `${title.slice(0, 28)}…` : title
+      items.push({ x, y, r: radius(i / 2), labelHalf: named ? ctx.measureText(text).width / 2 + 2 : 0 })
     }
-    const spanX = Math.max(1, maxX - minX + 2 * rMax)
-    const spanY = Math.max(1, maxY - minY + 2 * rMax)
-    // Sideways the labels are centred on their nodes and reach further than any radius does;
-    // this is the old flat pad, kept, because a title's width is not worth measuring here.
-    const padX = 110
-    const padTop = 18
-    const padBottom = 40 // the label's own line, plus the gap above it and air below
-    const k = Math.min(8, Math.max(0.15, Math.min((w - padX) / spanX, (h - padTop - padBottom) / spanY)))
-    transformRef.current = {
-      k,
-      x: -((minX + maxX) / 2) * k,
-      // The usable box sits above the viewport's middle by half the difference of the pads,
-      // so the content has to move with it or the room made at the bottom is spent at the top.
-      y: -((minY + maxY) / 2) * k - (padBottom - padTop) / 2,
-    }
+    ctx.restore()
+    const mid = fitCenterRef.current
+    const centre: [number, number] | null =
+      mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN) ? [pos[mid * 2]!, pos[mid * 2 + 1]!] : null
+    const next = fitTransform(items, { w, h }, { x: 16, top: 18, bottom: 24 }, centre)
+    if (next === null) return
+    transformRef.current = next
     scheduleDraw()
-  }, [scheduleDraw, positionsRef, transformRef, radius])
+  }, [scheduleDraw, positionsRef, transformRef, radius, nodes])
 
   // ---------------------------------------------------------------- layout worker session
   //
