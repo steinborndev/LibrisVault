@@ -1483,7 +1483,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           ctx.globalAlpha = labelIn
           ctx.font = `600 ${Math.min(11, rs * 1.1) / t.k}px system-ui, sans-serif`
           ctx.textBaseline = 'middle'
-          ctx.fillStyle = '#ffffff'
+          // White on a dark fill, the ground colour on a light one: the dark theme's type and
+          // domain colours are light, and white on them fell to a contrast of 2 to 3.
+          ctx.fillStyle = inkOn(ctx, nodeColor(l.i), cssVar('--bg', '#0c101b'))
           ctx.fillText(String(rank), pos[l.i * 2]!, pos[l.i * 2 + 1]! + 0.5 / t.k)
           ctx.textBaseline = 'top'
           ctx.font = `${11 / t.k}px system-ui, sans-serif`
@@ -3124,4 +3126,28 @@ export function discCounter(discs: ReadonlyArray<{ x: number; y: number; r: numb
         }
     return seen.size
   }
+}
+
+/** Relative luminance of a colour the canvas can parse (hex, rgb(), hsl()), 0..1. */
+function luminance(ctx: CanvasRenderingContext2D, color: string): number {
+  const prev = ctx.fillStyle
+  ctx.fillStyle = '#000000'
+  ctx.fillStyle = color
+  const norm = String(ctx.fillStyle)
+  ctx.fillStyle = prev
+  let rgb: number[]
+  if (norm.startsWith('#')) rgb = [1, 3, 5].map((k) => parseInt(norm.slice(k, k + 2), 16))
+  else rgb = (norm.match(/[\d.]+/g) ?? ['0', '0', '0']).slice(0, 3).map(Number)
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+}
+
+/** White or the ground colour on `fill`, whichever reads better (WCAG contrast ratio). */
+function inkOn(ctx: CanvasRenderingContext2D, fill: string, ground: string): string {
+  const lf = luminance(ctx, fill)
+  const ratio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  return ratio(lf, 1) >= ratio(lf, luminance(ctx, ground)) ? '#ffffff' : ground
 }
