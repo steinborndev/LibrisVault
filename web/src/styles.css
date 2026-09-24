@@ -6477,6 +6477,26 @@ tr:focus-within .rowacts {
   text-overflow: ellipsis;
   max-width: 100%;
 }
+/* A run record's facts, wherever the record is shown (Home's pane or the detail box): every
+   value one face, one size, one line - eight slots, and a value that wrapped made the strip
+   uneven (2026-09-24). */
+.facts.record-facts {
+  /* Each slot as wide as what it says, the spare room shared: an equal-width grid cut the
+     start time off while the quotes slot stood half empty. */
+  display: flex;
+  flex-wrap: wrap;
+}
+.facts.record-facts .fact {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.facts.record-facts .v {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 /* What it wrote, or what it cited - the same band in the same place for both kinds, at one
    height whatever the chip count, so moving between them shifts nothing. */
 .chipband {
