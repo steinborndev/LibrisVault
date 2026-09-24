@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { timeAgo } from '../lib/format.ts'
@@ -62,9 +63,18 @@ function DroppedSenders(): React.ReactElement | null {
   )
 }
 
-export function TelegramSetup({ status }: { status: string }): React.ReactElement {
+/** `actionsSlot`: as in CredentialSetup - the closed-state buttons go into a card head. */
+export function TelegramSetup({ status, actionsSlot }: { status: string; actionsSlot?: HTMLElement | null }): React.ReactElement {
   const configured = status !== 'off'
   const [open, setOpen] = useState(false)
+  // Disabling is a two-step confirm on the button itself (DESIGN.md, destructive actions):
+  // the first click arms it for four seconds, the second one disables the bot.
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(t)
+  }, [armed])
   const [botToken, setBotToken] = useState('')
   const [allowedUserIds, setAllowedUserIds] = useState('')
   // Which bot status the restarted process should report: 'on' after save, 'off' after disable.
@@ -116,26 +126,32 @@ export function TelegramSetup({ status }: { status: string }): React.ReactElemen
   }
 
   if (!open) {
+    const inHead = actionsSlot !== undefined
+    const buttons = (
+      <>
+        <button className={inHead ? 'btn sm' : 'btn ghost'} onClick={() => setOpen(true)}>
+          {configured ? 'Replace settings…' : 'Set up Telegram bot…'}
+        </button>
+        {configured && (
+          <button
+            className={`${inHead ? 'btn sm' : 'btn ghost'}${armed ? ' armed' : ''}`}
+            disabled={disable.isPending}
+            title={armed ? 'Click again to remove the bot token from the env file' : 'Disable the Telegram bot'}
+            onClick={() => {
+              if (armed) {
+                setArmed(false)
+                disable.mutate()
+              } else setArmed(true)
+            }}
+          >
+            {disable.isPending ? 'Disabling…' : armed ? 'Click again to disable' : 'Disable'}
+          </button>
+        )}
+      </>
+    )
     return (
       <div>
-        <div className="setting-control">
-          <button className="btn ghost" onClick={() => setOpen(true)}>
-            {configured ? 'Replace Telegram settings…' : 'Set up Telegram bot…'}
-          </button>
-          {configured && (
-            <button
-              className="btn ghost"
-              disabled={disable.isPending}
-              onClick={() => {
-                if (window.confirm('Disable the Telegram bot? The token is removed from the env file.')) {
-                  disable.mutate()
-                }
-              }}
-            >
-              {disable.isPending ? 'Disabling…' : 'Disable'}
-            </button>
-          )}
-        </div>
+        {inHead ? actionsSlot !== null && createPortal(buttons, actionsSlot) : <div className="setting-control">{buttons}</div>}
         {disable.isError && <div className="toast err">{(disable.error as Error).message}</div>}
         {configured && <DroppedSenders />}
       </div>

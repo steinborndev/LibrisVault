@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import type { CredentialResponse } from '../api/types.ts'
@@ -33,7 +34,12 @@ const KIND_INFO: Record<Kind, { title: string; hint: string; placeholder: string
   },
 }
 
-export function CredentialSetup({ configured }: { configured: boolean }): React.ReactElement {
+/**
+ * `actionsSlot`: where the closed-state button goes. The System screen's Instance cards carry
+ * their actions in the card head, right-aligned like every other card's, so the button is
+ * portalled there instead of standing alone in the body.
+ */
+export function CredentialSetup({ configured, actionsSlot }: { configured: boolean; actionsSlot?: HTMLElement | null }): React.ReactElement | null {
   // In setup mode the form is the point - open it; when configured it hides behind a button.
   const [open, setOpen] = useState(!configured)
   const [kind, setKind] = useState<Kind>('oauth')
@@ -82,11 +88,13 @@ export function CredentialSetup({ configured }: { configured: boolean }): React.
   }
 
   if (!open) {
-    return (
-      <button className="btn ghost" onClick={() => setOpen(true)}>
+    const button = (
+      <button className={actionsSlot !== undefined ? 'btn sm' : 'btn ghost'} onClick={() => setOpen(true)}>
         Replace credential…
       </button>
     )
+    if (actionsSlot !== undefined) return actionsSlot === null ? null : createPortal(button, actionsSlot)
+    return button
   }
 
   return (

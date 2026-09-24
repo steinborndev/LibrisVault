@@ -47,7 +47,7 @@ export interface MaintStatusInput {
    * feed said a report had just been written. Null when no lint has ever run.
    */
   readonly lastLintRun: { finishedAt: string; ok: boolean } | null
-  /** mtime of wiki/hot.md, or null when never refreshed. */
+  /** When wiki/hot.md was last written (every ingest rewrites it), or null when it does not exist. */
   readonly hotCacheUpdatedAt: string | null
   /** Retrieval-index card facts; null while still loading (item omitted then). */
   readonly index: { scriptsPresent: boolean; provisioned: boolean } | null
@@ -274,7 +274,7 @@ export function deriveMaintenanceStatus(input: MaintStatusInput): MaintStatus {
       id: 'hot-cache',
       severity: 'recommended',
       title: 'Refresh the hot cache',
-      why: 'Never refreshed - every agent run reads this compact context first.',
+      why: 'No hot cache yet - every agent run reads this compact context first.',
       cost: 'agent run · ~1 min',
       anchor: 'card-hot-cache',
     })
@@ -285,7 +285,7 @@ export function deriveMaintenanceStatus(input: MaintStatusInput): MaintStatus {
         id: 'hot-cache',
         severity: 'recommended',
         title: 'Refresh the hot cache',
-        why: `Last refresh ${plural(age, 'day')} ago - ingests and chat may miss recent pages.`,
+        why: `Rewritten ${plural(age, 'day')} ago - no ingest since, so chat may miss recent context.`,
         cost: 'agent run · ~1 min',
         anchor: 'card-hot-cache',
       })
@@ -294,7 +294,7 @@ export function deriveMaintenanceStatus(input: MaintStatusInput): MaintStatus {
         id: 'hot-cache',
         severity: 'healthy',
         title: 'Hot cache is fresh',
-        why: `Last refresh ${plural(age, 'day')} ago.`,
+        why: `Rewritten ${plural(age, 'day')} ago; every ingest rewrites it.`,
         cost: 'nothing to do',
         anchor: 'card-hot-cache',
       })

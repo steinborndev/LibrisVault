@@ -1340,17 +1340,6 @@ button {
 }
 /* Collapsed by default - the hot cache is the one arbitrarily long block on the overview.
    The summary row carries the cache's age + the refresh action (no trip to Maintenance). */
-details.hot-cache summary {
-  cursor: pointer;
-  margin-bottom: 0;
-  user-select: none;
-}
-details.hot-cache summary::marker {
-  color: var(--text-faint);
-}
-details.hot-cache[open] summary {
-  margin-bottom: 10px;
-}
 .md h1, .md h2, .md h3 { margin: 14px 0 6px; line-height: 1.25; }
 .md h1 { font-size: 20px; }
 .md h2 { font-size: 17px; }
@@ -10755,15 +10744,6 @@ tr:focus-within .rowacts {
 .sys-nav .domrow .n.due { color: var(--warn); font-weight: 600; }
 .sys-nav .domrow .n.rec { color: var(--busy); font-weight: 600; }
 .sys-nav .domrow.active { box-shadow: inset 2px 0 0 var(--accent); }
-.sys-nav-legend {
-  margin-top: auto;
-  display: flex;
-  gap: 14px;
-  font-size: 11px;
-  color: var(--text-faint);
-}
-.sys-nav-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.sys-nav-legend .dot { display: inline-block; width: var(--dot-sm); height: var(--dot-sm); border-radius: 50%; }
 
 /* Where you are, one click from where you came from. */
 .sys-crumb {
@@ -10778,11 +10758,41 @@ tr:focus-within .rowacts {
 }
 .sys-crumb:hover { color: var(--accent); }
 
-/* A tool's status block: the "What's due" rows, narrowed to this tool, not clickable. */
-.ms-item.static { cursor: default; }
-.ms-item.static:hover .ms-title { color: var(--text); }
-.sys-why .ms-items { margin-top: 0; }
 .maint.tool-only { display: block; }
+
+/* A tool's verdict: one line per status area under the box head, the severity chip first.
+   A strip rather than a card - the head already names the tool and its severity, this only
+   says why. */
+.sys-verdict {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+.sv-row {
+  display: grid;
+  grid-template-columns: 68px auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 16px;
+  font-size: 12.5px;
+}
+.sv-row + .sv-row { border-top: 1px dashed var(--border); }
+.sv-row .sev { justify-self: start; }
+.sv-title { font-weight: 600; white-space: nowrap; }
+.sv-why { color: var(--text-dim); min-width: 0; }
+.sv-cost { color: var(--text-faint); font-size: 11.5px; white-space: nowrap; }
+.sv-row.ok .sv-title { font-weight: 500; color: var(--text-dim); }
+
+/* Domains as three task cards: the split and candidate panels bring their own head, which
+   takes the card-head place inside a card of their own (the guided run keeps them inline). */
+.subcard.sc-pad > .domain-candidates { margin-top: 0; border-top: 0; padding-top: 0; }
+.subcard.sc-pad > .domain-candidates > .sc-head:first-child { margin: -12px -13px 12px; padding: 9px 13px; }
+.subcard.sc-pad > .domain-candidates > .sc-head .sc-title { font-size: 12.5px; }
+.subcard.sc-pad > .domain-candidates > .sc-head .candidate-actions { margin-left: auto; }
+.area-why { margin: 0 0 6px; font-size: 13px; color: var(--text-dim); }
+.split-history-toggle { justify-self: start; font-size: 12px; }
+/* The hot cache's contents, open by default: the card is where you read what every run reads. */
+.hot-cache { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.hot-cache .md { max-height: none; overflow: visible; }
 
 .sys-intro {
   margin: 0;
@@ -10796,12 +10806,10 @@ tr:focus-within .rowacts {
   gap: 10px;
 }
 .sys-toolbar .spacer { flex: 1; }
-.runlog th:first-child, .sys-runs td.sr-dot { width: 34px; padding-right: 0; }
+.runlog th:first-child { width: 34px; padding-right: 0; }
 .sr-dot .hrow-dot { display: inline-block; vertical-align: middle; }
-.sys-runs .rt-name, .runlog .rt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sys-runs td.num { width: 64px; }
-.sys-runs td.faintc { width: 92px; }
-.sys-runs .rl-times { color: var(--text-faint); font-size: 12px; margin-left: 6px; }
+.runlog .rt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runlog .rl-times { color: var(--text-faint); font-size: 12px; margin-left: 6px; }
 .runlog th:nth-child(3), .runlog th:nth-child(4) { width: 70px; }
 .runlog th:nth-child(5) { width: 96px; }
 .runlog th:nth-child(6) { width: 84px; }
@@ -10809,7 +10817,6 @@ tr:focus-within .rowacts {
 .runlog .rl-err { color: var(--err); }
 .sys-details summary { cursor: pointer; font-size: 12px; color: var(--text-faint); margin-top: 10px; }
 .sys-details[open] summary { margin-bottom: 6px; }
-.conn-facts { margin-bottom: 10px; }
 
 /* Settings: one editor for every group, with the save bar pinned to the foot of the pane
    so the state of an edit is never below the fold. */

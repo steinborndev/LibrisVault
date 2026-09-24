@@ -68,6 +68,9 @@ export function SplitProposalPanel({
   vaultName,
   guided = false,
   onApplied,
+  title = 'Split proposal',
+  badge,
+  why,
 }: {
   nodes: readonly GraphNode[] | undefined
   /** The graph's build time: the proposal is asked again when the vault changed. */
@@ -77,6 +80,10 @@ export function SplitProposalPanel({
   guided?: boolean
   /** Told about an applied split, so the guided run can note it in its summary. */
   onApplied?: (result: SplitApplyResult, parent: string) => void
+  /** As a card of its own (System / Domains): its title, severity chip and verdict line. */
+  title?: string
+  badge?: React.ReactNode
+  why?: string | undefined
 }): React.ReactElement | null {
   const sizes = useMemo(() => departmentSizes(nodes ?? []), [nodes])
   const [picked, setPicked] = useState<string | null>(null)
@@ -98,11 +105,12 @@ export function SplitProposalPanel({
     <div className="domain-candidates split-proposal">
       <div className="sc-head">
         <h4 className="sc-title">
-          Split proposal
+          {title}
           <Tip
             text={`The shelves a domain falls into, from its links alone: a consensus of ${p?.params.runs ?? 40} runs, so the same vault gives the same shelves on every visit. Ranked by how cleanly each stands apart - how few of its links leave it, times how rarely other pages' tags look like its own. Promote, merge, leave or defer each shelf; nothing is written until you apply a preview, and the apply is one git commit that one revert undoes.`}
           />
         </h4>
+        {badge}
         <div className="candidate-actions">
           <label className="toggle">
             Domain
@@ -117,6 +125,7 @@ export function SplitProposalPanel({
         </div>
       </div>
 
+      {why !== undefined && <p className="area-why">{why}</p>}
       {applied !== null && <AppliedSummary result={applied.result} parent={applied.parent} onDone={() => setApplied(null)} />}
       {q.isError && <div className="toast err">Could not load the proposal: {(q.error as Error).message}</div>}
       {p === undefined ? (
@@ -756,15 +765,18 @@ function AppliedSummary({ result, parent, onDone }: { result: SplitApplyResult; 
 
 /** Applied splits (6.5), each with its commits, its live remainder, the re-file and the revert. */
 function AppliedSplits({ vaultName }: { vaultName: string }): React.ReactElement | null {
+  const [open, setOpen] = useState(false)
   const q = useQuery({ queryKey: ['domain-splits'], queryFn: api.domainSplits })
   const splits = q.data?.splits ?? []
   if (splits.length === 0) return null
+  // Folded by default (2026-09-24): a record of what was done, not part of the decision above
+  // it. The toggle speaks the same way the Overview's healthy areas do.
   return (
     <div className="split-history">
-      <h4 className="sc-title">Applied splits</h4>
-      {splits.map((s) => (
-        <AppliedSplitRow key={s.id} split={s} vaultName={vaultName} />
-      ))}
+      <button className="linkish split-history-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {open ? 'hide' : 'show'} {splits.length} applied split{splits.length === 1 ? '' : 's'}
+      </button>
+      {open && splits.map((s) => <AppliedSplitRow key={s.id} split={s} vaultName={vaultName} />)}
     </div>
   )
 }

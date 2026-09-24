@@ -1,18 +1,16 @@
 /**
- * System (restructure proposal 2026-09-24). The screen used to be five sections, one of which
- * ("Status & checks") hid seven tools behind an in-content view switch that no URL, no back
- * button and no column entry knew about. Every tool now has an entry of its own, and the
- * column is grouped by what the visitor came to do:
+ * System (restructure 2026-09-24, sweep the same day). The column is a map of the machine
+ * room in four groups, and every entry is a route (`/system?section=<id>`):
  *
- *   Overview      what needs you, what ran lately, how the instance stands - the landing
- *   Maintenance   one entry per tool, each with its severity dot from the status model
- *   Insight       usage & cost, vault stats, the persistent run log
- *   Settings      intake, runs & budget, research budget (Fellows only), connections, and
- *                 the read-only facts of this instance
+ *   Overview      every status area, due ones first, and the guided run
+ *   Maintenance   one entry per tool; the dot is that tool's severity from the status model
+ *   Insight       usage & cost, vault stats (every figure about the vault's SHAPE lives here,
+ *                 none in a tool), history (runs and commits)
+ *   Settings      intake, runs & budget, research budget (Fellows only), the instance
  *
- * Every entry is a route (`/system?section=<id>`), so a "What's due" item, a setup banner or
- * another screen can link to exactly the place it means. The retired section ids (`checks`,
- * `service`, `integrations`) resolve to their new homes.
+ * The sweep's rule: a figure is shown in ONE place. What Home, the header chips or the status
+ * popover already say (page and link counts, pages by type, queue, watcher, bot) is not
+ * repeated here, and a tool page carries only what you act on.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -24,6 +22,7 @@ import { SettingsEditor, SETTINGS_GROUP_OF, type SettingsGroup } from '../compon
 import { CredentialSetup } from '../components/CredentialSetup.tsx'
 import { TelegramSetup } from '../components/TelegramSetup.tsx'
 import { GrowthChart } from '../components/GrowthChart.tsx'
+import { PageLink } from '../components/PageLink.tsx'
 import { Cost, CostFootnote, isEstimate } from '../components/Cost.tsx'
 import { Fact, Facts } from '../components/Fact.tsx'
 import { FootKeys } from '../components/FootKeys.tsx'
@@ -32,7 +31,7 @@ import { Tip } from '../components/Tip.tsx'
 import { useMaintenanceStatus } from '../hooks/useMaintenanceStatus.ts'
 import { isUnfiled, knowledgePages, vaultShape } from '../lib/vaultShape.ts'
 import { timeAgo, tokens, usd } from '../lib/format.ts'
-import { navigate } from '../lib/router.ts'
+import { navigate, usePath } from '../lib/router.ts'
 import { runTitle, isMaintenanceRun } from '../lib/runLabels.ts'
 import { contentPages } from '../lib/activity.ts'
 import { spendByChannel, spendItems, topSpend, totalSpend, withinDays } from '../lib/usage.ts'
@@ -59,25 +58,24 @@ interface SectionDef {
 }
 
 const SECTIONS: readonly SectionDef[] = [
-  { id: 'overview', label: 'Overview', sub: 'what needs you, what ran lately, how the instance stands', group: 'top' },
+  { id: 'overview', label: 'Overview', sub: 'what needs you right now', group: 'top' },
 
   { id: 'lint', label: 'Lint & links', sub: 'wiki health report, safe fixes, broken wikilinks', group: 'maintenance', anchor: 'card-lint', areas: ['lint'], kinds: ['lint', 'lint-fix'] },
   { id: 'defects', label: 'Standing defects', sub: 'what the validator keeps finding, and the repair for each', group: 'maintenance', anchor: 'card-defects', areas: ['defects'], kinds: ['defect-fix'] },
-  { id: 'domains', label: 'Domains', sub: 'the registry, filing pages, new and oversized domains', group: 'maintenance', anchor: 'card-domains', areas: ['domains', 'backfill', 'split'], kinds: ['domain-backfill', 'domain-review', 'split-naming'] },
+  { id: 'domains', label: 'Domains', sub: 'filing pages, new domains, oversized domains', group: 'maintenance', anchor: 'card-domains', areas: ['domains', 'backfill', 'split'] },
   { id: 'tags', label: 'Tags', sub: 'spelling variants, echoes of a domain, bounded repairs', group: 'maintenance', anchor: 'card-tags', areas: ['tags'], kinds: ['tag-fix'] },
-  { id: 'hot-cache', label: 'Hot cache', sub: 'the compact context every agent run reads first', group: 'maintenance', anchor: 'card-hot-cache', areas: ['hot-cache'], kinds: ['hot-cache'] },
+  { id: 'hot-cache', label: 'Hot cache', sub: 'the compact context every agent run reads first', group: 'maintenance', anchor: 'card-hot-cache', areas: ['hot-cache'] },
   { id: 'index', label: 'Retrieval index', sub: 'chunk and BM25 index behind Research answers', group: 'maintenance', anchor: 'card-index', areas: ['index'], kinds: ['retrieve-index'] },
-  { id: 'git', label: 'Git history', sub: 'what is committed, and what is not yet', group: 'maintenance', anchor: 'card-unversioned', areas: ['unversioned'] },
+  { id: 'git', label: 'Git', sub: 'pages the vault history does not have yet', group: 'maintenance', anchor: 'card-unversioned', areas: ['unversioned'] },
 
-  { id: 'usage', label: 'Usage & cost', sub: 'tokens, spend, the plan and the daily budget', group: 'insight' },
-  { id: 'vault', label: 'Vault stats', sub: 'size, growth and shape of the wiki', group: 'insight' },
-  { id: 'history', label: 'Run log', sub: 'every agent run the service recorded, newest first', group: 'insight' },
+  { id: 'usage', label: 'Usage & cost', sub: 'spend, tokens, the plan and the daily budget', group: 'insight' },
+  { id: 'vault', label: 'Vault stats', sub: 'growth, loose ends and how the pages are filed', group: 'insight' },
+  { id: 'history', label: 'History', sub: 'every agent run and every vault commit, newest first', group: 'insight' },
 
   { id: 'intake', label: 'Intake', sub: 'watch folder, file limit, dedupe, open-access rescue', group: 'settings', settings: 'intake' },
   { id: 'runs', label: 'Runs & budget', sub: 'concurrency, commits, the daily budget', group: 'settings', settings: 'runs' },
   { id: 'research', label: 'Research budget', sub: 'what the Fellows may spend of the plan', group: 'settings', settings: 'research', fellowsOnly: true },
-  { id: 'connections', label: 'Connections', sub: 'Anthropic credential, Telegram bot, Obsidian', group: 'settings' },
-  { id: 'instance', label: 'This instance', sub: 'read-only facts fixed at start', group: 'settings', settings: 'instance' },
+  { id: 'instance', label: 'Instance', sub: 'credential, Telegram bot, watch folder, service facts', group: 'settings' },
 ]
 
 const GROUP_LABEL: Record<Exclude<GroupId, 'top'>, string> = {
@@ -96,7 +94,7 @@ function resolveSection(section: string, setting: string): string | null {
   if (section === '') return null
   if (byId(section) !== undefined) return section
   if (section === 'checks') return 'overview'
-  if (section === 'integrations') return 'connections'
+  if (section === 'integrations' || section === 'connections') return 'instance'
   if (section === 'service') {
     const group = SETTINGS_GROUP_OF[setting as keyof EffectiveSettings] as SettingsGroup | undefined
     return group ?? 'intake'
@@ -117,20 +115,6 @@ function worst(items: readonly MaintStatusItem[]): MaintSeverity | null {
 const SEV_WORD: Record<MaintSeverity, string> = { due: 'due', recommended: 'soon', healthy: 'ok' }
 const SEV_CLASS: Record<MaintSeverity, string> = { due: 'due', recommended: 'rec', healthy: 'ok' }
 
-const DIR_LABELS: Record<string, string> = {
-  concepts: 'Concepts',
-  entities: 'Entities',
-  sources: 'Sources',
-  references: 'References',
-  comparisons: 'Comparisons',
-  questions: 'Questions',
-  folds: 'Folds',
-  meta: 'Meta',
-  // Pages that sit directly in `wiki/` - the index, the hot cache, the journal. They have no
-  // folder to be named after, and used to be counted by nobody.
-  root: 'Wiki root',
-}
-
 export function System({ section = '', setting = '' }: { section?: string; setting?: string }): React.ReactElement {
   const [active, setActive] = useState<string>(() => resolveSection(section, setting) ?? 'overview')
 
@@ -144,7 +128,6 @@ export function System({ section = '', setting = '' }: { section?: string; setti
 
   const go = useCallback((id: string): void => navigate(`/system?section=${id}`), [])
 
-  const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings })
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
   const maint = useMaintenanceStatus()
@@ -180,21 +163,21 @@ export function System({ section = '', setting = '' }: { section?: string; setti
     return () => window.removeEventListener('keydown', onKey)
   }, [visible, current.id, go])
 
+  // The column's trailing slot carries STATUS and nothing else: a figure there ("$0.47 today",
+  // "1390") was the third copy of a number the section itself leads with.
   const rowMeta = (s: SectionDef): { dot: string; n: React.ReactNode } => {
     if (s.id === 'overview') {
       if (maint.data === null) return { dot: 'ring', n: null }
       if (due > 0) return { dot: 'due', n: <span className="n due">{due} due</span> }
       if (recommended > 0) return { dot: 'rec', n: <span className="n rec">{recommended} soon</span> }
-      return { dot: 'ok', n: <span className="n">all ok</span> }
+      return { dot: 'ok', n: null }
     }
     if (s.group === 'maintenance') {
       const sev = worst(itemsFor(s))
       if (sev === null) return { dot: 'ring', n: null }
       return { dot: SEV_CLASS[sev], n: sev === 'healthy' ? null : <span className={`n ${SEV_CLASS[sev]}`}>{SEV_WORD[sev]}</span> }
     }
-    if (s.id === 'usage' && stats.data !== undefined) return { dot: 'ring', n: <span className="n">{usd(stats.data.usage.today.costUsd)} today</span> }
-    if (s.id === 'vault' && stats.data !== undefined) return { dot: 'ring', n: <span className="n">{stats.data.pages.total}</span> }
-    if (s.id === 'connections' && credentialMissing) return { dot: 'due', n: <span className="n due">set up</span> }
+    if (s.id === 'instance' && credentialMissing) return { dot: 'due', n: <span className="n due">set up</span> }
     return { dot: 'ring', n: null }
   }
 
@@ -239,11 +222,6 @@ export function System({ section = '', setting = '' }: { section?: string; setti
             </div>
           </div>
         ))}
-        <div className="gp-sec sys-nav-legend">
-          <span><i className="dot sd-due" /> due</span>
-          <span><i className="dot sd-rec" /> soon</span>
-          <span><i className="dot sd-ok" /> healthy</span>
-        </div>
       </aside>
 
       <div className="box">
@@ -272,41 +250,32 @@ export function System({ section = '', setting = '' }: { section?: string; setti
           {current.id === 'overview' && <OverviewSection onGo={go} />}
 
           {current.group === 'maintenance' && current.anchor !== undefined && (
-            <div className="sys-pane" key={current.id}>
-              <WhyNow items={currentItems} />
-              <Maintenance card={current.anchor} />
-              {current.id === 'domains' && <DomainCounts />}
-              {current.id === 'git' && <RecentCommits />}
-              {current.kinds !== undefined && <ToolRuns kinds={current.kinds} label={current.label} />}
-            </div>
+            <>
+              {/* Domains carries a verdict per task in each of its three cards. */}
+              {current.id !== 'domains' && <Verdict items={currentItems} />}
+              <div className="sys-pane" key={current.id}>
+                <Maintenance card={current.anchor} />
+                {current.kinds !== undefined && <ToolRuns kinds={current.kinds} />}
+              </div>
+            </>
           )}
 
           {current.id === 'usage' && <UsageSection onGo={go} />}
           {current.id === 'vault' && <VaultStatsSection onGo={go} />}
-          {current.id === 'history' && <RunLogSection />}
-          {current.id === 'connections' && <ConnectionsSection onGo={go} />}
+          {current.id === 'history' && <HistorySection />}
+          {current.id === 'instance' && <InstanceSection />}
 
           {/* One editor for every settings group, mounted once and kept: an edit in Intake
               survives a look at Runs & budget, and the save bar counts both. */}
           {settings.data !== undefined && (
             <div className="sys-pane" hidden={current.settings === undefined}>
-              {current.settings !== undefined && current.settings !== 'instance' && <SettingsIntro group={current.settings} />}
+              {current.settings !== undefined && <SettingsIntro group={current.settings} />}
               <SettingsEditor group={current.settings ?? 'intake'} focus={setting} />
             </div>
           )}
         </div>
         <div className="box-foot keys">
-          <span className="fl">
-            {current.group === 'maintenance'
-              ? maint.data === null
-                ? 'Checking the vault…'
-                : `${openTools} of ${toolCount} tools need you`
-              : current.id === 'overview'
-                ? maint.data === null
-                  ? 'Checking the vault…'
-                  : `${due} due · ${recommended} soon · ${maint.data.status.healthy} healthy`
-                : GROUP_LABEL[current.group as Exclude<GroupId, 'top'>] ?? ''}
-          </span>
+          <span className="fl" />
           <FootKeys items={['[ ] step the sections', 'Esc back to overview', 'Ctrl K jump anywhere']} />
           <span className="fr" />
         </div>
@@ -316,180 +285,79 @@ export function System({ section = '', setting = '' }: { section?: string; setti
 }
 
 /**
- * The top of every tool: the status model's verdict on its areas, in the model's own three
- * fields - what, why now, what it costs. A tool with nothing to say shows its healthy line,
- * because "healthy" is a state and not an empty screen.
+ * A tool's verdict, as a strip under the head rather than a card of its own: the status
+ * model's three fields (what, why now, what it costs) per area, most severe first. The head
+ * already says the severity; this says why.
  */
-function WhyNow({ items }: { items: readonly MaintStatusItem[] }): React.ReactElement | null {
+function Verdict({ items }: { items: readonly MaintStatusItem[] }): React.ReactElement | null {
   if (items.length === 0) return null
   const sorted = [...items].sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])
   return (
-    <section className="subcard sc-pad sys-why">
-      <div className="sc-head">
-        <h3 className="sc-title">
-          Status
-          <Tip text="The same deterministic check the Overview runs, narrowed to this tool. 'Due' blocks other maintenance or degrades quality; 'soon' is worth doing soon; 'healthy' means nothing to do here." />
-        </h3>
-      </div>
-      <div className="ms-items">
-        {sorted.map((item) => (
-          <div key={`${item.id}-${item.title}`} className="ms-item static">
-            <span className={`sev ${SEV_CLASS[item.severity]}`}>{item.severity === 'recommended' ? 'soon' : item.severity}</span>
-            <span className="ms-main">
-              <span className="ms-title">{item.title}</span>
-              <span className="ms-why">{item.why}</span>
-            </span>
-            <span className="ms-cost">{item.cost}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-/** The landing: what needs you first, then the two things you check on most. */
-function OverviewSection({ onGo }: { onGo: (id: string) => void }): React.ReactElement {
-  const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
-  const runs = useQuery({ queryKey: ['maintenance-history', 'all'], queryFn: () => api.maintenanceHistory({ limit: 200 }) })
-  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings })
-  const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
-  const telegram = useQuery({ queryKey: ['telegram-status'], queryFn: api.telegramStatus, staleTime: 300_000 })
-  const s = stats.data
-  // Consecutive runs of one kind collapse into one row: an index rebuilt after every ingest
-  // is one fact ("rebuilt 4 times"), not four rows that push everything else out.
-  const recent = useMemo(() => {
-    const out: Array<{ run: AgentRunRecord; times: number }> = []
-    for (const r of runs.data?.runs ?? []) {
-      const last = out[out.length - 1]
-      if (last !== undefined && last.run.kind === r.kind && last.run.ok === r.ok && last.run.label === r.label) last.times++
-      else out.push({ run: r, times: 1 })
-      if (out.length > 6) break
-    }
-    return out.slice(0, 6)
-  }, [runs.data])
-  const failed7d = (runs.data?.runs ?? []).filter((r) => !r.ok && Date.now() - Date.parse(r.finishedAt) < 7 * 864e5).length
-  const ro = settings.data?.readOnly ?? {}
-
-  return (
-    <>
-      <Facts size="lead">
-        <Fact size="lead" k="Spend today" v={s ? <Cost value={s.usage.today.costUsd} authMode={s.authMode} /> : '…'} onOpen={() => onGo('usage')} />
-        <Fact size="lead" k="Spend 7 days" v={s ? <Cost value={s.usage.last7d.costUsd} authMode={s.authMode} /> : '…'} sub={s ? `${s.usage.last7d.ingests} runs` : undefined} onOpen={() => onGo('usage')} />
-        <Fact size="lead" k="Pages" v={s ? String(s.pages.total) : '…'} sub={s ? `${s.kpis7d.ingests} ingests in 7 d` : undefined} onOpen={() => onGo('vault')} />
-        <Fact size="lead" k="Failed runs · 7d" v={runs.data ? String(failed7d) : '…'} tone={failed7d > 0 ? 'err' : undefined} onOpen={() => onGo('history')} />
-        <Fact
-          size="lead"
-          k="Daily budget"
-          v={s ? (s.budget.limit === null ? 'no limit' : s.budget.unit === 'usd' ? usd(s.budget.limit) : `${s.budget.limit} / day`) : '…'}
-          sub={s && s.budget.limit !== null ? `${s.budget.unit === 'usd' ? usd(s.budget.spent) : s.budget.spent} spent` : 'set under Runs & budget'}
-          onOpen={() => navigate('/system?section=runs&setting=dailyBudget')}
-        />
-      </Facts>
-      <div className="sys-pane">
-        <Maintenance compact showRunHistory={false} onJump={(anchor) => onGo(sectionForAnchor(anchor))} />
-
-        <div className="sys-grid">
-          <section className="subcard">
-            <div className="sc-head">
-              <h3 className="sc-title">Recent runs</h3>
-              <span className="spacer" />
-              <button className="linkish" onClick={() => onGo('history')}>
-                Full run log
-              </button>
-            </div>
-            <div className="sc-body flush">
-              {recent.length === 0 ? (
-                <div className="empty">No agent run recorded yet.</div>
-              ) : (
-                <table className="dtable sys-runs">
-                  <tbody>
-                    {recent.map(({ run: r, times }) => (
-                      <tr key={r.id}>
-                        <td className="sr-dot">
-                          <span className={`hrow-dot ${r.ok ? 'done' : 'failed'}`} aria-hidden />
-                        </td>
-                        <td className="rt-name" title={r.label ?? runTitle(r.kind, r.ok)}>
-                          {r.label ?? runTitle(r.kind, r.ok)}
-                          {times > 1 && <span className="rl-times">×{times}</span>}
-                        </td>
-                        <td className="num">{r.pages.length > 0 ? `${r.pages.length} p` : ''}</td>
-                        <td className="faintc">{timeAgo(r.finishedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </section>
-
-          <section className="subcard">
-            <div className="sc-head">
-              <h3 className="sc-title">Instance</h3>
-              <span className="spacer" />
-              <button className="linkish" onClick={() => onGo('connections')}>
-                Connections
-              </button>
-            </div>
-            <div className="sc-body">
-              <div className="kvlist">
-                <div className="kv">
-                  <span className="k">Anthropic</span>
-                  <span className={`v${ro['credentialConfigured'] === 'no' ? ' bad' : ''}`}>
-                    {ro['credentialConfigured'] === 'no' ? 'no credential' : (ro['authMode'] ?? '…')}
-                  </span>
-                </div>
-                <div className="kv">
-                  <span className="k">Watch folder</span>
-                  <span className="v">{s === undefined ? '…' : s.watcher.active ? 'watching' : 'not watching'}</span>
-                </div>
-                <div className="kv">
-                  <span className="k">Telegram</span>
-                  <span className="v">{telegram.data === undefined ? '…' : telegram.data.configured ? 'connected' : 'off'}</span>
-                </div>
-                <div className="kv">
-                  <span className="k">Queue</span>
-                  <span className="v">
-                    {s === undefined ? '…' : `${s.queue.active} running · ${s.queue.queued} queued · concurrency ${s.queue.concurrency}`}
-                  </span>
-                </div>
-                <div className="kv">
-                  <span className="k">Commits</span>
-                  {health.data === undefined ? (
-                    <span className="v">…</span>
-                  ) : health.data.autoCommitDisabled === false ? (
-                    <span className="v bad">vault commits too</span>
-                  ) : (
-                    <span className="v">service only</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
+    <div className="sys-verdict">
+      {sorted.map((item) => (
+        <div key={`${item.id}-${item.title}`} className={`sv-row ${SEV_CLASS[item.severity]}`}>
+          <span className={`sev ${SEV_CLASS[item.severity]}`}>{item.severity === 'recommended' ? 'soon' : item.severity}</span>
+          <span className="sv-title">{item.title}</span>
+          <span className="sv-why">{item.why}</span>
+          <span className="sv-cost">{item.cost}</span>
         </div>
-      </div>
-    </>
+      ))}
+    </div>
   )
 }
 
-/** The runs a tool has made, so its receipts sit next to its button. */
-function ToolRuns({ kinds, label }: { kinds: readonly string[]; label: string }): React.ReactElement {
+/**
+ * The landing: what is due and what is healthy, every area at once. The spend figures live
+ * in Usage & cost and are not repeated here; the guided run starts from the head below.
+ */
+function OverviewSection({ onGo }: { onGo: (id: string) => void }): React.ReactElement {
+  return (
+    <div className="sys-pane">
+      <Maintenance compact showRunHistory={false} onJump={(anchor) => onGo(sectionForAnchor(anchor))} />
+    </div>
+  )
+}
+
+/**
+ * Consecutive runs of one kind as one row: an index rebuilt after every ingest is one fact
+ * ("x5"), not five identical rows.
+ */
+function collapse(runs: readonly AgentRunRecord[], max: number): Array<{ run: AgentRunRecord; times: number }> {
+  const out: Array<{ run: AgentRunRecord; times: number }> = []
+  for (const r of runs) {
+    const last = out[out.length - 1]
+    if (last !== undefined && last.run.kind === r.kind && last.run.ok === r.ok && last.run.label === r.label) last.times++
+    else {
+      if (out.length === max) break
+      out.push({ run: r, times: 1 })
+    }
+  }
+  return out
+}
+
+/** The receipts beside a tool's button: its last few runs, the rest one click away. */
+function ToolRuns({ kinds }: { kinds: readonly string[] }): React.ReactElement | null {
   const runs = useQuery({ queryKey: ['maintenance-history', 'all'], queryFn: () => api.maintenanceHistory({ limit: 200 }) })
-  const mine = (runs.data?.runs ?? []).filter((r) => kinds.includes(r.kind)).slice(0, 8)
+  const mine = (runs.data?.runs ?? []).filter((r) => kinds.includes(r.kind))
+  // A tool that never ran has no receipts: no card saying so.
+  if (mine.length === 0) return null
   return (
     <section className="subcard">
       <div className="sc-head">
-        <h3 className="sc-title">Recent runs · {label}</h3>
+        <h3 className="sc-title">Recent runs</h3>
         <span className="spacer" />
-        <span className="badge">{mine.length === 0 ? 'none yet' : `${mine.length} shown`}</span>
+        <button className="linkish" onClick={() => navigate(`/system?section=history&kind=${kinds.join(',')}`)}>
+          All {mine.length} in History
+        </button>
       </div>
       <div className="sc-body flush">
-        {mine.length === 0 ? <div className="empty">This tool has not run yet.</div> : <RunTable runs={mine} />}
+        <RunTable runs={collapse(mine, 4)} />
       </div>
     </section>
   )
 }
 
-function RunTable({ runs }: { runs: readonly AgentRunRecord[] }): React.ReactElement {
+function RunTable({ runs }: { runs: ReadonlyArray<{ run: AgentRunRecord; times: number }> }): React.ReactElement {
   return (
     <table className="dtable runlog">
       <thead>
@@ -503,7 +371,7 @@ function RunTable({ runs }: { runs: readonly AgentRunRecord[] }): React.ReactEle
         </tr>
       </thead>
       <tbody>
-        {runs.map((r) => (
+        {runs.map(({ run: r, times }) => (
           <tr key={r.id}>
             <td className="sr-dot">
               <span className={`hrow-dot ${r.ok ? 'done' : 'failed'}`} aria-hidden />
@@ -516,10 +384,11 @@ function RunTable({ runs }: { runs: readonly AgentRunRecord[] }): React.ReactEle
               ) : (
                 runTitle(r.kind, r.ok)
               )}
+              {times > 1 && <span className="rl-times">×{times}</span>}
               {r.error !== null && <span className="rl-err"> · {r.error}</span>}
             </td>
             <td className="num">{r.pages.length > 0 ? r.pages.length : '-'}</td>
-            <td className="num">{r.costUsd !== null ? usd(r.costUsd) : '-'}</td>
+            <td className="num">{r.costUsd !== null && r.costUsd > 0 ? usd(r.costUsd) : '-'}</td>
             <td className="faintc" title={new Date(r.finishedAt).toLocaleString('en-US')}>
               {timeAgo(r.finishedAt)}
             </td>
@@ -533,201 +402,215 @@ function RunTable({ runs }: { runs: readonly AgentRunRecord[] }): React.ReactEle
   )
 }
 
-/** The persistent run log, one table, filterable by what kind of work and whether it held. */
-function RunLogSection(): React.ReactElement {
+/**
+ * History: the persistent run log and the vault's own commits, one place for "what happened".
+ * `?kind=` narrows the runs to a tool's kinds (its "All in History" link), `?failed=1` to the
+ * failures (the Overview's figure).
+ */
+function HistorySection(): React.ReactElement {
+  const path = usePath()
+  const params = new URLSearchParams(path.split('?')[1] ?? '')
+  const kindParam = params.get('kind') ?? ''
+  const failedParam = params.get('failed') === '1'
   const runs = useQuery({ queryKey: ['maintenance-history', 'all'], queryFn: () => api.maintenanceHistory({ limit: 200 }) })
+  const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
+  const [view, setView] = useState<'runs' | 'commits'>('runs')
   const [kind, setKind] = useState<'all' | 'maintenance' | 'research'>('all')
+  const [kinds, setKinds] = useState<string[]>([])
   const [onlyFailed, setOnlyFailed] = useState(false)
-  const state = queryState(runs, 'the run log')
-  if (state !== null) return <div className="sys-pane">{state}</div>
+  // A link in narrows the list; arriving without one leaves whatever was chosen here.
+  useEffect(() => {
+    if (kindParam !== '') {
+      setKinds(kindParam.split(','))
+      setView('runs')
+    }
+  }, [kindParam])
+  useEffect(() => {
+    if (failedParam) {
+      setOnlyFailed(true)
+      setView('runs')
+    }
+  }, [failedParam])
+
   const all = runs.data?.runs ?? []
   const shown = all.filter(
-    (r) => (kind === 'all' || (kind === 'maintenance') === isMaintenanceRun(r.kind)) && (!onlyFailed || !r.ok),
+    (r) =>
+      (kinds.length === 0 || kinds.includes(r.kind)) &&
+      (kind === 'all' || (kind === 'maintenance') === isMaintenanceRun(r.kind)) &&
+      (!onlyFailed || !r.ok),
   )
   const failed = all.filter((r) => !r.ok).length
   return (
     <div className="sys-pane">
       <div className="sys-toolbar">
-        <div className="seg" role="radiogroup" aria-label="Kind">
-          {(['all', 'maintenance', 'research'] as const).map((k) => (
-            <button key={k} className={kind === k ? 'active' : ''} aria-checked={kind === k} role="radio" onClick={() => setKind(k)}>
-              {k === 'all' ? 'All runs' : k === 'maintenance' ? 'Maintenance' : 'Research'}
-            </button>
-          ))}
+        <div className="seg" role="tablist" aria-label="View">
+          <button className={view === 'runs' ? 'active' : ''} role="tab" aria-selected={view === 'runs'} onClick={() => setView('runs')}>
+            Runs
+          </button>
+          <button className={view === 'commits' ? 'active' : ''} role="tab" aria-selected={view === 'commits'} onClick={() => setView('commits')}>
+            Commits
+          </button>
         </div>
-        <button className={`chip${onlyFailed ? ' active' : ''}`} onClick={() => setOnlyFailed((v) => !v)}>
-          Failed only <span className="n">{failed}</span>
-        </button>
+        {view === 'runs' && (
+          <>
+            <div className="seg sm" role="radiogroup" aria-label="Kind">
+              {(['all', 'maintenance', 'research'] as const).map((k) => (
+                <button key={k} className={kind === k ? 'active' : ''} aria-checked={kind === k} role="radio" onClick={() => setKind(k)}>
+                  {k === 'all' ? 'All' : k === 'maintenance' ? 'Maintenance' : 'Research'}
+                </button>
+              ))}
+            </div>
+            <button className={`chip${onlyFailed ? ' active' : ''}`} onClick={() => setOnlyFailed((v) => !v)}>
+              Failed only <span className="n">{failed}</span>
+            </button>
+            {kinds.length > 0 && (
+              <button className="chip active" onClick={() => setKinds([])} title="Show every kind again">
+                {kinds.map((k) => runTitle(k, true)).join(', ')} ×
+              </button>
+            )}
+          </>
+        )}
         <span className="spacer" />
         <span className="gp-count">
-          {shown.length} of {all.length} stored runs
+          {view === 'runs' ? `${shown.length} of ${all.length} stored runs` : `${stats.data?.commits.length ?? 0} newest commits`}
         </span>
       </div>
-      <section className="subcard">
-        <div className="sc-body flush">
-          {shown.length === 0 ? <div className="empty">No run matches this filter.</div> : <RunTable runs={shown} />}
-        </div>
-      </section>
+      {view === 'runs' ? (
+        <section className="subcard">
+          <div className="sc-body flush">
+            {queryState(runs, 'the run log') ??
+              (shown.length === 0 ? <div className="empty">No run matches this filter.</div> : <RunTable runs={shown.map((run) => ({ run, times: 1 }))} />)}
+          </div>
+        </section>
+      ) : (
+        <CommitTable />
+      )}
     </div>
   )
 }
 
 /** A line of orientation above a settings group: what it governs, and what it does not. */
 function SettingsIntro({ group }: { group: SettingsGroup }): React.ReactElement {
-  const text: Record<Exclude<SettingsGroup, 'instance'>, string> = {
+  const text: Record<SettingsGroup, string> = {
     intake: 'How material gets in: where the service looks for files, what it refuses, and what it skips as already known.',
     runs: 'How agent runs are paced and recorded. The daily budget pauses the queue when it is spent and resumes it at midnight.',
     research: 'What the Fellows may spend of the plan. The shares size their nights; the reserves stop everything, whatever the shares say.',
   }
-  return <p className="sys-intro">{text[group as Exclude<SettingsGroup, 'instance'>]}</p>
+  return <p className="sys-intro">{text[group]}</p>
 }
 
-/** Credential, bot and Obsidian as cards with their state in the head, not as bare buttons. */
-function ConnectionsSection({ onGo }: { onGo: (id: string) => void }): React.ReactElement {
+/**
+ * The instance: what connects it to the outside and the facts fixed at start, as cards with
+ * their state in the head and their actions right beside it. One place for all of it - the
+ * Overview's instance card and the read-only settings list said the same things twice.
+ */
+function InstanceSection(): React.ReactElement {
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings })
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
+  const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
+  const [credSlot, setCredSlot] = useState<HTMLElement | null>(null)
+  const [botSlot, setBotSlot] = useState<HTMLElement | null>(null)
   const ro = settings.data?.readOnly
-  const state = queryState(settings, 'the connections')
+  const state = queryState(settings, 'the instance')
   if (state !== null || ro === undefined) return <div className="sys-pane">{state ?? <div className="empty">Loading…</div>}</div>
   const credentialOk = ro['credentialConfigured'] !== 'no'
   const telegramOn = (ro['telegram'] ?? 'off') !== 'off'
   return (
     <div className="sys-pane">
-      <p className="sys-intro">
-        The three ways the service reaches outside this machine. Credentials are written to the service env file and never
-        shown again; changing one restarts the service.
-      </p>
       <section className="subcard sc-pad">
         <div className="sc-head">
-          <h3 className="sc-title">Anthropic credential</h3>
-          <span className="spacer" />
-          <span className={`badge ${credentialOk ? 'ok' : 'deferred'}`}>{credentialOk ? `configured · ${ro['authMode'] ?? ''}` : 'missing'}</span>
+          <h3 className="sc-title">
+            Anthropic credential
+            <Tip text="Written to the service env file and never shown again; replacing it restarts the service." />
+          </h3>
+          <span className={`badge ${credentialOk ? 'ok' : 'deferred'}`}>{credentialOk ? `${ro['authMode'] ?? 'configured'}` : 'missing'}</span>
+          <span className="right" ref={setCredSlot} />
         </div>
-        <div className="kvlist conn-facts">
-          <div className="kv">
-            <span className="k">Mode</span>
-            <span className="v">{ro['authMode'] ?? '-'}</span>
-          </div>
-          <div className="kv">
-            <span className="k">Source</span>
-            <span className="v">{ro['credentialSource'] ?? '-'}</span>
-          </div>
+        <div className="tool-meta">
+          {credentialOk ? (
+            <>
+              from <code>{ro['credentialSource'] ?? '-'}</code>
+            </>
+          ) : (
+            'No credential yet: ingestion, research and maintenance are paused until one is set.'
+          )}
         </div>
-        <CredentialSetup configured={credentialOk} />
+        <CredentialSetup configured={credentialOk} actionsSlot={credSlot} />
       </section>
 
       <section className="subcard sc-pad">
         <div className="sc-head">
-          <h3 className="sc-title">Telegram bot</h3>
-          <span className="spacer" />
-          <span className={`badge ${telegramOn ? 'ok' : ''}`}>{telegramOn ? 'connected' : 'off'}</span>
+          <h3 className="sc-title">
+            Telegram bot
+            <Tip text="Anything you send the bot - a link, a file, a note - is queued for ingest like a drop. The token and the allowlist live in the service env file." />
+          </h3>
+          <span className={`badge ${telegramOn ? 'ok' : ''}`}>{telegramOn ? ro['telegram'] : 'off'}</span>
+          <span className="right" ref={setBotSlot} />
         </div>
-        <p className="tab-hint">Anything you send the bot - a link, a file, a note - is queued for ingest like a drop.</p>
-        <TelegramSetup status={ro['telegram'] ?? 'off'} />
+        <TelegramSetup status={ro['telegram'] ?? 'off'} actionsSlot={botSlot} />
       </section>
 
-      <div className="sys-grid">
-        <section className="subcard sc-pad">
-          <div className="sc-head">
-            <h3 className="sc-title">Watch folder</h3>
-            <span className="spacer" />
-            <span className={`badge ${stats.data?.watcher.active ? 'ok' : 'deferred'}`}>{stats.data?.watcher.active ? 'watching' : 'inactive'}</span>
-          </div>
-          <div className="tool-meta">
-            <code>{stats.data?.watcher.folder ?? '…'}</code>
-          </div>
-          <p className="tab-hint">
-            <button className="linkish" onClick={() => navigate('/system?section=intake&setting=watchFolder')}>
-              Change it under Intake
+      <section className="subcard sc-pad">
+        <div className="sc-head">
+          <h3 className="sc-title">Service</h3>
+          <span className="right">
+            <button className="btn sm" onClick={() => navigate('/system?section=intake&setting=watchFolder')}>
+              Watch folder…
             </button>
-          </p>
-        </section>
-        <section className="subcard sc-pad">
-          <div className="sc-head">
-            <h3 className="sc-title">Obsidian</h3>
-            <span className="spacer" />
-            <span className="badge">link handler</span>
+          </span>
+        </div>
+        <div className="kvlist">
+          <div className="kv">
+            <span className="k">Watch folder</span>
+            <span className="v">
+              <code>{stats.data?.watcher.folder ?? '…'}</code> · {stats.data?.watcher.active ? 'watching' : 'not watching'}
+            </span>
           </div>
-          <p className="tab-hint">
-            Page links open through the <code>obsidian://</code> handler; nothing to configure here.{' '}
-            <button className="linkish" onClick={() => onGo('instance')}>
-              Instance facts
-            </button>
-          </p>
-        </section>
-      </div>
+          <div className="kv">
+            <span className="k">Vault</span>
+            <span className="v"><code>{ro['vaultRoot'] ?? '-'}</code></span>
+          </div>
+          <div className="kv">
+            <span className="k">Address</span>
+            <span className="v"><code>{ro['bind'] ?? '-'}</code> · {ro['httpAuthMode'] ?? '-'}</span>
+          </div>
+          <div className="kv">
+            <span className="k">Commits</span>
+            {health.data?.autoCommitDisabled === false ? (
+              <span className="v bad">the vault plugin commits too</span>
+            ) : (
+              <span className="v">service only</span>
+            )}
+          </div>
+          <div className="kv">
+            <span className="k">Page links</span>
+            <span className="v">open in Obsidian through <code>obsidian://</code></span>
+          </div>
+        </div>
+        <p className="tab-hint">Fixed at start from the service environment. The bind address is deliberately not changeable here.</p>
+      </section>
     </div>
   )
 }
 
-/** Pages per domain, beside the registry that defines them. */
-function DomainCounts(): React.ReactElement | null {
-  const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
-  const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
-  if (graph.data === undefined) return null
-  const knowledge = knowledgePages(graph.data.nodes)
-  const undomained = vaultShape(graph.data)?.undomained ?? 0
-  const counts = new Map<string, number>()
-  for (const n of knowledge) if (!isUnfiled(n)) counts.set(n.domain as string, (counts.get(n.domain as string) ?? 0) + 1)
-  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1])
-  const max = entries[0]?.[1] ?? 1
-  return (
-    <section className="subcard">
-      <div className="sc-head">
-        <h3 className="sc-title">Pages per domain</h3>
-        <span className="spacer" />
-        <span className="badge">{domains.data?.domains.length ?? 0} registered</span>
-      </div>
-      <div className="sc-body">
-        {entries.length === 0 ? (
-          <div className="empty">No page carries a domain yet.</div>
-        ) : (
-          <div className="tbars">
-            {entries.map(([key, n]) => (
-              <div key={key} className="tbar">
-                <span className="tl">{key}</span>
-                <span className="track">
-                  <span className="fill" style={{ width: `${Math.max(2, Math.round((n / max) * 100))}%` }} />
-                </span>
-                <span className="tv">{n}</span>
-              </div>
-            ))}
-            {undomained > 0 && (
-              <div className="tbar">
-                <span className="tl warnish">no domain yet</span>
-                <span className="track" />
-                <span className="tv">{undomained}</span>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </section>
-  )
-}
-
-function RecentCommits(): React.ReactElement | null {
+function CommitTable(): React.ReactElement {
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const s = stats.data
-  if (s === undefined) return null
   return (
     <section className="subcard">
-      <div className="sc-head">
-        <h3 className="sc-title">
-          Recent commits
-          <Tip text="Every write to this vault is one commit - agent runs, maintenance and your own page edits alike. Page counts exclude the index hubs (index, hot, log, overview and the _index pages) that almost every commit touches." />
-        </h3>
-        <span className="spacer" />
-        <span className="badge">{s.commits.length} newest</span>
-      </div>
       <div className="sc-body flush">
-        {s.commits.length === 0 ? (
+        {s === undefined ? (
+          (queryState(stats, 'the commits') ?? <div className="empty">Loading…</div>)
+        ) : s.commits.length === 0 ? (
           <div className="empty">Nothing is committed in this vault yet.</div>
         ) : (
           <table className="dtable committable">
             <thead>
               <tr>
-                <th>Commit</th>
+                <th>
+                  Commit
+                  <Tip text="Every write to this vault is one commit - agent runs, maintenance and your own page edits alike. Page counts exclude the index hubs that almost every commit touches." />
+                </th>
                 <th className="num">Pages</th>
                 <th>When</th>
                 <th>Hash</th>
@@ -868,46 +751,45 @@ function UsageSection({ onGo }: { onGo: (id: string) => void }): React.ReactElem
   return (
     <>
       <Facts size="lead">
-        <Fact size="lead" k="Spend today" v={<Cost value={s.usage.today.costUsd} authMode={authMode} />} />
+        <Fact
+          size="lead"
+          k="Spend today"
+          v={<Cost value={s.usage.today.costUsd} authMode={authMode} />}
+          sub={budget.limit === null ? 'no daily budget - set one' : `of ${budget.unit === 'usd' ? usd(budget.limit) : `${budget.limit} ingests`} a day`}
+          onOpen={() => navigate('/system?section=runs&setting=dailyBudget')}
+        />
         <Fact size="lead" k="Spend 7 days" v={<Cost value={s.usage.last7d.costUsd} authMode={authMode} />} />
-        <Fact size="lead" k="Tokens in · 7d" v={tokens(s.usage.last7d.tokensIn)} />
-        <Fact size="lead" k="Tokens out · 7d" v={tokens(s.usage.last7d.tokensOut)} />
+        <Fact size="lead" k="Tokens · 7d" v={tokens(s.usage.last7d.tokensIn + s.usage.last7d.tokensOut)} sub={`${tokens(s.usage.last7d.tokensIn)} in · ${tokens(s.usage.last7d.tokensOut)} out`} />
         <Fact size="lead" k="Runs · 7d" v={String(s.usage.last7d.ingests)} />
       </Facts>
       <div className="sys-pane">
         <div className="sys-grid">
+          {/* The budget as a meter only while there is one; "no limit" is the Spend today
+              figure's line above, not a card of its own. */}
+          {budget.limit !== null && (
           <section className="subcard">
             <div className="sc-head">
               <h3 className="sc-title">Daily budget</h3>
               <span className="spacer" />
               <button className="linkish" onClick={() => navigate('/system?section=runs&setting=dailyBudget')}>
-                {budget.limit === null ? 'Set one' : 'Change'}
+                Change
               </button>
-              {budget.limit === null ? (
-                <span className="badge">no limit</span>
-              ) : (
-                <span className={`badge ${budget.exceeded ? 'deferred' : 'ok'}`}>
-                  {budget.unit === 'usd' ? `${usd(budget.limit)} / day` : `${budget.limit} ingests / day`}
-                </span>
-              )}
+              <span className={`badge ${budget.exceeded ? 'deferred' : 'ok'}`}>
+                {budget.unit === 'usd' ? `${usd(budget.limit)} / day` : `${budget.limit} ingests / day`}
+              </span>
             </div>
             <div className="sc-body">
-              {budget.limit === null ? (
-                <p className="tab-hint">No daily budget: runs are only bounded by the Anthropic usage limit. With one, the queue pauses itself when it is spent and resumes at midnight.</p>
-              ) : (
-                <>
-                  <div className="meter">
-                    <i className={budget.exceeded ? 'over' : ''} style={{ width: `${budgetPct ?? 0}%` }} />
-                  </div>
-                  <div className="sc-meta">
-                    <span>{budget.unit === 'usd' ? usd(budget.spent) : `${budget.spent} ingests`} spent</span>
-                    <span className="spacer" />
-                    <span>resets {timeAgo(budget.resetsAt)}</span>
-                  </div>
-                </>
-              )}
+              <div className="meter">
+                <i className={budget.exceeded ? 'over' : ''} style={{ width: `${budgetPct ?? 0}%` }} />
+              </div>
+              <div className="sc-meta">
+                <span>{budget.unit === 'usd' ? usd(budget.spent) : `${budget.spent} ingests`} spent</span>
+                <span className="spacer" />
+                <span>resets {timeAgo(budget.resetsAt)}</span>
+              </div>
             </div>
           </section>
+          )}
 
           <section className="subcard">
             <div className="sc-head">
@@ -1014,58 +896,90 @@ function UsageSection({ onGo }: { onGo: (id: string) => void }): React.ReactElem
   )
 }
 
+
 /**
- * Vault statistics: the shape of the wiki. What you would ACT on moved to its tool - the
- * retrieval index, the pages outside git, the commit list and the domain counts - so this
- * section only reads.
+ * Vault stats: the vault's SHAPE, and only what no other screen already shows. Page and link
+ * counts, pages by type and new pages per week lead Home; the queue and the watcher are in
+ * the header. What stays is the growth curve, the loose ends and how the pages are filed -
+ * the domain figures used to sit in the Domains tool, where they were read, not acted on.
  */
 function VaultStatsSection({ onGo }: { onGo: (id: string) => void }): React.ReactElement {
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
+  const domains = useQuery({ queryKey: ['domains'], queryFn: api.domains })
 
   const state = queryState(merge(stats, graph), 'the vault statistics')
-  if (stats.data === undefined) {
+  if (stats.data === undefined || graph.data === undefined) {
     return <div className="sys-pane">{state ?? <div className="empty">No vault statistics yet.</div>}</div>
   }
   const s = stats.data
   const shape = vaultShape(graph.data)
   const orphans = shape?.orphans ?? 0
   const stubs = shape?.stubs ?? 0
-  const gaps = shape?.gaps ?? null
   const undomained = shape?.undomained ?? 0
-  const growth = s.growth
-  const weekAgo = growth[growth.length - 8]?.total ?? growth[0]?.total ?? s.pages.total
-  const grew = s.pages.total - weekAgo
+  const knowledge = knowledgePages(graph.data.nodes)
+  const counts = new Map<string, number>()
+  for (const d of domains.data?.domains ?? []) counts.set(d.key, 0)
+  for (const n of knowledge) if (!isUnfiled(n)) counts.set(n.domain as string, (counts.get(n.domain as string) ?? 0) + 1)
+  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1])
+  const max = entries[0]?.[1] ?? 1
+  const filed = knowledge.length - undomained
 
   return (
     <>
       <Facts size="lead">
-        <Fact size="lead" k="Pages" v={String(s.pages.total)} sub={`${grew >= 0 ? '+' : ''}${grew} in 7 d`} />
-        <Fact size="lead" k="Links" v={graph.data !== undefined ? String(graph.data.edges.length) : '…'} />
-        <Fact size="lead" k="Orphans" v={graph.data !== undefined ? String(orphans) : '…'} tone={orphans > 0 ? 'warn' : undefined} sub="in the Catalog" onOpen={() => navigate('/catalog')} />
-        <Fact size="lead" k="Stubs" v={graph.data !== undefined ? String(stubs) : '…'} tone={stubs > 0 ? 'warn' : undefined} sub="in the Catalog" onOpen={() => navigate('/catalog')} />
-        <Fact size="lead" k="Gaps" v={gaps === null ? '…' : String(gaps)} sub="on the Graph" onOpen={() => navigate('/graph?gaps=1')} />
-        <Fact size="lead" k="Unfiled" v={graph.data !== undefined ? String(undomained) : '…'} tone={undomained > 0 ? 'warn' : undefined} sub="file them under Domains" onOpen={() => onGo('domains')} />
+        <Fact size="lead" k="Orphans" v={String(orphans)} tone={orphans > 0 ? 'warn' : undefined} sub="no page links to them" onOpen={() => navigate('/catalog')} />
+        <Fact size="lead" k="Stubs" v={String(stubs)} tone={stubs > 0 ? 'warn' : undefined} sub="too short to stand alone" onOpen={() => navigate('/catalog')} />
+        <Fact size="lead" k="Filed" v={`${knowledge.length > 0 ? Math.round((filed / knowledge.length) * 100) : 100} %`} sub={undomained > 0 ? `${undomained} unfiled` : 'every page has a domain'} tone={undomained > 0 ? 'warn' : undefined} onOpen={() => onGo('domains')} />
+        <Fact size="lead" k="Domains" v={String(domains.data?.domains.length ?? '…')} sub="in the registry" />
       </Facts>
       <div className="sys-pane">
-        <div className="sys-grid">
-          <section className="subcard">
-            <div className="sc-head">
-              <h3 className="sc-title">Growth · 30 days</h3>
-            </div>
-            <div className="sc-body">
-              <GrowthChart points={s.growth} />
-            </div>
-          </section>
-          <section className="subcard">
-            <div className="sc-head">
-              <h3 className="sc-title">Pages by type</h3>
-            </div>
-            <div className="sc-body">
-              <TypeBars byDir={s.pages.byDir} />
-            </div>
-          </section>
-        </div>
+        <section className="subcard">
+          <div className="sc-head">
+            <h3 className="sc-title">Growth · 30 days</h3>
+          </div>
+          <div className="sc-body">
+            <GrowthChart points={s.growth} />
+          </div>
+        </section>
+        <section className="subcard">
+          <div className="sc-head">
+            <h3 className="sc-title">
+              Pages per domain
+              <Tip text="Every registered domain, the empty ones included. The registry is a vault page; filing and new domains are under Maintenance / Domains." />
+            </h3>
+            <span className="spacer" />
+            {domains.data?.installed && (
+              <span className="tool-meta">
+                Registry <PageLink path={domains.data.path} vaultName={s.vaultName} />
+              </span>
+            )}
+          </div>
+          <div className="sc-body">
+            {entries.length === 0 ? (
+              <div className="empty">No page carries a domain yet.</div>
+            ) : (
+              <div className="tbars">
+                {entries.map(([key, n]) => (
+                  <div key={key} className="tbar">
+                    <span className="tl">{key}</span>
+                    <span className="track">
+                      <span className="fill" style={{ width: `${n === 0 ? 0 : Math.max(2, Math.round((n / max) * 100))}%` }} />
+                    </span>
+                    <span className="tv">{n}</span>
+                  </div>
+                ))}
+                {undomained > 0 && (
+                  <div className="tbar">
+                    <span className="tl warnish">unfiled</span>
+                    <span className="track" />
+                    <span className="tv">{undomained}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </>
   )
@@ -1103,24 +1017,3 @@ function DayBars({ values }: { values: number[] }): React.ReactElement {
   )
 }
 
-/** Page counts as horizontal bars - proportions read at a glance, direct labels right. */
-function TypeBars({ byDir }: { byDir: Record<string, number> }): React.ReactElement {
-  const entries = Object.entries(byDir)
-    .filter(([, n]) => n > 0)
-    .sort((a, b) => b[1] - a[1])
-  const maxN = entries[0]?.[1] ?? 1
-  if (entries.length === 0) return <div className="empty">No pages yet.</div>
-  return (
-    <div className="tbars">
-      {entries.map(([dir, n]) => (
-        <div key={dir} className="tbar">
-          <span className="tl">{DIR_LABELS[dir] ?? dir}</span>
-          <span className="track">
-            <span className="fill" style={{ width: `${Math.max(2, Math.round((n / maxN) * 100))}%` }} />
-          </span>
-          <span className="tv">{n}</span>
-        </div>
-      ))}
-    </div>
-  )
-}

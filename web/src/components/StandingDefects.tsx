@@ -32,7 +32,7 @@ import { DefectFixRun } from './DefectFixRun.tsx'
 import { navigate } from '../lib/router.ts'
 
 /** One page of rows. The route caps at 200; "show more" walks it in steps of this. */
-const PAGE = 50
+const PAGE = 200
 
 /** How long a reason may be. The route trims and caps at the same number. */
 const REASON_MAX = 500
@@ -347,7 +347,9 @@ function ManifestRepair({ readOnly }: { readOnly: boolean }): React.ReactElement
 
 export function StandingDefects({ vaultName, readOnly = false }: { vaultName: string; readOnly?: boolean }): React.ReactElement | null {
   const [rule, setRule] = useState<string | null>(null)
-  const [limit, setLimit] = useState(PAGE)
+  // The whole list at once (2026-09-24): the route's own cap, no "Show more" step. A list
+  // past the cap says so below instead of offering to page.
+  const limit = PAGE
   /** The third block is collapsed by default: it is a record, not a working list. */
   const [showAccepted, setShowAccepted] = useState(false)
   /** The repair being planned, if any. One at a time: the server plans one per rule anyway. */
@@ -396,7 +398,6 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
                 className={`chip${rule === r.rule ? ' active' : ''}`}
                 onClick={() => {
                   setRule(rule === r.rule ? null : r.rule)
-                  setLimit(PAGE)
                 }}
               >
                 {r.rule} <span className="chip-n">{r.findings}</span>
@@ -465,9 +466,9 @@ export function StandingDefects({ vaultName, readOnly = false }: { vaultName: st
             ),
           )}
           {shown.length < filtered && (
-            <button className="btn" onClick={() => setLimit(Math.min(limit + PAGE, 200))}>
-              Show more ({filtered - shown.length} further)
-            </button>
+            <p className="tab-hint">
+              {shown.length} of {filtered} shown - the list stops at {PAGE}; pick a rule above to see the rest of it.
+            </p>
           )}
         </>
       )}

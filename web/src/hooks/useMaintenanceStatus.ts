@@ -101,6 +101,10 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
       tagRepairCount: recommendedKeys(report, MAX_TAG_ACTIONS).size,
       lintReport: stats.data.lintReport,
       lastLintRun: lintRun !== undefined ? { finishedAt: lintRun.finishedAt, ok: lintRun.ok } : null,
+      // Dated from the last WRITE, not the last refresh run: every ingest rewrites the cache as
+      // part of the vault's own ingest skill, so a cache whose last manual refresh is weeks old
+      // is still current. Dating it from the refresh run (tried 2026-09-24) called a cache written
+      // the night before stale and said ingests "may miss recent pages" - which they do not.
       hotCacheUpdatedAt: stats.data.hotCacheUpdatedAt,
       index: index.data ?? null,
       unversioned: stats.data.unversioned ?? null,
