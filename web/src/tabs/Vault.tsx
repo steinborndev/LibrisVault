@@ -1158,6 +1158,7 @@ function GraphView({
         bloom: bloomed,
         bloomAnchor: anchor,
         inDomain: nodes.map((n) => landmarkData.inDomain.get(n.path) ?? 0),
+        rank: new Map(landmarkData.order.flatMap((p, r) => (at.has(p) ? [[at.get(p)!, r + 1] as [number, number]] : []))),
       },
       neighbourhood,
       framed,

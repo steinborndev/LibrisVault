@@ -181,6 +181,32 @@ label pass, hit-testing (an unpainted node is not clickable, so a click on its p
 click on the background), the overview, the hulls. The fallback named there, a `keep` mask with
 the picture re-settling, was never needed.
 
+**Positions, amended (2026-09-24, user decision): the overview is drawn spread out.** Measured
+on biomedicine, the forty landmarks sat where the 535-page layout had put them: four clumps
+with most of the drawing empty between them, and the label pass - the general one, which cuts a
+title at 30 characters and drops any caption that would touch another - left about a quarter of
+them nameless and cut half of the rest. Naming the pages is what the overview is for.
+
+So the overview now DRAWS its points apart, and only draws them so (`lib/landmarkLayout.ts`):
+each axis is blended toward its rank, which opens the clumps while left stays left and top stays
+top; the result is laid out over the whole drawing area in screen pixels, where the captions
+are measured; and a relaxation pushes apart any two dots whose dot-plus-caption rectangles
+overlap, along whichever axis costs less of the room there is. The layout is untouched - no post,
+no worker frame, the positions memory keeps the real positions - and everything that draws,
+hit-tests, frames or leashes reads the display positions while they exist. They are recomputed
+when the mask, the drawing or the drawing area changes (the list column opening beside it takes
+340px), and they are gone the moment a neighbourhood opens: an open neighbourhood is drawn where
+its pages really stand, as the paragraph above requires.
+
+Every landmark is named in that view: the whole title in up to four lines of at most 160px,
+placed at the first free spot around its dot (below, above, sides, diagonals; a spot outside
+the frame is the last resort), and its place in the reading order is written inside the dot, so
+the picture and the list can be read against each other. The six longest titles of biomedicine
+still end in an ellipsis on the fourth line; the tooltip carries them whole.
+
+Chosen among three variants rendered from the real canvas: as it was, the captions alone (which
+still collided in the dense middle, because the dots themselves stood too close), and both.
+
 **When the condition falls away.** A second domain picked, the chips cleared, a room turned:
 the mode goes off, the neighbourhood with it, and the list is gone. Not latent, not remembered.
 It already turns the other overlays off when it comes on, so it must not be the one that lives

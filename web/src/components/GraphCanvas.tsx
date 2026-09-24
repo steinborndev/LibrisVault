@@ -55,6 +55,7 @@ import {
   type SpotState,
 } from '../lib/spotlightHover.ts'
 import { measureSpotLabel, paintRegionLabel, paintSpotLabel, regionFont } from '../lib/spotLabel.ts'
+import { placeAround, spreadPoints, wrapTitle, type Box as LBox } from '../lib/landmarkLayout.ts'
 import {
   REVEAL_MS,
   REVEAL_HOLD_MAX_MS,
@@ -266,6 +267,8 @@ export interface LandmarkMask {
    * is painted, so a bloom cannot recolour the picture under the reader's hand.
    */
   inDomain: readonly number[]
+  /** Place in the reading order (1-based) per landmark index - the number the list shows. */
+  rank?: ReadonlyMap<number, number>
 }
 
 // Domain colors, the page-kind color map and the stub threshold live in lib/domains.ts (the
@@ -625,6 +628,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   maskRef.current = landmarkMask
   const onlyRef = useRef(onlyNodes)
   onlyRef.current = onlyNodes
+  /**
+   * Display-only positions for the landmarks overview (2026-09-24): the layout's own
+   * positions with the painted dots moved apart. Everything that DRAWS, hits, frames or leashes
+   * reads `displayRef.current ?? positionsRef.current`; the layout, its worker and the positions memory keep the real ones.
+   */
+  const displayRef = useRef<Float32Array | null>(null)
   /** What the next fit frames; a ref, so `fitToView` keeps its identity across a change of it. */
   const fitSubsetRef = useRef(fitSubset)
   fitSubsetRef.current = fitSubset
@@ -791,7 +800,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     drawEpochRef.current++
     // Cleared up front, set at the end: every early return below leaves an empty canvas.
     paintedRef.current = false
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     const t = transformRef.current
     const dpr = window.devicePixelRatio || 1
     const w = canvas.width / dpr
@@ -864,6 +873,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
      */
     const mask = landmarkMask
     const paints = (i: number): boolean => painted(mask, i, onlyNodes)
+    const landmarkOverview = mask !== null && mask.bloomAnchor === null
 
     const revealStart = revealStartRef.current
     let revealing = false
@@ -1318,6 +1328,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         // is none. A bloom IS named: a click asking to see twelve pages is not answered by
         // twelve anonymous dots.
         if (mask !== null && mask.connectors.has(i) && mask.bloomAnchor === null) continue
+        // The overview's landmarks get their own pass below: every one named, wrapped, placed
+        // around its dot (2026-09-24).
+        if (landmarkOverview && mask.landmarks.has(i)) continue
         if (!visible(x, pos[i * 2 + 1]!)) continue
         candidates.push(i)
       }
@@ -1409,6 +1422,54 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ctx.fillStyle = l.ghost ? cssVar('--text-faint', '#6b7791') : textColor
       ctx.fillText(l.text, l.x, l.y)
     }
+    if (landmarkOverview && showLabels && labelIn > 0.004) {
+      // Every landmark named, in reading order: the whole title in up to four lines, placed at
+      // the first free spot around its dot (the resting labels and the other dots are what it
+      // keeps off), and its place in the list inside the dot.
+      const lineH = 13 / t.k
+      const discs: Array<{ x: number; y: number; r: number }> = []
+      for (let i = 0; i < nodes.length; i++) {
+        if (!paints(i)) continue
+        const x = pos[i * 2]!
+        if (Number.isNaN(x)) continue
+        discs.push({ x, y: pos[i * 2 + 1]!, r: radius(i) })
+      }
+      ctx.font = `${11 / t.k}px system-ui, sans-serif`
+      const order = [...mask.landmarks].sort((a, b) => (mask.rank?.get(a) ?? 1e9) - (mask.rank?.get(b) ?? 1e9))
+      const lmLabels: Array<{ i: number; lines: string[]; box: LBox }> = []
+      for (const i of order) {
+        const x = pos[i * 2]!
+        if (Number.isNaN(x) || !paints(i)) continue
+        const y = pos[i * 2 + 1]!
+        const lines = wrapTitle(nodes[i]!.title, 160 / t.k, 4, (str) => ctx.measureText(str).width)
+        const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 2 * padX
+        const box = placeAround(x, y, radius(i), w, lines.length * lineH, 3 / t.k, placed, discs, [minX + margin, minY + margin, maxX - margin, maxY - margin])
+        placed.push(box)
+        lmLabels.push({ i, lines, box })
+      }
+      for (const l of lmLabels) {
+        ctx.globalAlpha = (highlight !== null && !highlight.has(l.i) ? dimLabel : 0.95) * labelIn
+        ctx.lineWidth = 3 / t.k
+        ctx.strokeStyle = halo
+        const cx = (l.box[0] + l.box[2]) / 2
+        l.lines.forEach((line, j) => {
+          ctx.strokeText(line, cx, l.box[1] + j * lineH)
+          ctx.fillStyle = textColor
+          ctx.fillText(line, cx, l.box[1] + j * lineH)
+        })
+        const rank = mask.rank?.get(l.i)
+        const rs = radius(l.i) * t.k
+        if (rank !== undefined && rs >= 6) {
+          ctx.globalAlpha = labelIn
+          ctx.font = `600 ${Math.min(11, rs * 1.1) / t.k}px system-ui, sans-serif`
+          ctx.textBaseline = 'middle'
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(String(rank), pos[l.i * 2]!, pos[l.i * 2 + 1]! + 0.5 / t.k)
+          ctx.textBaseline = 'top'
+          ctx.font = `${11 / t.k}px system-ui, sans-serif`
+        }
+      }
+    }
     ctx.globalAlpha = 1
     if (areaLabels.length > 0) {
       ctx.save()
@@ -1461,7 +1522,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const dpr = window.devicePixelRatio || 1
     const vp: Viewport = { w: canvas.width / dpr, h: canvas.height / dpr }
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     const t = transformRef.current
     const vis = visibleNodes(t, vp, pos)
     const lost = vis.placed > 0 && vis.inView === 0
@@ -1494,7 +1555,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   /** Centers and scales the transform so the whole layout fits with a small margin. */
   const fitToView = useCallback((): void => {
     const canvas = canvasRef.current
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     if (!canvas || pos.length < 2) return
     const dpr = window.devicePixelRatio || 1
     const w = canvas.width / dpr
@@ -1555,6 +1616,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       // like the radius): the tinted area is part of the picture and was cut off before.
       const hulled = hullFitRef.current?.[i / 2] ?? -1
       const r = hulled >= 0 ? Math.max(radius(i / 2), HULL_PAD) : radius(i / 2)
+      // A landmark in the overview brings its WRAPPED title: all of it,
+      // up to four lines, which is what the label pass will draw.
+      if (mask !== null && mask.bloomAnchor === null && mask.landmarks.has(i / 2)) {
+        const lines = wrapTitle(title, 160, 4, (str) => ctx.measureText(str).width)
+        items.push({ x, y, r, labelHalf: Math.max(...lines.map((l) => ctx.measureText(l).width)) / 2 + 2, labelLines: lines.length })
+        continue
+      }
       items.push({ x, y, r, labelHalf: named ? ctx.measureText(text).width / 2 + 2 : 0 })
     }
     ctx.restore()
@@ -1573,6 +1641,67 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     transformRef.current = next
     scheduleDraw()
   }, [scheduleDraw, positionsRef, transformRef, radius, nodes])
+
+  /**
+   * The overview's display spread (lib/landmarkLayout.ts): recomputed when the
+   * mask or the drawing changes and when the layout settles, cleared outside the overview - an
+   * open neighbourhood is drawn where its pages really stand.
+   */
+  const computeSpread = useCallback((): boolean => {
+    const m = maskRef.current
+    const pos = positionsRef.current
+    const canvas = canvasRef.current
+    if (m === null || m.bloomAnchor !== null || canvas === null || pos.length < nodes.length * 2) {
+      const had = displayRef.current !== null
+      displayRef.current = null
+      return had
+    }
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return false
+    const dpr = window.devicePixelRatio || 1
+    const vp = { w: canvas.width / dpr, h: canvas.height / dpr }
+    if (vp.w === 0 || vp.h === 0) return false
+    const pts: Array<{ i: number; x: number; y: number; r: number }> = []
+    for (let i = 0; i < nodes.length; i++) {
+      if (!painted(m, i, onlyRef.current)) continue
+      const x = pos[i * 2]!
+      if (Number.isNaN(x)) continue
+      pts.push({ i, x, y: pos[i * 2 + 1]!, r: radius(i) })
+    }
+    ctx.save()
+    ctx.font = '11px system-ui, sans-serif'
+    const widths = new Map<number, { w: number; lines: number }>()
+    for (const p of pts) {
+      if (!m.landmarks.has(p.i)) continue
+      const lines = wrapTitle(nodes[p.i]!.title, 160, 4, (str) => ctx.measureText(str).width)
+      widths.set(p.i, { w: Math.max(...lines.map((l) => ctx.measureText(l).width)) + 4, lines: lines.length })
+    }
+    ctx.restore()
+    const moved = spreadPoints(
+      pts,
+      (i) => {
+        const c = widths.get(i)
+        return c === undefined ? { w: 0, h: 0 } : { w: c.w, h: c.lines * 13 }
+      },
+      vp,
+      { x: 16, top: 18, bottom: 24 },
+    )
+    const out = pos.slice()
+    for (const [i, [x, y]] of moved) {
+      out[i * 2] = x
+      out[i * 2 + 1] = y
+    }
+    displayRef.current = out
+    return true
+  }, [nodes, radius, positionsRef])
+  const computeSpreadRef = useRef(computeSpread)
+  computeSpreadRef.current = computeSpread
+  useEffect(() => {
+    if (computeSpread()) {
+      if (!userMovedRef.current) fitToView()
+      scheduleDraw()
+    }
+  }, [computeSpread, landmarkMask, onlyNodes, fitToView, scheduleDraw, userMovedRef])
 
   // ---------------------------------------------------------------- layout worker session
   //
@@ -1689,6 +1818,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       if (type === 'done') {
         settledRef.current = true
+        computeSpreadRef.current()
         setLayouting(false)
         // Frame the FIRST finished layout once, so a graph of any size lands filling the
         // viewport instead of as a speck, and build it in from there. Later layouts (live
@@ -1894,6 +2024,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       canvas.height = parent.clientHeight * dpr
       canvas.style.width = `${parent.clientWidth}px`
       canvas.style.height = `${parent.clientHeight}px`
+      // The overview's spread is laid out for the area it is shown in: the list column opening
+      // beside it takes 340px of width, and a spread for the wider box then framed smaller.
+      computeSpreadRef.current()
       // Re-frame on resize (including the first layout pass, which lands before the
       // element has its final size) - but never fight a user who has panned or zoomed.
       if (fittedRef.current && !userMovedRef.current) fitToView()
@@ -1930,7 +2063,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
   const hitTest = useCallback(
     (sx: number, sy: number): number | null => {
-      const pos = positionsRef.current
+      const pos = (displayRef.current ?? positionsRef.current)
       if (pos.length < nodes.length * 2) return null
       const { x, y } = toWorld(sx, sy)
       const slop = 6 / transformRef.current.k
@@ -1972,7 +2105,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
    */
   const clusterGeoms = useCallback((): SpotGeom[] => {
     if (clusters === null) return []
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     if (pos.length < nodes.length * 2) return []
     const cache = clusterGeomRef.current
     if (cache.epoch === drawEpochRef.current) return cache.geoms
@@ -2142,7 +2275,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const rect = canvas.getBoundingClientRect()
     const vp: Viewport = { w: rect.width, h: rect.height }
     zoomTransform(transformRef.current, vp, sx - rect.left, sy - rect.top, next)
-    leash(transformRef.current, vp, worldBounds(positionsRef.current))
+    leash(transformRef.current, vp, worldBounds((displayRef.current ?? positionsRef.current)))
     userMovedRef.current = true
   }, [positionsRef, transformRef, userMovedRef])
 
@@ -2172,7 +2305,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const a =
         geoms.length > 0
           ? magnetAnchor(transformRef.current, vp, cx, cy, geoms)
-          : localAnchor(transformRef.current, vp, cx, cy, positionsRef.current)
+          : localAnchor(transformRef.current, vp, cx, cy, (displayRef.current ?? positionsRef.current))
       return { x: a.x + rect.left, y: a.y + rect.top }
     },
     [clusterGeoms, positionsRef, transformRef],
@@ -2223,7 +2356,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const target = nearestMass(transformRef.current, { w: rect.width, h: rect.height }, clusterGeoms(), positionsRef.current)
+    const target = nearestMass(transformRef.current, { w: rect.width, h: rect.height }, clusterGeoms(), (displayRef.current ?? positionsRef.current))
     if (target === null) return
     const to = centerOn(transformRef.current, target.x, target.y)
     userMovedRef.current = true
@@ -2242,7 +2375,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const onMiniPointerDown = (e: React.PointerEvent<HTMLCanvasElement>): void => {
     e.stopPropagation()
     const canvas = canvasRef.current
-    const bounds = worldBounds(positionsRef.current)
+    const bounds = worldBounds((displayRef.current ?? positionsRef.current))
     if (!canvas || bounds === null) return
     const rect = e.currentTarget.getBoundingClientRect()
     const m = miniProjection(bounds)
@@ -2305,7 +2438,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       transformRef.current.y += dy
       // The leash holds a drag the same way it holds a zoom: the graph never leaves the picture.
       const rect = e.currentTarget.getBoundingClientRect()
-      leash(transformRef.current, { w: rect.width, h: rect.height }, worldBounds(positionsRef.current))
+      leash(transformRef.current, { w: rect.width, h: rect.height }, worldBounds((displayRef.current ?? positionsRef.current)))
       userMovedRef.current = true
       drag.current.x = e.clientX
       drag.current.y = e.clientY
