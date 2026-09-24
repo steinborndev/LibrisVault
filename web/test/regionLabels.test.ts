@@ -4,6 +4,7 @@ import {
   boxIntersectsPolygon,
   placeRegionLabels,
   hullBody,
+  discCounter,
   type RegionLabelInput,
 } from '../src/components/GraphCanvas.tsx'
 
@@ -271,5 +272,14 @@ describe('a caption and the frame it has to fit in', () => {
     const framed = placeRegionLabels([label], hulls, 10, 4, [-500, -500, 500, 500])
     expect(free).toHaveLength(1)
     expect(framed[0]!.box).toEqual(free[0]!.box)
+  })
+})
+
+describe('discCounter', () => {
+  it('counts the node discs a caption box would cover', () => {
+    const count = discCounter([{ x: 0, y: 0, r: 5 }, { x: 100, y: 0, r: 5 }, { x: 12, y: 0, r: 5 }], 40)
+    expect(count([-3, -3, 3, 3])).toBe(1)
+    expect(count([-10, -10, 20, 10])).toBe(2)
+    expect(count([40, 40, 60, 60])).toBe(0)
   })
 })

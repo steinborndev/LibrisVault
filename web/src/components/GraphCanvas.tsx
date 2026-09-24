@@ -54,7 +54,7 @@ import {
   type SpotGeom,
   type SpotState,
 } from '../lib/spotlightHover.ts'
-import { measureSpotLabel, paintSpotLabel } from '../lib/spotLabel.ts'
+import { measureSpotLabel, paintRegionLabel, paintSpotLabel, regionFont } from '../lib/spotLabel.ts'
 import {
   REVEAL_MS,
   REVEAL_HOLD_MAX_MS,
@@ -934,6 +934,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // collision list below so a page title can't overwrite a group label either.
     const regionLabelBoxes: Array<[number, number, number, number]> = []
     let spotLabel: { text: string; box: Box; hue: number; alpha: number } | null = null
+    const areaLabels: Array<{ text: string; cx: number; top: number; world: number; hue: number }> = []
     // With hulls off, the spotlight still traces the HOVERED community's hull (and its label,
     // via the shared `members` map below) - the preview of what a click would isolate.
     if (clusters !== null && (showHulls || spotCid >= 0)) {
@@ -988,7 +989,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       // world size bottomed out at LABEL_H_MIN, a 36px box at 3x, set that far above the hull.
       const labelH = showHulls ? Math.min(LABEL_H_MAX, Math.max(LABEL_H_MIN, span * LABEL_H_OF_SPAN)) : SPOT_LABEL_PX / t.k
       const fontWorld = labelH * 0.82
-      ctx.font = `600 ${fontWorld}px system-ui, sans-serif`
+      ctx.font = regionFont(fontWorld)
       const labelInputs: RegionLabelInput[] = []
       // `?labels=off`: an empty input list keeps the whole region-label pass inert. The
       // spotlight's own label has a placement of its own (below), so it stays out of this one.
@@ -999,12 +1000,27 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           labelInputs.push({ key: cid, width: ctx.measureText(label).width, weight: pts.length })
         }
       }
-      const placedLabels = placeRegionLabels(labelInputs, paddedHulls, labelH, labelH * 0.45, [
-        minX + margin,
-        minY + margin,
-        maxX - margin,
-        maxY - margin,
-      ])
+      // Captions keep off the dots as well as off the tints and each other (2026-09-24).
+      let nodesUnder: ((box: Box) => number) | null = null
+      if (labelInputs.length > 0) {
+        const discs: Array<{ x: number; y: number; r: number }> = []
+        for (let i = 0; i < nodes.length; i++) {
+          if (!paints(i)) continue
+          const x = pos[i * 2]!
+          const y = pos[i * 2 + 1]!
+          if (Number.isNaN(x) || !visible(x, y)) continue
+          discs.push({ x, y, r: radius(i) })
+        }
+        nodesUnder = discCounter(discs, 40)
+      }
+      const placedLabels = placeRegionLabels(
+        labelInputs,
+        paddedHulls,
+        labelH,
+        labelH * 0.45,
+        [minX + margin, minY + margin, maxX - margin, maxY - margin],
+        nodesUnder,
+      )
       // Keep the glyphs legible without ever moving them: clamp the on-screen size, then
       // grow each reserved box by the same factor. Shrinking (zoomed in) always fits;
       // growing (zoomed out) may not, and those labels are dropped rather than displaced.
@@ -1027,8 +1043,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         if (grow > 1 && regionLabelBoxes.some((b) => boxesOverlap(drawnBox, b))) continue
         const dom = clusterDomains?.get(p.key)
         const hue = dom !== undefined ? domainHue(dom) : clusterHue(p.key)
-        ctx.fillStyle = `hsl(${hue} 55% 62% / ${p.key === spotCid && !showHulls ? spotA : 1})`
-        ctx.fillText(clusterLabels!.get(p.key)!, bcx, bcy - hh)
+        // Painted after the nodes (below), so no dot sits on a caption.
+        areaLabels.push({ text: clusterLabels!.get(p.key)!, cx: bcx, top: bcy - hh, world: Math.min(drawnWorld, LABEL_MAX_SCREEN_PX / t.k), hue })
         regionLabelBoxes.push(drawnBox)
       }
       // The spotlight's label (lib/spotLabel.ts): measured in SCREEN pixels, placed clear of the
@@ -1379,6 +1395,16 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ctx.fillText(l.text, l.x, l.y)
     }
     ctx.globalAlpha = 1
+    if (areaLabels.length > 0) {
+      ctx.save()
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const colors = { dark: darkSurface, bg: cssVar('--bg-elev', '#ffffff'), text: cssVar('--text', '#1a2333') }
+      const toSx = (x: number): number => w / 2 + t.x + x * t.k
+      const toSy = (y: number): number => h / 2 + t.y + y * t.k
+      // The Areas captions in the spotlight label's voice (lib/spotLabel.ts), at their zoom size.
+      for (const l of areaLabels) paintRegionLabel(ctx, l.text, toSx(l.cx), toSy(l.top), l.world * t.k, { ...colors, hue: l.hue })
+      ctx.restore()
+    }
     if (spotLabel !== null) {
       // Screen space for the paint: the style is defined in pixels, and crisp type wants them.
       const sl = spotLabel
@@ -2628,7 +2654,8 @@ const LABEL_MAX_SCREEN_PX = 20
  * fixed at every zoom; only how many labels are shown changes, the way a map drops minor
  * place names as you zoom out.
  */
-const LABEL_MIN_SCREEN_PX = 10
+/** 12, not the 10 it was: the display face (2026-09-24) reads smaller than the system face did. */
+const LABEL_MIN_SCREEN_PX = 12
 
 
 /** Axis-aligned label/hull box: [minX, minY, maxX, maxY]. */
@@ -2745,6 +2772,12 @@ const LABEL_MAX_TRAVEL = 0.55
 /** Penalty weights: what we would rather sacrifice when nothing is perfectly free. */
 const PENALTY_FOREIGN_HULL = 3
 const PENALTY_OWN_HULL = 2
+/**
+ * Per node disc a caption would sit on (up to three): a dot drawn under a caption hides it.
+ * Small next to the distance penalty on purpose - staying by its own area matters more than a
+ * perfectly clear spot, or captions wander off to wherever the graph happens to be empty.
+ */
+const PENALTY_NODE = 0.5
 /** Per unit of distance beyond the hull edge, relative to the hull radius - keeps labels near. */
 const PENALTY_DISTANCE = 4
 /**
@@ -2787,6 +2820,8 @@ export function placeRegionLabels(
   margin: number,
   /** The visible world rectangle, when the caller has one: captions stay inside the frame. */
   view: Box | null = null,
+  /** How many node discs a candidate box would cover - a caption under dots is not read. */
+  nodesUnder: ((box: Box) => number) | null = null,
 ): PlacedRegionLabel[] {
   const inFrame = (b: Box): boolean =>
     view === null || (b[0] >= view[0] && b[1] >= view[1] && b[2] <= view[2] && b[3] <= view[3])
@@ -2829,6 +2864,7 @@ export function placeRegionLabels(
           if (!boxIntersectsPolygon(box, poly)) continue
           penalty += cid === label.key ? PENALTY_OWN_HULL : PENALTY_FOREIGN_HULL
         }
+        if (nodesUnder !== null) penalty += Math.min(3, nodesUnder(box)) * PENALTY_NODE
         if (best === null || penalty < best.penalty - 1e-9) {
           best = { x: centerX, y: top, box, penalty }
           if (penalty === 0) break // nothing can beat a clean spot at this distance
@@ -2881,3 +2917,33 @@ function useRafDraw(draw: () => void): () => void {
 
 // The hull helpers moved to lib/spotlightHover.ts; re-exported for the region-label tests.
 export { hullBody, pointInPolygon } from '../lib/spotlightHover.ts'
+
+/**
+ * Counts the node discs a box touches, through a uniform grid - the placement asks this for
+ * every candidate of every caption, several thousand times a frame, against a thousand nodes.
+ */
+export function discCounter(discs: ReadonlyArray<{ x: number; y: number; r: number }>, cell: number): (box: Box) => number {
+  const grid = new Map<string, number[]>()
+  const key = (gx: number, gy: number): string => `${gx}:${gy}`
+  discs.forEach((d, i) => {
+    const x0 = Math.floor((d.x - d.r) / cell)
+    const x1 = Math.floor((d.x + d.r) / cell)
+    const y0 = Math.floor((d.y - d.r) / cell)
+    const y1 = Math.floor((d.y + d.r) / cell)
+    for (let gx = x0; gx <= x1; gx++)
+      for (let gy = y0; gy <= y1; gy++) (grid.get(key(gx, gy)) ?? grid.set(key(gx, gy), []).get(key(gx, gy))!).push(i)
+  })
+  return (box: Box): number => {
+    const seen = new Set<number>()
+    for (let gx = Math.floor(box[0] / cell); gx <= Math.floor(box[2] / cell); gx++)
+      for (let gy = Math.floor(box[1] / cell); gy <= Math.floor(box[3] / cell); gy++)
+        for (const i of grid.get(key(gx, gy)) ?? []) {
+          if (seen.has(i)) continue
+          const d = discs[i]!
+          const nx = Math.max(box[0], Math.min(d.x, box[2]))
+          const ny = Math.max(box[1], Math.min(d.y, box[3]))
+          if ((nx - d.x) ** 2 + (ny - d.y) ** 2 < d.r * d.r) seen.add(i)
+        }
+    return seen.size
+  }
+}
