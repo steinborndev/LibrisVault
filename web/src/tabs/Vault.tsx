@@ -33,7 +33,7 @@ import { stepTrail } from '../lib/trail.ts'
 import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFreeze } from '../lib/graphFreeze.ts'
 import { BUCKET_LABELS as TYPE_LABELS } from '../lib/buckets.ts'
 import { detectClusters } from '../lib/communities.ts'
-import { NO_DOMAIN, chapterSize, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
+import { NO_DOMAIN, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
 
@@ -1089,6 +1089,8 @@ function GraphView({
     // six chips are a shelf you learn the position of, unlike the domain rows below them.
     return { nodes, edges, focusIndex: remap.get(focusIndexFull) ?? null, ghostIndices, realCount, matches, counted: pool ?? keep }
   }, [graph, selectedTypes, inTypeScope, inDomainScope, clusterFocus, showSystem, localDepth, focusIndexFull, showGaps, query, tagFilter])
+  /** The pages in the drawing, by path - what the landmark list is narrowed to. */
+  const drawnPaths = useMemo(() => new Set(nodes.map((n) => n.path)), [nodes])
 
   /**
    * The paint mask, in subgraph indices.
@@ -2181,6 +2183,8 @@ function GraphView({
         {landmarkData !== null ? (
           <LandmarkList
             set={landmarkData}
+            // The list follows the page-type chips (and every other filter) the drawing follows.
+            shown={drawnPaths}
             titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
             // In the page-type view each number is filled with its dot's type colour.
             fillOf={(path) => {
@@ -2254,6 +2258,7 @@ function LandmarkList({
   onPick,
   onBloom,
   fillOf,
+  shown,
 }: {
   set: LandmarkSet
   titleOf: (path: string) => string
@@ -2268,13 +2273,38 @@ function LandmarkList({
   onBloom: (path: string) => void
   /** The fill of a row's number (its dot's colour in the page-type view), or null for a ring. */
   fillOf: (path: string) => string | null
+  /** The pages in the drawing: a landmark the filters leave out is left out of the list too. */
+  shown: ReadonlySet<string>
 }): React.ReactElement {
   /** A row's number: a ring, or a disc in its dot's colour with the ink that reads on it. */
   const numStyle = (path: string): React.CSSProperties | undefined => {
     const fill = fillOf(path)
     return fill === null ? undefined : { background: fill, borderColor: fill, color: 'var(--accent-ink)' }
   }
-  const starts = new Map(set.chapters.map((at, c) => [at, c]))
+  /*
+   * The rows the drawing has (2026-09-24, user decision): a landmark the page-type chips or
+   * another filter leave out of the picture leaves the list too. Each row keeps its number - its
+   * place in the domain's reading order, the number its dot carries - so a filtered list has
+   * gaps in its numbering rather than a second numbering that disagrees with the picture. A
+   * chapter rule stands only before a chapter that still has a row, and counts what is shown.
+   */
+  const chapterOf = (i: number): number => {
+    let c = 0
+    set.chapters.forEach((at, k) => {
+      if (at <= i) c = k
+    })
+    return c
+  }
+  const visibleInChapter = new Map<number, number>()
+  const rows: Array<{ path: string; i: number; chapter: number; breakBefore: boolean }> = []
+  let lastChapter = -1
+  set.order.forEach((path, i) => {
+    if (!shown.has(path)) return
+    const chapter = chapterOf(i)
+    visibleInChapter.set(chapter, (visibleInChapter.get(chapter) ?? 0) + 1)
+    rows.push({ path, i, chapter, breakBefore: lastChapter >= 0 && chapter !== lastChapter })
+    lastChapter = chapter
+  })
   const cur = useRef<HTMLButtonElement>(null)
   // Walking with the arrows must not walk off the bottom of the column.
   useEffect(() => {
@@ -2339,10 +2369,10 @@ function LandmarkList({
       {/* What the list is a list OF, said once at its head: the order is a ranking, and a
           ranking that does not name its measure is a list of assertions. */}
       <p className="lm-title">key articles by backlink count</p>
+      {rows.length === 0 && <p className="lm-empty">No landmark is among the pages the filters leave.</p>}
       <ol className="lm-list">
-        {set.order.map((path, i) => {
-          const chapter = starts.get(i)
-          const size = chapter === undefined ? 0 : chapterSize(set, chapter)
+        {rows.map(({ path, i, chapter, breakBefore }) => {
+          const size = visibleInChapter.get(chapter) ?? 0
           const on = selected === path
           return (
             <li key={path} className="lm-item">
@@ -2352,7 +2382,7 @@ function LandmarkList({
                 * and 1, and a heading would give one left-over page the weight of thirty-six
                 * connected ones. The first chapter gets nothing, because it is simply the list.
                 */}
-              {chapter !== undefined && chapter > 0 && (
+              {breakBefore && (
                 <p className="lm-break">
                   not linked to anything above · {size} page{size === 1 ? '' : 's'}
                 </p>
@@ -2927,6 +2957,31 @@ function GraphPanel({
   /** Hovering a pill previews its meaning; leaving falls back to the one in force. */
   const [lensPreview, setLensPreview] = useState<Lens | null>(null)
   const shownLens = LENSES.find((l) => l.key === (lensPreview ?? lens)) ?? LENSES[0]!
+  /** One strip of two lens pills; the radio still spans every strip. */
+  const lensStrip = ([a, b]: readonly [Lens, Lens]): React.ReactElement => (
+    <div className="lib-strip gp-lens" key={a}>
+      {[a, b].map((key) => {
+        const l = LENSES.find((x) => x.key === key)!
+        return (
+          <button
+            key={key}
+            className={`rp${lens === key ? ' on' : ''}`}
+            role="radio"
+            aria-checked={lens === key}
+            disabled={key === 'domain' && !hasDomains}
+            title={l.desc}
+            onClick={() => onLens(key)}
+            onMouseEnter={() => setLensPreview(key)}
+            onMouseLeave={() => setLensPreview(null)}
+            onFocus={() => setLensPreview(key)}
+            onBlur={() => setLensPreview(null)}
+          >
+            {l.label}
+          </button>
+        )
+      })}
+    </div>
+  )
 
   /*
    * The action strip's acknowledgement. An action has no state to show, so the half lights for
@@ -3096,6 +3151,9 @@ function GraphPanel({
       <div className="gp-sec">
         <div className="gp-head">
           <span className="gp-eyebrow">View</span>
+          <span className="spacer" />
+          {/* What the colour means, beside the heading rather than under the pills. */}
+          <span className="gp-state gp-lens-desc">{shownLens.desc}</span>
         </div>
         {/*
           * Three strips instead of six pills (2026-09-16). The six were a radio group already -
@@ -3109,32 +3167,18 @@ function GraphPanel({
           * before the first choice.
           */}
         <div className="gp-lenses" role="radiogroup" aria-label="Colour by">
-          {LENS_PAIRS.map(([a, b]) => (
-            <div className="lib-strip gp-lens" key={a}>
-              {[a, b].map((key) => {
-                const l = LENSES.find((x) => x.key === key)!
-                return (
-                  <button
-                    key={key}
-                    className={`rp${lens === key ? ' on' : ''}`}
-                    role="radio"
-                    aria-checked={lens === key}
-                    disabled={key === 'domain' && !hasDomains}
-                    title={l.desc}
-                    onClick={() => onLens(key)}
-                    onMouseEnter={() => setLensPreview(key)}
-                    onMouseLeave={() => setLensPreview(null)}
-                    onFocus={() => setLensPreview(key)}
-                    onBlur={() => setLensPreview(null)}
-                  >
-                    {l.label}
-                  </button>
-                )
-              })}
-            </div>
-          ))}
+          {LENS_PAIRS.slice(0, 2).map((pair) => lensStrip(pair))}
+          {/* The two checks are looked at now and then rather than read by: they fold away like
+              the overlays' Include (2026-09-24), and come out while one of them is on. */}
+          <Fold
+            label="Include"
+            state={lens === 'orphans' ? 'Orphans' : lens === 'stubs' ? 'Stubs' : 'none'}
+            lit={lens === 'orphans' || lens === 'stubs'}
+            openWhen={lens === 'orphans' || lens === 'stubs'}
+          >
+            {lensStrip(LENS_PAIRS[2]!)}
+          </Fold>
         </div>
-        <div className="pillhint">{shownLens.desc}</div>
       </div>
 
       <div className="gp-sec">
@@ -3296,14 +3340,16 @@ const LENS_PAIRS: ReadonlyArray<readonly [Lens, Lens]> = [
 ]
 
 const LENSES: Array<{ key: Lens; label: string; desc: string }> = [
-  { key: 'domain', label: 'Domain', desc: 'one colour per field of knowledge' },
+  // Short enough to stand beside the section's heading on one line (2026-09-24); the pill's own
+  // tooltip carries the rest where there is more to say.
+  { key: 'domain', label: 'Domain', desc: 'a colour per field' },
   // Not "brighter": since 2026-09-16 the ramp runs the other way in the light theme, where
   // the most-linked page is the darkest one. "Stronger" holds in both.
-  { key: 'authority', label: 'Authority', desc: 'stronger colour = more pages link here' },
-  { key: 'recency', label: 'Recency', desc: 'green = written or rewritten in the last 3 weeks' },
-  { key: 'type', label: 'Page type', desc: 'a colour per wiki bucket' },
-  { key: 'orphans', label: 'Orphans', desc: 'red = nothing links here' },
-  { key: 'stubs', label: 'Stubs', desc: 'amber = thin page, under 1 KB' },
+  { key: 'authority', label: 'Authority', desc: 'stronger = more backlinks' },
+  { key: 'recency', label: 'Recency', desc: 'green = new in 3 weeks' },
+  { key: 'type', label: 'Page type', desc: 'a colour per bucket' },
+  { key: 'orphans', label: 'Orphans', desc: 'red = no backlinks' },
+  { key: 'stubs', label: 'Stubs', desc: 'amber = under 1 KB' },
 ]
 
 /**

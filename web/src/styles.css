@@ -2296,6 +2296,8 @@ button {
   font-size: 11px;
   color: var(--text-faint);
 }
+/* The lens's meaning beside the View heading: one line, whatever is hovered. */
+.gp-lens-desc { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The list's two modes as a toggle at the head's right edge, two equal halves. 122px is
    what a 222px head leaves beside the label, the clear × and the gaps (with 2px to spare),
    and gives each half 57px for a 42px label; no spacer element, since one would cost a
@@ -3369,6 +3371,7 @@ span.head-slot { display: inline-block; }
 .lm-near .lm-t { color: var(--text-dim); }
 /* A reading-order row: the number (which opens the landmark's neighbourhood) and the title
    (which opens the page) are two buttons side by side, never one inside the other. */
+.lm-empty { margin: 12px 16px; font-size: 12.5px; color: var(--text-faint); }
 .lm-line { display: flex; align-items: flex-start; gap: 4px; }
 .lm-line > .lm-row { flex: 1; min-width: 0; }
 /*

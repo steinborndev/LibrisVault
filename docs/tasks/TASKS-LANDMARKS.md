@@ -227,6 +227,15 @@ page-type view; on the fill it takes `--accent-ink`, measured at a contrast of 5
 light theme's six type colours and 6.4 to 9.5 on the dark theme's, where white would fall to 2
 to 3. The numbers inside the dots choose their ink by the same measure.
 
+**The list follows the filters (2026-09-24, user decision).** The list used to stay "about the
+domain": a landmark the page-type chips took out of the picture stayed in the list. It now shows
+what the drawing shows. The SET is still computed over the domain, as the decision on it above
+requires - which pages are landmarks and their order do not move when a chip is pressed - and
+every row keeps its number, its place in that order and the number in its dot, so a filtered
+list has gaps in its numbering (1, 2, 3, 4, 6, 11 … with Concepts only) rather than a second
+count that disagrees with the picture. A chapter rule stands only before a chapter that still
+has a row, and counts what is shown.
+
 **When the condition falls away.** A second domain picked, the chips cleared, a room turned:
 the mode goes off, the neighbourhood with it, and the list is gone. Not latent, not remembered.
 It already turns the other overlays off when it comes on, so it must not be the one that lives
