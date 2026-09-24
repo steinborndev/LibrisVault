@@ -38,7 +38,7 @@ import {
 } from '../lib/graphZoom.ts'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react'
 import type { GraphNode } from '../api/types.ts'
-import { domainGroups } from '../lib/graphForces.ts'
+import { domainGroups, reseedPlan } from '../lib/graphForces.ts'
 import {
   REVEAL_MS,
   REVEAL_HOLD_MAX_MS,
@@ -507,6 +507,11 @@ function viewMemory(view: string): ViewMemory {
  * department starts where the reader last saw it instead of flying in from d3's spiral.
  */
 const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
+/**
+ * The domain each path had in the last layout, shared like the positions: what `reseedPlan`
+ * compares against to tell a domain change (a split, a re-file) from a filter toggle.
+ */
+const domainByPathRef = { current: new Map<string, string | null>() }
 
 export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null }: GraphCanvasProps): React.ReactElement {
   /*
@@ -1646,11 +1651,34 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
     }
 
-    // Cold start when nothing is placed yet or the view changed shape substantially
-    // (unhiding a whole bucket); gentle reheat for everything else - that is what keeps a
-    // live update a "reorientation" instead of a re-deal.
-    const cold = firstLayout || newPaths.length > nodes.length * COLD_RESTART_SHARE
+    /*
+     * Pages that changed domain since the last layout (graphForces.ts, `reseedPlan`). A split
+     * reached this effect as a gentle reheat from the old positions, which cannot carry the
+     * moved pages across the map to their new slot: the domains stayed interleaved until a
+     * reload. A few moved pages are re-seeded into their slot; a domain that appeared (a
+     * split) or a large move deals the layout afresh, framed anew, as a reload would.
+     */
+    const plan = reseedPlan(
+      nodes.map((n) => n.path),
+      nodes.map((n) => n.domain),
+      domainByPathRef.current,
+    )
+    const redeal = !firstLayout && plan.mode === 'full'
+    if (redeal) seed.fill(NaN)
+    else if (plan.mode === 'partial') for (const i of plan.drop) seed.fill(NaN, i * 2, i * 2 + 2)
+    for (const n of nodes) domainByPathRef.current.set(n.path, n.domain)
+
+    // Cold start when nothing is placed yet, when the domains were re-dealt, or when the view
+    // changed shape substantially (unhiding a whole bucket); gentle reheat for everything
+    // else - that is what keeps a live update a "reorientation" instead of a re-deal.
+    const cold = firstLayout || redeal || newPaths.length > nodes.length * COLD_RESTART_SHARE
     if (firstLayout) {
+      fitPendingRef.current = true
+      armEntranceRef.current()
+    }
+    if (redeal) {
+      // Dealt afresh: framed and built in like a first layout, rather than showing the whole
+      // map reshuffle node by node under the reader.
       fitPendingRef.current = true
       armEntranceRef.current()
     }
