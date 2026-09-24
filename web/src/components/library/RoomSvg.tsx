@@ -13,7 +13,7 @@ import { useMemo } from 'react'
 import type { SceneRoom, SceneShelf } from '../../api/types.ts'
 import { domainHue } from '../../lib/domains.ts'
 import { boxFaces, depthOf, fitRoom, hsl, makeProj, mix, pts, seeded, type Proj, type Pt } from '../../lib/library/iso.ts'
-import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, EASEL_W, FAV_I, MID_J, ROOM, RUG_LEFT, SLOTS, WALL_H, WALL_J, breakSign, deskPositions, doorAt, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
+import { ANCHORS, CART_D, CART_W, CASE_D, CASE_W, DEFAULT_AISLE, DESK, DOOR, EASEL_W, FAV_I, MID_J, ROOM, RUG_LEFT, SLOTS, WALL_H, WALL_J, deskPositions, doorAt, layoutSign, signText, wingSlotPositions, type Aisles } from '../../lib/library/room.ts'
 
 /** The case dimensions under the short names the geometry below reads in. */
 const a = CASE_W
@@ -93,17 +93,41 @@ interface Item {
 const signSize = (TW: number): number => (TW >= 56 ? 10.5 : TW >= 46 ? 9.5 : 8.5)
 const BAND = (TW: number): number => Math.round(2 * signSize(TW) + 6)
 
-/** Sign text lying on a shelf face, one size per view, two lines when the name does not fit. */
+let signCtx: CanvasRenderingContext2D | null | undefined
+/**
+ * The drawn width of a sign line: the canvas measures it in the sign's own face and weight,
+ * plus the 0.02em letter spacing the text carries. Without a canvas the old estimate stands,
+ * which errs wide, so a sign it sets still fits.
+ */
+function measureSign(t: string, size: number): number {
+  if (signCtx === undefined) {
+    try {
+      signCtx = document.createElement('canvas').getContext('2d')
+    } catch {
+      signCtx = null
+    }
+  }
+  if (signCtx === null) return t.length * size * 0.58
+  signCtx.font = `600 ${size}px ${FONT}`
+  return signCtx.measureText(t).width + t.length * size * 0.02
+}
+
+/**
+ * Sign text lying on a shelf face, one size per view, two lines when the name does not fit,
+ * and smaller on this sign alone when two lines do not fit either (`layoutSign`).
+ */
 function faceText(P: Proj, i: number, j: number, zb: number, text: string, fill: string, maxLen: number, key: string): React.ReactNode {
   const TW = P.TW
   if (TW < 34) return null
-  const size = signSize(TW)
   const band = BAND(TW)
-  const facePx = (maxLen * TW) / 2
-  const fits = (t: string): boolean => t.length * size * 0.58 <= facePx
-  const lines = breakSign(text, fits)
+  // A pixel short of the face on each side, so a line that just fits does not touch its edge.
+  const facePx = (maxLen * TW) / 2 - 2
+  const { lines, size } = layoutSign(text, facePx, signSize(TW), measureSign)
   const cap = size * 0.72
-  const baselines = lines.length === 1 ? [zb + (band - cap) / 2] : [zb + band - 3 - cap, zb + band - 3 - cap - (size + 2)]
+  // Centred in the band: one line on its own, two as a block with a 2px gap between them.
+  const block = lines.length === 1 ? cap : cap + size + 2
+  const bottom = zb + (band - block) / 2
+  const baselines = lines.length === 1 ? [bottom] : [bottom + size + 2, bottom]
   return lines.map((ln, k) => {
     const [x, y] = P(i, j, baselines[k]!)
     return (
