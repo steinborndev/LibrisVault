@@ -207,6 +207,14 @@ still end in an ellipsis on the fourth line; the tooltip carries them whole.
 Chosen among three variants rendered from the real canvas: as it was, the captions alone (which
 still collided in the dense middle, because the dots themselves stood too close), and both.
 
+**The same for an open neighbourhood (2026-09-24, user decision).** A bloom was drawn where its
+pages really stand, and a page's neighbours stand close around it, so twelve to twenty dots sat
+in one knot with their titles cut and on top of each other. The spread and the full titles now
+cover the bloom too, with one difference: the expanded landmark is held in the MIDDLE of the
+area and never pushed, which is the "page in the middle of that frame" rule above kept by the
+spread instead of by the camera alone. The rank stays out of the dots there, because the list
+beside a bloom numbers nothing.
+
 **When the condition falls away.** A second domain picked, the chips cleared, a room turned:
 the mode goes off, the neighbourhood with it, and the list is gone. Not latent, not remembered.
 It already turns the other overlays off when it comes on, so it must not be the one that lives

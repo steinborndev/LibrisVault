@@ -107,6 +107,13 @@ export function spreadPoints(
   caption: (i: number) => { w: number; h: number },
   vp: { w: number; h: number },
   margins: { x: number; top: number; bottom: number },
+  /** A point held in the middle of the area and never pushed (an open neighbourhood's landmark). */
+  pin: number | null = null,
+  /**
+   * The closest the frame will be shown at. A small set fits at a zoom past the fit's ceiling,
+   * and laid out for that zoom its dots then stand closer on screen than the room they were given.
+   */
+  maxK = Infinity,
   blend = 0.8,
 ): Map<number, [number, number]> {
   const out = new Map<number, [number, number]>()
@@ -132,7 +139,7 @@ export function spreadPoints(
   const W = vp.w - 2 * margins.x
   const H = vp.h - margins.top - margins.bottom
   // The zoom the points are handed back at: the original extent fitted into the area.
-  const k0 = Math.min(W / Math.max(1, x1 - x0), H / Math.max(1, y1 - y0))
+  const k0 = Math.min(W / Math.max(1e-9, x1 - x0), H / Math.max(1e-9, y1 - y0), maxK)
   const at = pts.map((p, j) => {
     const c = caption(p.i)
     const rs = p.r * k0
@@ -154,9 +161,13 @@ export function spreadPoints(
   for (const a of at) {
     a.x = a.half + a.u * Math.max(0, W - 2 * a.half)
     a.y = a.rs + 4 + a.v * Math.max(0, H - a.rs - 4 - a.below)
+    if (a.i === pin) {
+      a.x = W / 2
+      a.y = H / 2
+    }
   }
   const rect = (a: (typeof at)[number]): Box => [a.x - a.half, a.y - a.rs - 4, a.x + a.half, a.y + a.below]
-  for (let it = 0; it < 400; it++) {
+  for (let it = 0; it < 1500; it++) {
     let moved = false
     for (let a = 0; a < at.length; a++) {
       for (let b = a + 1; b < at.length; b++) {
@@ -170,17 +181,20 @@ export function spreadPoints(
         moved = true
         // Along whichever axis costs less of the room there is: captions are wide, and always
         // pushing sideways spends the width and leaves the height empty.
+        // The pinned point does not move; its partner takes the whole push.
+        const wa = A.i === pin ? 0 : B.i === pin ? 2 : 1
+        const wb = B.i === pin ? 0 : A.i === pin ? 2 : 1
         if (ox / W < oy / H) {
           const d = (ox / 2 + 0.5) * (A.x <= B.x ? -1 : 1)
-          A.x += d
-          B.x -= d
+          A.x += d * wa
+          B.x -= d * wb
         } else {
           const d = (oy / 2 + 0.5) * (A.y <= B.y ? -1 : 1)
-          A.y += d
-          B.y -= d
+          A.y += d * wa
+          B.y -= d * wb
         }
-        clamp(A)
-        clamp(B)
+        if (A.i !== pin) clamp(A)
+        if (B.i !== pin) clamp(B)
       }
     }
     if (!moved) break

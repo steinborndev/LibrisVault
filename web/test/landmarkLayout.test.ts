@@ -75,3 +75,25 @@ describe('spreadPoints', () => {
     expect(rowY(0)).toBeLessThan(rowY(2))
   })
 })
+
+describe('spreadPoints with a pinned point', () => {
+  it('holds the pinned point in the middle and spreads the rest around it', () => {
+    // An open neighbourhood: its landmark (0) at one side of a clump, twelve neighbours.
+    const pts = [{ i: 0, x: -5, y: 0, r: 0.05 }, ...Array.from({ length: 12 }, (_, k) => ({ i: k + 1, x: (k % 4) * 2, y: Math.floor(k / 4) * 2, r: 0.05 }))]
+    const vp = { w: 1000, h: 800 }
+    const m = { x: 16, top: 18, bottom: 24 }
+    const out = spreadPoints(pts, () => ({ w: 120, h: 26 }), vp, m, 0)
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+    // The pin lands on the centre of the area the spread was laid out in.
+    expect(out.get(0)![0]).toBeCloseTo(cx, 6)
+    expect(out.get(0)![1]).toBeCloseTo(cy, 6)
+    // And nothing else sits on it.
+    for (const p of pts.slice(1)) {
+      const [x, y] = out.get(p.i)!
+      expect(Math.hypot(x - cx, y - cy)).toBeGreaterThan(0.01)
+    }
+  })
+})
