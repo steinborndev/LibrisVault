@@ -3524,9 +3524,12 @@ function PageView({ graph, path }: { graph: VaultGraph; path: string }): React.R
           className="btn"
           onClick={() => {
             if (editing && !leaveEditor()) return
-            navigate(`/graph?focus=${encodeURIComponent(path)}`)
+            // `?select=`, like the Catalog's "In graph": the page selected, with every filter
+            // that would hide it stepped aside. `?focus=` kept a saved domain filter, which put a
+            // page inside another domain's picture with none of its own neighbours drawn.
+            navigate(`/graph?select=${encodeURIComponent(path)}`)
           }}
-          title="Focus this page in the graph"
+          title="Open the graph with this page selected"
         >
           <Icon name="graph" /> In graph
         </button>
