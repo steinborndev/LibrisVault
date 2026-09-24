@@ -34,13 +34,25 @@ import {
   zoomAt as zoomTransform,
   LEASH_PAD_WORLD,
   fitTransform,
-  type ClusterGeom,
   type FitItem,
   type Viewport,
 } from '../lib/graphZoom.ts'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react'
 import type { GraphNode } from '../api/types.ts'
 import { domainGroups, reseedPlan } from '../lib/graphForces.ts'
+import {
+  HULL_PAD,
+  SPOT_IDLE,
+  buildSpotGeoms,
+  pointInPolygon,
+  resolveAreaCid,
+  spotAlpha,
+  spotBusy,
+  tickSpot,
+  wantSpot,
+  type SpotGeom,
+  type SpotState,
+} from '../lib/spotlightHover.ts'
 import {
   REVEAL_MS,
   REVEAL_HOLD_MAX_MS,
@@ -56,6 +68,13 @@ import {
  * graph carries hundreds of gap nodes we must not each force onto the canvas.
  */
 const MIN_LABELED_CLUSTER = 3
+
+/**
+ * The closest a FIT will frame (2026-09-24). A drilled-in community of a dozen pages fits at
+ * the zoom ceiling, where a node is a 50px disc and a hull's padding 200px of screen; a fit is
+ * for seeing a group, and three times is plenty for that. The wheel still reaches ZOOM_MAX.
+ */
+const FIT_ZOOM_MAX = 3
 
 export interface GraphCanvasProps {
   nodes: GraphNode[]
@@ -549,6 +568,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const [hullHover, setHullHover] = useState<number | null>(null)
   const hullHoverRef = useRef<number | null>(null)
   hullHoverRef.current = hullHover
+  /**
+   * The SHOWN spotlight community, separate from what the pointer resolved: it appears after a
+   * short delay on an area hover, lingers briefly when the pointer leaves, and fades both ways
+   * (lib/spotlightHover.ts). What the pointer resolved changes on every pixel; what is shown
+   * changes only when the pointer means it.
+   */
+  const spotRef = useRef<SpotState>(SPOT_IDLE)
+  const spotTimerRef = useRef<number | null>(null)
   const [layouting, setLayouting] = useState(false)
   /** No placed node is on screen: zoom and pan left the picture empty (graphZoom.ts). */
   const [offMap, setOffMap] = useState(false)
@@ -568,6 +595,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // Controlled by the viewbar toggle; a ref so the draw closure reads the latest without redeps.
   const hoverSpotlightRef = useRef(spotlight)
   hoverSpotlightRef.current = spotlight
+  /** The community ids a fit must leave room for (a hull may be drawn around them), or null. */
+  const hullFitRef = useRef<ArrayLike<number> | null>(null)
+  hullFitRef.current = clusters !== null && (spotlight || showHulls) ? clusters : null
   /*
    * The mask, in a ref as well as in the props. `radius` reads it from here so its identity
    * stays keyed on the node list alone: it is a dependency of `fitToView`, which is a
@@ -851,14 +881,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // node subdivides nothing (an isolated cluster Louvain can't split further) - treated
     // as absent, mirroring the click guard, so the spotlight degrades to 1-hop instead of
     // lighting everything up.
-    const rawSpotCid =
-      clusters === null ? -1
-      : spotHover !== null ? clusters[spotHover] ?? -1
-      : hoverSpotlightRef.current && lastPointerRef.current !== null ? hullHoverRef.current ?? -1
-      : -1
-    const realNodeCount = nodes.length - (ghostIndices?.size ?? 0)
-    const spotCid =
-      rawSpotCid >= 0 && (clusterSets?.get(rawSpotCid)?.size ?? 0) < realNodeCount ? rawSpotCid : -1
+    // The community on show comes from the spot state, not from the raw hover: it was
+    // resolved from a member node or from the area (the same geometry drawn below), and it
+    // carries a fade. Only an isolatable community ever gets into it (see `wantCid`).
+    const nowSpot = performance.now()
+    const spot = spotRef.current
+    const spotA = hoverSpotlightRef.current && clusters !== null ? spotAlpha(spot, nowSpot) : 0
+    const spotCid = spotA > 0 ? spot.cid : -1
+    if (spotBusy(spot, nowSpot)) scheduleDrawRef.current?.()
     const active = spotHover ?? selectedIndex ?? focusIndex
     /*
      * Inside the mode a selection marks its node and dims nothing. The list's highlight IS the
@@ -873,10 +903,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       : null
     // A transient hover (node or hull) may dim hard; a selection/focus spotlight is long-
     // lived, so it dims gently enough that the rest of the graph stays readable underneath.
+    // A community on show dims by its fade: at alpha 0 nothing is dimmed, at 1 fully.
     const transientSpot = spotHover !== null || spotCid >= 0
-    const dimNode = transientSpot ? 0.18 : 0.45
+    const fadeA = spotCid >= 0 ? spotA : 1
+    const dimBy = (full: number, lit: number): number => lit + (full - lit) * fadeA
+    const dimNode = dimBy(transientSpot ? 0.18 : 0.45, 1)
     const dimEdge = transientSpot ? 0.08 : 0.18
-    const dimLabel = transientSpot ? 0.15 : 0.4
+    const dimLabel = dimBy(transientSpot ? 0.15 : 0.4, 0.95)
 
     // Visible world-rect for culling (small margin for radii/labels).
     const margin = 40 / t.k
@@ -898,37 +931,26 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // With hulls off, the spotlight still traces the HOVERED community's hull (and its label,
     // via the shared `members` map below) - the preview of what a click would isolate.
     if (clusters !== null && (showHulls || spotCid >= 0)) {
-      const members = new Map<number, Array<[number, number]>>()
-      for (let i = 0; i < nodes.length; i++) {
-        const cid = clusters[i]
-        if (cid === undefined || cid < 0) continue
-        if (!paints(i)) continue // a hull drawn around invisible nodes outlines nothing
-        if (!showHulls && cid !== spotCid) continue
-        const x = pos[i * 2]!
-        const y = pos[i * 2 + 1]!
-        if (Number.isNaN(x)) continue
-        ;(members.get(cid) ?? members.set(cid, []).get(cid)!).push([x, y])
-      }
+      // The one geometry (lib/spotlightHover.ts): the pointer, the cursor and the click test
+      // the smoothed outline of exactly these padded hulls.
+      const geoms = buildSpotGeoms(clusters, pos, nodes.length, paints, showHulls ? null : spotCid)
+      const members = new Map<number, Pt[]>()
       ctx.lineWidth = 1.4 / t.k
       const paddedHulls = new Map<number, Pt[]>()
-      for (const [cid, pts] of members) {
-        if (pts.length < 3) continue // 2 points make no area worth tinting
-        const body = hullBody(pts)
-        const hull = convexHull(body)
-        const cx = body.reduce((s, p) => s + p[0], 0) / body.length
-        const cy = body.reduce((s, p) => s + p[1], 0) / body.length
-        // Padding in WORLD units, not screen units: a hull whose shape changed with the zoom
-        // moved the label anchors with it, which is half of why labels jumped on zoom.
-        const padded = expandHull(hull, cx, cy, HULL_PAD)
-        paddedHulls.set(cid, padded)
+      for (const g of geoms) {
+        members.set(g.id, g.members as Pt[])
+        if (g.padded.length < 3) continue // 2 points make no area worth tinting
+        paddedHulls.set(g.id, g.padded)
+        // The hull on show fades with the spotlight; hulls drawn for the overlay stay put.
+        const a = g.id === spotCid && !showHulls ? spotA : 1
         ctx.beginPath()
-        traceSmooth(ctx, padded)
+        traceSmooth(ctx, g.padded)
         // Tint by the cluster's dominant domain so the color means something; fall back to a
         // per-id hue only for a community with no domain at all.
-        const dom = clusterDomains?.get(cid)
-        const hue = dom !== undefined ? domainHue(dom) : clusterHue(cid)
-        ctx.fillStyle = `hsl(${hue} 60% 55% / 0.09)`
-        ctx.strokeStyle = `hsl(${hue} 60% 60% / 0.4)`
+        const dom = clusterDomains?.get(g.id)
+        const hue = dom !== undefined ? domainHue(dom) : clusterHue(g.id)
+        ctx.fillStyle = `hsl(${hue} 60% 55% / ${0.09 * a})`
+        ctx.strokeStyle = `hsl(${hue} 60% 60% / ${0.4 * a})`
         ctx.fill()
         ctx.stroke()
       }
@@ -991,7 +1013,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         if (grow > 1 && regionLabelBoxes.some((b) => boxesOverlap(drawnBox, b))) continue
         const dom = clusterDomains?.get(p.key)
         const hue = dom !== undefined ? domainHue(dom) : clusterHue(p.key)
-        ctx.fillStyle = `hsl(${hue} 55% 62%)`
+        ctx.fillStyle = `hsl(${hue} 55% 62% / ${p.key === spotCid && !showHulls ? spotA : 1})`
         ctx.fillText(clusterLabels!.get(p.key)!, bcx, bcy - hh)
         regionLabelBoxes.push(drawnBox)
       }
@@ -1056,10 +1078,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const isBridge = netOn && ca >= 0 && cb >= 0 && ca !== cb
 
       let alpha: number
-      if (highlight !== null) alpha = lit ? 0.9 : dimEdge
-      else if (isBridge) alpha = 0.85
-      else if (netOn) alpha = 0.5 // intra-cluster mesh, subtly more present than the 0.35 default
-      else alpha = toGhost ? 0.45 : 0.35
+      const base = isBridge ? 0.85 : netOn ? 0.5 : toGhost ? 0.45 : 0.35
+      if (highlight !== null) alpha = lit ? base + (0.9 - base) * fadeA : base + (dimEdge - base) * fadeA
+      else alpha = base
 
       setDash(toGhost)
       setAlpha(alpha * edgeRev)
@@ -1433,13 +1454,24 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const title = nodes[i / 2]?.title ?? ''
       const named = showLabelsRef.current && !(mask !== null && mask.connectors.has(i / 2) && mask.bloomAnchor === null)
       const text = title.length > 30 ? `${title.slice(0, 28)}…` : title
-      items.push({ x, y, r: radius(i / 2), labelHalf: named ? ctx.measureText(text).width / 2 + 2 : 0 })
+      // A node a hull can wrap reaches as far as the hull's padding (HULL_PAD, world units,
+      // like the radius): the tinted area is part of the picture and was cut off before.
+      const hulled = hullFitRef.current?.[i / 2] ?? -1
+      const r = hulled >= 0 ? Math.max(radius(i / 2), HULL_PAD) : radius(i / 2)
+      items.push({ x, y, r, labelHalf: named ? ctx.measureText(text).width / 2 + 2 : 0 })
     }
     ctx.restore()
+    // Whatever the host lays over the top of the drawing (the scope line: "Cluster: …") is not
+    // drawing area; the fit starts below it.
+    let top = 18
+    const rect = canvas.getBoundingClientRect()
+    canvas.parentElement?.querySelectorAll<HTMLElement>('[data-fit-avoid]').forEach((el) => {
+      top = Math.max(top, el.getBoundingClientRect().bottom - rect.top + 10)
+    })
     const mid = fitCenterRef.current
     const centre: [number, number] | null =
       mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN) ? [pos[mid * 2]!, pos[mid * 2 + 1]!] : null
-    const next = fitTransform(items, { w, h }, { x: 16, top: 18, bottom: 24 }, centre)
+    const next = fitTransform(items, { w, h }, { x: 16, top, bottom: 24 }, centre, FIT_ZOOM_MAX)
     if (next === null) return
     transformRef.current = next
     scheduleDraw()
@@ -1569,7 +1601,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       // Nodes just moved under a possibly stationary cursor - re-resolve the hover, or a
       // node that drifted away from the pointer keeps its neighborhood highlight stuck.
-      refreshHoverRef.current()
+      refreshHoverRef.current(true)
       scheduleDrawRef.current?.()
     }
     // A recreated worker (remount, dev StrictMode double-mount) starts empty. Replay only
@@ -1834,80 +1866,90 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
    * Spanning communities (nothing to isolate) are skipped, mirroring isolatableCidOf.
    */
   const drawEpochRef = useRef(0)
-  const clusterGeomRef = useRef<{ epoch: number; geoms: ClusterGeom[] }>({ epoch: -1, geoms: [] })
+  const clusterGeomRef = useRef<{ epoch: number; geoms: SpotGeom[] }>({ epoch: -1, geoms: [] })
   /**
-   * Every community's members, padded hull, center and extent - the one geometry the hull
-   * hit-test and the zoom magnet (graphZoom.ts) both read. Rebuilt when the world changed
+   * Every community's geometry - the SAME one the draw traces (lib/spotlightHover.ts: world
+   * padding, painted members only, the smoothed outline). The hull hit-test, the cursor, the
+   * area click and the zoom magnet (graphZoom.ts) all read it. Rebuilt when the world changed
    * (the draw epoch), never per query.
    */
-  const clusterGeoms = useCallback((): ClusterGeom[] => {
+  const clusterGeoms = useCallback((): SpotGeom[] => {
     if (clusters === null) return []
     const pos = positionsRef.current
     if (pos.length < nodes.length * 2) return []
     const cache = clusterGeomRef.current
     if (cache.epoch === drawEpochRef.current) return cache.geoms
     cache.epoch = drawEpochRef.current
-    const members = new Map<number, Pt[]>()
-    for (let i = 0; i < nodes.length; i++) {
-      const cid = clusters[i] ?? -1
-      if (cid < 0) continue
-      const x = pos[i * 2]!
-      if (Number.isNaN(x)) continue
-      ;(members.get(cid) ?? members.set(cid, []).get(cid)!).push([x, pos[i * 2 + 1]!])
-    }
-    const pad = 26 / transformRef.current.k
-    const geoms: ClusterGeom[] = []
-    for (const [cid, pts] of members) {
-      let x0 = Infinity
-      let y0 = Infinity
-      let x1 = -Infinity
-      let y1 = -Infinity
-      for (const [px, py] of pts) {
-        if (px < x0) x0 = px
-        if (px > x1) x1 = px
-        if (py < y0) y0 = py
-        if (py > y1) y1 = py
-      }
-      // Same trimmed body as the drawn hull, so the clickable surface matches the tint
-      // and doesn't reach into empty space along a cross-domain member's tongue.
-      const body = pts.length >= 3 ? hullBody(pts) : pts
-      const cx = body.reduce((s, p) => s + p[0], 0) / body.length
-      const cy = body.reduce((s, p) => s + p[1], 0) / body.length
-      const hull = pts.length >= 3 ? expandHull(convexHull(body), cx, cy, pad) : []
-      geoms.push({ id: cid, members: pts, hull, cx, cy, extent: Math.max(x1 - x0, y1 - y0) })
-    }
-    cache.geoms = geoms
-    return geoms
-  }, [clusters, nodes.length, positionsRef, transformRef])
+    cache.geoms = buildSpotGeoms(clusters, pos, nodes.length, isPainted)
+    return cache.geoms
+  }, [clusters, nodes.length, positionsRef, isPainted])
 
+  /** A community a click could isolate: a proper subset of the visible real pages. */
+  const isolatable = useCallback(
+    (cid: number): boolean => {
+      if (cid < 0 || clusterSets === null) return false
+      const set = clusterSets.get(cid)
+      return set !== undefined && set.size < nodes.length - (ghostIndices?.size ?? 0)
+    },
+    [clusterSets, nodes.length, ghostIndices],
+  )
+
+  /**
+   * The community under the pointer's AREA (screen coords → cid, or -1). Sticky to the one
+   * already on show and otherwise the smallest containing hull (resolveAreaCid) - so an
+   * overlap no longer flips between communities along lines nobody can see.
+   */
   const hitCluster = useCallback(
     (sx: number, sy: number): number => {
       if (!spotlight || clusters === null || clusterSets === null) return -1
       const geoms = clusterGeoms()
       if (geoms.length === 0) return -1
-      const pos = positionsRef.current
       const { x, y } = toWorld(sx, sy)
-      const realN = nodes.length - (ghostIndices?.size ?? 0)
-      let best = -1
-      let bestD = Infinity
-      for (const g of geoms) {
-        if (g.hull.length < 3 || !pointInPolygon(x, y, g.hull)) continue
-        const set = clusterSets.get(g.id)
-        if (set === undefined || set.size >= realN) continue
-        for (const i of set) {
-          const dx = pos[i * 2]! - x
-          const dy = pos[i * 2 + 1]! - y
-          const d = dx * dx + dy * dy
-          if (d < bestD) {
-            bestD = d
-            best = g.id
-          }
-        }
-      }
-      return best
+      const shown = spotRef.current.cid >= 0 && spotRef.current.fadeIn ? spotRef.current.cid : null
+      return resolveAreaCid(x, y, geoms, isolatable, hullHoverRef.current ?? shown)
     },
-    [spotlight, clusters, clusterSets, nodes.length, ghostIndices, toWorld, clusterGeoms, positionsRef],
+    [spotlight, clusters, clusterSets, toWorld, clusterGeoms, isolatable],
   )
+
+  /**
+   * Feeds what the pointer resolved into the shown-spotlight state machine: a member node
+   * shows its community at once, an area waits a beat, losing both lingers a beat. A pending
+   * change gets one timer; the draw keeps itself going while a fade runs.
+   */
+  const wantCid = useCallback(
+    (cid: number, fromNode: boolean): void => {
+      const now = performance.now()
+      const next = wantSpot(spotRef.current, isolatable(cid) ? cid : -1, fromNode, now)
+      if (next === spotRef.current) return
+      spotRef.current = next
+      if (spotTimerRef.current !== null) {
+        clearTimeout(spotTimerRef.current)
+        spotTimerRef.current = null
+      }
+      if (next.pending !== null) {
+        spotTimerRef.current = window.setTimeout(() => {
+          spotTimerRef.current = null
+          spotRef.current = tickSpot(spotRef.current, performance.now())
+          scheduleDraw()
+        }, Math.max(0, next.pending.at - now))
+      }
+      scheduleDraw()
+    },
+    [isolatable, scheduleDraw],
+  )
+  useEffect(
+    () => () => {
+      if (spotTimerRef.current !== null) clearTimeout(spotTimerRef.current)
+    },
+    [],
+  )
+  // New communities (a drill-in re-detects them, a filter changes them): the ids on show
+  // belong to the old partition and would light up an unrelated group. Start from nothing.
+  useEffect(() => {
+    spotRef.current = SPOT_IDLE
+    hullHoverRef.current = null
+    setHullHover(null)
+  }, [clusters])
 
   // ---- hover refresh: the hover is only correct at the moment of a pointer event, but the
   // world also moves WITHOUT one - layout ticks drift nodes under a stationary cursor, a pan
@@ -1915,20 +1957,29 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // for a different page. One mechanism covers all three: remember where the pointer is and
   // re-hit-test there whenever the world changed.
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null)
-  const refreshHover = useCallback((): void => {
-    const at = lastPointerRef.current
-    const next = at === null ? null : hitTest(at.x, at.y)
-    if (next !== hoverRef.current) {
-      setHover(next)
-      scheduleDraw()
-    }
-    const hcid = at === null || next !== null ? -1 : hitCluster(at.x, at.y)
-    const nextHull = hcid >= 0 ? hcid : null
-    if (nextHull !== hullHoverRef.current) {
-      setHullHover(nextHull)
-      scheduleDraw()
-    }
-  }, [hitTest, hitCluster, scheduleDraw, setHover])
+  const refreshHover = useCallback(
+    (fromLayout = false): void => {
+      const at = lastPointerRef.current
+      const next = at === null ? null : hitTest(at.x, at.y)
+      if (next !== hoverRef.current) {
+        setHover(next)
+        scheduleDraw()
+      }
+      // A cooling layout moves nodes under a still pointer every frame; the AREA answer is
+      // left alone until it settles, or the hull would swap under a hand that did not move.
+      if (fromLayout && !settledRef.current && next === null) return
+      const hcid = at === null || next !== null ? -1 : hitCluster(at.x, at.y)
+      const nextHull = hcid >= 0 ? hcid : null
+      if (nextHull !== hullHoverRef.current) {
+        hullHoverRef.current = nextHull
+        setHullHover(nextHull)
+        scheduleDraw()
+      }
+      if (next !== null) wantCid(clusters?.[next] ?? -1, true)
+      else wantCid(hcid, false)
+    },
+    [hitTest, hitCluster, scheduleDraw, setHover, settledRef, wantCid, clusters],
+  )
   const refreshHoverRef = useRef(refreshHover)
   refreshHoverRef.current = refreshHover
 
@@ -1945,6 +1996,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       lastPointerRef.current = null
       if (hoverRef.current !== null) setHover(null)
       if (hullHoverRef.current !== null) setHullHover(null)
+      spotRef.current = SPOT_IDLE
       scheduleDraw()
     }
     window.addEventListener('blur', onBlur)
@@ -2169,9 +2221,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const hcid = hit === null ? hitCluster(e.clientX, e.clientY) : -1
     const nextHull = hcid >= 0 ? hcid : null
     if (nextHull !== hullHoverRef.current) {
+      hullHoverRef.current = nextHull
       setHullHover(nextHull)
       scheduleDraw()
     }
+    // One source for what is shown: the node's own community on a node, the area's otherwise.
+    if (hit !== null) wantCid(clusters?.[hit] ?? -1, true)
+    else wantCid(hcid, false)
     positionTooltip(e.clientX, e.clientY)
   }
   const onPointerUp = (e: React.PointerEvent): void => {
@@ -2348,9 +2404,11 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
               scheduleDraw()
             }
             if (hullHoverRef.current !== null) {
+              hullHoverRef.current = null
               setHullHover(null)
               scheduleDraw()
             }
+            wantCid(-1, false)
           }}
           role="img"
           aria-label={`Wikilink graph with ${nodes.length} pages`}
@@ -2493,39 +2551,6 @@ function drawMinimap(
   ctx.strokeRect(Math.round(vx) + 0.5, Math.round(vy) + 0.5, Math.round(vw), Math.round(vh))
 }
 
-/** Andrew's monotone-chain convex hull. Returns the hull points counter-clockwise. */
-function convexHull(points: Pt[]): Pt[] {
-  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
-  const cross = (o: Pt, a: Pt, b: Pt): number => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-  const lower: Pt[] = []
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0) lower.pop()
-    lower.push(p)
-  }
-  const upper: Pt[] = []
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i]!
-    while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0) upper.pop()
-    upper.push(p)
-  }
-  lower.pop()
-  upper.pop()
-  return lower.concat(upper)
-}
-
-/** A member sitting farther than this multiple of the cluster's MEDIAN member distance is a
- *  spatial outlier - the force layout dragged it toward its cross-cluster links, not its
- *  community. Excluding it from the hull stops the tinted blob reaching as a tongue into empty
- *  space where no cluster node sits (a cross-domain entity is the usual culprit). */
-const HULL_OUTLIER_FACTOR = 2.5
-
-/**
- * Hull padding and region-label metrics, all in WORLD units and deliberately independent of
- * the zoom factor: the label anchors have to be the same wherever the camera is, or the same
- * cluster gets a differently-placed label at every scale. Only the GLYPHS are drawn at a
- * constant screen size (font / k at paint time).
- */
-const HULL_PAD = 26
 /**
  * Region labels are sized in WORLD units, as a fraction of the graph's own extent - like the
  * region names on a map, which belong to the territory rather than to the viewport. That is
@@ -2549,39 +2574,6 @@ const LABEL_MAX_SCREEN_PX = 20
  */
 const LABEL_MIN_SCREEN_PX = 10
 
-/**
- * The subset of member points the tinted hull should enclose: the cluster BODY, with spatial
- * outliers trimmed. Distances are measured from the component-wise MEDIAN point (robust - one
- * flung-out member doesn't drag the center toward itself the way a mean would), and a member
- * past HULL_OUTLIER_FACTOR × the median distance is dropped. Only clusters with enough members
- * to still leave a body are trimmed (< 5 keeps all - too few to tell a body from a corner);
- * never trims below 3, the minimum for an area. The node itself still draws; it just isn't
- * wrapped by the hull.
- */
-export function hullBody(points: Pt[]): Pt[] {
-  if (points.length < 5) return points
-  const xs = points.map((p) => p[0]).sort((a, b) => a - b)
-  const ys = points.map((p) => p[1]).sort((a, b) => a - b)
-  const mid = points.length >> 1
-  const mx = xs[mid]!
-  const my = ys[mid]!
-  const dists = points.map(([x, y]) => Math.hypot(x - mx, y - my))
-  const medDist = [...dists].sort((a, b) => a - b)[mid]!
-  if (medDist <= 1e-6) return points
-  const threshold = medDist * HULL_OUTLIER_FACTOR
-  const body = points.filter((_, i) => dists[i]! <= threshold)
-  return body.length >= 3 ? body : points
-}
-
-/** Pushes each hull point outward from the centroid by `pad` world units - breathing room. */
-function expandHull(hull: Pt[], cx: number, cy: number, pad: number): Pt[] {
-  return hull.map(([x, y]) => {
-    const dx = x - cx
-    const dy = y - cy
-    const d = Math.hypot(dx, dy) || 1
-    return [x + (dx / d) * pad, y + (dy / d) * pad] as Pt
-  })
-}
 
 /** Axis-aligned label/hull box: [minX, minY, maxX, maxY]. */
 type Box = [number, number, number, number]
@@ -2604,18 +2596,6 @@ function polygonBounds(poly: Pt[]): Box {
 const boxesOverlap = (a: Box, b: Box): boolean =>
   a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
 
-/** Ray-casting point-in-polygon test (polygon is a closed vertex ring). */
-export function pointInPolygon(x: number, y: number, poly: readonly Pt[]): boolean {
-  let inside = false
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i]![0]
-    const yi = poly[i]![1]
-    const xj = poly[j]![0]
-    const yj = poly[j]![1]
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
-  }
-  return inside
-}
 
 /**
  * True if a label box overlaps the (convex) hull polygon. Cheap and adequate for small labels
@@ -2842,3 +2822,6 @@ function useRafDraw(draw: () => void): () => void {
     })
   }, [])
 }
+
+// The hull helpers moved to lib/spotlightHover.ts; re-exported for the region-label tests.
+export { hullBody, pointInPolygon } from '../lib/spotlightHover.ts'

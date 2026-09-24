@@ -232,3 +232,12 @@ describe('the fit', () => {
     expect(fitTransform([], view, margins)).toBeNull()
   })
 })
+
+describe('fitTransform zoom cap', () => {
+  it('frames a small group no closer than the cap it is given', () => {
+    const view = { w: 1000, h: 800 }
+    const margins = { x: 16, top: 18, bottom: 24 }
+    const items = [{ x: 0, y: 0, r: 5, labelHalf: 0 }, { x: 20, y: 10, r: 5, labelHalf: 0 }]
+    expect(fitTransform(items, view, margins, null, 3)!.k).toBe(3)
+  })
+})

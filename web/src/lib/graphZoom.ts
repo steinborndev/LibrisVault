@@ -338,7 +338,13 @@ export const FIT_LABEL_LINE_PX = 13
  * `centre` puts that world point in the middle of the picture instead of the middle of the
  * framed box; everything framed still fits, at the wider zoom the symmetry costs.
  */
-export function fitTransform(items: readonly FitItem[], vp: Viewport, margins: FitMargins, centre: Pt | null = null): Transform | null {
+export function fitTransform(
+  items: readonly FitItem[],
+  vp: Viewport,
+  margins: FitMargins,
+  centre: Pt | null = null,
+  maxK: number = ZOOM_MAX,
+): Transform | null {
   if (items.length === 0) return null
   const availW = Math.max(1, vp.w - 2 * margins.x)
   const availH = Math.max(1, vp.h - margins.top - margins.bottom)
@@ -365,13 +371,14 @@ export function fitTransform(items: readonly FitItem[], vp: Viewport, margins: F
     const [mx, my] = middle(k, b)
     return 2 * Math.max(mx - b.x0, b.x1 - mx) <= availW && 2 * Math.max(my - b.y0, b.y1 - my) <= availH
   }
+  const top = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, maxK))
   let k = ZOOM_MIN
-  if (fits(ZOOM_MAX)) k = ZOOM_MAX
+  if (fits(top)) k = top
   else if (fits(ZOOM_MIN)) {
     // Each reach is convex in the zoom, so the span is, and the zooms that fit are one
     // interval: halving between a zoom that fits and one that does not finds its end.
     let lo = ZOOM_MIN
-    let hi = ZOOM_MAX
+    let hi = top
     for (let step = 0; step < 40 && hi - lo > 1e-4; step++) {
       const mid = (lo + hi) / 2
       if (fits(mid)) lo = mid

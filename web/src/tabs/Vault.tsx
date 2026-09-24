@@ -1933,7 +1933,7 @@ function GraphView({
                 * container around it would be the box again in a smaller size.
                 */}
               {(clusterStack.length > 0 || focusNode !== undefined) && (
-                <div className="graph-scope" role="status">
+                <div className="graph-scope" role="status" data-fit-avoid>
                   {focusNode !== undefined && (
                     <span className="gs-part">
                       Focus: <strong>{focusNode.title}</strong>
@@ -2857,7 +2857,7 @@ function GraphPanel({
             on={spotlight}
             onToggle={onSpotlight}
             name="Spotlight"
-            desc={landmarks ? 'needs a whole community' : 'hover isolates one community'}
+            desc={landmarks ? 'needs a whole community' : 'hover shows one community'}
             disabled={landmarks}
             title={
               landmarks
