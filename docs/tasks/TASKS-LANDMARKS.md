@@ -212,8 +212,15 @@ pages really stand, and a page's neighbours stand close around it, so twelve to 
 in one knot with their titles cut and on top of each other. The spread and the full titles now
 cover the bloom too, with one difference: the expanded landmark is held in the MIDDLE of the
 area and never pushed, which is the "page in the middle of that frame" rule above kept by the
-spread instead of by the camera alone. The rank stays out of the dots there, because the list
-beside a bloom numbers nothing.
+spread instead of by the camera alone.
+
+**A neighbourhood is numbered, and opens from the list (2026-09-24, user decision).** Its rows
+now carry 1 to n in the neighbourhood's own order - domain-internal backlinks, the reading
+order's measure - and each dot carries its row's number, so the picture and the list read
+against each other the way the overview's do. Finding 4 stands: the heading says what the
+numbers count ("16 neighbours by backlink count · #2 of 37"), so they cannot be taken for places
+in the domain's order. Each row of the reading order also has a bloom button at its right end,
+the same bloom a click on the landmark's dot opens, for a landmark whose dot is hard to find.
 
 **When the condition falls away.** A second domain picked, the chips cleared, a room turned:
 the mode goes off, the neighbourhood with it, and the list is gone. Not latent, not remembered.
