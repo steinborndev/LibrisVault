@@ -75,7 +75,7 @@ const AREA_DOTS_MAX = 30
 
 const GRAPH_SHORTCUTS = [
   { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked - a landmark included' },
-  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens; with Areas on, an area is shown alone' },
+  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens; with Areas on, an area is shown alone and a node opens' },
   { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
   { keys: ['click'], what: 'with Landmarks on, a landmark shows its neighbourhood; a second click drops it' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
@@ -305,6 +305,12 @@ const viewMemory = {
   selection: null as Selection,
   trail: [] as string[],
   frozen: loadFrozen(),
+  /**
+   * The area on show, by one of its pages: an article opened from it and closed with Escape
+   * comes back to that area. Community ids are re-detected on the way back in, so the page is
+   * what identifies it.
+   */
+  areaAnchor: null as string | null,
 }
 
 /** Last-written prefs JSON - the snapshot effect runs on every commit, writes only on change. */
@@ -501,6 +507,8 @@ function GraphView({
    * first stop. A transient view, not a preference: it is not remembered across visits.
    */
   const [areaAt, setAreaAt] = useState<number | null>(null)
+  /** An area to restore once the communities are known again (see `viewMemory.areaAnchor`). */
+  const pendingAreaRef = useRef<string | null>(viewMemory.areaAnchor)
   // Gaps view: overlays the unresolved link targets as ghost nodes (SPEC §12.4). Off by
   // default - it is an exploration mode, not the resting state of the graph.
   const [showGaps, setShowGaps] = useState(viewMemory.showGaps)
@@ -630,6 +638,10 @@ function GraphView({
       selection,
       trail,
       frozen,
+      areaAnchor:
+        areaAt === null || clusterIds === null
+          ? (pendingAreaRef.current ?? null)
+          : (nodes.find((_, i) => clusterIds[i] === areaAt)?.path ?? null),
     })
     saveViewPrefs()
     saveFrozen(frozen)
@@ -673,6 +685,8 @@ function GraphView({
     setSearchOpen(false)
     setClusterStack([])
     setLocalDepth(0)
+    setAreaAt(null)
+    pendingAreaRef.current = null
     // The overlay belongs to the preferences and stays; the open neighbourhood belongs to the
     // exploration and goes, with the trail.
     setBloom(null)
@@ -1247,12 +1261,25 @@ function GraphView({
       .sort((a, b) => b[1] - a[1] || a[0] - b[0])
       .map(([c]) => c)
   }, [showClusters, clusterIds, clusterLabels])
+  // Back from an article: the area it was opened from, found again by its page.
+  useEffect(() => {
+    const anchor = pendingAreaRef.current
+    if (anchor === null || clusterIds === null || areaRing.length === 0) return
+    pendingAreaRef.current = null
+    const i = nodes.findIndex((n) => n.path === anchor)
+    const cid = i >= 0 ? clusterIds[i] : undefined
+    if (cid !== undefined && areaRing.includes(cid)) setAreaAt(cid)
+  }, [clusterIds, areaRing, nodes])
   // A partition that no longer holds the community on show (a filter, a live update) starts
   // the ring over rather than lighting up whatever now carries the old id.
   useEffect(() => {
     if (areaAt !== null && !areaRing.includes(areaAt)) setAreaAt(null)
   }, [areaRing, areaAt])
   const areaRingSet = useMemo(() => new Set(areaRing), [areaRing])
+  // Areas on means a click reads rather than selects: whatever the panel held goes with it.
+  useEffect(() => {
+    if (showClusters) setSelection(null)
+  }, [showClusters])
   const areaOnly = useMemo(() => {
     if (areaAt === null || clusterIds === null) return null
     const only = new Set<number>()
@@ -1373,9 +1400,11 @@ function GraphView({
          */
         bloom !== null
           ? (graph.nodes.find((n) => n.path === bloom)?.title ?? null)
-          : [spotlight ? 'Spotlight' : '', showClusters ? 'Areas' : ''].filter((m) => m !== '').join(' + ') || null,
+          : spotlight
+            ? 'Spotlight'
+            : null,
       ),
-    [selectedDomains, wing, wings, tagFilter, graph, bloom, spotlight, showClusters],
+    [selectedDomains, wing, wings, tagFilter, graph, bloom, spotlight],
   )
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
@@ -1926,10 +1955,13 @@ function GraphView({
           }
           // Locked, a click on a node opens its page (the canvas's own switch); a gap has no
           // page, and with the panel away there is nothing to select it for.
-          openOnClick={frozen !== null}
+          // With Areas on, a click READS as well (2026-09-24, like the landmarks): the page opens
+          // in the reader and Escape brings the area back; the side panel stays away.
+          openOnClick={frozen !== null || showClusters}
           onSelect={(n) => {
             if (frozen !== null) return
             if (n.path.startsWith(GAP_PATH_PREFIX)) {
+              if (showClusters) return // a gap has no page to read, and the panel is away
               selectGap(n.title)
               return
             }
@@ -2057,8 +2089,8 @@ function GraphView({
                   {/* The area on show, by its tags - the line the spotlight's drill-down uses. The
                       ring itself stands in the heading, beside the domain. */}
                   {areaAt !== null && (
-                    <span className="gs-part" title="a and d step through the areas one at a time; Esc shows them all again">
-                      Area: <strong>{clusterLabels.get(areaAt) ?? 'unlabeled community'}</strong>
+                    <span className="gs-part gs-area" title="a and d step through the areas one at a time; Esc shows them all again">
+                      <AreaTags text={clusterLabels.get(areaAt) ?? 'unlabeled community'} domain={clusterDomains.get(areaAt) ?? null} />
                       <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
                         <Icon name="x" />
                       </button>
@@ -3841,3 +3873,23 @@ function EditorPreview({
   )
 }
 
+/**
+ * An area's tags in the voice of its caption on the drawing (lib/spotLabel.ts): the display
+ * face, the words in text ink and the # marks in the domain's colour.
+ */
+function AreaTags({ text, domain }: { text: string; domain: string | null }): React.ReactElement {
+  const hash = domain !== null ? domainColor(domain) : 'var(--text-faint)'
+  return (
+    <span className="gs-tags">
+      {text.split(/(#)/).map((part, i) =>
+        part === '#' ? (
+          <span key={i} className="gs-hash" style={{ color: hash }}>
+            #
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </span>
+  )
+}

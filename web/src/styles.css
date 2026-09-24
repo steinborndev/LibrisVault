@@ -3081,7 +3081,17 @@ button {
 /* The Areas stepper's ring, in the heading after the mode's name - like the bloom tail it may run
    past the block's right edge rather than shorten what stands before it. */
 .mid-after { flex: none; display: inline-flex; align-items: center; margin-left: 12px; }
+/* The domain's name gets a slot of its own beside the ring, like the reading list's name: wide
+   enough for the longest domain in the registry (lipid-nanoparticle-engineering, 212px at this
+   size), so the first dot stands at one x for every domain and walking the domains moves
+   nothing but letters. A longer one truncates rather than pushing the ring. The ring is what
+   runs past the block. */
+.bar-mid.has-after .mid-name { flex: none; width: 224px; }
 .gs-count { font-family: var(--mono); font-size: 11px; color: var(--text-faint); font-weight: 400; }
+/* The area on show, in its caption's voice: the display face, words in text ink, # in the domain. */
+.gs-area { align-items: center; }
+.gs-tags { font-family: var(--display); font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: -0.005em; }
+.gs-hash { font-weight: 600; }
 /* The focused page's name in the panel, above its depth control. */
 .gp-focus {
   margin: 0 0 7px;
