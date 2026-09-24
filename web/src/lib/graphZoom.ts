@@ -311,6 +311,8 @@ export interface FitItem {
   y: number
   r: number
   labelHalf: number
+  /** Lines of the title under the node (a wrapped landmark caption); one when absent. */
+  labelLines?: number
 }
 
 /** Screen room a fit keeps free around the framed picture, per side. */
@@ -360,7 +362,7 @@ export function fitTransform(
       x0 = Math.min(x0, it.x * k - side)
       x1 = Math.max(x1, it.x * k + side)
       y0 = Math.min(y0, it.y * k - rk)
-      y1 = Math.max(y1, it.y * k + rk + (it.labelHalf > 0 ? FIT_LABEL_GAP_PX + FIT_LABEL_LINE_PX : 0))
+      y1 = Math.max(y1, it.y * k + rk + (it.labelHalf > 0 ? FIT_LABEL_GAP_PX + FIT_LABEL_LINE_PX * (it.labelLines ?? 1) : 0))
     }
     return { x0, y0, x1, y1 }
   }
