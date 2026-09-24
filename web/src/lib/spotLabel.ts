@@ -46,3 +46,30 @@ export function paintSpotLabel(ctx: CanvasRenderingContext2D, text: string, x: n
     cx += ctx.measureText(part).width
   }
 }
+
+/** The display face at any size - the Areas captions use it at their zoom-derived size. */
+export const regionFont = (px: number): string => `600 ${px}px "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif`
+
+/**
+ * An Areas caption in the same voice as the spotlight's label, at a smaller size: centred on
+ * `cx`, its top at `top` (screen pixels), halo scaled to the type.
+ */
+export function paintRegionLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, top: number, px: number, c: SpotLabelColors): void {
+  ctx.font = regionFont(px)
+  ctx.textBaseline = 'top'
+  ctx.textAlign = 'left'
+  const x = cx - ctx.measureText(text).width / 2
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = Math.max(3, px * 0.28)
+  ctx.strokeStyle = c.bg
+  ctx.strokeText(text, x, top)
+  const hashInk = `hsl(${c.hue} 62% ${c.dark ? 68 : 48}%)`
+  let at = x
+  for (const part of text.split(/(#)/)) {
+    if (part === '') continue
+    ctx.fillStyle = part === '#' ? hashInk : c.text
+    ctx.fillText(part, at, top)
+    at += ctx.measureText(part).width
+  }
+}
+
