@@ -44,6 +44,7 @@ import {
   HULL_PAD,
   SPOT_IDLE,
   buildSpotGeoms,
+  placeSpotLabel,
   pointInPolygon,
   resolveAreaCid,
   spotAlpha,
@@ -53,6 +54,7 @@ import {
   type SpotGeom,
   type SpotState,
 } from '../lib/spotlightHover.ts'
+import { measureSpotLabel, paintSpotLabel } from '../lib/spotLabel.ts'
 import {
   REVEAL_MS,
   REVEAL_HOLD_MAX_MS,
@@ -931,6 +933,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // tinted blob and cleared against one another; their boxes then seed the node-label
     // collision list below so a page title can't overwrite a group label either.
     const regionLabelBoxes: Array<[number, number, number, number]> = []
+    let spotLabel: { text: string; box: Box; hue: number; alpha: number } | null = null
     // With hulls off, the spotlight still traces the HOVERED community's hull (and its label,
     // via the shared `members` map below) - the preview of what a click would isolate.
     if (clusters !== null && (showHulls || spotCid >= 0)) {
@@ -987,8 +990,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const fontWorld = labelH * 0.82
       ctx.font = `600 ${fontWorld}px system-ui, sans-serif`
       const labelInputs: RegionLabelInput[] = []
-      // `?labels=off`: an empty input list keeps the whole region-label pass inert.
-      if (showLabels) {
+      // `?labels=off`: an empty input list keeps the whole region-label pass inert. The
+      // spotlight's own label has a placement of its own (below), so it stays out of this one.
+      if (showLabels && showHulls) {
         for (const [cid, pts] of members) {
           const label = clusterLabels?.get(cid)
           if (label === undefined || !paddedHulls.has(cid)) continue
@@ -1026,6 +1030,32 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.fillStyle = `hsl(${hue} 55% 62% / ${p.key === spotCid && !showHulls ? spotA : 1})`
         ctx.fillText(clusterLabels!.get(p.key)!, bcx, bcy - hh)
         regionLabelBoxes.push(drawnBox)
+      }
+      // The spotlight's label (lib/spotLabel.ts): measured in SCREEN pixels, placed clear of the
+      // outline AND of the member nodes, reserved here so page titles keep off it, and
+      // painted last - above the nodes - so nothing is ever drawn over it.
+      const spotText = !showHulls && spotCid >= 0 && showLabels ? clusterLabels?.get(spotCid) : undefined
+      const spotHull = spotText !== undefined ? paddedHulls.get(spotCid) : undefined
+      if (spotText !== undefined && spotHull !== undefined) {
+        const size = measureSpotLabel(ctx, spotText)
+        const discs: Array<{ x: number; y: number; r: number }> = []
+        for (let i = 0; i < nodes.length; i++) {
+          if (clusters[i] !== spotCid || !paints(i)) continue
+          const x = pos[i * 2]!
+          if (Number.isNaN(x)) continue
+          discs.push({ x, y: pos[i * 2 + 1]!, r: radius(i) })
+        }
+        const box = placeSpotLabel(spotHull, discs, size.w / t.k, size.h / t.k, 8 / t.k, [
+          minX + margin,
+          minY + margin,
+          maxX - margin,
+          maxY - margin,
+        ])
+        if (box !== null) {
+          const dom = clusterDomains?.get(spotCid)
+          spotLabel = { text: spotText, box, hue: dom !== undefined ? domainHue(dom) : clusterHue(spotCid), alpha: spotA }
+          regionLabelBoxes.push(box)
+        }
       }
     }
 
@@ -1349,6 +1379,22 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ctx.fillText(l.text, l.x, l.y)
     }
     ctx.globalAlpha = 1
+    if (spotLabel !== null) {
+      // Screen space for the paint: the style is defined in pixels, and crisp type wants them.
+      const sl = spotLabel
+      ctx.save()
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.globalAlpha = sl.alpha
+      const sx = w / 2 + t.x + sl.box[0] * t.k
+      const sy = h / 2 + t.y + sl.box[1] * t.k
+      paintSpotLabel(ctx, sl.text, sx, sy, {
+        hue: sl.hue,
+        dark: darkSurface,
+        bg: cssVar('--bg-elev', '#ffffff'),
+        text: cssVar('--text', '#1a2333'),
+      })
+      ctx.restore()
+    }
     paintedRef.current = true
 
     // Keep animating while any arrival flash is fading, or the entrance is still building
