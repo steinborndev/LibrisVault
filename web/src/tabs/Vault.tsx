@@ -70,9 +70,12 @@ function renderMetaValue(
  * nothing binds any more is worse than no list - as is a key that nothing names, which is what
  * the arrows were in the flat domain list until 2026-09-16.
  */
+/** Past this many areas the ring is a count ("3 / 58") rather than a row of dots. */
+const AREA_DOTS_MAX = 30
+
 const GRAPH_SHORTCUTS = [
   { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked - a landmark included' },
-  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens' },
+  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens; with Areas on, an area is shown alone' },
   { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
   { keys: ['click'], what: 'with Landmarks on, a landmark shows its neighbourhood; a second click drops it' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
@@ -80,6 +83,7 @@ const GRAPH_SHORTCUTS = [
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
   { keys: ['/'], what: 'open the search for pages and tags; a click outside folds the list, the filter stays' },
   { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
+  { keys: ['a', 'd'], what: 'with Areas on, step through the areas one at a time (a click in one goes straight to it); Esc shows them all again' },
   { keys: ['f'], what: 'fit the view' },
   { keys: ['+', '-'], what: 'zoom in and out' },
   { keys: ['wheel'], what: 'zoom towards the pointer' },
@@ -490,6 +494,13 @@ function GraphView({
   const [localDepth, setLocalDepth] = useState<1 | 2 | 0>(focusPath ? 2 : 0) // 0 = whole graph
   // Cluster hulls: auto-detected communities as tinted, tag-labelled blobs. Off by default.
   const [showClusters, setShowClusters] = useState(viewMemory.showClusters)
+  /**
+   * The Areas stepper (2026-09-24), the reading list's ring on the graph: with Areas on, `a` and
+   * `d` walk the communities one at a time - the one on show is drawn alone, on the layout it
+   * has in the whole picture, and framed - and the first stop is all of them. Null is that
+   * first stop. A transient view, not a preference: it is not remembered across visits.
+   */
+  const [areaAt, setAreaAt] = useState<number | null>(null)
   // Gaps view: overlays the unresolved link targets as ghost nodes (SPEC §12.4). Off by
   // default - it is an exploration mode, not the resting state of the graph.
   const [showGaps, setShowGaps] = useState(viewMemory.showGaps)
@@ -1223,6 +1234,39 @@ function GraphView({
     return detectClusters(nodes, edges, realCount)
   }, [showClusters, showNetwork, spotlight, nodes, edges, realCount])
 
+  /**
+   * The stepper's ring: the communities that carry a caption (a label and three pages or more),
+   * largest first - the order in which the eye finds them in the whole picture.
+   */
+  const areaRing = useMemo(() => {
+    if (!showClusters || clusterIds === null) return [] as number[]
+    const size = new Map<number, number>()
+    for (const c of clusterIds) if (c >= 0) size.set(c, (size.get(c) ?? 0) + 1)
+    return [...size.entries()]
+      .filter(([c, n]) => n >= 3 && clusterLabels.has(c))
+      .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+      .map(([c]) => c)
+  }, [showClusters, clusterIds, clusterLabels])
+  // A partition that no longer holds the community on show (a filter, a live update) starts
+  // the ring over rather than lighting up whatever now carries the old id.
+  useEffect(() => {
+    if (areaAt !== null && !areaRing.includes(areaAt)) setAreaAt(null)
+  }, [areaRing, areaAt])
+  const areaRingSet = useMemo(() => new Set(areaRing), [areaRing])
+  const areaOnly = useMemo(() => {
+    if (areaAt === null || clusterIds === null) return null
+    const only = new Set<number>()
+    clusterIds.forEach((c, i) => {
+      if (c === areaAt) only.add(i)
+    })
+    return only
+  }, [areaAt, clusterIds])
+  const stepArea = (dir: 1 | -1): void => {
+    const ring: Array<number | null> = [null, ...areaRing]
+    const at = ring.indexOf(areaAt)
+    setAreaAt(ring[(at + (dir === 1 ? 1 : ring.length - 1)) % ring.length] ?? null)
+  }
+
   // The clickable result list under the search box - the rings in the graph show WHERE the
   // matches are, this shows WHAT they are. Every match is listed (the dropdown scrolls);
   // capping it forced the user to hunt the rest in the graph, which is the exact friction
@@ -1327,9 +1371,11 @@ function GraphView({
          * NOT here - it stands in the scope line at the top of the drawing, and a thing said
          * twice in one screen is a thing the reader has to check against itself.
          */
-        bloom !== null ? (graph.nodes.find((n) => n.path === bloom)?.title ?? null) : spotlight ? 'Spotlight' : null,
+        bloom !== null
+          ? (graph.nodes.find((n) => n.path === bloom)?.title ?? null)
+          : [spotlight ? 'Spotlight' : '', showClusters ? 'Areas' : ''].filter((m) => m !== '').join(' + ') || null,
       ),
-    [selectedDomains, wing, wings, tagFilter, graph, bloom, spotlight],
+    [selectedDomains, wing, wings, tagFilter, graph, bloom, spotlight, showClusters],
   )
 
   const focusNode = focusIndexFull >= 0 ? graph.nodes[focusIndexFull] : undefined
@@ -1574,6 +1620,7 @@ function GraphView({
       // rung below it is inert while it is on, because it turned them off.
       else if (selection !== null) closeExplorer()
       else if (landmarkDomain !== null) setLandmarkDomain(null)
+      else if (areaAt !== null) setAreaAt(null) // one area on show: back to all of them
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
       else if (showGaps) setShowGaps(false)
       else if (focusPath !== null) navigate('/graph')
@@ -1595,6 +1642,12 @@ function GraphView({
       const next = at < 0 ? (step === 1 ? 0 : order.length - 1) : Math.min(order.length - 1, Math.max(0, at + step))
       const path = order[next]
       if (path !== undefined) selectPage(path)
+      return
+    }
+    // The Areas stepper: `d` forward, `a` back, round the ring (all, then one at a time).
+    if (showClusters && areaRing.length > 0 && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'a' || e.key === 'd')) {
+      e.preventDefault()
+      stepArea(e.key === 'd' ? 1 : -1)
       return
     }
     if (e.key === 'Enter' && selection?.kind === 'page') {
@@ -1802,8 +1855,13 @@ function GraphView({
           // …and the mode frames what it paints: the landmarks when it comes on, one
           // neighbourhood while one is open, the landmarks again when Escape closes it, and the
           // whole domain when it goes off. `fitSubset` says which nodes that is.
-          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}`}
-          fitSubset={landmarkView?.framed ?? null}
+          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}|a${areaAt ?? ''}`}
+          fitSubset={areaOnly ?? landmarkView?.framed ?? null}
+          onlyNodes={areaOnly}
+          // A click in an area shows it alone - the stepper's stop for that community; Esc goes
+          // back to all of them. Only from the overview: inside one area there is nothing to pick.
+          onAreaClick={areaAt === null && areaRing.length > 0 ? (cid) => setAreaAt(cid) : undefined}
+          areaIds={areaRingSet}
           // …and an open neighbourhood puts its own page in the middle of it, so the thing the
           // click was about is where the eye already is.
           fitCenter={landmarkMask?.bloomAnchor ?? null}
@@ -1842,7 +1900,25 @@ function GraphView({
               )}
             </span>
           }
-          barMid={<ScopeMid heading={scopeMid} />}
+          barMid={
+            <ScopeMid
+              heading={scopeMid}
+              after={
+                areaRing.length === 0 ? null : areaRing.length <= AREA_DOTS_MAX ? (
+                  <span className="cc-dots" title="a and d step through the areas one at a time; Esc shows them all again">
+                    <i className={areaAt === null ? 'on' : ''} title="All areas" onClick={() => setAreaAt(null)} />
+                    {areaRing.map((c) => (
+                      <i key={c} className={areaAt === c ? 'on' : ''} title={clusterLabels.get(c)} onClick={() => setAreaAt(c)} />
+                    ))}
+                  </span>
+                ) : (
+                  <span className="gs-count" title="a and d step through the areas one at a time; Esc shows them all again">
+                    {areaAt === null ? 'all' : areaRing.indexOf(areaAt) + 1} / {areaRing.length}
+                  </span>
+                )
+              }
+            />
+          }
           barRight={
             /* Search is the control you come back to, and its result list drops out of the
                field - at the end of the bar it has room to. */
@@ -1932,7 +2008,7 @@ function GraphView({
                 * Text, centred, no frame of its own: the state belongs to the drawing, and a
                 * container around it would be the box again in a smaller size.
                 */}
-              {(clusterStack.length > 0 || focusNode !== undefined) && (
+              {(clusterStack.length > 0 || focusNode !== undefined || areaAt !== null) && (
                 <div className="graph-scope" role="status" data-fit-avoid>
                   {focusNode !== undefined && (
                     <span className="gs-part">
@@ -1974,6 +2050,16 @@ function GraphView({
                         onClick={() => setClusterStack([])}
                         title="Back to the full graph (Esc backs out one level at a time)"
                       >
+                        <Icon name="x" />
+                      </button>
+                    </span>
+                  )}
+                  {/* The area on show, by its tags - the line the spotlight's drill-down uses. The
+                      ring itself stands in the heading, beside the domain. */}
+                  {areaAt !== null && (
+                    <span className="gs-part" title="a and d step through the areas one at a time; Esc shows them all again">
+                      Area: <strong>{clusterLabels.get(areaAt) ?? 'unlabeled community'}</strong>
+                      <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
                         <Icon name="x" />
                       </button>
                     </span>
@@ -2862,7 +2948,7 @@ function GraphPanel({
             title={
               landmarks
                 ? 'Not while Landmarks is on: a hull is the AREA of a community, and this overlay draws about a tenth of each one - the shape would be a figure over a handful of scattered points.'
-                : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together.'
+                : 'Outline each auto-detected community as a tinted, tag-labelled hull - which pages group together. a and d step through them one at a time, a click shows one alone, Esc brings them all back.'
             }
           />
         </div>

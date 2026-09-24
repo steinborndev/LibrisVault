@@ -227,6 +227,15 @@ export interface GraphCanvasProps {
    * the positions stand still across a switch and across a bloom.
    */
   landmarkMask?: LandmarkMask | null
+  /** Draw only these nodes, on the layout of all of them (the Areas stepper's one community). */
+  onlyNodes?: ReadonlySet<number> | null
+  /**
+   * A click in an AREA (Areas on, Spotlight off): the community whose tint was clicked, among
+   * `areaIds`. The Areas stepper shows it alone. With Spotlight on the area click isolates
+   * instead (`onClusterClick`), as it always did.
+   */
+  onAreaClick?: ((cid: number) => void) | undefined
+  areaIds?: ReadonlySet<number>
 }
 
 /**
@@ -428,7 +437,10 @@ export function clusterHue(id: number): number {
  * the picture onto one page, and half-transparent remains of the other view inside that frame
  * are a second picture the reader has to look past.
  */
-function painted(mask: LandmarkMask | null, i: number): boolean {
+function painted(mask: LandmarkMask | null, i: number, only: ReadonlySet<number> | null = null): boolean {
+  // The Areas stepper (2026-09-24) shows one community at a time on the same layout: the
+  // rest of the graph is not drawn, not hit and not framed, exactly like the landmark mask.
+  if (only !== null && !only.has(i)) return false
   if (mask === null) return true
   if (mask.bloomAnchor !== null) return i === mask.bloomAnchor || mask.bloom.has(i)
   return mask.landmarks.has(i) || mask.connectors.has(i)
@@ -539,7 +551,7 @@ const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
  */
 const domainByPathRef = { current: new Map<string, string | null>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null, onlyNodes = null, onAreaClick, areaIds }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -611,6 +623,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
    */
   const maskRef = useRef(landmarkMask)
   maskRef.current = landmarkMask
+  const onlyRef = useRef(onlyNodes)
+  onlyRef.current = onlyNodes
   /** What the next fit frames; a ref, so `fitToView` keeps its identity across a change of it. */
   const fitSubsetRef = useRef(fitSubset)
   fitSubsetRef.current = fitSubset
@@ -620,7 +634,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const showLabelsRef = useRef(showLabels)
   showLabelsRef.current = showLabels
   /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
-  const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i), [])
+  const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i, onlyRef.current), [])
 
   // Neighbor sets for hover highlighting (undirected view of the directed edges).
   const neighbors = useMemo(() => {
@@ -657,7 +671,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const labelReps = useMemo(() => {
     // Inside the mode the representatives are chosen among the PAINTED nodes: a tier that
     // guaranteed a label to a node drawn at no alpha would guarantee nothing.
-    const paints = (i: number): boolean => painted(landmarkMask, i)
+    const paints = (i: number): boolean => painted(landmarkMask, i, onlyNodes)
     const parent = new Int32Array(nodes.length)
     for (let i = 0; i < nodes.length; i++) parent[i] = i
     const find = (x: number): number => {
@@ -691,7 +705,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       if (cur === undefined || nodes[i]!.in + nodes[i]!.out > nodes[cur]!.in + nodes[cur]!.out) best.set(key, i)
     }
     return new Set(best.values())
-  }, [nodes, edges, landmarkMask])
+  }, [nodes, edges, landmarkMask, onlyNodes])
 
   const radius = useCallback(
     (i: number): number => {
@@ -849,7 +863,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
      * shape with most of it taken away" true without narrowing anything the layout can see.
      */
     const mask = landmarkMask
-    const paints = (i: number): boolean => painted(mask, i)
+    const paints = (i: number): boolean => painted(mask, i, onlyNodes)
 
     const revealStart = revealStartRef.current
     let revealing = false
@@ -992,8 +1006,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       ctx.font = regionFont(fontWorld)
       const labelInputs: RegionLabelInput[] = []
       // `?labels=off`: an empty input list keeps the whole region-label pass inert. The
-      // spotlight's own label has a placement of its own (below), so it stays out of this one.
-      if (showLabels && showHulls) {
+      // spotlight's own label has a placement of its own (below), so it stays out of this one,
+      // and so does a single area on show: the scope line over the drawing already names it.
+      if (showLabels && showHulls && onlyNodes === null) {
         for (const [cid, pts] of members) {
           const label = clusterLabels?.get(cid)
           if (label === undefined || !paddedHulls.has(cid)) continue
@@ -1426,7 +1441,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, authorityOf, landmarkMask, positionsRef, transformRef])
+  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, authorityOf, landmarkMask, onlyNodes, positionsRef, transformRef])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -1900,7 +1915,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // - these must not depend on a pointer move or a layout tick happening to come along.
   useEffect(() => {
     scheduleDraw()
-  }, [matches, focusIndex, selectedIndex, ghostIndices, lens, clusters, clusterLabels, spotlight, landmarkMask, scheduleDraw])
+  }, [matches, focusIndex, selectedIndex, ghostIndices, lens, clusters, clusterLabels, spotlight, landmarkMask, onlyNodes, scheduleDraw])
 
   /** Screen → world coordinates under the current transform. */
   const toWorld = useCallback((sx: number, sy: number): { x: number; y: number } => {
@@ -1983,14 +1998,18 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
    */
   const hitCluster = useCallback(
     (sx: number, sy: number): number => {
-      if (!spotlight || clusters === null || clusterSets === null) return -1
+      // An area answers the pointer for the spotlight, or for the Areas click when the host
+      // takes one - and then only the areas it offers.
+      const areaMode = !spotlight && showHulls && onAreaClick !== undefined
+      if ((!spotlight && !areaMode) || clusters === null || clusterSets === null) return -1
       const geoms = clusterGeoms()
       if (geoms.length === 0) return -1
       const { x, y } = toWorld(sx, sy)
       const shown = spotRef.current.cid >= 0 && spotRef.current.fadeIn ? spotRef.current.cid : null
-      return resolveAreaCid(x, y, geoms, isolatable, hullHoverRef.current ?? shown)
+      const ok = areaMode ? (cid: number): boolean => isolatable(cid) && (areaIds?.has(cid) ?? true) : isolatable
+      return resolveAreaCid(x, y, geoms, ok, hullHoverRef.current ?? shown)
     },
-    [spotlight, clusters, clusterSets, toWorld, clusterGeoms, isolatable],
+    [spotlight, showHulls, onAreaClick, areaIds, clusters, clusterSets, toWorld, clusterGeoms, isolatable],
   )
 
   /**
@@ -2347,8 +2366,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           lastTapRef.current = null
           // No node under the pointer - inside a community's hull the spotlight click drills
           // into (isolates) that community; the hull is the clickable surface, not just its dots.
-          const cid = spotlight && onClusterClick !== undefined ? hitCluster(e.clientX, e.clientY) : -1
-          if (cid >= 0) onClusterClick!(cid)
+          const cid = hitCluster(e.clientX, e.clientY)
+          if (cid >= 0 && spotlight && onClusterClick !== undefined) onClusterClick(cid)
+          else if (cid >= 0 && !spotlight && onAreaClick !== undefined) onAreaClick(cid)
           else onClear?.()
         }
       }
@@ -2432,7 +2452,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // into (isolates) the community - zoom-in cursor; a click ON a node opens its article -
   // pointer cursor. The two are mutually exclusive (hullHover is only set when no node is hit).
   const hoveredIsGhost = hover !== null && (ghostIndices?.has(hover) ?? false)
-  const hoverAreaDrills = hover === null && hullHover !== null && onClusterClick !== undefined
+  const hoverAreaDrills = hover === null && hullHover !== null && (spotlight ? onClusterClick : onAreaClick) !== undefined
   const hoverNodeOpens = hover !== null && (spotlight || openOnClick) && onOpen !== undefined && !hoveredIsGhost
 
   return (
@@ -2552,7 +2572,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
             <strong>{clusterLabels?.get(hullHover) ?? 'community'}</strong>
             <span>
               {clusterSets?.get(hullHover)?.size ?? 0} pages
-              {onClusterClick !== undefined ? ' · click to isolate' : ''}
+              {spotlight && onClusterClick !== undefined ? ' · click to isolate' : !spotlight && onAreaClick !== undefined ? ' · click to show it alone' : ''}
             </span>
           </div>
         )}
