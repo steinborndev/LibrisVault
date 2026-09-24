@@ -1895,7 +1895,25 @@ function GraphView({
               )}
             </span>
           }
-          barMid={<ScopeMid heading={scopeMid} />}
+          barMid={
+            <ScopeMid
+              heading={scopeMid}
+              after={
+                areaRing.length === 0 ? null : areaRing.length <= AREA_DOTS_MAX ? (
+                  <span className="cc-dots" title="a and d step through the areas one at a time; Esc shows them all again">
+                    <i className={areaAt === null ? 'on' : ''} title="All areas" onClick={() => setAreaAt(null)} />
+                    {areaRing.map((c) => (
+                      <i key={c} className={areaAt === c ? 'on' : ''} title={clusterLabels.get(c)} onClick={() => setAreaAt(c)} />
+                    ))}
+                  </span>
+                ) : (
+                  <span className="gs-count" title="a and d step through the areas one at a time; Esc shows them all again">
+                    {areaAt === null ? 'all' : areaRing.indexOf(areaAt) + 1} / {areaRing.length}
+                  </span>
+                )
+              }
+            />
+          }
           barRight={
             /* Search is the control you come back to, and its result list drops out of the
                field - at the end of the bar it has room to. */
@@ -1985,7 +2003,7 @@ function GraphView({
                 * Text, centred, no frame of its own: the state belongs to the drawing, and a
                 * container around it would be the box again in a smaller size.
                 */}
-              {(clusterStack.length > 0 || focusNode !== undefined || areaRing.length > 0) && (
+              {(clusterStack.length > 0 || focusNode !== undefined || areaAt !== null) && (
                 <div className="graph-scope" role="status" data-fit-avoid>
                   {focusNode !== undefined && (
                     <span className="gs-part">
@@ -2031,34 +2049,14 @@ function GraphView({
                       </button>
                     </span>
                   )}
-                  {/* The Areas stepper, the reading list's line: where you are in the ring and the
-                      ring itself. Its first stop names no area, so it only says there are more. */}
-                  {areaRing.length > 0 && (
-                    <span className="gs-part gs-areas" title="a and d step through the areas one at a time; Esc shows them all again">
-                      {areaAt === null ? (
-                        <span className="gs-all">All areas</span>
-                      ) : (
-                        <>
-                          Area: <strong>{clusterLabels.get(areaAt) ?? 'unlabeled community'}</strong>
-                        </>
-                      )}
-                      {areaRing.length <= AREA_DOTS_MAX ? (
-                        <span className="cc-dots">
-                          <i className={areaAt === null ? 'on' : ''} title="All areas" onClick={() => setAreaAt(null)} />
-                          {areaRing.map((c) => (
-                            <i key={c} className={areaAt === c ? 'on' : ''} title={clusterLabels.get(c)} onClick={() => setAreaAt(c)} />
-                          ))}
-                        </span>
-                      ) : (
-                        <span className="gs-count">
-                          {areaAt === null ? 'all' : areaRing.indexOf(areaAt) + 1} / {areaRing.length}
-                        </span>
-                      )}
-                      {areaAt !== null && (
-                        <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
-                          <Icon name="x" />
-                        </button>
-                      )}
+                  {/* The area on show, by its tags - the line the spotlight's drill-down uses. The
+                      ring itself stands in the heading, beside the domain. */}
+                  {areaAt !== null && (
+                    <span className="gs-part" title="a and d step through the areas one at a time; Esc shows them all again">
+                      Area: <strong>{clusterLabels.get(areaAt) ?? 'unlabeled community'}</strong>
+                      <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
+                        <Icon name="x" />
+                      </button>
                     </span>
                   )}
                 </div>

@@ -15,7 +15,11 @@
 import { domainColor } from '../lib/domains.ts'
 import type { ScopeHeading } from '../lib/scopeHeading.ts'
 
-export function ScopeMid({ heading }: { heading: ScopeHeading }): React.ReactElement {
+/**
+ * `after`: what follows the heading on its line - the Areas stepper's ring of dots (2026-09-24),
+ * which stands where the reading list keeps its own, beside the name of where you are.
+ */
+export function ScopeMid({ heading, after }: { heading: ScopeHeading; after?: React.ReactNode }): React.ReactElement {
   const { text, domain, tag, bloom } = heading
   // A hollow ring where no one colour applies: a count, a wing, the whole vault.
   const dotClass = domain === null ? 'chip-dot mid-dot none' : 'chip-dot mid-dot'
@@ -31,6 +35,7 @@ export function ScopeMid({ heading }: { heading: ScopeHeading }): React.ReactEle
           this is where you chose it. Truncated rather than wrapped - the bar is one line. */}
       {bloom !== undefined && <span className="mid-bloom">- {bloom}</span>}
       {tag?.around != null && <span className="mid-around">around {tag.around}</span>}
+      {after !== undefined && after !== null && <span className="mid-after">{after}</span>}
     </span>
   )
 }

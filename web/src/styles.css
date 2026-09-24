@@ -3078,11 +3078,10 @@ button {
   width: 13px;
   height: 13px;
 }
-/* The Areas stepper: the ring's dots sit on the line itself, centred on its text. */
-.gs-areas { align-items: center; }
-.gs-areas .cc-dots { margin-left: 6px; }
-.gs-all { color: var(--text-dim); }
-.gs-count { margin-left: 6px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+/* The Areas stepper's ring, in the heading after the mode's name - like the bloom tail it may run
+   past the block's right edge rather than shorten what stands before it. */
+.mid-after { flex: none; display: inline-flex; align-items: center; margin-left: 12px; }
+.gs-count { font-family: var(--mono); font-size: 11px; color: var(--text-faint); font-weight: 400; }
 /* The focused page's name in the panel, above its depth control. */
 .gp-focus {
   margin: 0 0 7px;
