@@ -75,16 +75,14 @@ function renderMetaValue(
 const AREA_DOTS_MAX = 30
 
 const GRAPH_SHORTCUTS = [
-  { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked - a landmark included' },
-  { keys: ['click'], what: 'select a page; with Spotlight on, a cluster area drills in and a node opens; with Areas on, an area is shown alone and a node opens' },
+  { keys: ['2x click'], what: 'open a page from the graph' },
+  { keys: ['click'], what: 'select a page or a gap - the panel shows it; on empty canvas, drop the selection' },
   { keys: ['click'], what: 'a tag in the panel: what carries it, around the selected page' },
-  { keys: ['click'], what: 'with Landmarks on, a landmark shows its neighbourhood; a second click drops it' },
   { keys: ['Enter'], what: 'open the selected page (in the search box: the one match)' },
-  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a neighbourhood, a tag, the trail, the panel, Landmarks, a cluster, the gaps, a focus - or, with the picture locked, back to it' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, a tag, the trail, the panel, a cluster, the gaps, a focus' },
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
   { keys: ['/'], what: 'open the search for pages and tags; a click outside folds the list, the filter stays' },
   { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
-  { keys: ['a', 'd'], what: 'with Areas on, step through the areas one at a time (a click in one goes straight to it); Esc shows them all again' },
   { keys: ['f'], what: 'fit the view' },
   { keys: ['+', '-'], what: 'zoom in and out' },
   { keys: ['wheel'], what: 'zoom towards the pointer' },
@@ -101,7 +99,7 @@ const LANDMARK_SHORTCUTS = [
   { keys: ['click'], what: 'a landmark opens its neighbourhood, a connector opens its page' },
   { keys: ['click'], what: 'with a neighbourhood open, a page in it opens; its landmark closes it again' },
   { keys: ['click'], what: 'in the list: the number opens the neighbourhood, the title opens the page' },
-  { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked' },
+  { keys: ['2x click'], what: 'open a page from the graph' },
   { keys: ['↑', '↓'], what: 'walk the reading list, one landmark at a time' },
   { keys: ['Enter'], what: 'open the selected landmark' },
   { keys: ['Esc'], what: 'one step back: fullscreen, the neighbourhood, the selection, then Landmarks itself' },
@@ -115,6 +113,53 @@ const LANDMARK_SHORTCUTS = [
 ]
 
 /**
+ * The card while Spotlight is on (2026-09-25): a click there drills rather than selects, and a
+ * node opens straight away, which the general card could only mention in passing. With Areas on
+ * as well the stepper still runs, and Spotlight decides what a click in an area does.
+ */
+function spotlightShortcuts(areas: boolean): readonly ShortcutRowDef[] {
+  return [
+    { keys: ['hover'], what: 'a community lights up and the rest dims' },
+    { keys: ['click'], what: "in a community's area, show it alone - and inside it, its sub-communities, one level per click" },
+    { keys: ['click'], what: 'a node opens its page' },
+    ...(areas ? [{ keys: ['a', 'd'], what: 'step through the areas one at a time, and round again to all of them' }] : []),
+    { keys: ['Esc'], what: 'one step back: fullscreen, the search text, the panel, then one community level at a time' },
+    { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
+    { keys: ['/'], what: 'open the search for pages and tags' },
+    { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
+    { keys: ['f'], what: 'fit the view' },
+    { keys: ['+', '-'], what: 'zoom in and out' },
+    { keys: ['wheel'], what: 'zoom towards the pointer' },
+    { keys: ['drag'], what: 'pan the canvas; the overview in the corner jumps the view' },
+  ]
+}
+
+/** One row of a shortcuts card (the Shortcuts component's shape). */
+interface ShortcutRowDef {
+  keys: string[]
+  what: string
+}
+
+/**
+ * Any card with the picture LOCKED (2026-09-25): a click on a page opens it, every Escape goes
+ * back to the held picture and a double press resets nothing - the lock is what a reset must not
+ * lose. So the card's own clicks and Escapes are replaced by those two lines; a row about the
+ * landmark list stays, because the list works the same under the lock.
+ */
+function lockedShortcuts(rows: readonly ShortcutRowDef[]): ShortcutRowDef[] {
+  const keep = rows.filter((r) => {
+    const k = r.keys[0]
+    if (k === 'Esc' || k === '2x click') return false
+    return k !== 'click' || r.what.startsWith('in the list')
+  })
+  return [
+    { keys: ['click'], what: 'a page opens it - the picture is held while you read' },
+    { keys: ['Esc'], what: 'back to the held picture, fullscreen first; the lock button lets it go' },
+    ...keep,
+  ]
+}
+
+/**
  * The card while Areas is on (2026-09-25, user decision), for the same reason as the Landmarks
  * one: a click reads there, the area under the pointer is outlined, and `a`/`d` walk the areas -
  * which the general card mentioned only in passing. Kept in step with `openOnClick`,
@@ -122,10 +167,10 @@ const LANDMARK_SHORTCUTS = [
  */
 const AREA_SHORTCUTS = [
   { keys: ['a', 'd'], what: 'step through the areas one at a time, and round again to all of them' },
-  { keys: ['hover'], what: 'the area under the pointer is outlined and its caption underlined' },
+  { keys: ['hover'], what: 'in the overview, the area under the pointer is outlined and its caption underlined' },
   { keys: ['click'], what: 'in the overview, an area shows it alone' },
   { keys: ['click'], what: 'a page opens it in the reader; Esc there comes back to the area' },
-  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, then from one area back to all of them' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, the panel, then from one area back to all of them' },
   { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
   { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
   { keys: ['/'], what: 'open the search for pages and tags' },
@@ -1702,6 +1747,14 @@ function GraphView({
   // Escape peels back one UI layer per press: search → explorer panel → cluster focus →
   // gaps list → focus; a DOUBLE Escape (two presses within DOUBLE_ESC_MS) resets the whole
   // view at once.
+  /*
+   * The shortcuts card for what is on (2026-09-25): each mode rebinds the click and Escape, so
+   * one card for all of them described several screens at once and none of them exactly. The
+   * lock changes clicks and Escape under any of them, so it is applied over whichever it is.
+   */
+  const modeShortcuts: readonly ShortcutRowDef[] =
+    landmarkDomain !== null ? LANDMARK_SHORTCUTS : spotlight ? spotlightShortcuts(showClusters) : showClusters ? AREA_SHORTCUTS : GRAPH_SHORTCUTS
+  const shortcutRows = frozen !== null ? lockedShortcuts(modeShortcuts) : modeShortcuts
   const rootRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   /*
@@ -1773,7 +1826,8 @@ function GraphView({
        * second to close what you arrived at.
        */
       else if (tagFilter !== null) setTagFilter(null)
-      else if (trail.length > 1) setTrail(selection?.kind === 'page' ? [selection.path] : [])
+      // Only where it is drawn: under one area it is hidden, and a press spent on it did nothing visible.
+      else if (trail.length > 1 && landmarkDomain === null && areaAt === null) setTrail(selection?.kind === 'page' ? [selection.path] : [])
       // The mode itself sits immediately before the cluster stack, as the ladder does. Every
       // rung below it is inert while it is on, because it turned them off.
       else if (selection !== null) closeExplorer()
@@ -2251,7 +2305,7 @@ function GraphView({
                 * panel as you follow links.
                 */}
               <div className="canvas-corners" data-keep-out>
-                <Shortcuts rows={landmarkDomain !== null ? LANDMARK_SHORTCUTS : showClusters && !spotlight ? AREA_SHORTCUTS : GRAPH_SHORTCUTS} corner />
+                <Shortcuts rows={shortcutRows} corner />
                 <button
                   className="canvas-corner"
                   onClick={() => setFullscreen((v) => !v)}
