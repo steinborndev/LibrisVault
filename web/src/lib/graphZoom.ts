@@ -320,6 +320,17 @@ export interface FitMargins {
   x: number
   top: number
   bottom: number
+  /** The two sides apart, when one needs more than `x` (a keep-out box in its corner). */
+  left?: number
+  right?: number
+}
+
+/** A rectangle of the viewport a fit keeps the picture out of, screen pixels from its top left. */
+export interface KeepOut {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
 }
 
 /** The node title's line: 3px gap under the circle, 13px of text line (11px type). */
@@ -348,7 +359,9 @@ export function fitTransform(
   maxK: number = ZOOM_MAX,
 ): Transform | null {
   if (items.length === 0) return null
-  const availW = Math.max(1, vp.w - 2 * margins.x)
+  const left = margins.left ?? margins.x
+  const right = margins.right ?? margins.x
+  const availW = Math.max(1, vp.w - left - right)
   const availH = Math.max(1, vp.h - margins.top - margins.bottom)
   /** The screen box of everything at zoom k, relative to the world origin scaled by k. */
   const extent = (k: number): Bounds => {
@@ -390,5 +403,57 @@ export function fitTransform(
   }
   const [mx, my] = middle(k, extent(k))
   // The usable box sits off the viewport's middle by half the difference of its margins.
-  return { k, x: -mx, y: -my - (margins.bottom - margins.top) / 2 }
+  return { k, x: -mx - (right - left) / 2, y: -my - (margins.bottom - margins.top) / 2 }
+}
+
+/** Gap kept between the picture and a keep-out box. */
+const KEEP_OUT_GAP_PX = 8
+
+/**
+ * `fitTransform`, kept out of boxes the host stands in the drawing (2026-09-25): the lens legend
+ * and the corner controls in the bottom right, the lock in the bottom left. A band as wide as
+ * the drawing would do it too, and would give up a strip of the whole picture for a box in one
+ * corner, so each box is cleared on its own - by moving the picture's bottom above it, or its
+ * nearer side past it - and of every way to clear them all, the one with the closest zoom wins.
+ * Nothing moves when the plain fit already stays clear, which is the usual case.
+ */
+export function fitTransformClear(
+  items: readonly FitItem[],
+  vp: Viewport,
+  margins: FitMargins,
+  keepOut: readonly KeepOut[],
+  centre: Pt | null = null,
+  maxK: number = ZOOM_MAX,
+): Transform | null {
+  const plain = fitTransform(items, vp, margins, centre, maxK)
+  const boxes = keepOut.filter((b) => b.x1 > b.x0 && b.y1 > b.y0)
+  if (plain === null || boxes.length === 0 || clearOf(items, vp, plain, boxes)) return plain
+  let best: Transform | null = null
+  for (let way = 0; way < 1 << boxes.length; way++) {
+    const m: FitMargins = { ...margins, left: margins.left ?? margins.x, right: margins.right ?? margins.x }
+    boxes.forEach((b, j) => {
+      if ((way >> j) & 1) m.bottom = Math.max(m.bottom, vp.h - b.y0 + KEEP_OUT_GAP_PX)
+      else if (b.x0 + b.x1 > vp.w) m.right = Math.max(m.right!, vp.w - b.x0 + KEEP_OUT_GAP_PX)
+      else m.left = Math.max(m.left!, b.x1 + KEEP_OUT_GAP_PX)
+    })
+    const t = fitTransform(items, vp, m, centre, maxK)
+    if (t !== null && clearOf(items, vp, t, boxes) && (best === null || t.k > best.k)) best = t
+  }
+  return best ?? plain
+}
+
+/** Whether no framed node, title included, reaches into any of the boxes under `t`. */
+function clearOf(items: readonly FitItem[], vp: Viewport, t: Transform, boxes: readonly KeepOut[]): boolean {
+  for (const it of items) {
+    const cx = vp.w / 2 + t.x + it.x * t.k
+    const cy = vp.h / 2 + t.y + it.y * t.k
+    const rk = it.r * t.k
+    const side = Math.max(rk, it.labelHalf)
+    const x0 = cx - side
+    const x1 = cx + side
+    const y0 = cy - rk
+    const y1 = cy + rk + (it.labelHalf > 0 ? FIT_LABEL_GAP_PX + FIT_LABEL_LINE_PX * (it.labelLines ?? 1) : 0)
+    for (const b of boxes) if (x0 < b.x1 && x1 > b.x0 && y0 < b.y1 && y1 > b.y0) return false
+  }
+  return true
 }
