@@ -271,6 +271,17 @@ ramp counts from that set's floor rather than from zero. A bloom recolours, whic
 was there to prevent; since the bloom has a spread of its own it lays the picture out anew
 anyway, so there is no still picture for the colours to change under.
 
+**Recency spans what the mode paints too, and the list's numbers wear every view (2026-09-25,
+user decision).** The recency lens asks "what changed in the last three weeks", and over a
+reading list of landmarks that is mostly nothing, so they came out grey. In the mode it now
+spans the painted pages' own dates (`recencyDomain`), oldest to newest, spread like the
+authority ramp, and its legend names the two dates. With one domain on show the ramp rises to
+that domain's colour instead of the green, in and out of the mode. The list's numbers, filled
+in the page-type view alone before, now take their dot's colour in every view, from the same
+`nodeColorer` the canvas paints with. The ink on a number, in the list and in the dot, chooses
+among white, the ground and the text colour: on the light theme the ramps run down to pale
+discs on which white and the ground are both pale.
+
 The mode also yields in the other direction: switching on any of the things it excludes turns it
 off, which the "turning it on turns them off" rule only covers in one order. That is not
 politeness. The lock's record makes the exclusion a parse invariant, so a picture holding both
