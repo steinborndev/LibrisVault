@@ -97,3 +97,25 @@ describe('spreadPoints with a pinned point', () => {
     }
   })
 })
+
+describe('spreadPoints with a box to keep out of', () => {
+  it('leaves the corner box empty and still keeps the captions apart', () => {
+    const pts = Array.from({ length: 16 }, (_, i) => ({ i, x: (i % 4) * 2, y: Math.floor(i / 4) * 2, r: 0.05 }))
+    const vp = { w: 1000, h: 800 }
+    const m = { x: 16, top: 18, bottom: 24 }
+    const W = vp.w - 2 * m.x
+    const H = vp.h - m.top - m.bottom
+    // A legend in the bottom right corner of the area, 200 x 160.
+    const corner: Box = [W - 200, H - 160, W + 4, H + 4]
+    const out = spreadPoints(pts, () => ({ w: 120, h: 26 }), vp, m, null, Infinity, 0.8, [corner])
+    const k0 = Math.min(W / 6, H / 6)
+    for (const p of pts) {
+      const [x, y] = out.get(p.i)!
+      const sx = (x - 3) * k0 + W / 2
+      const sy = (y - 3) * k0 + H / 2
+      const r: Box = [sx - 66, sy - 9, sx + 66, sy + 3 + 26 + 6]
+      const inside = Math.min(r[2], corner[2]) - Math.max(r[0], corner[0]) > 1 && Math.min(r[3], corner[3]) - Math.max(r[1], corner[1]) > 1
+      expect(inside).toBe(false)
+    }
+  })
+})

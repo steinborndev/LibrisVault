@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { isKnowledgeNode } from '../lib/knowledge.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
-import { GraphCanvas, domainColor, TYPE_VARS, authorityGradient, authorityValue, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
+import { GraphCanvas, domainColor, TYPE_VARS, authorityDomain, authorityGradient, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
@@ -1252,9 +1252,7 @@ function GraphView({
    * both count backlinks from inside the domain.
    */
   const authority = useMemo(() => {
-    const ins: number[] = []
-    for (let i = 0; i < realCount; i++) ins.push(authorityValue(landmarkMask, nodes, i))
-    ins.sort((a, b) => a - b)
+    const ins = authorityDomain(landmarkMask, nodes, realCount)
     return ins.length > 0 ? { min: ins[0]!, median: ins[ins.length >> 1]!, max: ins[ins.length - 1]! } : null
   }, [nodes, realCount, landmarkMask])
 
@@ -2168,7 +2166,7 @@ function GraphView({
                 * about the picture, and right of it to the trail, which walks out from under the
                 * panel as you follow links.
                 */}
-              <div className="canvas-corners">
+              <div className="canvas-corners" data-keep-out>
                 <Shortcuts rows={GRAPH_SHORTCUTS} corner />
                 <button
                   className="canvas-corner"
@@ -2180,6 +2178,7 @@ function GraphView({
               </div>
               <button
                 className={`canvas-corner canvas-lock${frozen !== null ? ' on' : ''}`}
+                data-keep-out
                 aria-pressed={frozen !== null}
                 onClick={toggleFreeze}
                 aria-label={frozen !== null ? 'Unlock the picture' : 'Lock the picture'}
@@ -3553,7 +3552,12 @@ function LensLegend({
       </>
     )
   if (body === null) return null
-  return <div className="lens-legend">{body}</div>
+  // Kept out of by the picture (GraphCanvas `keepOutBoxes`): a fit and the landmark spread stay clear of it.
+  return (
+    <div className="lens-legend" data-keep-out>
+      {body}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------- page view

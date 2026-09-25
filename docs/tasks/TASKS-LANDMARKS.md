@@ -262,6 +262,15 @@ holds at both ends rather than stepping off the left one into "all domains". Res
 the ways a click can still reach: a small domain picked by hand, the chips cleared, a second
 domain added.
 
+**The authority lens spans what the mode paints (2026-09-25, user decision).** The ramp and
+its legend used to span the whole domain, and the landmarks are that domain's most-linked
+pages, so all of them sat at the top of the ramp in one dark colour (machine-learning: eighteen
+landmarks between 9 and 31 in-domain backlinks, on a ramp built for 150 pages from 4). Both now
+read `authorityDomain`, the backlink counts of the painted pages, and the magnitude third of the
+ramp counts from that set's floor rather than from zero. A bloom recolours, which the old rule
+was there to prevent; since the bloom has a spread of its own it lays the picture out anew
+anyway, so there is no still picture for the colours to change under.
+
 The mode also yields in the other direction: switching on any of the things it excludes turns it
 off, which the "turning it on turns them off" rule only covers in one order. That is not
 politeness. The lock's record makes the exclusion a parse invariant, so a picture holding both

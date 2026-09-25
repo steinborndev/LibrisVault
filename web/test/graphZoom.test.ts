@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   fitTransform,
+  fitTransformClear,
   ZOOM_MAX,
   FIT_LABEL_GAP_PX,
   FIT_LABEL_LINE_PX,
@@ -239,5 +240,36 @@ describe('fitTransform zoom cap', () => {
     const margins = { x: 16, top: 18, bottom: 24 }
     const items = [{ x: 0, y: 0, r: 5, labelHalf: 0 }, { x: 20, y: 10, r: 5, labelHalf: 0 }]
     expect(fitTransform(items, view, margins, null, 3)!.k).toBe(3)
+  })
+})
+
+describe('the fit keeps out of boxes in the drawing', () => {
+  const vp = { w: 1000, h: 800 }
+  const m = { x: 16, top: 18, bottom: 24 }
+  // A grid of nodes filling the frame, and a legend box in the bottom right corner.
+  const items = Array.from({ length: 25 }, (_, i) => ({ x: (i % 5) * 100, y: Math.floor(i / 5) * 80, r: 5, labelHalf: 30 }))
+  const box = { x0: 820, y0: 620, x1: 990, y1: 790 }
+  const inBox = (t: { x: number; y: number; k: number }): number =>
+    items.filter((it) => {
+      const cx = vp.w / 2 + t.x + it.x * t.k
+      const cy = vp.h / 2 + t.y + it.y * t.k
+      return cx + 30 > box.x0 && cx - 30 < box.x1 && cy + 5 * t.k + 16 > box.y0 && cy - 5 * t.k < box.y1
+    }).length
+
+  it('moves nothing when the plain fit is already clear', () => {
+    const far = [{ x0: 0, y0: 0, x1: 1, y1: 1 }]
+    expect(fitTransformClear(items, vp, m, [], null)).toEqual(fitTransform(items, vp, m, null))
+    expect(fitTransformClear(items, vp, m, far, null)).toEqual(fitTransform(items, vp, m, null))
+  })
+
+  it('clears a corner box, at the closest zoom of the ways to do it', () => {
+    const plain = fitTransform(items, vp, m, null)!
+    expect(inBox(plain)).toBeGreaterThan(0)
+    const t = fitTransformClear(items, vp, m, [box], null)!
+    expect(inBox(t)).toBe(0)
+    expect(t.k).toBeLessThanOrEqual(plain.k)
+    // Clearing it by the side costs less than by a band across the whole bottom here.
+    const band = fitTransform(items, vp, { ...m, bottom: vp.h - box.y0 + 8 }, null)!
+    expect(t.k).toBeGreaterThanOrEqual(band.k)
   })
 })

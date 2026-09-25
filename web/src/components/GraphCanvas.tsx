@@ -33,8 +33,9 @@ import {
   worldBounds,
   zoomAt as zoomTransform,
   LEASH_PAD_WORLD,
-  fitTransform,
+  fitTransformClear,
   type FitItem,
+  type KeepOut,
   type Viewport,
 } from '../lib/graphZoom.ts'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react'
@@ -282,15 +283,37 @@ export { domainColor, domainHue, STUB_BYTES, TYPE_VARS }
  * What the authority lens counts for one node: the DOMAIN-internal backlinks while the Landmarks
  * mask hands them in, the vault-wide count otherwise.
  *
- * Only the value moves. Which nodes make up the ramp's domain is unchanged - with a paint mask
- * the drawn nodes are the domain - because a ramp rebuilt from what is painted would recolour
- * the whole picture on every bloom, under the reader's hand.
+ * Which nodes make up the ramp's domain is `authorityDomain`'s answer, below.
  *
  * A count of zero is a count: the fallback is on a MISSING entry, never on a falsy one, which is
  * the difference between "this page has no backlinks inside its domain" and "nobody said".
  */
 export function authorityValue(mask: LandmarkMask | null, nodes: readonly GraphNode[], i: number): number {
   return mask?.inDomain[i] ?? nodes[i]?.in ?? 0
+}
+
+/**
+ * The backlink counts the authority ramp spans, sorted: the real pages DRAWN. The ramp and its
+ * legend both read this, so the three numbers under the bar are the range of the colours above.
+ *
+ * With the Landmarks mask that is what the mask paints (2026-09-25). It used to be the whole
+ * domain, and the landmarks ARE the domain's most-linked pages, so they all sat at the top of a
+ * ramp built for 150 pages and came out one dark colour - the lens said nothing in the one mode
+ * that is about authority. The old reason against it, a bloom recolouring a still picture, went
+ * when the bloom got a spread of its own (2026-09-24): opening one lays the picture out anew.
+ */
+export function authorityDomain(
+  mask: LandmarkMask | null,
+  nodes: readonly GraphNode[],
+  count: number,
+  skip: ReadonlySet<number> | null = null,
+): number[] {
+  const out: number[] = []
+  for (let i = 0; i < count; i++) {
+    if (skip?.has(i) === true || !painted(mask, i)) continue
+    out.push(authorityValue(mask, nodes, i))
+  }
+  return out.sort((a, b) => a - b)
 }
 
 /** The available color lenses. `domain`/`type` are categorical; the rest re-encode a metric. */
@@ -786,15 +809,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
   const authoritySorted = useMemo(() => {
     if (lens !== 'authority') return null
-    const counts: number[] = []
-    for (let i = 0; i < nodes.length; i++) {
-      if (ghostIndices?.has(i) === true) continue
-      counts.push(authorityOf(i))
-    }
-    if (counts.length < 2) return null
-    counts.sort((a, b) => a - b)
-    return counts
-  }, [nodes, ghostIndices, lens, authorityOf])
+    const counts = authorityDomain(landmarkMask, nodes, nodes.length, ghostIndices ?? null)
+    return counts.length < 2 ? null : counts
+  }, [nodes, ghostIndices, lens, landmarkMask])
 
   /**
    * Backlink count → position on the authority ramp (0 = least linked, 1 = most).
@@ -825,7 +842,11 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         else hi = mid
       }
       const rank = lo / (sorted.length - 1)
-      const magnitude = Math.log1p(Math.max(0, count)) / Math.log1p(Math.max(1, sorted[sorted.length - 1]!))
+      // From the domain's own floor, not from zero: a range of 12 to 31 backlinks is the whole
+      // ramp too, not its top quarter. Everywhere but the Landmarks mode the floor is 0 or 1.
+      const floor = Math.log1p(Math.max(0, sorted[0]!))
+      const span = Math.log1p(Math.max(1, sorted[sorted.length - 1]!)) - floor
+      const magnitude = span > 0 ? Math.max(0, Math.log1p(Math.max(0, count)) - floor) / span : 1
       return Math.min(1, 0.65 * rank + 0.35 * magnitude)
     },
     [authoritySorted],
@@ -1749,7 +1770,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const mid = fitCenterRef.current
     const centre: [number, number] | null =
       mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN) ? [pos[mid * 2]!, pos[mid * 2 + 1]!] : null
-    const next = fitTransform(items, { w, h }, { x: 16, top, bottom }, centre, FIT_ZOOM_MAX)
+    const next = fitTransformClear(items, { w, h }, { x: 16, top, bottom }, keepOutBoxes(canvas), centre, FIT_ZOOM_MAX)
     if (next === null) return
     transformRef.current = next
     scheduleDraw()
@@ -1791,6 +1812,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       widths.set(p.i, { w: Math.max(...lines.map((l) => ctx.measureText(l).width)) + 4, lines: lines.length })
     }
     ctx.restore()
+    // The bottom keeps clear of the controls standing in the drawing's lower corners, and the
+    // dots of the boxes the host stands in the drawing (the lens legend above them).
+    const margins = { x: 16, top: 18, bottom: 44 }
     const moved = spreadPoints(
       pts,
       (i) => {
@@ -1798,11 +1822,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         return c === undefined ? { w: 0, h: 0 } : { w: c.w, h: c.lines * 13 }
       },
       vp,
-      // The bottom keeps clear of the controls standing in the drawing's lower corners.
-      { x: 16, top: 18, bottom: 44 },
+      margins,
       // An open neighbourhood keeps its landmark in the middle of the picture.
       m.bloomAnchor,
       FIT_ZOOM_MAX,
+      undefined,
+      keepOutBoxes(canvas).map((b) => [b.x0 - margins.x, b.y0 - margins.top, b.x1 - margins.x, b.y1 - margins.top] as [number, number, number, number]),
     )
     const out = pos.slice()
     for (const [i, [x, y]] of moved) {
@@ -1820,6 +1845,21 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       scheduleDraw()
     }
   }, [computeSpread, landmarkMask, onlyNodes, fitToView, scheduleDraw, userMovedRef])
+  // A new lens is a new legend, of another size, in the corner the picture keeps out of: the
+  // spread and the frame are made again for it - the frame only while the reader has not moved
+  // it. After the paint, when the new legend has its size. Not on the first run: the first
+  // layout frames the picture itself.
+  const lensSeenRef = useRef(lens)
+  useEffect(() => {
+    if (lensSeenRef.current === lens) return
+    lensSeenRef.current = lens
+    const raf = requestAnimationFrame(() => {
+      computeSpreadRef.current()
+      if (!userMovedRef.current && settledRef.current) fitToView()
+      scheduleDraw()
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [lens, fitToView, scheduleDraw, userMovedRef, settledRef])
 
   // ---------------------------------------------------------------- layout worker session
   //
@@ -3168,6 +3208,23 @@ function traceSmooth(ctx: CanvasRenderingContext2D, pts: Pt[]): void {
     ctx.quadraticCurveTo(cur[0], cur[1], m[0], m[1])
   }
   ctx.closePath()
+}
+
+/**
+ * What the host stands IN the drawing that the picture should keep out of: every element under
+ * the canvas's parent marked `data-keep-out` (the lens legend, the corner controls, the lock),
+ * as boxes in the canvas's own CSS pixels. A fit and the landmark spread read them each time
+ * they run, so a legend that grows with the lens is kept clear at its new size.
+ */
+function keepOutBoxes(canvas: HTMLCanvasElement): KeepOut[] {
+  const rect = canvas.getBoundingClientRect()
+  const out: KeepOut[] = []
+  canvas.parentElement?.querySelectorAll<HTMLElement>('[data-keep-out]').forEach((el) => {
+    const r = el.getBoundingClientRect()
+    if (r.width === 0 || r.height === 0) return
+    out.push({ x0: r.left - rect.left, y0: r.top - rect.top, x1: r.right - rect.left, y1: r.bottom - rect.top })
+  })
+  return out
 }
 
 /** Coalesces draw requests into one per animation frame. */

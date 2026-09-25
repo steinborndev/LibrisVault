@@ -115,6 +115,12 @@ export function spreadPoints(
    */
   maxK = Infinity,
   blend = 0.8,
+  /**
+   * Boxes of the area no dot or caption may stand in (2026-09-25): the lens legend and the corner
+   * controls, in the AREA's own pixels (the viewport's less the left and top margins). A dot in
+   * one is pushed out of it the shorter way, like out of another dot's rectangle.
+   */
+  avoid: readonly Box[] = [],
 ): Map<number, [number, number]> {
   const out = new Map<number, [number, number]>()
   const n = pts.length
@@ -195,6 +201,26 @@ export function spreadPoints(
         }
         if (A.i !== pin) clamp(A)
         if (B.i !== pin) clamp(B)
+      }
+    }
+    for (const A of at) {
+      if (A.i === pin) continue
+      for (const z of avoid) {
+        const ra = rect(A)
+        const ox = Math.min(ra[2], z[2]) - Math.max(ra[0], z[0])
+        const oy = Math.min(ra[3], z[3]) - Math.max(ra[1], z[1])
+        if (ox <= 0 || oy <= 0) continue
+        moved = true
+        // Out of the box the whole way, the shorter of the two ways out - and each way points
+        // into the room: a box against an edge of the area is left away from that edge, or the
+        // clamp would hand the dot straight back to it.
+        const dx = z[2] >= W - 1 ? -1 : z[0] <= 1 ? 1 : A.x <= (z[0] + z[2]) / 2 ? -1 : 1
+        const dy = z[3] >= H - 1 ? -1 : z[1] <= 1 ? 1 : A.y <= (z[1] + z[3]) / 2 ? -1 : 1
+        const px = (dx < 0 ? ra[2] - z[0] : z[2] - ra[0]) + 0.5
+        const py = (dy < 0 ? ra[3] - z[1] : z[3] - ra[1]) + 0.5
+        if (px < py) A.x += px * dx
+        else A.y += py * dy
+        clamp(A)
       }
     }
     if (!moved) break

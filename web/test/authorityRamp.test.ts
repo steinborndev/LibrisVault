@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { authorityGradient, authorityRamp, authorityValue, isDarkSurface, type LandmarkMask } from '../src/components/GraphCanvas.tsx'
+import { authorityDomain, authorityGradient, authorityRamp, authorityValue, isDarkSurface, type LandmarkMask } from '../src/components/GraphCanvas.tsx'
 import type { GraphNode } from '../src/api/types.ts'
 
 const rgb = (css: string): [number, number, number] => {
@@ -120,5 +120,13 @@ describe('what the authority lens counts', () => {
 
   it('answers for a node nothing knows about', () => {
     expect(authorityValue(null, nodes, 9)).toBe(0)
+  })
+
+  it('spans the ramp over what the mask paints, not over the whole domain', () => {
+    // The landmarks are the domain's most-linked pages: over the domain they all sat at the top
+    // of the ramp in one colour (2026-09-25). Only the painted page counts here.
+    expect(authorityDomain(mask([7, 3]), nodes, 2)).toEqual([7])
+    expect(authorityDomain(null, nodes, 2)).toEqual([13, 40])
+    expect(authorityDomain(null, nodes, 2, new Set([0]))).toEqual([13])
   })
 })
