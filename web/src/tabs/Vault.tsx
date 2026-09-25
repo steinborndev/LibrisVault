@@ -2455,9 +2455,12 @@ function LandmarkList({
 
   return (
     <aside className="graph-explorer landmarks" role="complementary" aria-label="Landmarks, in reading order">
-      {/* What the list is a list OF, said once at its head: the order is a ranking, and a
-          ranking that does not name its measure is a list of assertions. */}
-      <p className="lm-title">key articles by backlink count</p>
+      {/* What the list is a list OF, said once at its head. The pages are CHOSEN by backlink
+          count but LISTED as a walk - each next one linked to one already read - so the numbers
+          are places on that walk, not ranks, and a heading that said "by backlink count" had
+          the reader expecting a ramp from strong to pale that the authority colours do not
+          show (2026-09-25). */}
+      <p className="lm-title">key articles, in reading order</p>
       {rows.length === 0 && <p className="lm-empty">No landmark is among the pages the filters leave.</p>}
       <ol className="lm-list">
         {rows.map(({ path, i, chapter, breakBefore }) => {

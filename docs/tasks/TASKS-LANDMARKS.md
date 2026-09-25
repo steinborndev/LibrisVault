@@ -308,8 +308,10 @@ column. In the reading order that column is unambiguous because forty of them ru
 the head of a neighbourhood it is the only number on screen, and the only other thing a number
 can mean over a list is how long the list is.
 
-**The column has one heading, in two forms.** The reading order names its measure - "key
-articles by backlink count" - and an open neighbourhood names the page it is around. Same slot,
+**The column has one heading, in two forms.** The reading order says what it is - "key
+articles, in reading order" since 2026-09-25; "by backlink count" before, which named how the
+pages are chosen and was read as how they are ordered, so the authority colours down the list
+looked wrong - and an open neighbourhood names the page it is around. Same slot,
 same rule, same weight, and both stay put while the rows scroll under them: forty entries move,
 and a heading that left with them would take its own answer along. The single-line form's rule
 lines up with the one under the canvas bar beside it, so the two boxes read as one row; the page
