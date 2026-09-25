@@ -33,8 +33,8 @@ export interface NamingInput {
     /**
      * What stays with the parent: its page count and the most frequent tags of those pages.
      * Without it the agent sees only what leaves, and on the first live splits it described
-     * the parent as the sum of what it could see - "biology and medicine" became one therapy
-     * class, and the next general paper found no domain at all.
+     * the parent as the sum of what it could see - a broad parent became one narrow subject,
+     * and the next general paper found no domain at all.
      */
     readonly stays?: { readonly pages: number; readonly tags: readonly string[] }
   }

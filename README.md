@@ -53,7 +53,7 @@ bash scripts/setup-all.sh
 Installs Node via nvm, the sandbox and preprocessing toolchain, the vault and the systemd user
 unit, then starts the dashboard at <http://localhost:8420>. It deliberately does not ask for your
 Anthropic credential: the service starts in **setup mode** and the dashboard walks you through
-that under System → Integrations. Re-running it is safe; every step checks before it acts.
+that under System → Instance. Re-running it is safe; every step checks before it acts.
 
 **Windows without WSL:** download the repo as a ZIP (Code → Download ZIP, no git needed) and run
 `scripts\install.ps1` in PowerShell. It installs WSL2 + Ubuntu, runs the setup inside it, and puts
@@ -103,7 +103,7 @@ The service checks at startup that `VAULT_ROOT` holds `wiki/` and `skills/`, so 
 immediately rather than at the first agent run.
 
 **Credential.** None needed up front. Without one the service starts in setup mode and the
-dashboard collects it under System → Integrations, writes the env file and restarts itself (under
+dashboard collects it under System → Instance, writes the env file and restarts itself (under
 systemd). Exactly one may be configured: with both set the service refuses to start, because
 `ANTHROPIC_API_KEY` silently overrides the OAuth token and you would not know which was billed.
 The manual equivalent:
@@ -239,20 +239,46 @@ waiting for you, and the spawn form.
 On a canvas, with the force layout in a web worker so it stays smooth as the vault grows.
 **Colour lenses** recolour the same graph by `domain:` (the default), by page type, or by a metric
 (authority, recency, orphans, stubs). Recency reads what a page **says** about itself rather than
-its file mtime, so a mass pass over the vault does not repaint every node as new. **Overlays** add
-community areas, brightened bridges and a spotlight that isolates one community on hover.
-Page-type chips and a domain list filter what is shown; **search narrows** rather than highlights.
-Structural scaffolding and maintenance artifacts are hidden by default; one toggle brings them
-back. Keys: double-click opens a page, `/` searches, `f` fits, `←` `→` step the domains, `Esc`
-steps back one layer.
+its file mtime, so a mass pass over the vault does not repaint every node as new, and with one
+domain on show it rises to that domain's colour. Page-type chips and a domain list filter what is
+shown; **search narrows** rather than highlights. Structural scaffolding and maintenance artifacts
+are hidden by default; one toggle brings them back.
+
+**Overlays** read the same picture four ways:
+
+- **Landmarks** draws only the pages one domain is built around - its most-linked pages inside the
+  domain - spread over the drawing and named in full, with a numbered **reading order** beside it:
+  a walk from the strongest page through the ones linked to what was already read, broken into
+  chapters where nothing links on. A click on a landmark, or on its number in the list, opens its
+  neighbourhood; a click on a title opens the page. The authority and recency colours span the
+  landmarks themselves, and walking the domains with `←` `→` keeps the overlay on and skips the
+  domains too small for it.
+- **Areas** outline every detected community as a tinted hull captioned by its distinctive tags -
+  never by a tag that names a kind of page rather than a subject, such as `person` or `video`.
+  `a` and `d` step through the areas one at a time, a click shows one alone, a click on a page
+  opens it, and the area under the pointer is outlined and its caption underlined.
+- **Spotlight** lights the community under the pointer and names it; a click isolates it, and the
+  next click drills into its sub-communities.
+- **Bridges** brightens the links that run between communities.
+
+The **lock** holds the picture as it is: a click then opens a page, and `Esc` from the page comes
+back to exactly this drawing. Keys: double-click opens a page, `/` searches, `f` fits, `←` `→` step
+the domains, `Esc` steps back one layer; the Shortcuts card in the corner lists what the overlay on
+screen binds.
 
 The **page view** behind it has rendered markdown, clickable `[[wikilinks]]`, a frontmatter panel
-and backlink/outgoing panels. Pages can be **edited and deleted here** - every mutation is one git
+and, beside it, the same three link lists the graph's page panel shows: backlinks, links to, and
+pages related by tag. A page from another domain counts as related only when it shares two
+subjects, not one. Pages can be **edited and deleted here** - every mutation is one git
 commit, serialized behind the same mutex as agent commits, with an optimistic lock (409 if an agent
 changed the page since you loaded it). After a delete, a banner counts the backlinks that just went
 dangling and offers a cleanup run.
 
 ![The wikilink graph, one colour per domain, with the gaps overlay one click away](docs/img/graph.png)
+
+![Landmarks: the pages one domain is built around, numbered in reading order, with the list beside them](docs/img/graph-landmarks.png)
+
+![Areas over one domain: every community a tinted hull, captioned by its distinctive tags](docs/img/graph-areas.png)
 
 ### Catalog - one table over every page
 
@@ -267,12 +293,16 @@ must never lose provenance. *Called Library until September 2026; the name moved
 
 ### System - the machine room
 
-Status and checks (lint as a structured report, a "fix safe findings" run that automates only the
-mechanical categories, the **standing defect list** described below, the hot-cache refresh, the
-domain registry and its backfill, the governance loop); usage and cost (tokens, spend today and
-over 7 days, the daily budget as a meter, every priced run); vault stats (pages, links, orphans,
-stubs, gaps, growth over 30 days, the commit history, the retrieval index); service and config;
-and the integrations - the Anthropic credential, the Telegram bot, the Obsidian vault name.
+A map of the machine room rather than a stack of panels. **Overview** says what needs you now:
+every maintenance area with its state, and one guided run through what is due. **Maintenance** has
+a page per area - lint and links (a structured report and a "fix safe findings" run that automates
+only the mechanical categories), the **standing defects** described below and their repairs, the
+domains (filing pages, proposing new domains, splitting an oversized one), tags, the hot cache, the
+retrieval index, and the pages git does not have yet. **Insight** holds usage and cost (tokens,
+spend, the plan, the daily budget as a meter, every priced run), vault stats (growth, loose ends,
+pages per domain) and the history of every agent run and vault commit. **Settings** groups the
+runtime configuration into intake, runs & budget and the Fellows' research budget, and **Instance**
+holds the Anthropic credential, the Telegram bot and the service facts.
 
 ![System: vault stats - size, shape, growth and what is still unfiled](docs/img/system.png)
 
@@ -287,21 +317,27 @@ and the integrations - the Anthropic credential, the Telegram bot, the Obsidian 
   `scripts/install-domain-registry.sh`); every vault-writing run gets it as a **closed** set - one
   key per page, `unassigned` when nothing fits, never a new key. Only humans create domains: by
   editing the page, or by accepting a candidate the **governance loop** proposes for free from
-  themes among the `unassigned` pages. The backfill files existing pages retroactively.
+  themes among the `unassigned` pages. The backfill files existing pages retroactively. A domain
+  that outgrows being a shelf can be **split into peers**: a free, deterministic proposal of the
+  shelves it falls into, a decision per shelf, and one commit that re-files exactly the approved
+  pages and that one revert undoes.
 - **Every write is checked** afterwards, deterministically and read-only: missing frontmatter, dead
-  links, orphans, stale counters, an overgrown hot cache, and a dozen more rules. Findings are
-  advisory, never a rewrite. They stand as a **defect list** under System → Checks, one row per
-  defect with how often it has been seen and how long it has stood, rather than one advisory line
-  per run buried in a job log - a single dead link was once reported 109 times. A row disappears
-  when a run checks that page and no longer finds it.
+  links, orphans, stale counters, an overgrown hot cache, and a dozen more rules. A finding never
+  rewrites anything on its own. They stand as a **defect list** under System → Standing defects,
+  one row per defect with how often it has been seen and how long it has stood, rather than one
+  advisory line per run buried in a job log - a single dead link was once reported 109 times. Each
+  rule says what can be done about it: a deterministic repair shown as a diff before it writes, a
+  **bound agent run** that may touch exactly the pages of the chosen findings and is reverted in
+  one click, or an **accept** with a reason for a defect that may stay. A row disappears when a
+  check no longer finds it.
 - **Hybrid retrieval.** The read-only query path can use the vault's opt-in `wiki-retrieve` skill
-  (contextual chunk prefixes + BM25, after
-  [Anthropic's contextual-retrieval method](https://www.anthropic.com/news/contextual-retrieval)).
-  Build the index once from System → Vault stats; it lives under `.vault-meta/`, out of vault git,
-  rebuilt after ingests, and needs no agent, credential or network. The service runs the retrieval
-  and hands the agent five distinct pages, best first. Local reranking with ollama is built but
-  off: over a 35-question labeled set it lost to BM25 alone (top-5 94% against 97%), so ollama is
-  not a requirement.
+  (contextual chunk prefixes + BM25, after [Anthropic's contextual-retrieval
+  method](https://www.anthropic.com/news/contextual-retrieval)). Build the index once from
+  System → Retrieval index; it lives under `.vault-meta/`, out of vault git, rebuilt after
+  ingests, and needs no agent, credential or network. The service runs the retrieval and hands the
+  agent five distinct pages, best first. Local reranking with ollama is built but off: over a
+  35-question labeled set it lost to BM25 alone (top-5 94% against 97%), so ollama is not a
+  requirement.
 
 ---
 
@@ -399,7 +435,7 @@ has internet.
 
 **Setup.** Create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`) for the token, get
 your numeric id from a bot like `@userinfobot` (usernames are mutable and spoofable), then either
-use System → Integrations → "Set up Telegram bot…" or edit `~/.config/vault-service/env`:
+use System → Instance → "Set up Telegram bot…" or edit `~/.config/vault-service/env`:
 
 ```bash
 TELEGRAM_BOT_TOKEN=123456789:AAF...
@@ -416,7 +452,7 @@ Restart afterwards (the dashboard path does it for you under systemd), then send
 - **Notifications carry titles only.** Vault content does not transit Telegram's cloud.
 - **Exactly one poller per token.** A second instance polling the same token makes the bot log the
   conflict and stop; the service keeps running.
-- **Disabling:** System → Integrations → "Disable" removes both variables. The token is never
+- **Disabling:** System → Instance → "Disable" removes both variables. The token is never
   displayed after saving; revoke it in BotFather if it may have leaked.
 
 ---
@@ -424,7 +460,7 @@ Restart afterwards (the dashboard path does it for you under systemd), then send
 ## Configuration
 
 Two layers, one precedence rule: the environment (or `~/.config/vault-service/env`) is the
-start-time **baseline**, the settings table (System → Service) holds runtime **overrides**, and
+start-time **baseline**, the settings table (System → Settings) holds runtime **overrides**, and
 the effective value is `override ?? baseline`. Overrides live in SQLite and survive a restart.
 
 | Variable | Default | Notes |
@@ -447,11 +483,11 @@ the effective value is `override ?? baseline`. Overrides live in SQLite and surv
 | `CORE_API_KEY` | - | optional; unlocks the third open-access resolver (CORE). A secret, handled like the credential |
 | `OA_CONTACT_EMAIL` | - | optional; sent to OpenAlex as its `mailto` parameter for the polite pool, and nowhere else |
 
-Runtime-settable under System → Service & config: watch folder, concurrency, upload limit, the
-research shares and reserves, the plan name, the five-hour release, the duplicate judge, git
-auto-commit, open-access rescue, DOI and URL dedupe, the daily budget. The bind address is **not** settable
-through the UI, by design; the credential only through the guarded endpoint that writes the env
-file, and it is never displayed or stored elsewhere.
+Runtime-settable under System → Settings (Intake, Runs & budget, Research budget): watch folder,
+concurrency, upload limit, the research shares and reserves, the plan name, the five-hour release,
+the duplicate judge, git auto-commit, open-access rescue, DOI and URL dedupe, the daily budget.
+The bind address is **not** settable through the UI, by design; the credential only through the
+guarded endpoint that writes the env file, and it is never displayed or stored elsewhere.
 
 **Daily budget (optional).** The unit follows the auth mode: a **job count per day** on a
 subscription (no per-run charge; runs compete with your interactive usage), a **USD amount per
@@ -519,7 +555,7 @@ npm run preprocprobe                                          # the converter ja
 **Outbound requests the SERVICE makes**, as opposed to an agent: the Telegram bot, if you configure
 one; and open-access recovery, which asks `api.openalex.org`, `api.core.ac.uk` and `www.ebi.ac.uk`
 whether a legal copy of a paywalled paper exists, sending the DOI of the document you are ingesting.
-That one is **on by default**; turn it off under System → Service.
+That one is **on by default**; turn it off under System → Intake.
 
 ---
 
@@ -599,7 +635,7 @@ endpoint list is in [docs/API.md](docs/API.md).
 - **Runs fail with "zero tokens" / "Not logged in".** The credential did not reach the subprocess.
   Check `~/.config/vault-service/env` and that only one credential variable is set.
 - **Everything answers 503 with a "Set up now" banner.** That is setup mode. Add the credential
-  under System → Integrations; the service restarts itself and picks up queued work.
+  under System → Instance; the service restarts itself and picks up queued work.
 - **The watch folder never fires.** Windows mounts deliver no inotify events; the watcher switches
   to polling automatically. Force it with `WATCH_POLLING=true`.
 - **A page the agent wrote is missing from the commit.** The commit pathspec comes from the agent's

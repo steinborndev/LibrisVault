@@ -130,6 +130,8 @@ GET    /maintenance/runs/:id     poll one run's result
 GET    /maintenance/history      the persistent run log, newest first (`?kind=`, `?limit=`)
 DELETE /maintenance/history/:id  remove one settled run from the history
 GET    /maintenance/state        per-kind last-settle state behind the status head
+DELETE /maintenance/state/:runId   forget the settle kept for one run the history no longer
+                                 holds; the vault is untouched (404 when none is kept)
 GET    /sources                  page → the document it came from (from `.raw/` manifests)
 GET    /sources/raw?path=…       one ingested document; an allow-list of formats the browser
                                  cannot execute is served inline, everything else downloads
@@ -146,6 +148,8 @@ GET    /agents                   the Fellows, with tonight's schedule inputs
 POST   /agents                   spawn one (409 `full` once every desk in the room is taken);
                                  PATCH /agents/:id edits tasks, quota, autonomy, model,
                                  effort, step and priority
+GET    /agents/:id               one Fellow's record; DELETE removes a retired one (204, 409
+                                 before it is retired); its notebook and pages stay in the vault
 POST   /agents/:id/{step,pause,resume,retire,plan}   act on one Fellow by hand
 PUT    /agents/shelf-order       the order the night walks the shelves - one serial queue,
                                  so it is a setting and not a view preference
@@ -155,14 +159,20 @@ GET    /agents/shift             the night window, the cycle, the next start, re
 GET    /handoffs                 routed and unclaimed handoffs between Fellows
 POST   /handoffs/:id/spawn       spawn a Fellow from an unclaimed request, prefilled
 GET    /agents/:id/card          one Fellow's dossier: runs, pages, notebook path, plan
-POST   /proposals/:id/{approve,veto}   decide one proposal before the night uses it
+GET    /agents/:id/candidates    what the planner would be shown for the task the rotation has up
+GET    /agents/:id/proposals     the Fellow's proposals and the one that would run next
+POST   /proposals/:id/decide     {status: approved|vetoed|proposed, note?, topic?, rank?} decides
+                                 one proposal before the night uses it
+POST   /proposals/:id/run        run one now ({override?}; 202, 503 without a credential)
 GET    /recaps, /recaps/:date    the daily record; POST /recaps/:date/answers replies to it,
                                  POST /recaps/build builds today's now
 POST   /value-events             records that you opened a page or followed a recap link -
                                  what "value this month" counts
 GET    /library/scene            the room as the dashboard draws it: figures, shelves, desks
 POST   /library/move             put one domain's shelf in a room, optionally at a slot
-GET    /wings                    the rooms and which domain sits on which shelf
+GET    /wings                    the rooms and which domain sits on which shelf; POST adds one
+                                 ({name?}, 201), DELETE /wings/:id removes an empty one (409
+                                 while it still holds shelves)
 PATCH  /wings/order              reorder the wings ({ids}); PATCH /wings/:id renames one or
                                  moves its aisles
 GET    /usage/plan               plan utilization, the research share and what is left

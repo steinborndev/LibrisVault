@@ -66,7 +66,7 @@ Windows 11
 
 **Watcher:** `chokidar` observes the configured watch folder recursively. New or changed files are picked up only after a stability check (`awaitWriteFinish`, 2 s of unchanged size) to avoid half-copied files. After pickup the file is **moved** into the vault's `.raw/` (watch folder = inbox, gets emptied; prevents double processing after a restart).
 
-**Ingestion queue:** SQLite table `jobs` as the single source of truth for all processing. Jobs move through the states `queued → preprocessing → ingesting → done | failed | deferred`. A worker pool drains the queue; **default concurrency for agent runs: 1** (configurable, corrected 2026-09-19). The vault's own ingest skill states the constraint it was built under: "Single-writer only ... Do not run parallel ingests from multiple Claude sessions or sub-agents that assign addresses. The `flock` in the helper prevents counter corruption but does not serialize page writes themselves." This paragraph previously said 2 and claimed claude-obsidian's per-file locking (`scripts/wiki-lock.sh`) protected the vault level as well; both halves were wrong. Measured 2026-09-19: at the old default, **13 of 31 finished jobs overlapped another job in time**, and the lock's staleness window (60 s by default, since widened to 600 s) was shorter than **9.6 % of real lock holds** - a lock that outlives its window is reaped and both writers proceed. What the lock does protect is a page one writer holds RIGHT NOW against another writer that asks for it in the same window, which is the manual-Obsidian-session case, not the two-ingests case. Raising the default back to 2 needs the service-owned hub layer shipped (it removes the long holds, which are all on the hub files) and a measured run of the new write path; the deviation gets written down either way.
+**Ingestion queue:** SQLite table `jobs` as the single source of truth for all processing. Jobs move through the states `queued → preprocessing → ingesting → done | failed | deferred`. A worker pool drains the queue; **default concurrency for agent runs: 1** (configurable, corrected 2026-09-19). The vault's own ingest skill states the constraint it was built under: "Single-writer only ... Do not run parallel ingests from multiple Claude sessions or sub-agents that assign addresses. The `flock` in the helper prevents counter corruption but does not serialize page writes themselves." This paragraph previously said 2 and claimed claude-obsidian's per-file locking (`scripts/wiki-lock.sh`) protected the vault level as well; both halves were wrong. Measured 2026-09-19: at the old default, **13 of 31 finished jobs overlapped another job in time**, and the lock's staleness window (60 s by default, since widened to 600 s) was shorter than **9.6 % of real lock holds** - a lock that outlives its window is reaped and both writers proceed. What the lock does protect is a page one writer holds RIGHT NOW against another writer that asks for it in the same window, which is the manual-Obsidian-session case, not the two-ingests case. Raising the default back to 2 needs the service-owned hub layer shipped (it removes the long holds, which are all on the hub files) and a measured run of the new write path; the deviation gets written down either way. **The queue runs jobs in the order they were queued (corrected 2026-09-25).** Every read that decides what runs next - the next claim, held and night-released jobs, an interrupted run's recovery, a batch's members - orders by SQLite's insertion counter (`rowid`), not by `created_at`: the wall clock can step back under load (measured on a WSL host: three steps of up to 1.2 s in 90 seconds), and a drop made a moment after another could otherwise be stamped earlier and run first. The service runs no `VACUUM`, the one thing that may renumber the counter. Lists that only show jobs by date still sort by `created_at`.
 
 **Preprocessing worker:** Normalizes incoming material into a format suitable for ingestion (details in section 5), stores original + normalized form under `.raw/<job-id>/` and writes a `manifest.json` (source, type, hashes, timestamps).
 
@@ -165,6 +165,8 @@ Two things that belong to no subsection:
 
 That new screen is the sixth, and it IS behind the flag: an isometric room view where a Fellow is a figure, a domain is a shelf, and one window manages the Fellows completely - tonight's schedule priced from measured run durations, a dossier per Fellow with its notebook, recap slice, run ledger and settings, the open decisions, and spawning. The wall board beside it carries the hot cache, the daily recap and the reading list. Home gains the night's own strip and the plan-usage corner; System gains the research share and its reserves. With the flag unset none of this renders and the tab is not offered, which is what `health.fellows` is for (section 12.10). So the shell is five screens without the extension (Home, Research, Graph, Catalog, System) and six with it.
 
+
+**Correction 2026-09-24 (System as a map of the machine room).** The five sections in the table's System row are gone. The control column is now a map in four groups: **Overview** (what needs the user now: every maintenance area with its state, and one guided run through what is due); **Maintenance**, one page per area (lint and links, the standing defects of 12.16 with their repairs, domains with filing, new domains and splits, tags, the hot cache, the retrieval index, unversioned pages); **Insight** (usage and cost, vault stats with pages per domain, and one history of agent runs and vault commits); and **Settings** (the runtime keys in three groups - intake, runs and budget, the Fellows' research budget - and the instance: credential, Telegram bot, service facts). A figure stands in one place only, and each maintenance page carries the actions for its area. Old `?section=` values resolve to their new place.
 ### 6.1 Tab "Overview"
 
 Vault statistics and recent activity at a glance: page counts per type (concepts, entities, sources; counted from the file system and cached), growth over time (from git history), most recently created/changed pages (clickable with an `obsidian://open?vault=…&file=…` deep link), content of the hot cache (`wiki/hot.md` rendered), figures of the last 7 days (ingests, failures, processed sources), service status (watcher active, queue length, latest git commits).
@@ -606,6 +608,41 @@ its keys. A left shelf is remembered by its fingerprint and not proposed again w
 a deferred one comes back at the next guided maintenance run. The registry conventions
 gain one sentence: altitude is judged against the vault's volume, and a domain that outgrows a
 shelf is split into peers, the part that stays keeping the old key with a narrowed description.
+
+**Overlays, and the Landmarks mode (added 2026-09-22 to 2026-09-25, user decisions).** The graph
+carries four overlays; the decision record is `docs/tasks/TASKS-LANDMARKS.md`.
+
+- **Landmarks** draws, for the one domain on show, only the pages it is built around: its
+  knowledge pages ranked by backlinks from inside the domain (then by backlinks overall), 12 %
+  of them with a floor of 8 and a ceiling of 40, for domains of 25 pages or more. The list beside
+  the picture is a **reading order**, not a ranking: from the strongest page, always the strongest
+  landmark linked to one already listed, broken into chapters where nothing links on; the pages
+  that join chapters are drawn as small connectors. A landmark's **neighbourhood** (its links
+  inside the domain, uncapped, ranked the same way) opens from its dot or its number in the list
+  and takes the whole picture; one is open at a time. Positions are a display-only spread of the
+  layout's own (the simulation is untouched), so every title is written in full below its dot.
+  The authority and recency lenses span what the mode paints, not the domain: the landmarks are
+  the domain's most-linked pages, and on a ramp built for the whole domain they all came out one
+  colour. The mode excludes Spotlight, Areas and Bridges; a drill-down, a local depth or a
+  search ends it. The switch holds across a change of domain: the overlay follows the domain in
+  view, rests (switch on, reason shown) where it cannot show anything, and the domain arrows
+  step over the domains too small for it.
+- **Areas** tints each community (multi-level Louvain; an edge between two domains weighs 0.1
+  of one inside a domain, so a small domain is not folded into a large neighbour over a few
+  bridges) and captions it with its most distinctive tags. A tag that names a kind of page
+  rather than a subject never captions one: the entity-shaped tags the domain registry already
+  excludes from classification, source media and languages, and any tag carried by one page
+  type only across five or more domains (`web/src/lib/tagSignal.ts`). `a` and `d` step through
+  the areas one at a time, a click in the overview shows one alone, a click on a page opens it,
+  and the area under the pointer is outlined. Caption placement is computed once per
+  arrangement and view and kept while the view moves, then placed afresh 120 ms after it stops.
+- **Spotlight** lights and names the community under the pointer; a click isolates it and the
+  next one drills into its sub-communities. **Bridges** brightens the links between communities.
+
+Around all four: the fit and the landmark spread keep out of the boxes the screen stands in the
+drawing (the lens legend, reserved at the size of the largest legend so a change of lens moves
+nothing, the corner controls and the lock). "Related by tag", in the explorer and the reading
+view alike, counts only subject tags, and a page from another domain needs two of them in common.
 
 **Resolving gaps instead of filling them (added 2026-09-05).** The Gaps view of the Home panel
 ("Worth a run") used to offer only one way out of a gap: research. Many gaps never deserve a
