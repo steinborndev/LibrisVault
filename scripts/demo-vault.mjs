@@ -205,9 +205,29 @@ const P = {
   /** A link to the page the whole domain leads back to. */
   domainHub: 0.36,
   /** A link into a neighbouring domain (`NEIGHBOURS`): what the Bridges overlay draws. */
-  cross: 0.38,
+  cross: 0.5,
   /** A concept naming one of its area's entities. */
   entity: 0.4,
+  /*
+   * The pages besides concepts that a real vault leads back to. Measured on the real vault
+   * (2026-09-25): 60 % of its landmarks are concepts, 18 % sources, 14 % entities, 8 % open
+   * questions. The demo's were all concepts, because only concepts were ever linked often: a
+   * landmark is a page many others link to, and no source, entity or question was.
+   */
+  /** A concept naming its area's key document, the review most of the area rests on. */
+  areaKeySource: 0.85,
+  /** A concept naming the key document of another area of its domain. */
+  siblingKeySource: 0.15,
+  /** A concept naming the domain's key document, the handbook for the whole field. */
+  domainKeySource: 0.3,
+  /** A concept naming its area's first entity, the body that area's data comes from. */
+  areaEntity: 0.9,
+  /** A concept naming one of the domain's two flagship entities (the survey, the archive). */
+  flagship: 0.35,
+  /** A concept pointing at an open question of its own area. */
+  areaQuestion: 0.75,
+  /** A concept pointing at the domain's first open question, the one everybody runs into. */
+  keyQuestion: 0.2,
   /** A concept carrying one of its domain's secondary tags. */
   facet: 0.3,
   /**
@@ -330,6 +350,15 @@ for (const [domain, spec] of POPULATED) {
   const facets = spec.tags.slice(1)
   const { areas } = spec
   const domainHub = areas[0].concepts[0]
+  const flagships = spec.entities.slice(0, 2).map((e) => e.title)
+  /**
+   * Each area's key document, named before any area is written so a concept can name another
+   * area's: the first area's is the domain's handbook, every other one a review of its hub.
+   */
+  const keySources = areas.map((x, a) => (x.concepts.length === 0 ? null : a === 0 ? `${x.concepts[0]} (handbook chapter)` : `${x.concepts[0]} (review)`))
+  for (const k of keySources) if (k !== null) usedSourceTitles.add(k)
+  /** The first area's first document; set once that area's documents exist, before its concepts. */
+  let domainKeySource = null
   const neighbours = (NEIGHBOURS[domain] ?? []).filter((k) => DOMAINS[k] !== undefined && conceptsOf(k).length > 0)
   const otherArea = (a) => areas[(a + 1 + Math.floor(rand() * (areas.length - 1))) % areas.length]
   const all = conceptsOf(domain).filter(linkable)
@@ -362,10 +391,13 @@ for (const [domain, spec] of POPULATED) {
     const sourceCount = Math.max(1, Math.round(L.length / 1.6))
     const sources = []
     for (let i = 0; i < sourceCount; i++) {
-      const form = pickForm()
-      let title = null
+      // The area's first document is its key one: a review, and in the first area the
+      // handbook of the whole domain. The rest come in whatever form they come in.
+      const form = i === 0 ? FORMS.find((f) => f.tag === (a === 0 ? 'lecture' : 'paper')) : pickForm()
+      const variant = i + a
+      let title = i === 0 ? keySources[a] : null
       for (let k = 0; k < L.length && title === null; k++) {
-        const candidate = form.title(L[(Math.floor((i * L.length) / sourceCount) + k) % L.length], i + a)
+        const candidate = form.title(L[(Math.floor((i * L.length) / sourceCount) + k) % L.length], variant)
         if (!usedSourceTitles.has(candidate)) title = candidate
       }
       title ??= `${form.title(L[i % L.length], i)} part ${i + 1}`
@@ -383,6 +415,8 @@ for (const [domain, spec] of POPULATED) {
       const form = FORMS.find((f) => title.endsWith(`(${f.tag})`)) ?? FORMS[0]
       sources.push({ title, form, cited: [concept, L[0], leaning(L)].filter((c, k, arr) => arr.indexOf(c) === k && linkable(c)) })
     }
+
+    if (a === 0) domainKeySource = sources[0].title
 
     // Who links to whom beyond the model above, so no document and no entity is left unlinked:
     // each source is named by the first concept it supports, each entity by one of the area.
@@ -413,10 +447,10 @@ for (const [domain, spec] of POPULATED) {
       if (j > 0) rel.add(L[0])
       else if (a > 0) rel.add(domainHub)
       else for (let k = 0; k < Math.min(2, areas.length - 1); k++) rel.add(areas[k + 1].concepts[0])
-      const inward = 2 + (chance(0.6) ? 1 : 0) + (chance(0.3) ? 1 : 0)
+      const inward = 1 + (chance(0.7) ? 1 : 0) + (chance(0.3) ? 1 : 0)
       for (let k = 0; k < inward && j > 1; k++) rel.add(L[1 + Math.floor((j - 1) * rand() ** 1.6)])
       // And a page or two of the area picked evenly, so the area is a mesh and not a star.
-      const lateral = 1 + (chance(0.6) ? 1 : 0) + (chance(0.3) ? 1 : 0)
+      const lateral = 1 + (chance(0.4) ? 1 : 0)
       for (let k = 0; k < lateral && L.length > 2; k++) rel.add(oneOf(L))
       if (j < L.length - 1 && chance(P.forward)) rel.add(L[j + 1 + Math.floor(rand() * (L.length - j - 1))])
       if (areas.length > 1 && chance(j === 0 ? 0.6 : P.sibling)) {
@@ -427,13 +461,24 @@ for (const [domain, spec] of POPULATED) {
       if (neighbours.length > 0 && chance(j === 0 ? P.cross * 2 : P.cross)) rel.add(crossTarget(neighbours))
       for (const [from, to] of CROSS_LINKS) if (from === title) rel.add(to)
       if (entityTitles.length > 0 && chance(P.entity)) rel.add(oneOf(entityTitles))
+      if (entityTitles.length > 0 && chance(P.areaEntity)) rel.add(entityTitles[0])
+      if (flagships.length > 0 && chance(P.flagship)) rel.add(chance(0.6) ? flagships[0] : flagships.at(-1))
+      const ownQuestions = questions.filter((q) => q.area === area)
+      if (ownQuestions.length > 0 && chance(P.areaQuestion)) rel.add(oneOf(ownQuestions).title)
+      if (questions.length > 0 && chance(P.keyQuestion)) rel.add(questions[0].title)
       for (const e of forcedEntities.get(title) ?? []) rel.add(e)
       if (j === 0) for (const h of hubLinks) rel.add(h)
       rel.delete(title)
       const related = [...rel].filter(linkable)
 
       const citing = sources.filter((s) => s.cited.includes(title)).map((s) => s.title)
-      const named = [...new Set([...(forcedSources.get(title) ?? []), ...citing.slice(0, chance(0.25) ? 2 : 1)])]
+      const siblingKey = areas.length > 1 && chance(P.siblingKeySource) ? keySources[areas.indexOf(otherArea(a))] : null
+      const keyed = [
+        ...(chance(P.areaKeySource) ? [sources[0].title] : []),
+        ...(siblingKey !== null ? [siblingKey] : []),
+        ...(domainKeySource !== null && chance(P.domainKeySource) ? [domainKeySource] : []),
+      ]
+      const named = [...new Set([...keyed, ...(forcedSources.get(title) ?? []), ...citing.slice(0, chance(0.25) ? 2 : 1)])]
       if (named.length === 0) named.push(sources[j % sources.length].title)
       // About one concept in twenty points at a page nobody has written - the Gaps overlay counts
       // these, and the validator lists each such link as a dead one, so every gap is linked from
