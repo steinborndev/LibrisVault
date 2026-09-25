@@ -184,6 +184,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
           .send({ error: 'demo_read_only', message: 'This hosted demo instance is read-only.' })
       }
     })
+    registerDemoReadCache(app)
   }
   registerHealthRoute(app, ctx)
   registerJobsRoute(app, ctx)
@@ -284,4 +285,37 @@ export function notFoundKind(url: string): 'api' | 'asset' | 'shell' {
   if (pathname.startsWith('/api/')) return 'api'
   if (pathname.startsWith('/assets/')) return 'asset'
   return 'shell'
+}
+
+/**
+ * The reads that re-read the vault on every call, and so cost tens of milliseconds each: the
+ * pinboard's questions, the reading list, a Fellow's candidates, the domain candidates.
+ * Measured 2026-09-25 on the demo at 40 to 63 ms; on one Node thread a single visitor at the
+ * proxy's rate limit keeps most of a core busy with them.
+ */
+const DEMO_CACHED_READS = /^\/api\/v1\/(questions|reading-list|agents\/[^/?]+\/candidates|domains\/candidates)(\?|$)/
+const DEMO_CACHE_TTL_MS = 60_000
+const DEMO_CACHE_MAX = 256
+
+/**
+ * A short cache for those reads on a demo instance only. It is sound there and nowhere else:
+ * a demo refuses every write and its vault and database change only when the host rebuilds
+ * them, which restarts the process and empties this map. Successful JSON responses only; the
+ * `x-demo-cache` header says which answer came from it.
+ */
+function registerDemoReadCache(app: FastifyInstance): void {
+  const cache = new Map<string, { at: number; type: string; body: string }>()
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.method !== 'GET' || !DEMO_CACHED_READS.test(req.url)) return
+    const hit = cache.get(req.url)
+    if (hit === undefined || Date.now() - hit.at > DEMO_CACHE_TTL_MS) return
+    return reply.header('content-type', hit.type).header('x-demo-cache', 'hit').send(hit.body)
+  })
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (req.method !== 'GET' || reply.statusCode !== 200 || typeof payload !== 'string') return payload
+    if (!DEMO_CACHED_READS.test(req.url) || reply.getHeader('x-demo-cache') === 'hit') return payload
+    if (cache.size >= DEMO_CACHE_MAX) cache.delete(cache.keys().next().value!)
+    cache.set(req.url, { at: Date.now(), type: String(reply.getHeader('content-type') ?? 'application/json'), body: payload })
+    return payload
+  })
 }

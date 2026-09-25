@@ -37,7 +37,8 @@ must start on a vault it cannot write.
 - [x] Research in demo mode (2026-09-18, asked while viewing the demo): the screen renders
       instead of the notice, with the seed's saved conversations and finished research runs; the
       composer is disabled with a hint and `send` returns early, and the guard refuses a query or
-      a run anyway. System keeps its notice: it is the machine room.
+      a run anyway. System keeps its notice: it is the machine room. (Reversed 2026-09-25, see the
+      second round below: System renders read-only.)
 - [x] The banner names the data (2026-09-18, asked while viewing the demo): centred, with
       "Synthetic demo data" as a badge ahead of the read-only note, so nobody takes the pages, the
       Fellows or their nights for real notes. Checked in light, dark and at phone width.
@@ -87,3 +88,114 @@ must start on a vault it cannot write.
   four Fellows, and Research shows the seed's runs and conversations with the composer disabled.
   The service log carried the one expected warning and no error.
 - Still open here: re-shoot the README's room screenshot with the next screenshot round.
+
+## Second round (2026-09-25): a demo vault shaped like a real one, and System on the demo
+
+Asked for together with bringing the hosted demo up to the build of LibrisVault#17: the demo vault
+should be about as large and as tangled as a real one, so the graph's filters show what they are
+for. Then, looking at the result: System should be browsable on the demo with its actions
+disabled, the way Research already is, so the new maintenance surfaces are seen rather than hidden
+behind a notice. Measured first, numbers only, against the author's vault (knowledge pages, the
+graph API, the same analysis the dashboard runs):
+
+| | real vault | demo before | demo after |
+|---|---|---|---|
+| knowledge pages / domains | 1,352 / 25 | 899 / 19 | 1,420 / 26 |
+| links per page | 5.7 | 5.0 | 5.3 |
+| most inbound links on one page | 131 | 15 | 123 |
+| links crossing a domain | 7.2 % | 0.7 % | 5.5 % |
+| Areas over the whole vault (distinct captions) | 40 (40) | 21 (20) | 42 (42) |
+| Areas in the deepest domain (distinct captions) | 14 (14) | 9 (4) | 14 (14) |
+| pages under the stub size | 14 | 269 | 32 |
+| validator findings over the knowledge pages | not measured | 5,096 | 229 |
+
+(26 domains in the last column counts `unassigned`, where one real research run files its pages.)
+
+What was wrong was the shape, not the size: every page linked to its next few neighbours in the
+topic list, so all pages had the same handful of links. No page stood out for the authority lens
+or the Landmarks overlay to rank, no sub-area existed for Areas to find (one community per domain,
+captioned by the same template tags), and almost nothing crossed a domain for Bridges to draw.
+
+And, found only by running the vault's own validator over it, the generated pages broke the vault's
+conventions nearly everywhere: tags repeating the page's type and domain, required headings
+missing, statuses outside the vocabulary, question titles with a character their file names
+cannot carry, 218 pages nothing linked to. It never showed, because nothing ever validated the demo.
+
+- [x] **Topics in areas.** `scripts/demo-vault-topics.mjs` cuts each domain into areas; an area's
+      first concept is its hub, the first area's hub is the domain's. Every existing title kept;
+      seven new domains (ecology, epidemiology, geology, beekeeping, horology, glassmaking,
+      bookbinding), about 120 new concepts and 135 new entities, each entity with a kind. Six
+      existing entity titles that named or closely mirrored a real mission, programme, product or
+      catalogue were replaced by generic ones.
+- [x] **The link model.** A seeded generator; links to the area hub, preferentially to an area's
+      early pages, laterally within the area, into sibling areas, to the domain hub, and into
+      neighbouring domains along `NEIGHBOURS`. Probabilities in `P`, tuned against the table
+      above. Every source, entity, question and comparison is linked from at least one page; two
+      orphans on purpose.
+- [x] **Sources in forms.** Paper, preprint, lecture, video, podcast, trade press, blog, report,
+      each as a tag. Most are the kind of tag the graph keeps out of captions
+      (`web/src/lib/tagSignal.ts`), so the demo now shows that rule working. The documents the real
+      research runs name (captured against the old generator) are generated too, so their pages
+      keep resolving.
+- [x] **The vault's conventions.** No type or domain tags, statuses from the vault's vocabulary,
+      the required headings per type, question titles without a `?`, a tag of its own on about one
+      concept in eighty instead of one in seven.
+- [x] **Time.** Five months instead of 74 days, and an area is read in a stretch around a time of
+      its own, so the recency colours differ between the areas of one domain.
+- [x] **Stubs.** Source and entity pages get one more rotating paragraph; they were under the
+      1 KB stub size almost all. One entity in 25 stays short on purpose.
+- [x] **Seeded records name their pages.** The Fellow runs, the recaps and the saved
+      conversations used to cite whatever concepts came next in build order (a climate Fellow's
+      run listed spectrograph pages); they now name their pages by title, and a missing title fails
+      the build. The captured runs' ids moved from 900 to 950: two of them shared an id with the
+      failed and the duplicate job, which the usage table reported as a React key clash.
+- [x] **Standing defects in the seed.** A dozen defects planted on purpose, one or two per rule
+      (em-dash, tag mirroring, page schema, frontmatter, dates, status, wrapped link, title), and
+      the seed runs the real validator over the knowledge pages and records what it finds, once
+      six days ago and once yesterday, with one orphan accepted. 229 rows: the planted ones, the
+      gaps as dead links, and about 170 on the pages of the four real research runs, which were
+      written before the rules and break them for real.
+- [x] **The first start, done by the seed.** It writes the vault's git excludes and the
+      auto-commit flag the service would write on its first start. The hosted demo mounts the
+      vault read-only for the process, so the service could not, and it then reported the vault
+      plugin as committing too and logged two warnings every morning. It now starts without one.
+- [x] **System on the demo, read-only.** Rendered instead of the notice (`DemoNotice` removed):
+      one line under the head says why the actions are greyed; every action in the maintenance
+      cards is disabled through `useReadOnly()` (`web/src/lib/readOnly.ts`), the settings forms and
+      the credential and bot cards through a disabled fieldset; the credential card says the demo
+      needs none instead of reporting it missing, and the Instance row loses its "set up" flag.
+      Reading stays: rows open, filters work, the split proposal changes domain. Swept on every
+      section with the enabled controls listed: what is left enabled only reads.
+- [x] **`/stats` named the watch folder on the demo**, where `/settings` already hid it. Now hidden
+      too, with a test beside the settings one in `demo-mode.test.ts`.
+- [x] **Screenshots**: all sixteen re-shot from the new vault on 8422 and looked at.
+- [x] **Checked in demo mode**, read-only vault, `DEMO_MODE=1 AGENTS_ENABLED=1`: start-up without a
+      warning; every screen and every System section without a failed request or a console error;
+      Landmarks, Areas, Recency and Authority on the new vault; the new write routes refused by the
+      guard.
+- [x] **Private-content check**: `vault-name-scan` over the topics file finds the same four
+      textbook terms as over the previous, public version; every new title read by hand.
+- [x] Gates on the final tree: `npm test` (2,093 + 800), `npm run typecheck`, `npm run lint`, all
+      exit 0.
+- [x] **Security review before the deploy** (2026-09-25): the branch's diff read against the hard
+      rules, every GET route probed against a read-only demo instance (paths, traversal, the
+      write guard across eleven methods, cost per route), and the host's configuration read. No
+      high finding: nothing leaked a path or a person, traversal ended in 400 or 404 everywhere,
+      every write was refused. Fixed here:
+      - the address-map check under Standing defects sent a POST on the demo and hung on
+        "Reading the map"; it now says the check is switched off there and shows a failure when
+        one happens;
+      - `/settings` hid the watch folder in its two views and not in the raw `overrides`; now in
+        all three, with a test;
+      - the reads that re-read the vault per call (questions, reading list, a Fellow's
+        candidates, domain candidates: 40 to 63 ms each) are answered from a 60-second cache on
+        a demo instance only, where nothing changes until the host rebuilds and restarts;
+      - `/stats` ran one git scan per request arriving while its cache was cold; now one scan,
+        awaited by all of them;
+      - the generator loads everything it takes from `server/dist` before deleting anything,
+        rejects a captured run's page path that is not a plain `wiki/` path, and keeps the
+        host's git hooks, signing and identity out of the demo's history.
+      The host's side (refresh no longer as root, unit hardening, Caddy, sandboxed build) lives
+      in the host's notes, tested on the box beside the running demo.
+- [ ] Merge, the pull request into LibrisVault, and the hosted demo's update (the host's notes
+      carry the procedure): each waits for the user's go.

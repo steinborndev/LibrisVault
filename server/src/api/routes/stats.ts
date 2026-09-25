@@ -64,13 +64,32 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
   // Short-TTL cache for the filesystem+git scan. Invalidated eagerly on a `stats` bus event
   // so a completed ingest shows up immediately, and lazily after the TTL as a backstop.
   let cache: { at: number; data: VaultDerived } | undefined
+  /*
+   * One scan at a time (2026-09-25): when the cache expires, every request arriving before the
+   * scan finishes waits for that scan instead of starting its own `git log` and `git status`.
+   * A burst of cold requests on a public demo was otherwise one burst of git processes. The
+   * generation makes a scan that an invalidation overtook return its data without caching it.
+   */
+  let inflight: Promise<VaultDerived> | undefined
+  let generation = 0
   ctx.events.subscribe((e) => {
-    if (e.kind === 'stats') cache = undefined
+    if (e.kind === 'stats') {
+      cache = undefined
+      generation++
+    }
   })
 
-  async function vaultDerived(): Promise<VaultDerived> {
+  function vaultDerived(): Promise<VaultDerived> {
+    if (cache && Date.now() - cache.at < CACHE_TTL_MS) return Promise.resolve(cache.data)
+    inflight ??= scanVault().finally(() => {
+      inflight = undefined
+    })
+    return inflight
+  }
+
+  async function scanVault(): Promise<VaultDerived> {
     const now = Date.now()
-    if (cache && now - cache.at < CACHE_TTL_MS) return cache.data
+    const startedAt = generation
     const pages = pageCounts(config.vaultRoot)
     // git can fail (no commits, not a repo) — never let it sink the whole Overview.
     const hidden = dismissed.keys()
@@ -101,7 +120,7 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
         examples: [...unversionedPages.untracked, ...unversionedPages.modified].slice(0, 5),
       },
     }
-    cache = { at: now, data }
+    if (startedAt === generation) cache = { at: now, data }
     return data
   }
 
@@ -156,8 +175,9 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
       budget,
       jobs: counts,
       queue: { queued, active, ...queue.stats() },
-      // The watcher only starts outside setup mode (main.ts) — report what actually runs.
-      watcher: { active: config.auth !== null, folder: config.server.watchFolder },
+      // The watcher only starts outside setup mode (main.ts): report what actually runs. A
+      // hosted demo keeps the folder's path to itself, as the settings view does (SPEC.md §12.8).
+      watcher: { active: config.auth !== null, folder: config.demoMode ? '(hidden in demo)' : config.server.watchFolder },
       generatedAt: new Date().toISOString(),
     }
   })

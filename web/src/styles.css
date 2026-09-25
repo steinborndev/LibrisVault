@@ -10850,6 +10850,29 @@ tr:focus-within .rowacts {
   flex: none;
   border-bottom: 1px solid var(--border);
 }
+/* The hosted demo's System (2026-09-25): one line under the head saying why the actions are
+   greyed out, in the same strip position the verdict takes. */
+.sys-demo-hint {
+  flex: none;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* A fieldset only for its `disabled`: it greys every control inside at once (the settings
+   forms, the credential and bot cards) and must not add a frame of its own. */
+.ro-set {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+/* Inside a pane it stands where the cards would, so it carries the pane's column and gap. */
+.sys-pane > .ro-set {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 .sv-row {
   display: grid;
   grid-template-columns: 68px auto minmax(0, 1fr) auto;

@@ -143,9 +143,34 @@ For the reader of this merge who asks where the rest came from, from the commit 
 | `permprobe` | PASS, both canaries blocked, by two different mechanisms (section 2) |
 | Private-content audit | added lines 3 matches, commit messages 1, PR draft 0, all accepted |
 
-## 8. The pull request - after the user's go
+## 8. The pull request
 
-- [ ] Push `main` to LibrisVault as a branch, open the PR from the drafted body
-      (`PR-MERGE-2026-09-25-draft.md`), scan the exact posted title and body first.
-- [ ] Merge as a merge commit (the messages are the design record), CI green on the PR.
-- [ ] Tag both remotes, delete the branch, record section 9 "as delivered".
+- [x] **Merge approved by the user 2026-09-25, after the permission probe.** `main` pushed to
+      LibrisVault as `repairs-splits-landmarks`; the PR opened from the drafted body with the
+      numbers filled in, and the exact title and body files `gh pr create` was given were scanned
+      first: nothing matched, no dashes.
+- [x] **Merged as a merge commit** once both CI runs of the four gates passed (4m13s, 4m16s).
+- [x] **Tagged `repairs-splits-landmarks-2026-09-25` on both remotes**, branch deleted.
+
+## 9. As delivered (2026-09-25)
+
+**Merged as [steinborndev/LibrisVault#17](https://github.com/steinborndev/LibrisVault/pull/17)**,
+merge commit `c52e997`, 191 commits, 161 files, +25.4k / -2.2k. `upstream/main` carries everything:
+0 commits remain above it, and its tree equals Curious `main`.
+
+| Gate | As merged |
+|---|---|
+| `npm test` | exit 0, 2,890 tests (server 2,090 / 124 files, web 800 / 75) |
+| `npm run typecheck` / `lint` / `build` | exit 0, both workspaces |
+| CI on the pull request | **green**, both runs of the four gates |
+| `permprobe` | PASS, both canaries blocked, by two different mechanisms; expand lock intact |
+| `preprocprobe` | PASS, 14 checks |
+| `vaultprobe` | PASS, all four text contracts hold |
+| Private-content audit | added lines 3 matches, commit messages 1, PR title and body 0, all accepted; three wordings generalised by hand |
+
+**Delivered beyond the plan**, found by running the finished machinery rather than reading it: a
+screenshot script that carried one shot's graph overlay into the next and into the next run; three
+flaky tests and the git housekeeping behind the red CI run; a queue that could run a later drop
+first when the clock stepped back; and seven API routes documented wrongly or not at all.
+
+**Left open:** a live `permprobe` case for the defect-fix policy (section 2).

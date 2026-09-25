@@ -171,6 +171,28 @@ describe('demo mode API guard', () => {
     expect(body.readOnly.credentialConfigured).toBe('no')
   })
 
+  it('keeps a watch-folder override out of the settings view as well', async () => {
+    // The raw overrides went out unfiltered beside the two filtered views (found 2026-09-25).
+    const secret = path.join(vaultRoot, 'private-inbox')
+    new SettingsStore(db).set({ watchFolder: secret })
+    const res = await fetch(`${baseUrl}/api/v1/settings`)
+    const text = await res.text()
+    expect(res.status).toBe(200)
+    expect((JSON.parse(text) as { overrides: { watchFolder?: string } }).overrides.watchFolder).toBe('(hidden in demo)')
+    expect(text).not.toContain(secret)
+  })
+
+  it('keeps the filesystem layout out of the stats view', async () => {
+    // The watch folder's path went out here while the settings view already hid it (found
+    // 2026-09-25, when System became browsable on the demo).
+    const res = await fetch(`${baseUrl}/api/v1/stats`)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    const body = JSON.parse(text) as { watcher: { folder: string } }
+    expect(body.watcher.folder).toBe('(hidden in demo)')
+    expect(text).not.toContain(vaultRoot)
+  })
+
   it('keeps read routes open', async () => {
     for (const route of ['/api/v1/stats', '/api/v1/graph', '/api/v1/jobs']) {
       const res = await fetch(`${baseUrl}${route}`)
@@ -380,6 +402,20 @@ describe('demo mode with the Fellows wired', () => {
     const body = (await app.inject({ method: 'GET', url: '/api/v1/health' })).json() as { demoMode?: unknown; fellows?: unknown }
     expect(body.demoMode).toBe(true)
     expect(body.fellows).toBe(true)
+  })
+
+  it('answers the expensive reads from a short cache, and only those', async () => {
+    // The pinboard's questions re-read the vault on every call (measured 40-50 ms on the demo).
+    const first = await app.inject({ method: 'GET', url: '/api/v1/questions' })
+    const second = await app.inject({ method: 'GET', url: '/api/v1/questions' })
+    expect(first.statusCode).toBe(200)
+    expect(first.headers['x-demo-cache']).toBeUndefined()
+    expect(second.headers['x-demo-cache']).toBe('hit')
+    expect(second.body).toBe(first.body)
+    expect(second.headers['content-type']).toBe(first.headers['content-type'])
+    // Health says what the instance is right now; it never comes from the cache.
+    await app.inject({ method: 'GET', url: '/api/v1/health' })
+    expect((await app.inject({ method: 'GET', url: '/api/v1/health' })).headers['x-demo-cache']).toBeUndefined()
   })
 
   it('answers every read the Library, the recaps, the reading list and the pinboard need', async () => {
