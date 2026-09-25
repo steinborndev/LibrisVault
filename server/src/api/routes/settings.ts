@@ -94,7 +94,9 @@ export function registerSettingsRoute(app: FastifyInstance, ctx: AppContext): vo
     return {
       effective: hidePaths(effectiveSettings(config, overrides)),
       baseline: hidePaths(baselineSettings(config)),
-      overrides,
+      // The raw overrides too: a demo database that carries a watch-folder override would
+      // otherwise name the path here while the two views above hide it (found 2026-09-25).
+      overrides: config.demoMode && overrides.watchFolder !== undefined ? { ...overrides, watchFolder: '(hidden in demo)' } : overrides,
       readOnly: readOnlyView(),
       /** Keys that only take effect after a service restart (bound at startup). */
       restartRequiredKeys: RESTART_REQUIRED_KEYS,

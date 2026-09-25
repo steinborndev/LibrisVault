@@ -175,7 +175,27 @@ cannot carry, 218 pages nothing linked to. It never showed, because nothing ever
       guard.
 - [x] **Private-content check**: `vault-name-scan` over the topics file finds the same four
       textbook terms as over the previous, public version; every new title read by hand.
-- [x] Gates on the final tree: `npm test` (2,091 + 800), `npm run typecheck`, `npm run lint`, all
+- [x] Gates on the final tree: `npm test` (2,093 + 800), `npm run typecheck`, `npm run lint`, all
       exit 0.
+- [x] **Security review before the deploy** (2026-09-25): the branch's diff read against the hard
+      rules, every GET route probed against a read-only demo instance (paths, traversal, the
+      write guard across eleven methods, cost per route), and the host's configuration read. No
+      high finding: nothing leaked a path or a person, traversal ended in 400 or 404 everywhere,
+      every write was refused. Fixed here:
+      - the address-map check under Standing defects sent a POST on the demo and hung on
+        "Reading the map"; it now says the check is switched off there and shows a failure when
+        one happens;
+      - `/settings` hid the watch folder in its two views and not in the raw `overrides`; now in
+        all three, with a test;
+      - the reads that re-read the vault per call (questions, reading list, a Fellow's
+        candidates, domain candidates: 40 to 63 ms each) are answered from a 60-second cache on
+        a demo instance only, where nothing changes until the host rebuilds and restarts;
+      - `/stats` ran one git scan per request arriving while its cache was cold; now one scan,
+        awaited by all of them;
+      - the generator loads everything it takes from `server/dist` before deleting anything,
+        rejects a captured run's page path that is not a plain `wiki/` path, and keeps the
+        host's git hooks, signing and identity out of the demo's history.
+      The host's side (refresh no longer as root, unit hardening, Caddy, sandboxed build) lives
+      in the host's notes, tested on the box beside the running demo.
 - [ ] Merge, the pull request into LibrisVault, and the hosted demo's update (the host's notes
       carry the procedure): each waits for the user's go.

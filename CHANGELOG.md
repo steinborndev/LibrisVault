@@ -12,7 +12,10 @@ only what a reader outside the work needs to know.
 
 A hosted demo now shows System instead of a notice: every section renders from the same reads as on
 a full instance, and every action in it is disabled, with one line saying why. `GET /api/v1/stats`
-no longer names the watch folder in demo mode, which `GET /api/v1/settings` already did not.
+no longer names the watch folder in demo mode, and `GET /api/v1/settings` no longer names it in
+its raw overrides either. On a demo instance the reads that re-read the vault on every call
+(questions, reading list, candidates) are answered from a one-minute cache, and `/stats` runs one
+git scan for a burst of requests instead of one each.
 
 The synthetic vault the screenshots and the demo are built from is rebuilt:
 `scripts/demo-vault.mjs` now makes about 1,400 pages over 25 domains, each cut into sub-areas

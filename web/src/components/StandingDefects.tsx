@@ -287,7 +287,9 @@ function ManifestRepair({ readOnly }: { readOnly: boolean }): React.ReactElement
   const plan = useQuery({
     queryKey: ['manifest-repair-plan'],
     queryFn: () => api.manifestRepairPlan(),
-    enabled: open,
+    // The plan is a POST (it reads the whole map and diffs it), which a read-only instance
+    // refuses: on the demo the section opens to say so instead of waiting for it forever.
+    enabled: open && !readOnly,
     staleTime: Infinity,
     retry: false,
   })
@@ -303,7 +305,11 @@ function ManifestRepair({ readOnly }: { readOnly: boolean }): React.ReactElement
       </button>
       {open && (
         <div className="repair-panel">
-          {plan.data === undefined ? (
+          {readOnly ? (
+            <span className="dim">Checking the map plans a repair, which is switched off in the hosted demo.</span>
+          ) : plan.error !== null ? (
+            <span className="dim">Could not read the map: {plan.error.message}</span>
+          ) : plan.data === undefined ? (
             <span className="dim">Reading the map…</span>
           ) : (
             <div className="repair-body">

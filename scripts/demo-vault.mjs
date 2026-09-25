@@ -37,6 +37,31 @@ const argOf = (name, fallback) => {
 const OUT = argOf('--out', join(homedir(), '.local/share/vault-service/demo-vault'))
 const DB = argOf('--db', join(homedir(), '.local/share/vault-service/demo-jobs.db'))
 
+/*
+ * Everything this script takes from the built server, loaded before anything is deleted: a
+ * checkout pulled but not rebuilt then fails here, with the previous vault and database still
+ * in place, instead of halfway through with one of them already gone.
+ */
+const SERVER = (m) => import(join(process.cwd(), 'server/dist', m))
+const { migrate } = await SERVER('db/index.js')
+const { createValidator } = await SERVER('pipeline/validator.js')
+const { ValidationStore } = await SERVER('db/validation.js')
+const { GraphBuilder } = await SERVER('pipeline/graph.js')
+const { ensureVaultExcludes } = await SERVER('pipeline/vault-excludes.js')
+const { ensureAutoCommitDisabled } = await SERVER('pipeline/vault-guards.js')
+const { default: Database } = await import('better-sqlite3')
+
+/**
+ * A page path a captured research run lists, as the vault-relative path it must be. The run's
+ * files are joined onto the output directory, and a `..` in one would write outside it.
+ */
+const safeRel = (rel) => {
+  if (typeof rel !== 'string' || !/^wiki\/[^\0]+\.md$/.test(rel) || rel.split('/').some((seg) => seg === '..' || seg === '')) {
+    throw new Error(`demo vault: a captured run lists an unsafe page path: ${JSON.stringify(rel)}`)
+  }
+  return rel
+}
+
 /**
  * "Now", rounded down to the hour. Dates are all relative to it, so a re-shot screenshot
  * shows a vault that was worked on recently rather than one frozen in the past - and no
@@ -282,7 +307,7 @@ const RESTORED_PATHS = new Set()
   const dir = join(process.cwd(), 'scripts/demo-research')
   for (const slug of existsSync(dir) ? readdirSync(dir) : []) {
     const runFile = join(dir, slug, 'run.json')
-    if (existsSync(runFile)) for (const rel of JSON.parse(readFileSync(runFile, 'utf8')).pages) RESTORED_PATHS.add(rel)
+    if (existsSync(runFile)) for (const rel of JSON.parse(readFileSync(runFile, 'utf8')).pages) RESTORED_PATHS.add(safeRel(rel))
   }
   const known = new Set(POPULATED.flatMap(([key]) => conceptsOf(key)))
   const walkMd = (d) => (existsSync(d) ? readdirSync(d, { withFileTypes: true }).flatMap((e) =>
@@ -832,7 +857,7 @@ if (existsSync(RESEARCH_DIR)) {
     if (!existsSync(runFile)) continue
     const run = JSON.parse(readFileSync(runFile, 'utf8'))
     const kept = []
-    for (const rel of run.pages) {
+    for (const rel of run.pages.map(safeRel)) {
       if (HUB_PAGES.has(rel)) continue
       const file = join(RESEARCH_DIR, slug, 'pages', rel)
       if (!existsSync(file)) continue
@@ -1115,7 +1140,13 @@ writeFileSync(join(OUT, '.raw', '.manifest.json'), JSON.stringify({ sources: raw
 
 /* --------------------------------------------------------------- backdated git history */
 
-const git = (a, env = {}) => execFileSync('git', a, { cwd: OUT, env: { ...process.env, ...env }, stdio: 'pipe' })
+/*
+ * The host's git settings stay out of the demo's history: no hooks and no signing from the
+ * user's global config (a commit hook would run 240 times, a signing key would be asked for),
+ * and author and committer set here rather than taken from whatever the environment carries.
+ */
+const GIT_ID = { GIT_AUTHOR_NAME: 'LibrisVault Demo', GIT_AUTHOR_EMAIL: 'demo@example.invalid', GIT_COMMITTER_NAME: 'LibrisVault Demo', GIT_COMMITTER_EMAIL: 'demo@example.invalid' }
+const git = (a, env = {}) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...a], { cwd: OUT, env: { ...process.env, ...GIT_ID, ...env }, stdio: 'pipe' })
 
 git(['init', '-q', '-b', 'vault-main'])
 git(['config', 'user.name', 'LibrisVault Demo'])
@@ -1180,10 +1211,11 @@ for (const run of capturedRuns) {
  * them it reports the vault plugin as committing too and logs two warnings every morning.
  */
 {
-  const { ensureVaultExcludes } = await import(join(process.cwd(), 'server/dist/pipeline/vault-excludes.js'))
-  const { ensureAutoCommitDisabled } = await import(join(process.cwd(), 'server/dist/pipeline/vault-guards.js'))
-  ensureVaultExcludes(OUT)
-  ensureAutoCommitDisabled(OUT)
+  const excludes = ensureVaultExcludes(OUT)
+  const flag = ensureAutoCommitDisabled(OUT)
+  if (!['written', 'present'].includes(excludes) || !['present', 'created'].includes(flag)) {
+    throw new Error(`demo vault: first-start setup did not take (excludes: ${excludes}, auto-commit flag: ${flag})`)
+  }
 }
 
 console.log(`vault:  ${OUT}`)
@@ -1191,11 +1223,9 @@ console.log(`        ${pages.length} pages, ${Object.keys(DOMAINS).length} domai
 
 /* ------------------------------------------------------------- the operational database */
 
-const { default: Database } = await import('better-sqlite3')
 mkdirSync(dirname(DB), { recursive: true })
 for (const f of [DB, `${DB}-wal`, `${DB}-shm`]) rmSync(f, { force: true })
 
-const { migrate } = await import(join(process.cwd(), 'server/dist/db/index.js'))
 const db = new Database(DB)
 migrate(db)
 
@@ -1683,9 +1713,6 @@ for (let d = 0; d <= 3; d++) {
  * with a reason, so the accepted view has an example of the third way out.
  */
 {
-  const { createValidator } = await import(join(process.cwd(), 'server/dist/pipeline/validator.js'))
-  const { ValidationStore } = await import(join(process.cwd(), 'server/dist/db/validation.js'))
-  const { GraphBuilder } = await import(join(process.cwd(), 'server/dist/pipeline/graph.js'))
   const store = new ValidationStore(db)
   // The pages a run would write and validate: knowledge pages, not the hub and meta pages the
   // service and this script write around them.
