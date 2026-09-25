@@ -124,9 +124,17 @@ For the reader of this merge who asks where the rest came from, from the commit 
   the queue in insertion order. 75 stressed runs of the git-heavy suites without a failure,
   against 3 in 90 before.
 
-## 7. As prepared
+## 7. As prepared (2026-09-25, `7f73dfb`)
 
-Filled in when the preparation is committed: gate numbers, the final scan counts.
+| Gate | Result |
+|---|---|
+| `npm test` | exit 0, **2,890 tests** (server 2,090 / 124 files, web 800 / 75) |
+| `npm run typecheck` / `lint` | exit 0, both workspaces |
+| CI on Curious | **green** on `7f73dfb`, build included |
+| Scope | 189 commits above upstream (153 without merges), 161 files, +25,385 / -2,192 |
+| `vaultprobe` / `preprocprobe` | PASS / PASS |
+| `permprobe` | **not yet run**: billable, waiting for authorisation (section 2) |
+| Private-content audit | added lines 3 matches, commit messages 1, PR draft 0, all accepted |
 
 ## 8. The pull request - after the user's go
 
