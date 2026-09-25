@@ -998,7 +998,17 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // collision list below so a page title can't overwrite a group label either.
     const regionLabelBoxes: Array<[number, number, number, number]> = []
     let spotLabel: { text: string; box: Box; hue: number; alpha: number } | null = null
-    const areaLabels: Array<{ text: string; cx: number; top: number; world: number; hue: number }> = []
+    const areaLabels: Array<{ key: number; text: string; cx: number; top: number; world: number; hue: number }> = []
+    /*
+     * The area under the pointer, in the Areas overview (2026-09-25, user decision): its hull
+     * takes a firm outline and a denser tint, and its caption is underlined in the domain's hue,
+     * so which of forty captions names the area you are on is plain at a glance. The pointer on
+     * a member node counts as on its area. Not inside one area on show, where there is one.
+     */
+    const hotArea =
+      showHulls && onlyNodes === null && clusters !== null
+        ? (hullHoverRef.current ?? (hoverRef.current !== null ? (clusters[hoverRef.current] ?? -1) : -1))
+        : -1
     // With hulls off, the spotlight still traces the HOVERED community's hull (and its label,
     // via the shared `members` map below) - the preview of what a click would isolate.
     if (clusters !== null && (showHulls || spotCid >= 0)) {
@@ -1021,8 +1031,10 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         // per-id hue only for a community with no domain at all.
         const dom = clusterDomains?.get(g.id)
         const hue = dom !== undefined ? domainHue(dom) : clusterHue(g.id)
-        ctx.fillStyle = `hsl(${hue} 60% 55% / ${0.09 * a})`
-        ctx.strokeStyle = `hsl(${hue} 60% 60% / ${0.4 * a})`
+        const hot = g.id === hotArea
+        ctx.fillStyle = `hsl(${hue} 60% 55% / ${(hot ? 0.16 : 0.09) * a})`
+        ctx.strokeStyle = hot ? `hsl(${hue} 60% 50% / ${0.85 * a})` : `hsl(${hue} 60% 60% / ${0.4 * a})`
+        ctx.lineWidth = (hot ? 2.6 : 1.4) / t.k
         // One area, drawn as the islands the layout keeps it in: every member inside a part.
         for (const part of g.parts) {
           ctx.beginPath()
@@ -1146,7 +1158,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         const dom = clusterDomains?.get(p.key)
         const hue = dom !== undefined ? domainHue(dom) : clusterHue(p.key)
         // Painted after the nodes (below), so no dot sits on a caption.
-        areaLabels.push({ text: clusterLabels!.get(p.key)!, cx: bcx, top: bcy - hh, world: Math.min(drawnWorld, LABEL_MAX_SCREEN_PX / t.k), hue })
+        areaLabels.push({ key: p.key, text: clusterLabels!.get(p.key)!, cx: bcx, top: bcy - hh, world: Math.min(drawnWorld, LABEL_MAX_SCREEN_PX / t.k), hue })
         regionLabelBoxes.push(drawnBox)
       }
       // The spotlight's label (lib/spotLabel.ts): measured in SCREEN pixels, placed clear of the
@@ -1566,7 +1578,16 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const toSx = (x: number): number => w / 2 + t.x + x * t.k
       const toSy = (y: number): number => h / 2 + t.y + y * t.k
       // The Areas captions in the spotlight label's voice (lib/spotLabel.ts), at their zoom size.
-      for (const l of areaLabels) paintRegionLabel(ctx, l.text, toSx(l.cx), toSy(l.top), l.world * t.k, { ...colors, hue: l.hue })
+      for (const l of areaLabels) {
+        const px = l.world * t.k
+        paintRegionLabel(ctx, l.text, toSx(l.cx), toSy(l.top), px, { ...colors, hue: l.hue })
+        if (l.key !== hotArea) continue
+        // The hovered area's caption, underlined in its hue - the ink its # marks already wear.
+        ctx.font = regionFont(px)
+        const tw = ctx.measureText(l.text).width
+        ctx.fillStyle = `hsl(${l.hue} 62% ${darkSurface ? 68 : 48}%)`
+        ctx.fillRect(toSx(l.cx) - tw / 2, toSy(l.top) + px * 1.18, tw, Math.max(2, px * 0.1))
+      }
       ctx.restore()
     }
     if (spotLabel !== null) {

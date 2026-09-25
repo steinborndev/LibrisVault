@@ -1921,7 +1921,10 @@ function GraphView({
           // …and the mode frames what it paints: the landmarks when it comes on, one
           // neighbourhood while one is open, the landmarks again when Escape closes it, and the
           // whole domain when it goes off. `fitSubset` says which nodes that is.
-          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}|a${areaAt ?? ''}`}
+          // Areas is here too (2026-09-25): its hulls reach a padding beyond their nodes and its
+          // captions stand above them, so switching it on without a fit cut the top off the
+          // picture, and only stepping the areas and back framed it.
+          fitKey={`${wing ?? ''}|${[...selectedDomains].sort().join(',')}|${[...selectedTypes].sort().join(',')}|${localDepth}|${focusPath ?? ''}|${showGaps}|${showSystem}|${query.trim()}|${tagFilter?.tag ?? ''}:${tagFilter?.around ?? ''}|${clusterStack.length}:${clusterFocus?.anchor ?? ''}|${fullscreen}|v${visits}|f${fitNonce}|lm${landmarkDomain ?? ''}:${bloom ?? ''}|h${showClusters ? 1 : 0}|a${areaAt ?? ''}`}
           fitSubset={areaOnly ?? landmarkView?.framed ?? null}
           onlyNodes={areaOnly}
           // A click in an area shows it alone - the stepper's stop for that community; Esc goes
