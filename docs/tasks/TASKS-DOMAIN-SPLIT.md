@@ -1005,7 +1005,7 @@ Nothing of this branch merges before this: phase 8 is the gate of the one merge.
       same parent twice more (`de82eb3`, 120 pages; `6356f68`, 44 pages), both as clean as the
       first by the same checks. Then four ingests ran. None of their 20 new pages went to a child,
       and none belonged there; but the naming pass had rewritten the parent from what it was
-      shown, so "biology and medicine" had become one therapy class, and one general paper's 3
+      shown, so the parent's broad scope had narrowed to a single sub-topic, and one general paper's 3
       pages found no domain at all (`unassigned`, 12 to 15 knowledge pages). The analysis's R1
       risk inverted: not a parent that claims too much, one that claims too little. Fixed in code
       (`fix(domains): the naming pass narrows the parent by what left …`: start from the current

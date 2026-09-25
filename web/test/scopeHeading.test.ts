@@ -25,21 +25,21 @@ describe('scopeHeading', () => {
   it('names an open neighbourhood after the heading, whatever the heading is', () => {
     // It REFINES rather than replaces: the reader has narrowed the drawing around one page and
     // wants to know which, without looking away from it.
-    expect(scopeHeading(new Set(['materials']), null, null, 'Carbon Fibre')).toEqual({
-      text: 'materials',
-      domain: 'materials',
-      bloom: 'Carbon Fibre',
+    expect(scopeHeading(new Set(['alpha']), null, null, 'Page Alpha')).toEqual({
+      text: 'alpha',
+      domain: 'alpha',
+      bloom: 'Page Alpha',
     })
-    expect(scopeHeading(new Set(), 'Wing A', null, 'Carbon Fibre')).toMatchObject({ text: 'Wing A', bloom: 'Carbon Fibre' })
+    expect(scopeHeading(new Set(), 'Wing A', null, 'Page Alpha')).toMatchObject({ text: 'Wing A', bloom: 'Page Alpha' })
   })
 
   it('leaves the field out entirely when nothing is expanded', () => {
     // Absent rather than undefined: the component asks whether the key is there.
-    expect('bloom' in scopeHeading(new Set(['materials']), null)).toBe(false)
+    expect('bloom' in scopeHeading(new Set(['alpha']), null)).toBe(false)
   })
 
   it('still lets a tag outrank both', () => {
-    const h = scopeHeading(new Set(['materials']), null, { name: 'crystal', around: null }, 'Carbon Fibre')
+    const h = scopeHeading(new Set(['alpha']), null, { name: 'crystal', around: null }, 'Page Alpha')
     expect(h.text).toBe('#crystal')
     expect(h.bloom).toBeUndefined()
   })

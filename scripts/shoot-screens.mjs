@@ -63,11 +63,30 @@ const SHOTS = [
   {
     file: 'graph.png',
     route: '/graph',
+    prefs: {},
     // Any canvas, not the first: the screen also mounts a zero-sized offscreen one, and
     // querySelector picks that up and never settles.
     settle: `[...document.querySelectorAll('canvas')].some((c) => c.getBoundingClientRect().height > 300)`,
     // A vault-sized graph (800+ nodes, 4k edges) takes far longer to settle than a toy one.
     hold: 24000,
+  },
+  {
+    // Areas over one domain: every community a tinted hull with its tags as a caption. The
+    // deepest demo domain, because the captions are what a single colour cannot show.
+    file: 'graph-areas.png',
+    route: '/graph',
+    prefs: { selectedDomains: ['astronomy'], showClusters: true },
+    settle: `[...document.querySelectorAll('canvas')].some((c) => c.getBoundingClientRect().height > 300)`,
+    hold: 20000,
+  },
+  {
+    // The Landmarks overlay: the pages a domain is built around, spread and named in full, and
+    // the reading order beside them. In the page-type view, so the numbers wear their colours.
+    file: 'graph-landmarks.png',
+    route: '/graph',
+    prefs: { lens: 'type', selectedDomains: ['astronomy'], landmarks: 'astronomy', landmarksOn: true },
+    settle: `document.querySelectorAll('.lm-line').length > 5`,
+    hold: 20000,
   },
   {
     file: 'research.png',
@@ -240,8 +259,23 @@ await send('Emulation.setDeviceMetricsOverride', {
 /** `ONLY=home-night.png` re-shoots one without disturbing the twelve that are already good. */
 const only = process.env.ONLY ? new Set(process.env.ONLY.split(',')) : null
 
+/**
+ * The graph screen keeps its view in localStorage, and this script drives ONE browser tab, so
+ * whatever the last shot (or the last run) switched on is still on for the next one - a
+ * Landmarks shot would leave every later graph shot in Landmarks. A shot with `prefs` states
+ * its view instead: the defaults below, overridden by its own fields, written before it loads.
+ */
+const GRAPH_DEFAULTS = { v: 2, lens: 'domain', selectedTypes: [], selectedDomains: [], showClusters: false, showGaps: false, showNetwork: false, spotlight: false, showSystem: false, landmarks: null, landmarksOn: false }
+
 for (const shot of SHOTS) {
   if (only && !only.has(shot.file)) continue
+  if (shot.prefs !== undefined) {
+    // Written on the service's own origin, which is where the page must be for it to count.
+    await send('Page.navigate', { url: BASE + '/' })
+    await sleep(800)
+    const prefs = JSON.stringify({ ...GRAPH_DEFAULTS, ...shot.prefs })
+    await evaluate(`localStorage.setItem('vault.graphPrefs', ${JSON.stringify(prefs)}); localStorage.removeItem('vault.graphFreeze'); true`)
+  }
   await send('Page.navigate', { url: BASE + shot.route })
   /*
    * 60 seconds, not 20 (2026-09-17). A screen whose data comes from a cold query cache can

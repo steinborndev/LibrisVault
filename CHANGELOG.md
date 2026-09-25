@@ -8,6 +8,54 @@ was and the day it landed. The entries below are those merges, newest first. The
 journals under `docs/tasks/` carry the detail, findings and dead ends included; this file carries
 only what a reader outside the work needs to know.
 
+## 2026-09-25 - the graph's Landmarks and Areas, and System as a map
+
+The graph could colour and filter a domain but not say what it is built around; this adds an
+overlay that does, and makes the community overlays legible on a whole vault. The System screen is
+rebuilt around what needs the user rather than around where its figures come from. No new runtime
+dependency, no new route beyond one small one, no change to how anything is written to the vault.
+
+### Added
+
+- **The Landmarks overlay** (`docs/tasks/TASKS-LANDMARKS.md`, SPEC.md 12.4): for one domain, only
+  the pages it is built around, spread over the drawing and named in full, with a numbered reading
+  order beside them. A landmark's neighbourhood opens from its dot or its number; the authority and
+  recency colours span what is drawn. The switch holds across a change of domain and the domain
+  arrows skip the domains too small for it.
+- **Areas you can read**: captions in the display face, placed clear of the dots and of each
+  other; `a` and `d` step through the areas one at a time, a click shows one alone, a click on a
+  page opens it, and the area under the pointer is outlined.
+- A Shortcuts card per mode: Landmarks, Areas and Spotlight each list what they bind, and the lock
+  replaces the click and Escape lines while it is closed.
+- The reading view carries the graph panel's three link lists: backlinks, links to, related by tag.
+- `DELETE /api/v1/maintenance/state/:runId` forgets one run's kept settle.
+- `npm run graphprobe`, the graph layout measured over a running service.
+
+### Changed
+
+- **System is a map of the machine room**: Overview, one page per maintenance area, Insight
+  (usage, vault stats with pages per domain, one history of runs and commits) and Settings in
+  three groups plus the instance. Every figure stands in one place; old `?section=` links resolve.
+- **The queue runs jobs in the order they were queued**, by SQLite's insertion counter rather than
+  by `created_at`: the wall clock can step back under load, and a later drop could run first.
+- Community detection weighs a link between two domains at 0.1 of one inside a domain (was 0.25):
+  a small domain was folded into a large neighbour over a few bridges.
+- **Tags that name a kind of page are not subjects**: `person`, `organization`, `video` and their
+  like no longer caption an area or make two pages "related by tag", and a page from another
+  domain needs two subject tags in common to count as related.
+- The selected node wears one ink ring in every view, and so does an open neighbourhood's landmark.
+- The recency lens rises to the domain's colour when one domain is on show.
+
+### Fixed
+
+- A zoom over a whole vault with Areas on ran at about 780 ms a frame; caption placement is now
+  bounded by the hulls in reach, cached per arrangement and kept while the view moves (17 ms).
+- Switching Areas on did not re-fit the drawing and cut off its top edge.
+- The fit and the landmark spread no longer draw under the lens legend or the corner controls, and
+  a change of lens no longer moves the picture.
+- CI teardowns raced a detached `git gc` in the test vaults; the tests switch git's housekeeping
+  off, wait for background notebook commits, and use a clock that never runs backwards.
+
 ## 2026-09-23 - splitting an oversized domain into peers
 
 The domain registry knew how a domain is born from pages that fit nothing, and nothing about a

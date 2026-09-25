@@ -3084,7 +3084,7 @@ button {
    past the block's right edge rather than shorten what stands before it. */
 .mid-after { flex: none; display: inline-flex; align-items: center; margin-left: 12px; }
 /* The domain's name gets a slot of its own beside the ring, like the reading list's name: wide
-   enough for the longest domain in the registry (lipid-nanoparticle-engineering, 212px at this
+   enough for the longest domain key in use (a thirty-character key comes to 212px at this
    size), so the first dot stands at one x for every domain and walking the domains moves
    nothing but letters. A longer one truncates rather than pushing the ring. The ring is what
    runs past the block. */
