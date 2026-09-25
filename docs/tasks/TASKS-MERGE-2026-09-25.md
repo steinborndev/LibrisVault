@@ -33,12 +33,19 @@ nothing to rebase and no conflict to resolve.
 
 ## 2. Probes
 
-- [ ] **`permprobe` - DUE, and waiting for authorisation because it is billable.**
-      `server/src/pipeline/permissions.ts` gained 54 lines and `agent-runner.ts` 11 in this merge
-      (`fc6e90d`, a defect fix bound to the pages of its findings: a second policy beside the
-      expand lock). That is exactly the change hard rule 4 names. Run as
-      `VAULT_ROOT=$HOME/vault npm run permprobe`; expect both canaries blocked, and read which
-      mechanism refused each (last time the sandbox and the upstream guard, two different ones).
+- [x] **`permprobe` - DONE 2026-09-25, run with authorisation because it is billable. PASS.**
+      Due because `permissions.ts` gained 54 lines and `agent-runner.ts` 11 (`fc6e90d`, a defect
+      fix bound to the pages of its findings). `canary outside vault: blocked`, `canary in
+      skills/: blocked`, and again by two DIFFERENT mechanisms: `/tmp` came back `Read-only file
+      system` (the OS sandbox), the `skills/` write was refused by the tool policy in-process. The
+      expand probe's five checks all ok, three denials in its throwaway vault. The vault's git
+      state was clean before and after, at the same head; no canary remained.
+      **What the probe does not cover, stated rather than implied:** it has no case for the NEW
+      policy. That policy is a branch of the same `PreToolUse` guard the expand checks just showed
+      the SDK consulting, and its logic is exercised through that guard in
+      `server/test/defect-fix.test.ts`; the live bound runs of `TASKS-DEFECT-PATHS.md` phase 4
+      ran under it. A live defect-fix case in `permprobe` would close the gap and is left as a
+      follow-up, because it costs a run for a branch whose wiring the probe already proves.
 - [x] **`vaultprobe` - DONE 2026-09-25, PASS.** All four text contracts hold; the vault's git state
       was clean before and after.
 - [x] **`preprocprobe` - DONE 2026-09-25, PASS, 14 checks.** Not strictly due (the converters are
@@ -133,7 +140,7 @@ For the reader of this merge who asks where the rest came from, from the commit 
 | CI on Curious | **green** on `7f73dfb`, build included |
 | Scope | 189 commits above upstream (153 without merges), 161 files, +25,385 / -2,192 |
 | `vaultprobe` / `preprocprobe` | PASS / PASS |
-| `permprobe` | **not yet run**: billable, waiting for authorisation (section 2) |
+| `permprobe` | PASS, both canaries blocked, by two different mechanisms (section 2) |
 | Private-content audit | added lines 3 matches, commit messages 1, PR draft 0, all accepted |
 
 ## 8. The pull request - after the user's go
