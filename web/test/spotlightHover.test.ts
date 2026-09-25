@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   HULL_PAD,
+  positionsKey,
   SPOT_FADE_MS,
   SPOT_HIDE_DELAY_MS,
   SPOT_IDLE,
@@ -151,5 +152,21 @@ describe('an area holds every one of its members', () => {
     const disc = paddedPart(parts[1]!)
     expect(pointInPolygon(1000 + HULL_PAD * 0.9, 0, disc)).toBe(true)
     expect(pointInPolygon(1000 + HULL_PAD * 1.1, 0, disc)).toBe(false)
+  })
+})
+
+describe('positionsKey', () => {
+  it('holds while nothing moves and changes when one node does', () => {
+    const pos = new Float32Array([0, 0, 10.5, -3, 42, 7])
+    const same = new Float32Array(pos)
+    expect(positionsKey(pos, 3)).toBe(positionsKey(same, 3))
+    same[3] = -3.2
+    expect(positionsKey(pos, 3)).not.toBe(positionsKey(same, 3))
+  })
+
+  it('reads only the first `count` nodes and a missing position alike', () => {
+    const a = new Float32Array([1, 2, NaN, NaN, 5, 5])
+    const b = new Float32Array([1, 2, NaN, NaN, 9, 9])
+    expect(positionsKey(a, 2)).toBe(positionsKey(b, 2))
   })
 })

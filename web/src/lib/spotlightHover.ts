@@ -147,6 +147,22 @@ export interface SpotGeom extends ClusterGeom {
 }
 
 /**
+ * A fingerprint of the first `count` positions (x, y pairs), to the hundredth of a world unit:
+ * equal while nothing has moved, different as soon as anything has. It is what the hull
+ * geometry is cached under - a zoom, a pan or a hover redraws the picture without moving a
+ * node, and rebuilding every community's hull for each of those frames was a tenth of a
+ * second's work per frame on the whole vault (measured 2026-09-25).
+ */
+export function positionsKey(pos: ArrayLike<number>, count: number): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < count * 2; i++) {
+    const v = pos[i]!
+    h = Math.imul(h ^ (Number.isNaN(v) ? 0x7fc00000 : Math.round(v * 100)), 16777619)
+  }
+  return h
+}
+
+/**
  * Every community's geometry from the current positions. `paints` is the same filter the
  * drawing applies (a node the landmark mask hides is neither drawn nor wrapped), and `only`
  * narrows the work to one community when that is all the frame needs.

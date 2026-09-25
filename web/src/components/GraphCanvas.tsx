@@ -44,6 +44,7 @@ import {
   HULL_PAD,
   SPOT_IDLE,
   buildSpotGeoms,
+  positionsKey,
   placeSpotLabel,
   pointInPolygon,
   resolveAreaCid,
@@ -653,6 +654,38 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
   const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i, onlyRef.current), [])
 
+  /**
+   * Every community's geometry, the one the draw traces and the pointer, the cursor, the area
+   * click and the zoom magnet read. Built once per ARRANGEMENT - the positions, the
+   * communities, and what the mask paints - and not once per frame: a zoom or a hover redraws
+   * without moving anything, and the rebuild (twice per wheel step, the magnet asking as well)
+   * was the second-largest cost of a frame with Areas on (2026-09-25).
+   */
+  /** The captions' last placement and the view it was made for (see the caption pass in `draw`). */
+  const placementRef = useRef<{ geoms: SpotGeom[]; labels: ReadonlyMap<number, string> | undefined; on: boolean; view: string; placed: PlacedRegionLabel[] } | null>(null)
+  /** The view the previous frame was drawn in: a frame in another one is a frame of a motion. */
+  const lastViewRef = useRef('')
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current)
+    },
+    [],
+  )
+  const geomCacheRef = useRef<{ key: number; clusters: ArrayLike<number>; mask: unknown; only: unknown; count: number; geoms: SpotGeom[] } | null>(null)
+  const geomsNow = useCallback(
+    (cl: ArrayLike<number>, pos: ArrayLike<number>): SpotGeom[] => {
+      const key = positionsKey(pos, nodes.length)
+      const c = geomCacheRef.current
+      if (c !== null && c.key === key && c.clusters === cl && c.mask === maskRef.current && c.only === onlyRef.current && c.count === nodes.length)
+        return c.geoms
+      const geoms = buildSpotGeoms(cl, pos, nodes.length, isPainted)
+      geomCacheRef.current = { key, clusters: cl, mask: maskRef.current, only: onlyRef.current, count: nodes.length, geoms }
+      return geoms
+    },
+    [nodes.length, isPainted],
+  )
+
   // Neighbor sets for hover highlighting (undirected view of the directed edges).
   const neighbors = useMemo(() => {
     const map = new Map<number, Set<number>>()
@@ -804,8 +837,6 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    // Anything worth redrawing may have moved the world - invalidate the hull hit cache.
-    drawEpochRef.current++
     // Cleared up front, set at the end: every early return below leaves an empty canvas.
     paintedRef.current = false
     const pos = (displayRef.current ?? positionsRef.current)
@@ -973,7 +1004,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     if (clusters !== null && (showHulls || spotCid >= 0)) {
       // The one geometry (lib/spotlightHover.ts): the pointer, the cursor and the click test
       // the smoothed outline of exactly these padded hulls.
-      const geoms = buildSpotGeoms(clusters, pos, nodes.length, paints, showHulls ? null : spotCid)
+      const all = geomsNow(clusters, pos)
+      const geoms = showHulls ? all : all.filter((g) => g.id === spotCid)
       const members = new Map<number, Pt[]>()
       ctx.lineWidth = 1.4 / t.k
       const paddedHulls = new Map<number, Pt[]>()
@@ -1025,38 +1057,72 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const labelH = showHulls ? Math.min(LABEL_H_MAX, Math.max(LABEL_H_MIN, span * LABEL_H_OF_SPAN)) : SPOT_LABEL_PX / t.k
       const fontWorld = labelH * 0.82
       ctx.font = regionFont(fontWorld)
-      const labelInputs: RegionLabelInput[] = []
-      // `?labels=off`: an empty input list keeps the whole region-label pass inert. The
-      // spotlight's own label has a placement of its own (below), so it stays out of this one,
-      // and so does a single area on show: the scope line over the drawing already names it.
-      if (showLabels && showHulls && onlyNodes === null) {
-        for (const [cid, pts] of members) {
-          const label = clusterLabels?.get(cid)
-          if (label === undefined || !paddedHulls.has(cid)) continue
-          labelInputs.push({ key: cid, width: ctx.measureText(label).width, weight: pts.length })
+      /*
+       * Where the captions go. The search is the costly part of a frame (a few dozen captions,
+       * a hundred candidates each, every hull in reach), so its answer is kept and asked for
+       * again only when it can have changed (2026-09-25):
+       *  - the same arrangement and the same view (a hover, a fade): the last answer, as is;
+       *  - the view MOVING (a wheel step, a pan, a camera animation - any frame whose view is
+       *    not the last frame's): the last answer too. The captions stand in world units, so
+       *    they travel with the map; only what counts as in the frame, and which dots lie
+       *    under them, is from the view the motion began in. A redraw PLACEMENT_SETTLE_MS
+       *    after the last moving frame places them for the view the motion ended in;
+       *  - a new arrangement, or the view at rest on a new spot: placed afresh.
+       */
+      const view = `${t.x}|${t.y}|${t.k}|${w}|${h}`
+      const moving = view !== lastViewRef.current
+      lastViewRef.current = view
+      const on = showLabels && showHulls && onlyNodes === null
+      const kept = placementRef.current
+      const sameWorld = kept !== null && kept.geoms === all && kept.labels === clusterLabels && kept.on === on
+      const place = (): PlacedRegionLabel[] => {
+        const labelInputs: RegionLabelInput[] = []
+        // `?labels=off`: an empty input list keeps the whole region-label pass inert. The
+        // spotlight's own label has a placement of its own (below), so it stays out of this one,
+        // and so does a single area on show: the scope line over the drawing already names it.
+        if (showLabels && showHulls && onlyNodes === null) {
+          for (const [cid, pts] of members) {
+            const label = clusterLabels?.get(cid)
+            if (label === undefined || !paddedHulls.has(cid)) continue
+            labelInputs.push({ key: cid, width: ctx.measureText(label).width, weight: pts.length })
+          }
         }
-      }
-      // Captions keep off the dots as well as off the tints and each other (2026-09-24).
-      let nodesUnder: ((box: Box) => number) | null = null
-      if (labelInputs.length > 0) {
-        const discs: Array<{ x: number; y: number; r: number }> = []
-        for (let i = 0; i < nodes.length; i++) {
-          if (!paints(i)) continue
-          const x = pos[i * 2]!
-          const y = pos[i * 2 + 1]!
-          if (Number.isNaN(x) || !visible(x, y)) continue
-          discs.push({ x, y, r: radius(i) })
+        // Captions keep off the dots as well as off the tints and each other (2026-09-24).
+        let nodesUnder: ((box: Box) => number) | null = null
+        if (labelInputs.length > 0) {
+          const discs: Array<{ x: number; y: number; r: number }> = []
+          for (let i = 0; i < nodes.length; i++) {
+            if (!paints(i)) continue
+            const x = pos[i * 2]!
+            const y = pos[i * 2 + 1]!
+            if (Number.isNaN(x) || !visible(x, y)) continue
+            discs.push({ x, y, r: radius(i) })
+          }
+          nodesUnder = discCounter(discs, 40)
         }
-        nodesUnder = discCounter(discs, 40)
+        return placeRegionLabels(
+          labelInputs,
+          paddedHulls,
+          labelH,
+          labelH * 0.45,
+          [minX + margin, minY + margin, maxX - margin, maxY - margin],
+          nodesUnder,
+        )
       }
-      const placedLabels = placeRegionLabels(
-        labelInputs,
-        paddedHulls,
-        labelH,
-        labelH * 0.45,
-        [minX + margin, minY + margin, maxX - margin, maxY - margin],
-        nodesUnder,
-      )
+      let placedLabels: PlacedRegionLabel[]
+      if (sameWorld && (kept.view === view || moving)) {
+        placedLabels = kept.placed
+        if (kept.view !== view) {
+          if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current)
+          settleTimerRef.current = setTimeout(() => {
+            settleTimerRef.current = null
+            scheduleDrawRef.current?.()
+          }, PLACEMENT_SETTLE_MS)
+        }
+      } else {
+        placedLabels = place()
+        placementRef.current = { geoms: all, labels: clusterLabels, on, view, placed: placedLabels }
+      }
       // Keep the glyphs legible without ever moving them: clamp the on-screen size, then
       // grow each reserved box by the same factor. Shrinking (zoomed in) always fits;
       // growing (zoomed out) may not, and those labels are dropped rather than displaced.
@@ -1524,7 +1590,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, authorityOf, landmarkMask, onlyNodes, positionsRef, transformRef])
+  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, authorityOf, landmarkMask, onlyNodes, positionsRef, transformRef, geomsNow])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -2118,32 +2184,16 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   )
 
   /**
-   * Community-hull hit-test for the spotlight (screen coords → isolatable cid, or -1): the
-   * whole tinted hull is one hover/click surface, so the highlight doesn't flicker off
-   * between member nodes and isolating doesn't demand a precise node hit. Padded hulls are
-   * rebuilt lazily, at most once per DRAWN frame - positions drift while the layout cools,
-   * and the draw epoch is the cheapest "world changed" signal there is. Overlapping hulls
-   * (a dense domain's sub-communities interleave) resolve to the nearest member's community.
-   * Spanning communities (nothing to isolate) are skipped, mirroring isolatableCidOf.
-   */
-  const drawEpochRef = useRef(0)
-  const clusterGeomRef = useRef<{ epoch: number; geoms: SpotGeom[] }>({ epoch: -1, geoms: [] })
-  /**
    * Every community's geometry - the SAME one the draw traces (lib/spotlightHover.ts: world
    * padding, painted members only, the smoothed outline). The hull hit-test, the cursor, the
-   * area click and the zoom magnet (graphZoom.ts) all read it. Rebuilt when the world changed
-   * (the draw epoch), never per query.
+   * area click and the zoom magnet (graphZoom.ts) all read it.
    */
   const clusterGeoms = useCallback((): SpotGeom[] => {
     if (clusters === null) return []
     const pos = (displayRef.current ?? positionsRef.current)
     if (pos.length < nodes.length * 2) return []
-    const cache = clusterGeomRef.current
-    if (cache.epoch === drawEpochRef.current) return cache.geoms
-    cache.epoch = drawEpochRef.current
-    cache.geoms = buildSpotGeoms(clusters, pos, nodes.length, isPainted)
-    return cache.geoms
-  }, [clusters, nodes.length, positionsRef, isPainted])
+    return geomsNow(clusters, pos)
+  }, [clusters, nodes.length, positionsRef, geomsNow])
 
   /** A community a click could isolate: a proper subset of the visible real pages. */
   const isolatable = useCallback(
@@ -2942,6 +2992,13 @@ export interface PlacedRegionLabel {
 
 /** Angular resolution of the escape search. 16 directions ≈ every 22.5°, up first. */
 const LABEL_ANGLES = 16
+/**
+ * How long the view has to hold still before the Areas captions are placed for it again. Below
+ * this they ride along with the map as they were placed; a wheel step's frames come about 16ms
+ * apart, so a gesture never waits on the search, and a stop shows the new placement within a
+ * glance.
+ */
+const PLACEMENT_SETTLE_MS = 120
 /** Radial tiers between "hugging the hull" and the travel cap. */
 const LABEL_TIERS = 6
 /**
@@ -3010,6 +3067,14 @@ export function placeRegionLabels(
   const inFrame = (b: Box): boolean =>
     view === null || (b[0] >= view[0] && b[1] >= view[1] && b[2] <= view[2] && b[3] <= view[3])
   const order = [...labels].sort((a, b) => b.weight - a.weight || a.key - b.key)
+  /*
+   * Every hull's bounding box, so a candidate is tested point by point only against the hulls
+   * whose box it touches. Without it every candidate of every caption walked every hull's
+   * outline - several hundred points each - and on the whole vault that was 89% of a 780ms
+   * frame (measured 2026-09-25). The answer is the same: a box that misses a hull's bounds
+   * misses the hull.
+   */
+  const bounds = new Map([...hulls].map(([cid, poly]) => [cid, polygonBounds(poly)]))
   const placedBoxes: Box[] = []
   const out: PlacedRegionLabel[] = []
 
@@ -3045,7 +3110,7 @@ export function placeRegionLabels(
         let penalty = (out_ / Math.max(radius, 1)) * PENALTY_DISTANCE
         if (!inFrame(box)) penalty += PENALTY_OFFSCREEN
         for (const [cid, poly] of hulls) {
-          if (!boxIntersectsPolygon(box, poly)) continue
+          if (!boxesOverlap(box, bounds.get(cid)!) || !boxIntersectsPolygon(box, poly)) continue
           penalty += cid === label.key ? PENALTY_OWN_HULL : PENALTY_FOREIGN_HULL
         }
         if (nodesUnder !== null) penalty += Math.min(3, nodesUnder(box)) * PENALTY_NODE
