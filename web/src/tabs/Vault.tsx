@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { isKnowledgeNode } from '../lib/knowledge.ts'
 import type { GraphNode, VaultGraph, ValidationFinding, RepairTask } from '../api/types.ts'
-import { GraphCanvas, domainColor, TYPE_VARS, authorityDomain, authorityGradient, isDarkSurface, type Lens } from '../components/GraphCanvas.tsx'
+import { GraphCanvas, domainColor, TYPE_VARS, authorityDomain, authorityGradient, inkOnColor, isDarkSurface, nodeColorer, recencyDomain, type Lens } from '../components/GraphCanvas.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { Icon } from '../components/Icon.tsx'
 import { DomainSection } from '../components/DomainSection.tsx'
@@ -1251,6 +1251,38 @@ function GraphView({
    * accessor, so the legend and the ramp can never state different numbers - inside the mode
    * both count backlinks from inside the domain.
    */
+  /** The one domain on show, whose colour the authority bar and the recency ramp wear. */
+  const oneDomainHue = selectedDomains.size === 1 ? domainColor([...selectedDomains][0]!) : null
+  /** The dates the recency ramp spans in the Landmarks mode - its legend's two ends. */
+  const recencySpan = useMemo(() => recencyDomain(landmarkMask, nodes, realCount), [landmarkMask, nodes, realCount])
+  /*
+   * The landmark list's numbers in the colours of their dots, in every view (2026-09-25, user
+   * decision; the page-type view alone before): the same `nodeColorer` the canvas paints with,
+   * over the same pages, so a number and its dot cannot disagree. The ink is the dot's too -
+   * white, the ground or the text colour, whichever reads on the fill.
+   */
+  const landmarkFill = useMemo(() => {
+    if (landmarkMask === null) return null
+    const index = new Map(nodes.map((n, i) => [n.path, i] as const))
+    const sortedAuth = lens === 'authority' ? authorityDomain(landmarkMask, nodes, realCount) : null
+    const colorOf = nodeColorer({
+      lens,
+      nodes,
+      mask: landmarkMask,
+      authoritySorted: sortedAuth !== null && sortedAuth.length >= 2 ? sortedAuth : null,
+      recencySorted: lens === 'recency' ? recencySpan : null,
+      recencyHue: oneDomainHue,
+    })
+    const styles = getComputedStyle(document.documentElement)
+    const inks = [styles.getPropertyValue('--bg').trim() || '#ffffff', styles.getPropertyValue('--text').trim() || '#1a2333']
+    return (path: string): { fill: string; ink: string } | null => {
+      const i = index.get(path)
+      if (i === undefined) return null
+      const fill = colorOf(i)
+      return { fill, ink: inkOnColor(fill, inks) ?? 'var(--accent-ink)' }
+    }
+  }, [landmarkMask, nodes, realCount, lens, recencySpan, oneDomainHue])
+
   const authority = useMemo(() => {
     const ins = authorityDomain(landmarkMask, nodes, realCount)
     return ins.length > 0 ? { min: ins[0]!, median: ins[ins.length >> 1]!, max: ins[ins.length - 1]! } : null
@@ -1917,6 +1949,8 @@ function GraphView({
           ghostIndices={ghostIndices}
           matches={matches}
           lens={effectiveLens}
+          // One domain on show: the recency ramp rises to its colour rather than to the green.
+          recencyHue={oneDomainHue}
           clusters={clusterIds}
           clusterLabels={clusterLabels}
           clusterDomains={clusterDomains}
@@ -2158,7 +2192,9 @@ function GraphView({
                 authority={authority}
                 /* One domain filtered = one hue on screen, so the bar can wear it. With
                    several there is no single hue and the accent stands for the ramp's shape. */
-                authorityHue={selectedDomains.size === 1 ? domainColor([...selectedDomains][0]!) : null}
+                authorityHue={oneDomainHue}
+                recencyHue={oneDomainHue}
+                recency={recencySpan === null ? null : { oldest: recencySpan[0]!, newest: recencySpan[recencySpan.length - 1]! }}
               />
               {/*
                 * Both in the bottom RIGHT corner, side by side: these two are about the canvas
@@ -2239,12 +2275,8 @@ function GraphView({
             // The list follows the page-type chips (and every other filter) the drawing follows.
             shown={drawnPaths}
             titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
-            // In the page-type view each number is filled with its dot's type colour.
-            fillOf={(path) => {
-              if (lens !== 'type') return null
-              const type = graph.nodes.find((n) => n.path === path)?.type
-              return `var(${(type !== undefined ? TYPE_VARS[type] : undefined) ?? '--muted'})`
-            }}
+            // Each number is filled with its dot's colour, in whichever view is on.
+            fillOf={(path) => landmarkFill?.(path) ?? null}
             selected={selection?.kind === 'page' ? selection.path : null}
             bloom={bloom}
             neighbourhood={landmarkView?.neighbourhood ?? []}
@@ -2324,15 +2356,15 @@ function LandmarkList({
   onPick: (path: string) => void
   /** Open a landmark's neighbourhood from its row, without finding its dot first. */
   onBloom: (path: string) => void
-  /** The fill of a row's number (its dot's colour in the page-type view), or null for a ring. */
-  fillOf: (path: string) => string | null
+  /** The fill of a row's number and the ink on it (its dot's colour in the view on), or null for a ring. */
+  fillOf: (path: string) => { fill: string; ink: string } | null
   /** The pages in the drawing: a landmark the filters leave out is left out of the list too. */
   shown: ReadonlySet<string>
 }): React.ReactElement {
   /** A row's number: a ring, or a disc in its dot's colour with the ink that reads on it. */
   const numStyle = (path: string): React.CSSProperties | undefined => {
-    const fill = fillOf(path)
-    return fill === null ? undefined : { background: fill, borderColor: fill, color: 'var(--accent-ink)' }
+    const f = fillOf(path)
+    return f === null ? undefined : { background: f.fill, borderColor: f.fill, color: f.ink }
   }
   /*
    * The rows the drawing has (2026-09-24, user decision): a landmark the page-type chips or
@@ -3033,6 +3065,16 @@ function GraphPanel({
   /** Hovering a pill previews its meaning; leaving falls back to the one in force. */
   const [lensPreview, setLensPreview] = useState<Lens | null>(null)
   const shownLens = LENSES.find((l) => l.key === (lensPreview ?? lens)) ?? LENSES[0]!
+  // The recency ramp says a different thing by what is on show (2026-09-25): the green over the
+  // whole vault, the one domain's colour over one, and over the landmarks the newest of THEM.
+  const lensDesc =
+    shownLens.key !== 'recency'
+      ? shownLens.desc
+      : landmarks
+        ? 'stronger = newer of these'
+        : selectedDomains.size === 1
+          ? 'stronger = new in 3 weeks'
+          : shownLens.desc
   /** One strip of two lens pills; the radio still spans every strip. */
   const lensStrip = ([a, b]: readonly [Lens, Lens]): React.ReactElement => (
     <div className="lib-strip gp-lens" key={a}>
@@ -3232,7 +3274,7 @@ function GraphPanel({
           <span className="gp-eyebrow">View</span>
           <span className="spacer" />
           {/* What the colour means, beside the heading rather than under the pills. */}
-          <span className="gp-state gp-lens-desc">{shownLens.desc}</span>
+          <span className="gp-state gp-lens-desc">{lensDesc}</span>
         </div>
         {/*
           * Three strips instead of six pills (2026-09-16). The six were a radio group already -
@@ -3460,12 +3502,21 @@ function typeRows(types: Array<[string, number]>): Array<{ label: string; cssVar
   return rows
 }
 
+/** The recency legend's bar rising to one domain's colour, from the same floor the CSS bar has. */
+const recencyGradient = (hue: string): string =>
+  `linear-gradient(90deg, color-mix(in srgb, var(--bg-elev-2) 45%, var(--muted)), ${hue})`
+
+/** A date as the legend writes it. */
+const isoDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10)
+
 function LensLegend({
   lens,
   types,
   offered,
   authority,
   authorityHue,
+  recencyHue,
+  recency,
 }: {
   lens: Lens
   types: Array<[string, number]>
@@ -3475,6 +3526,10 @@ function LensLegend({
   authority: { min: number; median: number; max: number } | null
   /** The hue the ramp is built on when a single domain is filtered; null = the accent. */
   authorityHue: string | null
+  /** The colour the recency ramp rises to: the one domain's, or null for the green. */
+  recencyHue: string | null
+  /** In the Landmarks mode, the oldest and newest change on show - the ramp's two ends. */
+  recency: { oldest: number; newest: number } | null
 }): React.ReactElement | null {
   let body: React.ReactNode = null
   if (lens === 'type') {
@@ -3548,7 +3603,22 @@ function LensLegend({
     body = (
       <>
         <span className="ll-title">Recency</span>
-        <span className="ll-row"><i className="ll-grad ll-recency" /> older → changed recently</span>
+        {recency === null ? (
+          <span className="ll-row">
+            <i className="ll-grad ll-recency" style={recencyHue === null ? undefined : { background: recencyGradient(recencyHue) }} /> older → changed
+            recently
+          </span>
+        ) : (
+          // Over the pages on show in the Landmarks mode: the ramp's ends are their dates.
+          <span className="ll-auth">
+            <i className="ll-grad ll-auth-bar ll-recency" style={recencyHue === null ? undefined : { background: recencyGradient(recencyHue) }} />
+            <span className="ll-auth-ticks">
+              <span>{isoDay(recency.oldest)}</span>
+              <span>{isoDay(recency.newest)}</span>
+            </span>
+            <span className="ll-auth-cap">last changed</span>
+          </span>
+        )}
       </>
     )
   if (body === null) return null

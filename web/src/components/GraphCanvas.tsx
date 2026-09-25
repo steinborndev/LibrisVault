@@ -109,6 +109,8 @@ export interface GraphCanvasProps {
    * answers a different question ("where are the hubs / dead ends / thin pages / new pages").
    */
   lens?: Lens
+  /** The one domain on show, whose colour tops the recency ramp; null keeps it green. */
+  recencyHue?: string | null
   /**
    * Cluster id per node index (auto-detected communities), or null for no clustering. Nodes
    * sharing an id get a tinted convex hull behind them; -1 means "unclustered" (no hull).
@@ -314,6 +316,181 @@ export function authorityDomain(
     out.push(authorityValue(mask, nodes, i))
   }
   return out.sort((a, b) => a - b)
+}
+
+/**
+ * Backlink count → position on the authority ramp (0 = least linked, 1 = most).
+ *
+ * Not `in / max`, which is what this used to be: backlink counts do not spread out. They
+ * bunch in a narrow band (in this vault: p10 = 6, median = 9, p90 = 15) under a thin tail
+ * of hubs (max 83), so dividing by the tail put ~90% of the vault below a fifth of the
+ * ramp - a grey field with a handful of bright dots, which is what the lens looked like.
+ *
+ * Two thirds RANK (the share of pages with fewer backlinks) and one third log MAGNITUDE.
+ * The rank term spreads the crowded middle so neighbouring pages actually differ; the
+ * magnitude term keeps the tail apart, which a pure rank scale flattens - by rank alone a
+ * page with 20 backlinks and one with 83 are both simply "top". Ties share a value, so
+ * equally-linked pages read as equally bright, and the mapping stays monotone: more
+ * backlinks is never darker.
+ */
+export function authorityPosition(sorted: readonly number[] | null, count: number): number {
+  if (sorted === null || sorted.length < 2) return 0
+  // Number of pages with strictly fewer backlinks (binary search, ties land on the start of
+  // their run) → the rank term.
+  let lo = 0
+  let hi = sorted.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (sorted[mid]! < count) lo = mid + 1
+    else hi = mid
+  }
+  const rank = lo / (sorted.length - 1)
+  // From the domain's own floor, not from zero: a range of 12 to 31 backlinks is the whole
+  // ramp too, not its top quarter. Everywhere but the Landmarks mode the floor is 0 or 1.
+  const floor = Math.log1p(Math.max(0, sorted[0]!))
+  const span = Math.log1p(Math.max(1, sorted[sorted.length - 1]!)) - floor
+  const magnitude = span > 0 ? Math.max(0, Math.log1p(Math.max(0, count)) - floor) / span : 1
+  return Math.min(1, 0.65 * rank + 0.35 * magnitude)
+}
+
+/** When a page last changed as far as the recency lens is concerned: what it says, else its file. */
+const changedAt = (n: GraphNode): number | undefined => n.freshMs ?? n.mtimeMs
+
+/**
+ * The dates the recency ramp spans, sorted, in the Landmarks mode: the painted pages' own
+ * (2026-09-25, user decision). Outside the mode, null - the ramp is the fixed window there.
+ *
+ * Why the mode is different: the window asks "what changed in the last three weeks", and over
+ * eighteen landmarks that is mostly nobody, so they all came out grey. Over the pages on show the
+ * question becomes "which of THESE is freshest", which is the one worth asking of a reading list.
+ */
+export function recencyDomain(
+  mask: LandmarkMask | null,
+  nodes: readonly GraphNode[],
+  count: number,
+  skip: ReadonlySet<number> | null = null,
+): number[] | null {
+  if (mask === null) return null
+  const out: number[] = []
+  for (let i = 0; i < count; i++) {
+    if (skip?.has(i) === true || !painted(mask, i)) continue
+    const at = nodes[i] !== undefined ? changedAt(nodes[i]!) : undefined
+    if (at !== undefined) out.push(at)
+  }
+  return out.length < 2 ? null : out.sort((a, b) => a - b)
+}
+
+/**
+ * A change date → position on the recency ramp (0 = old, 1 = new). Over the fixed window
+ * without a domain; over `sorted` with one, the way the authority ramp is spread (two thirds
+ * rank, one third the linear place between the oldest and the newest), so a set that changed
+ * over three days and one that changed over a year both use the whole ramp.
+ */
+export function recencyPosition(changed: number, now: number, sorted: readonly number[] | null): number {
+  if (sorted === null) return Math.max(0, 1 - (now - changed) / RECENCY_WINDOW_MS)
+  let lo = 0
+  let hi = sorted.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (sorted[mid]! < changed) lo = mid + 1
+    else hi = mid
+  }
+  const rank = lo / (sorted.length - 1)
+  const span = sorted[sorted.length - 1]! - sorted[0]!
+  const linear = span > 0 ? Math.min(1, Math.max(0, (changed - sorted[0]!) / span)) : 1
+  return Math.min(1, 0.65 * rank + 0.35 * linear)
+}
+
+/** What a node's colour depends on beyond the node itself - one lens, one frame. */
+export interface NodePaletteInput {
+  lens: Lens
+  nodes: readonly GraphNode[]
+  mask: LandmarkMask | null
+  /** `authorityDomain`'s answer, null when the lens is not on. */
+  authoritySorted: readonly number[] | null
+  /** `recencyDomain`'s answer. */
+  recencySorted: readonly number[] | null
+  /** The one domain on show, whose colour the recency ramp rises to; null for the green. */
+  recencyHue: string | null
+}
+
+/**
+ * A node's colour under the lens, as the canvas paints its dot. Out of the draw since 2026-09-25
+ * so the landmark list's numbers are filled with exactly the colour of the dots they stand for,
+ * in every view - two copies of this switch would part the first time either was touched.
+ * Reads the CSS tokens when it is made, so make one per frame (or per render).
+ */
+export function nodeColorer(p: NodePaletteInput): (i: number) => string {
+  const styles = getComputedStyle(document.documentElement)
+  const cssVar = (name: string, fallback: string): string => styles.getPropertyValue(name).trim() || fallback
+  const muted = cssVar('--muted', '#888')
+  // Neutral floor for the metric-gradient lenses (a dim, low-contrast base the metric lifts from).
+  const dimBase = mixColor(cssVar('--bg-elev-2', '#1f2637'), muted, 0.55)
+  const nowMs = Date.now()
+  const darkSurface = isDarkSurface(cssVar('--bg-elev', '#131928'))
+  const recencyTop = p.recencyHue ?? cssVar('--ok', '#3fb984')
+  return (i: number): string => {
+    const n = p.nodes[i]
+    if (n === undefined) return muted
+    switch (p.lens) {
+      case 'domain':
+        return n.domain !== null ? domainColor(n.domain) : muted
+      case 'type':
+        return cssVar(TYPE_VARS[n.type] ?? '--muted', '#888')
+      case 'authority':
+        // On the page's own domain hue, with the accent standing in for a page that has no
+        // domain - see `authorityRamp` for why lightness carries the metric.
+        return authorityRamp(
+          n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'),
+          authorityPosition(p.authoritySorted, authorityValue(p.mask, p.nodes, i)),
+          darkSurface,
+        )
+      case 'orphans':
+        // No backlinks = unreachable except by search. Everything else recedes.
+        return n.in === 0 ? cssVar('--err', '#e0645b') : dimBase
+      case 'stubs':
+        return n.size !== undefined && n.size < STUB_BYTES ? cssVar('--warn', '#e0a43b') : dimBase
+      case 'recency': {
+        /*
+         * `freshMs` is what the page SAYS about itself (`content_updated:`, else `created:`),
+         * and the mtime is only the fallback for a page that states neither. The other way
+         * round is what made this lens useless: a repair pass rewrites every file, so every
+         * mtime lands in the window and the whole graph goes green. The top of the ramp is the
+         * domain's own colour when one domain is on show (2026-09-25), the green otherwise.
+         */
+        const changed = changedAt(n)
+        if (changed === undefined) return dimBase
+        return mixColor(dimBase, recencyTop, recencyPosition(changed, nowMs, p.recencySorted))
+      }
+    }
+  }
+}
+
+/** `inkOn` for the DOM (the landmark list's numbers): the same choice, null for a colour it cannot read. */
+export function inkOnColor(fill: string, others: readonly string[]): string | null {
+  const f = parseRgb(fill)
+  if (f === null) return null
+  const lum = ([r, gg, b]: [number, number, number]): number => {
+    const ch = (v: number): number => {
+      const c = v / 255
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * ch(r) + 0.7152 * ch(gg) + 0.0722 * ch(b)
+  }
+  const ratio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  const lf = lum(f)
+  let best = '#ffffff'
+  let bestRatio = ratio(lf, 1)
+  for (const o of others) {
+    const rgb = parseRgb(o)
+    if (rgb === null) continue
+    const r = ratio(lf, lum(rgb))
+    if (r > bestRatio) {
+      best = o
+      bestRatio = r
+    }
+  }
+  return best
 }
 
 /** The available color lenses. `domain`/`type` are categorical; the rest re-encode a metric. */
@@ -586,7 +763,7 @@ const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
  */
 const domainByPathRef = { current: new Map<string, string | null>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null, onlyNodes = null, onAreaClick, areaIds }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', recencyHue = null, clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null, onlyNodes = null, onAreaClick, areaIds }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -801,55 +978,20 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
   /**
    * Backlink counts of the real pages, sorted - the domain of the authority ramp (see
-   * `authorityT`). Ghost nodes (unresolved link targets) are left out on purpose: they
+   * `authorityPosition`). Ghost nodes (unresolved link targets) are left out on purpose: they
    * are not pages, and letting them into the domain would shift every page's colour the
    * moment the gaps view is toggled.
    */
-  const authorityOf = useCallback((i: number): number => authorityValue(landmarkMask, nodes, i), [landmarkMask, nodes])
-
   const authoritySorted = useMemo(() => {
     if (lens !== 'authority') return null
     const counts = authorityDomain(landmarkMask, nodes, nodes.length, ghostIndices ?? null)
     return counts.length < 2 ? null : counts
   }, [nodes, ghostIndices, lens, landmarkMask])
 
-  /**
-   * Backlink count → position on the authority ramp (0 = least linked, 1 = most).
-   *
-   * Not `in / max`, which is what this used to be: backlink counts do not spread out. They
-   * bunch in a narrow band (in this vault: p10 = 6, median = 9, p90 = 15) under a thin tail
-   * of hubs (max 83), so dividing by the tail put ~90% of the vault below a fifth of the
-   * ramp - a grey field with a handful of bright dots, which is what the lens looked like.
-   *
-   * Two thirds RANK (the share of pages with fewer backlinks) and one third log MAGNITUDE.
-   * The rank term spreads the crowded middle so neighbouring pages actually differ; the
-   * magnitude term keeps the tail apart, which a pure rank scale flattens - by rank alone a
-   * page with 20 backlinks and one with 83 are both simply "top". Ties share a value, so
-   * equally-linked pages read as equally bright, and the mapping stays monotone: more
-   * backlinks is never darker.
-   */
-  const authorityT = useCallback(
-    (count: number): number => {
-      const sorted = authoritySorted
-      if (sorted === null) return 0
-      // Number of pages with strictly fewer backlinks (binary search, ties land on the
-      // start of their run) → the rank term.
-      let lo = 0
-      let hi = sorted.length
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1
-        if (sorted[mid]! < count) lo = mid + 1
-        else hi = mid
-      }
-      const rank = lo / (sorted.length - 1)
-      // From the domain's own floor, not from zero: a range of 12 to 31 backlinks is the whole
-      // ramp too, not its top quarter. Everywhere but the Landmarks mode the floor is 0 or 1.
-      const floor = Math.log1p(Math.max(0, sorted[0]!))
-      const span = Math.log1p(Math.max(1, sorted[sorted.length - 1]!)) - floor
-      const magnitude = span > 0 ? Math.max(0, Math.log1p(Math.max(0, count)) - floor) / span : 1
-      return Math.min(1, 0.65 * rank + 0.35 * magnitude)
-    },
-    [authoritySorted],
+  /** The freshness dates the recency ramp spans in the Landmarks mode (`recencyDomain`), else null. */
+  const recencySorted = useMemo(
+    () => (lens === 'recency' ? recencyDomain(landmarkMask, nodes, nodes.length, ghostIndices ?? null) : null),
+    [nodes, ghostIndices, lens, landmarkMask],
   )
 
   /** One draw pass. Reads CSS variables live, so light/dark theme switches just work. */
@@ -868,41 +1010,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
     const styles = getComputedStyle(document.documentElement)
     const cssVar = (name: string, fallback: string): string => styles.getPropertyValue(name).trim() || fallback
-    const muted = cssVar('--muted', '#888')
-    // Neutral floor for the metric-gradient lenses (a dim, low-contrast base the metric lifts from).
-    const dimBase = mixColor(cssVar('--bg-elev-2', '#1f2637'), muted, 0.55)
-    const nowMs = Date.now()
     const darkSurface = isDarkSurface(cssVar('--bg-elev', '#131928'))
-    const colorFor = (i: number): string => {
-      const n = nodes[i]!
-      switch (lens) {
-        case 'domain':
-          return n.domain !== null ? domainColor(n.domain) : muted
-        case 'type':
-          return cssVar(TYPE_VARS[n.type] ?? '--muted', '#888')
-        case 'authority':
-          // On the page's own domain hue, with the accent standing in for a page that has no
-          // domain - see `authorityRamp` for why lightness carries the metric.
-          return authorityRamp(n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'), authorityT(authorityOf(i)), darkSurface)
-        case 'orphans':
-          // No backlinks = unreachable except by search. Everything else recedes.
-          return n.in === 0 ? cssVar('--err', '#e0645b') : dimBase
-        case 'stubs':
-          return n.size !== undefined && n.size < STUB_BYTES ? cssVar('--warn', '#e0a43b') : dimBase
-        case 'recency': {
-          /*
-           * `freshMs` is what the page SAYS about itself (`content_updated:`, else `created:`),
-           * and the mtime is only the fallback for a page that states neither. The other way
-           * round is what made this lens useless: a repair pass rewrites every file, so every
-           * mtime lands in the window and the whole graph goes green.
-           */
-          const changed = n.freshMs ?? n.mtimeMs
-          if (changed === undefined) return dimBase
-          const t = Math.max(0, 1 - (nowMs - changed) / RECENCY_WINDOW_MS)
-          return mixColor(dimBase, cssVar('--ok', '#3fb984'), t)
-        }
-      }
-    }
+    const colorFor = nodeColorer({ lens, nodes, mask: landmarkMask, authoritySorted, recencySorted, recencyHue })
     const edgeColor = cssVar('--border', '#444')
     const textColor = cssVar('--text-dim', '#aaa')
     /**
@@ -1584,7 +1693,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           ctx.textBaseline = 'middle'
           // White on a dark fill, the ground colour on a light one: the dark theme's type and
           // domain colours are light, and white on them fell to a contrast of 2 to 3.
-          ctx.fillStyle = inkOn(ctx, nodeColor(l.i), cssVar('--bg', '#0c101b'))
+          ctx.fillStyle = inkOn(ctx, nodeColor(l.i), [cssVar('--bg', '#0c101b'), cssVar('--text', '#1a2333')])
           ctx.fillText(String(rank), pos[l.i * 2]!, pos[l.i * 2 + 1]! + 0.5 / t.k)
           ctx.textBaseline = 'top'
           ctx.font = `${11 / t.k}px system-ui, sans-serif`
@@ -1632,7 +1741,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, authorityOf, landmarkMask, onlyNodes, positionsRef, transformRef, geomsNow])
+  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authoritySorted, recencySorted, recencyHue, landmarkMask, onlyNodes, positionsRef, transformRef, geomsNow])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -3292,9 +3401,23 @@ function luminance(ctx: CanvasRenderingContext2D, color: string): number {
   return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
 }
 
-/** White or the ground colour on `fill`, whichever reads better (WCAG contrast ratio). */
-function inkOn(ctx: CanvasRenderingContext2D, fill: string, ground: string): string {
+/**
+ * The ink that reads best on `fill` (WCAG contrast ratio): white, or one of `others` - the ground
+ * and the text colour. The text colour joined on 2026-09-25: the authority and recency ramps run
+ * down to near the ground, and on the light theme white and the ground are then both pale on a
+ * pale disc; the text colour is the dark ink there.
+ */
+function inkOn(ctx: CanvasRenderingContext2D, fill: string, others: readonly string[]): string {
   const lf = luminance(ctx, fill)
   const ratio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
-  return ratio(lf, 1) >= ratio(lf, luminance(ctx, ground)) ? '#ffffff' : ground
+  let best = '#ffffff'
+  let bestRatio = ratio(lf, 1)
+  for (const o of others) {
+    const r = ratio(lf, luminance(ctx, o))
+    if (r > bestRatio) {
+      best = o
+      bestRatio = r
+    }
+  }
+  return best
 }
