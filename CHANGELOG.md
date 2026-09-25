@@ -8,6 +8,25 @@ was and the day it landed. The entries below are those merges, newest first. The
 journals under `docs/tasks/` carry the detail, findings and dead ends included; this file carries
 only what a reader outside the work needs to know.
 
+## 2026-09-25 - a demo vault shaped like a real one, and System on the demo
+
+A hosted demo now shows System instead of a notice: every section renders from the same reads as on
+a full instance, and every action in it is disabled, with one line saying why. `GET /api/v1/stats`
+no longer names the watch folder in demo mode, and `GET /api/v1/settings` no longer names it in
+its raw overrides either. On a demo instance the reads that re-read the vault on every call
+(questions, reading list, candidates) are answered from a one-minute cache, and `/stats` runs one
+git scan for a burst of requests instead of one each.
+
+The synthetic vault the screenshots and the demo are built from is rebuilt:
+`scripts/demo-vault.mjs` now makes about 1,400 pages over 25 domains, each cut into sub-areas
+around a page the rest leads back to, with links across domains, source pages in several forms,
+five months of history, and the vault's own conventions kept (its validator found 5,096 breaches
+in the old one). Before, every page linked to its next few neighbours, which left the Landmarks
+overlay nothing to rank and Areas one community per domain. The seed also plants a dozen defects
+and records what the real validator finds, so the standing defect list has rows to show, and it
+does the vault's first-start setup itself, so a read-only demo starts without a warning. All
+sixteen screenshots are re-shot from it. The seed takes about 11 s instead of 7.
+
 ## 2026-09-25 - the graph's Landmarks and Areas, and System as a map
 
 The graph could colour and filter a domain but not say what it is built around; this adds an

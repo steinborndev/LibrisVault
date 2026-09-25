@@ -170,7 +170,9 @@ Follow-ups noted during A1, not yet decided:
   would trim the list.
 - The synthetic demo vault cross-links domains at random, so "gaps wanted by the Fellow's
   domain" include titles from other fields. Real vaults link by meaning; the planner reads
-  the source pages and discards them, at a token cost.
+  the source pages and discards them, at a token cost. (Since 2026-09-25 the generated
+  cross-domain links follow a map of neighbouring domains, `NEIGHBOURS` in
+  `scripts/demo-vault-topics.mjs`; the gap titles themselves are still dealt out in turn.)
 
 ## Fork and dev instance (2026-09-05)
 

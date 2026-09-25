@@ -8,7 +8,6 @@ import { StatusPopover } from './components/StatusPopover.tsx'
 import { HoverTip } from './components/Tip.tsx'
 import { CommandPalette } from './components/CommandPalette.tsx'
 import { DropGuard } from './components/DropGuard.tsx'
-import { DemoNotice } from './components/DemoNotice.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Home } from './tabs/Home.tsx'
 import { Chat } from './tabs/Chat.tsx'
@@ -452,16 +451,11 @@ export function App(): React.ReactElement {
             <div className="lane wide">
               {visited.has('system') && (
                 <ErrorBoundary label="System">
-                  {demoMode ? (
-                    <DemoNotice
-                      title="System is switched off here"
-                      text="System hosts operations: the ingest queue, maintenance runs, integrations, and settings."
-                    />
-                  ) : (
-                    <Suspense fallback={<div className="empty">Loading system…</div>}>
-                      <System section={screen === 'system' ? (query.get('section') ?? '') : ''} setting={screen === 'system' ? (query.get('setting') ?? '') : ''} />
-                    </Suspense>
-                  )}
+                  {/* Rendered in demo mode too (2026-09-25): System disables its own actions, so
+                      a visitor sees the maintenance tools rather than a notice about them. */}
+                  <Suspense fallback={<div className="empty">Loading system…</div>}>
+                    <System section={screen === 'system' ? (query.get('section') ?? '') : ''} setting={screen === 'system' ? (query.get('setting') ?? '') : ''} />
+                  </Suspense>
                 </ErrorBoundary>
               )}
             </div>
