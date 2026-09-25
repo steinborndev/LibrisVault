@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
+import { useReadOnly } from '../lib/readOnly.ts'
 import type { AgentRunRecord, AuthMode, PlanStatus, Stats } from '../api/types.ts'
 import { Maintenance } from './Maintenance.tsx'
 import { SettingsEditor, SETTINGS_GROUP_OF, type SettingsGroup } from '../components/SettingsEditor.tsx'
@@ -132,6 +133,7 @@ export function System({ section = '', setting = '' }: { section?: string; setti
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
   const maint = useMaintenanceStatus()
   const fellowsOn = health.data?.fellows === true
+  const readOnly = useReadOnly()
 
   const visible = useMemo(() => SECTIONS.filter((s) => !s.fellowsOnly || fellowsOn), [fellowsOn])
   const current = visible.find((s) => s.id === active) ?? SECTIONS[0]!
@@ -143,7 +145,8 @@ export function System({ section = '', setting = '' }: { section?: string; setti
   )
   const due = maint.data?.status.due ?? 0
   const recommended = maint.data?.status.recommended ?? 0
-  const credentialMissing = settings.data !== undefined && settings.data.readOnly['credentialConfigured'] === 'no'
+  // The hosted demo runs without a credential on purpose; nothing there is missing.
+  const credentialMissing = !readOnly && settings.data !== undefined && settings.data.readOnly['credentialConfigured'] === 'no'
 
   // `[` and `]` step through the column, Escape goes back to the overview - only while this
   // screen is the one showing and nothing is being typed into.
@@ -246,6 +249,14 @@ export function System({ section = '', setting = '' }: { section?: string; setti
             </>
           )}
         </div>
+        {/* The hosted demo shows System rather than a notice (2026-09-25): every section renders
+            from the same reads, and what it would do is visible and switched off. */}
+        {readOnly && (
+          <div className="sys-demo-hint">
+            Read-only in the hosted demo: every section shows what it shows on your own instance,
+            and the actions are switched off.
+          </div>
+        )}
         <div className="box-body">
           {current.id === 'overview' && <OverviewSection onGo={go} />}
 
@@ -270,7 +281,9 @@ export function System({ section = '', setting = '' }: { section?: string; setti
           {settings.data !== undefined && (
             <div className="sys-pane" hidden={current.settings === undefined}>
               {current.settings !== undefined && <SettingsIntro group={current.settings} />}
-              <SettingsEditor group={current.settings ?? 'intake'} focus={setting} />
+              <fieldset className="ro-set" disabled={readOnly}>
+                <SettingsEditor group={current.settings ?? 'intake'} focus={setting} />
+              </fieldset>
             </div>
           )}
         </div>
@@ -510,6 +523,7 @@ function InstanceSection(): React.ReactElement {
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
   const [credSlot, setCredSlot] = useState<HTMLElement | null>(null)
   const [botSlot, setBotSlot] = useState<HTMLElement | null>(null)
+  const readOnly = useReadOnly()
   const ro = settings.data?.readOnly
   const state = queryState(settings, 'the instance')
   if (state !== null || ro === undefined) return <div className="sys-pane">{state ?? <div className="empty">Loading…</div>}</div>
@@ -517,17 +531,24 @@ function InstanceSection(): React.ReactElement {
   const telegramOn = (ro['telegram'] ?? 'off') !== 'off'
   return (
     <div className="sys-pane">
+      <fieldset className="ro-set" disabled={readOnly}>
       <section className="subcard sc-pad">
         <div className="sc-head">
           <h3 className="sc-title">
             Anthropic credential
             <Tip text="Written to the service env file and never shown again; replacing it restarts the service." />
           </h3>
-          <span className={`badge ${credentialOk ? 'ok' : 'deferred'}`}>{credentialOk ? `${ro['authMode'] ?? 'configured'}` : 'missing'}</span>
+          {readOnly ? (
+            <span className="badge">not needed here</span>
+          ) : (
+            <span className={`badge ${credentialOk ? 'ok' : 'deferred'}`}>{credentialOk ? `${ro['authMode'] ?? 'configured'}` : 'missing'}</span>
+          )}
           <span className="right" ref={setCredSlot} />
         </div>
         <div className="tool-meta">
-          {credentialOk ? (
+          {readOnly ? (
+            'The hosted demo runs without one: nothing on it calls a model, so there is nothing to pause.'
+          ) : credentialOk ? (
             <>
               from <code>{ro['credentialSource'] ?? '-'}</code>
             </>
@@ -535,7 +556,9 @@ function InstanceSection(): React.ReactElement {
             'No credential yet: ingestion, research and maintenance are paused until one is set.'
           )}
         </div>
-        <CredentialSetup configured={credentialOk} actionsSlot={credSlot} />
+        {/* On the demo it shows closed, as on an instance that has one: the onboarding form
+            open under a greyed-out save reads as a broken setup, not as a switched-off one. */}
+        <CredentialSetup configured={credentialOk || readOnly} actionsSlot={credSlot} />
       </section>
 
       <section className="subcard sc-pad">
@@ -549,6 +572,7 @@ function InstanceSection(): React.ReactElement {
         </div>
         <TelegramSetup status={ro['telegram'] ?? 'off'} actionsSlot={botSlot} />
       </section>
+      </fieldset>
 
       <section className="subcard sc-pad">
         <div className="sc-head">
@@ -568,11 +592,11 @@ function InstanceSection(): React.ReactElement {
           </div>
           <div className="kv">
             <span className="k">Vault</span>
-            <span className="v"><code>{ro['vaultRoot'] ?? '-'}</code></span>
+            <span className="v"><code>{ro['vaultRoot'] ?? (readOnly ? '(hidden in demo)' : '-')}</code></span>
           </div>
           <div className="kv">
             <span className="k">Address</span>
-            <span className="v"><code>{ro['bind'] ?? '-'}</code> · {ro['httpAuthMode'] ?? '-'}</span>
+            <span className="v"><code>{ro['bind'] ?? (readOnly ? '(hidden in demo)' : '-')}</code> · {ro['httpAuthMode'] ?? '-'}</span>
           </div>
           <div className="kv">
             <span className="k">Commits</span>

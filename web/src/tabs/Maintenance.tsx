@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
+import { READ_ONLY_HINT, useReadOnly } from '../lib/readOnly.ts'
 import type {
   GraphNode,
   LintReport,
@@ -110,6 +111,7 @@ export function Maintenance({
   const maintStatus = useMaintenanceStatus()
   const statusData = maintStatus.data
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 })
+  const readOnly = useReadOnly()
   // Setup mode only disables the run button here - the credential entry lives in Settings
   // now (its own screen), so this tab no longer has to force-open anything to reach it.
   const setupMode = health.data !== undefined && !health.data.credentialConfigured
@@ -176,10 +178,12 @@ export function Maintenance({
             <span className="right">
               <button
                 className="btn sm"
-                disabled={lint.running || lintFix.running || lastReport === null}
+                disabled={readOnly || lint.running || lintFix.running || lastReport === null}
                 onClick={lintFix.start}
                 title={
-                  lastReport === null
+                  readOnly
+                    ? READ_ONLY_HINT
+                    : lastReport === null
                     ? 'Run a lint first - the report is what bounds the fix run'
                     : 'Fix the mechanical findings of the newest report (one git commit - revertable)'
                 }
@@ -188,13 +192,13 @@ export function Maintenance({
               </button>
               <button
                 className="btn sm"
-                disabled={rejoin.isPending || lint.running || lintFix.running}
+                disabled={readOnly || rejoin.isPending || lint.running || lintFix.running}
                 onClick={() => rejoin.mutate()}
-                title="Join wikilinks a line wrap broke apart, where the collapsed title names a page that exists (one git commit, no agent run)"
+                title={readOnly ? READ_ONLY_HINT : 'Join wikilinks a line wrap broke apart, where the collapsed title names a page that exists (one git commit, no agent run)'}
               >
                 {rejoin.isPending ? 'Joining…' : 'Join broken links'}
               </button>
-              <button className="btn primary sm" disabled={lint.running || lintFix.running} onClick={lint.start}>
+              <button className="btn primary sm" disabled={readOnly || lint.running || lintFix.running} onClick={lint.start} title={readOnly ? READ_ONLY_HINT : undefined}>
                 {lint.running ? 'Running…' : 'Start lint'}
               </button>
             </span>
@@ -262,7 +266,7 @@ export function Maintenance({
               />
             </h3>
             <span className="right">
-              <button className="btn primary sm" disabled={hot.running} onClick={hot.start}>
+              <button className="btn primary sm" disabled={readOnly || hot.running} onClick={hot.start} title={readOnly ? READ_ONLY_HINT : undefined}>
                 {hot.running ? 'Running…' : 'Refresh'}
               </button>
             </span>
@@ -341,7 +345,7 @@ export function Maintenance({
             offering a button that 403s: the demo instance refuses every non-GET before a
             handler runs (SPEC.md §12.8).
           */}
-          <StandingDefects vaultName={vaultName} readOnly={health.data?.demoMode === true} />
+          <StandingDefects vaultName={vaultName} readOnly={readOnly} />
         </div>
         )}
 
@@ -364,9 +368,9 @@ export function Maintenance({
             <span className="right">
               <button
                 className="btn primary sm"
-                disabled={backfill.running || !domains.data?.installed}
+                disabled={readOnly || backfill.running || !domains.data?.installed}
                 onClick={backfill.start}
-                title={domains.data?.installed ? 'File existing pages into domains (page content untouched)' : 'No registry installed'}
+                title={readOnly ? READ_ONLY_HINT : domains.data?.installed ? 'File existing pages into domains (page content untouched)' : 'No registry installed'}
               >
                 {backfill.running ? 'Running…' : 'Start backfill'}
               </button>
@@ -456,6 +460,7 @@ function StatusHead({
 }): React.ReactElement {
   // Open by default (2026-09-24): "healthy" is a state worth seeing, not a footnote.
   const [showHealthy, setShowHealthy] = useState(true)
+  const readOnly = useReadOnly()
 
   if (data === null) {
     // A failed input query must offer a way out - not spin as "Checking…" forever.
@@ -503,10 +508,12 @@ function StatusHead({
           {planSize > 0 && (
             <button
               className="btn primary sm"
-              disabled={setupMode}
+              disabled={setupMode || readOnly}
               onClick={onStartRun}
               title={
-                setupMode
+                readOnly
+                  ? READ_ONLY_HINT
+                  : setupMode
                   ? 'Configure a credential first (Settings)'
                   : 'Work through the open items in order - automatic steps run on their own, the run stops only where your judgement is needed'
               }
@@ -687,6 +694,7 @@ function TagHygieneCard({
   onFixed?: (pages: readonly string[]) => void
 }): React.ReactElement | null {
   const qc = useQueryClient()
+  const readOnly = useReadOnly()
   const report = useMemo(() => (nodes !== undefined ? computeTagReport(nodes) : null), [nodes])
   /** Selected repair actions, keyed "merge|from|to" / "drop|tag" (stale keys simply no-op). */
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -748,10 +756,12 @@ function TagHygieneCard({
         <span className="right">
         <button
           className="btn primary sm"
-          disabled={actions.length === 0 || conflict !== null || fix.running}
+          disabled={readOnly || actions.length === 0 || conflict !== null || fix.running}
           onClick={fix.start}
           title={
-            actions.length === 0
+            readOnly
+              ? READ_ONLY_HINT
+              : actions.length === 0
               ? 'Check findings below to build the repair plan'
               : conflict !== null
                 ? `Conflicting selections: #${conflict} appears in more than one repair - uncheck one`
@@ -1000,6 +1010,7 @@ function UnversionedCard(): React.ReactElement {
 
 function RetrievalIndexCard(): React.ReactElement {
   const qc = useQueryClient()
+  const readOnly = useReadOnly()
   const status = useQuery({ queryKey: ['retrieve-index-status'], queryFn: api.retrieveIndexStatus })
   const build = useMaintenanceRun(() => api.retrieveIndex())
 
@@ -1029,7 +1040,7 @@ function RetrievalIndexCard(): React.ReactElement {
         </h3>
         {!missing && (
           <span className="right">
-            <button className="btn primary sm" disabled={build.running} onClick={build.start}>
+            <button className="btn primary sm" disabled={readOnly || build.running} onClick={build.start} title={readOnly ? READ_ONLY_HINT : undefined}>
               {build.running ? 'Building…' : s?.provisioned ? 'Rebuild' : 'Build index'}
             </button>
           </span>
@@ -1100,6 +1111,7 @@ function DomainCandidates({
   onDomainCreated?: (key: string) => void
 }): React.ReactElement | null {
   const qc = useQueryClient()
+  const readOnly = useReadOnly()
   const candidates = useQuery({ queryKey: ['domain-candidates'], queryFn: api.domainCandidates })
   const [withAgent, setWithAgent] = useState(true)
   const [editing, setEditing] = useState<string | null>(null)
@@ -1153,7 +1165,7 @@ function DomainCandidates({
             <input type="checkbox" checked={withAgent} onChange={(e) => setWithAgent(e.target.checked)} />
             With agent review
           </label>
-          <button className="btn sm" disabled={review.running || (withAgent && data.candidates.length === 0)} onClick={start}>
+          <button className="btn sm" disabled={readOnly || review.running || (withAgent && data.candidates.length === 0)} onClick={start} title={readOnly ? READ_ONLY_HINT : undefined}>
             {review.running ? 'Running…' : 'Check candidates'}
           </button>
         </div>
@@ -1191,7 +1203,7 @@ function DomainCandidates({
           </span>
           <button
             className="btn"
-            disabled={backfillRunning}
+            disabled={readOnly || backfillRunning}
             onClick={() => {
               setCreated(null)
               onStartBackfill()
@@ -1238,7 +1250,8 @@ function DomainCandidates({
               {i > 0 && ', '}
               <button
                 className="linkish"
-                title="Propose again"
+                title={readOnly ? READ_ONLY_HINT : 'Propose again'}
+                disabled={readOnly}
                 onClick={() => void api.restoreCandidate(d.key).then(refresh)}
               >
                 {d.key}
@@ -1283,6 +1296,7 @@ function CandidateCard({
   const [tags, setTags] = useState((verdict?.tags ?? candidate.tags).join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const readOnly = useReadOnly()
 
   // The review lands AFTER this card mounted (it is a run, the list is not) - without this
   // sync the verdict's proposal would never reach the already-initialized fields. Only while
@@ -1377,12 +1391,13 @@ function CandidateCard({
         </div>
       ) : (
         <div className="candidate-actions">
-          <button className="btn" onClick={onEdit}>
+          <button className="btn" onClick={onEdit} disabled={readOnly} title={readOnly ? READ_ONLY_HINT : undefined}>
             Create as domain
           </button>
           <button
             className="btn ghost"
-            title="Stop proposing this"
+            title={readOnly ? READ_ONLY_HINT : 'Stop proposing this'}
+            disabled={readOnly}
             onClick={() => void api.dismissCandidate(candidate.key).then(onDone)}
           >
             Dismiss

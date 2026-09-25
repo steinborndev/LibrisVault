@@ -171,6 +171,17 @@ describe('demo mode API guard', () => {
     expect(body.readOnly.credentialConfigured).toBe('no')
   })
 
+  it('keeps the filesystem layout out of the stats view', async () => {
+    // The watch folder's path went out here while the settings view already hid it (found
+    // 2026-09-25, when System became browsable on the demo).
+    const res = await fetch(`${baseUrl}/api/v1/stats`)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    const body = JSON.parse(text) as { watcher: { folder: string } }
+    expect(body.watcher.folder).toBe('(hidden in demo)')
+    expect(text).not.toContain(vaultRoot)
+  })
+
   it('keeps read routes open', async () => {
     for (const route of ['/api/v1/stats', '/api/v1/graph', '/api/v1/jobs']) {
       const res = await fetch(`${baseUrl}${route}`)

@@ -127,7 +127,7 @@ function render(p) {
     `title: "${p.title}"`,
     `domain: ${p.domain}`,
     `created: ${iso(p.created)}`,
-    `updated: ${iso(p.created)}`,
+    ...(p.omit?.has('updated') === true ? [] : [`updated: ${iso(p.updated ?? p.created)}`]),
     'tags:',
     ...p.tags.map((t) => `  - ${t}`),
     `status: ${p.status}`,
@@ -185,8 +185,12 @@ const P = {
   entity: 0.4,
   /** A concept carrying one of its domain's secondary tags. */
   facet: 0.3,
-  /** A concept tagged with a tag of its own: the long tail every real tag list has. */
-  ownTag: 0.14,
+  /**
+   * A concept tagged with a tag of its own. A real vault has a hundred of them, and its
+   * validator lists each as a defect (`tag-singleton`); a handful shows the rule without
+   * burying the standing list under it.
+   */
+  ownTag: 0.012,
 }
 
 /**
@@ -233,12 +237,16 @@ function crossTarget(neighbours) {
   return chance(0.6) ? oneOf(DOMAINS[key].areas).concepts[0] : leaning(conceptsOf(key).filter(linkable))
 }
 
-/** Rotating question forms, so forty open questions do not all begin with the same words. */
+/**
+ * Question pages carry their question as a topic: a `title:` may not hold a `?`, because the
+ * file name beside it cannot, and the vault's own validator reads the drift as a defect
+ * (`title-name`). The question itself stands in the body.
+ */
 const QUESTION_FORMS = [
-  (t) => `What actually limits ${t.toLowerCase()}?`,
-  (t) => `Where does the standard account of ${t.toLowerCase()} break down?`,
-  (t) => `How far can ${t.toLowerCase()} be trusted outside the textbook case?`,
-  (t) => `What would it take to settle the disagreement over ${t.toLowerCase()}?`,
+  (t) => [`What limits ${t}`, `What actually limits ${t.toLowerCase()}?`],
+  (t) => [`Where ${t} breaks down`, `Where does the standard account of ${t.toLowerCase()} break down?`],
+  (t) => [`How far ${t} can be trusted`, `How far can ${t.toLowerCase()} be trusted outside the textbook case?`],
+  (t) => [`Settling the disagreement over ${t}`, `What would it take to settle the disagreement over ${t.toLowerCase()}?`],
 ]
 
 /**
@@ -261,22 +269,69 @@ const ENTITY_NOTES = [
 ]
 let entitySeq = 0
 
+/**
+ * Source titles the real research runs link to. Their pages were captured against an earlier
+ * version of this generator and name its documents ("<concept> (survey)"); a run's page is
+ * restored as it was written, so the document it names is generated here, in the area of the
+ * concept it is named after, instead of leaving the real page with a dead link.
+ */
+const WANTED_SOURCES = new Map()
+/** Pages a real run restores over the generated one; a link planted on them would be lost. */
+const RESTORED_PATHS = new Set()
+{
+  const dir = join(process.cwd(), 'scripts/demo-research')
+  for (const slug of existsSync(dir) ? readdirSync(dir) : []) {
+    const runFile = join(dir, slug, 'run.json')
+    if (existsSync(runFile)) for (const rel of JSON.parse(readFileSync(runFile, 'utf8')).pages) RESTORED_PATHS.add(rel)
+  }
+  const known = new Set(POPULATED.flatMap(([key]) => conceptsOf(key)))
+  const walkMd = (d) => (existsSync(d) ? readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walkMd(join(d, e.name)) : e.name.endsWith('.md') ? [join(d, e.name)] : []) : [])
+  for (const file of walkMd(dir)) {
+    for (const [, target] of readFileSync(file, 'utf8').matchAll(/\[\[([^\]|#]+)/g)) {
+      const m = /^(.+) \(([a-z ]+)\)$/.exec(target.trim())
+      if (m !== null && known.has(m[1])) WANTED_SOURCES.set(target.trim(), m[1])
+    }
+  }
+}
+
 let gapSeq = 0
-const usedSourceTitles = new Set()
+let gapTick = 0
+const usedSourceTitles = new Set(WANTED_SOURCES.keys())
+/** Vault-conformant status per page, from the vocabulary the validator holds to. */
+const conceptStatus = (j) => (j % 17 === 5 ? 'seed' : j % 7 === 3 ? 'developing' : j % 5 === 1 ? 'mature' : 'evergreen')
 
 for (const [domain, spec] of POPULATED) {
-  const own = spec.tags[0]
   const facets = spec.tags.slice(1)
   const { areas } = spec
   const domainHub = areas[0].concepts[0]
   const neighbours = (NEIGHBOURS[domain] ?? []).filter((k) => DOMAINS[k] !== undefined && conceptsOf(k).length > 0)
   const otherArea = (a) => areas[(a + 1 + Math.floor(rand() * (areas.length - 1))) % areas.length]
+  const all = conceptsOf(domain).filter(linkable)
+
+  // Planned before any page is written, so each area's hub can link to the questions and the
+  // comparison that hang off it: a page nothing links to is an orphan, and these were all.
+  const questionCount = Math.min(8, Math.max(1, Math.round(all.length / 14)))
+  const questions = Array.from({ length: questionCount }, (_, i) => {
+    const area = areas[i % areas.length]
+    const [title, asked] = pick(QUESTION_FORMS, i + domain.length)(area.concepts[0])
+    return { area, title, asked }
+  })
+  const core = areas.find((x) => x.concepts.filter(linkable).length >= 3)
+  const comparison = all.length >= 12 && core !== undefined
+    ? (([a, b, c]) => ({ area: core, a, b, c, title: `${a} vs ${b}` }))(core.concepts.filter(linkable))
+    : null
 
   areas.forEach((area, a) => {
     const L = area.concepts
     if (L.length === 0) return
     const areaKey = `${domain}/${area.tag}`
-    const entityTitles = spec.entities.filter((e) => e.area === area.tag).map((e) => e.title)
+    const areaEntities = spec.entities.filter((e) => e.area === area.tag)
+    const entityTitles = areaEntities.map((e) => e.title)
+    const hubLinks = [
+      ...questions.filter((q) => q.area === area).map((q) => q.title),
+      ...(comparison !== null && comparison.area === area ? [comparison.title] : []),
+    ]
 
     // The area's documents first: which concepts each one supports.
     const sourceCount = Math.max(1, Math.round(L.length / 1.6))
@@ -298,14 +353,34 @@ for (const [domain, spec] of POPULATED) {
       if (neighbours.length > 0 && chance(0.2)) cited.add(crossTarget(neighbours))
       sources.push({ title, form, cited: [...cited].filter(linkable) })
     }
+    for (const [title, concept] of WANTED_SOURCES) {
+      if (!L.includes(concept)) continue
+      const form = FORMS.find((f) => title.endsWith(`(${f.tag})`)) ?? FORMS[0]
+      sources.push({ title, form, cited: [concept, L[0], leaning(L)].filter((c, k, arr) => arr.indexOf(c) === k && linkable(c)) })
+    }
+
+    // Who links to whom beyond the model above, so no document and no entity is left unlinked:
+    // each source is named by the first concept it supports, each entity by one of the area.
+    const linkers = L.filter((t) => linkable(t) && !RESTORED_PATHS.has(`wiki/concepts/${fileName(t)}.md`))
+    const forcedSources = new Map()
+    for (const s of sources) {
+      const by = s.cited.find((c) => linkers.includes(c)) ?? linkers[0]
+      forcedSources.set(by, [...(forcedSources.get(by) ?? []), s.title])
+    }
+    const forcedEntities = new Map()
+    entityTitles.forEach((e, k) => {
+      const by = linkers[(k * 3 + 1) % linkers.length]
+      forcedEntities.set(by, [...(forcedEntities.get(by) ?? []), e])
+    })
 
     L.forEach((title, j) => {
       if (ORPHANS.has(title)) {
         page({
           dir: 'concepts', title, type: 'concept', domain, area: areaKey,
-          tags: ['concept', own, area.tag], status: 'stub',
+          tags: [area.tag], status: 'seed',
           body: [`# ${title}`, '', pick(LEADS, j)(title, spec.blurb), '',
-            'A note taken in passing and not yet connected to anything else in the wiki.'].join('\n'),
+            'A note taken in passing and not yet connected to anything else in the wiki.', '',
+            '## Connections', '', 'None yet.'].join('\n'),
         })
         return
       }
@@ -327,25 +402,33 @@ for (const [domain, spec] of POPULATED) {
       if (neighbours.length > 0 && chance(j === 0 ? P.cross * 2 : P.cross)) rel.add(crossTarget(neighbours))
       for (const [from, to] of CROSS_LINKS) if (from === title) rel.add(to)
       if (entityTitles.length > 0 && chance(P.entity)) rel.add(oneOf(entityTitles))
+      for (const e of forcedEntities.get(title) ?? []) rel.add(e)
+      if (j === 0) for (const h of hubLinks) rel.add(h)
       rel.delete(title)
       const related = [...rel].filter(linkable)
 
       const citing = sources.filter((s) => s.cited.includes(title)).map((s) => s.title)
-      const named = citing.length > 0 ? citing.slice(0, chance(0.25) ? 2 : 1) : [sources[j % sources.length].title]
-      // Every fifth concept points at a page nobody has written - the Gaps overlay counts these.
-      const gap = j % 5 === 2 ? GAPS[gapSeq++ % GAPS.length] : null
+      const named = [...new Set([...(forcedSources.get(title) ?? []), ...citing.slice(0, chance(0.25) ? 2 : 1)])]
+      if (named.length === 0) named.push(sources[j % sources.length].title)
+      // About one concept in twenty points at a page nobody has written - the Gaps overlay counts
+      // these, and the validator lists each such link as a dead one, so every gap is linked from
+      // a page or two rather than from four.
+      const gap = j % 5 === 2 && gapTick++ % 4 === 0 ? GAPS[gapSeq++ % GAPS.length] : null
       const under = related.slice(0, 2)
-      const tags = ['concept', own, area.tag]
-      // Per page, not per area: a secondary tag handed to a whole area would caption it, and the
-      // domain's secondary tags say nothing about which area they land on.
-      if (facets.length > 0 && chance(P.facet)) tags.push(oneOf(facets))
+      // No `concept` and no domain tag: the vault's validator reads a tag that repeats the
+      // page's own type or domain as a defect (`tag-mirroring`), and a demo where every page
+      // carries two would bury the few defects planted on purpose further down.
+      const tags = [area.tag]
+      // Only where the domain is big enough for each to land on several pages: in a domain of
+      // five concepts a secondary tag lands once, and the validator lists it (`tag-singleton`).
+      if (facets.length > 0 && all.length >= 20 && chance(P.facet)) tags.push(oneOf(facets))
       if (chance(P.ownTag)) tags.push(slugTag(title))
       page({
         dir: 'concepts', title, type: 'concept', domain, area: areaKey,
         tags: [...new Set(tags)],
         related,
         sources: named,
-        status: j % 17 === 5 ? 'stub' : 'evergreen',
+        status: conceptStatus(j),
         body: [
           `# ${title}`,
           '',
@@ -365,7 +448,7 @@ for (const [domain, spec] of POPULATED) {
           '',
           ...pick(PRACTICE, j + a).map((l) => `- ${l}`),
           '',
-          '## See also',
+          '## Connections',
           '',
           ...related.map((r) => `- [[${r}]]`),
           ...(gap ? ['', `Still to write: [[${gap}]].`] : []),
@@ -376,24 +459,20 @@ for (const [domain, spec] of POPULATED) {
     for (const s of sources) {
       page({
         dir: 'sources', title: s.title, type: 'source', domain, area: areaKey,
-        tags: ['source', s.form.tag, own, area.tag],
+        tags: [s.form.tag, area.tag],
         related: s.cited,
-        status: 'reference',
+        status: 'mature',
         body: [
           `# ${s.title}`,
           '',
           `A synthetic stand-in for an ingested document about ${spec.blurb}. It exists so the`,
-          'dashboard has provenance to show: the pages below were written from it.',
+          'dashboard has provenance to show: the pages linked below were written from it.',
           '',
-          '## Summary',
+          '## Why This Source Matters',
           '',
           'Reviews the established method, states where it breaks down, and proposes a correction that',
           'trades a little precision for a good deal of robustness. The useful contribution is the',
           'failure catalogue rather than the correction itself.',
-          '',
-          '## Extracted claims',
-          '',
-          ...s.cited.map((c) => `- Supports [[${c}]].`),
           '',
           '## Method',
           '',
@@ -403,19 +482,24 @@ for (const [domain, spec] of POPULATED) {
           '',
           '- The sample is convenient rather than representative.',
           '- Uncertainties are quoted as statistical only; the systematic term is larger.',
+          '',
+          '## Connections',
+          '',
+          ...s.cited.map((c) => `- Supports [[${c}]].`),
         ].join('\n'),
       })
     }
 
-    spec.entities.filter((x) => x.area === area.tag).forEach((e) => {
+    areaEntities.forEach((e) => {
       const rel = new Set([L[0]])
       const more = 3 + Math.floor(rand() * 4)
       for (let k = 0; k < more; k++) rel.add(leaning(L))
       const related = [...rel].filter(linkable)
       page({
         dir: 'entities', title: e.title, type: 'entity', domain, area: areaKey,
-        tags: ['entity', e.kind, own, area.tag],
+        tags: [e.kind, area.tag],
         related,
+        status: 'mature',
         body: [
           `# ${e.title}`,
           '',
@@ -432,12 +516,11 @@ for (const [domain, spec] of POPULATED) {
           'Its coverage and cadence set what questions can be asked at all. A gap in the record is not',
           'a null result, and treating it as one is the most common way conclusions drift from what the',
           'data can support.',
-          '',
           // A few entities stay a stub on purpose: a real vault has a handful of pages that were
           // started and never filled, and the stub filter should find something.
           ...(++entitySeq % 25 === 0 ? [] : ['', '## Notes', '', pick(ENTITY_NOTES, entitySeq)]),
           '',
-          '## Related',
+          '## Connections',
           '',
           ...related.map((c) => `- [[${c}]]`),
         ].join('\n'),
@@ -446,22 +529,18 @@ for (const [domain, spec] of POPULATED) {
   })
 
   // Open questions, about one per fourteen concepts, each on an area's hub.
-  const all = conceptsOf(domain).filter(linkable)
-  const questionCount = Math.min(8, Math.max(1, Math.round(all.length / 14)))
-  for (let i = 0; i < questionCount; i++) {
-    const area = areas[i % areas.length]
+  questions.forEach(({ area, title, asked }) => {
     const anchor = area.concepts[0]
     const cited = [...new Set([leaning(area.concepts), leaning(area.concepts), leaning(all)])].filter((c) => c !== anchor && linkable(c))
-    const title = pick(QUESTION_FORMS, i + domain.length)(anchor)
     page({
       dir: 'questions', title, type: 'question', domain, area: `${domain}/${area.tag}`,
-      tags: ['question', own, area.tag],
+      tags: [area.tag],
       related: [anchor, ...cited],
-      status: 'open',
+      status: 'developing',
       body: [
         `# ${title}`,
         '',
-        'Asked while reading, answered from the pages below.',
+        `${asked} Asked while reading, answered from the pages below.`,
         '',
         '## Working answer',
         '',
@@ -485,20 +564,20 @@ for (const [domain, spec] of POPULATED) {
         'Still open: whether the distinction matters at the precision most work reports.',
       ].join('\n'),
     })
-  }
+  })
 
   // One comparison per domain that has enough to compare, from its core area.
-  const core = areas.find((x) => x.concepts.filter(linkable).length >= 3)
-  if (all.length >= 12 && core !== undefined) {
-    const [a, b, c] = core.concepts.filter(linkable)
+  if (comparison !== null) {
+    const { a, b, c } = comparison
     page({
       dir: 'comparisons',
-      title: `${a} vs ${b}`,
+      title: comparison.title,
       type: 'comparison',
       domain,
-      area: `${domain}/${core.tag}`,
-      tags: ['comparison', own, core.tag],
+      area: `${domain}/${comparison.area.tag}`,
+      tags: [comparison.area.tag],
       related: [a, b, c],
+      status: 'evergreen',
       body: [
         `# ${a} vs ${b}`,
         '',
@@ -536,14 +615,18 @@ for (const title of ['Signal Averaging Across Instruments', 'Calibration Drift']
     title,
     type: 'concept',
     domain: 'unassigned',
-    tags: ['concept', 'measurement'],
+    tags: ['measurement'],
+    status: 'seed',
     related: ['Photometric Precision', 'Proxy Calibration'],
     body: [
       `# ${title}`,
       '',
       'Belongs to measurement in general rather than to one subject, so it is filed nowhere yet.',
       '',
-      'Related: [[Photometric Precision]], [[Proxy Calibration]].',
+      '## Connections',
+      '',
+      '- [[Photometric Precision]]',
+      '- [[Proxy Calibration]]',
     ].join('\n'),
   })
 }
@@ -554,8 +637,8 @@ page({
   title: 'Unit Conventions',
   type: 'reference',
   domain: 'meta',
-  tags: ['reference', 'meta'],
-  status: 'reference',
+  tags: ['conventions'],
+  status: 'evergreen',
   body: ['# Unit Conventions', '',
     'Which units pages use when a field could reasonably take several.', '',
     '- Radii in Earth radii for rocky planets, Jupiter radii above.',
@@ -567,8 +650,8 @@ page({
   title: 'Citation Style',
   type: 'reference',
   domain: 'meta',
-  tags: ['reference', 'meta'],
-  status: 'reference',
+  tags: ['conventions'],
+  status: 'evergreen',
   body: ['# Citation Style', '',
     'Sources are pages. A claim cites the source page, which links back to the raw document.', '',
     'See [[Unit Conventions]] for the other house rule.'].join('\n'),
@@ -578,16 +661,17 @@ page({
   title: 'index',
   type: 'meta',
   domain: 'meta',
-  tags: ['meta', 'index'],
+  tags: ['index'],
   body: ['# Index', '', 'Entry point to the wiki.', '',
-    ...Object.entries(DOMAINS).map(([d, s]) => `- **${d}** - ${s.blurb}`)].join('\n'),
+    ...Object.entries(DOMAINS).map(([d, s]) => `- **${d}** - ${s.blurb}`), '',
+    'House rules: [[Unit Conventions]], [[Citation Style]].'].join('\n'),
 })
 page({
   dir: '.',
   title: 'hot',
   type: 'meta',
   domain: 'meta',
-  tags: ['meta', 'hot-cache'],
+  tags: ['hot-cache'],
   body: ['# Hot Cache', '', 'A digest of the vault, refreshed after ingests.', '',
     `Currently ${pages.length + 2} pages across ${Object.keys(DOMAINS).length} domains.`, '',
     'One subject is far deeper than the others; the long tail is one-afternoon detours.'].join('\n'),
@@ -914,6 +998,50 @@ for (const [title, question] of SPREAD_QUESTIONS) {
   target.body = `${target.body}\n\n## Open Questions\n\n- ${question}\n`
 }
 
+/* ------------------------------------------------------------ defects, planted on purpose */
+
+/*
+ * The standing defect list (System, SPEC.md §12.16) is what the vault's own validator keeps
+ * finding, each row with its way out: a deterministic repair, a bound agent run, or a decision.
+ * A generated vault that follows every convention shows that list empty, and a hosted demo then
+ * hides one of the things it exists to show. So a handful of defects are planted, one or two per
+ * rule, each on a page a visitor can open. The seed runs the real validator over the finished
+ * vault and records what it finds, so the list says what the validator says and nothing else.
+ *
+ * The rest of the list is the vault's own shape: the gaps are dead links, the two orphans are
+ * orphans, and one real research page words its open questions the way the vault's rule reads as
+ * a defect.
+ */
+const PLANTED = [
+  // Repaired by a deterministic pass.
+  ['em-dash', 'Photometric Precision', (p) => { p.body = p.body.replace('## Detail\n\n', '## Detail\n\nThe floor is set twice \u2014 once by the photon count and once by everything that is not the star.\n\n') }],
+  ['em-dash', 'Maillard Reaction', (p) => { p.body = p.body.replace('## Detail\n\n', '## Detail\n\nTemperature decides the outcome \u2014 moisture decides whether that temperature is ever reached.\n\n') }],
+  ['tag-mirroring', 'Tokenisation', (p) => { p.tags = [...p.tags, 'concept'] }],
+  ['tag-mirroring', 'Carbon Cycle', (p) => { p.tags = [...p.tags, 'climate-science'] }],
+  // Repaired by one bound agent run each.
+  ['page-schema', 'Sourdough Fermentation', (p) => { p.body = p.body.replace('## Connections', '## See also') }],
+  ['page-schema', 'Consensus Algorithm', (p) => { p.body = p.body.replace('## Connections', '## Related pages') }],
+  // Left to a decision.
+  ['frontmatter', 'Bloom Filter', (p) => { p.omit = new Set(['updated']) }],
+  ['dates', 'Isostasy', (p) => { p.updated = new Date(p.created.getTime() - 20 * 86_400_000) }],
+  ['status-vocabulary', 'Hyperfocal Distance', (p) => { p.status = 'draft' }],
+  ['status-vocabulary', 'Keystone Species', (p) => { p.status = 'wip' }],
+  ['wrapped-link', 'Food Web', (p) => { p.body = p.body.replace(/\[\[([^\]\s]+) ([^\]]+)\]\]/, '[[$1\n$2]]') }],
+  ['title-name', 'Settling the disagreement over Rock Cycle', (p) => { p.title = `${p.title}?`; p.body = p.body.replace(/^# (.+)$/m, '# $1?') }],
+]
+for (const [rule, title, plant] of PLANTED) {
+  const hits = pages.filter((p) => p.title === title && p.prerendered !== true)
+  // Loudly: a renamed topic would otherwise just stop producing the row it exists for, and a
+  // page a real research run also writes would be overwritten by the run's copy.
+  if (hits.length !== 1) throw new Error(`demo vault: no single generated page "${title}" to plant a ${rule} defect on`)
+  if (pages.some((p) => p.path === hits[0].path && p !== hits[0])) throw new Error(`demo vault: "${title}" is also restored from a real run`)
+  const before = hits[0].body
+  plant(hits[0])
+  if (rule === 'em-dash' || rule === 'page-schema' || rule === 'wrapped-link') {
+    if (hits[0].body === before) throw new Error(`demo vault: planting ${rule} changed nothing on "${title}"`)
+  }
+}
+
 /* ------------------------------------------------------------------------- write it out */
 
 if (existsSync(OUT)) rmSync(OUT, { recursive: true, force: true })
@@ -1046,6 +1174,18 @@ for (const run of capturedRuns) {
   git(['commit', '-q', '-m', `research: ${run.topic}`], { GIT_AUTHOR_DATE: stamp, GIT_COMMITTER_DATE: stamp })
 }
 
+/*
+ * The two things the service does to a vault on its first start, done here instead: the
+ * hosted demo mounts the vault read-only for the process, so the service cannot, and without
+ * them it reports the vault plugin as committing too and logs two warnings every morning.
+ */
+{
+  const { ensureVaultExcludes } = await import(join(process.cwd(), 'server/dist/pipeline/vault-excludes.js'))
+  const { ensureAutoCommitDisabled } = await import(join(process.cwd(), 'server/dist/pipeline/vault-guards.js'))
+  ensureVaultExcludes(OUT)
+  ensureAutoCommitDisabled(OUT)
+}
+
 console.log(`vault:  ${OUT}`)
 console.log(`        ${pages.length} pages, ${Object.keys(DOMAINS).length} domains, ${commitPlan.length + 1} commits`)
 
@@ -1075,6 +1215,8 @@ const jobStmt = db.prepare(
  * exactly the state a real install is in.
  */
 const recentJobs = jobRecords.filter((j) => j.at >= day(30))
+// Job ids run from 1 up; the agent runs start at 200 (ids are one namespace in the dashboard).
+if (recentJobs.length >= 199) throw new Error(`demo vault: ${recentJobs.length} recent jobs would reach the run ids at 200`)
 recentJobs.forEach((j, i) => {
   jobStmt.run({
     id: ulid(i + 1),
@@ -1161,7 +1303,9 @@ capturedRuns.forEach((run, i) => {
   // would put five ten-minute runs inside the same afternoon.
   const shift = (i * 3 + 2) * 86_400_000
   runStmt.run({
-    id: ulid(900 + i),
+    // 950 up, not 900: the failed and the duplicate job hold 900 and 901, and one id on a job
+    // and a run collides wherever the two are listed together (the usage table's rows).
+    id: ulid(950 + i),
     kind: run.kind ?? 'research',
     label: run.topic,
     profile_key: run.profileKey ?? null,
@@ -1531,6 +1675,29 @@ for (let d = 0; d <= 3; d++) {
   const path = `wiki/meta/recaps/Recap ${cycle}.md`
   // The column and the model must agree: a recap is written the morning after its night.
   recapStmt.run(cycle, at(nightOf(d, 7)), path, JSON.stringify(model))
+}
+
+/*
+ * What the validator finds in the finished vault, recorded the way a run records it: once some
+ * days ago and again yesterday, so the rows carry a count and a first-seen date. One is accepted
+ * with a reason, so the accepted view has an example of the third way out.
+ */
+{
+  const { createValidator } = await import(join(process.cwd(), 'server/dist/pipeline/validator.js'))
+  const { ValidationStore } = await import(join(process.cwd(), 'server/dist/db/validation.js'))
+  const { GraphBuilder } = await import(join(process.cwd(), 'server/dist/pipeline/graph.js'))
+  const store = new ValidationStore(db)
+  // The pages a run would write and validate: knowledge pages, not the hub and meta pages the
+  // service and this script write around them.
+  const checked = pages.map((p) => p.path).filter((p) => /^wiki\/(concepts|entities|sources|questions|comparisons|references)\//.test(p))
+  const findings = createValidator(OUT, new GraphBuilder(OUT))([...new Set(checked)])
+  store.record(findings, null, at(day(6)))
+  store.record(findings, null, at(day(1)))
+  const unfiled = store.list({ rule: 'orphan', limit: 500 }).find((f) => f.path === 'wiki/concepts/Calibration Drift.md')
+  if (unfiled !== undefined) store.accept(unfiled.id, 'Filed nowhere on purpose until a domain fits it; nothing should link here yet.', at(day(1)))
+  const byRule = {}
+  for (const f of findings) byRule[f.rule] = (byRule[f.rule] ?? 0) + 1
+  console.log(`        ${findings.length} standing defect(s): ${Object.entries(byRule).map(([r, n]) => `${r} ${n}`).join(', ')}`)
 }
 
 db.close()

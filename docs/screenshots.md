@@ -43,7 +43,7 @@ restore it. A synthesis page is what the research function produces, and an inve
 shape where the real one shows an argument. Those pages name real papers, patents and companies, all
 public, none from anyone's private notes.
 
-The vault is deliberately neither small nor tidy: ~1,400 pages, ~7,000 links, 25 domains with one
+The vault is deliberately neither small nor tidy: ~1,400 pages, ~7,500 links, 25 domains with one
 far deeper than the rest, each cut into sub-areas around a page the rest leads back to, about 6 %
 of the links crossing a domain, a long tail of tags that occur once, two orphans, stubs and gaps
 left in, pages dated in reading order rather than build order. Those numbers follow a real vault of

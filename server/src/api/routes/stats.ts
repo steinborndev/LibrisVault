@@ -156,8 +156,9 @@ export function registerStatsRoute(app: FastifyInstance, ctx: AppContext): void 
       budget,
       jobs: counts,
       queue: { queued, active, ...queue.stats() },
-      // The watcher only starts outside setup mode (main.ts) — report what actually runs.
-      watcher: { active: config.auth !== null, folder: config.server.watchFolder },
+      // The watcher only starts outside setup mode (main.ts): report what actually runs. A
+      // hosted demo keeps the folder's path to itself, as the settings view does (SPEC.md §12.8).
+      watcher: { active: config.auth !== null, folder: config.demoMode ? '(hidden in demo)' : config.server.watchFolder },
       generatedAt: new Date().toISOString(),
     }
   })

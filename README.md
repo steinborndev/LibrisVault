@@ -498,9 +498,10 @@ API-price equivalent, not money charged.
 **Hosting a read-only demo.** `DEMO_MODE=1` needs no credential: the queue, the watcher, the
 Telegram bot and every maintenance writer stay off, and every request that is not a read is refused
 before it reaches a route. With `AGENTS_ENABLED=1` the Library, the recaps and the pinboard are
-shown from the database, and nothing ever runs. `scripts/demo-vault.mjs` seeds a synthetic vault
-and a matching database for exactly this (the screenshots above come from it); its dates are
-relative to the build, so rebuild it on a schedule. Put a reverse proxy in front: the service keeps
+shown from the database, and nothing ever runs. System stays browsable with its actions disabled,
+so a visitor sees the maintenance tools, the standing defects and the settings rather than a notice. `scripts/demo-vault.mjs` seeds a synthetic vault
+and a matching database for exactly this (the screenshots above come from it), including what the
+vault's own validator finds in it; its dates are relative to the build, so rebuild it on a schedule. Put a reverse proxy in front: the service keeps
 binding `127.0.0.1`, and the proxy is where a `robots.txt` belongs, because the app answers every
 unknown path with its shell. The vault may be mounted read-only for the service.
 
