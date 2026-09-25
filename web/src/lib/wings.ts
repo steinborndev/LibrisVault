@@ -42,11 +42,15 @@ export function wingGroups(scene: { readonly rooms: readonly SceneRoom[] } | und
   return groups
 }
 
-/** The group before or after this one; null at either end, so the walk stops there. */
-export function stepWing(groups: readonly WingGroup[], current: string, delta: -1 | 1): string | null {
+/**
+ * The group before or after this one; null at either end, so the walk stops there. `can`, when
+ * given, is which groups the walk may stop at - the rest are stepped over (see `stepDomain`).
+ */
+export function stepWing(groups: readonly WingGroup[], current: string, delta: -1 | 1, can?: (id: string) => boolean): string | null {
   const at = groups.findIndex((g) => g.id === current)
   if (at === -1) return null
-  return groups[at + delta]?.id ?? null
+  for (let i = at + delta; i >= 0 && i < groups.length; i += delta) if (can === undefined || can(groups[i]!.id)) return groups[i]!.id
+  return null
 }
 
 /** The group a domain stands in, or undefined when the screen does not know it. */
@@ -77,10 +81,25 @@ export function resolveWing(mode: WingListMode, id: string | null, groups: reado
  *   - the right end HOLDS (null), the way the wing arrows stop at the last room;
  *   - the left end steps OFF the list and clears, because "all domains" is a real position
  *     here - it is where the list starts - and no other key gets you back to it.
+ *
+ * `can`, when given, is which rows the walk may stop at, and the rest are stepped over
+ * (2026-09-25: with Landmarks on, a domain too small for it is skipped, because the switch
+ * could not have been turned on there either). A walk with `can` holds at BOTH ends: "all
+ * domains" is not a place such a walk may stop at either.
  */
-export function stepDomain(rows: readonly string[], selected: ReadonlySet<string>, delta: -1 | 1): { pick: string } | 'clear' | null {
+export function stepDomain(
+  rows: readonly string[],
+  selected: ReadonlySet<string>,
+  delta: -1 | 1,
+  can?: (key: string) => boolean,
+): { pick: string } | 'clear' | null {
   let at = -1
   for (let i = 0; i < rows.length; i++) if (selected.has(rows[i]!)) at = i
+  if (can !== undefined) {
+    if (at < 0 && delta === -1) return null
+    for (let i = at + delta; i >= 0 && i < rows.length; i += delta) if (can(rows[i]!)) return { pick: rows[i]! }
+    return null
+  }
   if (delta === 1) return at >= rows.length - 1 ? null : { pick: rows[at + 1]! }
   if (at < 0) return null
   return at === 0 ? 'clear' : { pick: rows[at - 1]! }

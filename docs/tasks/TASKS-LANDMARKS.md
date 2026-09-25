@@ -255,6 +255,13 @@ shows, the reset, and Areas or Bridges switched on while it rests (a later choic
 which the next domain must not take back). The prefs carry the switch as `landmarksOn` beside
 the domain; a payload without it reads as on exactly when a domain was stored.
 
+**The arrow keys step over what the switch could not be turned on at (2026-09-25, user
+decision, the same day).** With the switch on, walking the domain list skips every domain below
+the bar, and in wing mode every room that does not hold exactly one domain above it; such a walk
+holds at both ends rather than stepping off the left one into "all domains". Resting is left to
+the ways a click can still reach: a small domain picked by hand, the chips cleared, a second
+domain added.
+
 The mode also yields in the other direction: switching on any of the things it excludes turns it
 off, which the "turning it on turns them off" rule only covers in one order. That is not
 politeness. The lock's record makes the exclusion a parse invariant, so a picture holding both

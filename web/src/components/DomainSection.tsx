@@ -42,6 +42,12 @@ export interface DomainSectionProps {
   readonly onWing: (id: string) => void
   /** Only the screen in front listens for the keys; the screens stay mounted behind [hidden]. */
   readonly active: boolean
+  /**
+   * Where the arrow keys may stop, when not everywhere: rows (domain keys) and rooms (wing ids)
+   * the walk steps over. Absent, every row and room is a stop.
+   */
+  readonly canStep?: ((key: string) => boolean) | undefined
+  readonly canStepWing?: ((id: string) => boolean) | undefined
   readonly rowTitle?: (key: string, active: boolean) => string | undefined
   readonly listRef?: Ref<HTMLDivElement>
 }
@@ -55,7 +61,7 @@ function inField(target: EventTarget | null): boolean {
   )
 }
 
-export function DomainSection({ domains, label, color, selected, onToggle, onPick, onClear, groups, mode, onMode, wing, onWing, active, rowTitle, listRef }: DomainSectionProps): React.ReactElement {
+export function DomainSection({ domains, label, color, selected, onToggle, onPick, onClear, groups, mode, onMode, wing, onWing, active, rowTitle, listRef, canStep, canStepWing }: DomainSectionProps): React.ReactElement {
   const list = useRef<HTMLDivElement>(null)
   // The section scrolls its own list (the arrow step, below); the screen gets the same node
   // for its own reasons (the Catalog scrolls to a domain arriving from another screen).
@@ -79,14 +85,14 @@ export function DomainSection({ domains, label, color, selected, onToggle, onPic
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
       if (inField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
-      const next = stepWing(groups, wing, e.key === 'ArrowLeft' ? -1 : 1)
+      const next = stepWing(groups, wing, e.key === 'ArrowLeft' ? -1 : 1, canStepWing)
       if (next === null) return
       e.preventDefault()
       onWing(next)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [active, wing, groups, onWing])
+  }, [active, wing, groups, onWing, canStepWing])
 
   /*
    * The same two keys in the flat list, walking the domains (`stepDomain` holds the rules). The
@@ -99,7 +105,7 @@ export function DomainSection({ domains, label, color, selected, onToggle, onPic
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
       if (inField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
-      const step = stepDomain(order, selected, e.key === 'ArrowLeft' ? -1 : 1)
+      const step = stepDomain(order, selected, e.key === 'ArrowLeft' ? -1 : 1, canStep)
       if (step === null) return
       e.preventDefault()
       if (step === 'clear') onClear()
@@ -110,7 +116,7 @@ export function DomainSection({ domains, label, color, selected, onToggle, onPic
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [active, wing, order, selected, onPick, onClear])
+  }, [active, wing, order, selected, onPick, onClear, canStep])
 
   return (
     <div className="gp-sec grow">
