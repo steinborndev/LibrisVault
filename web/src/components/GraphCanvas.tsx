@@ -1648,17 +1648,21 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       items.push({ x, y, r, labelHalf: named ? ctx.measureText(text).width / 2 + 2 : 0 })
     }
     ctx.restore()
-    // Whatever the host lays over the top of the drawing (the scope line: "Cluster: …") is not
-    // drawing area; the fit starts below it.
+    // Whatever the host lays over the drawing (the scope line at the top: "Cluster: …", an
+    // area's tags in the bottom row) is not drawing area; the fit keeps clear of it, above or
+    // below by which half of the canvas the element stands in.
     let top = 18
+    let bottom = 24
     const rect = canvas.getBoundingClientRect()
     canvas.parentElement?.querySelectorAll<HTMLElement>('[data-fit-avoid]').forEach((el) => {
-      top = Math.max(top, el.getBoundingClientRect().bottom - rect.top + 10)
+      const r = el.getBoundingClientRect()
+      if (r.top + r.height / 2 < rect.top + rect.height / 2) top = Math.max(top, r.bottom - rect.top + 10)
+      else bottom = Math.max(bottom, rect.bottom - r.top + 10)
     })
     const mid = fitCenterRef.current
     const centre: [number, number] | null =
       mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN) ? [pos[mid * 2]!, pos[mid * 2 + 1]!] : null
-    const next = fitTransform(items, { w, h }, { x: 16, top, bottom: 24 }, centre, FIT_ZOOM_MAX)
+    const next = fitTransform(items, { w, h }, { x: 16, top, bottom }, centre, FIT_ZOOM_MAX)
     if (next === null) return
     transformRef.current = next
     scheduleDraw()

@@ -33,6 +33,7 @@ import { stepTrail } from '../lib/trail.ts'
 import { GRAPH_FREEZE_KEY, parseGraphFreeze, serializeGraphFreeze, type GraphFreeze } from '../lib/graphFreeze.ts'
 import { BUCKET_LABELS as TYPE_LABELS } from '../lib/buckets.ts'
 import { detectClusters } from '../lib/communities.ts'
+import { thematicTest } from '../lib/tagSignal.ts'
 import { NO_DOMAIN, heldLandmarkSet, landmarkSet, landmarkState, type LandmarkSet } from '../lib/landmarks.ts'
 import { obsidianUri } from '../lib/obsidian.ts'
 import { timeAgo } from '../lib/format.ts'
@@ -165,17 +166,6 @@ interface ClusterFocus {
 /** Missing `kind` (ghost nodes, old cached responses) counts as knowledge - never hide it. */
 const isKnowledge = isKnowledgeNode
 
-/**
- * Tags that mirror a page's `type:`/kind rather than its subject - they say WHAT a page is,
- * not what it's ABOUT, so they carry no thematic signal for "Related by tag". Every source
- * page shares `#source`, so matching on it drags in the whole source corpus. Mirrors the
- * server's KNOWLEDGE_TYPES/ARTIFACT_TYPES plus structural markers (server/src/pipeline/graph.ts).
- */
-const STRUCTURAL_TAGS: ReadonlySet<string> = new Set([
-  'concept', 'entity', 'source', 'reference', 'comparison', 'question', 'synthesis', 'decision',
-  'session', 'fold', 'report', 'release', 'index', 'log', 'meta', 'moc',
-])
-const isThematicTag = (t: string): boolean => !STRUCTURAL_TAGS.has(t.toLowerCase())
 
 /** localStorage key of the RETIRED standalone System toggle - read once as a migration
  *  fallback when the combined prefs key below doesn't exist yet. */
@@ -1251,11 +1241,14 @@ function GraphView({
   // highlights (and isolates on click) whole communities. Ghost nodes are excluded (id -1) - a
   // missing page has no community. Small clusters (< MIN_CLUSTER) are dropped so the canvas
   // isn't peppered with singleton blobs. Each surviving cluster is labelled by its tags.
+  // Which tags may caption an area: read over the WHOLE vault (lib/tagSignal.ts), since inside a
+  // filtered view every tag looks local.
+  const isThematic = useMemo(() => thematicTest(graph.nodes), [graph.nodes])
   const { clusterIds, clusterLabels, clusterDomains } = useMemo(() => {
     if (!showClusters && !showNetwork && !spotlight)
       return { clusterIds: null as number[] | null, clusterLabels: new Map<number, string>(), clusterDomains: new Map<number, string>() }
-    return detectClusters(nodes, edges, realCount)
-  }, [showClusters, showNetwork, spotlight, nodes, edges, realCount])
+    return detectClusters(nodes, edges, realCount, isThematic)
+  }, [showClusters, showNetwork, spotlight, nodes, edges, realCount, isThematic])
 
   /**
    * The stepper's ring: the communities that carry a caption (a label and three pages or more),
@@ -2049,7 +2042,7 @@ function GraphView({
                 * Text, centred, no frame of its own: the state belongs to the drawing, and a
                 * container around it would be the box again in a smaller size.
                 */}
-              {(clusterStack.length > 0 || focusNode !== undefined || areaAt !== null) && (
+              {(clusterStack.length > 0 || focusNode !== undefined) && (
                 <div className="graph-scope" role="status" data-fit-avoid>
                   {focusNode !== undefined && (
                     <span className="gs-part">
@@ -2091,16 +2084,6 @@ function GraphView({
                         onClick={() => setClusterStack([])}
                         title="Back to the full graph (Esc backs out one level at a time)"
                       >
-                        <Icon name="x" />
-                      </button>
-                    </span>
-                  )}
-                  {/* The area on show, by its tags - the line the spotlight's drill-down uses. The
-                      ring itself stands in the heading, beside the domain. */}
-                  {areaAt !== null && (
-                    <span className="gs-part gs-area" title="a and d step through the areas one at a time; Esc shows them all again">
-                      <AreaTags text={clusterLabels.get(areaAt) ?? 'unlabeled community'} domain={clusterDomains.get(areaAt) ?? null} />
-                      <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
                         <Icon name="x" />
                       </button>
                     </span>
@@ -2153,7 +2136,23 @@ function GraphView({
               >
                 <Icon name={frozen !== null ? 'lock' : 'unlock'} />
               </button>
-              {landmarkDomain === null && trail.length > 1 && (
+              {/*
+                * The area on show, by its tags, centred in the canvas's bottom row (2026-09-25,
+                * user decision) and at the size the domain's Areas overview gives its captions:
+                * the name of what fills the picture, in the voice it had in the whole map. The
+                * ring stands in the heading, beside the domain. It takes the bottom row's middle,
+                * so the trail stands down while it is there - in this mode a click opens the page
+                * rather than walking on, and the trail would only be the walk from before it.
+                */}
+              {areaAt !== null && (
+                <div className="graph-foot-tags" role="status" data-fit-avoid title="a and d step through the areas one at a time; Esc shows them all again">
+                  <AreaTags text={clusterLabels.get(areaAt) ?? 'unlabeled community'} domain={clusterDomains.get(areaAt) ?? null} />
+                  <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
+                    <Icon name="x" />
+                  </button>
+                </div>
+              )}
+              {landmarkDomain === null && areaAt === null && trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">
                   {trail.map((p, i) => {
                     const n = graph.nodes.find((g) => g.path === p)
@@ -2761,7 +2760,9 @@ function GapList({
 
 const byTitle = (a: GraphNode, b: GraphNode): number => a.title.localeCompare(b.title)
 
-/** One titled list of pages in the explorer; nothing renders when the list is empty. */
+/** Shared subjects a page from another domain needs to count as related by tag (see pageLinks). */
+const CROSS_DOMAIN_SHARED = 2
+
 /**
  * The three lists a link panel shows for one page: what points at it, what it points at, and
  * what shares its subject without either. Pulled out of the explorer (2026-09-22) because the
@@ -2791,26 +2792,38 @@ export function pageLinks(
    * signal, one on three pages is a strong one. IDF weight = log(N / df); a tag on every page
    * scores 0 and drops out on its own, so no fixed denylist has to keep pace with the vault.
    */
+  const isThematic = thematicTest(graph.nodes)
   const df = new Map<string, number>()
   let total = 0
   for (const nd of graph.nodes) {
     if (!isKnowledge(nd)) continue
     total++
-    for (const t of new Set(nd.tags.filter(isThematicTag))) df.set(t, (df.get(t) ?? 0) + 1)
+    for (const t of new Set(nd.tags.filter(isThematic))) df.set(t, (df.get(t) ?? 0) + 1)
   }
-  const own = node.tags.filter(isThematicTag)
+  const own = node.tags.filter(isThematic)
   if (own.length === 0) return { backlinks, outgoing, related: [] }
   const weight = new Map(own.map((t) => [t, Math.log(total / (df.get(t) ?? total))]))
   const linked = new Set([path, ...backlinks.map((n) => n.path), ...outgoing.map((n) => n.path)])
   // Related by shared tag, excluding pages already linked either way - the tag axis surfaces
   // neighbours the wikilinks do not. Ranked by summed IDF so the closest win, not the
   // alphabetically first, and capped so the panel stays a summary.
+  //
+  // A page from ANOTHER domain has to share two subjects, not one (2026-09-25): one shared tag
+  // across a domain line is most often a word both fields happen to use, and it was how 1623
+  // entries of the vault's 6710 got in. Two shared subjects across the line is a real seam.
+  // Within the domain one still does - the domain is the second thing they share.
   const related = graph.nodes
     .filter((n) => !linked.has(n.path) && visible(n))
     .map((n) => {
       let score = 0
-      for (const t of new Set(n.tags)) score += weight.get(t) ?? 0
-      return { node: n, score }
+      let shared = 0
+      for (const t of new Set(n.tags)) {
+        const w = weight.get(t)
+        if (w === undefined || w <= 0) continue
+        score += w
+        shared++
+      }
+      return { node: n, score: n.domain === node.domain || shared >= CROSS_DOMAIN_SHARED ? score : 0 }
     })
     .filter((c) => c.score > 0)
     .sort((a, b) => b.score - a.score || byTitle(a.node, b.node))
@@ -2819,6 +2832,7 @@ export function pageLinks(
   return { backlinks, outgoing, related }
 }
 
+/** One titled list of pages in the explorer; nothing renders when the list is empty. */
 function LinkSection({
   title,
   list,
