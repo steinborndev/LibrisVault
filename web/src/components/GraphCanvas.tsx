@@ -97,6 +97,12 @@ export interface GraphCanvasProps {
    */
   selectedIndex?: number | null
   /**
+   * A node pointed at from outside the canvas - the landmark list's row under the pointer. It
+   * wears the selection's ring without being the selection, so the row and its dot are found
+   * together while the reader skims the list.
+   */
+  markIndex?: number | null
+  /**
    * Indices that are knowledge-gap ghost nodes (missing pages other pages link to), rendered
    * hollow/dashed. Their `in` count is how many pages reference them; `out` is 0.
    */
@@ -766,7 +772,7 @@ const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
  */
 const domainByPathRef = { current: new Map<string, string | null>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', recencyHue = null, clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null, onlyNodes = null, onAreaClick, areaIds }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, markIndex = null, ghostIndices, matches, lens = 'type', recencyHue = null, clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null, onlyNodes = null, onAreaClick, areaIds }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -1481,7 +1487,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
        * around (it keeps the selection, but a bloom opened from the list has none): the ink
        * ring, see SELECT_RING_PX. The gap is what keeps the ring off the disc on every fill.
        */
-      if (i === selectedIndex || (mask !== null && i === mask.bloomAnchor)) {
+      if (i === selectedIndex || i === markIndex || (mask !== null && i === mask.bloomAnchor)) {
         ctx.globalAlpha = nodeRev
         ctx.strokeStyle = cssVar('--bg-elev', '#ffffff')
         ctx.lineWidth = SELECT_GAP_PX / t.k
@@ -1563,7 +1569,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const MATCH_LABEL_LIMIT = 8
     const matchesLead = matches.size <= MATCH_LABEL_LIMIT
     const interactive = (i: number): boolean =>
-      i === hovered || i === selectedIndex || i === focusIndex || (matchesLead && matches.has(i))
+      i === hovered || i === selectedIndex || i === markIndex || i === focusIndex || (matchesLead && matches.has(i))
     /*
      * The RESTING labels are placed without the interactive ones (2026-09-24). They used to
      * share one greedy pass with the hovered title at its head, so every hover re-dealt the
@@ -1739,7 +1745,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authoritySorted, recencySorted, recencyHue, landmarkMask, onlyNodes, positionsRef, transformRef, geomsNow])
+  }, [nodes, edges, focusIndex, selectedIndex, markIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authoritySorted, recencySorted, recencyHue, landmarkMask, onlyNodes, positionsRef, transformRef, geomsNow])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -2313,7 +2319,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // - these must not depend on a pointer move or a layout tick happening to come along.
   useEffect(() => {
     scheduleDraw()
-  }, [matches, focusIndex, selectedIndex, ghostIndices, lens, clusters, clusterLabels, spotlight, landmarkMask, onlyNodes, scheduleDraw])
+  }, [matches, focusIndex, selectedIndex, markIndex, recencyHue, ghostIndices, lens, clusters, clusterLabels, spotlight, landmarkMask, onlyNodes, scheduleDraw])
 
   /** Screen → world coordinates under the current transform. */
   const toWorld = useCallback((sx: number, sy: number): { x: number; y: number } => {
