@@ -777,6 +777,21 @@ function GraphView({
   /** On, with nothing it can show on the domain in view: the switch holds, the picture is plain. */
   const landmarkResting = landmarkOn && landmarkDomain === null
   /*
+   * With the switch on, the arrow keys step over the domains - and in wing mode the rooms - the
+   * overlay cannot show (2026-09-25, user decision): a domain too small for it is one the switch
+   * cannot be turned on at, so walking onto it with the switch on would be the one way to reach
+   * a state no click can. A room stops the walk when it holds one domain that clears the bar,
+   * because a room turned clears the chips and the room is then all there is in view.
+   */
+  const landmarkStops = useMemo(() => {
+    if (!landmarkOn) return { domain: undefined, wing: undefined }
+    const none: ReadonlySet<string> = new Set()
+    return {
+      domain: (d: string): boolean => landmarkState(graph.nodes, new Set([d]), null).available,
+      wing: (id: string): boolean => landmarkState(graph.nodes, none, new Set(wings.find((g) => g.id === id)?.domains ?? [])).available,
+    }
+  }, [landmarkOn, graph.nodes, wings])
+  /*
    * The mode yields, in both directions.
    *
    * When its condition falls away - a second domain picked, the chips cleared, a small domain
@@ -1862,6 +1877,8 @@ function GraphView({
           onWingMode={wingMode.setMode}
           wing={wing}
           onWing={pickWing}
+          canStep={landmarkStops.domain}
+          canStepWing={landmarkStops.wing}
           active={active}
           showClusters={showClusters}
           onClusters={() => setShowClusters((v) => !v)}
@@ -2936,6 +2953,8 @@ function GraphPanel({
   onWingMode,
   wing,
   onWing,
+  canStep,
+  canStepWing,
   active,
   showClusters,
   onClusters,
@@ -2979,6 +2998,9 @@ function GraphPanel({
   onWingMode: (mode: WingListMode) => void
   wing: string | null
   onWing: (id: string) => void
+  /** Where the arrow keys may stop in the domain list and among the rooms (DomainSection). */
+  canStep: ((key: string) => boolean) | undefined
+  canStepWing: ((id: string) => boolean) | undefined
   active: boolean
   showClusters: boolean
   onClusters: () => void
@@ -3298,6 +3320,8 @@ function GraphPanel({
           onMode={onWingMode}
           wing={wing}
           onWing={onWing}
+          canStep={canStep}
+          canStepWing={canStepWing}
           active={active}
           rowTitle={(d, on) =>
             on
