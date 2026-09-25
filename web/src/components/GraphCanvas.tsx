@@ -659,14 +659,17 @@ function painted(mask: LandmarkMask | null, i: number, only: ReadonlySet<number>
 }
 
 /**
- * The Library's rim, as the room draws it: `#fff4e2` at 1.6 wide, along the edge of whatever is
- * being pointed at (`bc-rim` in RoomSvg). The graph borrows both, so one gesture looks the same
- * in both places.
+ * The selected node's ring (2026-09-25, user decision, variant C of four): a gap in the ground
+ * colour, then a ring in the TEXT colour - near-black on the light theme, near-white on the dark
+ * one. Screen pixels. It replaced two marks: the Library's warm rim in the Landmarks mode, which
+ * all but vanished on the light ground, and a thin accent ring elsewhere, which was one more
+ * blue circle beside the search rings and the concept dots. The text colour belongs to no
+ * domain, type or ramp, so it reads the same in every view.
  */
-const RIM_LIGHT = '#fff4e2'
-const RIM_WIDTH = 1.6
-/** How far outside the node's own edge the rim sits, in screen pixels. */
-const RIM_OUT = 3
+const SELECT_GAP_PX = 4
+const SELECT_RING_PX = 2.5
+/** Where the ring's centre line sits outside the node's own edge. */
+const SELECT_RING_OUT = 5
 
 const LANDMARK_R = 10
 const BLOOM_R = 6.5
@@ -1474,31 +1477,26 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.fill()
       }
       /*
-       * The selected node, inside the mode, wears the LIBRARY'S RIM (2026-09-22, user decision):
-       * the same warm light and the same 1.6px edge the room puts along the thing being pointed
-       * at. An accent ring was the obvious choice and the wrong one - blue on a blue-black
-       * canvas is one more circle among forty of the same colour, which is what it looked like.
-       *
-       * A darker halo goes under it, one stroke wider. On this canvas the background can be
-       * near-white, where a warm white edge would vanish; the halo is what the label pass
-       * already does for text, for the same reason.
+       * The selected node, and in the Landmarks mode the landmark an open neighbourhood is
+       * around (it keeps the selection, but a bloom opened from the list has none): the ink
+       * ring, see SELECT_RING_PX. The gap is what keeps the ring off the disc on every fill.
        */
-      if (mask !== null && i === selectedIndex) {
+      if (i === selectedIndex || (mask !== null && i === mask.bloomAnchor)) {
         ctx.globalAlpha = nodeRev
-        ctx.strokeStyle = mixColor(cssVar('--bg', '#0d1117'), cssVar('--text', '#fff'), darkSurface ? 0.1 : 0.55)
-        ctx.lineWidth = 3.4 / t.k
+        ctx.strokeStyle = cssVar('--bg-elev', '#ffffff')
+        ctx.lineWidth = SELECT_GAP_PX / t.k
         ctx.beginPath()
-        ctx.arc(x, y, r + RIM_OUT / t.k, 0, Math.PI * 2)
+        ctx.arc(x, y, r + (SELECT_GAP_PX / 2 + 0.5) / t.k, 0, Math.PI * 2)
         ctx.stroke()
-        ctx.strokeStyle = RIM_LIGHT
-        ctx.lineWidth = RIM_WIDTH / t.k
+        ctx.strokeStyle = cssVar('--text', '#1a2333')
+        ctx.lineWidth = SELECT_RING_PX / t.k
         ctx.beginPath()
-        ctx.arc(x, y, r + RIM_OUT / t.k, 0, Math.PI * 2)
+        ctx.arc(x, y, r + SELECT_RING_OUT / t.k, 0, Math.PI * 2)
         ctx.stroke()
-      } else if (i === focusIndex || i === selectedIndex || matches.has(i)) {
+      } else if (i === focusIndex || matches.has(i)) {
         ctx.globalAlpha = nodeRev
-        ctx.strokeStyle = i === selectedIndex ? cssVar('--accent', '#5b8def') : cssVar('--text', '#fff')
-        ctx.lineWidth = (i === selectedIndex ? 2.2 : 1.6) / t.k
+        ctx.strokeStyle = cssVar('--text', '#fff')
+        ctx.lineWidth = 1.6 / t.k
         ctx.beginPath()
         ctx.arc(x, y, r + 2.5 / t.k, 0, Math.PI * 2)
         ctx.stroke()
