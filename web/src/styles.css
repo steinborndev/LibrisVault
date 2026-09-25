@@ -3901,6 +3901,9 @@ span.head-slot { display: inline-block; }
 }
 /* The heading stays put while its own list moves under it - that is the point of the split. */
 .gx-body.thirds .gx-sec h3 { flex: none; }
+/* A rule between the lists (2026-09-25, user decision): three lists of the same row in one
+   column read as one long list without it, and the sections are what the column is made of. */
+.gx-body.thirds > .gx-sec + .gx-sec { border-top: 1px solid var(--border); }
 .gx-body.thirds .gx-sec ul {
   flex: 1 1 auto;
   min-height: 0;
