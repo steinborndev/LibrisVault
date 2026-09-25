@@ -43,4 +43,20 @@ describe('stepping through the flat domain list', () => {
     expect(stepDomain([], sel(), 1)).toBeNull()
     expect(stepDomain([], sel('ai'), -1)).toBeNull()
   })
+
+  it('steps over the rows it may not stop at, and holds at both ends then', () => {
+    // With Landmarks on, a domain too small for the overlay is skipped (2026-09-25).
+    const big = (d: string): boolean => d !== 'bio' && d !== 'cooking'
+    expect(stepDomain(ROWS, sel('ai'), 1, big)).toEqual({ pick: 'finance' })
+    expect(stepDomain(ROWS, sel('finance'), -1, big)).toEqual({ pick: 'ai' })
+    // No "clear" off the left end: all domains is no stop for such a walk either.
+    expect(stepDomain(ROWS, sel('ai'), -1, big)).toBeNull()
+    expect(stepDomain(ROWS, sel('finance'), 1, big)).toBeNull()
+    // From nothing selected, right finds the first stop; left stays put.
+    expect(stepDomain(ROWS, sel(), 1, (d) => d === 'cooking')).toEqual({ pick: 'cooking' })
+    expect(stepDomain(ROWS, sel(), -1, big)).toBeNull()
+    // A small domain selected by hand still walks on to the next stop.
+    expect(stepDomain(ROWS, sel('bio'), 1, big)).toEqual({ pick: 'finance' })
+    expect(stepDomain(ROWS, sel('ai'), 1, () => false)).toBeNull()
+  })
 })

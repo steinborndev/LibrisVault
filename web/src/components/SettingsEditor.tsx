@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client.ts'
 import { queryState } from './QueryState.tsx'
+import { Tip } from './Tip.tsx'
 import { CredentialSetup } from './CredentialSetup.tsx'
 import { TelegramSetup } from './TelegramSetup.tsx'
 import type { EffectiveSettings, SettingsPatch, SettingsResponse } from '../api/types.ts'
@@ -53,7 +54,48 @@ const READ_ONLY_LABELS: Record<string, string> = {
  */
 export type SettingsSection = 'all' | 'service' | 'integrations'
 
-export function SettingsEditor({ section = 'all', focus = '' }: { section?: SettingsSection; focus?: string } = {}): React.ReactElement {
+/**
+ * The service settings in the groups the System screen lists them under. One editor instance
+ * serves every group and stays mounted while you move between them, so an edit in one group
+ * survives a look at another, and the save bar counts all of them.
+ */
+export type SettingsGroup = 'intake' | 'runs' | 'research'
+
+export const SETTINGS_GROUP_OF: Record<keyof EffectiveSettings, SettingsGroup> = {
+  watchFolder: 'intake',
+  maxUploadBytes: 'intake',
+  doiDedupe: 'intake',
+  urlDedupe: 'intake',
+  oaRecovery: 'intake',
+  concurrency: 'runs',
+  gitAutoCommit: 'runs',
+  dailyBudget: 'runs',
+  researchShareWeekPct: 'research',
+  researchShare5hPct: 'research',
+  reserveWeekPct: 'research',
+  reserve5hPct: 'research',
+  planName: 'research',
+  fiveHourOverrideEnabled: 'research',
+  dedupeJudgeEnabled: 'research',
+} as Record<keyof EffectiveSettings, SettingsGroup>
+
+const GROUP_LABEL: Record<SettingsGroup, string> = {
+  intake: 'Intake',
+  runs: 'Runs & budget',
+  research: 'Research budget',
+}
+
+/** A hint's first sentence stays on the row; the whole text moves behind the ⓘ. */
+function splitHint(hint: string): { lead: string; more: boolean } {
+  const m = /^(.+?[.!?])\s(.+)$/s.exec(hint)
+  return m === null ? { lead: hint, more: false } : { lead: m[1]!, more: true }
+}
+
+export function SettingsEditor({
+  section = 'all',
+  focus = '',
+  group,
+}: { section?: SettingsSection; focus?: string; group?: SettingsGroup } = {}): React.ReactElement {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['settings'], queryFn: api.settings })
   const [draft, setDraft] = useState<EffectiveSettings | null>(null)
@@ -110,15 +152,20 @@ export function SettingsEditor({ section = 'all', focus = '' }: { section?: Sett
     label: string,
     hint: string,
     control: React.ReactNode,
-  ): React.ReactElement => (
-    <div className={`setting${focus === k ? ' focused' : ''}`} key={k} id={`setting-${k}`}>
+  ): React.ReactElement | null => {
+    if (group !== undefined && SETTINGS_GROUP_OF[k] !== group) return null
+    const { lead, more } = group !== undefined ? splitHint(hint) : { lead: hint, more: false }
+    return (
+    <div className={`setting${focus === k ? ' focused' : ''}${draft[k] !== data.effective[k] ? ' dirty' : ''}`} key={k} id={`setting-${k}`}>
       <div>
         <div className="setting-label">
           {label}
+          {more && <Tip text={hint} />}
           {needsRestart(k) && <span className="setting-tag warn">Restart required</span>}
           {isOverridden(k) && <span className="setting-tag">overridden</span>}
+          {draft[k] !== data.effective[k] && <span className="setting-tag dirty">unsaved</span>}
         </div>
-        <div className="setting-hint">{hint}</div>
+        <div className="setting-hint">{lead}</div>
       </div>
       <div className="setting-control">
         {control}
@@ -134,7 +181,8 @@ export function SettingsEditor({ section = 'all', focus = '' }: { section?: Sett
         )}
       </div>
     </div>
-  )
+    )
+  }
 
   if (section === 'integrations') {
     return (
@@ -151,10 +199,97 @@ export function SettingsEditor({ section = 'all', focus = '' }: { section?: Sett
     )
   }
 
+  const dirtyGroups = [...new Set(dirty.map((k) => SETTINGS_GROUP_OF[k]))].filter((g) => g !== undefined)
+  const saveBar = (
+    <div className={`sys-savebar${dirty.length > 0 ? ' dirty' : ''}`}>
+      <span>
+        {dirty.length === 0
+          ? 'All changes saved'
+          : `${dirty.length} unsaved change${dirty.length === 1 ? '' : 's'}${
+              dirtyGroups.length > 0 ? ` in ${dirtyGroups.map((g) => GROUP_LABEL[g]).join(', ')}` : ''
+            }`}
+      </span>
+      <span className="spacer" />
+      {dirty.length > 0 && (
+        <button className="btn ghost" disabled={save.isPending} onClick={() => setDraft(data.effective)}>
+          Discard
+        </button>
+      )}
+      <button className="btn primary" disabled={dirty.length === 0 || save.isPending} onClick={submit}>
+        {save.isPending ? 'Saving…' : dirty.length > 0 ? `Save (${dirty.length})` : 'Saved'}
+      </button>
+    </div>
+  )
+
+  if (group !== undefined) {
+    return (
+      <div className="settings-grouped">
+        <div className="settings-grid">
+          {renderRows()}
+        </div>
+        {save.isError && <div className="toast err">{(save.error as Error).message}</div>}
+        {pendingRestart.length > 0 && (
+          <div className="toast warn">
+            Saved. {pendingRestart.join(', ')} require{pendingRestart.length === 1 ? 's' : ''} a restart:{' '}
+            <code>systemctl --user restart vault-service</code>
+          </div>
+        )}
+        {saveBar}
+      </div>
+    )
+  }
+
   // The baseline/override explanation lives in the section head's ⓘ tooltip.
   return (
     <div>
       <div className="settings-grid">
+        {renderRows()}
+      </div>
+      <div className="setting-actions">
+        <button className="btn primary" disabled={dirty.length === 0 || save.isPending} onClick={submit}>
+          {save.isPending ? 'Saving…' : dirty.length > 0 ? `Save (${dirty.length})` : 'Saved'}
+        </button>
+        {dirty.length > 0 && (
+          <button className="btn ghost" disabled={save.isPending} onClick={() => setDraft(data.effective)}>
+            Discard
+          </button>
+        )}
+      </div>
+      {save.isError && <div className="toast err">{(save.error as Error).message}</div>}
+      {pendingRestart.length > 0 && (
+        <div className="toast warn">
+          Saved. {pendingRestart.join(', ')} require{pendingRestart.length === 1 ? 's' : ''} a restart:{' '}
+          <code>systemctl --user restart vault-service</code>
+        </div>
+      )}
+      <h4 className="settings-ro-title">Status (read-only)</h4>
+      <div className="settings-ro">
+        {Object.entries(READ_ONLY_LABELS).map(([key, label]) =>
+          data.readOnly[key] ? (
+            <div className="settings-ro-row" key={key}>
+              <span className="settings-ro-label">{label}</span>
+              <code>{data.readOnly[key]}</code>
+            </div>
+          ) : null,
+        )}
+      </div>
+      <p className="setting-hint">
+        The API key itself is never shown or stored - only its source. The bind address is
+        deliberately not changeable through the UI.
+      </p>
+      {section === 'all' && (
+        <>
+          <CredentialSetup configured={data.readOnly['credentialConfigured'] !== 'no'} />
+          <TelegramSetup status={data.readOnly['telegram'] ?? 'off'} />
+        </>
+      )}
+    </div>
+  )
+
+  function renderRows(): React.ReactNode {
+    if (draft === null) return null
+    return (
+      <>
         {row(
           'watchFolder',
           'Watch folder',
@@ -348,48 +483,7 @@ export function SettingsEditor({ section = 'all', focus = '' }: { section?: Sett
             </span>
           </div>,
         )}
-      </div>
-
-      <div className="setting-actions">
-        <button className="btn primary" disabled={dirty.length === 0 || save.isPending} onClick={submit}>
-          {save.isPending ? 'Saving…' : dirty.length > 0 ? `Save (${dirty.length})` : 'Saved'}
-        </button>
-        {dirty.length > 0 && (
-          <button className="btn ghost" disabled={save.isPending} onClick={() => setDraft(data.effective)}>
-            Discard
-          </button>
-        )}
-      </div>
-
-      {save.isError && <div className="toast err">{(save.error as Error).message}</div>}
-      {pendingRestart.length > 0 && (
-        <div className="toast warn">
-          Saved. {pendingRestart.join(', ')} require{pendingRestart.length === 1 ? 's' : ''} a restart:{' '}
-          <code>systemctl --user restart vault-service</code>
-        </div>
-      )}
-
-      <h4 className="settings-ro-title">Status (read-only)</h4>
-      <div className="settings-ro">
-        {Object.entries(READ_ONLY_LABELS).map(([key, label]) =>
-          data.readOnly[key] ? (
-            <div className="settings-ro-row" key={key}>
-              <span className="settings-ro-label">{label}</span>
-              <code>{data.readOnly[key]}</code>
-            </div>
-          ) : null,
-        )}
-      </div>
-      <p className="setting-hint">
-        The API key itself is never shown or stored - only its source. The bind address is
-        deliberately not changeable through the UI.
-      </p>
-      {section === 'all' && (
-        <>
-          <CredentialSetup configured={data.readOnly['credentialConfigured'] !== 'no'} />
-          <TelegramSetup status={data.readOnly['telegram'] ?? 'off'} />
-        </>
-      )}
-    </div>
-  )
+      </>
+    )
+  }
 }

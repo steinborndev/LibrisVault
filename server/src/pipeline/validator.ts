@@ -70,6 +70,13 @@ export interface ValidationFinding {
   /** Vault-relative POSIX path of the page the finding is about. */
   readonly path: string
   readonly message: string
+  /**
+   * What the producer saw, for a rule whose evidence a fresh read of the page cannot recover
+   * (TASKS-DEFECT-PATHS 1.3). Only `checkQuotes` sets it: it compares a quotation against the
+   * artifact the job read, and nothing afterwards holds that artifact. Every rule in this
+   * module leaves it undefined, because the page still says what the finding is about.
+   */
+  readonly evidence?: string
 }
 
 /** Signature the queue / maintenance runner / pages routes consume (injectable in tests). */
@@ -101,7 +108,7 @@ export const UNSAFE_TITLE_CHARS = /[/\\:?*"<>|]/
  * (41 %) and entities (36 %), and `## Why This Source Matters` on sources (41 %). Everything
  * else stays free, which is the point - the free prose is good.
  */
-const REQUIRED_HEADINGS: ReadonlyMap<string, readonly string[]> = new Map([
+export const REQUIRED_HEADINGS_BY_TYPE: ReadonlyMap<string, readonly string[]> = new Map([
   ['concept', ['Connections']],
   ['entity', ['Connections']],
   ['source', ['Why This Source Matters', 'Connections']],
@@ -515,7 +522,7 @@ export function validatePages(vaultRoot: string, paths: readonly string[], graph
      */
     const pageType = (fm.fields.get('type') ?? '').toLowerCase()
     const headings = [...markdown.matchAll(/^##[ \t]+(.+?)[ \t]*$/gm)].map((m) => m[1]!.trim())
-    const required = REQUIRED_HEADINGS.get(pageType)
+    const required = REQUIRED_HEADINGS_BY_TYPE.get(pageType)
     if (required !== undefined) {
       const present = new Set(headings.map((h) => h.toLowerCase()))
       const missing = required.filter((r) => !present.has(r.toLowerCase()))

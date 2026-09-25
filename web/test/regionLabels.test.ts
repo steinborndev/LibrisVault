@@ -3,7 +3,7 @@ import {
   pointInPolygon,
   boxIntersectsPolygon,
   placeRegionLabels,
-  hullBody,
+  discCounter,
   type RegionLabelInput,
 } from '../src/components/GraphCanvas.tsx'
 
@@ -39,44 +39,6 @@ describe('boxIntersectsPolygon', () => {
   })
   it('false when the box is clear of the polygon', () => {
     expect(boxIntersectsPolygon([20, 20, 30, 30], square)).toBe(false)
-  })
-})
-
-describe('hullBody', () => {
-  it('drops a far spatial outlier from a compact cluster (the cross-domain-entity case)', () => {
-    // Four members bunched near the origin + one flung far right (a shared entity the layout
-    // pulled toward another cluster). The tongue toward it must not be part of the hull.
-    const body: Pt[] = [
-      [0, 0],
-      [1, 0],
-      [0, 1],
-      [1, 1],
-    ]
-    const withOutlier: Pt[] = [...body, [400, 5]]
-    const trimmed = hullBody(withOutlier)
-    expect(trimmed).toHaveLength(4)
-    expect(trimmed).not.toContainEqual([400, 5])
-  })
-
-  it('keeps a genuinely elongated cluster intact (no false outlier)', () => {
-    const line: Pt[] = [
-      [0, 0],
-      [10, 0],
-      [20, 0],
-      [30, 0],
-      [40, 0],
-    ]
-    expect(hullBody(line)).toHaveLength(5) // spread is uniform — nothing is an outlier
-  })
-
-  it('leaves small clusters (< 5) untouched — too few to tell a body from a corner', () => {
-    const pts: Pt[] = [
-      [0, 0],
-      [1, 1],
-      [200, 200],
-      [2, 0],
-    ]
-    expect(hullBody(pts)).toHaveLength(4)
   })
 })
 
@@ -236,5 +198,49 @@ describe('placeRegionLabels', () => {
       MARGIN,
     )
     expect(out[0]!.key).toBe(2) // the weight-9 cluster is positioned first
+  })
+})
+
+describe('a caption and the frame it has to fit in', () => {
+  // One hull in the middle of a small world, and a frame that leaves room on one side only.
+  const hull: Array<[number, number]> = [
+    [-20, -20],
+    [20, -20],
+    [20, 20],
+    [-20, 20],
+  ]
+  const hulls = new Map<number, Array<[number, number]>>([[1, hull]])
+  const label = { key: 1, width: 30, weight: 10 }
+
+  it('places inside the frame even when a better spot lies outside it', () => {
+    // The frame is cut off just above the hull, so the "up" default cannot be taken.
+    const placed = placeRegionLabels([label], hulls, 10, 4, [-200, -30, 200, 200])
+    expect(placed).toHaveLength(1)
+    const [x0, y0, x1, y1] = placed[0]!.box
+    expect(x0).toBeGreaterThanOrEqual(-200)
+    expect(y0).toBeGreaterThanOrEqual(-30)
+    expect(x1).toBeLessThanOrEqual(200)
+    expect(y1).toBeLessThanOrEqual(200)
+  })
+
+  it('drops a caption that fits nowhere inside the frame', () => {
+    // Half a word at the edge names nothing, and the hull is still there to be hovered.
+    expect(placeRegionLabels([label], hulls, 10, 4, [-21, -21, 21, 21])).toEqual([])
+  })
+
+  it('places as it always did when no frame is given', () => {
+    const free = placeRegionLabels([label], hulls, 10, 4)
+    const framed = placeRegionLabels([label], hulls, 10, 4, [-500, -500, 500, 500])
+    expect(free).toHaveLength(1)
+    expect(framed[0]!.box).toEqual(free[0]!.box)
+  })
+})
+
+describe('discCounter', () => {
+  it('counts the node discs a caption box would cover', () => {
+    const count = discCounter([{ x: 0, y: 0, r: 5 }, { x: 100, y: 0, r: 5 }, { x: 12, y: 0, r: 5 }], 40)
+    expect(count([-3, -3, 3, 3])).toBe(1)
+    expect(count([-10, -10, 20, 10])).toBe(2)
+    expect(count([40, 40, 60, 60])).toBe(0)
   })
 })

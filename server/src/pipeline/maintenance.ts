@@ -52,10 +52,11 @@ import {
   type LogEntryInput,
 } from './hubs.js'
 import { RunRegistry } from './run-registry.js'
+import { parseSplitNaming, splitNamingPrompt, type NamingInput, type SplitNaming } from './split-naming.js'
 import { extractWrittenPaths } from './written-paths.js'
 import { parseLintReport, type LintReport } from './lint-report.js'
 import { readDomainRegistry, domainSystemPrompt, DOMAIN_REGISTRY_PATH, UNASSIGNED } from './domains.js'
-import { describeFindings, gitCommitReader, renderExpandRules, validateExpandCommit, EXPAND_MAX_NEW } from './expand.js'
+import { describeFindings, gitCommitReader, renderExpandRules, validateDefectFixCommit, validateExpandCommit, EXPAND_MAX_NEW } from './expand.js'
 import { deltaBetween, parseSdkUsage, type UsageMonitor } from './usage-monitor.js'
 import { restoreCommitPaths, headHash, commitFileStatus } from './git.js'
 import { parseDomainReview, DOMAIN_REVIEW_FORMAT, type DomainReview } from './domain-review.js'
@@ -83,6 +84,8 @@ import { HOT_CACHE_WORD_BUDGET, VALIDATOR_RULES, VAULT_WIDE_RULES, type Validato
 import { recheckStanding } from './standing-recheck.js'
 import type { EventBus } from './events.js'
 import { buildRetrieveIndex, hasRetrieveScripts, RetrieveScriptsMissingError, type RetrieveIndexBuilder } from './retrieve-index.js'
+import { renderDefectFixPrompt } from './defect-fix-prompt.js'
+import type { StandingFinding } from '../db/validation.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
 import { Mutex } from '../util/mutex.js'
@@ -108,6 +111,10 @@ export type MaintenanceKind =
   | 'repair'
   | 'tag-fix'
   | 'retrieve-index'
+  /** One bound repair of a standing defect, on the pages of its findings (SPEC.md §12.16). */
+  | 'defect-fix'
+  /** Names for the shelves of a domain split; read-only, `query` profile (TASKS-DOMAIN-SPLIT 6.2). */
+  | 'split-naming'
 
 /**
  * One user-selected graph-repair task (SPEC.md §12.4 graph view). `connect` = an isolated
@@ -302,6 +309,8 @@ export interface MaintenanceResult {
   readonly reportPath?: string
   /** Present for a domain-review run: the agent's verdict per candidate. */
   readonly domainReview?: DomainReview
+  /** Present for a split-naming run: the parsed names, descriptions and tags per shelf. */
+  readonly splitNaming?: SplitNaming
   /** Present for a `plan` run: the schema-bound answer, still to be validated by the caller. */
   readonly structuredOutput?: unknown
   /** Plan utilization points the run consumed per window, when both samples were taken (A5). */
@@ -383,6 +392,8 @@ export const EXPAND_TIMEOUT_MS = 20 * 60_000
 /** The recap's summary lines: three minutes and one USD (section 7). */
 export const RECAP_TIMEOUT_MS = 3 * 60_000
 export const RECAP_BUDGET_USD = 1
+/** The split naming pass reads a handful of landmark pages; measured at about $0.40. */
+export const SPLIT_NAMING_BUDGET_USD = 1
 
 /** The per-run knobs a Fellow context pins (model, effort, budget) plus its attribution. */
 function fellowRunOptions(fellow: FellowRunContext | undefined): Partial<RunOptions> {
@@ -427,6 +438,12 @@ interface RunOptions {
   readonly outputFormat?: { readonly type: 'json_schema'; readonly schema: Record<string, unknown> }
   /** An expand run's page set: the commit is validated against it and reverted on a violation (A3). */
   readonly expandPageSet?: readonly string[]
+  /**
+   * A defect-fix run's page set (TASKS-DEFECT-PATHS 4.4). Same mechanism as `expandPageSet`
+   * and a different rule set: the commit check keeps outside-set, no-delete and a new-page cap
+   * of zero, and DROPS additivity, because a defect fix replaces lines by definition.
+   */
+  readonly defectPageSet?: readonly string[]
 }
 
 /** What a run may be started as. `query` is read-only and is used by the `plan` kind only. */
@@ -935,6 +952,30 @@ export class MaintenanceRunner {
   }
 
   /**
+   * A bound DEFECT FIX (SPEC.md §12.16, TASKS-DEFECT-PATHS phase 4).
+   *
+   * Three rules name a defect whose repair needs reading rather than a rule: an open question
+   * that cannot be read away from its page, a quotation that is not in the document the job
+   * read, a page missing the one heading its type is supposed to carry. No deterministic pass
+   * can ever produce those, and until this existed they were a list with no action at all.
+   *
+   * The narrowest scope guard in the repo: exactly the pages of the findings, no other page, no
+   * new page, no rename, no delete. Enforced at tool time by the `PreToolUse` hook and behind
+   * that by a commit check that reverts the whole commit - never by the prompt's wording (hard
+   * rule 4).
+   */
+  startDefectFix(rule: string, findings: readonly StandingFinding[], pageSet: readonly string[]): MaintenanceRun {
+    const prompt = renderDefectFixPrompt(rule, findings)
+    return this.start('defect-fix', prompt, 'ingest', {
+      label: `${rule} on ${pageSet.length === 1 ? '1 page' : `${pageSet.length} pages`}`,
+      // Mechanism only, never the subject of a page (hard rule 7). The rule name carries no
+      // article: "a open-question-form defect" is what one produced on the first real run.
+      commitMessage: `repair: a bound run over ${pageSet.length === 1 ? 'one page' : `${pageSet.length} pages`}, rule ${rule}`,
+      defectPageSet: pageSet,
+    })
+  }
+
+  /**
    * A Fellow's PLANNING run (docs/agents/SPEC.md section 6.2): read-only `query` profile, so
    * the sandbox gives it no vault write path and no web; the answer is bound to `schema` and
    * comes back on the result as `structuredOutput`. Tracked, logged and attributed like every
@@ -1218,6 +1259,20 @@ export class MaintenanceRunner {
   }
 
   /**
+   * The naming pass of a domain split (docs/tasks/TASKS-DOMAIN-SPLIT.md 6.2, D14). Read-only BY
+   * CONSTRUCTION: the `query` profile through `runReadOnly`, so the sandbox gives it no vault
+   * write path, and there is no writer registration, no sweep and no commit to begin with.
+   * Unlike `domain-review`, no sentence in the prompt is what keeps it read-only.
+   */
+  startSplitNaming(input: NamingInput): MaintenanceRun {
+    return this.start('split-naming', splitNamingPrompt(input), 'query', {
+      label: `names for ${input.shelves.length} ${input.shelves.length === 1 ? 'shelf' : 'shelves'} of ${input.parent.key}`,
+      timeoutMs: PLAN_TIMEOUT_MS,
+      maxBudgetUsd: SPLIT_NAMING_BUDGET_USD,
+    })
+  }
+
+  /**
    * Rebuilds the hybrid-retrieval index (SPEC.md §12.6) — the one DETERMINISTIC kind: no
    * agent, no credential (so it also works in setup mode), no commit (the artifacts are
    * excluded from vault history). First run doubles as provisioning. Serialized on its own
@@ -1490,6 +1545,11 @@ export class MaintenanceRunner {
         ...(kind === 'research-expand' && opts.expandPageSet !== undefined
           ? { expand: { pageSet: opts.expandPageSet, maxNew: EXPAND_MAX_NEW } }
           : {}),
+        /*
+         * The defect-fix lock (4.4), the same mechanism one rule set over: the hook refuses a
+         * write outside the page set, and the commit check below reverts what it cannot see.
+         */
+        ...(kind === 'defect-fix' && opts.defectPageSet !== undefined ? { defectFix: { pageSet: opts.defectPageSet } } : {}),
         // A Fellow's run is pinned to its model, effort and budget cap (docs/agents/SPEC.md).
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.effort ? { effort: opts.effort } : {}),
@@ -1610,6 +1670,35 @@ export class MaintenanceRunner {
           })
         }
         log('info', 'research-expand stayed inside its page set')
+      }
+
+      /*
+       * A defect fix is bound to the pages of its findings (4.4). Three of the expand check's
+       * four rules - outside-set, no-delete, and a new-page cap of ZERO - and NOT additivity,
+       * which requires every existing body line to survive: a defect fix replaces lines by
+       * definition, so the expand check would revert exactly the run it was reused for.
+       */
+      if (kind === 'defect-fix' && opts.defectPageSet !== undefined && commitHash !== null) {
+        const findings = await validateDefectFixCommit(gitCommitReader(this.vaultRoot, commitHash, commitFrom), opts.defectPageSet)
+        if (findings.length > 0) {
+          const finding = describeFindings(findings)
+          log('warn', `maintenance: defect-fix broke its scope: ${finding}`)
+          const undone = await this.commitMutex.runExclusive(() =>
+            restoreCommitPaths(this.vaultRoot, commitHash, `revert defect-fix ${commitHash.slice(0, 8)}`, commitFrom),
+          )
+          log(undone.reverted ? 'warn' : 'error', undone.reverted ? `reverted ${commitHash.slice(0, 8)} with ${undone.hash?.slice(0, 8)}` : `revert failed: ${undone.message ?? 'unknown'}`)
+          this.events.publish({ kind: 'stats' })
+          return withDelta({
+            ok: false,
+            kind,
+            pages: [],
+            commit: undone.reverted ? (undone.hash ?? null) : commitHash,
+            usage: res.usage,
+            error: `defect-fix reverted: ${finding}${undone.reverted ? '' : ` (revert failed: ${undone.message ?? 'unknown'})`}`,
+            answer: res.result,
+          })
+        }
+        log('info', 'defect-fix stayed inside its page set')
       }
 
       /*
@@ -1771,6 +1860,9 @@ export class MaintenanceRunner {
     runId = '',
     startedMs = Date.now(),
   ): Promise<MaintenanceResult> {
+    // Said in the run's own log, so "this run could not write" is read off the run rather than
+    // off the code (TASKS-DOMAIN-SPLIT E4 checks it for the naming pass).
+    log('info', `maintenance: ${kind} runs read-only under the query profile - no vault write path, no commit`)
     const res = await this.runAgentFn({
       vaultRoot: this.vaultRoot,
       prompt,
@@ -1798,6 +1890,9 @@ export class MaintenanceRunner {
       log('error', `maintenance: ${kind} returned no structured answer`)
       return withDelta({ ok: false, kind, pages: [], commit: null, usage: res.usage, error: 'the run returned no structured answer', answer: res.result })
     }
+    // The naming pass's answer IS its deliverable, parsed here like `domain-review`'s is.
+    const naming = kind === 'split-naming' ? parseSplitNaming(res.result ?? '') : undefined
+    if (naming !== undefined) log('info', `maintenance: ${kind} named ${Object.keys(naming.shelves).length} shelf/shelves`)
     log('info', `maintenance: ${kind} complete`)
     return withDelta({
       ok: true,
@@ -1806,6 +1901,7 @@ export class MaintenanceRunner {
       commit: null,
       usage: res.usage,
       answer: res.result,
+      ...(naming !== undefined ? { splitNaming: naming } : {}),
       ...(res.structuredOutput !== undefined ? { structuredOutput: res.structuredOutput } : {}),
     })
   }

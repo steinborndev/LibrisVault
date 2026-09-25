@@ -17,7 +17,7 @@ export default tseslint.config(
       parserOptions: {
         // This config file is not part of tsconfig's `include`, so type-aware
         // linting needs it declared as a default project or eslint errors on itself.
-        projectService: { allowDefaultProject: ['eslint.config.js'] },
+        projectService: { allowDefaultProject: ['eslint.config.js', 'vitest.config.ts'] },
         tsconfigRootDir: import.meta.dirname,
       },
     },

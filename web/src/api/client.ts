@@ -8,7 +8,14 @@ import type {
   Job,
   JobDetail,
   Stats,
+  SplitProposal,
   ValidationList,
+  FindingEvidence,
+  StandingFinding,
+  RepairPlan,
+  RepairOutcome,
+  ManifestRepairPlan,
+  DefectFixSettlement,
   Health,
   JobStatus,
   Session,
@@ -54,9 +61,18 @@ import type {
   SourceIndex,
   PageWriteResult,
   PageDeleteResult,
+  SplitApplyResult,
+  SplitPlan,
+  SplitRequestBody,
+  SplitSummary,
+  ShelfDecision,
+  ShelfDecisionRecord,
 } from './types.ts'
 
 const BASE = '/api/v1'
+
+/** A JSON POST, for the calls that send a body. */
+const jsonPost = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
 /**
  * A failed request, with the machine-readable reason where the endpoint sends one. The
@@ -69,6 +85,8 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** The parsed error body, for a refusal that names what it refused (a split revert's pages). */
+    readonly body?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -96,8 +114,10 @@ async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = ''
     let code: string | undefined
+    let parsed: Record<string, unknown> | undefined
     try {
       const body = (await res.json()) as { error?: string; message?: string; issues?: string[]; code?: string }
+      parsed = body as Record<string, unknown>
       detail = body.error ? `: ${body.error}` : ''
       code = body.code
       // The demo guard names its reason in `error` and explains it in `message`: the message
@@ -113,7 +133,7 @@ async function json<T>(res: Response): Promise<T> {
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(`${res.status} ${res.statusText}${detail}`, res.status, code)
+    throw new ApiError(`${res.status} ${res.statusText}${detail}`, res.status, code, parsed)
   }
   return res.json() as Promise<T>
 }
@@ -131,14 +151,97 @@ export const api = {
 
   stats: (): Promise<Stats> => fetch(`${BASE}/stats`).then(json<Stats>),
 
-  /** The standing validation list (A9). Base product: it answers with the flag off too. */
-  validation: (params?: { rule?: string; limit?: number }): Promise<ValidationList> => {
+  /**
+   * The standing validation list (A9). Base product: it answers with the flag off too.
+   *
+   * `offset` because the route caps at 200 and the UI asked for 50 with no way past it: 7 of
+   * 57 findings were unreachable from the screen entirely (TASKS-DEFECT-PATHS 1.6).
+   */
+  validation: (params?: { rule?: string; limit?: number; offset?: number; accepted?: boolean }): Promise<ValidationList> => {
     const q = new URLSearchParams()
     if (params?.rule) q.set('rule', params.rule)
     if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.offset) q.set('offset', String(params.offset))
+    if (params?.accepted) q.set('accepted', '1')
     const qs = q.toString()
     return fetch(`${BASE}/validation${qs ? `?${qs}` : ''}`).then(json<ValidationList>)
   },
+
+  /**
+   * Accepting a defect: it may stay, and here is why. The reason is required - a snooze only
+   * postpones the reading, and an accept without a reason is indistinguishable from neglect.
+   */
+  acceptFinding: (id: string, reason: string): Promise<{ finding: StandingFinding }> =>
+    fetch(`${BASE}/validation/${encodeURIComponent(id)}/accept`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    }).then(json<{ finding: StandingFinding }>),
+
+  /**
+   * The deterministic repair, planned. Read-only and needs no credential: the rule is
+   * mechanical, so nothing is started and nothing can be invented. The client names FINDING
+   * IDS; the server resolves them to paths.
+   */
+  repairPlan: (rule: string, ids: string[]): Promise<RepairPlan> =>
+    fetch(`${BASE}/validation/repair/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rule, ids }),
+    }).then(json<RepairPlan>),
+
+  /**
+   * The same selection, applied. `pages` carries the `beforeHash` each page was planned
+   * against: the approval was of a diff, and a diff the page no longer has is not it.
+   */
+  repairApply: (rule: string, ids: string[], pages: Array<{ rel: string; beforeHash: string }>): Promise<RepairOutcome> =>
+    fetch(`${BASE}/validation/repair/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rule, ids, pages }),
+    }).then(json<RepairOutcome>),
+
+  /**
+   * The bound agent run over the pages of the selected findings. 202 with the run record; the
+   * dashboard then follows it like any other maintenance run.
+   */
+  repairRun: (rule: string, ids: string[]): Promise<MaintenanceRun & { findings: number; pages: number }> =>
+    fetch(`${BASE}/validation/repair/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rule, ids }),
+    }).then(json<MaintenanceRun & { findings: number; pages: number }>),
+
+  /** The bookkeeping a finished fix run owes: the re-check, the quote path, the veto. */
+  repairRunSettle: (runId: string): Promise<DefectFixSettlement> =>
+    fetch(`${BASE}/validation/repair/run/${encodeURIComponent(runId)}/settle`, { method: 'POST' }).then(json<DefectFixSettlement>),
+
+  /** Undoes one fix run's commit and puts the defect it removed back on the list. */
+  repairRevert: (commit: string): Promise<{ reverted: boolean; revertCommit?: string; pages: string[]; recorded: number }> =>
+    fetch(`${BASE}/validation/repair/revert`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commit }),
+    }).then(json<{ reverted: boolean; revertCommit?: string; pages: string[]; recorded: number }>),
+
+  /** The address map's own plan; it is whole-file and cannot be scoped to selected findings. */
+  manifestRepairPlan: (): Promise<ManifestRepairPlan> =>
+    fetch(`${BASE}/validation/repair/manifest/plan`, { method: 'POST' }).then(json<ManifestRepairPlan>),
+
+  manifestRepairApply: (beforeHash: string): Promise<{ written: boolean; stale: boolean; commit: { hash?: string } | null }> =>
+    fetch(`${BASE}/validation/repair/manifest/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ beforeHash }),
+    }).then(json<{ written: boolean; stale: boolean; commit: { hash?: string } | null }>),
+
+  /** Takes an accept back; the finding returns to whichever block it belonged to. */
+  unacceptFinding: (id: string): Promise<{ finding: StandingFinding }> =>
+    fetch(`${BASE}/validation/${encodeURIComponent(id)}/accept`, { method: 'DELETE' }).then(json<{ finding: StandingFinding }>),
+
+  /** What one finding is based on: the stored column, or a fresh read of its page. */
+  findingEvidence: (id: string): Promise<FindingEvidence> =>
+    fetch(`${BASE}/validation/${encodeURIComponent(id)}/evidence`).then(json<FindingEvidence>),
 
   jobs: (params?: { status?: JobStatus; limit?: number }): Promise<{ jobs: Job[] }> => {
     const q = new URLSearchParams()
@@ -189,6 +292,10 @@ export const api = {
   /** Removes one settled agent run from the history. */
   deleteRun: (id: string): Promise<{ deleted: boolean }> =>
     fetch(`${BASE}/maintenance/history/${id}`, { method: 'DELETE' }).then(json<{ deleted: boolean }>),
+
+  /** Forgets one run's kept settle: the stream's row for a run the history no longer holds. */
+  forgetSettle: (runId: string): Promise<{ forgotten: boolean }> =>
+    fetch(`${BASE}/maintenance/state/${encodeURIComponent(runId)}`, { method: 'DELETE' }).then(json<{ forgotten: boolean }>),
 
   /** Takes a commit off the Activity stream; the vault keeps it. */
   dismissCommit: (hash: string): Promise<{ ok: boolean }> =>
@@ -390,6 +497,42 @@ export const api = {
 
   domainCandidates: (): Promise<CandidatesResponse> =>
     fetch(`${BASE}/domains/candidates`).then(json<CandidatesResponse>),
+
+  /** The shelves a domain falls into (TASKS-DOMAIN-SPLIT phase 2): deterministic, read-only. */
+  domainSplit: (key: string): Promise<SplitProposal> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split`).then(json<SplitProposal>),
+
+  /** The dry run of a decision set: the registry diff, the pages, the warnings. Writes nothing. */
+  domainSplitPlan: (key: string, body: SplitRequestBody): Promise<SplitPlan> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/plan`, jsonPost(body)).then(json<SplitPlan>),
+
+  /** The one-commit split (TASKS-DOMAIN-SPLIT 5.4). */
+  domainSplitApply: (key: string, body: SplitRequestBody): Promise<SplitApplyResult> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/apply`, jsonPost(body)).then(json<SplitApplyResult>),
+
+  /** The optional read-only naming pass, for groups of shelf ids (a merge is a group of two). */
+  domainSplitNaming: (key: string, groups: number[][]): Promise<MaintenanceRun> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/naming`, jsonPost({ groups })).then(json<MaintenanceRun>),
+
+  domainSplitDecide: (key: string, fingerprint: string, decision: ShelfDecision): Promise<{ ok: true; decisions: ShelfDecisionRecord[] }> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/decisions`, jsonPost({ fingerprint, decision })).then(
+      json<{ ok: true; decisions: ShelfDecisionRecord[] }>,
+    ),
+
+  domainSplitRestore: (key: string, fingerprint: string): Promise<{ ok: true; decisions: ShelfDecisionRecord[] }> =>
+    fetch(`${BASE}/domains/${encodeURIComponent(key)}/split/decisions/${encodeURIComponent(fingerprint)}`, { method: 'DELETE' }).then(
+      json<{ ok: true; decisions: ShelfDecisionRecord[] }>,
+    ),
+
+  domainSplits: (): Promise<{ splits: SplitSummary[] }> => fetch(`${BASE}/domains/splits`).then(json<{ splits: SplitSummary[] }>),
+
+  domainSplitRemainder: (id: string): Promise<{ commit: string; written: Array<{ address: string; path: string; child: string }>; skipped: SplitApplyResult['skipped'] }> =>
+    fetch(`${BASE}/domains/splits/${encodeURIComponent(id)}/remainder`, { method: 'POST' }).then(
+      json<{ commit: string; written: Array<{ address: string; path: string; child: string }>; skipped: SplitApplyResult['skipped'] }>,
+    ),
+
+  domainSplitRevert: (id: string): Promise<{ commits: string[]; indexCommit: string | null }> =>
+    fetch(`${BASE}/domains/splits/${encodeURIComponent(id)}/revert`, { method: 'POST' }).then(json<{ commits: string[]; indexCommit: string | null }>),
 
   domainReview: (): Promise<MaintenanceRun> =>
     fetch(`${BASE}/maintenance/domain-review`, { method: 'POST' }).then(json<MaintenanceRun>),

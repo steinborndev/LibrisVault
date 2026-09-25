@@ -154,6 +154,24 @@ describe('the exit-code contract', () => {
 })
 
 describe('the batch form', () => {
+  it('writes a page the script refuses as a request unlocked, like the single form, and never releases it', async () => {
+    // Exit 4: the script's "path may not contain '..'" - a title ending in a full stop is enough.
+    const calls: string[][] = []
+    const seen: { held: readonly string[]; busy: readonly string[] }[] = []
+    await withWikiLocks(vaultRoot, ['wiki/a.md', 'wiki/b etc..md', 'wiki/c.md'], (held, busy) => {
+      seen.push({ held, busy })
+    }, {
+      exec: async (args) => {
+        calls.push([...args])
+        if (args[0] === 'acquire' && args.at(-1) === 'wiki/b etc..md') return 4
+        if (args[0] === 'acquire' && args.at(-1) === 'wiki/c.md') return 75
+        return 0
+      },
+    })
+    expect(seen).toEqual([{ held: ['wiki/a.md', 'wiki/b etc..md'], busy: ['wiki/c.md'] }])
+    expect(calls.filter((c) => c[0] === 'release')).toEqual([['release', 'wiki/a.md']])
+  })
+
   it('hands the writer what it holds and what somebody else does, and releases only its own', async () => {
     const calls: string[][] = []
     const seen: { held: readonly string[]; busy: readonly string[] }[] = []

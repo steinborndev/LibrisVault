@@ -29,6 +29,11 @@ deep review; the task list is `docs/tasks/TASKS-REDESIGN.md`.
   keeps a prefix alias that normalizes via `replaceState` (`/vault` → `/graph`, `/inbox` and
   `/ingestion` → `/`, `/health`, `/maintenance` and `/settings` → `/system`, `/chat` →
   `/research`, and `/library?domain=` → the Catalog's filter).
+- **System's column is a map, not a menu of five** (2026-09-24): Overview, then Maintenance
+  (one entry per tool, the dot is that tool's severity from the status model), Insight and
+  Settings. Every entry is a `?section=` route; retired ids (`checks`, `service`,
+  `integrations`) resolve to their new place. A tool page is always status, then the tool,
+  then its own recent runs.
 - **Screens stay mounted** behind `[hidden]` once visited, so a tab switch keeps the graph's
   camera, the chat session, filters and scroll positions (see State survival).
 - **Desktop-only for now.** Below ~1000px the shell scrolls horizontally rather than

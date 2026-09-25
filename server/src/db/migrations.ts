@@ -846,6 +846,105 @@ UPDATE usage_samples SET utilization = ROUND(utilization, 2)
 WHERE utilization IS NOT NULL AND utilization != ROUND(utilization, 2);
 `
 
+/*
+ * What a finding is based on, written down when it is made (2026-09-21, TASKS-DEFECT-PATHS 1.3).
+ *
+ * A row on the standing list says what is wrong and never shows it. For most rules that is
+ * recoverable - re-read the page and the offending lines are there. For `quote` it is not:
+ * the check compares a quotation against the artifact the JOB read, normalised to a lowercase
+ * word stream, and neither the quotation in full nor how much of it does stand in the source
+ * survives into the message (it carries the first 80 characters and a length).
+ *
+ * So the producer writes it down while it still has the source in memory. NULL for every rule
+ * whose evidence the page itself still holds; `record()` never overwrites a value with NULL,
+ * because a later run that has no evidence must not erase what an earlier one had.
+ */
+const V34 = `
+ALTER TABLE validation_findings ADD COLUMN evidence TEXT;
+`
+
+/*
+ * Accepting a defect, with a reason (2026-09-21, TASKS-DEFECT-PATHS 2.1).
+ *
+ * SEPARATE FROM `resolved_at`, because the two say different things. Resolved means the defect
+ * is GONE - a run read the page again and no longer found it. Accepted means it may STAY: this
+ * tag really does name one page and that is fine, these two pages really are different. A row
+ * can be accepted and later resolved (somebody fixed it anyway); the accept is what keeps it
+ * off the list in the meantime.
+ *
+ * The reason is required by the route and stored verbatim. A snooze would only postpone the
+ * reading, and an accept without a reason is indistinguishable from neglect six months on.
+ */
+const V35 = `
+ALTER TABLE validation_findings ADD COLUMN accepted_at TEXT;
+ALTER TABLE validation_findings ADD COLUMN accepted_reason TEXT;
+CREATE INDEX idx_validation_accepted ON validation_findings(accepted_at);
+`
+
+/*
+ * What a fix run has already tried on this defect (2026-09-21, TASKS-DEFECT-PATHS 4.8).
+ *
+ * A run that finishes without fixing anything is invisible today and costs tokens on every
+ * click. The counter rises when a fix run COVERS a finding, whatever the outcome; the re-check
+ * that clears the finding is what marks success. From the third attempt the row says two runs
+ * have failed on it and offers accept or hand work instead of another button.
+ *
+ * TWO THINGS THE COUNTER HAS TO GET RIGHT, or it accuses a run that worked:
+ *
+ *   - `quote` cannot be cleared by the standing re-check at all (a quotation is compared
+ *     against the artifact the job read, which only an ingest holds), so a quote fix run runs
+ *     its own check and resolves its own finding. Without that, a SUCCESSFUL quote repair would
+ *     raise the counter every time and at three the row would call three successes two failures;
+ *   - a PARTIAL repair is not a failure. `findingIdentity` normalises numbers out of the
+ *     message, so a page that goes from three bad bullets to one keeps the same id and only
+ *     bumps its count. The row distinguishes "still standing, fewer occurrences" from
+ *     "unchanged" before it accuses anything.
+ */
+const V36 = `
+ALTER TABLE validation_findings ADD COLUMN fix_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE validation_findings ADD COLUMN last_fix_at TEXT;
+ALTER TABLE validation_findings ADD COLUMN occurrences_at_last_fix INTEGER;
+`
+
+/*
+ * The third column is what makes the second rule above checkable rather than asserted: without
+ * the count as it stood when the run started, "fewer occurrences than last time" has nothing to
+ * compare against, and every partial repair reads as a run that changed nothing.
+ */
+
+/*
+ * A domain split (docs/tasks/TASKS-DOMAIN-SPLIT.md 5.6 and 6.3, folded into one migration
+ * because both landed on one branch).
+ *
+ * `domain_splits` remembers what a split approved, so its REMAINDER (the pages that did not
+ * move, or were moved back) can be shown and re-filed, and so its revert knows its commits.
+ * `domain_split_decisions` remembers a "leave" or a "defer" per shelf fingerprint.
+ *
+ * Operational state only (SPEC.md §8): losing both tables loses the remainder, the revert
+ * convenience and the memory of what was left, and nothing of the vault, because the split
+ * commit itself names every page it moved.
+ */
+const V37 = `
+CREATE TABLE domain_splits (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL DEFAULT 'local',
+  parent      TEXT NOT NULL,
+  children    TEXT NOT NULL,
+  commits     TEXT NOT NULL DEFAULT '[]',
+  created_at  TEXT NOT NULL,
+  reverted_at TEXT
+);
+CREATE INDEX idx_domain_splits_parent ON domain_splits(user_id, parent);
+CREATE TABLE domain_split_decisions (
+  user_id     TEXT NOT NULL DEFAULT 'local',
+  parent      TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  decision    TEXT NOT NULL CHECK (decision IN ('leave', 'defer')),
+  decided_at  TEXT NOT NULL,
+  PRIMARY KEY (user_id, parent, fingerprint)
+);
+`
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, up: V1 },
   { version: 2, up: V2 },
@@ -880,4 +979,8 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 31, up: V31 },
   { version: 32, up: V32 },
   { version: 33, up: V33 },
+  { version: 34, up: V34 },
+  { version: 35, up: V35 },
+  { version: 36, up: V36 },
+  { version: 37, up: V37 },
 ]

@@ -384,9 +384,11 @@ export class SqliteAgentStore implements AgentStore {
     return row ? toRecord(row) : undefined
   }
 
+  /** Active first, then by creation - and by insertion within one millisecond, which a tie on
+   *  `created_at` left to SQLite's choice (seen as a flaky desk test, 2026-09-25). */
   list(): AgentRecord[] {
     const rows = this.db
-      .prepare(`SELECT ${COLUMNS} FROM agents WHERE user_id = ? ORDER BY (state = 'retired'), created_at`)
+      .prepare(`SELECT ${COLUMNS} FROM agents WHERE user_id = ? ORDER BY (state = 'retired'), created_at, rowid`)
       .all(this.userId) as Row[]
     return rows.map(toRecord)
   }

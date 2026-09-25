@@ -403,8 +403,27 @@ export function registerMaintenanceRoute(
   app.delete('/api/v1/maintenance/history/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
     if (runs === undefined || !runs.remove(id)) return reply.code(404).send({ error: 'no such run in the history' })
+    /*
+     * The run's settle goes with it. The stream shows a kind's last settle in place of a run the
+     * history no longer holds, and that fallback row has no history entry to delete - so a run
+     * removed here came straight back as a row nobody could remove (found 2026-09-24: a failed
+     * expand run of 2026-09-17, its history row long gone, still in the stream).
+     */
+    state?.forget(id)
     ctx.events.publish({ kind: 'stats' })
     return reply.send({ deleted: true })
+  })
+
+  /*
+   * Forget one run's settle: the stream's fallback row for a run the history no longer holds.
+   * Only that run's, by id; operational state, the vault untouched (hard rule 1). The status
+   * head then no longer reports that run as its kind's last.
+   */
+  app.delete('/api/v1/maintenance/state/:runId', async (req, reply) => {
+    const { runId } = req.params as { runId: string }
+    if (state === undefined || !state.forget(runId)) return reply.code(404).send({ error: 'no settle of that run is kept' })
+    ctx.events.publish({ kind: 'stats' })
+    return reply.send({ forgotten: true })
   })
 
   // Per-kind last-settle state (SPEC.md §12.7 Stufe b) — restart-proof "zuletzt erledigt"

@@ -27,6 +27,7 @@ import { Markdown } from './Markdown.tsx'
 import { JobLog } from './JobLog.tsx'
 import { StatusBadge } from './StatusBadge.tsx'
 import { mainArticle, readerPages } from '../lib/homeArticle.ts'
+import { ingestDomain } from '../lib/ingestDomain.ts'
 import { parseQuoteSummary, quotesFact, quotesTitle } from '../lib/quotes.ts'
 import { wikilinkResolver } from '../lib/wikilink.tsx'
 import { frontmatter } from '../lib/frontmatter.ts'
@@ -78,6 +79,7 @@ export function JobDetail({
   const graph = useQuery({ queryKey: ['graph'], queryFn: api.graph })
   const linkTo = useMemo(() => wikilinkResolver(graph.data?.nodes ?? []), [graph.data])
   const articlePath = mainArticle(event.pages)
+  const filed = useMemo(() => ingestDomain(pages, graph.data?.nodes ?? [], articlePath), [pages, graph.data, articlePath])
   const [tabState, setTabState] = useState<'article' | 'log'>(articlePath === null ? 'log' : 'article')
   const tab = tabProp ?? tabState
   const setTab = onTab ?? setTabState
@@ -185,9 +187,11 @@ export function JobDetail({
       </div>
       )}
 
-      <Facts size="lead">
+      <Facts size="lead" className="record-facts">
         <Fact k="Source" v={job !== undefined ? `${job.source} · ${job.type}` : event.channel} />
-        <Fact k="Started" v={<span className="mono-meta">{exact(job?.started_at ?? event.startedIso ?? null)}</span>} />
+        {/* One face and one size for every value of the strip (2026-09-24): the start time and
+            the commit used to be set in the small monospace of meta lines. */}
+        <Fact k="Started" v={exact(job?.started_at ?? event.startedIso ?? null)} />
         <Fact k="Took" v={duration(job?.started_at ?? event.startedIso ?? null, job?.finished_at ?? event.whenIso)} />
         <Fact
           k="Usage"
@@ -199,11 +203,23 @@ export function JobDetail({
           }
         />
         <Fact k="Pages written" v={pages.length > 0 ? `+${pages.length}` : '-'} />
+        {/* Where the run filed what it wrote: the domain most of its pages carry. Unassigned is
+            the case worth seeing - no domain of the registry took the subject. */}
+        <Fact
+          k="Domain"
+          tone={filed.domain === 'unassigned' ? 'warn' : undefined}
+          v={
+            <span title={filed.counts.map(([d, n]) => `${d}: ${n} page${n === 1 ? '' : 's'}`).join('\n') || 'No page of it is in the graph'}>
+              {filed.domain ?? '-'}
+              {filed.counts.length > 1 && ` +${filed.counts.length - 1}`}
+            </span>
+          }
+        />
         {/* What a run's quotations are worth: checked against the text it read (7.5). */}
         <Fact k="Quotes" v={<span title={quotesTitle(quotes)}>{quotesFact(quotes)}</span>} />
         {/* The vault commit this record produced, where the other facts are (2026-09-11);
             the foot used to carry it, and says only when the record finished now. */}
-        <Fact k="Commit" v={<span className="mono-meta">{event.commit !== null ? event.commit.slice(0, 10) : '-'}</span>} />
+        <Fact k="Commit" v={event.commit !== null ? event.commit.slice(0, 10) : '-'} />
       </Facts>
 
       <div className="chipband">
@@ -249,20 +265,19 @@ export function JobDetail({
           {event.commit === null && ' · nothing was committed'}
         </span>
         <span className="spacer" />
-        {/* Two doors to the page it wrote: the graph with the node selected, or the Catalog
-            reading it. One pill that opened the viewer used to stand here. */}
-        {articlePath !== null && (
-          <>
-            <button className="btn sm" onClick={() => navigate(`/graph?select=${encodeURIComponent(articlePath)}`)} title={`Open the graph with this page selected: ${articlePath}`}>
-              <Icon name="graph" /> Graph view
-            </button>
-            <button className="btn sm" onClick={() => navigate(catalogPageRoute(articlePath))} title={`Read this page in the Catalog: ${articlePath}`}>
-              <Icon name="book" /> Catalog view
-            </button>
-          </>
+        {/* Left to right (2026-09-24, the user's order): forget the row, undo the ingest, then
+            the two doors to the page it wrote - the graph with the node selected, or the
+            Catalog reading it. Both write actions stay armed behind a second click. */}
+        {canDelete && (
+          <button
+            className={`btn sm${armedDelete ? ' danger' : ''}`}
+            disabled={del.isPending}
+            onClick={() => (armedDelete ? del.mutate() : setArmedDelete(true))}
+            title="Removes this entry from the history. The vault, its pages and its commit stay as they are."
+          >
+            {del.isPending ? 'Removing…' : armedDelete ? 'Really remove?' : 'Remove from history'}
+          </button>
         )}
-        {/* The revert first, the removal last: the one that touches the vault before the one
-            that only forgets a row. Both in the foot's one button shape. */}
         {canRevert && (
           <button
             className={`btn sm${armedRevert ? ' danger' : ''}`}
@@ -277,15 +292,15 @@ export function JobDetail({
                 : 'Revert ingest'}
           </button>
         )}
-        {canDelete && (
-          <button
-            className={`btn sm${armedDelete ? ' danger' : ''}`}
-            disabled={del.isPending}
-            onClick={() => (armedDelete ? del.mutate() : setArmedDelete(true))}
-            title="Removes this entry from the history. The vault, its pages and its commit stay as they are."
-          >
-            {del.isPending ? 'Removing…' : armedDelete ? 'Really remove?' : 'Remove from history'}
-          </button>
+        {articlePath !== null && (
+          <>
+            <button className="btn sm" onClick={() => navigate(`/graph?select=${encodeURIComponent(articlePath)}`)} title={`Open the graph with this page selected: ${articlePath}`}>
+              <Icon name="graph" /> Graph view
+            </button>
+            <button className="btn sm" onClick={() => navigate(catalogPageRoute(articlePath))} title={`Read this page in the Catalog: ${articlePath}`}>
+              <Icon name="book" /> Catalog view
+            </button>
+          </>
         )}
         {del.error != null && <span className="dim">Removing failed: {(del.error as Error).message}</span>}
       </div>

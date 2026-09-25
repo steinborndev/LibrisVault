@@ -14,6 +14,7 @@ import { JobStore } from './db/jobs.js'
 import { ChatStore } from './db/chat.js'
 import { SettingsStore } from './db/settings.js'
 import { DomainDismissalStore } from './db/domain-dismissals.js'
+import { SqliteDomainSplitStore } from './db/domain-splits.js'
 import { CommitDismissalStore } from './db/commit-dismissals.js'
 import { OaLookupStore } from './db/oa.js'
 import {
@@ -477,8 +478,8 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
           runs: () => maintenance.listRuns(),
           commitMutex,
           autoCommit: () => settings.effective(config).gitAutoCommit,
-          veto: async (id) => {
-            await fellows.decide(id, { status: 'vetoed', via: 'dashboard', note: 'the question was archived on the pinboard' })
+          veto: async (id, note) => {
+            await fellows.decide(id, { status: 'vetoed', via: 'dashboard', note })
           },
         })
       : undefined
@@ -553,6 +554,10 @@ export async function startService(config: Config = loadConfig()): Promise<Runni
     autoCommit: () => settings.effective(config).gitAutoCommit,
     // Persistent, so a rejected domain candidate stays rejected across restarts.
     domainDismissals: new DomainDismissalStore(db),
+    // A domain split registers with the same run registry the queue and the maintenance runner
+    // count themselves in, and remembers its applied splits and shelf decisions (schema v37).
+    runRegistry,
+    domainSplits: new SqliteDomainSplitStore(db),
     commitDismissals: new CommitDismissalStore(db),
     maintenanceState,
     agentRuns,

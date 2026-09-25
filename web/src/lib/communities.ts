@@ -3,6 +3,12 @@
  * plus the cluster labelling/tinting metadata the canvas draws. Lives outside the Vault tab
  * because it is pure graph algorithmics - no React, no view state - and is unit-tested on
  * its own (web/test/detectClusters.test.ts).
+ *
+ * `louvainCommunities` has a server copy, `server/src/pipeline/communities.ts`, which the
+ * domain-split proposal runs (docs/tasks/TASKS-DOMAIN-SPLIT.md 1.1) and which adds only a
+ * resolution parameter. Two copies for the reason `api/types.ts` gives for the hand-mirrored
+ * types, pinned the same way: `web/test/communities-parity.test.ts` and its server twin assert
+ * one hard-coded label array over one seeded graph. Change both or neither.
  */
 
 import type { GraphNode } from '../api/types.ts'
@@ -18,8 +24,14 @@ const MIN_CLUSTER = 4
  * dense cross-domain seam (two topics that really do interleave) can still merge if the links
  * are many. Edges touching an uncategorized page (no `domain:`) keep full weight - we don't
  * penalize what we can't classify.
+ *
+ * 0.1 since 2026-09-25, from 0.25. Modularity merges a SMALL group into a large neighbour on a
+ * handful of links (its resolution limit), and at 0.25 an eight-page domain went into a
+ * 44-page one of another field over three bridges. Measured on the vault: mixed communities 9
+ * to 4 of 35, foreign members 64 to 9, the large communities unchanged in size. Raising the
+ * resolution instead also freed the small group but broke the large ones apart.
  */
-const CROSS_DOMAIN_WEIGHT = 0.25
+const CROSS_DOMAIN_WEIGHT = 0.1
 
 /** A cluster is "domain-mixed" when its dominant domain holds less than this share of members. */
 const DOMAIN_PURITY = 0.7
@@ -144,12 +156,15 @@ export function louvainCommunities(
  * so a dense vault yields coherent, domain-respecting communities instead of one giant blob.
  * Returns a per-node id array (compacted, clusters < MIN_CLUSTER folded to -1) and each
  * cluster's label from its most DISTINCTIVE shared tags (see topDistinct - plain frequency
- * let one ubiquitous tag label every sub-community of a domain identically).
+ * let one ubiquitous tag label every sub-community of a domain identically). `isThematic` says
+ * which tags may caption at all (lib/tagSignal.ts: `#organization` names what the pages are, not
+ * what the area is about); a cluster left with none is named by its domain.
  */
 export function detectClusters(
   nodes: GraphNode[],
   edges: Array<[number, number]>,
   realCount: number,
+  isThematic: (tag: string) => boolean = () => true,
 ): { clusterIds: number[]; clusterLabels: Map<number, string>; clusterDomains: Map<number, string> } {
   // Down-weight edges that cross a domain boundary (both endpoints categorized, differently).
   const domOf = (i: number): string | null => nodes[i]?.domain ?? null
@@ -177,7 +192,7 @@ export function detectClusters(
     if (cid < 0) continue
     clusterSize.set(cid, (clusterSize.get(cid) ?? 0) + 1)
     const tc = tagCounts.get(cid) ?? tagCounts.set(cid, new Map()).get(cid)!
-    for (const t of nodes[i]!.tags) tc.set(t, (tc.get(t) ?? 0) + 1)
+    for (const t of nodes[i]!.tags) if (isThematic(t)) tc.set(t, (tc.get(t) ?? 0) + 1)
     if (nodes[i]!.domain) {
       const dc = domCounts.get(cid) ?? domCounts.set(cid, new Map()).get(cid)!
       dc.set(nodes[i]!.domain!, (dc.get(nodes[i]!.domain!) ?? 0) + 1)

@@ -116,6 +116,20 @@ const noop = (): void => undefined
  * row of its own to delete.
  */
 const runIdOf = (e: ActivityEvent): string | null => (e.id.startsWith('logrun:') ? e.id.slice('logrun:'.length) : null)
+/** The run behind a kept-settle row (`settle:<kind>:<runId>`), or null for any other row. */
+const settleRunOf = (e: ActivityEvent): string | null => {
+  if (!e.id.startsWith('settle:')) return null
+  const rest = e.id.slice('settle:'.length)
+  const at = rest.indexOf(':')
+  return at < 0 ? null : rest.slice(at + 1)
+}
+/** What the trash of a settled run removes: its history entry, or the settle kept in its place. */
+const removeRun = (e: ActivityEvent): (() => Promise<unknown>) | undefined => {
+  const run = runIdOf(e)
+  if (run !== null) return () => api.deleteRun(run)
+  const settle = settleRunOf(e)
+  return settle !== null ? () => api.forgetSettle(settle) : undefined
+}
 
 /** True while the caret is somewhere the arrow keys already mean something. */
 function inField(target: EventTarget | null): boolean {
@@ -129,7 +143,23 @@ function inField(target: EventTarget | null): boolean {
 
 type FlowView = 'recaps' | 'activity'
 
-export function Home({ statusFilter = '', active = true }: { statusFilter?: string; active?: boolean }): React.ReactElement {
+export function Home({
+  statusFilter = '',
+  openJob = '',
+  active = true,
+}: {
+  statusFilter?: string
+  /**
+   * `?job=<id>`: open this one record straight away.
+   *
+   * The standing defect list links a `.raw/<job-id>/` finding here (TASKS-DEFECT-PATHS 1.1),
+   * and such a job is usually months old - far outside the stream's own window, which is
+   * windowed by day and by `limit`. So the job is fetched by id rather than looked for in
+   * what the stream happens to hold.
+   */
+  openJob?: string
+  active?: boolean
+}): React.ReactElement {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<ActivityFilter>(DEFAULT_FILTER)
   const [limit, setLimit] = useState(WINDOW_STEP)
@@ -194,6 +224,34 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const view: FlowView = fellowsOn ? flow : 'activity'
   const demoMode = health.data?.demoMode === true
   const jobsQ = useQuery({ queryKey: ['jobs', limit], queryFn: () => api.jobs({ limit }) })
+  /*
+   * The one job a `?job=` deep link names, fetched on its own. `retry: false` because a job
+   * the history no longer holds answers 404, and that is an answer rather than a failure: the
+   * record then simply does not open and the stream stays where it is.
+   */
+  const linkedJobQ = useQuery({
+    queryKey: ['job', openJob],
+    queryFn: () => api.job(openJob),
+    enabled: openJob !== '',
+    retry: false,
+    staleTime: 60_000,
+  })
+  /*
+   * `?job=` opens that record and, with it, the day it belongs to: a record whose day the
+   * stream is not on would open and then be closed by the next day change. Reacts to the
+   * param rather than to the first mount, for the same reason `?filter=` above does.
+   */
+  useEffect(() => {
+    if (openJob === '') return
+    const job = linkedJobQ.data?.job
+    if (job === undefined) return
+    const when = job.finished_at ?? job.started_at ?? job.created_at
+    if (when != null) setDay(localDate(new Date(when)))
+    setFlow('activity')
+    setDetailTab('article')
+    setDetailId(`job:${job.id}`)
+  }, [openJob, linkedJobQ.data])
+
   const historyQ = useQuery({
     queryKey: ['maintenance-history', 'all'],
     queryFn: () => api.maintenanceHistory({ limit: 200 }),
@@ -210,13 +268,19 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
   const events = useMemo(
     () =>
       buildActivity({
-        jobs,
+        // The deep-linked job first and deduplicated, so a job outside the window still has a
+        // record to open. Everything downstream - the day axis, the filters - then treats it
+        // like any other row.
+        jobs:
+          linkedJobQ.data !== undefined && !jobs.some((j) => j.id === linkedJobQ.data!.job.id)
+            ? [linkedJobQ.data.job, ...jobs]
+            : jobs,
         activeRuns: runs.running,
         runHistory: historyQ.data?.runs ?? [],
         lastRuns: [...(maint.data?.lastRuns.values() ?? [])],
         commits: stats.data?.commits ?? [],
       }),
-    [jobs, runs.running, historyQ.data, maint.data, stats.data],
+    [jobs, linkedJobQ.data, runs.running, historyQ.data, maint.data, stats.data],
   )
 
   // ---- The day on show. ----
@@ -943,7 +1007,7 @@ export function Home({ statusFilter = '', active = true }: { statusFilter?: stri
                               vaultName={vaultName}
                               authMode={authMode}
                               onOpen={() => openDetail(e.id)}
-                              {...(runIdOf(e) !== null ? { remove: () => api.deleteRun(runIdOf(e)!) } : {})}
+                              {...(removeRun(e) !== undefined ? { remove: removeRun(e)! } : {})}
                             />
                           ),
                         )}

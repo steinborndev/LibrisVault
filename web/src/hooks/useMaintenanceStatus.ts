@@ -15,6 +15,7 @@ import { api } from '../api/client.ts'
 import type { MaintenanceAreaState } from '../api/types.ts'
 import { computeTagReport, recommendedKeys, MAX_TAG_ACTIONS } from '../lib/tagReport.ts'
 import { deriveMaintenanceStatus, type MaintStatus } from '../lib/maintenanceStatus.ts'
+import { largestDepartment } from '../lib/splitShelves.ts'
 
 export interface MaintenanceStatusData {
   readonly status: MaintStatus
@@ -37,11 +38,23 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
   const candidates = useQuery({ queryKey: ['domain-candidates'], queryFn: api.domainCandidates })
   const index = useQuery({ queryKey: ['retrieve-index-status'], queryFn: api.retrieveIndexStatus })
   const state = useQuery({ queryKey: ['maintenance-state'], queryFn: api.maintenanceState })
+  /*
+   * The standing defect list (SPEC §12.16). Base product - the route answers with
+   * `AGENTS_ENABLED` off too, so no `enabled` guard belongs here (hard rule 8 runs the other
+   * way for a Fellow-only route: a query without a guard costs one 404 per mount).
+   *
+   * `limit: 200` is the route's own cap: the item counts the whole backlog rather than the
+   * page the card happens to show, and the per-rule counts are what the split is built from,
+   * so a finding past the first fifty still moves the severity.
+   */
+  const defects = useQuery({ queryKey: ['validation', null, 200], queryFn: () => api.validation({ limit: 200 }), staleTime: 30_000 })
 
   const report = useMemo(
     () => (graph.data !== undefined ? computeTagReport(graph.data.nodes) : null),
     [graph.data],
   )
+  /** The split item's input, from the graph already loaded: no request of its own. */
+  const largest = useMemo(() => (graph.data !== undefined ? largestDepartment(graph.data.nodes) : null), [graph.data])
 
   const failed = stats.isError || graph.isError || domains.isError || candidates.isError
   const retry = (): void => {
@@ -49,6 +62,24 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
       if (q.isError) void q.refetch()
     }
   }
+
+  /**
+   * The list split the way the card splits it: fixable (a pass or a bound run exists for the
+   * rule) against everything else. The classification is the SERVER's - it rides along in the
+   * response - so the two surfaces cannot disagree about what is fixable.
+   */
+  const defectCounts = useMemo(() => {
+    const d = defects.data
+    if (d === undefined) return null
+    let fixable = 0
+    let decision = 0
+    for (const r of d.byRule) {
+      const path = d.guidance?.[r.rule]?.path
+      if (path === 'pass' || path === 'run') fixable += r.findings
+      else decision += r.findings
+    }
+    return { fixable, decision }
+  }, [defects.data])
 
   const data = useMemo(() => {
     if (
@@ -70,14 +101,20 @@ export function useMaintenanceStatus(): MaintenanceStatusResult {
       tagRepairCount: recommendedKeys(report, MAX_TAG_ACTIONS).size,
       lintReport: stats.data.lintReport,
       lastLintRun: lintRun !== undefined ? { finishedAt: lintRun.finishedAt, ok: lintRun.ok } : null,
+      // Dated from the last WRITE, not the last refresh run: every ingest rewrites the cache as
+      // part of the vault's own ingest skill, so a cache whose last manual refresh is weeks old
+      // is still current. Dating it from the refresh run (tried 2026-09-24) called a cache written
+      // the night before stale and said ingests "may miss recent pages" - which they do not.
       hotCacheUpdatedAt: stats.data.hotCacheUpdatedAt,
       index: index.data ?? null,
       unversioned: stats.data.unversioned ?? null,
+      defects: defectCounts,
+      largestDomain: largest,
       now: new Date(),
     })
     const lastRuns = new Map((state.data?.areas ?? []).map((a) => [a.kind, a]))
     return { status, lastRuns }
-  }, [stats.data, domains.data, candidates.data, report, index.data, state.data])
+  }, [stats.data, domains.data, candidates.data, report, index.data, state.data, defectCounts, largest])
 
   return { data, failed, retry }
 }

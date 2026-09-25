@@ -320,3 +320,111 @@ export function seedGroupPositions(
     seed[i * 2 + 1] = slot.y + Math.sin(a) * slot.r * t
   }
 }
+
+/* ── The node simulation, shared by the worker and the layout probe ─────────────────────── */
+
+export interface SimNode extends SimulationNodeDatum {
+  index: number
+  degree: number
+}
+
+/**
+ * The level-2 simulation exactly as the worker runs it, built and stopped: the worker ticks
+ * it in timer slices, `scripts/graph-layout-probe.mjs` ticks it to convergence and measures
+ * the result. One definition, so what the probe measures is what the screen draws.
+ *
+ * `seed` is [x0, y0, …] with NaN for unplaced nodes; the unplaced ones are seeded into their
+ * domain's slot first (`seedGroupPositions`), the rest keep their place.
+ */
+export function buildNodeSimulation(input: {
+  degrees: readonly number[]
+  edges: ReadonlyArray<readonly [number, number]>
+  groups: Int32Array
+  seed: Float32Array
+  alpha: number
+}): { sim: ReturnType<typeof forceSimulation<SimNode>>; nodes: SimNode[]; slots: GroupSlot[] } {
+  const { degrees, edges, groups, seed, alpha } = input
+  const slots = computeGroupSlots(groups, edges)
+  seedGroupPositions(groups, slots, seed)
+  const nodes: SimNode[] = degrees.map((degree, i) => {
+    const node: SimNode = { index: i, degree }
+    const x = seed[i * 2]
+    const y = seed[i * 2 + 1]
+    if (x !== undefined && y !== undefined && !Number.isNaN(x) && !Number.isNaN(y)) {
+      node.x = x
+      node.y = y
+    }
+    return node
+  })
+  const links = edges.map(([source, target]) => ({ source, target }))
+  // Centering pull for UNGROUPED nodes only: grouped ones are held by their slot.
+  const centerPull = (d: SimNode): number =>
+    (groups[d.index] ?? -1) >= 0 ? 0 : d.degree === 0 ? 0.5 : d.degree < 3 ? 0.15 : 0.05
+  // Weakly-linked nodes are held harder: they have no springs to keep them in their blob.
+  const groupPull = (d: SimNode): number => (d.degree === 0 ? 0.5 : d.degree < 3 ? 0.2 : 0.1)
+  const sim = forceSimulation(nodes)
+    .force(
+      'link',
+      forceLink(links)
+        .distance((l) => (crossGroup(groups, l) ? CROSS_GROUP_DISTANCE : LINK_DISTANCE))
+        .strength((l) => (crossGroup(groups, l) ? CROSS_GROUP_STRENGTH : LINK_STRENGTH)),
+    )
+    .force('charge', forceManyBody().strength(-120).distanceMax(600))
+    .force('collide', forceCollide<SimNode>().radius((d) => 6 + Math.sqrt(d.degree) * 2))
+    .force('x', forceX<SimNode>(0).strength(centerPull))
+    .force('y', forceY<SimNode>(0).strength(centerPull))
+    .force('group', forceGroupSlot<SimNode>(groups, slots, groupPull))
+    .alpha(alpha)
+    .stop()
+  return { sim, nodes, slots }
+}
+
+/* ── When a domain change needs a fresh layout (2026-09-24) ─────────────────────────────── */
+
+/**
+ * Share of the drawn pages that may change domain before the layout is dealt afresh. Below it,
+ * only the moved pages are re-seeded, into their new slot.
+ */
+export const REGROUP_FULL_SHARE = 0.05
+
+export type ReseedPlan =
+  /** Nothing changed domain: keep every known position (a filter toggle, a live update). */
+  | { readonly mode: 'keep' }
+  /** A few pages changed domain: re-seed exactly those into their new slot. */
+  | { readonly mode: 'partial'; readonly drop: readonly number[] }
+  /** A domain appeared, or many pages moved: deal the whole layout afresh, as on a reload. */
+  | { readonly mode: 'full' }
+
+/**
+ * What a change of domains does to the layout. A domain split used to reach the canvas as a
+ * gentle reheat (alpha 0.3) from the old positions: the moved pages still stood in the
+ * parent's territory while their new slot lay elsewhere, and a reheat cannot carry hundreds of
+ * nodes across the map - the domains stayed interleaved, with long fibres between them, until
+ * the next reload. Now the pages that changed domain are re-seeded into their slot, and when a
+ * domain APPEARED (a split, a new registry key) or a large share moved, the whole layout is
+ * dealt afresh, because every slot moves with the packing.
+ *
+ * `known` is the domain each path had in the last layout; a path it does not hold is new and
+ * not a regrouping (the new-node seeding handles it). Filter toggles change which nodes are
+ * drawn, never a path's domain, so they stay `keep`.
+ */
+export function reseedPlan(
+  paths: readonly string[],
+  domains: ReadonlyArray<string | null>,
+  known: ReadonlyMap<string, string | null>,
+): ReseedPlan {
+  const drop: number[] = []
+  const seen = new Set(known.values())
+  let appeared = false
+  for (let i = 0; i < paths.length; i++) {
+    const before = known.get(paths[i]!)
+    if (before === undefined) continue
+    const now = domains[i] ?? null
+    if (before === now) continue
+    drop.push(i)
+    if (!seen.has(now)) appeared = true
+  }
+  if (drop.length === 0) return { mode: 'keep' }
+  if (appeared || drop.length >= paths.length * REGROUP_FULL_SHARE) return { mode: 'full' }
+  return { mode: 'partial', drop }
+}

@@ -66,7 +66,7 @@ Windows 11
 
 **Watcher:** `chokidar` observes the configured watch folder recursively. New or changed files are picked up only after a stability check (`awaitWriteFinish`, 2 s of unchanged size) to avoid half-copied files. After pickup the file is **moved** into the vault's `.raw/` (watch folder = inbox, gets emptied; prevents double processing after a restart).
 
-**Ingestion queue:** SQLite table `jobs` as the single source of truth for all processing. Jobs move through the states `queued → preprocessing → ingesting → done | failed | deferred`. A worker pool drains the queue; **default concurrency for agent runs: 1** (configurable, corrected 2026-09-19). The vault's own ingest skill states the constraint it was built under: "Single-writer only ... Do not run parallel ingests from multiple Claude sessions or sub-agents that assign addresses. The `flock` in the helper prevents counter corruption but does not serialize page writes themselves." This paragraph previously said 2 and claimed claude-obsidian's per-file locking (`scripts/wiki-lock.sh`) protected the vault level as well; both halves were wrong. Measured 2026-09-19: at the old default, **13 of 31 finished jobs overlapped another job in time**, and the lock's staleness window (60 s by default, since widened to 600 s) was shorter than **9.6 % of real lock holds** - a lock that outlives its window is reaped and both writers proceed. What the lock does protect is a page one writer holds RIGHT NOW against another writer that asks for it in the same window, which is the manual-Obsidian-session case, not the two-ingests case. Raising the default back to 2 needs the service-owned hub layer shipped (it removes the long holds, which are all on the hub files) and a measured run of the new write path; the deviation gets written down either way.
+**Ingestion queue:** SQLite table `jobs` as the single source of truth for all processing. Jobs move through the states `queued → preprocessing → ingesting → done | failed | deferred`. A worker pool drains the queue; **default concurrency for agent runs: 1** (configurable, corrected 2026-09-19). The vault's own ingest skill states the constraint it was built under: "Single-writer only ... Do not run parallel ingests from multiple Claude sessions or sub-agents that assign addresses. The `flock` in the helper prevents counter corruption but does not serialize page writes themselves." This paragraph previously said 2 and claimed claude-obsidian's per-file locking (`scripts/wiki-lock.sh`) protected the vault level as well; both halves were wrong. Measured 2026-09-19: at the old default, **13 of 31 finished jobs overlapped another job in time**, and the lock's staleness window (60 s by default, since widened to 600 s) was shorter than **9.6 % of real lock holds** - a lock that outlives its window is reaped and both writers proceed. What the lock does protect is a page one writer holds RIGHT NOW against another writer that asks for it in the same window, which is the manual-Obsidian-session case, not the two-ingests case. Raising the default back to 2 needs the service-owned hub layer shipped (it removes the long holds, which are all on the hub files) and a measured run of the new write path; the deviation gets written down either way. **The queue runs jobs in the order they were queued (corrected 2026-09-25).** Every read that decides what runs next - the next claim, held and night-released jobs, an interrupted run's recovery, a batch's members - orders by SQLite's insertion counter (`rowid`), not by `created_at`: the wall clock can step back under load (measured on a WSL host: three steps of up to 1.2 s in 90 seconds), and a drop made a moment after another could otherwise be stamped earlier and run first. The service runs no `VACUUM`, the one thing that may renumber the counter. Lists that only show jobs by date still sort by `created_at`.
 
 **Preprocessing worker:** Normalizes incoming material into a format suitable for ingestion (details in section 5), stores original + normalized form under `.raw/<job-id>/` and writes a `manifest.json` (source, type, hashes, timestamps).
 
@@ -165,6 +165,8 @@ Two things that belong to no subsection:
 
 That new screen is the sixth, and it IS behind the flag: an isometric room view where a Fellow is a figure, a domain is a shelf, and one window manages the Fellows completely - tonight's schedule priced from measured run durations, a dossier per Fellow with its notebook, recap slice, run ledger and settings, the open decisions, and spawning. The wall board beside it carries the hot cache, the daily recap and the reading list. Home gains the night's own strip and the plan-usage corner; System gains the research share and its reserves. With the flag unset none of this renders and the tab is not offered, which is what `health.fellows` is for (section 12.10). So the shell is five screens without the extension (Home, Research, Graph, Catalog, System) and six with it.
 
+
+**Correction 2026-09-24 (System as a map of the machine room).** The five sections in the table's System row are gone. The control column is now a map in four groups: **Overview** (what needs the user now: every maintenance area with its state, and one guided run through what is due); **Maintenance**, one page per area (lint and links, the standing defects of 12.16 with their repairs, domains with filing, new domains and splits, tags, the hot cache, the retrieval index, unversioned pages); **Insight** (usage and cost, vault stats with pages per domain, and one history of agent runs and vault commits); and **Settings** (the runtime keys in three groups - intake, runs and budget, the Fellows' research budget - and the instance: credential, Telegram bot, service facts). A figure stands in one place only, and each maintenance page carries the actions for its area. Old `?section=` values resolve to their new place.
 ### 6.1 Tab "Overview"
 
 Vault statistics and recent activity at a glance: page counts per type (concepts, entities, sources; counted from the file system and cached), growth over time (from git history), most recently created/changed pages (clickable with an `obsidian://open?vault=…&file=…` deep link), content of the hot cache (`wiki/hot.md` rendered), figures of the last 7 days (ingests, failures, processed sources), service status (watcher active, queue length, latest git commits).
@@ -232,6 +234,8 @@ GET    /api/v1/sources              page → ingested document, read from `.raw/
 GET    /api/v1/sources/raw?path=    the document itself; only an allowlisted format is
                                     served inline, everything else as a download (§9)
 GET    /api/v1/domains              domain registry; …/candidates + …/dismiss (12.4 stage 3)
+                                    …/:key/split (proposal, naming, plan, apply, decisions)
+                                    and …/splits (remainder, revert) (12.4 stage 4)
 POST   /api/v1/maintenance/…        the maintenance runs: lint, lint-fix, hot-cache, repair,
                                     tag-fix, domain-backfill, domain-review, retrieve-index
 GET    /api/v1/maintenance/state    cadence status per area (12.7 stage b)
@@ -575,6 +579,71 @@ new domains from evidence; the decision remains the user's.
 - **Self-healing:** After creation a candidate disappears anyway because its tags now belong to
   a domain; the dismissal is only the additional safeguard for the time until the next backfill.
 
+**Meta categories, stage 4: splitting a domain (added 2026-09-23, user decision).** Stages 2
+and 3 grow a domain out of the unassigned pool. Stage 4 is the other direction: a domain that has
+outgrown being a shelf is split into peers.
+
+*Part one, the proposal.* `GET /api/v1/domains/:key/split` computes, deterministically and for
+free, the shelves a domain falls into: a consensus of 40 seeded Louvain runs (resolution 0.4)
+over the domain's knowledge pages and the links among them, in which a link is stable when its
+two ends share a cluster in 90 % of the runs, and the shelves are the connected groups of stable
+links with 25 pages or more. Smaller groups stay with the domain. Each shelf carries its evidence
+(size, conductance, stability, tag precision and recall, landmarks, distinctive tags without the
+entity-shaped ones, the tag-collision cost of a key) and is ranked by separability. A domain
+under 50 knowledge pages is not offered a split. The Catalog narrows to a proposed shelf, System
+shows the proposal, and the status model recommends it when one domain holds a quarter of the
+knowledge pages. Nothing is written. (A Graph overlay drawing the shelves as hulls shipped with the
+merge and was removed the same day at the user's request.)
+
+*Part two, the write.* The user promotes, merges, leaves or defers shelves and names each
+promoted one; a key is coined, never copied from a frequent tag. An optional read-only agent
+pass (`split-naming`, `query` profile) drafts names and descriptions. The apply writes ONE
+commit: the parent's registry section, narrowed so it no longer claims what left it; the new
+sections, directly after it; the `domain:` field of exactly the approved pages, identified by
+address and each only while it still carries the parent key; and `wiki/index.md`. It stamps
+`updated:`, never `content_updated:`. It refuses while an agent run writes and while auto-commit
+is off. Pages that did not move form a visible remainder with its own re-file. A revert reverts
+the split's own commits newest first, re-renders the index, and refuses while other pages carry
+its keys. A left shelf is remembered by its fingerprint and not proposed again while that holds;
+a deferred one comes back at the next guided maintenance run. The registry conventions
+gain one sentence: altitude is judged against the vault's volume, and a domain that outgrows a
+shelf is split into peers, the part that stays keeping the old key with a narrowed description.
+
+**Overlays, and the Landmarks mode (added 2026-09-22 to 2026-09-25, user decisions).** The graph
+carries four overlays; the decision record is `docs/tasks/TASKS-LANDMARKS.md`.
+
+- **Landmarks** draws, for the one domain on show, only the pages it is built around: its
+  knowledge pages ranked by backlinks from inside the domain (then by backlinks overall), 12 %
+  of them with a floor of 8 and a ceiling of 40, for domains of 25 pages or more. The list beside
+  the picture is a **reading order**, not a ranking: from the strongest page, always the strongest
+  landmark linked to one already listed, broken into chapters where nothing links on; the pages
+  that join chapters are drawn as small connectors. A landmark's **neighbourhood** (its links
+  inside the domain, uncapped, ranked the same way) opens from its dot or its number in the list
+  and takes the whole picture; one is open at a time. Positions are a display-only spread of the
+  layout's own (the simulation is untouched), so every title is written in full below its dot.
+  The authority and recency lenses span what the mode paints, not the domain: the landmarks are
+  the domain's most-linked pages, and on a ramp built for the whole domain they all came out one
+  colour. The mode excludes Spotlight, Areas and Bridges; a drill-down, a local depth or a
+  search ends it. The switch holds across a change of domain: the overlay follows the domain in
+  view, rests (switch on, reason shown) where it cannot show anything, and the domain arrows
+  step over the domains too small for it.
+- **Areas** tints each community (multi-level Louvain; an edge between two domains weighs 0.1
+  of one inside a domain, so a small domain is not folded into a large neighbour over a few
+  bridges) and captions it with its most distinctive tags. A tag that names a kind of page
+  rather than a subject never captions one: the entity-shaped tags the domain registry already
+  excludes from classification, source media and languages, and any tag carried by one page
+  type only across five or more domains (`web/src/lib/tagSignal.ts`). `a` and `d` step through
+  the areas one at a time, a click in the overview shows one alone, a click on a page opens it,
+  and the area under the pointer is outlined. Caption placement is computed once per
+  arrangement and view and kept while the view moves, then placed afresh 120 ms after it stops.
+- **Spotlight** lights and names the community under the pointer; a click isolates it and the
+  next one drills into its sub-communities. **Bridges** brightens the links between communities.
+
+Around all four: the fit and the landmark spread keep out of the boxes the screen stands in the
+drawing (the lens legend, reserved at the size of the largest legend so a change of lens moves
+nothing, the corner controls and the lock). "Related by tag", in the explorer and the reading
+view alike, counts only subject tags, and a page from another domain needs two of them in common.
+
 **Resolving gaps instead of filling them (added 2026-09-05).** The Gaps view of the Home panel
 ("Worth a run") used to offer only one way out of a gap: research. Many gaps never deserve a
 page (single mentions, image captions, callout titles an ingest linked by reflex). Every card
@@ -853,8 +922,23 @@ page with a sentence cut mid-clause**.
 deictic, emits one finding naming both. Advisory (§12.16). It never says the section should go,
 which is why `## Open questions` stays off the run-protocol heading list.
 
-**Not retroactive.** The 355 standing bullets are repaired one at a time by the reformulation and
-by the user's strike-through. Pipeline code does not rewrite vault content (hard rule 1).
+**Retroactive only through a bound agent run (amended 2026-09-21, user decision).** It read
+"not retroactive" until then, which was right about the mechanism and wrong about the limit:
+PIPELINE CODE still rewrites no bullet, and that is what hard rule 1 forbids. An AGENT RUN is
+the writer hard rule 1 allows, so the standing bullets of one page can be rewritten by a run
+bound to that page - one page per finding, at most ten pages of the same rule per run, no other
+page, no new page, no rename, no delete, enforced by a path whitelist at tool time and by a
+commit check with auto-revert behind it, not by prompt wording (§12.16, `defect-fix`). The
+reformulation and the user's strike-through remain the other two paths; what changed is that
+the list of 355 is no longer only worked one question at a time.
+
+**A reformulated question is a NEW question.** The text IS the identity (`questionKey`), so a
+proposal a Fellow planned against the old wording no longer names anything that exists. It is
+vetoed, the same way archiving a question vetoes it, and the board shows the new bullet as
+unplanned. The run therefore snapshots the page's bullets BEFORE it writes: nothing in the
+finding carries the old text, because the `open-question-form` message counts bullets and names
+none. This is the second way a question's identity ends, alongside the strike-through (§12.4).
+It can discard a planned night's work, so the confirmation says so before the run starts.
 
 ### 12.16 The standing defect list (added 2026-09-21)
 
@@ -896,3 +980,54 @@ reports it. Two of the three constraints on that are the arguments of one call,
 **Every rule sits on exactly one list**, mechanical or judgement, enforced by an exhaustive type
 and a test. A rule on neither reaches no fix run: `open-question-form` (§12.15) was in that state
 from the day it shipped, 15 findings' worth, with five others.
+
+**Every defect has a path out of the list (added 2026-09-21,
+`docs/tasks/TASKS-DEFECT-PATHS.md`).** The list above ended the 406 job-log lines and replaced
+them with 57 rows nobody could act on: the rows were spans, with no link to the page, no
+evidence, and no statement of who was supposed to do something. A THIRD classification answers
+that, `Record<ValidationRule, 'pass' | 'run' | 'decision'>` in `pipeline/defect-paths.ts`,
+exhaustive over the rule union at compile time and served with the list so the dashboard renders
+what the server decided. It crosses the mechanical/judgement split deliberately and does not
+widen it: that split answers what a lint-fix AGENT PROMPT may be told about, and widening it to
+build a "fixable" block would put judgement calls into a prompt.
+
+| Path | What it means | Who writes |
+|---|---|---|
+| `pass` | a deterministic repair pass reaches the page the finding stands on | `pipeline/defect-repair.ts`, behind the vault's per-file lock and the commit mutex, one commit |
+| `run` | the repair needs reading, and one bound agent run does it on one page | the maintenance runner |
+| `decision` | nothing can produce the repair without somebody deciding | the user, in the page view |
+
+**Plan, diff, confirm - and the dry run stays mandatory, for the same reason `cli/vaultrepair.ts`
+makes `--apply` the only way past it.** These passes rewrite pages a person wrote months ago, in
+bulk, by rule. `POST /validation/repair/plan` is read-only and returns per page the reason, the
+diff and a hash of the content it planned against; `POST /validation/repair/apply` plans again
+and writes only the pages whose fresh content still hashes to what was approved. The hash is what
+carries the approval forward: the apply re-plans, which sets `before` to the current content and
+would make `applyRepair`'s own comparison unreachable, and the approval was of a DIFF rather than
+of a page. A page whose lock somebody else holds is reported as skipped, which means something
+different to the reader than stale.
+
+**The plan is filtered to the pages the findings name, and that has a price the screen states.**
+A pass is built vault-wide: measured 2026-09-21, `tag-singleton` would change **26 pages against
+14 findings** and `em-dash` **2 against 1**. The surplus is pages the validator has never read -
+it only ever sees the pages a run touched, plus the pages the list already names - and each will
+surface as a NEW finding of a rule the user believes they emptied. That is expected rather than a
+repair that did not hold, and the rule's guidance line says so. The vault-wide sweep stays the
+CLI's.
+
+**Two exceptions, both measured and both rendered rather than hidden.** `title-name` gets no
+button: `titleLinkPass` edits the pages that LINK to a drifted title, never the page the finding
+stands on, so a filtered run reaches nothing (0 pages vault-wide). And the address map's repair
+cannot be scoped to selected findings - it writes one whole file - and reaches none of the
+`address-map` findings standing today, all four of which name a `.raw/<job-id>/` directory that no
+source entry mentions: what a job directory held is not derivable from the directory, and
+inventing it would be inventing provenance.
+
+**A defect can also be ACCEPTED, permanently and with a reason** (migration 35, `accepted_at` /
+`accepted_reason`, separate from `resolved_at`: resolved means the defect is gone, accepted means
+it may stay). A list that cannot be emptied becomes the 406 job-log lines again one layer up, and
+six of the nine standing rules need a judgement whose answer is often "this is fine". The reason
+is required - a snooze only postpones the reading. Accepted findings leave `list()` and
+`countsByRule()`, which has two wanted consequences: an accepted mechanical finding stops reaching
+the lint-fix prompt, and its page stops being re-read by the standing re-check unless something
+else on it still stands.

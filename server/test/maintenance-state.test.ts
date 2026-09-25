@@ -50,6 +50,21 @@ describe('SqliteMaintenanceStateStore', () => {
     expect(areas[1]!.kind).toBe('lint')
   })
 
+  it('forgets one run\'s settle by run id, never another run of the same kind', () => {
+    const s = new SqliteMaintenanceStateStore(db)
+    s.record({ kind: 'lint', runId: 'old', ok: false, pages: 0, error: 'x', finishedAt: '2026-09-01T00:00:00.000Z' })
+    s.record({ kind: 'lint', runId: 'new', ok: true, pages: 1, error: null, finishedAt: '2026-09-02T00:00:00.000Z' })
+    expect(s.forget('old')).toBe(false)
+    expect(s.list().map((a) => a.runId)).toEqual(['new'])
+    expect(s.forget('new')).toBe(true)
+    expect(s.list()).toEqual([])
+    const m = new MemoryMaintenanceStateStore()
+    m.record({ kind: 'lint', runId: 'r', ok: true, pages: 0, error: null, finishedAt: '2026-09-02T00:00:00.000Z' })
+    expect(m.forget('other')).toBe(false)
+    expect(m.forget('r')).toBe(true)
+    expect(m.list()).toEqual([])
+  })
+
   it('scopes by user', () => {
     const local = new SqliteMaintenanceStateStore(db, 'local')
     const other = new SqliteMaintenanceStateStore(db, 'other')

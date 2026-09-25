@@ -98,6 +98,20 @@ const runRecord = (over: Partial<AgentRunRecord> = {}): AgentRunRecord => ({
   ...over,
 })
 
+
+/**
+ * Real time that never runs backwards. The records these tests order are stamped by the
+ * service's clock, and the wall clock can step back under load - measured in WSL at up to 1.2s
+ * three times in 90 seconds (2026-09-25) - which listed the second Fellow before the first.
+ */
+function monotonicNow(): () => Date {
+  let last = 0
+  return () => {
+    last = Math.max(Date.now(), last + 1)
+    return new Date(last)
+  }
+}
+
 describe('slugify', () => {
   it('makes a filename-safe, unique-enough slug', () => {
     expect(slugify('Ada Lovelace')).toBe('ada-lovelace')
@@ -130,6 +144,16 @@ describe('SqliteAgentStore', () => {
     expect(store.list()).toHaveLength(1)
   })
 
+  it('lists two Fellows created in the same millisecond in the order they were created', () => {
+    // A tie on created_at used to come back in whatever order SQLite chose; the desk test
+    // caught it under load (2026-09-25). The insertion order is the tie-break.
+    const store = new SqliteAgentStore(db)
+    const at = '2026-09-05T08:00:00.000Z'
+    store.create(agentRecord({ id: 'z9', name: 'Zed', slug: 'zed', createdAt: at }))
+    store.create(agentRecord({ id: 'a0', name: 'Ann', slug: 'ann', createdAt: at }))
+    expect(store.list().map((a) => a.id)).toEqual(['z9', 'a0'])
+  })
+
   it('refuses a second Fellow with the same slug', () => {
     const store = new SqliteAgentStore(db)
     store.create(agentRecord())
@@ -154,6 +178,8 @@ describe('notebook page', () => {
     expect(md).toContain('title: "Ada"')
     expect(md).toContain('updated: 2026-09-06')
     expect(md).toContain('agent_id: a1')
+    // Filed as the vault's machinery on every write, so no backfill has to and none is undone.
+    expect(md).toMatch(/^domain: meta$/m)
     for (const s of ['## Intent', '## Scope', '## Plan', '## Log', '## Open Questions', '## Notes']) expect(md).toContain(s)
     expect(md).toContain('2026-09-06 · research-step · Limb darkening · 1 page(s) · 2.10 USD')
   })
@@ -232,9 +258,11 @@ describe('FellowService against a git vault', () => {
       proposals: new SqliteProposalStore(db),
       maintenance: runner,
       notebook: new NotebookWriter({ vaultRoot, commitMutex }),
+      now: monotonicNow(),
     })
   })
-  afterEach(() => {
+  afterEach(async () => {
+    await service.flush()
     db.close()
     fs.rmSync(vaultRoot, { recursive: true, force: true })
   })

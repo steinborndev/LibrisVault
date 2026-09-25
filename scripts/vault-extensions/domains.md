@@ -40,6 +40,9 @@ domain backfill from the dashboard (System -> Status & checks) so existing pages
   book. Prefer `finance` over `investment-funds`.
 - Keep them at a comparable altitude. If one key would sit inside another, it is a tag, not a
   domain.
+- Altitude is judged against the vault's volume. A domain that outgrows a shelf is split into
+  peers, and the part that stays keeps the old key with a narrowed description that no longer
+  claims what left it (System -> Domains -> Split proposal).
 - The tag lists below are *guidance for classification*, not a lookup table. A page whose tags
   match nothing may still clearly belong to a domain; judge by what the page is about.
 - Entity-shaped tags (`person`, `organization`, `product`, `researcher`) say what a page *is*,

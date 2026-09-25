@@ -50,10 +50,13 @@ export function Fact({
  */
 export function Facts({
   size = 'default',
+  className,
   children,
 }: {
   size?: 'default' | 'lead'
+  /** One more class for a strip that needs its own layout (a run record's facts). */
+  className?: string
   children: React.ReactNode
 }): React.ReactElement {
-  return <div className={`facts${size === 'lead' ? ' lead' : ''}`}>{children}</div>
+  return <div className={`facts${size === 'lead' ? ' lead' : ''}${className ? ` ${className}` : ''}`}>{children}</div>
 }

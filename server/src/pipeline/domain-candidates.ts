@@ -29,8 +29,10 @@ const MERGE_JACCARD = 0.6
  * Tags that describe what a page IS, not what it is ABOUT. They cut across every subject
  * (`person` appears in biomedicine and ai-tooling alike), so they can never justify a domain.
  * The registry page states the same rule for the agent; this is its machine-side counterpart.
+ * The split proposal (`domain-split.ts`) filters its tag hints with the same set: a shelf's
+ * hints are registry guidance, and the registry forbids classifying by what a page IS.
  */
-const STRUCTURAL_TAGS: ReadonlySet<string> = new Set([
+export const STRUCTURAL_TAGS: ReadonlySet<string> = new Set([
   'concept',
   'entity',
   'source',

@@ -165,6 +165,18 @@ export interface Stats {
   generatedAt: string
 }
 
+/**
+ * Where a finding's subject is, resolved by the SERVER (TASKS-DEFECT-PATHS 1.1).
+ *
+ * A `.raw/<job-id>/` path names its job by the DIRECTORY NAME. `lastJobId` is whoever last
+ * reported the finding - a maintenance run's id as often as a job's - and is provenance, never
+ * a link target.
+ */
+export type FindingSubject =
+  | { kind: 'page'; path: string }
+  | { kind: 'job'; jobId: string; exists: boolean }
+  | { kind: 'none'; why: string }
+
 /** One standing validation defect (A9): counted rather than repeated on every run. */
 export interface StandingFinding {
   id: string
@@ -177,12 +189,125 @@ export interface StandingFinding {
   lastSeen: string
   lastJobId: string | null
   resolvedAt: string | null
+  /** What the producer saw, where the page itself no longer holds it (migration 34). */
+  evidence?: string | null
+  subject?: FindingSubject
+  /** Whether the run that last REPORTED this is still in the job history. Provenance only. */
+  lastJobExists?: boolean
+  hasEvidence?: boolean
+  /** When somebody decided this defect may stay, and why (migration 35). */
+  acceptedAt?: string | null
+  acceptedReason?: string | null
+  /** How many fix runs have covered this, whatever the outcome (migration 36). */
+  fixAttempts?: number
+  lastFixAt?: string | null
+  /** The occurrence count when the last fix run started: a partial repair is not a failure. */
+  occurrencesAtLastFix?: number | null
+  /**
+   * Whether a bound run may repair this row right now, and why not when it may not. Present
+   * only for the rules that HAVE a run, and only on a Fellow notebook page (4.5).
+   */
+  fixBlock?: { fixable: boolean; why?: string }
+}
+
+/** How a defect of one rule gets repaired: a deterministic pass, a bound run, or a person. */
+export type RepairPath = 'pass' | 'run' | 'decision'
+
+/** What the expanded row says under a finding of this rule. Served, not mirrored here. */
+export interface DefectGuidance {
+  path: RepairPath
+  what: string
+  who: string
+  cost: string
+  limit?: string
+}
+
+/** One block of evidence: what it is, and the excerpt itself. */
+export interface EvidenceBlock {
+  label: string
+  text: string
+  truncated?: boolean
+}
+
+export interface FindingEvidence {
+  id: string
+  rule: string
+  path: string
+  blocks: EvidenceBlock[]
+  source: 'stored' | 'page' | 'none'
+  note?: string
+}
+
+/** One page a repair plan would change. `beforeHash` is what the approval carries forward. */
+export interface PlannedRepairPage {
+  rel: string
+  why: string
+  diff: string
+  beforeHash: string
+}
+
+export interface RepairPlan {
+  pass: string
+  rule: string
+  pages: PlannedRepairPage[]
+  /** Pages of the selection the pass looked at and left alone. Not a failed fix. */
+  unchanged: string[]
+  findings: number
+}
+
+export interface RepairOutcome {
+  written: string[]
+  /** Pages whose content no longer matches the diff that was approved. Not written. */
+  stale: string[]
+  /** Pages somebody else is writing. Not written, and NOT the same as stale. */
+  busy: string[]
+  commit: { committed: boolean; hash?: string; committedPages: string[]; note?: string } | null
+  commitError?: string
+  /** What the post-write check found: new defects recorded, old ones cleared. */
+  recorded: number
+  resolved: number
+  recheckedAway: number
+}
+
+/** What a settled fix run did, and the bookkeeping that only makes sense once it has. */
+export interface DefectFixSettlement {
+  ok: boolean
+  commit: string | null
+  pages: string[]
+  recorded: number
+  resolved: number
+  recheckedAway: number
+  /** Quote findings the run's own check cleared; the standing re-check structurally cannot. */
+  quotesCleared: number
+  /** Proposals vetoed because the question they planned from was reformulated. */
+  vetoedProposals: string[]
+  /** How many of the selected findings are still on the list. */
+  stillStanding: number
+}
+
+/** The address map's own repair: one whole-file change, never scoped to selected findings. */
+export interface ManifestRepairPlan {
+  added: Array<{ rel: string; address: string }>
+  droppedPages: Array<{ source: string; page: string }>
+  droppedAddresses: Array<{ rel: string; address: string }>
+  unnamedDirs: string[]
+  changes: boolean
+  beforeHash: string
+  summary: string
 }
 
 export interface ValidationList {
   findings: StandingFinding[]
   byRule: Array<{ rule: string; findings: number; occurrences: number }>
   total: number
+  /** How many findings stand accepted: the third block's own count. */
+  accepted?: number
+  /**
+   * What can be done about each rule and by whom, keyed by rule. Served by the API rather than
+   * kept here: the records are exhaustive over the rule union at compile time on the SERVER,
+   * and a second copy in this file would drift the first time a rule lands.
+   */
+  guidance?: Record<string, DefectGuidance>
 }
 
 export interface Health {
@@ -449,6 +574,10 @@ export type MaintenanceKind =
   | 'repair'
   | 'tag-fix'
   | 'retrieve-index'
+  /** One bound repair of a standing defect, on the pages of its findings (SPEC §12.16). */
+  | 'defect-fix'
+  /** Names for the shelves of a domain split, read-only (TASKS-DOMAIN-SPLIT 6.2). */
+  | 'split-naming'
 
 /** One tag repair from the tag-hygiene card (POST /maintenance/tag-fix). */
 export type TagFixAction =
@@ -556,6 +685,155 @@ export interface CandidatesResponse {
   dismissed: Array<{ key: string; dismissedAt: string }>
 }
 
+/*
+ * The split proposal (GET /api/v1/domains/:key/split, docs/tasks/TASKS-DOMAIN-SPLIT.md), mirrored
+ * by hand from `server/src/pipeline/domain-split.ts`. Read-only in milestone A: nothing here is
+ * ever sent back.
+ */
+
+/** A page of the proposal, by path; `address` is what an approval will key on (null: none). */
+export interface SplitMember {
+  path: string
+  address: string | null
+}
+
+export interface SplitPageRef extends SplitMember {
+  title: string
+}
+
+export interface ShelfLandmark extends SplitPageRef {
+  inShelf: number
+  inDomain: number
+  inVault: number
+}
+
+/** Another shelf (by id) or the rest the tags confuse this shelf with, both directions. */
+export interface ShelfConfusion {
+  with: number | 'rest'
+  gives: number
+  receives: number
+}
+
+export interface KeyCollision {
+  key: string
+  inside: number
+  elsewhere: number
+}
+
+export interface SplitShelf {
+  /** Rank order, 0 first; meaningful inside one proposal only. */
+  id: number
+  rank: number
+  size: number
+  types: Record<string, number>
+  entities: number
+  conductance: number
+  stability: number
+  precision: number | null
+  recall: number | null
+  separability: number
+  misfile: boolean
+  confusedWith: ShelfConfusion[]
+  landmarks: ShelfLandmark[]
+  tags: string[]
+  topTagCollision: KeyCollision | null
+  outsideNeighbours: { count: number; pages: Array<SplitPageRef & { domain: string | null; links: number }> }
+  fingerprint: string
+  pages: SplitMember[]
+}
+
+export interface DomainShare {
+  /** A domain key, or `shelf:<id>`. */
+  domain: string
+  pages: number
+  share: number
+}
+
+export interface SplitProposal {
+  domain: string
+  pages: number
+  eligible: boolean
+  /** Why there are no shelves (too small, or holds together); null when there are. */
+  reason: string | null
+  shelves: SplitShelf[]
+  rest: { size: number; types: Record<string, number>; entities: number; pages: SplitMember[] }
+  /** Directed links inside the domain, group to group: shelves in id order, then the rest. */
+  links: number[][]
+  totals: {
+    inShelves: number
+    withParent: number
+    internalLinks: number
+    untagged: number
+    knowledgePages: number
+    largestNow: DomainShare
+    largestAfter: DomainShare
+    /** The largest department domain other than this one: the floor under any "after". */
+    largestOther: DomainShare
+  }
+  unaddressed: string[]
+  params: { runs: number; gamma: number; agree: number; seed: number; shelfMinPages: number }
+  /** The remembered leave and defer decisions for this domain's shelves, by fingerprint (6.3). */
+  decisions: ShelfDecisionRecord[]
+}
+
+/* ---- The write of a split (TASKS-DOMAIN-SPLIT phases 5 and 6), mirrored from domain-split-write.ts ---- */
+
+export type ShelfDecision = 'leave' | 'defer'
+
+export interface ShelfDecisionRecord {
+  fingerprint: string
+  decision: ShelfDecision
+  decidedAt: string
+}
+
+/** The body of the plan and the apply. A merged shelf is one child with the union of the pages. */
+export interface SplitRequestBody {
+  parentEntry: { description: string; tags: string[] }
+  children: Array<{ key: string; description: string; tags: string[]; pages: SplitMember[] }>
+}
+
+export type SplitPageVerdict = 'ok' | 'gone' | 'moved' | 'unaddressed'
+export type SplitSkipReason = Exclude<SplitPageVerdict, 'ok'> | 'busy'
+
+export type SplitWarning =
+  | { kind: 'parent-small'; keeps: number; min: number }
+  | { kind: 'key-collision'; key: string; inside: number; elsewhere: number }
+  | { kind: 'misfile'; key: string }
+
+export interface SplitPlan {
+  parent: string
+  registry: { diff: string; sections: string[] }
+  pages: Array<{ address: string | null; path: string; child: string; verdict: SplitPageVerdict; from?: string; to?: string }>
+  counts: Record<SplitPageVerdict, number>
+  index: Array<{ domain: string; pages: number }>
+  warnings: SplitWarning[]
+}
+
+export interface SplitApplyResult {
+  splitId: string
+  commit: string
+  written: Array<{ address: string | null; path: string; child: string }>
+  skipped: Array<{ address: string | null; path: string; reason: SplitSkipReason }>
+  verified: boolean
+  unverified: string[]
+  durationMs: number
+}
+
+export interface SplitSummary {
+  id: string
+  parent: string
+  children: Array<{ key: string; addresses: string[] }>
+  commits: string[]
+  createdAt: string
+  revertedAt: string | null
+  remainder: number
+}
+
+export interface SplitNaming {
+  shelves: Record<number, { key?: string; description?: string; tags?: string[] }>
+  parent: { description?: string; tags?: string[] }
+}
+
 export type DomainVerdict = 'new-domain' | 'existing' | 'not-a-domain'
 
 /** The optional agent judgement on one candidate. */
@@ -589,6 +867,8 @@ export interface MaintenanceResult {
   lint?: LintReport
   /** Present for a domain-review run: the agent's verdict per candidate. */
   domainReview?: DomainReview
+  /** Present for a split-naming run: names, descriptions and tags per shelf (1-based). */
+  splitNaming?: SplitNaming
   reportPath?: string
 }
 

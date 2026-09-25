@@ -20,25 +20,7 @@
  * - no perpetual ticking, no idle CPU burn.
  */
 
-import {
-  forceSimulation,
-  forceLink,
-  forceManyBody,
-  forceCollide,
-  forceX,
-  forceY,
-  type SimulationNodeDatum,
-} from 'd3-force'
-import {
-  LINK_DISTANCE,
-  LINK_STRENGTH,
-  CROSS_GROUP_DISTANCE,
-  CROSS_GROUP_STRENGTH,
-  crossGroup,
-  computeGroupSlots,
-  forceGroupSlot,
-  seedGroupPositions,
-} from './graphForces.ts'
+import { buildNodeSimulation } from './graphForces.ts'
 
 interface LayoutRequest {
   gen: number
@@ -47,11 +29,6 @@ interface LayoutRequest {
   groups: Int32Array
   seed: Float32Array
   alpha: number
-}
-
-interface SimNode extends SimulationNodeDatum {
-  index: number
-  degree: number
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -64,57 +41,17 @@ self.onmessage = (ev: MessageEvent<LayoutRequest>) => {
   if (timer !== undefined) clearTimeout(timer)
 
   // Level 1 of the two-level layout (graphForces.ts): pack one non-overlapping disc per
-  // domain, then seed unplaced nodes INSIDE their disc. The seeding is what stops domains
-  // from interleaving - a force layout is a local minimizer, so a domain that starts
-  // scattered across the canvas never fully gathers. ~17 discs, so this costs microseconds.
-  const slots = computeGroupSlots(groups, edges)
-  seedGroupPositions(groups, slots, seed)
-
-  const simNodes: SimNode[] = nodes.map((n, i) => {
-    const node: SimNode = { index: i, degree: n.degree }
-    const x = seed[i * 2]
-    const y = seed[i * 2 + 1]
-    // Seeded nodes keep their place (live update / filter toggle); unseeded ones are left
-    // undefined so d3's phyllotaxis initialization spreads them - except that the main
-    // thread pre-seeds new nodes at their neighbors' centroid, so mid-ingest arrivals
-    // surface where they belong instead of flying in from the origin.
-    if (x !== undefined && y !== undefined && !Number.isNaN(x) && !Number.isNaN(y)) {
-      node.x = x
-      node.y = y
-    }
-    return node
+  // domain, then seed unplaced nodes INSIDE their disc - a force layout is a local minimizer,
+  // so a domain that starts scattered never fully gathers. Level 2 is the node simulation.
+  // Built by `buildNodeSimulation`, which the layout probe runs too, so what it measures is
+  // what this worker draws.
+  const { sim, nodes: simNodes } = buildNodeSimulation({
+    degrees: nodes.map((n) => n.degree),
+    edges,
+    groups,
+    seed,
+    alpha,
   })
-  const simLinks = edges.map(([source, target]) => ({ source, target }))
-
-  // Centering pull for UNGROUPED nodes only. Without it, orphan and near-orphan pages have
-  // nothing but repulsion acting on them and drift far outside the drawing - which blows up
-  // the bounding box and makes fit-to-view useless. Grouped nodes are held by their slot
-  // instead; pulling them toward the origin as well would fight it.
-  const centerPull = (d: SimNode): number =>
-    (groups[d.index] ?? -1) >= 0 ? 0 : d.degree === 0 ? 0.5 : d.degree < 3 ? 0.15 : 0.05
-  // Weakly-linked nodes are held harder: they have no springs to keep them in their blob.
-  const groupPull = (d: SimNode): number => (d.degree === 0 ? 0.5 : d.degree < 3 ? 0.2 : 0.1)
-
-  const sim = forceSimulation(simNodes)
-    // Cross-domain links are longer and much weaker springs (see graphForces.ts) - the
-    // layout-side twin of the Louvain cross-domain edge down-weight in communities.ts.
-    .force(
-      'link',
-      forceLink(simLinks)
-        .distance((l) => (crossGroup(groups, l) ? CROSS_GROUP_DISTANCE : LINK_DISTANCE))
-        .strength((l) => (crossGroup(groups, l) ? CROSS_GROUP_STRENGTH : LINK_STRENGTH)),
-    )
-    // Barnes-Hut approximation (theta default 0.9) keeps this O(n log n) at scale.
-    .force('charge', forceManyBody().strength(-120).distanceMax(600))
-    .force('collide', forceCollide<SimNode>().radius((d) => 6 + Math.sqrt(d.degree) * 2))
-    .force('x', forceX<SimNode>(0).strength(centerPull))
-    .force('y', forceY<SimNode>(0).strength(centerPull))
-    // Level 2: every page is pulled to its domain's assigned slot. No forceCenter here -
-    // slots are absolute positions, and re-centering the node mean each tick would drag the
-    // whole arrangement against them (the biggest domain would win and pull everything).
-    .force('group', forceGroupSlot<SimNode>(groups, slots, groupPull))
-    .alpha(alpha)
-    .stop()
 
   const positions = (): Float32Array => {
     const out = new Float32Array(simNodes.length * 2)

@@ -14,6 +14,7 @@ import { openDb, MEMORY_DB } from '../src/db/index.js'
 import { JobStore } from '../src/db/jobs.js'
 import { ChatStore } from '../src/db/chat.js'
 import { MemoryAgentRunStore } from '../src/db/agent-runs.js'
+import { MemoryMaintenanceStateStore } from '../src/db/maintenance-state.js'
 import { IngestQueue } from '../src/pipeline/queue.js'
 import { EventBus } from '../src/pipeline/events.js'
 import { MaintenanceRunner } from '../src/pipeline/maintenance.js'
@@ -25,6 +26,7 @@ let vaultRoot: string
 let app: FastifyInstance
 let store: JobStore
 let runs: MemoryAgentRunStore
+let settles: MemoryMaintenanceStateStore
 let queue: IngestQueue
 
 beforeEach(async () => {
@@ -33,6 +35,7 @@ beforeEach(async () => {
   const events = new EventBus()
   store = new JobStore(db, events)
   runs = new MemoryAgentRunStore()
+  settles = new MemoryMaintenanceStateStore()
   const config: Config = {
     vaultRoot,
     obsidianVaultName: 'vault',
@@ -75,6 +78,7 @@ beforeEach(async () => {
       }),
     }),
     agentRuns: runs,
+    maintenanceState: settles,
     autoCommit: () => false,
     logger: false,
   })
@@ -142,5 +146,38 @@ describe('DELETE /api/v1/maintenance/history/:id', () => {
     expect(runs.list()).toEqual([])
     const missing = await app.inject({ method: 'DELETE', url: '/api/v1/maintenance/history/run-1' })
     expect(missing.statusCode).toBe(404)
+  })
+})
+
+/*
+ * A run's kept settle (the per-kind "last settle" the status head reads) goes with its history
+ * entry, and a settle whose entry is already gone can be forgotten on its own. Without both,
+ * the stream showed the settle in place of the missing entry as a row with no way to remove it
+ * (found 2026-09-24 on a failed expand run whose entry had been deleted a week before).
+ */
+describe('a run\'s kept settle', () => {
+  const settle = (runId: string, kind: string, at: string) =>
+    settles.record({ kind, runId, ok: false, pages: 0, error: 'failed', finishedAt: at })
+
+  it('goes with the run\'s history entry, and a newer settle of the kind stays', async () => {
+    runs.record({
+      id: 'run-2', kind: 'research-expand', label: null, profileKey: null, ok: false, pages: [], tokensIn: 0,
+      tokensOut: 0, costUsd: 0, error: 'failed', commitHash: null,
+      startedAt: '2026-09-17T18:00:00.000Z', finishedAt: '2026-09-17T18:34:00.000Z',
+    })
+    settle('run-2', 'research-expand', '2026-09-17T18:34:00.000Z')
+    settle('run-9', 'lint', '2026-09-18T08:00:00.000Z')
+    expect((await app.inject({ method: 'DELETE', url: '/api/v1/maintenance/history/run-2' })).statusCode).toBe(200)
+    expect(settles.list().map((s) => s.runId)).toEqual(['run-9'])
+  })
+
+  it('can be forgotten on its own by run id, and 404s a run no settle holds', async () => {
+    settle('orphan', 'research-expand', '2026-09-17T18:34:00.000Z')
+    settle('run-9', 'lint', '2026-09-18T08:00:00.000Z')
+    const res = await app.inject({ method: 'DELETE', url: '/api/v1/maintenance/state/orphan' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ forgotten: true })
+    expect(settles.list().map((s) => s.runId)).toEqual(['run-9'])
+    expect((await app.inject({ method: 'DELETE', url: '/api/v1/maintenance/state/orphan' })).statusCode).toBe(404)
   })
 })

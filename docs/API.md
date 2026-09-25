@@ -29,12 +29,86 @@ PUT    /pages                    user edit {path, markdown, baseMtime} → write
 DELETE /pages?path=…             user delete → unlink + git commit; returns staleLinks
 GET    /validation               the standing defect list: one row per defect with how often it
                                  has been seen and how long it has stood, not one advisory line
-                                 per run (`?rule=`, `?limit=`, `?offset=`; `byRule` + `total`)
+                                 per run (`?rule=`, `?limit=`, `?offset=`; `byRule` + `total`).
+                                 Each row carries where its subject is (`subject`: a page, a job
+                                 by its `.raw/` directory name, or none with the reason) and
+                                 `guidance` names, per rule, what the repair is and who performs
+                                 it. `?accepted=1` returns the accepted rows instead
+GET    /validation/:id/evidence  what one finding is based on: the column the producer filled
+                                 (a quotation and the part of it that does stand in the source)
+                                 or a fresh read of the page, capped and marked where cut
+POST   /validation/:id/accept    {reason} → the defect may stay; the reason is required and
+                                 stored verbatim (400 empty, 404 unknown, 409 already accepted).
+                                 DELETE on the same path takes it back
+POST   /validation/repair/plan   {rule, ids} → what a deterministic pass would change on the
+                                 pages those findings name: per page the reason, the diff and a
+                                 hash of the content planned against. Read-only, no credential
+POST   /validation/repair/apply  {rule, ids, pages:[{rel, beforeHash}]} → plans again and writes
+                                 only the pages whose content still matches the approved hash;
+                                 answers written / stale / busy apart, and one commit
+POST   /validation/repair/run    {rule, ids} → one bound agent run over exactly those pages, at
+                                 most 10 (503 without a credential, 409 when a Fellow's notebook
+                                 is not repairable right now, 400 for a rule with no run)
+POST   /validation/repair/run/:id/settle   the bookkeeping a finished fix run owes: the
+                                 re-check, the quote rule's own clearing path, and the veto of
+                                 proposals planned from a question that was reformulated
+POST   /validation/repair/revert {commit} → undoes one fix run's commit and re-records the
+                                 defect it put back (409 on a dirty tree or a conflict)
+POST   /validation/repair/manifest/plan   the address map's own repair; it writes the whole
+                                 file rather than a selection, and reaches no finding that names
+                                 a job directory no source entry mentions. `/apply` commits it
 GET    /graph                    the vault's wikilink graph: typed nodes + directed edges
 GET    /domains                  the domain registry (installed? + parsed entries)
 POST   /domains                  create a domain: append to the registry page, one commit
 GET    /domains/candidates       themes among `unassigned` pages worth a domain (free)
 POST   /domains/candidates/:key/dismiss     stop proposing this theme (DELETE undoes it)
+GET    /domains/:key/split       the shelves one domain falls into (free, read-only): a consensus
+                                 of 40 seeded Louvain runs over its knowledge pages and their
+                                 links, shelves of 25 pages or more, each with its evidence and
+                                 ranked by separability; the rest stays with the domain. 404 for a
+                                 key the registry does not list, 400 for meta and unassigned; a
+                                 domain under 50 pages (`eligible: false`) or one that holds
+                                 together (`shelves: []`) answers 200 with its `reason`. Memoised
+                                 per graph, so an unchanged vault costs one computation. Beside
+                                 the proposal: `decisions`, the shelves left or deferred, by
+                                 fingerprint
+POST   /domains/:key/split/naming          the optional naming pass → 202 { id, channel }, polled
+                                 like every maintenance run. Body { groups: number[][] }, shelf ids
+                                 of the current proposal, a merge being a group of two or more.
+                                 Kind `split-naming`, `query` profile, read-only path: no vault
+                                 write, no commit. The settled result carries `splitNaming`: a
+                                 key, description and tags per shelf (1-based), and the parent's
+                                 narrowed description and tags
+POST   /domains/:key/split/plan            the dry run of a decision set; writes nothing. Body
+                                 { parentEntry: { description, tags }, children: [{ key,
+                                 description, tags, pages: [{ address, path }] }] } - a merged
+                                 shelf is one child with the union of the pages. Answers the
+                                 registry diff, one line pair per page with its verdict (ok, gone,
+                                 moved, unaddressed), what the index will show per domain, and the
+                                 warnings (parent-small, key-collision, misfile). 400 for a bad
+                                 body, 409 for a key the registry lists, 404 for an unknown parent
+POST   /domains/:key/split/apply           the split, ONE commit: the parent's section narrowed, the
+                                 new sections directly after it, the `domain:` line of exactly the
+                                 approved pages that still carry the parent key (plus `updated:`,
+                                 never `content_updated:`), and `wiki/index.md`. Same body as the
+                                 plan. → { splitId, commit, written, skipped: [{ address, path,
+                                 reason }], verified, unverified, durationMs, validation }. 409
+                                 while a run writes the vault (`run-active`), with auto-commit off
+                                 (`auto-commit-off`), or while the registry or index is locked
+                                 (`registry-busy`). Takes the vault's lock page by page: a few
+                                 hundred pages take about a minute
+POST   /domains/:key/split/decisions       leave or defer a shelf: { fingerprint, decision }. A
+                                 left shelf is not proposed again while its fingerprint holds
+DELETE /domains/:key/split/decisions/:fingerprint   restore it
+GET    /domains/splits                     applied splits, newest first, each with its children,
+                                 its commits and its live `remainder` (pages still, or again, in
+                                 the parent)
+POST   /domains/splits/:id/remainder       re-file the remainder: the same write without the
+                                 registry, one commit added to the split. 409 as the apply
+POST   /domains/splits/:id/revert          revert the split's commits newest first, then re-render
+                                 the index in a commit of its own. 409 `orphans` with `pages` while
+                                 a page outside the split carries one of its keys; 409
+                                 `revert-failed` on a conflict, with the vault left as it was
 POST   /maintenance/{lint,lint-fix,research,hot-cache,domain-backfill,domain-review,cleanup,repair}
                                  starts an async run → { id, channel }; lint-fix 409s without a
                                  report, backfill 409s without a registry, review 409s with no
@@ -56,6 +130,8 @@ GET    /maintenance/runs/:id     poll one run's result
 GET    /maintenance/history      the persistent run log, newest first (`?kind=`, `?limit=`)
 DELETE /maintenance/history/:id  remove one settled run from the history
 GET    /maintenance/state        per-kind last-settle state behind the status head
+DELETE /maintenance/state/:runId   forget the settle kept for one run the history no longer
+                                 holds; the vault is untouched (404 when none is kept)
 GET    /sources                  page → the document it came from (from `.raw/` manifests)
 GET    /sources/raw?path=…       one ingested document; an allow-list of formats the browser
                                  cannot execute is served inline, everything else downloads
@@ -72,6 +148,8 @@ GET    /agents                   the Fellows, with tonight's schedule inputs
 POST   /agents                   spawn one (409 `full` once every desk in the room is taken);
                                  PATCH /agents/:id edits tasks, quota, autonomy, model,
                                  effort, step and priority
+GET    /agents/:id               one Fellow's record; DELETE removes a retired one (204, 409
+                                 before it is retired); its notebook and pages stay in the vault
 POST   /agents/:id/{step,pause,resume,retire,plan}   act on one Fellow by hand
 PUT    /agents/shelf-order       the order the night walks the shelves - one serial queue,
                                  so it is a setting and not a view preference
@@ -81,14 +159,20 @@ GET    /agents/shift             the night window, the cycle, the next start, re
 GET    /handoffs                 routed and unclaimed handoffs between Fellows
 POST   /handoffs/:id/spawn       spawn a Fellow from an unclaimed request, prefilled
 GET    /agents/:id/card          one Fellow's dossier: runs, pages, notebook path, plan
-POST   /proposals/:id/{approve,veto}   decide one proposal before the night uses it
+GET    /agents/:id/candidates    what the planner would be shown for the task the rotation has up
+GET    /agents/:id/proposals     the Fellow's proposals and the one that would run next
+POST   /proposals/:id/decide     {status: approved|vetoed|proposed, note?, topic?, rank?} decides
+                                 one proposal before the night uses it
+POST   /proposals/:id/run        run one now ({override?}; 202, 503 without a credential)
 GET    /recaps, /recaps/:date    the daily record; POST /recaps/:date/answers replies to it,
                                  POST /recaps/build builds today's now
 POST   /value-events             records that you opened a page or followed a recap link -
                                  what "value this month" counts
 GET    /library/scene            the room as the dashboard draws it: figures, shelves, desks
 POST   /library/move             put one domain's shelf in a room, optionally at a slot
-GET    /wings                    the rooms and which domain sits on which shelf
+GET    /wings                    the rooms and which domain sits on which shelf; POST adds one
+                                 ({name?}, 201), DELETE /wings/:id removes an empty one (409
+                                 while it still holds shelves)
 PATCH  /wings/order              reorder the wings ({ids}); PATCH /wings/:id renames one or
                                  moves its aisles
 GET    /usage/plan               plan utilization, the research share and what is left

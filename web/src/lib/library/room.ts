@@ -147,13 +147,51 @@ export const ANCHORS = {
   wingPassage: { i: 11.4, j: 7.6 },
 } as const
 
-/** Breaks a shelf sign that does not fit into two lines at its hyphen or space (NEW-5). */
-export function breakSign(text: string, fits: (t: string) => boolean): string[] {
-  if (fits(text)) return [text]
-  const mid = Math.ceil(text.length / 2) + 2
-  const cut = Math.max(text.lastIndexOf('-', mid), text.lastIndexOf(' ', mid))
-  if (cut <= 0) return [text]
-  return [text.slice(0, cut + 1).trim(), text.slice(cut + 1).trim()]
+/** How a shelf sign is set: its lines and the type size they are set in. */
+export interface SignLayout {
+  readonly lines: readonly string[]
+  readonly size: number
+}
+
+/** The smallest type a sign is shrunk to before its second line is cut instead. */
+export const SIGN_MIN_SIZE = 8
+
+/**
+ * Sets a shelf sign on a face `maxW` pixels wide (NEW-5, reworked 2026-09-24). `measure`
+ * gives the drawn width of a string at a type size, and width is taken to scale with size.
+ *
+ * The old break cut at the last space or hyphen before the middle and never checked what it
+ * made: a thirty-letter name broke after its first short word and set the other two on one
+ * line almost twice as wide as the shelf. Now, in order, and only as far as needed:
+ *
+ *   one line at the base size;
+ *   two lines, split where the LONGER line is shortest, at the base size;
+ *   the same split on this sign alone, shrunk until it fits, but not below SIGN_MIN_SIZE -
+ *     shrinking every sign in the room for its longest name would cost all of them;
+ *   at that floor, each line still too wide ends in an ellipsis (the case's tooltip names it).
+ */
+export function layoutSign(text: string, maxW: number, base: number, measure: (t: string, size: number) => number): SignLayout {
+  if (measure(text, base) <= maxW) return { lines: [text], size: base }
+  const splits: Array<[string, string]> = []
+  for (let k = 1; k < text.length - 1; k++) {
+    const ch = text[k]
+    if (ch === ' ') splits.push([text.slice(0, k), text.slice(k + 1)])
+    else if (ch === '-') splits.push([text.slice(0, k + 1), text.slice(k + 1)])
+  }
+  const widest = (ls: readonly string[]): number => Math.max(...ls.map((l) => measure(l, base)))
+  let lines: string[] = [text]
+  for (const sp of splits) if (lines.length === 1 || widest(sp) < widest(lines)) lines = [sp[0].trim(), sp[1].trim()]
+  const w = widest(lines)
+  if (w <= maxW) return { lines, size: base }
+  const floor = Math.min(base, SIGN_MIN_SIZE)
+  const size = Math.max(floor, Math.floor(((base * maxW) / w) * 10) / 10)
+  const cut = (l: string): string => {
+    if (measure(l, size) <= maxW) return l
+    let n = l.length - 1
+    while (n > 1 && measure(`${l.slice(0, n).trimEnd()}…`, size) > maxW) n--
+    return `${l.slice(0, n).trimEnd()}…`
+  }
+  return { lines: lines.map(cut), size }
 }
 
 /** `climate-science` reads as `climate science` on a sign. */

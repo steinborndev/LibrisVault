@@ -168,6 +168,28 @@ export interface ExpandPolicy {
   readonly read?: (rel: string) => string | undefined
 }
 
+/**
+ * The defect-fix lock (TASKS-DEFECT-PATHS 4.4): what a `defect-fix` run may touch.
+ *
+ * SAME MECHANISM AS `ExpandPolicy`, DIFFERENT RULES, and the difference is the whole reason it
+ * is a second policy rather than a flag on the first. An expand run is ADDITIVE - every
+ * existing body line has to survive - and a defect fix replaces lines by definition: rewriting
+ * a question, correcting a quotation and filling a missing heading all change text that is
+ * already there. Reusing `ExpandPolicy` would revert exactly the run it was reused for.
+ *
+ * What stays: the page set is a whitelist, and nothing outside it may be written. What goes:
+ * additivity, and the right to create pages at all - a defect fix repairs the page the finding
+ * stands on, so a NEW page is never the repair.
+ *
+ * The sandbox cannot express this: its `allowWrite` is `[VAULT_ROOT]` and a page set is not a
+ * directory. The commit check plus auto-revert behind it is what catches a page written through
+ * Bash, the one write this hook structurally cannot see.
+ */
+export interface DefectFixPolicy {
+  /** Vault-relative POSIX paths the run may write; everything else is off limits. */
+  readonly pageSet: readonly string[]
+}
+
 export interface PermissionContext {
   /** Absolute, resolved vault root. */
   readonly vaultRoot: string
@@ -185,6 +207,11 @@ export interface PermissionContext {
    * an ordinary ingest may still rewrite a page: rewriting is what ingest does.
    */
   readonly expand?: ExpandPolicy
+  /**
+   * Set for a `defect-fix` run only (TASKS-DEFECT-PATHS 4.4). Never set together with `expand`:
+   * the two answer the same question with different rules, and a run is one kind or the other.
+   */
+  readonly defectFix?: DefectFixPolicy
 }
 
 /** The frontmatter keys an expand run may change (docs/agents/SPEC.md section 7). */
@@ -305,6 +332,26 @@ function expandRefusal(policy: ExpandPolicy, rel: string, toolName: string, inpu
    */
   policy.created.add(rel)
   return undefined
+}
+
+/**
+ * The defect-fix decision for one path. Returns a refusal reason, or undefined to allow.
+ *
+ * Bookkeeping is exempt, the same set the expand rules exempt: the hubs and `.raw/` are written
+ * by the service around every run and refusing them would refuse the run's own commit.
+ *
+ * A page NOT in the set is refused whatever the tool - including `Write`, which is where this
+ * departs from the expand policy. An expand run may file a source it cites; a defect fix
+ * repairs the page its finding stands on, and a new page is never that repair.
+ */
+function defectFixRefusal(policy: DefectFixPolicy, rel: string, toolName: string): string | undefined {
+  if (isExemptPath(rel)) return undefined
+  if (policy.pageSet.includes(rel)) return undefined
+  return (
+    `${rel} is outside the page set this defect fix was given. ` +
+    `This run repairs ${policy.pageSet.length === 1 ? 'one page' : `${policy.pageSet.length} pages`} and writes nothing else` +
+    (toolName === 'Write' ? ' - including no new page.' : '.')
+  )
 }
 
 /** True when `candidate` is inside `root` (or is `root` itself). */
@@ -436,6 +483,13 @@ export function decidePermission(
     if (isWriteTool && ctx.expand !== undefined) {
       const rel = path.relative(ctx.vaultRoot, resolved).split(path.sep).join('/')
       const reason = expandRefusal(ctx.expand, rel, toolName, input)
+      if (reason !== undefined) return { behavior: 'deny', message: `Refused: ${reason}` }
+    }
+    // A defect fix is held to its page set and to nothing else: it REPLACES lines, which is
+    // what repairing a defect is, so the expand policy's additivity would revert it.
+    if (isWriteTool && ctx.defectFix !== undefined) {
+      const rel = path.relative(ctx.vaultRoot, resolved).split(path.sep).join('/')
+      const reason = defectFixRefusal(ctx.defectFix, rel, toolName)
       if (reason !== undefined) return { behavior: 'deny', message: `Refused: ${reason}` }
     }
   }

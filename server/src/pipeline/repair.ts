@@ -77,10 +77,27 @@ export type RepairPass = (rel: string, markdown: string, vaultRoot: string) => {
  * `stampDates` is applied here rather than inside each pass, so no pass can forget it and none
  * can get it wrong: every repair is a mechanical change, so `content` is always false.
  */
-export function planRepair(vaultRoot: string, pass: string, run: RepairPass, day?: string): RepairPlan {
+export function planRepair(
+  vaultRoot: string,
+  pass: string,
+  run: RepairPass,
+  day?: string,
+  /**
+   * The pages to consider, instead of the whole wiki.
+   *
+   * The dashboard's repair (TASKS-DEFECT-PATHS 3.2) writes exactly the pages the standing list
+   * named and nothing more, and a pass is built vault-wide: `tag-singleton` would change 26
+   * pages against 14 findings on the live vault. Filtering the RESULT would be equivalent -
+   * every pass here is a pure function of one page - and would still read ~1,270 files off the
+   * event loop per plan, twice per apply. So the filter goes in at the top.
+   *
+   * The vault-wide run stays the CLI's job, which passes nothing here.
+   */
+  only?: readonly string[],
+): RepairPlan {
   const edits: PageEdit[] = []
   const skipped: Array<{ rel: string; why: string }> = []
-  for (const rel of wikiPages(vaultRoot)) {
+  for (const rel of only ?? wikiPages(vaultRoot)) {
     let before: string
     try {
       before = fs.readFileSync(path.join(vaultRoot, rel), 'utf8')

@@ -8,6 +8,170 @@ was and the day it landed. The entries below are those merges, newest first. The
 journals under `docs/tasks/` carry the detail, findings and dead ends included; this file carries
 only what a reader outside the work needs to know.
 
+## 2026-09-25 - the graph's Landmarks and Areas, and System as a map
+
+The graph could colour and filter a domain but not say what it is built around; this adds an
+overlay that does, and makes the community overlays legible on a whole vault. The System screen is
+rebuilt around what needs the user rather than around where its figures come from. No new runtime
+dependency, no new route beyond one small one, no change to how anything is written to the vault.
+
+### Added
+
+- **The Landmarks overlay** (`docs/tasks/TASKS-LANDMARKS.md`, SPEC.md 12.4): for one domain, only
+  the pages it is built around, spread over the drawing and named in full, with a numbered reading
+  order beside them. A landmark's neighbourhood opens from its dot or its number; the authority and
+  recency colours span what is drawn. The switch holds across a change of domain and the domain
+  arrows skip the domains too small for it.
+- **Areas you can read**: captions in the display face, placed clear of the dots and of each
+  other; `a` and `d` step through the areas one at a time, a click shows one alone, a click on a
+  page opens it, and the area under the pointer is outlined.
+- A Shortcuts card per mode: Landmarks, Areas and Spotlight each list what they bind, and the lock
+  replaces the click and Escape lines while it is closed.
+- The reading view carries the graph panel's three link lists: backlinks, links to, related by tag.
+- `DELETE /api/v1/maintenance/state/:runId` forgets one run's kept settle.
+- `npm run graphprobe`, the graph layout measured over a running service.
+
+### Changed
+
+- **System is a map of the machine room**: Overview, one page per maintenance area, Insight
+  (usage, vault stats with pages per domain, one history of runs and commits) and Settings in
+  three groups plus the instance. Every figure stands in one place; old `?section=` links resolve.
+- **The queue runs jobs in the order they were queued**, by SQLite's insertion counter rather than
+  by `created_at`: the wall clock can step back under load, and a later drop could run first.
+- Community detection weighs a link between two domains at 0.1 of one inside a domain (was 0.25):
+  a small domain was folded into a large neighbour over a few bridges.
+- **Tags that name a kind of page are not subjects**: `person`, `organization`, `video` and their
+  like no longer caption an area or make two pages "related by tag", and a page from another
+  domain needs two subject tags in common to count as related.
+- The selected node wears one ink ring in every view, and so does an open neighbourhood's landmark.
+- The recency lens rises to the domain's colour when one domain is on show.
+
+### Fixed
+
+- A zoom over a whole vault with Areas on ran at about 780 ms a frame; caption placement is now
+  bounded by the hulls in reach, cached per arrangement and kept while the view moves (17 ms).
+- Switching Areas on did not re-fit the drawing and cut off its top edge.
+- The fit and the landmark spread no longer draw under the lens legend or the corner controls, and
+  a change of lens no longer moves the picture.
+- CI teardowns raced a detached `git gc` in the test vaults; the tests switch git's housekeeping
+  off, wait for background notebook commits, and use a clock that never runs backwards.
+
+## 2026-09-23 - splitting an oversized domain into peers
+
+The domain registry knew how a domain is born from pages that fit nothing, and nothing about a
+domain that has outgrown being a shelf. On a vault where one domain holds two fifths of the
+knowledge pages, filtering by it narrows nothing. This adds the other direction: a deterministic
+proposal of the shelves such a domain falls into, a view of them, and a user-approved write that
+turns chosen shelves into peer domains and re-files their pages in ONE commit that one revert
+undoes. The domain that is split keeps its key, narrowed so it no longer claims what left it.
+
+### Added
+
+- **`GET /api/v1/domains/:key/split`**, the proposal. A consensus of forty seeded Louvain runs
+  over the domain's knowledge pages and the links among them, not one run: a single run moves a
+  few per cent of the pages to another shelf on node order alone, the consensus a fraction of one.
+  A shelf is a stable group of 25 pages or more; smaller groups stay with the domain. Each shelf
+  carries its evidence - how many of its links leave it, how reliably the runs agree on it, how
+  well tags alone tell it from its siblings, the pages it is built around, its distinctive tags
+  and what one of them would cost as a key - and the shelves are ranked by how cleanly they stand
+  apart, not by size. Free, read-only, the same for the same vault.
+- **Shelf chips in the Catalog** when one domain is selected: a chip per proposed shelf narrows
+  the rows to it. (The Graph screen drew the same shelves as an overlay on the day of the merge;
+  it was removed the same day at the user's request.)
+- **The decision surface in System's Domains card**, and as a step of the guided maintenance run:
+  per shelf promote, merge with another, leave or defer; per new domain a key checked while it is
+  typed (including how many pages already carry it as a tag), a description and tags; the domain
+  being split as a diff of its entry. An optional read-only agent pass drafts the names. Preview
+  shows the registry diff, the pages per new domain, what would be skipped and why, and the
+  warnings; Apply writes after a second click.
+- **The write**: the narrowed registry section and the new sections directly after it, the
+  `domain:` line of exactly the approved pages, identified by address and each only while it still
+  carries the old key, and `wiki/index.md`, in one commit. `updated:` is stamped and
+  `content_updated:` is not: the pages say what they said. It refuses while an agent run writes the
+  vault and while auto-commit is off, and it registers as a writer while it writes.
+- **The applied splits**, each with its live remainder (pages that did not move, or were moved
+  back) and a re-file for it, and a revert that takes the split's commits back newest first and
+  refuses, naming them, while pages outside the split carry one of its keys.
+- **`npm run splitprobe -- <domain> [--stability]`**, the proposal for a domain of a real vault,
+  read-only, with the drift under other seeds and the vault some days back.
+- **Migration 37**: applied splits and the leave and defer decisions. Operational state only.
+
+### Changed
+
+- The registry is no longer append-only for one writer: a split replaces the section of the domain
+  it splits. The seed's conventions say when that is right: altitude is judged against the vault's
+  volume, and a domain that outgrows a shelf is split into peers.
+- `louvainCommunities` has a server copy with a resolution parameter; both copies are pinned by
+  one shared fixture asserted in each suite.
+- A read-only maintenance run says so in its own log.
+
+### Fixed
+
+- **A page whose path the vault's lock script refuses was busy forever for every batch writer.**
+  The script answers a path containing `..` (a title ending in a full stop) with a refusal, which
+  the single-page lock has always treated as "write unlocked" and the batch lock reported as
+  "busy". The batch lock now does what the single one does.
+- The Research screen asked for the plan windows without the Fellows wired, one 404 per visit
+  with the flag off.
+
+## 2026-09-21 - a path out of the standing defect list
+
+The standing defect list ended one failure and stopped there: it replaced 406 advisory lines in
+job logs nobody read with 57 rows on the System screen, and every row was a `<span>`. No link to
+the page, no evidence, no statement of who was supposed to do anything. Six of the nine standing
+rules need a judgement, which means a person decides - and the person had been given a list and
+nothing else. This gives every defect a path: fixable, acceptable, or explained and linked.
+
+### Added
+
+- **A row opens.** It shows where its subject is - the page, or the job its `.raw/` directory
+  names - the evidence the finding is based on, and one line saying what the repair is, who
+  performs it and what it costs. For a quotation the evidence is written down when the finding is
+  made, because the check compares the page against the document the job read and nothing
+  afterwards holds that document. `npm run backfill-quote-evidence` fills it in for findings that
+  predate the column.
+- **Three blocks instead of one list**: fixable, your decision, accepted. The rule chips stay as
+  a filter. "What's due" names the defects, which it never did - it said *Everything healthy*
+  above 57 of them.
+- **Accept, permanently and with a reason.** A list that cannot be emptied becomes the job-log
+  lines again one layer up. Accepted findings leave the list, the rule counts and the lint-fix
+  prompt, and can be taken back.
+- **The deterministic repair passes are reachable from the dashboard**: plan, read the diff per
+  page, uncheck what you disagree with, apply - one commit, revertable. The plan is filtered to
+  the pages the list actually showed; the vault-wide sweep stays `npm run vaultrepair`.
+- **A bound agent run** for the two rules whose repair needs reading and where a run was measured
+  to deliver it: a quotation checked against the document the job read, and a missing section
+  filled from what the page and the graph already hold. One page per finding, at most ten, no
+  other page and no new page - enforced at tool time and by a commit check that reverts.
+
+### Changed
+
+- **The list pages.** It asked for 50 rows and had no way past them, so 7 of 57 were unreachable
+  from the screen entirely.
+- **The defect card moved** from the foot of System → Checks into the maintenance card set, so
+  the status head can name it and jump to it like every other tool. It is one click further away
+  and mentioned where it never was.
+- **`SPEC.md` §12.15 no longer says open questions are repaired one at a time only.** Pipeline
+  code still rewrites nothing; a bound agent run over one page is the writer the hard rule
+  allows. A reformulated question is a NEW question - the text is its identity - so research a
+  Fellow planned from the old wording is vetoed, and the confirmation says so before the run.
+- **`npm run vaultrepair` commits through the service's own writer.** It used to take the vault's
+  per-file locks and commit with no commit mutex at all, which is acceptable for a hand-run
+  one-off and not for the same code called from a service.
+
+### Known limits, measured rather than assumed
+
+- **A run for the open-question rule exists and is not offered.** Against a bar agreed before it
+  ran - every bullet asks something, at most 2 of 10 pages still referring to the run that wrote
+  them - one run over 10 pages left 2 of 68 bullets asking nothing and 5 of 10 pages still
+  referring. A large improvement on where those pages started (17 of 61 bullets asked anything)
+  and short of what was asked for, so the rule stays a decision.
+- **Two rules reach no button at all**, and their rows say why: the title-drift pass repairs the
+  pages that LINK to a drifted title and never the page the finding stands on, and the address
+  map cannot invent what a job directory held.
+- **A quote finding is one per PAGE, not one per quotation.** Repairing one bad quotation on a
+  page that has two leaves the row standing, and the count is what moves.
+
 ## 2026-09-21 - the vault layer made correct, and an open question that survives leaving its page
 
 Tag `vault-layer-2026-09-21`. 96 commits, 222 files.

@@ -274,6 +274,17 @@ describe('claimNextQueued', () => {
   it('returns undefined on an empty queue', () => {
     expect(store.claimNextQueued()).toBeUndefined()
   })
+
+  it('claims in the order the jobs were queued, even when the clock stepped back between them', () => {
+    // The wall clock can step back under load, which gives the later drop the earlier stamp.
+    // The queue follows insertion, not the stamp (2026-09-25).
+    const a = store.create({ ...pdf, sha256: 'a' })
+    const b = store.create({ ...pdf, sha256: 'b' })
+    db.prepare('UPDATE jobs SET created_at = ? WHERE id = ?').run('2030-01-01T00:00:00.000Z', a.job.id)
+    db.prepare('UPDATE jobs SET created_at = ? WHERE id = ?').run('2020-01-01T00:00:00.000Z', b.job.id)
+    expect(store.claimNextQueued()?.id).toBe(a.job.id)
+    expect(store.claimNextQueued()?.id).toBe(b.job.id)
+  })
 })
 
 describe('incrementAttempts', () => {

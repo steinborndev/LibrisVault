@@ -57,6 +57,8 @@ import type { QuestionsService } from '../pipeline/questions.js'
 import { MemoryDismissalStore, type DismissalStore } from '../db/domain-dismissals.js'
 import type { MaintenanceStateStore } from '../db/maintenance-state.js'
 import type { AgentRunStore } from '../db/agent-runs.js'
+import type { RunRegistry } from '../pipeline/run-registry.js'
+import type { DomainSplitStore } from '../db/domain-splits.js'
 
 export interface AppContext {
   readonly config: Config
@@ -89,6 +91,14 @@ export interface AppContext {
   readonly autoCommit?: () => boolean
   /** Dismissed domain candidates (SPEC.md §12.4 Stufe 3); defaults to a non-persistent store. */
   readonly domainDismissals?: DismissalStore
+  /**
+   * The registry of runs writing the vault, shared with the queue and the maintenance runner. A
+   * domain split refuses while it counts a run and registers itself while it writes
+   * (TASKS-DOMAIN-SPLIT D11). Optional so tests can omit it (the route then uses a private one).
+   */
+  readonly runRegistry?: RunRegistry
+  /** Applied domain splits and shelf decisions (schema v37); a memory store when omitted. */
+  readonly domainSplits?: DomainSplitStore
   /** Commits taken off the Activity stream (schema v25); a memory store when a test omits it. */
   readonly commitDismissals?: DismissalStore
   /** Per-kind maintenance settle state (SPEC.md §12.7 Stufe b); omitted → empty state list. */

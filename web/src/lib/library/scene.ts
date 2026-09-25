@@ -321,6 +321,7 @@ export const roleOfRun = (kind: string): Role | null => {
     case 'tag-fix':
     case 'domain-backfill':
     case 'hot-cache':
+    case 'defect-fix':
       return 'caretaker'
     default:
       return null
@@ -346,6 +347,7 @@ const RUN_CAPTION: Record<string, string> = {
   'tag-fix': 'fixing labels',
   'domain-backfill': 'sorting new books',
   'hot-cache': 'renewing the board',
+  'defect-fix': 'mending a page',
 }
 
 /** The noun on the figure - and the word its bubble opens with. */

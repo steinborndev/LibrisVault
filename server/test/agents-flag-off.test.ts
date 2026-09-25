@@ -35,6 +35,7 @@ import type { FastifyInstance } from 'fastify'
 import { openDb, MEMORY_DB, type Db } from '../src/db/index.js'
 import { JobStore } from '../src/db/jobs.js'
 import { ChatStore } from '../src/db/chat.js'
+import { ValidationStore } from '../src/db/validation.js'
 import { SettingsStore } from '../src/db/settings.js'
 import { IngestQueue } from '../src/pipeline/queue.js'
 import { EventBus } from '../src/pipeline/events.js'
@@ -85,6 +86,12 @@ const UNGATED: ReadonlyArray<readonly [string, string]> = [
   // whether or not the research agents exist, so a screen asking a Fellow-only route for it
   // would 404 on every mount with the flag off - which is the class hard rule 8 is about.
   ['GET', '/api/v1/validation'],
+  // The domain-split proposal (TASKS-DOMAIN-SPLIT 2.5): it corrects the base product's own
+  // registry loop. Asked of a domain the fixture registry below lists, because an unlisted key
+  // is a 404 by design.
+  ['GET', '/api/v1/domains/alpha/split'],
+  // The applied splits (TASKS-DOMAIN-SPLIT 5.7): the System panel lists them under the proposal.
+  ['GET', '/api/v1/domains/splits'],
 ]
 
 describe('with the Fellows extension unwired', () => {
@@ -148,7 +155,8 @@ describe('with the Fellows extension unwired', () => {
   beforeEach(() => {
     db = openDb(MEMORY_DB)
     vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flagoff-'))
-    fs.mkdirSync(path.join(vaultRoot, 'wiki'), { recursive: true })
+    fs.mkdirSync(path.join(vaultRoot, 'wiki/meta'), { recursive: true })
+    fs.writeFileSync(path.join(vaultRoot, 'wiki/meta/domains.md'), '## Domains\n\n## alpha\n\nA synthetic domain.\n')
   })
   afterEach(async () => {
     await app?.close()
@@ -180,6 +188,63 @@ describe('with the Fellows extension unwired', () => {
    * strings would assert a contract that does not exist, and `'off'` is truthy, so it would
    * light up every Fellow surface it meant to hide.
    */
+  /*
+   * Everything TASKS-DEFECT-PATHS adds beside the list. It cannot go in the control group
+   * above, because that group asserts a flat 200 and this route legitimately 404s for an
+   * unknown finding - which is the answer, not a gate. So it is asserted against a finding
+   * that exists. The defect list is the base product's own screen: a row that could not be
+   * opened or judged with the flag off would be the same 404-per-mount class hard rule 8 is
+   * about, one layer further in.
+   */
+  it('serves a finding\'s evidence with the flag off', async () => {
+    const validation = new ValidationStore(db)
+    validation.record([{ rule: 'orphan', path: 'wiki/a.md', message: 'nothing links here' }], null)
+    const id = validation.list()[0]!.id
+    app = await build({ validation })
+    const res = await app.inject({ method: 'GET', url: `/api/v1/validation/${id}/evidence` })
+    expect(res.statusCode).toBe(200)
+    // And the list itself carries the guidance the screen renders, with the flag off too.
+    const list = await app.inject({ method: 'GET', url: '/api/v1/validation' })
+    expect(Object.keys((list.json() as { guidance: Record<string, unknown> }).guidance)).toContain('open-question-form')
+    // Accepting a defect is base product too: it is the only way the list is ever emptied of
+    // the rules that need a judgement, and six of the nine standing ones are those.
+    const accept = await app.inject({ method: 'POST', url: `/api/v1/validation/${id}/accept`, payload: { reason: 'deliberate' } })
+    expect(accept.statusCode).toBe(200)
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/validation/${id}/accept` })).statusCode).toBe(200)
+    // And the repair routes: registered, answering, and refusing for their own reasons rather
+    // than because the extension is unwired. A 400 for a missing field is an ANSWER; a 404
+    // here would be the 404-per-click hard rule 8 is about.
+    for (const url of ['/api/v1/validation/repair/plan', '/api/v1/validation/repair/apply']) {
+      const res = await app.inject({ method: 'POST', url, payload: {} })
+      expect(`${url} -> ${res.statusCode}`).toBe(`${url} -> 400`)
+    }
+    expect((await app.inject({ method: 'POST', url: '/api/v1/validation/repair/manifest/plan' })).statusCode).toBe(200)
+  })
+
+  /*
+   * The write half of the domain split (TASKS-DOMAIN-SPLIT 5.7, 6.2, 6.6, 6.9): base product,
+   * so every route is registered and refuses for its own reason with the flag off. A 400 for a
+   * missing field and a 404 for an unknown split are ANSWERS; the assertion is that none of them
+   * is the unregistered-route 404, whose body says "not found" and nothing else.
+   */
+  it('registers every split write route with the flag off', async () => {
+    app = await build()
+    const cases: Array<[string, string, number]> = [
+      ['POST', '/api/v1/domains/alpha/split/plan', 400],
+      ['POST', '/api/v1/domains/alpha/split/apply', 400],
+      ['POST', '/api/v1/domains/alpha/split/naming', 400],
+      ['POST', '/api/v1/domains/alpha/split/decisions', 400],
+      ['DELETE', '/api/v1/domains/alpha/split/decisions/fp', 200],
+      ['POST', '/api/v1/domains/splits/none/remainder', 404],
+      ['POST', '/api/v1/domains/splits/none/revert', 404],
+    ]
+    for (const [method, url, status] of cases) {
+      const res = await app.inject({ method: method as 'POST', url, payload: {} })
+      expect(`${method} ${url} -> ${res.statusCode}`).toBe(`${method} ${url} -> ${status}`)
+      expect((res.json() as { error?: string }).error).not.toBe('not found')
+    }
+  })
+
   /*
    * The one route in this area that must ANSWER with the flag off (decision D4,
    * docs/tasks/TASKS-QUESTIONS.md). The pinboard that sends most reformulations is gated, but

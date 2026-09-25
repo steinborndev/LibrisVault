@@ -33,6 +33,12 @@ export interface MaintenanceAreaState {
 export interface MaintenanceStateStore {
   record(entry: MaintenanceAreaState): void
   list(): MaintenanceAreaState[]
+  /**
+   * Forgets the settle of `runId`, wherever it stands; false when no kind's settle is that run.
+   * Keyed by the RUN, never by the kind alone, so a newer settle of the same kind can never be
+   * the one that goes.
+   */
+  forget(runId: string): boolean
 }
 
 /** Non-persistent fallback: state lasts as long as the process (parity with the run map). */
@@ -44,6 +50,12 @@ export class MemoryMaintenanceStateStore implements MaintenanceStateStore {
   }
   list(): MaintenanceAreaState[] {
     return [...this.entries.values()].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))
+  }
+  forget(runId: string): boolean {
+    for (const [kind, e] of this.entries) {
+      if (e.runId === runId) return this.entries.delete(kind)
+    }
+    return false
   }
 }
 
@@ -64,6 +76,10 @@ export class SqliteMaintenanceStateStore implements MaintenanceStateStore {
            error = excluded.error, finished_at = excluded.finished_at`,
       )
       .run(this.userId, entry.kind, entry.runId, entry.ok ? 1 : 0, entry.pages, entry.error, entry.finishedAt)
+  }
+
+  forget(runId: string): boolean {
+    return this.db.prepare('DELETE FROM maintenance_state WHERE user_id = ? AND run_id = ?').run(this.userId, runId).changes > 0
   }
 
   /** All areas, newest settle first. */

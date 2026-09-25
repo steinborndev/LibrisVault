@@ -133,6 +133,13 @@ export function renderNotebook(input: RenderNotebookInput): string {
     // `active` is not in the vault's status vocabulary (seed, developing, mature, evergreen,
     // retired); a notebook that grows with every run is `developing`.
     `status: ${agent.state === 'retired' ? 'retired' : 'developing'}`,
+    /*
+     * The vault's own machinery, like every page under `wiki/meta/` (SPEC.md §12.4). Without
+     * it the notebook was the one page the status model counted as "never classified", and a
+     * domain backfill that filed it was undone by the next notebook write, which renders the
+     * frontmatter whole: the "file 1 page into domains" item came back every night.
+     */
+    'domain: meta',
     `created: ${day(agent.createdAt)}`,
     `updated: ${day(now)}`,
     'tags:',

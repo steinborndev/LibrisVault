@@ -33,12 +33,31 @@ import {
   worldBounds,
   zoomAt as zoomTransform,
   LEASH_PAD_WORLD,
-  type ClusterGeom,
+  fitTransformClear,
+  type FitItem,
+  type KeepOut,
   type Viewport,
 } from '../lib/graphZoom.ts'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react'
 import type { GraphNode } from '../api/types.ts'
-import { domainGroups } from '../lib/graphForces.ts'
+import { domainGroups, reseedPlan } from '../lib/graphForces.ts'
+import {
+  HULL_PAD,
+  SPOT_IDLE,
+  buildSpotGeoms,
+  positionsKey,
+  placeSpotLabel,
+  pointInPolygon,
+  resolveAreaCid,
+  spotAlpha,
+  spotBusy,
+  tickSpot,
+  wantSpot,
+  type SpotGeom,
+  type SpotState,
+} from '../lib/spotlightHover.ts'
+import { measureSpotLabel, paintRegionLabel, paintSpotLabel, regionFont } from '../lib/spotLabel.ts'
+import { placeAround, spreadPoints, wrapTitle, type Box as LBox } from '../lib/landmarkLayout.ts'
 import {
   REVEAL_MS,
   REVEAL_HOLD_MAX_MS,
@@ -55,6 +74,16 @@ import {
  */
 const MIN_LABELED_CLUSTER = 3
 
+/**
+ * The closest a FIT will frame (2026-09-24). A drilled-in community of a dozen pages fits at
+ * the zoom ceiling, where a node is a 50px disc and a hull's padding 200px of screen; a fit is
+ * for seeing a group, and three times is plenty for that. The wheel still reaches ZOOM_MAX.
+ */
+const FIT_ZOOM_MAX = 3
+
+/** Screen height of the spotlight hull's label box; the glyphs are 82 % of it (about 13px). */
+const SPOT_LABEL_PX = 16
+
 export interface GraphCanvasProps {
   nodes: GraphNode[]
   /** Directed [from, to] index pairs into `nodes`. */
@@ -68,6 +97,12 @@ export interface GraphCanvasProps {
    */
   selectedIndex?: number | null
   /**
+   * A node pointed at from outside the canvas - the landmark list's row under the pointer. It
+   * wears the selection's ring without being the selection, so the row and its dot are found
+   * together while the reader skims the list.
+   */
+  markIndex?: number | null
+  /**
    * Indices that are knowledge-gap ghost nodes (missing pages other pages link to), rendered
    * hollow/dashed. Their `in` count is how many pages reference them; `out` is 0.
    */
@@ -80,6 +115,8 @@ export interface GraphCanvasProps {
    * answers a different question ("where are the hubs / dead ends / thin pages / new pages").
    */
   lens?: Lens
+  /** The one domain on show, whose colour tops the recency ramp; null keeps it green. */
+  recencyHue?: string | null
   /**
    * Cluster id per node index (auto-detected communities), or null for no clustering. Nodes
    * sharing an id get a tinted convex hull behind them; -1 means "unclustered" (no hull).
@@ -127,6 +164,20 @@ export interface GraphCanvasProps {
   fitKey?: string
   /** The bar's own Fit button. Off where the screen offers the action somewhere better. */
   showFit?: boolean
+  /**
+   * Which nodes a fit frames, or null for all of them. It changes no layout and hides nothing:
+   * the camera is simply put around a part of the picture, which is how the Landmarks overlay
+   * lands a click on a readable view of one page's neighbourhood instead of on twelve more dots
+   * somewhere in a field of forty. Read at the moment of the fit, so it always pairs with the
+   * `fitKey` that asked for one.
+   */
+  fitSubset?: ReadonlySet<number> | null
+  /**
+   * A node the fit puts in the MIDDLE of the picture rather than wherever the framed set's box
+   * happens to put it. The span is then measured from it in every direction, so the set still
+   * fits whole - at a wider zoom than a plain box fit, which is what centring costs.
+   */
+  fitCenter?: number | null
   /**
    * Which graph this canvas is - the key its camera and its laid-out positions are kept
    * under. Two canvases are mounted at once (every screen stays in the DOM behind `hidden`),
@@ -178,6 +229,56 @@ export interface GraphCanvasProps {
   onClear?: () => void
   /** Extra UI rendered inside the canvas wrap (e.g. the search box, top-right). */
   overlay?: React.ReactNode
+  /**
+   * The Landmarks overlay's paint mask (docs/tasks/TASKS-LANDMARKS.md), or null when the mode
+   * is off. It PAINTS, it does not filter: every page of the domain stays in `nodes` and
+   * `edges`, and what this changes is which of them the canvas puts ink on. That is the whole
+   * reason the mode costs no layout - the node list, the edge list and the domain grouping are
+   * untouched, so the layout effect's structural-identity check returns before it posts, and
+   * the positions stand still across a switch and across a bloom.
+   */
+  landmarkMask?: LandmarkMask | null
+  /** Draw only these nodes, on the layout of all of them (the Areas stepper's one community). */
+  onlyNodes?: ReadonlySet<number> | null
+  /**
+   * A click in an AREA (Areas on, Spotlight off): the community whose tint was clicked, among
+   * `areaIds`. The Areas stepper shows it alone. With Spotlight on the area click isolates
+   * instead (`onClusterClick`), as it always did.
+   */
+  onAreaClick?: ((cid: number) => void) | undefined
+  areaIds?: ReadonlySet<number>
+}
+
+/**
+ * Which nodes the Landmarks overlay paints, and how. Everything outside the three sets is drawn
+ * at no alpha, carries no label and cannot be clicked - a click on its position is a click on
+ * the background.
+ */
+export interface LandmarkMask {
+  /** The pages the domain is built around: full size, labelled, the subject of the picture. */
+  landmarks: ReadonlySet<number>
+  /** The glue between chapters: smallest and unlabelled, because they are not entry points. */
+  connectors: ReadonlySet<number>
+  /**
+   * The open neighbourhood: every page the expanded landmark links to or from inside the
+   * domain, whatever it is in the other view. Empty while none is expanded.
+   */
+  bloom: ReadonlySet<number>
+  /**
+   * The expanded landmark itself, or null while none is. It and its neighbourhood are then the
+   * WHOLE picture - see `painted` - because the click re-frames onto them and remains of the
+   * other view inside that frame are a second picture the reader has to look past.
+   */
+  bloomAnchor: number | null
+  /**
+   * Backlinks counted inside the DOMAIN, per node index - the value the authority lens reads
+   * while the mode is on. Over the vault an index hub lends every page it lists the same link,
+   * which is not a statement about the domain. Computed over the domain rather than over what
+   * is painted, so a bloom cannot recolour the picture under the reader's hand.
+   */
+  inDomain: readonly number[]
+  /** Place in the reading order (1-based) per landmark index - the number the list shows. */
+  rank?: ReadonlyMap<number, number>
 }
 
 // Domain colors, the page-kind color map and the stub threshold live in lib/domains.ts (the
@@ -185,6 +286,218 @@ export interface GraphCanvasProps {
 // module into the main bundle). Re-exported for callers.
 import { domainColor, domainHue, STUB_BYTES, TYPE_VARS } from '../lib/domains.ts'
 export { domainColor, domainHue, STUB_BYTES, TYPE_VARS }
+
+/**
+ * What the authority lens counts for one node: the DOMAIN-internal backlinks while the Landmarks
+ * mask hands them in, the vault-wide count otherwise.
+ *
+ * Which nodes make up the ramp's domain is `authorityDomain`'s answer, below.
+ *
+ * A count of zero is a count: the fallback is on a MISSING entry, never on a falsy one, which is
+ * the difference between "this page has no backlinks inside its domain" and "nobody said".
+ */
+export function authorityValue(mask: LandmarkMask | null, nodes: readonly GraphNode[], i: number): number {
+  return mask?.inDomain[i] ?? nodes[i]?.in ?? 0
+}
+
+/**
+ * The backlink counts the authority ramp spans, sorted: the real pages DRAWN. The ramp and its
+ * legend both read this, so the three numbers under the bar are the range of the colours above.
+ *
+ * With the Landmarks mask that is what the mask paints (2026-09-25). It used to be the whole
+ * domain, and the landmarks ARE the domain's most-linked pages, so they all sat at the top of a
+ * ramp built for 150 pages and came out one dark colour - the lens said nothing in the one mode
+ * that is about authority. The old reason against it, a bloom recolouring a still picture, went
+ * when the bloom got a spread of its own (2026-09-24): opening one lays the picture out anew.
+ */
+export function authorityDomain(
+  mask: LandmarkMask | null,
+  nodes: readonly GraphNode[],
+  count: number,
+  skip: ReadonlySet<number> | null = null,
+): number[] {
+  const out: number[] = []
+  for (let i = 0; i < count; i++) {
+    if (skip?.has(i) === true || !painted(mask, i)) continue
+    out.push(authorityValue(mask, nodes, i))
+  }
+  return out.sort((a, b) => a - b)
+}
+
+/**
+ * Backlink count → position on the authority ramp (0 = least linked, 1 = most).
+ *
+ * Not `in / max`, which is what this used to be: backlink counts do not spread out. They
+ * bunch in a narrow band (in this vault: p10 = 6, median = 9, p90 = 15) under a thin tail
+ * of hubs (max 83), so dividing by the tail put ~90% of the vault below a fifth of the
+ * ramp - a grey field with a handful of bright dots, which is what the lens looked like.
+ *
+ * Two thirds RANK (the share of pages with fewer backlinks) and one third log MAGNITUDE.
+ * The rank term spreads the crowded middle so neighbouring pages actually differ; the
+ * magnitude term keeps the tail apart, which a pure rank scale flattens - by rank alone a
+ * page with 20 backlinks and one with 83 are both simply "top". Ties share a value, so
+ * equally-linked pages read as equally bright, and the mapping stays monotone: more
+ * backlinks is never darker.
+ */
+export function authorityPosition(sorted: readonly number[] | null, count: number): number {
+  if (sorted === null || sorted.length < 2) return 0
+  // Number of pages with strictly fewer backlinks (binary search, ties land on the start of
+  // their run) → the rank term.
+  let lo = 0
+  let hi = sorted.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (sorted[mid]! < count) lo = mid + 1
+    else hi = mid
+  }
+  const rank = lo / (sorted.length - 1)
+  // From the domain's own floor, not from zero: a range of 12 to 31 backlinks is the whole
+  // ramp too, not its top quarter. Everywhere but the Landmarks mode the floor is 0 or 1.
+  const floor = Math.log1p(Math.max(0, sorted[0]!))
+  const span = Math.log1p(Math.max(1, sorted[sorted.length - 1]!)) - floor
+  const magnitude = span > 0 ? Math.max(0, Math.log1p(Math.max(0, count)) - floor) / span : 1
+  return Math.min(1, 0.65 * rank + 0.35 * magnitude)
+}
+
+/** When a page last changed as far as the recency lens is concerned: what it says, else its file. */
+const changedAt = (n: GraphNode): number | undefined => n.freshMs ?? n.mtimeMs
+
+/**
+ * The dates the recency ramp spans, sorted, in the Landmarks mode: the painted pages' own
+ * (2026-09-25, user decision). Outside the mode, null - the ramp is the fixed window there.
+ *
+ * Why the mode is different: the window asks "what changed in the last three weeks", and over
+ * eighteen landmarks that is mostly nobody, so they all came out grey. Over the pages on show the
+ * question becomes "which of THESE is freshest", which is the one worth asking of a reading list.
+ */
+export function recencyDomain(
+  mask: LandmarkMask | null,
+  nodes: readonly GraphNode[],
+  count: number,
+  skip: ReadonlySet<number> | null = null,
+): number[] | null {
+  if (mask === null) return null
+  const out: number[] = []
+  for (let i = 0; i < count; i++) {
+    if (skip?.has(i) === true || !painted(mask, i)) continue
+    const at = nodes[i] !== undefined ? changedAt(nodes[i]!) : undefined
+    if (at !== undefined) out.push(at)
+  }
+  return out.length < 2 ? null : out.sort((a, b) => a - b)
+}
+
+/**
+ * A change date → position on the recency ramp (0 = old, 1 = new). Over the fixed window
+ * without a domain; over `sorted` with one, the way the authority ramp is spread (two thirds
+ * rank, one third the linear place between the oldest and the newest), so a set that changed
+ * over three days and one that changed over a year both use the whole ramp.
+ */
+export function recencyPosition(changed: number, now: number, sorted: readonly number[] | null): number {
+  if (sorted === null) return Math.max(0, 1 - (now - changed) / RECENCY_WINDOW_MS)
+  let lo = 0
+  let hi = sorted.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (sorted[mid]! < changed) lo = mid + 1
+    else hi = mid
+  }
+  const rank = lo / (sorted.length - 1)
+  const span = sorted[sorted.length - 1]! - sorted[0]!
+  const linear = span > 0 ? Math.min(1, Math.max(0, (changed - sorted[0]!) / span)) : 1
+  return Math.min(1, 0.65 * rank + 0.35 * linear)
+}
+
+/** What a node's colour depends on beyond the node itself - one lens, one frame. */
+export interface NodePaletteInput {
+  lens: Lens
+  nodes: readonly GraphNode[]
+  mask: LandmarkMask | null
+  /** `authorityDomain`'s answer, null when the lens is not on. */
+  authoritySorted: readonly number[] | null
+  /** `recencyDomain`'s answer. */
+  recencySorted: readonly number[] | null
+  /** The one domain on show, whose colour the recency ramp rises to; null for the green. */
+  recencyHue: string | null
+}
+
+/**
+ * A node's colour under the lens, as the canvas paints its dot. Out of the draw since 2026-09-25
+ * so the landmark list's numbers are filled with exactly the colour of the dots they stand for,
+ * in every view - two copies of this switch would part the first time either was touched.
+ * Reads the CSS tokens when it is made, so make one per frame (or per render).
+ */
+export function nodeColorer(p: NodePaletteInput): (i: number) => string {
+  const styles = getComputedStyle(document.documentElement)
+  const cssVar = (name: string, fallback: string): string => styles.getPropertyValue(name).trim() || fallback
+  const muted = cssVar('--muted', '#888')
+  // Neutral floor for the metric-gradient lenses (a dim, low-contrast base the metric lifts from).
+  const dimBase = mixColor(cssVar('--bg-elev-2', '#1f2637'), muted, 0.55)
+  const nowMs = Date.now()
+  const darkSurface = isDarkSurface(cssVar('--bg-elev', '#131928'))
+  const recencyTop = p.recencyHue ?? cssVar('--ok', '#3fb984')
+  return (i: number): string => {
+    const n = p.nodes[i]
+    if (n === undefined) return muted
+    switch (p.lens) {
+      case 'domain':
+        return n.domain !== null ? domainColor(n.domain) : muted
+      case 'type':
+        return cssVar(TYPE_VARS[n.type] ?? '--muted', '#888')
+      case 'authority':
+        // On the page's own domain hue, with the accent standing in for a page that has no
+        // domain - see `authorityRamp` for why lightness carries the metric.
+        return authorityRamp(
+          n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'),
+          authorityPosition(p.authoritySorted, authorityValue(p.mask, p.nodes, i)),
+          darkSurface,
+        )
+      case 'orphans':
+        // No backlinks = unreachable except by search. Everything else recedes.
+        return n.in === 0 ? cssVar('--err', '#e0645b') : dimBase
+      case 'stubs':
+        return n.size !== undefined && n.size < STUB_BYTES ? cssVar('--warn', '#e0a43b') : dimBase
+      case 'recency': {
+        /*
+         * `freshMs` is what the page SAYS about itself (`content_updated:`, else `created:`),
+         * and the mtime is only the fallback for a page that states neither. The other way
+         * round is what made this lens useless: a repair pass rewrites every file, so every
+         * mtime lands in the window and the whole graph goes green. The top of the ramp is the
+         * domain's own colour when one domain is on show (2026-09-25), the green otherwise.
+         */
+        const changed = changedAt(n)
+        if (changed === undefined) return dimBase
+        return mixColor(dimBase, recencyTop, recencyPosition(changed, nowMs, p.recencySorted))
+      }
+    }
+  }
+}
+
+/** `inkOn` for the DOM (the landmark list's numbers): the same choice, null for a colour it cannot read. */
+export function inkOnColor(fill: string, others: readonly string[]): string | null {
+  const f = parseRgb(fill)
+  if (f === null) return null
+  const lum = ([r, gg, b]: [number, number, number]): number => {
+    const ch = (v: number): number => {
+      const c = v / 255
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * ch(r) + 0.7152 * ch(gg) + 0.0722 * ch(b)
+  }
+  const ratio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  const lf = lum(f)
+  let best = '#ffffff'
+  let bestRatio = ratio(lf, 1)
+  for (const o of others) {
+    const rgb = parseRgb(o)
+    if (rgb === null) continue
+    const r = ratio(lf, lum(rgb))
+    if (r > bestRatio) {
+      best = o
+      bestRatio = r
+    }
+  }
+  return best
+}
 
 /** The available color lenses. `domain`/`type` are categorical; the rest re-encode a metric. */
 export type Lens = 'domain' | 'type' | 'authority' | 'orphans' | 'stubs' | 'recency'
@@ -314,11 +627,60 @@ function mixColor(a: string, b: string, t: number): string {
 }
 
 /** Distinct, theme-agnostic hue per cluster id for the community hulls. */
-function clusterHue(id: number): number {
+export function clusterHue(id: number): number {
   return (id * 47) % 360
 }
 
 /** Two taps on the SAME node within this window are a double-tap (opens the page). */
+/**
+ * The three role radii of the Landmarks overlay, against the ordinary 3-to-12px degree scale.
+ * Inside the mode size says the ROLE, not the degree: `3 + min(9, sqrt(degree) * 1.1)` saturates
+ * at degree 67, so the top 40 pages of the largest domain here all sit between 8.4 and 12.0px
+ * with five pinned at the cap - a flat scale exactly where importance matters most. The rank it
+ * would carry is already stated, in order, by the list beside the drawing.
+ */
+/**
+ * Whether the Landmarks mask puts ink on node `i`.
+ *
+ * With a neighbourhood open, ONLY that neighbourhood is on screen - the landmark and every page
+ * it links to or from inside the domain. The rest is not dimmed but gone: the click re-frames
+ * the picture onto one page, and half-transparent remains of the other view inside that frame
+ * are a second picture the reader has to look past.
+ */
+/**
+ * The pages the landmark mode names in full (wrapped titles, placed around the dot): the
+ * landmarks in the overview, the expanded landmark and its whole neighbourhood in a bloom.
+ */
+function namedInFull(mask: LandmarkMask, i: number): boolean {
+  return mask.bloomAnchor === null ? mask.landmarks.has(i) : i === mask.bloomAnchor || mask.bloom.has(i)
+}
+
+function painted(mask: LandmarkMask | null, i: number, only: ReadonlySet<number> | null = null): boolean {
+  // The Areas stepper (2026-09-24) shows one community at a time on the same layout: the
+  // rest of the graph is not drawn, not hit and not framed, exactly like the landmark mask.
+  if (only !== null && !only.has(i)) return false
+  if (mask === null) return true
+  if (mask.bloomAnchor !== null) return i === mask.bloomAnchor || mask.bloom.has(i)
+  return mask.landmarks.has(i) || mask.connectors.has(i)
+}
+
+/**
+ * The selected node's ring (2026-09-25, user decision, variant C of four): a gap in the ground
+ * colour, then a ring in the TEXT colour - near-black on the light theme, near-white on the dark
+ * one. Screen pixels. It replaced two marks: the Library's warm rim in the Landmarks mode, which
+ * all but vanished on the light ground, and a thin accent ring elsewhere, which was one more
+ * blue circle beside the search rings and the concept dots. The text colour belongs to no
+ * domain, type or ramp, so it reads the same in every view.
+ */
+const SELECT_GAP_PX = 4
+const SELECT_RING_PX = 2.5
+/** Where the ring's centre line sits outside the node's own edge. */
+const SELECT_RING_OUT = 5
+
+const LANDMARK_R = 10
+const BLOOM_R = 6.5
+const CONNECTOR_R = 4.5
+
 const DOUBLE_TAP_MS = 350
 
 /** A layout with at least this share of never-placed nodes restarts cold instead of reheating. */
@@ -404,8 +766,13 @@ function viewMemory(view: string): ViewMemory {
  * department starts where the reader last saw it instead of flying in from d3's spiral.
  */
 const posByPathRef = { current: new Map<string, { x: number; y: number }>() }
+/**
+ * The domain each path had in the last layout, shared like the positions: what `reseedPlan`
+ * compares against to tell a domain change (a split, a re-file) from a filter toggle.
+ */
+const domainByPathRef = { current: new Map<string, string | null>() }
 
-export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, ghostIndices, matches, lens = 'type', clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, markIndex = null, ghostIndices, matches, lens = 'type', recencyHue = null, clusters = null, clusterLabels, clusterDomains, showHulls = false, network = false, spotlight = false, showLabels = true, openOnClick = false, fitOnMount = false, fitKey, showFit = true, fitSubset = null, fitCenter = null, view, barLeft, barMid, barRight, onSelect, onClusterClick, onOpen, onClear, overlay, landmarkMask = null, onlyNodes = null, onAreaClick, areaIds }: GraphCanvasProps): React.ReactElement {
   /*
    * This view's slot. Stable per `view`, so the callbacks below can hold the ref objects
    * across renders exactly as they did when there was one module-level set of them.
@@ -420,9 +787,18 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const canvasRef = useRef<HTMLCanvasElement>(null)
   /** Paths recently added to the view → timestamp, for the arrival flash. */
   const flashRef = useRef<Map<string, number>>(new Map())
-  const [hover, setHover] = useState<number | null>(null)
+  const [hover, setHoverState] = useState<number | null>(null)
   const hoverRef = useRef<number | null>(null)
-  hoverRef.current = hover
+  /*
+   * The ref is written HERE, not from the render: the draw that follows a hover change runs
+   * on the next animation frame, which can come before React has rendered the new state - and
+   * a draw reading a ref set at render time then paints the PREVIOUS hover's labels. That was
+   * half of a label flicker (2026-09-24): the same pointer position drew different titles.
+   */
+  const setHover = useCallback((next: number | null): void => {
+    hoverRef.current = next
+    setHoverState(next)
+  }, [])
   // Hovered community HULL (spotlight only): the pointer is inside a cluster's tinted area
   // without touching a node. Keeps the community highlight from flickering off between
   // member nodes and makes the whole hull one clickable isolate-surface. Only ever holds an
@@ -430,6 +806,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const [hullHover, setHullHover] = useState<number | null>(null)
   const hullHoverRef = useRef<number | null>(null)
   hullHoverRef.current = hullHover
+  /**
+   * The SHOWN spotlight community, separate from what the pointer resolved: it appears after a
+   * short delay on an area hover, lingers briefly when the pointer leaves, and fades both ways
+   * (lib/spotlightHover.ts). What the pointer resolved changes on every pixel; what is shown
+   * changes only when the pointer means it.
+   */
+  const spotRef = useRef<SpotState>(SPOT_IDLE)
+  const spotTimerRef = useRef<number | null>(null)
   const [layouting, setLayouting] = useState(false)
   /** No placed node is on screen: zoom and pan left the picture empty (graphZoom.ts). */
   const [offMap, setOffMap] = useState(false)
@@ -449,6 +833,67 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // Controlled by the viewbar toggle; a ref so the draw closure reads the latest without redeps.
   const hoverSpotlightRef = useRef(spotlight)
   hoverSpotlightRef.current = spotlight
+  /** The community ids a fit must leave room for (a hull may be drawn around them), or null. */
+  const hullFitRef = useRef<ArrayLike<number> | null>(null)
+  hullFitRef.current = clusters !== null && (spotlight || showHulls) ? clusters : null
+  /*
+   * The mask, in a ref as well as in the props. `radius` reads it from here so its identity
+   * stays keyed on the node list alone: it is a dependency of `fitToView`, which is a
+   * dependency of the worker session, and a mask toggle that tore the worker down and built it
+   * again would be a strange way to spend a redraw. The draw pass reads the prop directly.
+   */
+  const maskRef = useRef(landmarkMask)
+  maskRef.current = landmarkMask
+  const onlyRef = useRef(onlyNodes)
+  onlyRef.current = onlyNodes
+  /**
+   * Display-only positions for the landmarks overview (2026-09-24): the layout's own
+   * positions with the painted dots moved apart. Everything that DRAWS, hits, frames or leashes
+   * reads `displayRef.current ?? positionsRef.current`; the layout, its worker and the positions memory keep the real ones.
+   */
+  const displayRef = useRef<Float32Array | null>(null)
+  /** What the next fit frames; a ref, so `fitToView` keeps its identity across a change of it. */
+  const fitSubsetRef = useRef(fitSubset)
+  fitSubsetRef.current = fitSubset
+  const fitCenterRef = useRef(fitCenter)
+  fitCenterRef.current = fitCenter
+  /** Whether titles are drawn at all; a fit makes room for them only then. */
+  const showLabelsRef = useRef(showLabels)
+  showLabelsRef.current = showLabels
+  /** Whether the mask puts ink on this node. Everything is painted while the mode is off. */
+  const isPainted = useCallback((i: number): boolean => painted(maskRef.current, i, onlyRef.current), [])
+
+  /**
+   * Every community's geometry, the one the draw traces and the pointer, the cursor, the area
+   * click and the zoom magnet read. Built once per ARRANGEMENT - the positions, the
+   * communities, and what the mask paints - and not once per frame: a zoom or a hover redraws
+   * without moving anything, and the rebuild (twice per wheel step, the magnet asking as well)
+   * was the second-largest cost of a frame with Areas on (2026-09-25).
+   */
+  /** The captions' last placement and the view it was made for (see the caption pass in `draw`). */
+  const placementRef = useRef<{ geoms: SpotGeom[]; labels: ReadonlyMap<number, string> | undefined; on: boolean; view: string; placed: PlacedRegionLabel[] } | null>(null)
+  /** The view the previous frame was drawn in: a frame in another one is a frame of a motion. */
+  const lastViewRef = useRef('')
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current)
+    },
+    [],
+  )
+  const geomCacheRef = useRef<{ key: number; clusters: ArrayLike<number>; mask: unknown; only: unknown; count: number; geoms: SpotGeom[] } | null>(null)
+  const geomsNow = useCallback(
+    (cl: ArrayLike<number>, pos: ArrayLike<number>): SpotGeom[] => {
+      const key = positionsKey(pos, nodes.length)
+      const c = geomCacheRef.current
+      if (c !== null && c.key === key && c.clusters === cl && c.mask === maskRef.current && c.only === onlyRef.current && c.count === nodes.length)
+        return c.geoms
+      const geoms = buildSpotGeoms(cl, pos, nodes.length, isPainted)
+      geomCacheRef.current = { key, clusters: cl, mask: maskRef.current, only: onlyRef.current, count: nodes.length, geoms }
+      return geoms
+    },
+    [nodes.length, isPainted],
+  )
 
   // Neighbor sets for hover highlighting (undirected view of the directed edges).
   const neighbors = useMemo(() => {
@@ -483,6 +928,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // own label, and a domain split across two blobs gets one in each. Union-find over the edges;
   // memoised on the node/edge set, not per frame.
   const labelReps = useMemo(() => {
+    // Inside the mode the representatives are chosen among the PAINTED nodes: a tier that
+    // guaranteed a label to a node drawn at no alpha would guarantee nothing.
+    const paints = (i: number): boolean => painted(landmarkMask, i, onlyNodes)
     const parent = new Int32Array(nodes.length)
     for (let i = 0; i < nodes.length; i++) parent[i] = i
     const find = (x: number): number => {
@@ -493,12 +941,14 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       return x
     }
     for (const [a, b] of edges) {
+      if (!paints(a) || !paints(b)) continue
       const ra = find(a)
       const rb = find(b)
       if (ra !== rb) parent[ra] = rb
     }
     const compSize = new Map<number, number>()
     for (let i = 0; i < nodes.length; i++) {
+      if (!paints(i)) continue
       const r = find(i)
       compSize.set(r, (compSize.get(r) ?? 0) + 1)
     }
@@ -506,6 +956,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // so orphans and pairs don't each force a label (the graph has hundreds of gap nodes).
     const best = new Map<string, number>()
     for (let i = 0; i < nodes.length; i++) {
+      if (!paints(i)) continue
       const r = find(i)
       if ((compSize.get(r) ?? 0) < MIN_LABELED_CLUSTER) continue
       const key = `${r}\u0000${nodes[i]!.domain ?? ''}`
@@ -513,12 +964,22 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       if (cur === undefined || nodes[i]!.in + nodes[i]!.out > nodes[cur]!.in + nodes[cur]!.out) best.set(key, i)
     }
     return new Set(best.values())
-  }, [nodes, edges])
+  }, [nodes, edges, landmarkMask, onlyNodes])
 
   const radius = useCallback(
     (i: number): number => {
       const n = nodes[i]
       if (!n) return 3
+      const m = maskRef.current
+      if (m !== null) {
+        // Role, in the order roles override one another. The screen never puts a landmark or a
+        // connector in a bloom (a bloom is what a click ADDS to the picture), so the ordering
+        // is belt and braces rather than a rule anyone has to hold in their head. An unpainted
+        // node keeps the ordinary radius: it is not drawn, but the fit still reads its extent.
+        if (m.landmarks.has(i)) return LANDMARK_R
+        if (m.bloom.has(i)) return BLOOM_R
+        if (m.connectors.has(i)) return CONNECTOR_R
+      }
       return 3 + Math.min(9, Math.sqrt(n.in + n.out) * 1.1)
     },
     [nodes],
@@ -526,55 +987,20 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
   /**
    * Backlink counts of the real pages, sorted - the domain of the authority ramp (see
-   * `authorityT`). Ghost nodes (unresolved link targets) are left out on purpose: they
+   * `authorityPosition`). Ghost nodes (unresolved link targets) are left out on purpose: they
    * are not pages, and letting them into the domain would shift every page's colour the
    * moment the gaps view is toggled.
    */
   const authoritySorted = useMemo(() => {
     if (lens !== 'authority') return null
-    const counts: number[] = []
-    for (let i = 0; i < nodes.length; i++) {
-      if (ghostIndices?.has(i) === true) continue
-      counts.push(nodes[i]!.in)
-    }
-    if (counts.length < 2) return null
-    counts.sort((a, b) => a - b)
-    return counts
-  }, [nodes, ghostIndices, lens])
+    const counts = authorityDomain(landmarkMask, nodes, nodes.length, ghostIndices ?? null)
+    return counts.length < 2 ? null : counts
+  }, [nodes, ghostIndices, lens, landmarkMask])
 
-  /**
-   * Backlink count → position on the authority ramp (0 = least linked, 1 = most).
-   *
-   * Not `in / max`, which is what this used to be: backlink counts do not spread out. They
-   * bunch in a narrow band (in this vault: p10 = 6, median = 9, p90 = 15) under a thin tail
-   * of hubs (max 83), so dividing by the tail put ~90% of the vault below a fifth of the
-   * ramp - a grey field with a handful of bright dots, which is what the lens looked like.
-   *
-   * Two thirds RANK (the share of pages with fewer backlinks) and one third log MAGNITUDE.
-   * The rank term spreads the crowded middle so neighbouring pages actually differ; the
-   * magnitude term keeps the tail apart, which a pure rank scale flattens - by rank alone a
-   * page with 20 backlinks and one with 83 are both simply "top". Ties share a value, so
-   * equally-linked pages read as equally bright, and the mapping stays monotone: more
-   * backlinks is never darker.
-   */
-  const authorityT = useCallback(
-    (count: number): number => {
-      const sorted = authoritySorted
-      if (sorted === null) return 0
-      // Number of pages with strictly fewer backlinks (binary search, ties land on the
-      // start of their run) → the rank term.
-      let lo = 0
-      let hi = sorted.length
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1
-        if (sorted[mid]! < count) lo = mid + 1
-        else hi = mid
-      }
-      const rank = lo / (sorted.length - 1)
-      const magnitude = Math.log1p(Math.max(0, count)) / Math.log1p(Math.max(1, sorted[sorted.length - 1]!))
-      return Math.min(1, 0.65 * rank + 0.35 * magnitude)
-    },
-    [authoritySorted],
+  /** The freshness dates the recency ramp spans in the Landmarks mode (`recencyDomain`), else null. */
+  const recencySorted = useMemo(
+    () => (lens === 'recency' ? recencyDomain(landmarkMask, nodes, nodes.length, ghostIndices ?? null) : null),
+    [nodes, ghostIndices, lens, landmarkMask],
   )
 
   /** One draw pass. Reads CSS variables live, so light/dark theme switches just work. */
@@ -583,11 +1009,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    // Anything worth redrawing may have moved the world - invalidate the hull hit cache.
-    drawEpochRef.current++
     // Cleared up front, set at the end: every early return below leaves an empty canvas.
     paintedRef.current = false
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     const t = transformRef.current
     const dpr = window.devicePixelRatio || 1
     const w = canvas.width / dpr
@@ -595,40 +1019,8 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
     const styles = getComputedStyle(document.documentElement)
     const cssVar = (name: string, fallback: string): string => styles.getPropertyValue(name).trim() || fallback
-    const muted = cssVar('--muted', '#888')
-    // Neutral floor for the metric-gradient lenses (a dim, low-contrast base the metric lifts from).
-    const dimBase = mixColor(cssVar('--bg-elev-2', '#1f2637'), muted, 0.55)
-    const nowMs = Date.now()
     const darkSurface = isDarkSurface(cssVar('--bg-elev', '#131928'))
-    const colorFor = (n: GraphNode): string => {
-      switch (lens) {
-        case 'domain':
-          return n.domain !== null ? domainColor(n.domain) : muted
-        case 'type':
-          return cssVar(TYPE_VARS[n.type] ?? '--muted', '#888')
-        case 'authority':
-          // On the page's own domain hue, with the accent standing in for a page that has no
-          // domain - see `authorityRamp` for why lightness carries the metric.
-          return authorityRamp(n.domain !== null ? domainColor(n.domain) : cssVar('--accent', '#5b8def'), authorityT(n.in), darkSurface)
-        case 'orphans':
-          // No backlinks = unreachable except by search. Everything else recedes.
-          return n.in === 0 ? cssVar('--err', '#e0645b') : dimBase
-        case 'stubs':
-          return n.size !== undefined && n.size < STUB_BYTES ? cssVar('--warn', '#e0a43b') : dimBase
-        case 'recency': {
-          /*
-           * `freshMs` is what the page SAYS about itself (`content_updated:`, else `created:`),
-           * and the mtime is only the fallback for a page that states neither. The other way
-           * round is what made this lens useless: a repair pass rewrites every file, so every
-           * mtime lands in the window and the whole graph goes green.
-           */
-          const changed = n.freshMs ?? n.mtimeMs
-          if (changed === undefined) return dimBase
-          const t = Math.max(0, 1 - (nowMs - changed) / RECENCY_WINDOW_MS)
-          return mixColor(dimBase, cssVar('--ok', '#3fb984'), t)
-        }
-      }
-    }
+    const colorFor = nodeColorer({ lens, nodes, mask: landmarkMask, authoritySorted, recencySorted, recencyHue })
     const edgeColor = cssVar('--border', '#444')
     const textColor = cssVar('--text-dim', '#aaa')
     /**
@@ -637,7 +1029,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
      * to get there.
      */
     const nodeColors = new Array<string | undefined>(nodes.length)
-    const nodeColor = (i: number): string => (nodeColors[i] ??= colorFor(nodes[i]!))
+    const nodeColor = (i: number): string => (nodeColors[i] ??= colorFor(i))
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
@@ -650,6 +1042,17 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // stays empty on purpose: the alternative is a quarter of the graph at 1:1, oversized
     // and moving, followed by a hard cut to the fitted frame. The status chip says so.
     if (holdRef.current) return
+
+    /*
+     * The mask. `paints` is the whole of what the overlay does to the drawing: an unpainted
+     * node is skipped by the node pass, by the edges that would reach it, by the hulls, by the
+     * label candidates, by the overview and by the hit test - which is what makes "the same
+     * shape with most of it taken away" true without narrowing anything the layout can see.
+     */
+    const mask = landmarkMask
+    const paints = (i: number): boolean => painted(mask, i, onlyNodes)
+    // The landmark mode's own label pass, in the overview and in an open neighbourhood alike.
+    const landmarkOverview = mask !== null
 
     const revealStart = revealStartRef.current
     let revealing = false
@@ -686,27 +1089,35 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // node subdivides nothing (an isolated cluster Louvain can't split further) - treated
     // as absent, mirroring the click guard, so the spotlight degrades to 1-hop instead of
     // lighting everything up.
-    const rawSpotCid =
-      clusters === null ? -1
-      : spotHover !== null ? clusters[spotHover] ?? -1
-      : hoverSpotlightRef.current && lastPointerRef.current !== null ? hullHoverRef.current ?? -1
-      : -1
-    const realNodeCount = nodes.length - (ghostIndices?.size ?? 0)
-    const spotCid =
-      rawSpotCid >= 0 && (clusterSets?.get(rawSpotCid)?.size ?? 0) < realNodeCount ? rawSpotCid : -1
+    // The community on show comes from the spot state, not from the raw hover: it was
+    // resolved from a member node or from the area (the same geometry drawn below), and it
+    // carries a fade. Only an isolatable community ever gets into it (see `wantCid`).
+    const nowSpot = performance.now()
+    const spot = spotRef.current
+    const spotA = hoverSpotlightRef.current && clusters !== null ? spotAlpha(spot, nowSpot) : 0
+    const spotCid = spotA > 0 ? spot.cid : -1
+    if (spotBusy(spot, nowSpot)) scheduleDrawRef.current?.()
     const active = spotHover ?? selectedIndex ?? focusIndex
+    /*
+     * Inside the mode a selection marks its node and dims nothing. The list's highlight IS the
+     * canvas's selection, so the ordinary neighbourhood spotlight would dim thirty-nine
+     * landmarks because one row is marked - and an open neighbourhood needs no dimming either,
+     * because everything outside it is off the picture entirely.
+     */
     const highlight =
-      spotCid >= 0
-        ? clusterSets!.get(spotCid)!
-        : active !== null
-          ? new Set([active, ...(neighbors.get(active) ?? [])])
-          : null
+      mask !== null ? null
+      : spotCid >= 0 ? clusterSets!.get(spotCid)!
+      : active !== null ? new Set([active, ...(neighbors.get(active) ?? [])])
+      : null
     // A transient hover (node or hull) may dim hard; a selection/focus spotlight is long-
     // lived, so it dims gently enough that the rest of the graph stays readable underneath.
+    // A community on show dims by its fade: at alpha 0 nothing is dimmed, at 1 fully.
     const transientSpot = spotHover !== null || spotCid >= 0
-    const dimNode = transientSpot ? 0.18 : 0.45
+    const fadeA = spotCid >= 0 ? spotA : 1
+    const dimBy = (full: number, lit: number): number => lit + (full - lit) * fadeA
+    const dimNode = dimBy(transientSpot ? 0.18 : 0.45, 1)
     const dimEdge = transientSpot ? 0.08 : 0.18
-    const dimLabel = transientSpot ? 0.15 : 0.4
+    const dimLabel = dimBy(transientSpot ? 0.15 : 0.4, 0.95)
 
     // Visible world-rect for culling (small margin for radii/labels).
     const margin = 40 / t.k
@@ -725,41 +1136,51 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // tinted blob and cleared against one another; their boxes then seed the node-label
     // collision list below so a page title can't overwrite a group label either.
     const regionLabelBoxes: Array<[number, number, number, number]> = []
+    let spotLabel: { text: string; box: Box; hue: number; alpha: number } | null = null
+    const areaLabels: Array<{ key: number; text: string; cx: number; top: number; world: number; hue: number }> = []
+    /*
+     * The area under the pointer, in the Areas overview (2026-09-25, user decision): its hull
+     * takes a firm outline and a denser tint, and its caption is underlined in the domain's hue,
+     * so which of forty captions names the area you are on is plain at a glance. The pointer on
+     * a member node counts as on its area. Not inside one area on show, where there is one.
+     */
+    const hotArea =
+      showHulls && onlyNodes === null && clusters !== null
+        ? (hullHoverRef.current ?? (hoverRef.current !== null ? (clusters[hoverRef.current] ?? -1) : -1))
+        : -1
     // With hulls off, the spotlight still traces the HOVERED community's hull (and its label,
     // via the shared `members` map below) - the preview of what a click would isolate.
     if (clusters !== null && (showHulls || spotCid >= 0)) {
-      const members = new Map<number, Array<[number, number]>>()
-      for (let i = 0; i < nodes.length; i++) {
-        const cid = clusters[i]
-        if (cid === undefined || cid < 0) continue
-        if (!showHulls && cid !== spotCid) continue
-        const x = pos[i * 2]!
-        const y = pos[i * 2 + 1]!
-        if (Number.isNaN(x)) continue
-        ;(members.get(cid) ?? members.set(cid, []).get(cid)!).push([x, y])
-      }
+      // The one geometry (lib/spotlightHover.ts): the pointer, the cursor and the click test
+      // the smoothed outline of exactly these padded hulls.
+      const all = geomsNow(clusters, pos)
+      const geoms = showHulls ? all : all.filter((g) => g.id === spotCid)
+      const members = new Map<number, Pt[]>()
       ctx.lineWidth = 1.4 / t.k
       const paddedHulls = new Map<number, Pt[]>()
-      for (const [cid, pts] of members) {
-        if (pts.length < 3) continue // 2 points make no area worth tinting
-        const body = hullBody(pts)
-        const hull = convexHull(body)
-        const cx = body.reduce((s, p) => s + p[0], 0) / body.length
-        const cy = body.reduce((s, p) => s + p[1], 0) / body.length
-        // Padding in WORLD units, not screen units: a hull whose shape changed with the zoom
-        // moved the label anchors with it, which is half of why labels jumped on zoom.
-        const padded = expandHull(hull, cx, cy, HULL_PAD)
-        paddedHulls.set(cid, padded)
-        ctx.beginPath()
-        traceSmooth(ctx, padded)
+      for (const g of geoms) {
+        members.set(g.id, g.members as Pt[])
+        if (g.parts.length === 0) continue // fewer than 3 members make no area worth tinting
+        // Labels are placed against the DRAWN outline of the largest part (the smoothed curve,
+        // not the padded polygon it rounds off), where most of the community stands.
+        paddedHulls.set(g.id, g.hull as Pt[])
+        // The hull on show fades with the spotlight; hulls drawn for the overlay stay put.
+        const a = g.id === spotCid && !showHulls ? spotA : 1
         // Tint by the cluster's dominant domain so the color means something; fall back to a
         // per-id hue only for a community with no domain at all.
-        const dom = clusterDomains?.get(cid)
-        const hue = dom !== undefined ? domainHue(dom) : clusterHue(cid)
-        ctx.fillStyle = `hsl(${hue} 60% 55% / 0.09)`
-        ctx.strokeStyle = `hsl(${hue} 60% 60% / 0.4)`
-        ctx.fill()
-        ctx.stroke()
+        const dom = clusterDomains?.get(g.id)
+        const hue = dom !== undefined ? domainHue(dom) : clusterHue(g.id)
+        const hot = g.id === hotArea
+        ctx.fillStyle = `hsl(${hue} 60% 55% / ${(hot ? 0.16 : 0.09) * a})`
+        ctx.strokeStyle = hot ? `hsl(${hue} 60% 50% / ${0.85 * a})` : `hsl(${hue} 60% 60% / ${0.4 * a})`
+        ctx.lineWidth = (hot ? 2.6 : 1.4) / t.k
+        // One area, drawn as the islands the layout keeps it in: every member inside a part.
+        for (const part of g.parts) {
+          ctx.beginPath()
+          traceSmooth(ctx, part.padded)
+          ctx.fill()
+          ctx.stroke()
+        }
       }
       // Second pass: measure widths (needs the canvas), place, then draw. Everything here is
       // in WORLD units at a size derived from the graph's extent - never from the live zoom.
@@ -780,19 +1201,79 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         }
       }
       const span = Number.isFinite(sMinX) ? Math.hypot(sMaxX - sMinX, sMaxY - sMinY) : 0
-      const labelH = Math.min(LABEL_H_MAX, Math.max(LABEL_H_MIN, span * LABEL_H_OF_SPAN))
+      // The spotlight's own hull (Areas off) is transient - it comes and goes with the
+      // pointer, so the reason for world-sized labels (a label that stays put at every zoom)
+      // does not apply to it. It gets a fixed SCREEN size instead: in a drilled-in group the
+      // world size bottomed out at LABEL_H_MIN, a 36px box at 3x, set that far above the hull.
+      const labelH = showHulls ? Math.min(LABEL_H_MAX, Math.max(LABEL_H_MIN, span * LABEL_H_OF_SPAN)) : SPOT_LABEL_PX / t.k
       const fontWorld = labelH * 0.82
-      ctx.font = `600 ${fontWorld}px system-ui, sans-serif`
-      const labelInputs: RegionLabelInput[] = []
-      // `?labels=off`: an empty input list keeps the whole region-label pass inert.
-      if (showLabels) {
-        for (const [cid, pts] of members) {
-          const label = clusterLabels?.get(cid)
-          if (label === undefined || !paddedHulls.has(cid)) continue
-          labelInputs.push({ key: cid, width: ctx.measureText(label).width, weight: pts.length })
+      ctx.font = regionFont(fontWorld)
+      /*
+       * Where the captions go. The search is the costly part of a frame (a few dozen captions,
+       * a hundred candidates each, every hull in reach), so its answer is kept and asked for
+       * again only when it can have changed (2026-09-25):
+       *  - the same arrangement and the same view (a hover, a fade): the last answer, as is;
+       *  - the view MOVING (a wheel step, a pan, a camera animation - any frame whose view is
+       *    not the last frame's): the last answer too. The captions stand in world units, so
+       *    they travel with the map; only what counts as in the frame, and which dots lie
+       *    under them, is from the view the motion began in. A redraw PLACEMENT_SETTLE_MS
+       *    after the last moving frame places them for the view the motion ended in;
+       *  - a new arrangement, or the view at rest on a new spot: placed afresh.
+       */
+      const view = `${t.x}|${t.y}|${t.k}|${w}|${h}`
+      const moving = view !== lastViewRef.current
+      lastViewRef.current = view
+      const on = showLabels && showHulls && onlyNodes === null
+      const kept = placementRef.current
+      const sameWorld = kept !== null && kept.geoms === all && kept.labels === clusterLabels && kept.on === on
+      const place = (): PlacedRegionLabel[] => {
+        const labelInputs: RegionLabelInput[] = []
+        // `?labels=off`: an empty input list keeps the whole region-label pass inert. The
+        // spotlight's own label has a placement of its own (below), so it stays out of this one,
+        // and so does a single area on show: the scope line over the drawing already names it.
+        if (showLabels && showHulls && onlyNodes === null) {
+          for (const [cid, pts] of members) {
+            const label = clusterLabels?.get(cid)
+            if (label === undefined || !paddedHulls.has(cid)) continue
+            labelInputs.push({ key: cid, width: ctx.measureText(label).width, weight: pts.length })
+          }
         }
+        // Captions keep off the dots as well as off the tints and each other (2026-09-24).
+        let nodesUnder: ((box: Box) => number) | null = null
+        if (labelInputs.length > 0) {
+          const discs: Array<{ x: number; y: number; r: number }> = []
+          for (let i = 0; i < nodes.length; i++) {
+            if (!paints(i)) continue
+            const x = pos[i * 2]!
+            const y = pos[i * 2 + 1]!
+            if (Number.isNaN(x) || !visible(x, y)) continue
+            discs.push({ x, y, r: radius(i) })
+          }
+          nodesUnder = discCounter(discs, 40)
+        }
+        return placeRegionLabels(
+          labelInputs,
+          paddedHulls,
+          labelH,
+          labelH * 0.45,
+          [minX + margin, minY + margin, maxX - margin, maxY - margin],
+          nodesUnder,
+        )
       }
-      const placedLabels = placeRegionLabels(labelInputs, paddedHulls, labelH, labelH * 0.45)
+      let placedLabels: PlacedRegionLabel[]
+      if (sameWorld && (kept.view === view || moving)) {
+        placedLabels = kept.placed
+        if (kept.view !== view) {
+          if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current)
+          settleTimerRef.current = setTimeout(() => {
+            settleTimerRef.current = null
+            scheduleDrawRef.current?.()
+          }, PLACEMENT_SETTLE_MS)
+        }
+      } else {
+        placedLabels = place()
+        placementRef.current = { geoms: all, labels: clusterLabels, on, view, placed: placedLabels }
+      }
       // Keep the glyphs legible without ever moving them: clamp the on-screen size, then
       // grow each reserved box by the same factor. Shrinking (zoomed in) always fits;
       // growing (zoomed out) may not, and those labels are dropped rather than displaced.
@@ -815,9 +1296,35 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         if (grow > 1 && regionLabelBoxes.some((b) => boxesOverlap(drawnBox, b))) continue
         const dom = clusterDomains?.get(p.key)
         const hue = dom !== undefined ? domainHue(dom) : clusterHue(p.key)
-        ctx.fillStyle = `hsl(${hue} 55% 62%)`
-        ctx.fillText(clusterLabels!.get(p.key)!, bcx, bcy - hh)
+        // Painted after the nodes (below), so no dot sits on a caption.
+        areaLabels.push({ key: p.key, text: clusterLabels!.get(p.key)!, cx: bcx, top: bcy - hh, world: Math.min(drawnWorld, LABEL_MAX_SCREEN_PX / t.k), hue })
         regionLabelBoxes.push(drawnBox)
+      }
+      // The spotlight's label (lib/spotLabel.ts): measured in SCREEN pixels, placed clear of the
+      // outline AND of the member nodes, reserved here so page titles keep off it, and
+      // painted last - above the nodes - so nothing is ever drawn over it.
+      const spotText = !showHulls && spotCid >= 0 && showLabels ? clusterLabels?.get(spotCid) : undefined
+      const spotHull = spotText !== undefined ? paddedHulls.get(spotCid) : undefined
+      if (spotText !== undefined && spotHull !== undefined) {
+        const size = measureSpotLabel(ctx, spotText)
+        const discs: Array<{ x: number; y: number; r: number }> = []
+        for (let i = 0; i < nodes.length; i++) {
+          if (clusters[i] !== spotCid || !paints(i)) continue
+          const x = pos[i * 2]!
+          if (Number.isNaN(x)) continue
+          discs.push({ x, y: pos[i * 2 + 1]!, r: radius(i) })
+        }
+        const box = placeSpotLabel(spotHull, discs, size.w / t.k, size.h / t.k, 8 / t.k, [
+          minX + margin,
+          minY + margin,
+          maxX - margin,
+          maxY - margin,
+        ])
+        if (box !== null) {
+          const dom = clusterDomains?.get(spotCid)
+          spotLabel = { text: spotText, box, hue: dom !== undefined ? domainHue(dom) : clusterHue(spotCid), alpha: spotA }
+          regionLabelBoxes.push(box)
+        }
       }
     }
 
@@ -867,6 +1374,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const x2 = pos[b * 2]!
       const y2 = pos[b * 2 + 1]!
       if (Number.isNaN(x1) || Number.isNaN(x2)) continue
+      if (!paints(a) || !paints(b)) continue
       if (!visible(x1, y1) && !visible(x2, y2)) continue
       const edgeRev = edgeIn(a, b)
       if (edgeRev <= 0.004) continue
@@ -879,10 +1387,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const isBridge = netOn && ca >= 0 && cb >= 0 && ca !== cb
 
       let alpha: number
-      if (highlight !== null) alpha = lit ? 0.9 : dimEdge
-      else if (isBridge) alpha = 0.85
-      else if (netOn) alpha = 0.5 // intra-cluster mesh, subtly more present than the 0.35 default
-      else alpha = toGhost ? 0.45 : 0.35
+      const base = isBridge ? 0.85 : netOn ? 0.5 : toGhost ? 0.45 : 0.35
+      if (highlight !== null) alpha = lit ? base + (0.9 - base) * fadeA : base + (dimEdge - base) * fadeA
+      else alpha = base
 
       setDash(toGhost)
       setAlpha(alpha * edgeRev)
@@ -940,6 +1447,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const x = pos[i * 2]!
       const y = pos[i * 2 + 1]!
       if (Number.isNaN(x)) continue
+      if (!paints(i)) continue
       if (!visible(x, y)) continue
       const nodeRev = nodeIn(i)
       if (nodeRev <= 0.004) continue
@@ -949,7 +1457,11 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const r = radius(i) * (revealing ? revealPop(nodeRev) : 1)
       const dimmed = highlight !== null && !highlight.has(i)
       const isGhost = ghostIndices !== undefined && ghostIndices.has(i)
-      ctx.globalAlpha = (dimmed ? dimNode : 1) * nodeRev
+      // A connector is drawn dim as well as small: it is the glue between chapters, and the
+      // landmarks are what the picture is about. Inside one neighbourhood it is not glue but a
+      // neighbour like any other, and the list names it, so it is drawn like one.
+      const roleAlpha = mask !== null && mask.bloomAnchor === null && mask.connectors.has(i) ? 0.45 : 1
+      ctx.globalAlpha = (dimmed ? dimNode : roleAlpha) * nodeRev
       if (isGhost) {
         // Hollow, dashed ring in a faint neutral: present enough to click and count, but
         // visibly not a real page. A tiny fill keeps it hit-testable at its center.
@@ -970,10 +1482,27 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
         ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
       }
-      if (i === focusIndex || i === selectedIndex || matches.has(i)) {
+      /*
+       * The selected node, and in the Landmarks mode the landmark an open neighbourhood is
+       * around (it keeps the selection, but a bloom opened from the list has none): the ink
+       * ring, see SELECT_RING_PX. The gap is what keeps the ring off the disc on every fill.
+       */
+      if (i === selectedIndex || i === markIndex || (mask !== null && i === mask.bloomAnchor)) {
         ctx.globalAlpha = nodeRev
-        ctx.strokeStyle = i === selectedIndex ? cssVar('--accent', '#5b8def') : cssVar('--text', '#fff')
-        ctx.lineWidth = (i === selectedIndex ? 2.2 : 1.6) / t.k
+        ctx.strokeStyle = cssVar('--bg-elev', '#ffffff')
+        ctx.lineWidth = SELECT_GAP_PX / t.k
+        ctx.beginPath()
+        ctx.arc(x, y, r + (SELECT_GAP_PX / 2 + 0.5) / t.k, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.strokeStyle = cssVar('--text', '#1a2333')
+        ctx.lineWidth = SELECT_RING_PX / t.k
+        ctx.beginPath()
+        ctx.arc(x, y, r + SELECT_RING_OUT / t.k, 0, Math.PI * 2)
+        ctx.stroke()
+      } else if (i === focusIndex || matches.has(i)) {
+        ctx.globalAlpha = nodeRev
+        ctx.strokeStyle = cssVar('--text', '#fff')
+        ctx.lineWidth = 1.6 / t.k
         ctx.beginPath()
         ctx.arc(x, y, r + 2.5 / t.k, 0, Math.PI * 2)
         ctx.stroke()
@@ -1016,6 +1545,15 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       for (let i = 0; i < nodes.length; i++) {
         const x = pos[i * 2]!
         if (Number.isNaN(x)) continue
+        if (!paints(i)) continue
+        // Connectors stay nameless. They are the glue rather than the entry points, and there
+        // are very few of them - naming them would offer a way in where the mode says there
+        // is none. A bloom IS named: a click asking to see twelve pages is not answered by
+        // twelve anonymous dots.
+        if (mask !== null && mask.connectors.has(i) && mask.bloomAnchor === null) continue
+        // The overview's landmarks get their own pass below: every one named, wrapped, placed
+        // around its dot (2026-09-24).
+        if (landmarkOverview && namedInFull(mask, i)) continue
         if (!visible(x, pos[i * 2 + 1]!)) continue
         candidates.push(i)
       }
@@ -1031,14 +1569,23 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const MATCH_LABEL_LIMIT = 8
     const matchesLead = matches.size <= MATCH_LABEL_LIMIT
     const interactive = (i: number): boolean =>
-      i === hovered || i === selectedIndex || i === focusIndex || (matchesLead && matches.has(i))
+      i === hovered || i === selectedIndex || i === markIndex || i === focusIndex || (matchesLead && matches.has(i))
+    /*
+     * The RESTING labels are placed without the interactive ones (2026-09-24). They used to
+     * share one greedy pass with the hovered title at its head, so every hover re-dealt the
+     * whole collision cascade: a borderline title far from the pointer appeared or vanished
+     * with each node the pointer crossed, measured on one hub title as shown for 107 of 126
+     * hover targets and hidden at rest. Now the resting set is the same whatever is hovered,
+     * and the interactive titles are laid on top, hiding only the resting titles they cover.
+     */
     const prio = (i: number): number =>
-      interactive(i) ? 4
-      : highlight !== null && highlight.has(i) ? 3
+      highlight !== null && highlight.has(i) ? 3
       : ghostIndices !== undefined && ghostIndices.has(i) ? 2
       : labelReps.has(i) ? 1
       : 0
-    candidates.sort((a, b) => {
+    const resting = candidates.filter((i) => !interactive(i))
+    const onTop = candidates.filter(interactive)
+    resting.sort((a, b) => {
       const pd = prio(b) - prio(a)
       if (pd !== 0) return pd
       const dd = nodes[b]!.in + nodes[b]!.out - (nodes[a]!.in + nodes[a]!.out)
@@ -1056,46 +1603,149 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     ctx.lineJoin = 'round'
-    let drawn = 0
-    // Labels are last in. The collision solver has nothing stable to place against while
-    // nodes are still arriving, and forty titles appearing mid-reveal is its own flicker.
-    let examined = 0
-    for (const i of candidates) {
-      if (labelIn <= 0.004) break
-      if (drawn >= MAX_LABELS || examined >= MAX_EXAMINED) break
-      examined++
+    type Label = { i: number; text: string; x: number; y: number; box: [number, number, number, number]; ghost: boolean }
+    const layOut = (i: number, full: boolean): Label => {
       const n = nodes[i]!
-      const isGhost = ghostIndices !== undefined && ghostIndices.has(i)
-      const full = interactive(i)
+      const ghost = ghostIndices !== undefined && ghostIndices.has(i)
       // Long titles are the main space hogs - truncate unless the node is the one the
       // user is interacting with (the tooltip carries the full title regardless).
       const text = !full && n.title.length > 30 ? `${n.title.slice(0, 28)}…` : n.title
-      ctx.font = `${isGhost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
+      ctx.font = `${ghost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
       const w = ctx.measureText(text).width
       const x = pos[i * 2]!
       const y = pos[i * 2 + 1]! + radius(i) + 3 / t.k
-      const box: [number, number, number, number] = [x - w / 2 - padX, y, x + w / 2 + padX, y + labelH]
-      // Interactive labels skip the cull - "what am I pointing at" must always answer.
-      if (!full && placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) {
-        continue
+      return { i, text, x, y, box: [x - w / 2 - padX, y, x + w / 2 + padX, y + labelH], ghost }
+    }
+    const overlaps = (a: Label['box'], b: Label['box']): boolean => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+    const restingLabels: Label[] = []
+    let examined = 0
+    // Labels are last in. The collision solver has nothing stable to place against while
+    // nodes are still arriving, and forty titles appearing mid-reveal is its own flicker.
+    if (labelIn > 0.004) {
+      for (const i of resting) {
+        if (restingLabels.length >= MAX_LABELS || examined >= MAX_EXAMINED) break
+        examined++
+        const l = layOut(i, false)
+        if (placed.some((p) => overlaps(l.box, p))) continue
+        placed.push(l.box)
+        restingLabels.push(l)
       }
-      placed.push(box)
-      drawn++
-      ctx.globalAlpha = (highlight !== null && !highlight.has(i) ? dimLabel : 0.95) * labelIn
+    }
+    // Interactive labels skip the cull - "what am I pointing at" must always answer - and
+    // hide only the resting titles they sit on.
+    const topLabels = labelIn > 0.004 ? onTop.map((i) => layOut(i, true)) : []
+    const shown = [...restingLabels.filter((l) => !topLabels.some((tl) => overlaps(l.box, tl.box))), ...topLabels]
+    for (const l of shown) {
+      ctx.font = `${l.ghost ? 'italic ' : ''}${11 / t.k}px system-ui, sans-serif`
+      ctx.globalAlpha = (highlight !== null && !highlight.has(l.i) ? dimLabel : 0.95) * labelIn
       // A halo in the background color keeps text legible across edges and foreign nodes.
       ctx.lineWidth = 3 / t.k
       ctx.strokeStyle = halo
-      ctx.strokeText(text, x, y)
-      ctx.fillStyle = isGhost ? cssVar('--text-faint', '#6b7791') : textColor
-      ctx.fillText(text, x, y)
+      ctx.strokeText(l.text, l.x, l.y)
+      ctx.fillStyle = l.ghost ? cssVar('--text-faint', '#6b7791') : textColor
+      ctx.fillText(l.text, l.x, l.y)
+    }
+    if (landmarkOverview && showLabels && labelIn > 0.004) {
+      // Every landmark named, in reading order: the whole title in up to four lines, placed at
+      // the first free spot around its dot (the resting labels and the other dots are what it
+      // keeps off), and its place in the list inside the dot.
+      const lineH = 13 / t.k
+      const discs: Array<{ x: number; y: number; r: number }> = []
+      for (let i = 0; i < nodes.length; i++) {
+        if (!paints(i)) continue
+        const x = pos[i * 2]!
+        if (Number.isNaN(x)) continue
+        discs.push({ x, y: pos[i * 2 + 1]!, r: radius(i) })
+      }
+      ctx.font = `${11 / t.k}px system-ui, sans-serif`
+      // The overview in reading order; a neighbourhood with its landmark first, then as it is
+      // listed (the list's own order is the domain rank, which is also node order here).
+      const order =
+        mask.bloomAnchor === null
+          ? [...mask.landmarks].sort((a, b) => (mask.rank?.get(a) ?? 1e9) - (mask.rank?.get(b) ?? 1e9))
+          : [mask.bloomAnchor, ...mask.bloom]
+      const lmLabels: Array<{ i: number; lines: string[]; box: LBox }> = []
+      for (const i of order) {
+        const x = pos[i * 2]!
+        if (Number.isNaN(x) || !paints(i)) continue
+        const y = pos[i * 2 + 1]!
+        const lines = wrapTitle(nodes[i]!.title, 160 / t.k, 4, (str) => ctx.measureText(str).width)
+        const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 2 * padX
+        // Under its own dot first, always: the spread is laid out to leave that room. Only where
+        // the room is not there (a neighbourhood of forty-odd pages on one screen) does a caption
+        // take another side rather than sit on a neighbour.
+        const box = placeAround(x, y, radius(i), w, lines.length * lineH, 3 / t.k, placed, discs, [minX + margin, minY + margin, maxX - margin, maxY - margin])
+        placed.push(box)
+        lmLabels.push({ i, lines, box })
+      }
+      for (const l of lmLabels) {
+        ctx.globalAlpha = (highlight !== null && !highlight.has(l.i) ? dimLabel : 0.95) * labelIn
+        ctx.lineWidth = 3 / t.k
+        ctx.strokeStyle = halo
+        const cx = (l.box[0] + l.box[2]) / 2
+        l.lines.forEach((line, j) => {
+          ctx.strokeText(line, cx, l.box[1] + j * lineH)
+          ctx.fillStyle = textColor
+          ctx.fillText(line, cx, l.box[1] + j * lineH)
+        })
+        // The number its row carries in the list beside it (the anchor of a bloom has none).
+        const rank = mask.rank?.get(l.i)
+        const rs = radius(l.i) * t.k
+        if (rank !== undefined && rs >= 6) {
+          ctx.globalAlpha = labelIn
+          ctx.font = `600 ${Math.min(11, rs * 1.1) / t.k}px system-ui, sans-serif`
+          ctx.textBaseline = 'middle'
+          // White on a dark fill, the ground colour on a light one: the dark theme's type and
+          // domain colours are light, and white on them fell to a contrast of 2 to 3.
+          ctx.fillStyle = inkOn(ctx, nodeColor(l.i), [cssVar('--bg', '#0c101b'), cssVar('--text', '#1a2333')])
+          ctx.fillText(String(rank), pos[l.i * 2]!, pos[l.i * 2 + 1]! + 0.5 / t.k)
+          ctx.textBaseline = 'top'
+          ctx.font = `${11 / t.k}px system-ui, sans-serif`
+        }
+      }
     }
     ctx.globalAlpha = 1
+    if (areaLabels.length > 0) {
+      ctx.save()
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const colors = { dark: darkSurface, bg: cssVar('--bg-elev', '#ffffff'), text: cssVar('--text', '#1a2333') }
+      const toSx = (x: number): number => w / 2 + t.x + x * t.k
+      const toSy = (y: number): number => h / 2 + t.y + y * t.k
+      // The Areas captions in the spotlight label's voice (lib/spotLabel.ts), at their zoom size.
+      for (const l of areaLabels) {
+        const px = l.world * t.k
+        paintRegionLabel(ctx, l.text, toSx(l.cx), toSy(l.top), px, { ...colors, hue: l.hue })
+        if (l.key !== hotArea) continue
+        // The hovered area's caption, underlined in its hue - the ink its # marks already wear.
+        ctx.font = regionFont(px)
+        const tw = ctx.measureText(l.text).width
+        ctx.fillStyle = `hsl(${l.hue} 62% ${darkSurface ? 68 : 48}%)`
+        ctx.fillRect(toSx(l.cx) - tw / 2, toSy(l.top) + px * 1.18, tw, Math.max(2, px * 0.1))
+      }
+      ctx.restore()
+    }
+    if (spotLabel !== null) {
+      // Screen space for the paint: the style is defined in pixels, and crisp type wants them.
+      const sl = spotLabel
+      ctx.save()
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.globalAlpha = sl.alpha
+      const sx = w / 2 + t.x + sl.box[0] * t.k
+      const sy = h / 2 + t.y + sl.box[1] * t.k
+      paintSpotLabel(ctx, sl.text, sx, sy, {
+        hue: sl.hue,
+        dark: darkSurface,
+        bg: cssVar('--bg-elev', '#ffffff'),
+        text: cssVar('--text', '#1a2333'),
+      })
+      ctx.restore()
+    }
     paintedRef.current = true
 
     // Keep animating while any arrival flash is fading, or the entrance is still building
     // in (rAF-coalesced, self-terminating).
     if (flashActive || revealing) scheduleDrawRef.current?.()
-  }, [nodes, edges, focusIndex, selectedIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authorityT, positionsRef, transformRef])
+  }, [nodes, edges, focusIndex, selectedIndex, markIndex, ghostIndices, matches, lens, clusters, clusterSets, clusterLabels, clusterDomains, showHulls, showLabels, network, neighbors, labelReps, radius, authoritySorted, recencySorted, recencyHue, landmarkMask, onlyNodes, positionsRef, transformRef, geomsNow])
 
   /**
    * After every frame: is anything on screen at all, and where is the rest of the graph?
@@ -1115,7 +1765,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     }
     const dpr = window.devicePixelRatio || 1
     const vp: Viewport = { w: canvas.width / dpr, h: canvas.height / dpr }
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     const t = transformRef.current
     const vis = visibleNodes(t, vp, pos)
     const lost = vis.placed > 0 && vis.inView === 0
@@ -1124,8 +1774,20 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       setOffMap(lost)
     }
     const mini = miniRef.current
-    if (mini) drawMinimap(mini, t, vp, pos, dpr)
-  }, [positionsRef, transformRef])
+    if (mini === null) return
+    /*
+     * No overview in the Landmarks mode. It is a map of where the picture sits inside the whole
+     * layout, and this mode frames what it paints - so the frame is always around the dots, the
+     * map always says "you are here, on all of it", and there is nothing left for it to help
+     * anybody navigate to. Its bounds are the layout's, so shrinking it to the painted set
+     * would be a second, differently-scaled picture rather than an answer.
+     */
+    if (maskRef.current !== null) {
+      if (!mini.hidden) mini.hidden = true
+      return
+    }
+    drawMinimap(mini, t, vp, pos, dpr, isPainted)
+  }, [positionsRef, transformRef, isPainted, maskRef])
   const scheduleDraw = useRafDraw(() => {
     draw()
     overlayPass()
@@ -1136,7 +1798,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   /** Centers and scales the transform so the whole layout fits with a small margin. */
   const fitToView = useCallback((): void => {
     const canvas = canvasRef.current
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     if (!canvas || pos.length < 2) return
     const dpr = window.devicePixelRatio || 1
     const w = canvas.width / dpr
@@ -1145,10 +1807,16 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     // outside the initial frame ("the graph doesn't fit"). Only when a few stragglers blow
     // the extent far beyond the body of the graph (full span > 3× the 5-95 core) does the
     // fit fall back to the core; those outliers stay reachable by panning.
+    // A fit may be asked to frame PART of the picture (`fitSubset`); nothing else about the
+    // drawing changes, and a subset that turns out to hold no placed node frames nothing rather
+    // than everything.
+    const only = fitSubsetRef.current
+    const framed = (i: number): boolean => only === null || only.has(i)
     const xs: number[] = []
     const ys: number[] = []
     for (let i = 0; i < pos.length; i += 2) {
       if (Number.isNaN(pos[i]!)) continue // unplaced mid-update nodes have no extent yet
+      if (!framed(i / 2)) continue
       xs.push(pos[i]!)
       ys.push(pos[i + 1]!)
     }
@@ -1166,37 +1834,145 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const [minX, maxX] = bounds(xs)
     const [minY, maxY] = bounds(ys)
     /*
-     * A node is not its centre (fixed 2026-09-16). The extent above was the centres alone, and
-     * the frame then cut the outermost circles in half and their labels off entirely - worst
-     * on a small subgraph, where a handful of nodes zooms in far enough that a 12-unit radius
-     * is most of a hundred screen pixels. Two corrections, in the two spaces they belong to:
-     *
-     *   the RADIUS is world-space, so it widens the span;
-     *   the LABEL is screen-space (11px text, 13px line, 3px gap, whatever the zoom), so it
-     *   is a pad - and it hangs BELOW its node, which is why the pads are asymmetric.
+     * A node is not its centre (fixed 2026-09-16, and again 2026-09-24). Each framed node
+     * brings its radius, which is world-space and grows with the zoom, and the title drawn
+     * under it, which is screen-space (11px type) and does not; `fitTransform` finds the zoom
+     * at which all of them fit. The title is measured as the resting pass draws it, truncated,
+     * and a node the draw leaves nameless (a connector outside a bloom) brings none.
      */
-    let rMax = 0
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return
+    ctx.save()
+    ctx.font = '11px system-ui, sans-serif'
+    const mask = maskRef.current
+    const items: FitItem[] = []
     for (let i = 0; i < pos.length; i += 2) {
-      if (Number.isNaN(pos[i]!)) continue
-      rMax = Math.max(rMax, radius(i / 2))
+      const x = pos[i]!
+      const y = pos[i + 1]!
+      if (Number.isNaN(x)) continue
+      if (!framed(i / 2)) continue
+      if (x < minX || x > maxX || y < minY || y > maxY) continue // a straggler the core fit leaves out
+      const title = nodes[i / 2]?.title ?? ''
+      const named = showLabelsRef.current && !(mask !== null && mask.connectors.has(i / 2) && mask.bloomAnchor === null)
+      const text = title.length > 30 ? `${title.slice(0, 28)}…` : title
+      // A node a hull can wrap reaches as far as the hull's padding (HULL_PAD, world units,
+      // like the radius): the tinted area is part of the picture and was cut off before.
+      const hulled = hullFitRef.current?.[i / 2] ?? -1
+      const r = hulled >= 0 ? Math.max(radius(i / 2), HULL_PAD) : radius(i / 2)
+      // A landmark in the overview brings its WRAPPED title: all of it,
+      // up to four lines, which is what the label pass will draw.
+      if (mask !== null && namedInFull(mask, i / 2)) {
+        const lines = wrapTitle(title, 160, 4, (str) => ctx.measureText(str).width)
+        items.push({ x, y, r, labelHalf: Math.max(...lines.map((l) => ctx.measureText(l).width)) / 2 + 2, labelLines: lines.length })
+        continue
+      }
+      items.push({ x, y, r, labelHalf: named ? ctx.measureText(text).width / 2 + 2 : 0 })
     }
-    const spanX = Math.max(1, maxX - minX + 2 * rMax)
-    const spanY = Math.max(1, maxY - minY + 2 * rMax)
-    // Sideways the labels are centred on their nodes and reach further than any radius does;
-    // this is the old flat pad, kept, because a title's width is not worth measuring here.
-    const padX = 110
-    const padTop = 18
-    const padBottom = 40 // the label's own line, plus the gap above it and air below
-    const k = Math.min(8, Math.max(0.15, Math.min((w - padX) / spanX, (h - padTop - padBottom) / spanY)))
-    transformRef.current = {
-      k,
-      x: -((minX + maxX) / 2) * k,
-      // The usable box sits above the viewport's middle by half the difference of the pads,
-      // so the content has to move with it or the room made at the bottom is spent at the top.
-      y: -((minY + maxY) / 2) * k - (padBottom - padTop) / 2,
-    }
+    ctx.restore()
+    // Whatever the host lays over the drawing (the scope line at the top: "Cluster: …", an
+    // area's tags in the bottom row) is not drawing area; the fit keeps clear of it, above or
+    // below by which half of the canvas the element stands in.
+    let top = 18
+    let bottom = 24
+    const rect = canvas.getBoundingClientRect()
+    canvas.parentElement?.querySelectorAll<HTMLElement>('[data-fit-avoid]').forEach((el) => {
+      const r = el.getBoundingClientRect()
+      if (r.top + r.height / 2 < rect.top + rect.height / 2) top = Math.max(top, r.bottom - rect.top + 10)
+      else bottom = Math.max(bottom, rect.bottom - r.top + 10)
+    })
+    const mid = fitCenterRef.current
+    const centre: [number, number] | null =
+      mid !== null && !Number.isNaN(pos[mid * 2] ?? NaN) ? [pos[mid * 2]!, pos[mid * 2 + 1]!] : null
+    const next = fitTransformClear(items, { w, h }, { x: 16, top, bottom }, keepOutBoxes(canvas), centre, FIT_ZOOM_MAX)
+    if (next === null) return
+    transformRef.current = next
     scheduleDraw()
-  }, [scheduleDraw, positionsRef, transformRef, radius])
+  }, [scheduleDraw, positionsRef, transformRef, radius, nodes])
+
+  /**
+   * The landmark mode's display spread (lib/landmarkLayout.ts): recomputed when the mask or
+   * the drawing changes and when the layout settles, cleared outside the mode. It covers the
+   * overview and, since 2026-09-24, an open neighbourhood too, with its landmark held in the
+   * middle of the picture.
+   */
+  const computeSpread = useCallback((): boolean => {
+    const m = maskRef.current
+    const pos = positionsRef.current
+    const canvas = canvasRef.current
+    if (m === null || canvas === null || pos.length < nodes.length * 2) {
+      const had = displayRef.current !== null
+      displayRef.current = null
+      return had
+    }
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return false
+    const dpr = window.devicePixelRatio || 1
+    const vp = { w: canvas.width / dpr, h: canvas.height / dpr }
+    if (vp.w === 0 || vp.h === 0) return false
+    const pts: Array<{ i: number; x: number; y: number; r: number }> = []
+    for (let i = 0; i < nodes.length; i++) {
+      if (!painted(m, i, onlyRef.current)) continue
+      const x = pos[i * 2]!
+      if (Number.isNaN(x)) continue
+      pts.push({ i, x, y: pos[i * 2 + 1]!, r: radius(i) })
+    }
+    ctx.save()
+    ctx.font = '11px system-ui, sans-serif'
+    const widths = new Map<number, { w: number; lines: number }>()
+    for (const p of pts) {
+      if (!namedInFull(m, p.i)) continue
+      const lines = wrapTitle(nodes[p.i]!.title, 160, 4, (str) => ctx.measureText(str).width)
+      widths.set(p.i, { w: Math.max(...lines.map((l) => ctx.measureText(l).width)) + 4, lines: lines.length })
+    }
+    ctx.restore()
+    // The bottom keeps clear of the controls standing in the drawing's lower corners, and the
+    // dots of the boxes the host stands in the drawing (the lens legend above them).
+    const margins = { x: 16, top: 18, bottom: 44 }
+    const moved = spreadPoints(
+      pts,
+      (i) => {
+        const c = widths.get(i)
+        return c === undefined ? { w: 0, h: 0 } : { w: c.w, h: c.lines * 13 }
+      },
+      vp,
+      margins,
+      // An open neighbourhood keeps its landmark in the middle of the picture.
+      m.bloomAnchor,
+      FIT_ZOOM_MAX,
+      undefined,
+      keepOutBoxes(canvas).map((b) => [b.x0 - margins.x, b.y0 - margins.top, b.x1 - margins.x, b.y1 - margins.top] as [number, number, number, number]),
+    )
+    const out = pos.slice()
+    for (const [i, [x, y]] of moved) {
+      out[i * 2] = x
+      out[i * 2 + 1] = y
+    }
+    displayRef.current = out
+    return true
+  }, [nodes, radius, positionsRef])
+  const computeSpreadRef = useRef(computeSpread)
+  computeSpreadRef.current = computeSpread
+  useEffect(() => {
+    if (computeSpread()) {
+      if (!userMovedRef.current) fitToView()
+      scheduleDraw()
+    }
+  }, [computeSpread, landmarkMask, onlyNodes, fitToView, scheduleDraw, userMovedRef])
+  // A new lens is a new legend, of another size, in the corner the picture keeps out of: the
+  // spread and the frame are made again for it - the frame only while the reader has not moved
+  // it. After the paint, when the new legend has its size. Not on the first run: the first
+  // layout frames the picture itself.
+  const lensSeenRef = useRef(lens)
+  useEffect(() => {
+    if (lensSeenRef.current === lens) return
+    lensSeenRef.current = lens
+    const raf = requestAnimationFrame(() => {
+      computeSpreadRef.current()
+      if (!userMovedRef.current && settledRef.current) fitToView()
+      scheduleDraw()
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [lens, fitToView, scheduleDraw, userMovedRef, settledRef])
 
   // ---------------------------------------------------------------- layout worker session
   //
@@ -1313,6 +2089,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       if (type === 'done') {
         settledRef.current = true
+        computeSpreadRef.current()
         setLayouting(false)
         // Frame the FIRST finished layout once, so a graph of any size lands filling the
         // viewport instead of as a speck, and build it in from there. Later layouts (live
@@ -1322,7 +2099,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       // Nodes just moved under a possibly stationary cursor - re-resolve the hover, or a
       // node that drifted away from the pointer keeps its neighborhood highlight stuck.
-      refreshHoverRef.current()
+      refreshHoverRef.current(true)
       scheduleDrawRef.current?.()
     }
     // A recreated worker (remount, dev StrictMode double-mount) starts empty. Replay only
@@ -1420,11 +2197,34 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
     }
 
-    // Cold start when nothing is placed yet or the view changed shape substantially
-    // (unhiding a whole bucket); gentle reheat for everything else - that is what keeps a
-    // live update a "reorientation" instead of a re-deal.
-    const cold = firstLayout || newPaths.length > nodes.length * COLD_RESTART_SHARE
+    /*
+     * Pages that changed domain since the last layout (graphForces.ts, `reseedPlan`). A split
+     * reached this effect as a gentle reheat from the old positions, which cannot carry the
+     * moved pages across the map to their new slot: the domains stayed interleaved until a
+     * reload. A few moved pages are re-seeded into their slot; a domain that appeared (a
+     * split) or a large move deals the layout afresh, framed anew, as a reload would.
+     */
+    const plan = reseedPlan(
+      nodes.map((n) => n.path),
+      nodes.map((n) => n.domain),
+      domainByPathRef.current,
+    )
+    const redeal = !firstLayout && plan.mode === 'full'
+    if (redeal) seed.fill(NaN)
+    else if (plan.mode === 'partial') for (const i of plan.drop) seed.fill(NaN, i * 2, i * 2 + 2)
+    for (const n of nodes) domainByPathRef.current.set(n.path, n.domain)
+
+    // Cold start when nothing is placed yet, when the domains were re-dealt, or when the view
+    // changed shape substantially (unhiding a whole bucket); gentle reheat for everything
+    // else - that is what keeps a live update a "reorientation" instead of a re-deal.
+    const cold = firstLayout || redeal || newPaths.length > nodes.length * COLD_RESTART_SHARE
     if (firstLayout) {
+      fitPendingRef.current = true
+      armEntranceRef.current()
+    }
+    if (redeal) {
+      // Dealt afresh: framed and built in like a first layout, rather than showing the whole
+      // map reshuffle node by node under the reader.
       fitPendingRef.current = true
       armEntranceRef.current()
     }
@@ -1495,6 +2295,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       canvas.height = parent.clientHeight * dpr
       canvas.style.width = `${parent.clientWidth}px`
       canvas.style.height = `${parent.clientHeight}px`
+      // The overview's spread is laid out for the area it is shown in: the list column opening
+      // beside it takes 340px of width, and a spread for the wider box then framed smaller.
+      computeSpreadRef.current()
       // Re-frame on resize (including the first layout pass, which lands before the
       // element has its final size) - but never fight a user who has panned or zoomed.
       if (fittedRef.current && !userMovedRef.current) fitToView()
@@ -1516,7 +2319,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // - these must not depend on a pointer move or a layout tick happening to come along.
   useEffect(() => {
     scheduleDraw()
-  }, [matches, focusIndex, selectedIndex, ghostIndices, lens, clusters, clusterLabels, spotlight, scheduleDraw])
+  }, [matches, focusIndex, selectedIndex, markIndex, recencyHue, ghostIndices, lens, clusters, clusterLabels, spotlight, landmarkMask, onlyNodes, scheduleDraw])
 
   /** Screen → world coordinates under the current transform. */
   const toWorld = useCallback((sx: number, sy: number): { x: number; y: number } => {
@@ -1531,13 +2334,15 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
 
   const hitTest = useCallback(
     (sx: number, sy: number): number | null => {
-      const pos = positionsRef.current
+      const pos = (displayRef.current ?? positionsRef.current)
       if (pos.length < nodes.length * 2) return null
       const { x, y } = toWorld(sx, sy)
       const slop = 6 / transformRef.current.k
       let best: number | null = null
       let bestD = Infinity
       for (let i = 0; i < nodes.length; i++) {
+        // Unpainted is unclickable: a click on where it stands is a click on the background.
+        if (!isPainted(i)) continue
         const dx = pos[i * 2]! - x
         const dy = pos[i * 2 + 1]! - y
         const d = dx * dx + dy * dy // NaN for unplaced nodes → both comparisons false
@@ -1549,93 +2354,91 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       }
       return best
     },
-    [nodes, radius, toWorld, positionsRef, transformRef],
+    [nodes, radius, isPainted, toWorld, positionsRef, transformRef],
   )
 
   /**
-   * Community-hull hit-test for the spotlight (screen coords → isolatable cid, or -1): the
-   * whole tinted hull is one hover/click surface, so the highlight doesn't flicker off
-   * between member nodes and isolating doesn't demand a precise node hit. Padded hulls are
-   * rebuilt lazily, at most once per DRAWN frame - positions drift while the layout cools,
-   * and the draw epoch is the cheapest "world changed" signal there is. Overlapping hulls
-   * (a dense domain's sub-communities interleave) resolve to the nearest member's community.
-   * Spanning communities (nothing to isolate) are skipped, mirroring isolatableCidOf.
+   * Every community's geometry - the SAME one the draw traces (lib/spotlightHover.ts: world
+   * padding, painted members only, the smoothed outline). The hull hit-test, the cursor, the
+   * area click and the zoom magnet (graphZoom.ts) all read it.
    */
-  const drawEpochRef = useRef(0)
-  const clusterGeomRef = useRef<{ epoch: number; geoms: ClusterGeom[] }>({ epoch: -1, geoms: [] })
-  /**
-   * Every community's members, padded hull, center and extent - the one geometry the hull
-   * hit-test and the zoom magnet (graphZoom.ts) both read. Rebuilt when the world changed
-   * (the draw epoch), never per query.
-   */
-  const clusterGeoms = useCallback((): ClusterGeom[] => {
+  const clusterGeoms = useCallback((): SpotGeom[] => {
     if (clusters === null) return []
-    const pos = positionsRef.current
+    const pos = (displayRef.current ?? positionsRef.current)
     if (pos.length < nodes.length * 2) return []
-    const cache = clusterGeomRef.current
-    if (cache.epoch === drawEpochRef.current) return cache.geoms
-    cache.epoch = drawEpochRef.current
-    const members = new Map<number, Pt[]>()
-    for (let i = 0; i < nodes.length; i++) {
-      const cid = clusters[i] ?? -1
-      if (cid < 0) continue
-      const x = pos[i * 2]!
-      if (Number.isNaN(x)) continue
-      ;(members.get(cid) ?? members.set(cid, []).get(cid)!).push([x, pos[i * 2 + 1]!])
-    }
-    const pad = 26 / transformRef.current.k
-    const geoms: ClusterGeom[] = []
-    for (const [cid, pts] of members) {
-      let x0 = Infinity
-      let y0 = Infinity
-      let x1 = -Infinity
-      let y1 = -Infinity
-      for (const [px, py] of pts) {
-        if (px < x0) x0 = px
-        if (px > x1) x1 = px
-        if (py < y0) y0 = py
-        if (py > y1) y1 = py
-      }
-      // Same trimmed body as the drawn hull, so the clickable surface matches the tint
-      // and doesn't reach into empty space along a cross-domain member's tongue.
-      const body = pts.length >= 3 ? hullBody(pts) : pts
-      const cx = body.reduce((s, p) => s + p[0], 0) / body.length
-      const cy = body.reduce((s, p) => s + p[1], 0) / body.length
-      const hull = pts.length >= 3 ? expandHull(convexHull(body), cx, cy, pad) : []
-      geoms.push({ id: cid, members: pts, hull, cx, cy, extent: Math.max(x1 - x0, y1 - y0) })
-    }
-    cache.geoms = geoms
-    return geoms
-  }, [clusters, nodes.length, positionsRef, transformRef])
+    return geomsNow(clusters, pos)
+  }, [clusters, nodes.length, positionsRef, geomsNow])
 
+  /** A community a click could isolate: a proper subset of the visible real pages. */
+  const isolatable = useCallback(
+    (cid: number): boolean => {
+      if (cid < 0 || clusterSets === null) return false
+      const set = clusterSets.get(cid)
+      return set !== undefined && set.size < nodes.length - (ghostIndices?.size ?? 0)
+    },
+    [clusterSets, nodes.length, ghostIndices],
+  )
+
+  /**
+   * The community under the pointer's AREA (screen coords → cid, or -1). Sticky to the one
+   * already on show and otherwise the smallest containing hull (resolveAreaCid) - so an
+   * overlap no longer flips between communities along lines nobody can see.
+   */
   const hitCluster = useCallback(
     (sx: number, sy: number): number => {
-      if (!spotlight || clusters === null || clusterSets === null) return -1
+      // An area answers the pointer for the spotlight, or for the Areas click when the host
+      // takes one - and then only the areas it offers.
+      const areaMode = !spotlight && showHulls && onAreaClick !== undefined
+      if ((!spotlight && !areaMode) || clusters === null || clusterSets === null) return -1
       const geoms = clusterGeoms()
       if (geoms.length === 0) return -1
-      const pos = positionsRef.current
       const { x, y } = toWorld(sx, sy)
-      const realN = nodes.length - (ghostIndices?.size ?? 0)
-      let best = -1
-      let bestD = Infinity
-      for (const g of geoms) {
-        if (g.hull.length < 3 || !pointInPolygon(x, y, g.hull)) continue
-        const set = clusterSets.get(g.id)
-        if (set === undefined || set.size >= realN) continue
-        for (const i of set) {
-          const dx = pos[i * 2]! - x
-          const dy = pos[i * 2 + 1]! - y
-          const d = dx * dx + dy * dy
-          if (d < bestD) {
-            bestD = d
-            best = g.id
-          }
-        }
-      }
-      return best
+      const shown = spotRef.current.cid >= 0 && spotRef.current.fadeIn ? spotRef.current.cid : null
+      const ok = areaMode ? (cid: number): boolean => isolatable(cid) && (areaIds?.has(cid) ?? true) : isolatable
+      return resolveAreaCid(x, y, geoms, ok, hullHoverRef.current ?? shown)
     },
-    [spotlight, clusters, clusterSets, nodes.length, ghostIndices, toWorld, clusterGeoms, positionsRef],
+    [spotlight, showHulls, onAreaClick, areaIds, clusters, clusterSets, toWorld, clusterGeoms, isolatable],
   )
+
+  /**
+   * Feeds what the pointer resolved into the shown-spotlight state machine: a member node
+   * shows its community at once, an area waits a beat, losing both lingers a beat. A pending
+   * change gets one timer; the draw keeps itself going while a fade runs.
+   */
+  const wantCid = useCallback(
+    (cid: number, fromNode: boolean): void => {
+      const now = performance.now()
+      const next = wantSpot(spotRef.current, isolatable(cid) ? cid : -1, fromNode, now)
+      if (next === spotRef.current) return
+      spotRef.current = next
+      if (spotTimerRef.current !== null) {
+        clearTimeout(spotTimerRef.current)
+        spotTimerRef.current = null
+      }
+      if (next.pending !== null) {
+        spotTimerRef.current = window.setTimeout(() => {
+          spotTimerRef.current = null
+          spotRef.current = tickSpot(spotRef.current, performance.now())
+          scheduleDraw()
+        }, Math.max(0, next.pending.at - now))
+      }
+      scheduleDraw()
+    },
+    [isolatable, scheduleDraw],
+  )
+  useEffect(
+    () => () => {
+      if (spotTimerRef.current !== null) clearTimeout(spotTimerRef.current)
+    },
+    [],
+  )
+  // New communities (a drill-in re-detects them, a filter changes them): the ids on show
+  // belong to the old partition and would light up an unrelated group. Start from nothing.
+  useEffect(() => {
+    spotRef.current = SPOT_IDLE
+    hullHoverRef.current = null
+    setHullHover(null)
+  }, [clusters])
 
   // ---- hover refresh: the hover is only correct at the moment of a pointer event, but the
   // world also moves WITHOUT one - layout ticks drift nodes under a stationary cursor, a pan
@@ -1643,20 +2446,29 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // for a different page. One mechanism covers all three: remember where the pointer is and
   // re-hit-test there whenever the world changed.
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null)
-  const refreshHover = useCallback((): void => {
-    const at = lastPointerRef.current
-    const next = at === null ? null : hitTest(at.x, at.y)
-    if (next !== hoverRef.current) {
-      setHover(next)
-      scheduleDraw()
-    }
-    const hcid = at === null || next !== null ? -1 : hitCluster(at.x, at.y)
-    const nextHull = hcid >= 0 ? hcid : null
-    if (nextHull !== hullHoverRef.current) {
-      setHullHover(nextHull)
-      scheduleDraw()
-    }
-  }, [hitTest, hitCluster, scheduleDraw])
+  const refreshHover = useCallback(
+    (fromLayout = false): void => {
+      const at = lastPointerRef.current
+      const next = at === null ? null : hitTest(at.x, at.y)
+      if (next !== hoverRef.current) {
+        setHover(next)
+        scheduleDraw()
+      }
+      // A cooling layout moves nodes under a still pointer every frame; the AREA answer is
+      // left alone until it settles, or the hull would swap under a hand that did not move.
+      if (fromLayout && !settledRef.current && next === null) return
+      const hcid = at === null || next !== null ? -1 : hitCluster(at.x, at.y)
+      const nextHull = hcid >= 0 ? hcid : null
+      if (nextHull !== hullHoverRef.current) {
+        hullHoverRef.current = nextHull
+        setHullHover(nextHull)
+        scheduleDraw()
+      }
+      if (next !== null) wantCid(clusters?.[next] ?? -1, true)
+      else wantCid(hcid, false)
+    },
+    [hitTest, hitCluster, scheduleDraw, setHover, settledRef, wantCid, clusters],
+  )
   const refreshHoverRef = useRef(refreshHover)
   refreshHoverRef.current = refreshHover
 
@@ -1673,11 +2485,12 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       lastPointerRef.current = null
       if (hoverRef.current !== null) setHover(null)
       if (hullHoverRef.current !== null) setHullHover(null)
+      spotRef.current = SPOT_IDLE
       scheduleDraw()
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
-  }, [scheduleDraw])
+  }, [scheduleDraw, setHover])
 
   /**
    * The tooltip follows the pointer, clamped inside the wrap - its old fixed bottom-left
@@ -1717,7 +2530,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const rect = canvas.getBoundingClientRect()
     const vp: Viewport = { w: rect.width, h: rect.height }
     zoomTransform(transformRef.current, vp, sx - rect.left, sy - rect.top, next)
-    leash(transformRef.current, vp, worldBounds(positionsRef.current))
+    leash(transformRef.current, vp, worldBounds((displayRef.current ?? positionsRef.current)))
     userMovedRef.current = true
   }, [positionsRef, transformRef, userMovedRef])
 
@@ -1747,7 +2560,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       const a =
         geoms.length > 0
           ? magnetAnchor(transformRef.current, vp, cx, cy, geoms)
-          : localAnchor(transformRef.current, vp, cx, cy, positionsRef.current)
+          : localAnchor(transformRef.current, vp, cx, cy, (displayRef.current ?? positionsRef.current))
       return { x: a.x + rect.left, y: a.y + rect.top }
     },
     [clusterGeoms, positionsRef, transformRef],
@@ -1798,7 +2611,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const target = nearestMass(transformRef.current, { w: rect.width, h: rect.height }, clusterGeoms(), positionsRef.current)
+    const target = nearestMass(transformRef.current, { w: rect.width, h: rect.height }, clusterGeoms(), (displayRef.current ?? positionsRef.current))
     if (target === null) return
     const to = centerOn(transformRef.current, target.x, target.y)
     userMovedRef.current = true
@@ -1817,7 +2630,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   const onMiniPointerDown = (e: React.PointerEvent<HTMLCanvasElement>): void => {
     e.stopPropagation()
     const canvas = canvasRef.current
-    const bounds = worldBounds(positionsRef.current)
+    const bounds = worldBounds((displayRef.current ?? positionsRef.current))
     if (!canvas || bounds === null) return
     const rect = e.currentTarget.getBoundingClientRect()
     const m = miniProjection(bounds)
@@ -1880,7 +2693,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
       transformRef.current.y += dy
       // The leash holds a drag the same way it holds a zoom: the graph never leaves the picture.
       const rect = e.currentTarget.getBoundingClientRect()
-      leash(transformRef.current, { w: rect.width, h: rect.height }, worldBounds(positionsRef.current))
+      leash(transformRef.current, { w: rect.width, h: rect.height }, worldBounds((displayRef.current ?? positionsRef.current)))
       userMovedRef.current = true
       drag.current.x = e.clientX
       drag.current.y = e.clientY
@@ -1897,9 +2710,13 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
     const hcid = hit === null ? hitCluster(e.clientX, e.clientY) : -1
     const nextHull = hcid >= 0 ? hcid : null
     if (nextHull !== hullHoverRef.current) {
+      hullHoverRef.current = nextHull
       setHullHover(nextHull)
       scheduleDraw()
     }
+    // One source for what is shown: the node's own community on a node, the area's otherwise.
+    if (hit !== null) wantCid(clusters?.[hit] ?? -1, true)
+    else wantCid(hcid, false)
     positionTooltip(e.clientX, e.clientY)
   }
   const onPointerUp = (e: React.PointerEvent): void => {
@@ -1937,8 +2754,9 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
           lastTapRef.current = null
           // No node under the pointer - inside a community's hull the spotlight click drills
           // into (isolates) that community; the hull is the clickable surface, not just its dots.
-          const cid = spotlight && onClusterClick !== undefined ? hitCluster(e.clientX, e.clientY) : -1
-          if (cid >= 0) onClusterClick!(cid)
+          const cid = hitCluster(e.clientX, e.clientY)
+          if (cid >= 0 && spotlight && onClusterClick !== undefined) onClusterClick(cid)
+          else if (cid >= 0 && !spotlight && onAreaClick !== undefined) onAreaClick(cid)
           else onClear?.()
         }
       }
@@ -2022,7 +2840,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
   // into (isolates) the community - zoom-in cursor; a click ON a node opens its article -
   // pointer cursor. The two are mutually exclusive (hullHover is only set when no node is hit).
   const hoveredIsGhost = hover !== null && (ghostIndices?.has(hover) ?? false)
-  const hoverAreaDrills = hover === null && hullHover !== null && onClusterClick !== undefined
+  const hoverAreaDrills = hover === null && hullHover !== null && (spotlight ? onClusterClick : onAreaClick) !== undefined
   const hoverNodeOpens = hover !== null && (spotlight || openOnClick) && onOpen !== undefined && !hoveredIsGhost
 
   return (
@@ -2076,9 +2894,11 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
               scheduleDraw()
             }
             if (hullHoverRef.current !== null) {
+              hullHoverRef.current = null
               setHullHover(null)
               scheduleDraw()
             }
+            wantCid(-1, false)
           }}
           role="img"
           aria-label={`Wikilink graph with ${nodes.length} pages`}
@@ -2140,7 +2960,7 @@ export function GraphCanvas({ nodes, edges, focusIndex, selectedIndex = null, gh
             <strong>{clusterLabels?.get(hullHover) ?? 'community'}</strong>
             <span>
               {clusterSets?.get(hullHover)?.size ?? 0} pages
-              {onClusterClick !== undefined ? ' · click to isolate' : ''}
+              {spotlight && onClusterClick !== undefined ? ' · click to isolate' : !spotlight && onAreaClick !== undefined ? ' · click to show it alone' : ''}
             </span>
           </div>
         )}
@@ -2172,7 +2992,14 @@ function miniProjection(bounds: { x0: number; y0: number; x1: number; y1: number
  * not lens), the picture's frame in the accent. Hidden whenever the whole graph is already
  * on screen - then there is nothing it could add.
  */
-function drawMinimap(mini: HTMLCanvasElement, t: { x: number; y: number; k: number }, vp: Viewport, pos: Float32Array, dpr: number): void {
+function drawMinimap(
+  mini: HTMLCanvasElement,
+  t: { x: number; y: number; k: number },
+  vp: Viewport,
+  pos: Float32Array,
+  dpr: number,
+  painted: (i: number) => boolean = () => true,
+): void {
   const bounds = worldBounds(pos)
   const hide = fullyInView(t, vp, bounds)
   if (mini.hidden !== hide) mini.hidden = hide
@@ -2195,6 +3022,7 @@ function drawMinimap(mini: HTMLCanvasElement, t: { x: number; y: number; k: numb
   for (let i = 0; i + 1 < pos.length; i += 2) {
     const x = pos[i]!
     if (Number.isNaN(x)) continue
+    if (!painted(i / 2)) continue
     ctx.fillRect(m.ox + x * m.s - 0.6, m.oy + pos[i + 1]! * m.s - 0.6, 1.2, 1.2)
   }
   ctx.globalAlpha = 1
@@ -2213,39 +3041,6 @@ function drawMinimap(mini: HTMLCanvasElement, t: { x: number; y: number; k: numb
   ctx.strokeRect(Math.round(vx) + 0.5, Math.round(vy) + 0.5, Math.round(vw), Math.round(vh))
 }
 
-/** Andrew's monotone-chain convex hull. Returns the hull points counter-clockwise. */
-function convexHull(points: Pt[]): Pt[] {
-  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
-  const cross = (o: Pt, a: Pt, b: Pt): number => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-  const lower: Pt[] = []
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0) lower.pop()
-    lower.push(p)
-  }
-  const upper: Pt[] = []
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i]!
-    while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0) upper.pop()
-    upper.push(p)
-  }
-  lower.pop()
-  upper.pop()
-  return lower.concat(upper)
-}
-
-/** A member sitting farther than this multiple of the cluster's MEDIAN member distance is a
- *  spatial outlier - the force layout dragged it toward its cross-cluster links, not its
- *  community. Excluding it from the hull stops the tinted blob reaching as a tongue into empty
- *  space where no cluster node sits (a cross-domain entity is the usual culprit). */
-const HULL_OUTLIER_FACTOR = 2.5
-
-/**
- * Hull padding and region-label metrics, all in WORLD units and deliberately independent of
- * the zoom factor: the label anchors have to be the same wherever the camera is, or the same
- * cluster gets a differently-placed label at every scale. Only the GLYPHS are drawn at a
- * constant screen size (font / k at paint time).
- */
-const HULL_PAD = 26
 /**
  * Region labels are sized in WORLD units, as a fraction of the graph's own extent - like the
  * region names on a map, which belong to the territory rather than to the viewport. That is
@@ -2267,41 +3062,9 @@ const LABEL_MAX_SCREEN_PX = 20
  * fixed at every zoom; only how many labels are shown changes, the way a map drops minor
  * place names as you zoom out.
  */
-const LABEL_MIN_SCREEN_PX = 10
+/** 12, not the 10 it was: the display face (2026-09-24) reads smaller than the system face did. */
+const LABEL_MIN_SCREEN_PX = 12
 
-/**
- * The subset of member points the tinted hull should enclose: the cluster BODY, with spatial
- * outliers trimmed. Distances are measured from the component-wise MEDIAN point (robust - one
- * flung-out member doesn't drag the center toward itself the way a mean would), and a member
- * past HULL_OUTLIER_FACTOR × the median distance is dropped. Only clusters with enough members
- * to still leave a body are trimmed (< 5 keeps all - too few to tell a body from a corner);
- * never trims below 3, the minimum for an area. The node itself still draws; it just isn't
- * wrapped by the hull.
- */
-export function hullBody(points: Pt[]): Pt[] {
-  if (points.length < 5) return points
-  const xs = points.map((p) => p[0]).sort((a, b) => a - b)
-  const ys = points.map((p) => p[1]).sort((a, b) => a - b)
-  const mid = points.length >> 1
-  const mx = xs[mid]!
-  const my = ys[mid]!
-  const dists = points.map(([x, y]) => Math.hypot(x - mx, y - my))
-  const medDist = [...dists].sort((a, b) => a - b)[mid]!
-  if (medDist <= 1e-6) return points
-  const threshold = medDist * HULL_OUTLIER_FACTOR
-  const body = points.filter((_, i) => dists[i]! <= threshold)
-  return body.length >= 3 ? body : points
-}
-
-/** Pushes each hull point outward from the centroid by `pad` world units - breathing room. */
-function expandHull(hull: Pt[], cx: number, cy: number, pad: number): Pt[] {
-  return hull.map(([x, y]) => {
-    const dx = x - cx
-    const dy = y - cy
-    const d = Math.hypot(dx, dy) || 1
-    return [x + (dx / d) * pad, y + (dy / d) * pad] as Pt
-  })
-}
 
 /** Axis-aligned label/hull box: [minX, minY, maxX, maxY]. */
 type Box = [number, number, number, number]
@@ -2324,18 +3087,6 @@ function polygonBounds(poly: Pt[]): Box {
 const boxesOverlap = (a: Box, b: Box): boolean =>
   a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
 
-/** Ray-casting point-in-polygon test (polygon is a closed vertex ring). */
-export function pointInPolygon(x: number, y: number, poly: readonly Pt[]): boolean {
-  let inside = false
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i]![0]
-    const yi = poly[i]![1]
-    const xj = poly[j]![0]
-    const yj = poly[j]![1]
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
-  }
-  return inside
-}
 
 /**
  * True if a label box overlaps the (convex) hull polygon. Cheap and adequate for small labels
@@ -2415,6 +3166,13 @@ export interface PlacedRegionLabel {
 
 /** Angular resolution of the escape search. 16 directions ≈ every 22.5°, up first. */
 const LABEL_ANGLES = 16
+/**
+ * How long the view has to hold still before the Areas captions are placed for it again. Below
+ * this they ride along with the map as they were placed; a wheel step's frames come about 16ms
+ * apart, so a gesture never waits on the search, and a stop shows the new placement within a
+ * glance.
+ */
+const PLACEMENT_SETTLE_MS = 120
 /** Radial tiers between "hugging the hull" and the travel cap. */
 const LABEL_TIERS = 6
 /**
@@ -2429,8 +3187,22 @@ const LABEL_MAX_TRAVEL = 0.55
 /** Penalty weights: what we would rather sacrifice when nothing is perfectly free. */
 const PENALTY_FOREIGN_HULL = 3
 const PENALTY_OWN_HULL = 2
+/**
+ * Per node disc a caption would sit on (up to three): a dot drawn under a caption hides it.
+ * Small next to the distance penalty on purpose - staying by its own area matters more than a
+ * perfectly clear spot, or captions wander off to wherever the graph happens to be empty.
+ */
+const PENALTY_NODE = 0.5
 /** Per unit of distance beyond the hull edge, relative to the hull radius - keeps labels near. */
 const PENALTY_DISTANCE = 4
+/**
+ * A caption that does not fit in the picture (2026-09-22). It used to be placed in world space
+ * with no idea where the frame was, so zooming in cut captions in half at the edges - measured
+ * on the whole vault six notches in. The penalty is above every other one put together, so a
+ * spot inside the frame always beats a better-looking spot outside it; a caption with nowhere
+ * inside to go is dropped rather than drawn across the edge.
+ */
+const PENALTY_OFFSCREEN = 100
 
 /**
  * Places region (cluster) labels next to their hulls, legibly and - above all - close enough
@@ -2461,8 +3233,22 @@ export function placeRegionLabels(
   hulls: ReadonlyMap<number, Pt[]>,
   labelH: number,
   margin: number,
+  /** The visible world rectangle, when the caller has one: captions stay inside the frame. */
+  view: Box | null = null,
+  /** How many node discs a candidate box would cover - a caption under dots is not read. */
+  nodesUnder: ((box: Box) => number) | null = null,
 ): PlacedRegionLabel[] {
+  const inFrame = (b: Box): boolean =>
+    view === null || (b[0] >= view[0] && b[1] >= view[1] && b[2] <= view[2] && b[3] <= view[3])
   const order = [...labels].sort((a, b) => b.weight - a.weight || a.key - b.key)
+  /*
+   * Every hull's bounding box, so a candidate is tested point by point only against the hulls
+   * whose box it touches. Without it every candidate of every caption walked every hull's
+   * outline - several hundred points each - and on the whole vault that was 89% of a 780ms
+   * frame (measured 2026-09-25). The answer is the same: a box that misses a hull's bounds
+   * misses the hull.
+   */
+  const bounds = new Map([...hulls].map(([cid, poly]) => [cid, polygonBounds(poly)]))
   const placedBoxes: Box[] = []
   const out: PlacedRegionLabel[] = []
 
@@ -2496,10 +3282,12 @@ export function placeRegionLabels(
         if (placedBoxes.some((p) => boxesOverlap(box, p))) continue
 
         let penalty = (out_ / Math.max(radius, 1)) * PENALTY_DISTANCE
+        if (!inFrame(box)) penalty += PENALTY_OFFSCREEN
         for (const [cid, poly] of hulls) {
-          if (!boxIntersectsPolygon(box, poly)) continue
+          if (!boxesOverlap(box, bounds.get(cid)!) || !boxIntersectsPolygon(box, poly)) continue
           penalty += cid === label.key ? PENALTY_OWN_HULL : PENALTY_FOREIGN_HULL
         }
+        if (nodesUnder !== null) penalty += Math.min(3, nodesUnder(box)) * PENALTY_NODE
         if (best === null || penalty < best.penalty - 1e-9) {
           best = { x: centerX, y: top, box, penalty }
           if (penalty === 0) break // nothing can beat a clean spot at this distance
@@ -2509,8 +3297,10 @@ export function placeRegionLabels(
     }
 
     // Every candidate collided with an already-placed label: drop this one rather than
-    // stack two unreadable labels. Weight order keeps the labels that matter most.
-    if (best === null) continue
+    // stack two unreadable labels. Weight order keeps the labels that matter most. A caption
+    // that only fits outside the frame is dropped the same way - half a word at the edge names
+    // nothing, and the hull it belongs to is on screen to be hovered.
+    if (best === null || !inFrame(best.box)) continue
     out.push({ key: label.key, x: best.x, y: best.y, box: best.box, fallback: best.penalty > 0 })
     placedBoxes.push(best.box)
   }
@@ -2533,6 +3323,23 @@ function traceSmooth(ctx: CanvasRenderingContext2D, pts: Pt[]): void {
   ctx.closePath()
 }
 
+/**
+ * What the host stands IN the drawing that the picture should keep out of: every element under
+ * the canvas's parent marked `data-keep-out` (the lens legend, the corner controls, the lock),
+ * as boxes in the canvas's own CSS pixels. A fit and the landmark spread read them each time
+ * they run, so a legend that grows with the lens is kept clear at its new size.
+ */
+function keepOutBoxes(canvas: HTMLCanvasElement): KeepOut[] {
+  const rect = canvas.getBoundingClientRect()
+  const out: KeepOut[] = []
+  canvas.parentElement?.querySelectorAll<HTMLElement>('[data-keep-out]').forEach((el) => {
+    const r = el.getBoundingClientRect()
+    if (r.width === 0 || r.height === 0) return
+    out.push({ x0: r.left - rect.left, y0: r.top - rect.top, x1: r.right - rect.left, y1: r.bottom - rect.top })
+  })
+  return out
+}
+
 /** Coalesces draw requests into one per animation frame. */
 function useRafDraw(draw: () => void): () => void {
   const pending = useRef(false)
@@ -2546,4 +3353,75 @@ function useRafDraw(draw: () => void): () => void {
       drawRef.current()
     })
   }, [])
+}
+
+// The hull helpers moved to lib/spotlightHover.ts; re-exported for the region-label tests.
+export { pointInPolygon } from '../lib/spotlightHover.ts'
+
+/**
+ * Counts the node discs a box touches, through a uniform grid - the placement asks this for
+ * every candidate of every caption, several thousand times a frame, against a thousand nodes.
+ */
+export function discCounter(discs: ReadonlyArray<{ x: number; y: number; r: number }>, cell: number): (box: Box) => number {
+  const grid = new Map<string, number[]>()
+  const key = (gx: number, gy: number): string => `${gx}:${gy}`
+  discs.forEach((d, i) => {
+    const x0 = Math.floor((d.x - d.r) / cell)
+    const x1 = Math.floor((d.x + d.r) / cell)
+    const y0 = Math.floor((d.y - d.r) / cell)
+    const y1 = Math.floor((d.y + d.r) / cell)
+    for (let gx = x0; gx <= x1; gx++)
+      for (let gy = y0; gy <= y1; gy++) (grid.get(key(gx, gy)) ?? grid.set(key(gx, gy), []).get(key(gx, gy))!).push(i)
+  })
+  return (box: Box): number => {
+    const seen = new Set<number>()
+    for (let gx = Math.floor(box[0] / cell); gx <= Math.floor(box[2] / cell); gx++)
+      for (let gy = Math.floor(box[1] / cell); gy <= Math.floor(box[3] / cell); gy++)
+        for (const i of grid.get(key(gx, gy)) ?? []) {
+          if (seen.has(i)) continue
+          const d = discs[i]!
+          const nx = Math.max(box[0], Math.min(d.x, box[2]))
+          const ny = Math.max(box[1], Math.min(d.y, box[3]))
+          if ((nx - d.x) ** 2 + (ny - d.y) ** 2 < d.r * d.r) seen.add(i)
+        }
+    return seen.size
+  }
+}
+
+/** Relative luminance of a colour the canvas can parse (hex, rgb(), hsl()), 0..1. */
+function luminance(ctx: CanvasRenderingContext2D, color: string): number {
+  const prev = ctx.fillStyle
+  ctx.fillStyle = '#000000'
+  ctx.fillStyle = color
+  const norm = String(ctx.fillStyle)
+  ctx.fillStyle = prev
+  let rgb: number[]
+  if (norm.startsWith('#')) rgb = [1, 3, 5].map((k) => parseInt(norm.slice(k, k + 2), 16))
+  else rgb = (norm.match(/[\d.]+/g) ?? ['0', '0', '0']).slice(0, 3).map(Number)
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+}
+
+/**
+ * The ink that reads best on `fill` (WCAG contrast ratio): white, or one of `others` - the ground
+ * and the text colour. The text colour joined on 2026-09-25: the authority and recency ramps run
+ * down to near the ground, and on the light theme white and the ground are then both pale on a
+ * pale disc; the text colour is the dark ink there.
+ */
+function inkOn(ctx: CanvasRenderingContext2D, fill: string, others: readonly string[]): string {
+  const lf = luminance(ctx, fill)
+  const ratio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  let best = '#ffffff'
+  let bestRatio = ratio(lf, 1)
+  for (const o of others) {
+    const r = ratio(lf, luminance(ctx, o))
+    if (r > bestRatio) {
+      best = o
+      bestRatio = r
+    }
+  }
+  return best
 }

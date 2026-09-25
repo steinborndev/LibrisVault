@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
+  fitTransform,
+  fitTransformClear,
+  ZOOM_MAX,
+  FIT_LABEL_GAP_PX,
+  FIT_LABEL_LINE_PX,
   MAGNET_REACH_PX,
   WHEEL_MAX_DELTA_PX,
   centerOn,
@@ -168,5 +173,103 @@ describe('the way back', () => {
     const s = toScreen(centered, vp, 250, 100)
     expect(s.x).toBeCloseTo(vp.w / 2)
     expect(s.y).toBeCloseTo(vp.h / 2)
+  })
+})
+
+describe('the fit', () => {
+  const margins = { x: 16, top: 18, bottom: 24 }
+  const view = { w: 800, h: 600 }
+  /** The screen box of every circle and title under `t`. */
+  const screenBox = (t: { x: number; y: number; k: number }, items: Parameters<typeof fitTransform>[0]): [number, number, number, number] => {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+    for (const it of items) {
+      const c = toScreen(t, view, it.x, it.y)
+      const side = Math.max(it.r * t.k, it.labelHalf)
+      x0 = Math.min(x0, c.x - side)
+      x1 = Math.max(x1, c.x + side)
+      y0 = Math.min(y0, c.y - it.r * t.k)
+      y1 = Math.max(y1, c.y + it.r * t.k + (it.labelHalf > 0 ? FIT_LABEL_GAP_PX + FIT_LABEL_LINE_PX : 0))
+    }
+    return [x0, y0, x1, y1]
+  }
+
+  it('keeps a long title at the edge inside the picture, and centres the box it makes', () => {
+    // A long title on the left, a short one on the right: the flat pad cut the first and
+    // left the picture off-centre.
+    const items = [
+      { x: -300, y: 0, r: 12, labelHalf: 85 },
+      { x: 300, y: 0, r: 12, labelHalf: 20 },
+      { x: 0, y: -200, r: 12, labelHalf: 40 },
+      { x: 0, y: 200, r: 12, labelHalf: 40 },
+    ]
+    const t = fitTransform(items, view, margins)!
+    const [x0, y0, x1, y1] = screenBox(t, items)
+    expect(x0).toBeGreaterThanOrEqual(margins.x - 1e-3)
+    expect(x1).toBeLessThanOrEqual(view.w - margins.x + 1e-3)
+    expect(y0).toBeGreaterThanOrEqual(margins.top - 1e-3)
+    expect(y1).toBeLessThanOrEqual(view.h - margins.bottom + 1e-3)
+    // It uses the room: one side is tight, and the free room left and right is equal.
+    expect(Math.min(x0 - margins.x, y0 - margins.top)).toBeLessThan(0.5)
+    expect(x0 - margins.x).toBeCloseTo(view.w - margins.x - x1, 3)
+  })
+
+  it('puts a centre in the middle of the picture and still fits everything', () => {
+    const items = [
+      { x: 0, y: 0, r: 5, labelHalf: 30 },
+      { x: 400, y: 0, r: 5, labelHalf: 30 },
+      { x: 400, y: 100, r: 5, labelHalf: 0 },
+    ]
+    const t = fitTransform(items, view, margins, [0, 0])!
+    const c = toScreen(t, view, 0, 0)
+    expect(c.x).toBeCloseTo(view.w / 2)
+    expect(c.y).toBeCloseTo(margins.top + (view.h - margins.top - margins.bottom) / 2)
+    const [x0, , x1] = screenBox(t, items)
+    expect(x0).toBeGreaterThanOrEqual(margins.x - 1e-3)
+    expect(x1).toBeLessThanOrEqual(view.w - margins.x + 1e-3)
+  })
+
+  it('caps the zoom on a single node and frames nothing when given nothing', () => {
+    expect(fitTransform([{ x: 5, y: 5, r: 3, labelHalf: 20 }], view, margins)!.k).toBe(ZOOM_MAX)
+    expect(fitTransform([], view, margins)).toBeNull()
+  })
+})
+
+describe('fitTransform zoom cap', () => {
+  it('frames a small group no closer than the cap it is given', () => {
+    const view = { w: 1000, h: 800 }
+    const margins = { x: 16, top: 18, bottom: 24 }
+    const items = [{ x: 0, y: 0, r: 5, labelHalf: 0 }, { x: 20, y: 10, r: 5, labelHalf: 0 }]
+    expect(fitTransform(items, view, margins, null, 3)!.k).toBe(3)
+  })
+})
+
+describe('the fit keeps out of boxes in the drawing', () => {
+  const vp = { w: 1000, h: 800 }
+  const m = { x: 16, top: 18, bottom: 24 }
+  // A grid of nodes filling the frame, and a legend box in the bottom right corner.
+  const items = Array.from({ length: 25 }, (_, i) => ({ x: (i % 5) * 100, y: Math.floor(i / 5) * 80, r: 5, labelHalf: 30 }))
+  const box = { x0: 820, y0: 620, x1: 990, y1: 790 }
+  const inBox = (t: { x: number; y: number; k: number }): number =>
+    items.filter((it) => {
+      const cx = vp.w / 2 + t.x + it.x * t.k
+      const cy = vp.h / 2 + t.y + it.y * t.k
+      return cx + 30 > box.x0 && cx - 30 < box.x1 && cy + 5 * t.k + 16 > box.y0 && cy - 5 * t.k < box.y1
+    }).length
+
+  it('moves nothing when the plain fit is already clear', () => {
+    const far = [{ x0: 0, y0: 0, x1: 1, y1: 1 }]
+    expect(fitTransformClear(items, vp, m, [], null)).toEqual(fitTransform(items, vp, m, null))
+    expect(fitTransformClear(items, vp, m, far, null)).toEqual(fitTransform(items, vp, m, null))
+  })
+
+  it('clears a corner box, at the closest zoom of the ways to do it', () => {
+    const plain = fitTransform(items, vp, m, null)!
+    expect(inBox(plain)).toBeGreaterThan(0)
+    const t = fitTransformClear(items, vp, m, [box], null)!
+    expect(inBox(t)).toBe(0)
+    expect(t.k).toBeLessThanOrEqual(plain.k)
+    // Clearing it by the side costs less than by a band across the whole bottom here.
+    const band = fitTransform(items, vp, { ...m, bottom: vp.h - box.y0 + 8 }, null)!
+    expect(t.k).toBeGreaterThanOrEqual(band.k)
   })
 })

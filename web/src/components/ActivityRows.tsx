@@ -117,6 +117,8 @@ export function RowDelete({
       void qc.invalidateQueries({ queryKey: ['jobs'] })
       void qc.invalidateQueries({ queryKey: ['stats'] })
       void qc.invalidateQueries({ queryKey: ['maintenance-history'] })
+      // A run's kept settle goes with its entry, and a settle row is removed on its own.
+      void qc.invalidateQueries({ queryKey: ['maintenance-state'] })
       void qc.invalidateQueries({ queryKey: ['library-scene'] })
       onRemoved?.()
     },

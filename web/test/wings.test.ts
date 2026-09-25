@@ -43,6 +43,14 @@ describe('the wings a domain section walks', () => {
     expect(stepWing(groups, 'gone', 1)).toBeNull()
   })
 
+  it('steps over the rooms it may not stop at', () => {
+    const groups = wingGroups({ rooms }, known)
+    const ids = groups.map((g) => g.id)
+    const onlyLast = (id: string): boolean => id === ids[ids.length - 1]
+    expect(stepWing(groups, ids[0]!, 1, onlyLast)).toBe(ids[ids.length - 1])
+    expect(stepWing(groups, ids[ids.length - 1]!, -1, onlyLast)).toBeNull()
+  })
+
   it('knows where a domain stands', () => {
     const groups = wingGroups({ rooms }, known)
     expect(wingOf(groups, 'physics')).toBe('w-b')

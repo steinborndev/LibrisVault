@@ -598,18 +598,6 @@ button {
    panel and the box start and end on the same two lines. A column that pads itself (the
    graph canvas did) or a bar that sits inside one column (the library's did) breaks that,
    which is exactly how the two edges drifted apart. ══ */
-/* Row 1 explicitly, not by auto-placement: the bar spans both columns, so if a column
-   child is placed first the bar gets pushed into a row of its own BELOW it and the grid
-   silently collapses to one column. Stating the row makes DOM order irrelevant. */
-.ws-bar {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
 
 
 /* ---- Cards & layout ----
@@ -1352,17 +1340,6 @@ button {
 }
 /* Collapsed by default - the hot cache is the one arbitrarily long block on the overview.
    The summary row carries the cache's age + the refresh action (no trip to Maintenance). */
-details.hot-cache summary {
-  cursor: pointer;
-  margin-bottom: 0;
-  user-select: none;
-}
-details.hot-cache summary::marker {
-  color: var(--text-faint);
-}
-details.hot-cache[open] summary {
-  margin-bottom: 10px;
-}
 .md h1, .md h2, .md h3 { margin: 14px 0 6px; line-height: 1.25; }
 .md h1 { font-size: 20px; }
 .md h2 { font-size: 17px; }
@@ -1728,12 +1705,6 @@ details.hot-cache[open] summary {
 /* ── "What's due" status head (Maintenance, SPEC §12.7 Stufe b) ── */
 .maint-status {
   margin-bottom: 16px;
-}
-/* Tab-wide severity chips: due (amber) / soon (accent) / healthy (green). */
-.ms-counts {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
 }
 .ms-actions {
   display: inline-flex;
@@ -2325,6 +2296,8 @@ details.hot-cache[open] summary {
   font-size: 11px;
   color: var(--text-faint);
 }
+/* The lens's meaning beside the View heading: one line, whatever is hovered. */
+.gp-lens-desc { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The list's two modes as a toggle at the head's right edge, two equal halves. 122px is
    what a 222px head leaves beside the label, the clear × and the gaps (with 2px to spare),
    and gives each half 57px for a 42px label; no spacer element, since one would cost a
@@ -2626,6 +2599,20 @@ details.hot-cache[open] summary {
   margin-left: auto;
   font-family: var(--mono);
   font-size: 11px;
+  color: var(--text-faint);
+}
+/* A row whose condition is not met stays where it is and says why on its own second line -
+   the switch is the only thing that goes quiet, so the reason is read without hovering. */
+.rowtoggle:disabled {
+  cursor: default;
+}
+.rowtoggle:disabled:hover {
+  background: transparent;
+}
+.rowtoggle:disabled .sw {
+  opacity: 0.4;
+}
+.rowtoggle:disabled .tname {
   color: var(--text-faint);
 }
 
@@ -3011,7 +2998,131 @@ details.hot-cache[open] summary {
 
 /* While the list is open it has the corner: the minimap steps out of sight and comes back
    with the list gone. The list is what the reader is using; the overview is not. */
-.graph-stage.search-open .graph-minimap {
+.graph-stage.search-open /*
+ * What the page checks found on a save. It shared a class with the deletion banner that used
+ * to sit above the graph; that banner is gone (2026-09-22) and this kept its shape, so it
+ * keeps a name that says what it is.
+ */
+.page-findings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.page-findings svg {
+  flex: none;
+  color: var(--warn);
+}
+
+/*
+ * The scope line: where you are, at the top of the DRAWING. It replaced one or two boxes above
+ * the workspace that pushed the panel and the canvas down by 60px apiece, and did it at the
+ * moment the reader had just drilled in. Text only - a container around it would be the box
+ * again in a smaller size - with a halo so it stays readable over whatever it sits on.
+ */
+.graph-scope {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  max-width: calc(100% - 320px);
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-shadow: 0 0 4px var(--bg), 0 0 8px var(--bg);
+  pointer-events: none;
+}
+.graph-scope strong {
+  color: var(--text);
+  font-weight: 600;
+}
+/* The parts are what you can press; the line as a whole lets clicks through to the canvas. */
+.gs-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  pointer-events: auto;
+}
+.gs-level + .gs-level {
+  margin-left: 5px;
+}
+.gs-arrow {
+  margin: 0 5px;
+  color: var(--text-faint);
+}
+.gs-exit {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.gs-exit:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+.gs-exit svg {
+  width: 13px;
+  height: 13px;
+}
+/* The Areas stepper's ring, in the heading after the mode's name - like the bloom tail it may run
+   past the block's right edge rather than shorten what stands before it. */
+.mid-after { flex: none; display: inline-flex; align-items: center; margin-left: 12px; }
+/* The domain's name gets a slot of its own beside the ring, like the reading list's name: wide
+   enough for the longest domain key in use (a thirty-character key comes to 212px at this
+   size), so the first dot stands at one x for every domain and walking the domains moves
+   nothing but letters. A longer one truncates rather than pushing the ring. The ring is what
+   runs past the block. */
+.bar-mid.has-after .mid-name { flex: none; width: 224px; }
+.gs-count { font-family: var(--mono); font-size: 11px; color: var(--text-faint); font-weight: 400; }
+/*
+ * The area on show, centred in the canvas's bottom row between the lock and the corner pair, on
+ * the corner buttons' centre line. In its caption's voice at the size the Areas overview gives
+ * its captions at most (LABEL_MAX_SCREEN_PX): the display face, words in text ink, # in the
+ * domain. Text on the drawing with the scope line's halo, no box.
+ */
+.graph-foot-tags {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  max-width: calc(100% - 560px);
+  text-shadow: 0 0 4px var(--bg), 0 0 8px var(--bg);
+}
+.graph-foot-tags .gs-tags { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-tags { font-family: var(--display); font-size: 20px; font-weight: 600; line-height: 1.2; color: var(--text); letter-spacing: -0.01em; }
+.gs-hash { font-weight: 600; }
+/* The focused page's name in the panel, above its depth control. */
+.gp-focus {
+  margin: 0 0 7px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-minimap {
   visibility: hidden;
   pointer-events: none;
 }
@@ -3100,60 +3211,6 @@ details.hot-cache[open] summary {
 }
 /* Focus mode: one row, one segmented control for the neighborhood depth. Card-framed so
    it reads as a sibling of the domain band, not a loose text line (mockup 2026-07-21). */
-.focusbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-dim);
-  flex-wrap: wrap;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 11px;
-}
-.focusbar strong {
-  color: var(--text);
-}
-
-/* ── The isolated-community bar (spotlight click) ── Accent-tinted, unlike the neutral
-   focusbar: cluster focus is a temporary zoom-in the user should notice they are inside of. */
-.clusterbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-dim);
-  flex-wrap: wrap;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  padding: 7px 11px;
-}
-.clusterbar strong {
-  color: var(--text);
-}
-.clusterbar .cb-dot {
-  width: var(--dot);
-  height: var(--dot);
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.clusterbar .cb-meta {
-  font-variant-numeric: tabular-nums;
-}
-.clusterbar .cb-exit {
-  margin-left: auto;
-}
-/* Drill-down breadcrumb: one crumb per isolated level, earlier levels clickable. */
-.clusterbar .cb-level {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.clusterbar .cb-arrow {
-  color: var(--text-faint);
-}
 .seg {
   display: inline-flex;
   border: 1px solid var(--border-strong);
@@ -3309,6 +3366,108 @@ span.head-slot { display: inline-block; }
   line-height: 1.2;
 }
 .bar-mid .mid-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * An open neighbourhood, named after the domain. The block keeps its 320px, so the lead, the
+ * dot and the first letter stay exactly where they were and nothing else in the bar moves;
+ * what the tail does instead of shortening the domain is run PAST the block's right edge,
+ * into the empty stretch before the search. Both parts stop shrinking for that - the domain
+ * is short and is the thing the reader navigated by - and only the tail is ever cut, with the
+ * whole of it on hover. The search pill is later in the bar, so it paints over the overflow
+ * rather than under it.
+ */
+.bar-mid.has-bloom .mid-name { flex: none; }
+.mid-bloom {
+  flex: none;
+  max-width: min(300px, 26vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+/* A neighbour of the expanded landmark, numbered in its neighbourhood's own order. */
+.lm-near .lm-t { color: var(--text-dim); }
+/* A reading-order row: the number (which opens the landmark's neighbourhood) and the title
+   (which opens the page) are two buttons side by side, never one inside the other. */
+.lm-empty { margin: 12px 16px; font-size: 12.5px; color: var(--text-faint); }
+.lm-line { display: flex; align-items: flex-start; gap: 4px; }
+.lm-line > .lm-row { flex: 1; min-width: 0; }
+/*
+ * The number as a disc: a ring on its own, filled with its dot's colour in the page-type view,
+ * where it takes --accent-ink (white on the light theme's dark fills, the ground on the dark
+ * theme's light ones - measured 5.3 to 5.7 and 6.4 to 9.5 against the six type colours).
+ */
+.lm-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  color: var(--text-dim);
+  background: transparent;
+}
+.lm-row .lm-num { align-self: flex-start; margin-top: -2px; }
+.lm-num-btn { margin: 3px 0 0 4px; cursor: pointer; }
+.lm-num-btn:hover { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.lm-num-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/*
+ * The column's heading, in both of its forms: the reading order names its measure, an open
+ * neighbourhood names the page it is around. One class, so the two read as the same thing in
+ * the same slot - and it STAYS while the rows move under it, because forty entries scroll and a
+ * heading that left with them would take its own answer along.
+ */
+.lm-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  /* The canvas bar's own metrics - 7px of padding around a 26px row - so this rule and the one
+     under the bar beside it land on the same line instead of a few pixels apart. Built from the
+     parts rather than from a height, which `border-box` would have swallowed the padding into. */
+  padding: 7px 16px;
+  line-height: 26px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+}
+/* The page form carries a second line, so its own height comes from the two lines rather than
+   from the bar's single row; everything else about it is the heading above. */
+.lm-title-page {
+  padding: 8px 16px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.lm-title-page:hover .lm-hname {
+  color: var(--accent);
+}
+.lm-hname {
+  display: block;
+}
+/* …and the two numbers about it, said rather than left to a column to imply. */
+.lm-hmeta {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
 .bar-mid .mid-dot { width: 10px; height: 10px; margin: 0; flex: none; }
 /* A hollow ring where no one colour applies: several domains, a wing, the whole vault. */
 .bar-mid .mid-dot.none { background: transparent; border: 1.5px solid var(--text-faint); }
@@ -3465,10 +3624,24 @@ span.head-slot { display: inline-block; }
    used to buy was contrast against whatever the canvas put behind it, so the text keeps a halo
    of the canvas's own colour instead - cheaper than a fill, and it disappears where nothing is
    drawn. It grows upward from the bottom edge, so the list shortening never moves the corner. */
-.lens-legend {
+/* The corner every legend shares, as large as the largest: see LensLegend. Each legend stands
+   in the one grid cell, against its bottom right, where the single legend used to stand. */
+.lens-legend-slot {
   position: absolute;
   right: 13px;
   bottom: 44px;
+  display: grid;
+  pointer-events: none;
+}
+.lens-legend-slot > .lens-legend {
+  grid-area: 1 / 1;
+  align-self: end;
+  justify-self: end;
+}
+.lens-legend.ll-ghost {
+  visibility: hidden;
+}
+.lens-legend {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -3575,6 +3748,65 @@ span.head-slot { display: inline-block; }
   padding: 16px 16px 12px;
   border-bottom: 1px solid var(--border);
 }
+
+/* ── Landmarks: the reading order beside the picture. The column is the explorer's, so the
+   frame is the explorer's too; what differs is that this is a list of the DOMAIN rather than
+   the detail of one selection. */
+.landmarks {
+  overflow-y: auto;
+}
+.lm-list {
+  margin: 0;
+  padding: 10px 8px 16px;
+  list-style: none;
+}
+.lm-item {
+  display: block;
+}
+.lm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.lm-row:hover {
+  background: var(--bg-elev-2);
+}
+.lm-row.cur {
+  border-color: var(--accent);
+  background: var(--bg-elev-2);
+}
+/* The number is the reader's place in the order, so it keeps a column of its own and the
+   titles all start on the same line however far the count has run. */
+.lm-n {
+  flex: none;
+  width: 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  color: var(--text-faint);
+}
+.lm-t {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+/* A thin rule with a caption, not a heading: one left-over page must not read as heavy as a
+   chapter of thirty-six. */
+.lm-break {
+  margin: 14px 8px 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+}
 /* The kicker over a title in the explorer: the same label as `.bucket`, one step up because
    it sits over a heading rather than beside a name in a list. */
 .gx-kicker {
@@ -3669,17 +3901,27 @@ span.head-slot { display: inline-block; }
 }
 /* The heading stays put while its own list moves under it - that is the point of the split. */
 .gx-body.thirds .gx-sec h3 { flex: none; }
+/* A rule between the lists (2026-09-25, user decision): three lists of the same row in one
+   column read as one long list without it, and the sections are what the column is made of. */
+.gx-body.thirds > .gx-sec + .gx-sec { border-top: 1px solid var(--border); }
 .gx-body.thirds .gx-sec ul {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
+/*
+ * The indent lives on the ROW alone (2026-09-22). It used to be here as well, so every title
+ * was set in 32px from each edge instead of 16 - a third of the column in a reading view's
+ * sidebar, spent on nothing, and paid for in wrapped lines and scrolling. The heading takes the
+ * same 16px of its own so the two still line up.
+ */
 .gx-sec {
-  padding: 12px 16px 2px;
+  padding: 12px 0 2px;
 }
 .gx-sec h3 {
   margin: 0 0 6px;
+  padding: 0 16px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -3922,57 +4164,18 @@ span.head-slot { display: inline-block; }
   color: var(--text-faint);
 }
 .page-side {
-  /* No longer sticky: it is a column of the same height as the article and scrolls itself. */
+  /* No longer sticky: it is a column of the same height as the article and scrolls itself.
+     No padding of its own either - it holds the explorer's link panel, whose rows carry their
+     own indent and want the whole width to put a title on one line. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  overflow: hidden;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 12px 14px;
   font-size: 13px;
 }
-.page-side h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-faint);
-  margin: 10px 0 6px;
-}
-.page-side h3:first-child {
-  margin-top: 0;
-}
-/* The toggle sits at the top and stays there; only the list under it scrolls. */
-.page-side-seg {
-  flex: none;
-  align-self: stretch;
-}
-.page-side-seg button {
-  flex: 1;
-  white-space: nowrap;
-}
-.page-side-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
 
-.linklist {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.linklist a {
-  color: var(--accent);
-  text-decoration: none;
-}
-.linklist a:hover {
-  text-decoration: underline;
-}
 .dim {
   color: var(--text-faint);
 }
@@ -4116,22 +4319,6 @@ span.head-slot { display: inline-block; }
   font-weight: 600;
 }
 
-.stale-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--warn-bg);
-  color: var(--text);
-  border: 1px solid var(--warn);
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  font-size: 14px;
-}
-.stale-banner svg {
-  color: var(--warn);
-  flex-shrink: 0;
-}
 
 /* ---- Domain governance (SPEC §12.4 Stufe 3) ---- */
 .domain-candidates {
@@ -4175,6 +4362,134 @@ span.head-slot { display: inline-block; }
 .candidate-meta {
   font-size: 12px;
   color: var(--text-dim);
+}
+/* The split proposal (TASKS-DOMAIN-SPLIT 3.4): the candidate card's shape, one per shelf. */
+.split-proposal select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 2px 6px;
+  max-width: 100%;
+}
+.split-shelf.misfile {
+  border-color: var(--warn);
+}
+.split-numbers {
+  margin: 0 0 6px;
+}
+.split-landmarks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+/* The decision surface of a split (TASKS-DOMAIN-SPLIT 6.1): the choice row, a promoted shelf's
+   fields, the parent's narrowed entry, the preview and the applied splits. */
+.split-shelf.choice-promote {
+  border-color: var(--accent);
+}
+.split-shelf.choice-merged,
+.split-shelf.choice-defer {
+  opacity: 0.8;
+}
+.split-choice,
+.split-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.split-actions .spacer {
+  flex: 1;
+}
+.split-child,
+.split-parent,
+.split-plan {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.split-field {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: start;
+  gap: 2px 8px;
+  font-size: 13px;
+}
+.split-field > span:first-child {
+  color: var(--text-dim);
+  padding-top: 4px;
+}
+.split-field > span:not(:first-child) {
+  grid-column: 2;
+  font-size: 12px;
+}
+.split-field input,
+.split-field textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 8px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.split-field input[aria-invalid='true'] {
+  border-color: var(--err);
+}
+.field-err {
+  color: var(--err);
+}
+.field-warn {
+  color: var(--warn);
+}
+.split-decision {
+  margin-top: 10px;
+}
+.split-history {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+.split-row.reverted {
+  opacity: 0.7;
+}
+.split-skip {
+  font-size: 12px;
+  margin: 2px 0;
+}
+.split-applied,
+.split-left,
+.split-fellows {
+  margin: 8px 0;
+}
+/* A shelf's tags beside its rank, set apart from the name so they never read as one (D7). */
+.split-tagged {
+  font-style: italic;
+}
+.split-key-hint {
+  margin: 0 0 4px;
+}
+.split-key-draft .btn {
+  margin: 0 2px;
+}
+.split-proposal select.split-merge {
+  margin-left: 4px;
+}
+@media (max-width: 560px) {
+  .split-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .split-field > span:not(:first-child) {
+    grid-column: 1;
+  }
 }
 .chip.verdict-new-domain {
   border-color: var(--ok);
@@ -5119,15 +5434,6 @@ kbd {
 .graph-workspace {
   flex: 1;
   height: auto;
-}
-.graph-workspace:has(> .ws-bar) {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-/* With a bar present the two columns belong to row 2; without one the single row is row 1
-   and these are ignored, because a grid-row beyond the template just creates it. */
-.graph-workspace:has(> .ws-bar) > .gpanel,
-.graph-workspace:has(> .ws-bar) > .graph-main {
-  grid-row: 2;
 }
 
 /* The content box: head, a body that scrolls inside itself, an optional foot. */
@@ -6237,6 +6543,26 @@ tr:focus-within .rowacts {
   text-overflow: ellipsis;
   max-width: 100%;
 }
+/* A run record's facts, wherever the record is shown (Home's pane or the detail box): every
+   value one face, one size, one line - eight slots, and a value that wrapped made the strip
+   uneven (2026-09-24). */
+.facts.record-facts {
+  /* Each slot as wide as what it says, the spare room shared: an equal-width grid cut the
+     start time off while the quotes slot stood half empty. */
+  display: flex;
+  flex-wrap: wrap;
+}
+.facts.record-facts .fact {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.facts.record-facts .v {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 /* What it wrote, or what it cited - the same band in the same place for both kinds, at one
    height whatever the chip count, so moving between them shifts nothing. */
 .chipband {
@@ -6567,6 +6893,251 @@ tr:focus-within .rowacts {
   margin-bottom: 10px;
 }
 
+/* ── The standing defect list, once a row had somewhere to go ──────────────────────────
+   Three blocks rather than one list (TASKS-DEFECT-PATHS decision 9): the first question a
+   reader has is "what can I get rid of without thinking about it", and rule chips never
+   answered it. A row is a button that opens its own body. */
+.defect-group {
+  margin-bottom: 14px;
+}
+.defect-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.defect-row {
+  border-top: 1px solid var(--border);
+}
+.defect-row:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.defect-line {
+  display: grid;
+  grid-template-columns: 9rem 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 2px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.defect-line:hover {
+  background: var(--bg-elev-2);
+}
+.defect-rule {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.defect-msg {
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.defect-row.open .defect-msg {
+  white-space: normal;
+}
+.defect-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.defect-body {
+  padding: 4px 2px 12px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.defect-where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.defect-label {
+  display: inline-block;
+  min-width: 3.5rem;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.defect-nolink {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.defect-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.defect-block {
+  min-width: 0;
+}
+.defect-block-label {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+/* Vault text, shown as the page has it: wrapped, never scrolled sideways, and never styled
+   as if the service had written it. */
+.defect-block-text {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-elev-2);
+  border-left: 2px solid var(--border-strong);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.defect-guidance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.defect-cost {
+  color: var(--text-dim);
+}
+.defect-limit {
+  color: var(--warn);
+}
+.defect-note,
+.defect-provenance {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+/* A row's actions: the button where a pass reaches this page, and the accept beside it. */
+.defect-buttons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* The accept, with its reason. Permanent and reasoned: a snooze would only postpone the
+   reading, and an accept without a reason is indistinguishable from neglect. */
+.defect-accept {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.defect-accept .input {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.defect-error {
+  font-size: 11px;
+  color: var(--err);
+}
+/* ── The repair panel and its diffs ────────────────────────────────────────────────────
+   The approval is of a DIFF, so the diff is the thing on the screen: one per page, with its
+   own checkbox, all checked by default. */
+.repair-panel {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+.repair-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.repair-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.repair-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+}
+.repair-page {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.repair-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.repair-rel {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.repair-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* Vault text as DATA: monospace, wrapped, never in the dashboard's own voice. */
+.diff {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.diff-line {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-line.add {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.diff-line.del {
+  background: var(--err-bg);
+  color: var(--err);
+}
+.diff-line.meta {
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+}
+.diff-line.ctx {
+  color: var(--text-dim);
+}
+
+/* An accepted row is a record rather than a working row: no expansion, no evidence. */
+.defect-line.static {
+  cursor: default;
+}
+.defect-line.static:hover {
+  background: none;
+}
+
 /* A value that is a problem rather than a fact: the vault guard the System panel reports. */
 .kv .v.bad {
   color: var(--err);
@@ -6879,6 +7450,18 @@ tr:focus-within .rowacts {
   min-height: 1em;
   color: var(--text-faint);
   opacity: 0.6;
+}
+/* In the table both are one block, no taller than the title line beside them (2026-09-24).
+   The link sat inline on the text baseline, where its 18px box pushed the line 1.5px past
+   the placeholder's: every row grew when the source index arrived, a second after the rows
+   did, and a table of 1300 rows moved by 30px at the twentieth and by more below it. */
+.lt-source .src-link,
+.lt-source .src-none {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 0;
 }
 
 /* The outcome of the run that just finished, in the same fixed head as the strip. */
@@ -10227,3 +10810,114 @@ tr:focus-within .rowacts {
 .setup-banner.demo .demo-sep {
   opacity: 0.6;
 }
+
+/* ── System restructure (proposal 2026-09-24) ────────────────────────────────
+   The column is the map of the machine room: four groups, one entry per place. The dot is
+   the entry's STATUS where it has one (a maintenance tool, the overview) and an empty ring
+   where it does not - the old column coloured every dot by whether it was selected, which
+   said nothing the row's own highlight did not already say. */
+.sys-nav .gp-sec { padding-bottom: 10px; }
+.sys-nav .gp-sec:first-child { padding-top: 10px; }
+.sys-nav .domlist { min-height: 0; flex: none; overflow: visible; }
+.sys-nav .domrow.lead { font-size: 13px; }
+.sys-nav .dot.sd-due { background: var(--warn); }
+.sys-nav .dot.sd-rec { background: var(--busy); }
+.sys-nav .dot.sd-ok { background: var(--ok); }
+.sys-nav .dot.sd-ring { background: transparent; box-shadow: inset 0 0 0 1.5px var(--border-strong); }
+.sys-nav .domrow .n.due { color: var(--warn); font-weight: 600; }
+.sys-nav .domrow .n.rec { color: var(--busy); font-weight: 600; }
+.sys-nav .domrow.active { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* Where you are, one click from where you came from. */
+.sys-crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  margin-right: -4px;
+}
+.sys-crumb:hover { color: var(--accent); }
+
+.maint.tool-only { display: block; }
+
+/* A tool's verdict: one line per status area under the box head, the severity chip first.
+   A strip rather than a card - the head already names the tool and its severity, this only
+   says why. */
+.sys-verdict {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+.sv-row {
+  display: grid;
+  grid-template-columns: 68px auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 16px;
+  font-size: 12.5px;
+}
+.sv-row + .sv-row { border-top: 1px dashed var(--border); }
+.sv-row .sev { justify-self: start; }
+.sv-title { font-weight: 600; white-space: nowrap; }
+.sv-why { color: var(--text-dim); min-width: 0; }
+.sv-cost { color: var(--text-faint); font-size: 11.5px; white-space: nowrap; }
+.sv-row.ok .sv-title { font-weight: 500; color: var(--text-dim); }
+
+/* Domains as three task cards: the split and candidate panels bring their own head, which
+   takes the card-head place inside a card of their own (the guided run keeps them inline). */
+.subcard.sc-pad > .domain-candidates { margin-top: 0; border-top: 0; padding-top: 0; }
+.subcard.sc-pad > .domain-candidates > .sc-head:first-child { margin: -12px -13px 12px; padding: 9px 13px; }
+.subcard.sc-pad > .domain-candidates > .sc-head .sc-title { font-size: 12.5px; }
+.subcard.sc-pad > .domain-candidates > .sc-head .candidate-actions { margin-left: auto; }
+.area-why { margin: 0 0 6px; font-size: 13px; color: var(--text-dim); }
+.split-history-toggle { justify-self: start; font-size: 12px; }
+/* The hot cache's contents, open by default: the card is where you read what every run reads. */
+.hot-cache { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.hot-cache .md { max-height: none; overflow: visible; }
+
+.sys-intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  max-width: 76ch;
+}
+.sys-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sys-toolbar .spacer { flex: 1; }
+.runlog th:first-child { width: 34px; padding-right: 0; }
+.sr-dot .hrow-dot { display: inline-block; vertical-align: middle; }
+.runlog .rt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runlog .rl-times { color: var(--text-faint); font-size: 12px; margin-left: 6px; }
+.runlog th:nth-child(3), .runlog th:nth-child(4) { width: 70px; }
+.runlog th:nth-child(5) { width: 96px; }
+.runlog th:nth-child(6) { width: 84px; }
+.runlog .rl-kind { color: var(--text-faint); }
+.runlog .rl-err { color: var(--err); }
+.sys-details summary { cursor: pointer; font-size: 12px; color: var(--text-faint); margin-top: 10px; }
+.sys-details[open] summary { margin-bottom: 6px; }
+
+/* Settings: one editor for every group, with the save bar pinned to the foot of the pane
+   so the state of an edit is never below the fold. */
+.settings-grouped .settings-grid { margin-top: 0; }
+.setting.dirty { box-shadow: inset 3px 0 0 var(--accent); padding-left: 12px; }
+.setting-tag.dirty { color: var(--accent-ink); background: var(--accent); }
+.sys-savebar {
+  position: sticky;
+  bottom: -22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px -16px -22px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.sys-savebar .spacer { flex: 1; }
+.sys-savebar.dirty { background: var(--accent-soft); color: var(--accent); font-weight: 500; }

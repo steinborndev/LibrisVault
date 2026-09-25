@@ -31,6 +31,8 @@ import { wingGroups, wingOf } from '../lib/wings.ts'
 import { useWingMode } from '../hooks/useWingMode.ts'
 import { queryState } from '../components/QueryState.tsx'
 import type { GraphNode, SourceRef } from '../api/types.ts'
+import { shelfChips, shelfPaths, shelfState, type ShelfKey } from '../lib/splitShelves.ts'
+import { clusterHue } from '../components/GraphCanvas.tsx'
 
 
 /** The sorts as three questions, two answers each - the shape the graph's View section has. */
@@ -97,6 +99,8 @@ export function Catalog({
   const [query, setQuery] = useState('')
   const [type, setType] = useState<string | null>(null)
   const [domain, setDomain] = useState<string | null | 'none'>(null)
+  /** A proposed shelf of the one domain on show (TASKS-DOMAIN-SPLIT 3.3), or null. */
+  const [shelf, setShelf] = useState<ShelfKey | null>(null)
   /** The deepening dialog for the domain currently filtered (docs/agents/ideas.md, 2026-09-07). */
   const [deepening, setDeepening] = useState(false)
   const [subset, setSubset] = useState<Subset>('all')
@@ -295,6 +299,30 @@ export function Catalog({
     if (target !== undefined) wingMode.setWing(target)
   }, [domain, wing, wings, wingMode])
 
+  /*
+   * The split proposal's chips (TASKS-DOMAIN-SPLIT 3.3), when exactly one domain is selected and
+   * it is big enough to be offered a split - the Graph overlay's own condition, so the two
+   * screens offer the same chips for the same domain. Asked only then; base product, no Fellow
+   * guard. The system subset lists no knowledge page, so it has no chips either.
+   */
+  const splitDomain = useMemo(() => {
+    if (domain === null || domain === 'none' || subset === 'system') return null
+    const st = shelfState(nodes ?? [], new Set([domain]), null)
+    return st.available ? st.domain : null
+  }, [domain, subset, nodes])
+  const splitQ = useQuery({
+    queryKey: ['domain-split', splitDomain, graph.data?.builtAt],
+    queryFn: () => api.domainSplit(splitDomain!),
+    enabled: splitDomain !== null,
+    staleTime: Infinity,
+  })
+  const proposal = splitDomain !== null && splitQ.data?.domain === splitDomain && splitQ.data.shelves.length > 0 ? splitQ.data : null
+  // A chip belongs to the domain it was picked in.
+  useEffect(() => {
+    setShelf(null)
+  }, [splitDomain])
+  const shelfSet = useMemo(() => (proposal !== null && shelf !== null ? shelfPaths(proposal, shelf) : null), [proposal, shelf])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const terms = q === '' ? [] : q.split(/\s+/)
@@ -304,6 +332,7 @@ export function Catalog({
       if (domain !== null && domain !== 'none' && n.domain !== domain) return false
       // The wing on show narrows the table until one of its domains is picked.
       if (domain === null && wingScope !== null && !wingScope.has(n.domain ?? '')) return false
+      if (shelfSet !== null && !shelfSet.has(n.path)) return false
       if (subset === 'orphans' && !isOrphan(n)) return false
       if (subset === 'stubs' && !isStub(n)) return false
       if (subset === 'sourced' && !hasSource(n, refs)) return false
@@ -322,7 +351,7 @@ export function Catalog({
      * sorting here as well would be a second implementation of it.
      */
     return list
-  }, [knowledge, query, type, domain, wingScope, subset, refs, kinds])
+  }, [knowledge, query, type, domain, wingScope, subset, refs, kinds, shelfSet])
 
   /*
    * Every match, in one list. It was paged in 50s and grew as you reached the bottom, which
@@ -342,6 +371,7 @@ export function Catalog({
     query !== '' ||
     type !== null ||
     domain !== null ||
+    shelf !== null ||
     subset !== 'all' ||
     kinds.size > 0 ||
     sort !== 'changed' ||
@@ -380,6 +410,7 @@ export function Catalog({
     setQuery('')
     setType(null)
     setDomain(null)
+    setShelf(null)
     setSubset('all')
     setKinds(new Set())
     setSort('changed')
@@ -433,6 +464,37 @@ export function Catalog({
             })}
           </div>
         </div>
+
+        {proposal !== null && (
+          <div className="gp-sec">
+            <div className="gp-head">
+              <span className="gp-eyebrow">Shelves</span>
+              <span className="spacer" />
+              <span className="gp-state" title="The split proposal for this domain: nothing is written">
+                {shelf === null ? 'proposed' : shelf === 'rest' ? 'rest' : `shelf ${shelf + 1}`}
+              </span>
+            </div>
+            {/* A chip per proposed shelf, in rank order, with the route's own counts. Named by
+                rank; the tags ride in the tooltip, never in the name (D7). */}
+            <div className="typechips stacked">
+              {shelfChips(proposal).map((c) => {
+                const active = shelf === c.key
+                return (
+                  <button
+                    key={String(c.key)}
+                    className={`chip${active ? ' active' : ''}${shelf !== null && !active ? ' dimmed' : ''}`}
+                    aria-pressed={active}
+                    onClick={() => setShelf(active ? null : c.key)}
+                    title={c.key === 'rest' ? 'The pages no shelf takes: they stay with the domain' : `Only this proposed shelf${c.hint ? ` (${c.hint})` : ''}`}
+                  >
+                    {c.key !== 'rest' && <span className="chip-dot" style={{ background: `hsl(${clusterHue(c.key)} 60% 55%)` }} aria-hidden />}
+                    {c.label} <span className="chip-n">{c.size}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="gp-sec">
           <div className="gp-head">
