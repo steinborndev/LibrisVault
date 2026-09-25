@@ -23,7 +23,8 @@ around a page the rest leads back to, with links across domains, source pages in
 five months of history, and the vault's own conventions kept (its validator found 5,096 breaches
 in the old one). Before, every page linked to its next few neighbours, which left the Landmarks
 overlay nothing to rank and Areas one community per domain. The seed also plants a dozen defects
-and records what the real validator finds, so the standing defect list has rows to show, and it
+and records what the real validator finds, so the standing defect list has rows to show, links its key documents, entities and open
+questions the way a real vault does, so the Landmarks overlay holds every page type, and it
 does the vault's first-start setup itself, so a read-only demo starts without a warning. All
 sixteen screenshots are re-shot from it. The seed takes about 11 s instead of 7.
 

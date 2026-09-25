@@ -197,6 +197,15 @@ cannot carry, 218 pages nothing linked to. It never showed, because nothing ever
         host's git hooks, signing and identity out of the demo's history.
       The host's side (refresh no longer as root, unit hardening, Caddy, sandboxed build) lives
       in the host's notes, tested on the box beside the running demo.
+- [x] **Landmarks of every page type** (2026-09-25, found on the deployed demo): its landmarks were
+      concepts only, 174 of 175, where the real vault's are 60 % concepts, 18 % sources, 14 %
+      entities and 8 % open questions. A landmark is a page many others link to, and only concepts
+      ever were. Each area now has a key document (a review of its hub; the first area's is the
+      domain's handbook) that most of its concepts name, a first entity most of them cite, and its
+      open questions linked from its pages; each domain has two flagship entities and a first
+      question linked from across it. The concept-to-concept links were thinned to keep the
+      density: now 67 % concepts, 13 % sources, 14 % entities, 6 % questions, 6.2 links a page,
+      a most-linked page with 114 inbound links.
 - [x] **Delivered 2026-09-25.** Merged as LibrisVault#18 (merge commit `81db6b0`, tag
       `demo-system-and-vault-2026-09-25` on both remotes), both CI runs green. The hosted demo
       was updated the same afternoon to that commit, built in a sandbox, reseeded by the new
