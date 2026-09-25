@@ -3538,104 +3538,123 @@ function LensLegend({
   /** In the Landmarks mode, the oldest and newest change on show - the ramp's two ends. */
   recency: { oldest: number; newest: number } | null
 }): React.ReactElement | null {
-  let body: React.ReactNode = null
-  if (lens === 'type') {
-    const rows = typeRows(types)
-    /*
-     * The legend holds its CORNER whatever is filtered (2026-09-16). It is anchored bottom and
-     * right, so its size is its position: a shorter list slid the heading down the canvas, and
-     * a narrower one slid every line of it sideways, on every chip - and the reader's eye
-     * follows a key that moves. So the box keeps the shape of the FULL offer. The types that
-     * are not drawn are still rendered, at the end and invisible, which holds both the height
-     * (one line each) and the width (their labels are what the box is as wide as). The drawn
-     * ones pack under the heading, and the list grows back downward as types return.
-     *
-     * Spacers rather than a fixed size, because a row's height is the font's to decide and the
-     * width is the longest label's - neither is a number this file should be guessing at.
-     */
-    const spare = typeRows(offered).filter((o) => !rows.some((r) => r.label === o.label))
-    body =
-      rows.length > 0 ? (
+  const bodyFor = (lens: Lens): React.ReactNode => {
+    let body: React.ReactNode = null
+    if (lens === 'type') {
+      const rows = typeRows(types)
+      /*
+       * The legend holds its CORNER whatever is filtered (2026-09-16). It is anchored bottom and
+       * right, so its size is its position: a shorter list slid the heading down the canvas, and
+       * a narrower one slid every line of it sideways, on every chip - and the reader's eye
+       * follows a key that moves. So the box keeps the shape of the FULL offer. The types that
+       * are not drawn are still rendered, at the end and invisible, which holds both the height
+       * (one line each) and the width (their labels are what the box is as wide as). The drawn
+       * ones pack under the heading, and the list grows back downward as types return.
+       *
+       * Spacers rather than a fixed size, because a row's height is the font's to decide and the
+       * width is the longest label's - neither is a number this file should be guessing at.
+       */
+      const spare = typeRows(offered).filter((o) => !rows.some((r) => r.label === o.label))
+      body =
+        rows.length > 0 ? (
+          <>
+            <span className="ll-title">Page type</span>
+            {rows.map((r) => (
+              <span className="ll-row" key={r.label}>
+                <i className="ll-sw" style={{ background: `var(${r.cssVar})` }} /> {r.label}
+              </span>
+            ))}
+            {spare.map((r) => (
+              <span className="ll-row ll-spare" key={r.label} aria-hidden>
+                <i className="ll-sw" /> {r.label}
+              </span>
+            ))}
+          </>
+        ) : null
+    } else if (lens === 'authority')
+      /*
+       * The bar carries the numbers it stands for (2026-09-16): the least and most linked page
+       * on screen, and the median between them. Each label sits at the position its value
+       * actually maps to, not at an even third, so reading a dot back off the bar is possible
+       * at all. The bar itself is the live ramp, in the filtered domain's own colour where
+       * there is one.
+       */
+      body = (
         <>
-          <span className="ll-title">Page type</span>
-          {rows.map((r) => (
-            <span className="ll-row" key={r.label}>
-              <i className="ll-sw" style={{ background: `var(${r.cssVar})` }} /> {r.label}
-            </span>
-          ))}
-          {spare.map((r) => (
-            <span className="ll-row ll-spare" key={r.label} aria-hidden>
-              <i className="ll-sw" /> {r.label}
-            </span>
-          ))}
-        </>
-      ) : null
-  } else if (lens === 'authority')
-    /*
-     * The bar carries the numbers it stands for (2026-09-16): the least and most linked page
-     * on screen, and the median between them. Each label sits at the position its value
-     * actually maps to, not at an even third, so reading a dot back off the bar is possible
-     * at all. The bar itself is the live ramp, in the filtered domain's own colour where
-     * there is one.
-     */
-    body = (
-      <>
-        <span className="ll-title">Authority</span>
-        <span className="ll-auth">
-          <i className="ll-grad ll-auth-bar" style={{ background: authorityGradient(authorityHue ?? accentNow(), darkNow()) }} />
-          <span className="ll-auth-ticks">
-            <span>{authority?.min ?? 0}</span>
-            <span>{authority?.median ?? 0}</span>
-            <span>{authority?.max ?? 0}</span>
-          </span>
-          <span className="ll-auth-cap">backlinks</span>
-        </span>
-      </>
-    )
-  else if (lens === 'orphans')
-    body = (
-      <>
-        <span className="ll-title">Orphans</span>
-        <span className="ll-row"><i className="ll-sw" style={{ background: 'var(--err)' }} /> no backlinks (unreachable)</span>
-      </>
-    )
-  else if (lens === 'stubs')
-    body = (
-      <>
-        <span className="ll-title">Stubs</span>
-        <span className="ll-row"><i className="ll-sw" style={{ background: 'var(--warn)' }} /> thin page (&lt; 1 KB)</span>
-      </>
-    )
-  else if (lens === 'recency')
-    body = (
-      <>
-        <span className="ll-title">Recency</span>
-        {recency === null ? (
-          <span className="ll-row">
-            <i className="ll-grad ll-recency" style={recencyHue === null ? undefined : { background: recencyGradient(recencyHue) }} /> older → changed
-            recently
-          </span>
-        ) : (
-          // Over the pages on show in the Landmarks mode: the ramp's ends are their dates.
+          <span className="ll-title">Authority</span>
           <span className="ll-auth">
-            <i className="ll-grad ll-auth-bar ll-recency" style={recencyHue === null ? undefined : { background: recencyGradient(recencyHue) }} />
+            <i className="ll-grad ll-auth-bar" style={{ background: authorityGradient(authorityHue ?? accentNow(), darkNow()) }} />
             <span className="ll-auth-ticks">
-              <span>{isoDay(recency.oldest)}</span>
-              <span>{isoDay(recency.newest)}</span>
+              <span>{authority?.min ?? 0}</span>
+              <span>{authority?.median ?? 0}</span>
+              <span>{authority?.max ?? 0}</span>
             </span>
-            <span className="ll-auth-cap">last changed</span>
+            <span className="ll-auth-cap">backlinks</span>
           </span>
-        )}
-      </>
-    )
-  if (body === null) return null
-  // Kept out of by the picture (GraphCanvas `keepOutBoxes`): a fit and the landmark spread stay clear of it.
+        </>
+      )
+    else if (lens === 'orphans')
+      body = (
+        <>
+          <span className="ll-title">Orphans</span>
+          <span className="ll-row"><i className="ll-sw" style={{ background: 'var(--err)' }} /> no backlinks (unreachable)</span>
+        </>
+      )
+    else if (lens === 'stubs')
+      body = (
+        <>
+          <span className="ll-title">Stubs</span>
+          <span className="ll-row"><i className="ll-sw" style={{ background: 'var(--warn)' }} /> thin page (&lt; 1 KB)</span>
+        </>
+      )
+    else if (lens === 'recency')
+      body = (
+        <>
+          <span className="ll-title">Recency</span>
+          {recency === null ? (
+            <span className="ll-row">
+              <i className="ll-grad ll-recency" style={recencyHue === null ? undefined : { background: recencyGradient(recencyHue) }} /> older → changed
+              recently
+            </span>
+          ) : (
+            // Over the pages on show in the Landmarks mode: the ramp's ends are their dates.
+            <span className="ll-auth">
+              <i className="ll-grad ll-auth-bar ll-recency" style={recencyHue === null ? undefined : { background: recencyGradient(recencyHue) }} />
+              <span className="ll-auth-ticks">
+                <span>{isoDay(recency.oldest)}</span>
+                <span>{isoDay(recency.newest)}</span>
+              </span>
+              <span className="ll-auth-cap">last changed</span>
+            </span>
+          )}
+        </>
+      )
+    return body
+  }
+  /*
+   * Every legend at once, stacked in one cell, the one in force visible and the rest hidden
+   * (2026-09-25, user decision). The cell is as large as the largest of them, so the box the
+   * picture keeps out of (GraphCanvas `keepOutBoxes`) is one size whatever the view - switching
+   * views used to resize it, and the fit and the landmark spread moved the picture with it.
+   * Hidden rather than absent for the same reason the page-type legend keeps its spare rows: a
+   * box sized by what is not drawn is the only box that does not move.
+   */
+  const bodies = LEGEND_LENSES.map((l) => [l, bodyFor(l)] as const).filter(([, b]) => b !== null)
+  if (bodies.length === 0) return null
   return (
-    <div className="lens-legend" data-keep-out>
-      {body}
+    <div className="lens-legend-slot" data-keep-out>
+      {bodies.map(([l, b]) => (
+        <div key={l} className={l === lens ? 'lens-legend' : 'lens-legend ll-ghost'} aria-hidden={l !== lens}>
+          {b}
+        </div>
+      ))}
     </div>
   )
 }
+
+/** The lenses that carry a legend - the domain lens has none, its colours are the panel's list. */
+const LEGEND_LENSES: readonly Lens[] = ['type', 'authority', 'recency', 'orphans', 'stubs']
+
 
 // ---------------------------------------------------------------------------- page view
 
