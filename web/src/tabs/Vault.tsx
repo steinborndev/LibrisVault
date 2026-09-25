@@ -1395,6 +1395,18 @@ function GraphView({
 
   // Subgraph index of the explorer selection, for the canvas ring + spotlight. Null when the
   // selected page/gap is currently filtered out of view (the panel still shows regardless).
+  /*
+   * The landmark list's row under the pointer (2026-09-25, user decision): its dot wears the
+   * selection's ring while the pointer rests on the row, as it does for the row the arrow keys
+   * reach - without taking the selection, which the arrows and the lock own. Only while the list
+   * is on screen: a row that unmounts under the pointer sends no mouseleave.
+   */
+  const [listHover, setListHover] = useState<string | null>(null)
+  const markIndex = useMemo(() => {
+    if (listHover === null || landmarkData === null) return null
+    const i = nodes.findIndex((n) => n.path === listHover)
+    return i >= 0 ? i : null
+  }, [listHover, landmarkData, nodes])
   const selectedIndex = useMemo(() => {
     if (selection === null) return null
     const wantPath = selection.kind === 'page' ? selection.path : `${GAP_PATH_PREFIX}${selection.title}`
@@ -2048,6 +2060,7 @@ function GraphView({
           edges={edges}
           focusIndex={focusIndex}
           selectedIndex={selectedIndex}
+          markIndex={markIndex}
           ghostIndices={ghostIndices}
           matches={matches}
           lens={effectiveLens}
@@ -2374,6 +2387,7 @@ function GraphView({
         {landmarkData !== null ? (
           <LandmarkList
             set={landmarkData}
+            onHover={setListHover}
             // The list follows the page-type chips (and every other filter) the drawing follows.
             shown={drawnPaths}
             titleOf={(path) => graph.nodes.find((n) => n.path === path)?.title ?? path}
@@ -2438,6 +2452,7 @@ function GraphView({
  */
 function LandmarkList({
   set,
+  onHover,
   titleOf,
   selected,
   bloom,
@@ -2448,6 +2463,8 @@ function LandmarkList({
   shown,
 }: {
   set: LandmarkSet
+  /** The row under the pointer, or null when it leaves the rows: its dot is marked on the canvas. */
+  onHover: (path: string | null) => void
   titleOf: (path: string) => string
   /** The selected page, or null - which is how a locked picture's list stands, without one. */
   selected: string | null
@@ -2533,7 +2550,7 @@ function LandmarkList({
               dot. The heading says what the numbers count, so they cannot be read as places in
               the domain's order. */}
           {neighbourhood.map((path, i) => (
-            <li key={path} className="lm-item">
+            <li key={path} className="lm-item" onMouseEnter={() => onHover(path)} onMouseLeave={() => onHover(null)}>
               <button
                 className={`lm-row lm-near${selected === path ? ' cur' : ''}`}
                 onClick={() => onPick(path)}
@@ -2565,7 +2582,7 @@ function LandmarkList({
           const size = visibleInChapter.get(chapter) ?? 0
           const on = selected === path
           return (
-            <li key={path} className="lm-item">
+            <li key={path} className="lm-item" onMouseEnter={() => onHover(path)} onMouseLeave={() => onHover(null)}>
               {/*
                 * From the second chapter on, a thin rule with a caption that says what the break
                 * MEANS. Deliberately not a heading: the largest domain here breaks into 36, 3
