@@ -87,3 +87,64 @@ must start on a vault it cannot write.
   four Fellows, and Research shows the seed's runs and conversations with the composer disabled.
   The service log carried the one expected warning and no error.
 - Still open here: re-shoot the README's room screenshot with the next screenshot round.
+
+## Second round (2026-09-25): a demo vault shaped like a real one
+
+Asked for together with bringing the hosted demo up to the build of LibrisVault#17: the demo vault
+should be about as large and as tangled as a real one, so the graph's filters show what they are
+for. Measured first, numbers only, against the author's vault (knowledge pages, the graph API, the
+same analysis the dashboard runs):
+
+| | real vault | demo before | demo after |
+|---|---|---|---|
+| knowledge pages / domains | 1,352 / 25 | 899 / 19 | 1,416 / 26 |
+| links per page | 5.7 | 5.0 | 5.0 |
+| most inbound links on one page | 131 | 15 | 116 |
+| links crossing a domain | 7.2 % | 0.7 % | 6.0 % |
+| distinct tags / used once | 470 / 106 | 75 / 6 | 283 / 96 |
+| Areas over the whole vault (distinct captions) | 40 (40) | 21 (20) | 41 (41) |
+| Areas in the deepest domain (distinct captions) | 14 (14) | 9 (4) | 14 (14) |
+| pages under the stub size | 14 | 269 | 15 |
+
+(26 domains in the last column counts `unassigned`, where one real research run files its pages.)
+
+What was wrong was the shape, not the size: every page linked to its next few neighbours in the
+topic list, so all pages had the same handful of links. No page stood out for the authority lens
+or the Landmarks overlay to rank, no sub-area existed for Areas to find (one community per domain,
+captioned by the same template tags), and almost nothing crossed a domain for Bridges to draw.
+
+- [x] **Topics in areas.** `scripts/demo-vault-topics.mjs` cuts each domain into areas; an area's
+      first concept is its hub, the first area's hub is the domain's. Every existing title kept;
+      seven new domains (ecology, epidemiology, geology, beekeeping, horology, glassmaking,
+      bookbinding), about 120 new concepts and 135 new entities, each entity with a kind. Six
+      existing entity titles that named or closely mirrored a real mission, programme, product or
+      catalogue were replaced by generic ones.
+- [x] **The link model.** A seeded generator; links to the area hub, preferentially to an area's
+      early pages, laterally within the area, into sibling areas, to the domain hub, and into
+      neighbouring domains along `NEIGHBOURS`. Probabilities in `P`, tuned against the table
+      above. Two orphans on purpose.
+- [x] **Sources in forms.** Paper, preprint, lecture, video, podcast, trade press, blog, report,
+      each as a tag. Most are the kind of tag the graph keeps out of captions
+      (`web/src/lib/tagSignal.ts`), so the demo now shows that rule working.
+- [x] **Tags.** Area tag on every page, the domain's secondary tags scattered per page (per area
+      they captioned the wrong areas), and a tag of its own on about one concept in seven.
+- [x] **Time.** Five months instead of 74 days, and an area is read in a stretch around a time of
+      its own, so the recency colours differ between the areas of one domain.
+- [x] **Stubs.** Source and entity pages get one more rotating paragraph; they were under the
+      1 KB stub size almost all, which put the stub count at 40 % of the vault. One entity in 25
+      stays short on purpose.
+- [x] **Seeded records name their pages.** The Fellow runs, the recaps and the saved
+      conversations used to cite whatever concepts came next in build order (a climate Fellow's
+      run listed spectrograph pages); they now name their pages by title, and a missing title fails
+      the build.
+- [x] **Screenshots**: all sixteen re-shot from the new vault on 8422 and looked at.
+- [x] **Checked in demo mode**, read-only vault, `DEMO_MODE=1 AGENTS_ENABLED=1`, current build:
+      start-up clean with the two expected read-only warnings; every screen and every System
+      section without a failed request or a console error; Landmarks, Areas, Recency and Authority
+      on the new vault; the new write routes refused by the guard.
+- [x] **Private-content check**: `vault-name-scan` over the topics file finds the same four
+      textbook terms as over the previous, public version; every new title read by hand.
+- [x] Gates: `npm test` (2,090 + 800), `npm run typecheck`, `npm run lint`, all exit 0.
+- [ ] Merge, the pull request into LibrisVault, and the hosted demo's update (the host's notes
+      carry the procedure): each waits for the user's go.
+

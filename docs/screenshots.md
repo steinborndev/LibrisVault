@@ -4,7 +4,7 @@ Every image under `docs/img/` is shot from a **synthetic vault**, so nothing pri
 and the set can be re-shot whenever the UI changes.
 
 ```bash
-# 1. Build a throwaway vault (~900 pages over 18 domains, backdated git history)
+# 1. Build a throwaway vault (~1,400 pages over 25 domains, backdated git history)
 node scripts/demo-vault.mjs
 
 # 2. Serve it on a spare port. TELEGRAM_BOT_TOKEN= is REQUIRED: without it this process picks the
@@ -21,7 +21,7 @@ cd server && VAULT_ROOT=~/.local/share/vault-service/demo-vault \
 ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome --headless --disable-gpu --no-sandbox \
   --remote-debugging-port=9333 --user-data-dir=/tmp/shoot-profile about:blank &
 
-# 4. Shoot the screens at 2x into docs/img/ (fourteen; BASE_URL must match the port).
+# 4. Shoot the screens at 2x into docs/img/ (sixteen; BASE_URL must match the port).
 #    ONLY=home.png re-shoots a single one.
 BASE_URL=http://127.0.0.1:8422 node --experimental-websocket scripts/shoot-screens.mjs
 ```
@@ -43,10 +43,14 @@ restore it. A synthesis page is what the research function produces, and an inve
 shape where the real one shows an argument. Those pages name real papers, patents and companies, all
 public, none from anyone's private notes.
 
-The vault is deliberately neither small nor tidy: ~900 pages, ~4,500 links, one domain far deeper
-than the rest, stubs and gaps left in, pages dated in reading order rather than build order. Subject
-matter lives in `scripts/demo-vault-topics.mjs`. Stop the demo process by PID when you are done - a
-`pkill` on the binary name would take the real service with it.
+The vault is deliberately neither small nor tidy: ~1,400 pages, ~7,000 links, 25 domains with one
+far deeper than the rest, each cut into sub-areas around a page the rest leads back to, about 6 %
+of the links crossing a domain, a long tail of tags that occur once, two orphans, stubs and gaps
+left in, pages dated in reading order rather than build order. Those numbers follow a real vault of
+about the same size (2026-09-25), because the Landmarks, Areas and Bridges overlays only show what
+they are for on a graph with that uneven shape. Subject matter lives in
+`scripts/demo-vault-topics.mjs`. Stop the demo process by PID when you are done - a `pkill` on the
+binary name would take the real service with it.
 
 `scripts/probe-screens.mjs` uses the same headless browser to open every screen and report what
 came up, which is the check a green build cannot make: a shared component that always returned an

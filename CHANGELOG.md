@@ -8,6 +8,16 @@ was and the day it landed. The entries below are those merges, newest first. The
 journals under `docs/tasks/` carry the detail, findings and dead ends included; this file carries
 only what a reader outside the work needs to know.
 
+## 2026-09-25 - a demo vault shaped like a real one
+
+Only the synthetic vault changes, which the screenshots and the hosted demo are built from; the
+service does not. `scripts/demo-vault.mjs` now builds about 1,400 pages over 25 domains, each cut
+into sub-areas around a page the rest leads back to, with links across domains, source pages in
+several forms and a long tail of tags, tuned against the numbers of a real vault of that size.
+Before, every page linked to its next few neighbours in the topic list, which left the Landmarks
+overlay nothing to rank and the Areas overlay one community per domain, most of them captioned
+alike. All sixteen screenshots are re-shot from it. The seed takes about 11 s instead of 7.
+
 ## 2026-09-25 - the graph's Landmarks and Areas, and System as a map
 
 The graph could colour and filter a domain but not say what it is built around; this adds an
