@@ -336,7 +336,7 @@ export class JobStore {
 
   listByStatus(status: JobStatus): JobRow[] {
     return this.db
-      .prepare('SELECT * FROM jobs WHERE status = ? ORDER BY created_at')
+      .prepare('SELECT * FROM jobs WHERE status = ? ORDER BY created_at, rowid')
       .all(status) as JobRow[]
   }
 
@@ -520,12 +520,12 @@ export class JobStore {
 
   /** The queued jobs waiting for this moment, oldest first. */
   held(hold: JobHold): JobRow[] {
-    return this.db.prepare("SELECT * FROM jobs WHERE status = 'queued' AND hold = ? ORDER BY created_at").all(hold) as JobRow[]
+    return this.db.prepare("SELECT * FROM jobs WHERE status = 'queued' AND hold = ? ORDER BY created_at, rowid").all(hold) as JobRow[]
   }
 
   /** The jobs the night shift released that are not through yet, oldest first (v26). */
   nightReleased(): JobRow[] {
-    return this.db.prepare('SELECT * FROM jobs WHERE night_released_at IS NOT NULL ORDER BY created_at').all() as JobRow[]
+    return this.db.prepare('SELECT * FROM jobs WHERE night_released_at IS NOT NULL ORDER BY created_at, rowid').all() as JobRow[]
   }
 
   /** The job is through: it leaves tonight's ingest queue (v26). A no-op for any other job. */
@@ -574,7 +574,7 @@ export class JobStore {
       // (SPEC.md §4.1). Only standalone jobs are claimed here.
       // A held job is queued but not claimable: it waits for its moment (v24).
       const next = this.db
-        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL AND hold IS NULL ORDER BY created_at LIMIT 1")
+        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL AND hold IS NULL ORDER BY created_at, rowid LIMIT 1")
         .get() as { id: string } | undefined
       if (next === undefined) return undefined
       return this.transition(next.id, 'preprocessing', { log: 'claimed by worker' })
@@ -592,7 +592,7 @@ export class JobStore {
    */
   interruptedJobs(): JobRow[] {
     return this.db
-      .prepare("SELECT * FROM jobs WHERE status IN ('preprocessing', 'ingesting') ORDER BY created_at")
+      .prepare("SELECT * FROM jobs WHERE status IN ('preprocessing', 'ingesting') ORDER BY created_at, rowid")
       .all() as JobRow[]
   }
 
@@ -646,7 +646,7 @@ export class JobStore {
   /** All members of one batch, creation order — the completion notification needs the full set (SPEC.md §4.3). */
   byBatch(batchId: string): JobRow[] {
     return this.db
-      .prepare('SELECT * FROM jobs WHERE batch_id = ? ORDER BY created_at')
+      .prepare('SELECT * FROM jobs WHERE batch_id = ? ORDER BY created_at, rowid')
       .all(batchId) as JobRow[]
   }
 

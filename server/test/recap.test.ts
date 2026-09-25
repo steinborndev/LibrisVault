@@ -470,7 +470,10 @@ describe('recap service end to end', () => {
   beforeEach(() => {
     h = makeHarness()
   })
-  afterEach(() => {
+  afterEach(async () => {
+    // A settled run leaves its notebook rewrite running (FellowService.flush); the vault goes
+    // only once that commit is done, or the teardown deletes a .git it is writing.
+    await h.service.flush()
     h.db.close()
     fs.rmSync(h.vaultRoot, { recursive: true, force: true })
   })
@@ -621,7 +624,10 @@ describe('the newest recap keeps its decision half current', () => {
   beforeEach(() => {
     h = makeHarness()
   })
-  afterEach(() => {
+  afterEach(async () => {
+    // A settled run leaves its notebook rewrite running (FellowService.flush); the vault goes
+    // only once that commit is done, or the teardown deletes a .git it is writing.
+    await h.service.flush()
     h.db.close()
     fs.rmSync(h.vaultRoot, { recursive: true, force: true })
   })
@@ -824,6 +830,7 @@ describe('recap and value routes', () => {
   })
   afterEach(async () => {
     await app.close()
+    await h.service.flush()
     h.db.close()
     fs.rmSync(h.vaultRoot, { recursive: true, force: true })
   })
