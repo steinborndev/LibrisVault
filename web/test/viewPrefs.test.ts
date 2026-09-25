@@ -40,6 +40,7 @@ describe('loadViewPrefs', () => {
         spotlight: true,
         showSystem: true,
         landmarks: 'alpha',
+        landmarksOn: true,
       }),
     )
     expect(loadViewPrefs()).toEqual({
@@ -52,6 +53,7 @@ describe('loadViewPrefs', () => {
       spotlight: true,
       showSystem: true,
       landmarks: 'alpha',
+      landmarksOn: true,
     })
   })
 
@@ -74,6 +76,17 @@ describe('loadViewPrefs', () => {
     // The open bloom is deliberately nowhere here: it is exploration, and the prefs hold
     // preferences.
     expect(JSON.stringify(loadViewPrefs())).not.toContain('bloom')
+  })
+
+  it('keeps the Landmarks switch apart from the domain it shows', () => {
+    // The switch stays on across a change of domain and rests where the overlay cannot show
+    // (2026-09-25), so "on" is a field of its own. A payload from before it has none.
+    store.set('vault.graphPrefs', JSON.stringify({ v: 2, landmarks: null, landmarksOn: true }))
+    expect(loadViewPrefs().landmarksOn).toBe(true)
+    store.set('vault.graphPrefs', JSON.stringify({ v: 2, landmarks: 'alpha' }))
+    expect(loadViewPrefs().landmarksOn).toBeUndefined()
+    store.set('vault.graphPrefs', JSON.stringify({ v: 2, landmarksOn: 'yes' }))
+    expect(loadViewPrefs().landmarksOn).toBeUndefined()
   })
 
   it('rejects a payload with the wrong version wholesale', () => {

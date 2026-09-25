@@ -236,10 +236,24 @@ list has gaps in its numbering (1, 2, 3, 4, 6, 11 … with Concepts only) rather
 count that disagrees with the picture. A chapter rule stands only before a chapter that still
 has a row, and counts what is shown.
 
-**When the condition falls away.** A second domain picked, the chips cleared, a room turned:
+**When the condition falls away** (superseded 2026-09-25, see below). A second domain picked, the chips cleared, a room turned:
 the mode goes off, the neighbourhood with it, and the list is gone. Not latent, not remembered.
 It already turns the other overlays off when it comes on, so it must not be the one that lives
 on invisibly; and the way back is one press of a switch standing where it was.
+
+**The switch follows the domain (2026-09-25, user decision; supersedes the paragraph above).**
+Walking the domains with the arrow keys turned the mode off at the first step, because the
+domain on show was no longer the one it was on for; and nine of this vault's twenty-five domains
+are below the bar, so even a mode that followed along would have been lost at the first small
+one. The switch now holds the intent and the domain is derived: the overlay shows on the one
+domain in view whenever that domain clears the bar, and RESTS where it does not (a small domain,
+no domain, several). Resting is not the invisible latency the old paragraph ruled out: the switch
+stays on and pressable, and its row gives the reason ("Only 7 pages here"). A change of domain
+closes the neighbourhood, which belongs to one. Everything else that ended the mode still ends
+it, now also while it rests: Spotlight, a drill-down, a local depth, a search, Esc while it
+shows, the reset, and Areas or Bridges switched on while it rests (a later choice of the user's,
+which the next domain must not take back). The prefs carry the switch as `landmarksOn` beside
+the domain; a payload without it reads as on exactly when a domain was stored.
 
 The mode also yields in the other direction: switching on any of the things it excludes turns it
 off, which the "turning it on turns them off" rule only covers in one order. That is not
