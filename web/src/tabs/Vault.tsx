@@ -209,6 +209,13 @@ interface ViewPrefs {
    * to its default; the bump is reserved for a field whose meaning flipped.
    */
   landmarks: string | null
+  /**
+   * Whether the Landmarks switch is ON, which since 2026-09-25 is not the same as the overlay
+   * showing: the switch stays on across a change of domain and the overlay follows it, resting
+   * on a domain it cannot say anything about (see `landmarkOn` in GraphView). Absent in older
+   * payloads, where an overlay that was on is a switch that was on.
+   */
+  landmarksOn: boolean
 }
 
 /** loadViewPrefs result: every field optional AND possibly explicitly undefined (validation
@@ -237,6 +244,7 @@ export function loadViewPrefs(): LoadedPrefs {
       spotlight: bool(o.spotlight),
       showSystem: bool(o.showSystem),
       landmarks: o.landmarks === null || typeof o.landmarks === 'string' ? o.landmarks : undefined,
+      landmarksOn: bool(o.landmarksOn),
     }
   } catch {
     return {} // storage unavailable (private mode) or corrupt JSON - defaults win
@@ -291,6 +299,7 @@ const viewMemory = {
   clusterStack: [] as readonly ClusterFocus[],
   showSystem: savedPrefs.showSystem ?? false,
   landmarks: savedPrefs.landmarks ?? null,
+  landmarksOn: savedPrefs.landmarksOn ?? (savedPrefs.landmarks != null),
   bloom: null as string | null,
   selection: null as Selection,
   trail: [] as string[],
@@ -318,6 +327,7 @@ function saveViewPrefs(): void {
     spotlight: viewMemory.spotlight,
     showSystem: viewMemory.showSystem,
     landmarks: viewMemory.landmarks,
+    landmarksOn: viewMemory.landmarksOn,
   }
   const json = JSON.stringify(prefs)
   if (json === lastSavedPrefs) return
@@ -526,12 +536,14 @@ function GraphView({
    */
   const [showSystem, setShowSystem] = useState(viewMemory.showSystem)
   /**
-   * Landmarks (docs/tasks/TASKS-LANDMARKS.md): the DOMAIN the overlay is on for, or null when it
-   * is off. The domain rather than a boolean, because the mode is scoped to one - the same
-   * reason the lock's record carries one - and because "the domain on show has changed" is then
-   * a comparison rather than a second piece of state that has to agree with the first.
+   * Landmarks (docs/tasks/TASKS-LANDMARKS.md): whether the switch is ON. The domain it shows is
+   * DERIVED (`landmarkDomain`, below): the one domain on show, when that domain can carry the
+   * overlay. Since 2026-09-25 (user decision) a change of domain does not turn the switch off -
+   * walking the domains with the arrow keys keeps the overlay on and it follows along. Where it
+   * cannot say anything (a small domain, no domain or several on show) it rests: the switch
+   * stays on, its row gives the reason, and the next domain that clears the bar has it again.
    */
-  const [landmarkDomain, setLandmarkDomain] = useState<string | null>(viewMemory.landmarks)
+  const [landmarkOn, setLandmarkOn] = useState<boolean>(viewMemory.landmarksOn)
   /** The expanded landmark, by path: one neighbourhood at a time. Exploration, not a preference. */
   const [bloom, setBloom] = useState<string | null>(viewMemory.bloom)
   /*
@@ -539,8 +551,7 @@ function GraphView({
    * function reactive, and it is a dependency of the one-shot `?select=` effect, which must not
    * re-run because an overlay was switched. The same latest-value idiom as `frozenRef`.
    */
-  const landmarkRef = useRef(landmarkDomain)
-  landmarkRef.current = landmarkDomain
+  const landmarkRef = useRef<string | null>(null)
   /** One neighbourhood at a time, and a second click on the same landmark drops it. */
   const showBloom = (path: string | null): void => {
     setBloom((b) => (path !== null && b === path ? null : path))
@@ -624,6 +635,7 @@ function GraphView({
       clusterStack,
       showSystem,
       landmarks: landmarkDomain,
+      landmarksOn: landmarkOn,
       bloom,
       selection,
       trail,
@@ -759,13 +771,19 @@ function GraphView({
     () => landmarkState(graph.nodes, selectedDomains, wingScope),
     [graph.nodes, selectedDomains, wingScope],
   )
+  /** The domain the overlay shows, or null when it is off or resting. */
+  const landmarkDomain = landmarkOn && landmarkAvail.available ? landmarkAvail.domain : null
+  landmarkRef.current = landmarkDomain
+  /** On, with nothing it can show on the domain in view: the switch holds, the picture is plain. */
+  const landmarkResting = landmarkOn && landmarkDomain === null
   /*
    * The mode yields, in both directions.
    *
-   * When its condition falls away - a second domain picked, the chips cleared, a room turned -
-   * it goes off and the bloom with it: not latent, not remembered, because it already turns
-   * three other modes off when it comes on and must not be the one that lives on invisibly. The
-   * way back is one press of a switch standing where it was.
+   * When its condition falls away - a second domain picked, the chips cleared, a small domain
+   * stepped onto - it RESTS rather than going off (2026-09-25, user decision; until then it went
+   * off, and walking the domains with the arrow keys lost it at the first small one). Resting is
+   * not invisible: the switch stays on and its row says why nothing is drawn. The bloom goes
+   * whenever the domain on show changes, because a neighbourhood belongs to one domain.
    *
    * And it steps aside for the three things it excludes whenever one of them is switched on
    * AFTER it, which the "turning it on turns them off" rule only covers in the other order. That
@@ -773,7 +791,8 @@ function GraphView({
    * both would be written and then refused on the way back.
    */
   /*
-   * Areas cannot say anything true here, so it goes off and stays off - by a rule rather than by
+   * Areas cannot say anything true here, so it goes off and stays off while the overlay shows -
+   * by a rule rather than by
    * the switch alone, which is what covers a restored lock and a restored preference. A hull is
    * the AREA of a community, and the mask draws about a tenth of each one: measured over the
    * largest domain, the six hulls that would be drawn hold 8 to 14 per cent of their community,
@@ -787,14 +806,28 @@ function GraphView({
     if (showNetwork) setShowNetwork(false)
   }, [landmarkDomain, showClusters, showNetwork])
 
+  // While it rests, Areas and Bridges are free to switch on - and one that does is the user's
+  // later choice, so the switch gives way rather than taking it back on the next domain.
   useEffect(() => {
-    if (landmarkDomain === null) return
-    const lost = !landmarkAvail.available || landmarkAvail.domain !== landmarkDomain
-    if (lost || spotlight || clusterStack.length > 0 || localDepth > 0 || query.trim() !== '') {
-      setLandmarkDomain(null)
+    if (landmarkResting && (showClusters || showNetwork)) setLandmarkOn(false)
+  }, [landmarkResting, showClusters, showNetwork])
+
+  useEffect(() => {
+    if (!landmarkOn) return
+    if (spotlight || clusterStack.length > 0 || localDepth > 0 || query.trim() !== '') {
+      setLandmarkOn(false)
       showBloom(null)
     }
-  }, [landmarkDomain, landmarkAvail, spotlight, clusterStack.length, localDepth, query])
+  }, [landmarkOn, spotlight, clusterStack.length, localDepth, query])
+
+  // A neighbourhood belongs to its domain: a step to another one (or to none) closes it. The
+  // first render compares against itself, so a bloom restored with its domain stays open.
+  const bloomDomainRef = useRef(landmarkDomain)
+  useEffect(() => {
+    if (bloomDomainRef.current === landmarkDomain) return
+    bloomDomainRef.current = landmarkDomain
+    showBloom(null)
+  }, [landmarkDomain])
 
   /**
    * The set, the order, the chapters and the connectors - over the DOMAIN rather than over the
@@ -1357,16 +1390,17 @@ function GraphView({
     setShowNetwork(false)
     // No trail in this mode, so none is left behind when it comes on.
     setTrail([])
-    if (landmarkDomain !== null) {
-      setLandmarkDomain(null)
+    if (landmarkOn) {
+      setLandmarkOn(false)
       return
     }
     if (!landmarkAvail.available) return
     setSpotlight(false)
     setClusterStack([])
     setLocalDepth(0)
-    setLandmarkDomain(landmarkAvail.domain)
+    setLandmarkOn(true)
   }
+
 
   /** What the "System pages" toggle would add - the number it shows has to be that. */
   const systemCount = useMemo(() => graph.nodes.filter((n) => !isKnowledge(n)).length, [graph])
@@ -1436,7 +1470,7 @@ function GraphView({
     // the drawing, so a reset that left it on would leave the graph saying a number nobody
     // asked for - and it is the switch you are least likely to remember pressing.
     setShowSystem(false)
-    setLandmarkDomain(null)
+    setLandmarkOn(false)
     showBloom(null)
     setClusterStack([])
     setLocalDepth(0)
@@ -1516,7 +1550,7 @@ function GraphView({
     const heldScope = f.wingMode === 'wing' && f.wing !== null ? new Set(wings.find((g) => g.id === f.wing)?.domains ?? []) : null
     const state = landmarkState(graph.nodes, new Set(f.selectedDomains), heldScope)
     const ok = f.landmarks !== null && state.available && state.domain === f.landmarks.domain
-    setLandmarkDomain(ok ? f.landmarks!.domain : null)
+    setLandmarkOn(ok)
     setBloom(ok ? f.landmarks!.bloom : null)
     closeExplorer()
     navigate(f.focusPath === null ? '/graph' : `/graph?focus=${encodeURIComponent(f.focusPath)}`, { replace: true })
@@ -1650,7 +1684,7 @@ function GraphView({
       // The mode itself sits immediately before the cluster stack, as the ladder does. Every
       // rung below it is inert while it is on, because it turned them off.
       else if (selection !== null) closeExplorer()
-      else if (landmarkDomain !== null) setLandmarkDomain(null)
+      else if (landmarkDomain !== null) setLandmarkOn(false)
       else if (areaAt !== null) setAreaAt(null) // one area on show: back to all of them
       else if (clusterStack.length > 0) setClusterStack((prev) => prev.slice(0, -1)) // pop one level
       else if (showGaps) setShowGaps(false)
@@ -1836,6 +1870,7 @@ function GraphView({
           spotlight={spotlight}
           onSpotlight={() => setSpotlight((v) => !v)}
           landmarks={landmarkDomain !== null}
+          landmarkResting={landmarkResting}
           onLandmarks={toggleLandmarks}
           landmarkReason={landmarkAvail.available ? null : landmarkAvail.reason}
           landmarkWhy={landmarkAvail.available ? null : landmarkAvail.why}
@@ -2906,6 +2941,7 @@ function GraphPanel({
   spotlight,
   onSpotlight,
   landmarks,
+  landmarkResting,
   onLandmarks,
   landmarkReason,
   landmarkWhy,
@@ -2948,6 +2984,8 @@ function GraphPanel({
   spotlight: boolean
   onSpotlight: () => void
   landmarks: boolean
+  /** The switch is on, but the domain in view cannot carry the overlay: it holds, drawing nothing. */
+  landmarkResting: boolean
   onLandmarks: () => void
   /** Why the overlay cannot be switched on, in one line, or null when it can. */
   landmarkReason: string | null
@@ -3058,13 +3096,16 @@ function GraphPanel({
               and it turns Spotlight, Areas and Bridges off when it comes on. Usually grey - ten of this
               vault's twenty-two domains clear its bar at all - and the reason line carries it. */}
           <RowToggle
-            on={landmarks}
+            on={landmarks || landmarkResting}
             onToggle={onLandmarks}
             name="Landmarks"
             desc={landmarkReason ?? 'key articles of the domain'}
-            disabled={landmarkReason !== null}
+            // Resting, it stays pressable: the way to turn off a switch that is on.
+            disabled={landmarkReason !== null && !landmarkResting}
             title={
-              landmarkWhy ??
+              (landmarkWhy !== null && landmarkResting
+                ? `${landmarkWhy} Stays on, and comes back with the next domain that has enough pages.`
+                : landmarkWhy) ??
               'Draw only the pages this domain is built around, and what connects them, with a reading order beside the picture. Click a landmark for its neighbourhood; Esc drops it. Turns Spotlight, Areas and Bridges off.'
             }
           />
