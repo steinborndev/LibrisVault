@@ -197,5 +197,9 @@ cannot carry, 218 pages nothing linked to. It never showed, because nothing ever
         host's git hooks, signing and identity out of the demo's history.
       The host's side (refresh no longer as root, unit hardening, Caddy, sandboxed build) lives
       in the host's notes, tested on the box beside the running demo.
-- [ ] Merge, the pull request into LibrisVault, and the hosted demo's update (the host's notes
-      carry the procedure): each waits for the user's go.
+- [x] **Delivered 2026-09-25.** Merged as LibrisVault#18 (merge commit `81db6b0`, tag
+      `demo-system-and-vault-2026-09-25` on both remotes), both CI runs green. The hosted demo
+      was updated the same afternoon to that commit, built in a sandbox, reseeded by the new
+      refresh unit, and hardened on the host side (the host's notes record it); checked from
+      outside and in a browser. `systemd-analyze security` for the demo unit went from 7.9 to
+      1.3. The case study on the author's site carries this build's numbers.
