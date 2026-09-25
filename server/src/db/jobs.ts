@@ -336,7 +336,7 @@ export class JobStore {
 
   listByStatus(status: JobStatus): JobRow[] {
     return this.db
-      .prepare('SELECT * FROM jobs WHERE status = ? ORDER BY created_at, rowid')
+      .prepare('SELECT * FROM jobs WHERE status = ? ORDER BY rowid')
       .all(status) as JobRow[]
   }
 
@@ -518,14 +518,23 @@ export class JobStore {
     return (this.db.prepare("SELECT COUNT(*) n FROM jobs WHERE status = 'queued' AND hold IS NULL").get() as { n: number }).n
   }
 
+  /*
+   * THE QUEUE'S ORDER IS THE ORDER OF INSERTION (2026-09-25, user decision): every read that
+   * decides what runs next - the next claim, the held and night-released jobs, an interrupted
+   * run's recovery, a batch's members - orders by `rowid`, not `created_at`. A timestamp is the
+   * wall clock's, and the clock steps back under load (measured on this WSL host: three steps of
+   * up to 1.2s in 90 seconds), so two drops a moment apart could run in the wrong order. The
+   * rowid is SQLite's own insertion counter; the service runs no VACUUM, the one thing that may
+   * renumber it. Lists that only SHOW jobs by date still sort by `created_at`.
+   */
   /** The queued jobs waiting for this moment, oldest first. */
   held(hold: JobHold): JobRow[] {
-    return this.db.prepare("SELECT * FROM jobs WHERE status = 'queued' AND hold = ? ORDER BY created_at, rowid").all(hold) as JobRow[]
+    return this.db.prepare("SELECT * FROM jobs WHERE status = 'queued' AND hold = ? ORDER BY rowid").all(hold) as JobRow[]
   }
 
   /** The jobs the night shift released that are not through yet, oldest first (v26). */
   nightReleased(): JobRow[] {
-    return this.db.prepare('SELECT * FROM jobs WHERE night_released_at IS NOT NULL ORDER BY created_at, rowid').all() as JobRow[]
+    return this.db.prepare('SELECT * FROM jobs WHERE night_released_at IS NOT NULL ORDER BY rowid').all() as JobRow[]
   }
 
   /** The job is through: it leaves tonight's ingest queue (v26). A no-op for any other job. */
@@ -574,7 +583,7 @@ export class JobStore {
       // (SPEC.md §4.1). Only standalone jobs are claimed here.
       // A held job is queued but not claimable: it waits for its moment (v24).
       const next = this.db
-        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL AND hold IS NULL ORDER BY created_at, rowid LIMIT 1")
+        .prepare("SELECT id FROM jobs WHERE status = 'queued' AND batch_id IS NULL AND hold IS NULL ORDER BY rowid LIMIT 1")
         .get() as { id: string } | undefined
       if (next === undefined) return undefined
       return this.transition(next.id, 'preprocessing', { log: 'claimed by worker' })
@@ -592,7 +601,7 @@ export class JobStore {
    */
   interruptedJobs(): JobRow[] {
     return this.db
-      .prepare("SELECT * FROM jobs WHERE status IN ('preprocessing', 'ingesting') ORDER BY created_at, rowid")
+      .prepare("SELECT * FROM jobs WHERE status IN ('preprocessing', 'ingesting') ORDER BY rowid")
       .all() as JobRow[]
   }
 
@@ -646,7 +655,7 @@ export class JobStore {
   /** All members of one batch, creation order — the completion notification needs the full set (SPEC.md §4.3). */
   byBatch(batchId: string): JobRow[] {
     return this.db
-      .prepare('SELECT * FROM jobs WHERE batch_id = ? ORDER BY created_at, rowid')
+      .prepare('SELECT * FROM jobs WHERE batch_id = ? ORDER BY rowid')
       .all(batchId) as JobRow[]
   }
 
