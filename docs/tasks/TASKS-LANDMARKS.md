@@ -119,11 +119,11 @@ and the three surfaces say so together:
 - the PICTURE is that neighbourhood and nothing else: every other landmark and connector is off
   the drawing, not dimmed. Remains of the other view inside a frame drawn around one page are a
   second picture the reader has to look past, and a dimmed label is still a label. The selected
-  page wears the LIBRARY'S RIM - its warm light at its own 1.6px, the same edge the room puts
-  along whatever is being pointed at - because an accent ring is blue on a blue-black canvas and
-  reads as one more circle among forty of the same colour. A darker halo goes under it for the
-  light theme, where a warm white edge would otherwise vanish, which is what the label pass
-  already does for text;
+  page, and the landmark a neighbourhood is around, wear the INK RING (2026-09-25, user
+  decision; the Library's warm rim before, which all but vanished on the light theme): a gap in
+  the ground colour and a 2.5px ring in the text colour, the same mark as a selection anywhere
+  on the graph. The text colour belongs to no domain, type or ramp, so it reads in every view;
+  an accent ring would be one more blue circle beside the search rings and the concept dots;
 - the HEADING names it after the domain, in the form `<domain> - <the page>`. That slot is the
   screen's general answer to "what am I looking at": Spotlight puts its own name there, and a
   cluster drill-down puts nothing there at all, because it stands in the scope line at the top
