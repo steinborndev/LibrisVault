@@ -3090,9 +3090,27 @@ button {
    runs past the block. */
 .bar-mid.has-after .mid-name { flex: none; width: 224px; }
 .gs-count { font-family: var(--mono); font-size: 11px; color: var(--text-faint); font-weight: 400; }
-/* The area on show, in its caption's voice: the display face, words in text ink, # in the domain. */
-.gs-area { align-items: center; }
-.gs-tags { font-family: var(--display); font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: -0.005em; }
+/*
+ * The area on show, centred in the canvas's bottom row between the lock and the corner pair, on
+ * the corner buttons' centre line. In its caption's voice at the size the Areas overview gives
+ * its captions at most (LABEL_MAX_SCREEN_PX): the display face, words in text ink, # in the
+ * domain. Text on the drawing with the scope line's halo, no box.
+ */
+.graph-foot-tags {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  max-width: calc(100% - 560px);
+  text-shadow: 0 0 4px var(--bg), 0 0 8px var(--bg);
+}
+.graph-foot-tags .gs-tags { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-tags { font-family: var(--display); font-size: 20px; font-weight: 600; line-height: 1.2; color: var(--text); letter-spacing: -0.01em; }
 .gs-hash { font-weight: 600; }
 /* The focused page's name in the panel, above its depth control. */
 .gp-focus {

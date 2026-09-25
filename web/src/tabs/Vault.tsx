@@ -2049,7 +2049,7 @@ function GraphView({
                 * Text, centred, no frame of its own: the state belongs to the drawing, and a
                 * container around it would be the box again in a smaller size.
                 */}
-              {(clusterStack.length > 0 || focusNode !== undefined || areaAt !== null) && (
+              {(clusterStack.length > 0 || focusNode !== undefined) && (
                 <div className="graph-scope" role="status" data-fit-avoid>
                   {focusNode !== undefined && (
                     <span className="gs-part">
@@ -2091,16 +2091,6 @@ function GraphView({
                         onClick={() => setClusterStack([])}
                         title="Back to the full graph (Esc backs out one level at a time)"
                       >
-                        <Icon name="x" />
-                      </button>
-                    </span>
-                  )}
-                  {/* The area on show, by its tags - the line the spotlight's drill-down uses. The
-                      ring itself stands in the heading, beside the domain. */}
-                  {areaAt !== null && (
-                    <span className="gs-part gs-area" title="a and d step through the areas one at a time; Esc shows them all again">
-                      <AreaTags text={clusterLabels.get(areaAt) ?? 'unlabeled community'} domain={clusterDomains.get(areaAt) ?? null} />
-                      <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
                         <Icon name="x" />
                       </button>
                     </span>
@@ -2153,7 +2143,23 @@ function GraphView({
               >
                 <Icon name={frozen !== null ? 'lock' : 'unlock'} />
               </button>
-              {landmarkDomain === null && trail.length > 1 && (
+              {/*
+                * The area on show, by its tags, centred in the canvas's bottom row (2026-09-25,
+                * user decision) and at the size the domain's Areas overview gives its captions:
+                * the name of what fills the picture, in the voice it had in the whole map. The
+                * ring stands in the heading, beside the domain. It takes the bottom row's middle,
+                * so the trail stands down while it is there - in this mode a click opens the page
+                * rather than walking on, and the trail would only be the walk from before it.
+                */}
+              {areaAt !== null && (
+                <div className="graph-foot-tags" role="status" data-fit-avoid title="a and d step through the areas one at a time; Esc shows them all again">
+                  <AreaTags text={clusterLabels.get(areaAt) ?? 'unlabeled community'} domain={clusterDomains.get(areaAt) ?? null} />
+                  <button className="gs-exit" onClick={() => setAreaAt(null)} title="All areas again (Esc)">
+                    <Icon name="x" />
+                  </button>
+                </div>
+              )}
+              {landmarkDomain === null && areaAt === null && trail.length > 1 && (
                 <div className="graph-trail" role="navigation" aria-label="Exploration trail">
                   {trail.map((p, i) => {
                     const n = graph.nodes.find((g) => g.path === p)
