@@ -1437,6 +1437,10 @@ function GraphView({
     setTrail([])
     if (landmarkOn) {
       setLandmarkOn(false)
+      // The page picked from the reading list belongs to the list (2026-09-25, user decision):
+      // switching the mode off goes back to the whole domain, with nothing highlighted in it
+      // and no panel open for a page the list is no longer there to explain.
+      setSelection(null)
       return
     }
     if (!landmarkAvail.available) return
