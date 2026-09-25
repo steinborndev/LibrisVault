@@ -3624,10 +3624,24 @@ span.head-slot { display: inline-block; }
    used to buy was contrast against whatever the canvas put behind it, so the text keeps a halo
    of the canvas's own colour instead - cheaper than a fill, and it disappears where nothing is
    drawn. It grows upward from the bottom edge, so the list shortening never moves the corner. */
-.lens-legend {
+/* The corner every legend shares, as large as the largest: see LensLegend. Each legend stands
+   in the one grid cell, against its bottom right, where the single legend used to stand. */
+.lens-legend-slot {
   position: absolute;
   right: 13px;
   bottom: 44px;
+  display: grid;
+  pointer-events: none;
+}
+.lens-legend-slot > .lens-legend {
+  grid-area: 1 / 1;
+  align-self: end;
+  justify-self: end;
+}
+.lens-legend.ll-ghost {
+  visibility: hidden;
+}
+.lens-legend {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
