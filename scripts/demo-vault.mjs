@@ -432,6 +432,8 @@ for (const [domain, spec] of POPULATED) {
       forcedEntities.set(by, [...(forcedEntities.get(by) ?? []), e])
     })
 
+    /** The area's concepts, links decided, written once the whole area is known (see below). */
+    const pending = []
     L.forEach((title, j) => {
       if (ORPHANS.has(title)) {
         page({
@@ -484,7 +486,6 @@ for (const [domain, spec] of POPULATED) {
       // these, and the validator lists each such link as a dead one, so every gap is linked from
       // a page or two rather than from four.
       const gap = j % 5 === 2 && gapTick++ % 4 === 0 ? GAPS[gapSeq++ % GAPS.length] : null
-      const under = related.slice(0, 2)
       // No `concept` and no domain tag: the vault's validator reads a tag that repeats the
       // page's own type or domain as a defect (`tag-mirroring`), and a demo where every page
       // carries two would bury the few defects planted on purpose further down.
@@ -493,6 +494,25 @@ for (const [domain, spec] of POPULATED) {
       // five concepts a secondary tag lands once, and the validator lists it (`tag-singleton`).
       if (facets.length > 0 && all.length >= 20 && chance(P.facet)) tags.push(oneOf(facets))
       if (chance(P.ownTag)) tags.push(slugTag(title))
+      pending.push({ title, j, tags, related, named, gap })
+    })
+
+    /*
+     * Every concept of the area has at least one page pointing at it. The links above point
+     * back at an area's earlier pages far more often than forward, so the last pages of an area
+     * could end up with none: thinning the concept links for the landmarks (2026-09-25) left
+     * three such concepts on the deployed demo, reported as orphans beside the two on purpose.
+     * One is linked from the area's first page that no real run overwrites.
+     */
+    const inbound = new Set([...pending.flatMap((c) => c.related), ...sources.flatMap((x) => x.cited)])
+    for (const c of pending) {
+      if (c.title === L[0] || inbound.has(c.title)) continue
+      const by = pending.find((x) => x !== c && !RESTORED_PATHS.has(`wiki/concepts/${fileName(x.title)}.md`))
+      if (by !== undefined) by.related.push(c.title)
+    }
+
+    for (const { title, j, tags, related, named, gap } of pending) {
+      const under = related.slice(0, 2)
       page({
         dir: 'concepts', title, type: 'concept', domain, area: areaKey,
         tags: [...new Set(tags)],
@@ -524,7 +544,7 @@ for (const [domain, spec] of POPULATED) {
           ...(gap ? ['', `Still to write: [[${gap}]].`] : []),
         ].join('\n'),
       })
-    })
+    }
 
     for (const s of sources) {
       page({

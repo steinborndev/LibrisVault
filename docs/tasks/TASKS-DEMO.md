@@ -206,6 +206,10 @@ cannot carry, 218 pages nothing linked to. It never showed, because nothing ever
       question linked from across it. The concept-to-concept links were thinned to keep the
       density: now 67 % concepts, 13 % sources, 14 % entities, 6 % questions, 6.2 links a page,
       a most-linked page with 114 inbound links.
+      Deployed as LibrisVault#19; the deployed seed then reported three concepts nothing linked
+      to, left by the thinning (the links favour an area's earlier pages). Each area's concepts are
+      now written once the area is known, and one without a page pointing at it is linked from the
+      area's first page: the orphans are the two planted ones again.
 - [x] **Delivered 2026-09-25.** Merged as LibrisVault#18 (merge commit `81db6b0`, tag
       `demo-system-and-vault-2026-09-25` on both remotes), both CI runs green. The hosted demo
       was updated the same afternoon to that commit, built in a sandbox, reseeded by the new
