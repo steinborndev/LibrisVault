@@ -91,6 +91,50 @@ const GRAPH_SHORTCUTS = [
   { keys: ['drag'], what: 'pan the canvas; the overview in the corner jumps the view' },
 ]
 
+/**
+ * The same card while Landmarks is on (2026-09-25, user decision). The mode rebinds the click,
+ * the arrows and Escape and turns Spotlight and Areas off, so the general card described half a
+ * screen that is not there; this one says what each key and click does in the mode and nothing
+ * else. Kept in step with the handlers: `onSelect` and the key layer in GraphView.
+ */
+const LANDMARK_SHORTCUTS = [
+  { keys: ['click'], what: 'a landmark opens its neighbourhood, a connector opens its page' },
+  { keys: ['click'], what: 'with a neighbourhood open, a page in it opens; its landmark closes it again' },
+  { keys: ['click'], what: 'in the list: the number opens the neighbourhood, the title opens the page' },
+  { keys: ['2x click'], what: 'open a page from the graph; one click while the picture is locked' },
+  { keys: ['↑', '↓'], what: 'walk the reading list, one landmark at a time' },
+  { keys: ['Enter'], what: 'open the selected landmark' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the neighbourhood, the selection, then Landmarks itself' },
+  { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
+  { keys: ['←', '→'], what: 'step through the domains, skipping those too small for Landmarks (by wing: the rooms holding one)' },
+  { keys: ['/'], what: 'open the search - a search turns Landmarks off' },
+  { keys: ['f'], what: 'fit the view' },
+  { keys: ['+', '-'], what: 'zoom in and out' },
+  { keys: ['wheel'], what: 'zoom towards the pointer' },
+  { keys: ['drag'], what: 'pan the canvas' },
+]
+
+/**
+ * The card while Areas is on (2026-09-25, user decision), for the same reason as the Landmarks
+ * one: a click reads there, the area under the pointer is outlined, and `a`/`d` walk the areas -
+ * which the general card mentioned only in passing. Kept in step with `openOnClick`,
+ * `onAreaClick` and `stepArea`.
+ */
+const AREA_SHORTCUTS = [
+  { keys: ['a', 'd'], what: 'step through the areas one at a time, and round again to all of them' },
+  { keys: ['hover'], what: 'the area under the pointer is outlined and its caption underlined' },
+  { keys: ['click'], what: 'in the overview, an area shows it alone' },
+  { keys: ['click'], what: 'a page opens it in the reader; Esc there comes back to the area' },
+  { keys: ['Esc'], what: 'one step back: fullscreen, the search text, then from one area back to all of them' },
+  { keys: ['Esc', 'Esc'], what: 'reset the view - the whole vault, every filter off' },
+  { keys: ['←', '→'], what: 'step through the domains, or through the wings while the list is by wing' },
+  { keys: ['/'], what: 'open the search for pages and tags' },
+  { keys: ['f'], what: 'fit the view' },
+  { keys: ['+', '-'], what: 'zoom in and out' },
+  { keys: ['wheel'], what: 'zoom towards the pointer' },
+  { keys: ['drag'], what: 'pan the canvas; the overview in the corner jumps the view' },
+]
+
 export function Vault({ path, active = true }: { path: string; active?: boolean }): React.ReactElement {
   const graphQ = useQuery({ queryKey: ['graph'], queryFn: api.graph, staleTime: 30_000 })
 
@@ -2207,7 +2251,7 @@ function GraphView({
                 * panel as you follow links.
                 */}
               <div className="canvas-corners" data-keep-out>
-                <Shortcuts rows={GRAPH_SHORTCUTS} corner />
+                <Shortcuts rows={landmarkDomain !== null ? LANDMARK_SHORTCUTS : showClusters && !spotlight ? AREA_SHORTCUTS : GRAPH_SHORTCUTS} corner />
                 <button
                   className="canvas-corner"
                   onClick={() => setFullscreen((v) => !v)}
