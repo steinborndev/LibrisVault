@@ -2,6 +2,14 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 
+> **This repository holds LibrisVault as of September 2026.** Since October 2026 the project
+> has been extended to build knowledge graphs from scientific papers and databases, as my entry
+> to the NVIDIA AWS Bio-Agent Knowledge Graph Construction Challenge. That work is currently
+> developed in a private repository and is not included here. Public parts of it are the openly
+> licensed graph in [librisvault-kg](https://github.com/steinborndev/librisvault-kg) (CC BY 4.0),
+> a [read-only demo](https://bioagent-open.steinborn.dev) and an overview at
+> [steinborn.dev/librisvault](https://steinborn.dev/librisvault/).
+
 Drop a PDF into a folder - a few minutes later it is a set of linked, cited wiki pages in your
 personal knowledge vault.
 
@@ -659,7 +667,9 @@ releases: work lands as one merge per body of work, each tagged by what it was a
 landed, and [CHANGELOG.md](CHANGELOG.md) says what moved between them. The engineering journals in `docs/tasks/` are
 left in as they are - findings, dead ends, measurements and all - and record what is still open as
 plainly as what is done. Issues and PRs are welcome, with the caveat that `SPEC.md` and the hard
-rules in `CLAUDE.md` define what this is and is not.
+rules in `CLAUDE.md` define what this is and is not. The code in this repository was last changed
+on 25 September 2026. Later development currently happens in a private repository, see the note
+at the top.
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) © Benjamin Steinborn. Any
 noncommercial purpose is permitted: personal use, study, hobby projects, and use by charities,
